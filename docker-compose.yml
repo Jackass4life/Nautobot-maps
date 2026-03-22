@@ -1,0 +1,11 @@
+services:
+  nautobot-maps:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - NAUTOBOT_URL=${NAUTOBOT_URL}
+      - NAUTOBOT_TOKEN=${NAUTOBOT_TOKEN}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me}
+      - CACHE_TTL=${CACHE_TTL:-300}
+    restart: unless-stopped

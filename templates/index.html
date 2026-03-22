@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nautobot Location Map</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/map.css') }}" />
+</head>
+<body>
+  <!-- Sidebar / search panel -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd"
+            d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975
+               16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-2.003 3.5-4.697
+               3.5-8.327a8 8 0 10-16 0c0 3.63 1.556 6.326 3.5 8.327a19.58 19.58 0
+               002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0
+               000 6z" clip-rule="evenodd" />
+        </svg>
+        Nautobot Maps
+      </h1>
+    </div>
+
+    <div id="search-section">
+      <label for="search-input">Search address or GPS&nbsp;coordinates</label>
+      <div id="search-row">
+        <input id="search-input" type="text"
+               placeholder="e.g. Copenhagen, DK  or  55.6761, 12.5683" />
+        <button id="search-btn" title="Search">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd"
+              d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452
+                 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0
+                 012 9z" clip-rule="evenodd" />
+          </svg>
+        </button>
+      </div>
+      <div id="search-hint">Results show locations within <strong>5 km</strong> of the searched point.</div>
+    </div>
+
+    <div id="search-results" class="hidden">
+      <div id="search-results-header"></div>
+      <ul id="search-results-list"></ul>
+    </div>
+
+    <div id="location-count"></div>
+
+    <div id="legend">
+      <div class="legend-title">Legend</div>
+      <div class="legend-item">
+        <span class="legend-dot dot-active"></span> Active location
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot dot-planned"></span> Planned location
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot dot-other"></span> Other status
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot dot-search"></span> Search result
+      </div>
+    </div>
+  </div>
+
+  <!-- Map container -->
+  <div id="map"></div>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay">
+    <div id="loading-spinner"></div>
+    <div id="loading-text">Loading locations from Nautobot…</div>
+  </div>
+
+  <!-- Error toast -->
+  <div id="error-toast" class="hidden" role="alert"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WLs=" crossorigin=""></script>
+
+  <!-- App JS -->
+  <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+</body>
+</html>
