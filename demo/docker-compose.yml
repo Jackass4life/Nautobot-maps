@@ -1,0 +1,30 @@
+services:
+  mock-nautobot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: python demo/mock_nautobot.py
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nautobot-maps:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: python app.py
+    ports:
+      - "5000:5000"
+    environment:
+      NAUTOBOT_URL: http://mock-nautobot:8080
+      NAUTOBOT_TOKEN: demo-token
+      FLASK_SECRET_KEY: demo-secret-key
+      FLASK_DEBUG: "false"
+      CACHE_TTL: "60"
+    depends_on:
+      mock-nautobot:
+        condition: service_healthy
