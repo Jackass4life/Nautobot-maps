@@ -78,6 +78,12 @@ def _get(endpoint: str, params: dict | None = None) -> dict:
 def _post(endpoint: str, data: dict) -> dict:
     """POST helper with error handling."""
     resp = session.post(f"{NAUTOBOT_URL}/api/{endpoint}", json=data, timeout=30)
+    if not resp.ok:
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text[:500]
+        print(f"  ERROR {resp.status_code} POST {endpoint}: {body}", file=sys.stderr)
     resp.raise_for_status()
     return resp.json()
 
@@ -129,7 +135,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     for name in ("Data Center", "PoP", "Office", "Internet Exchange"):
         lt[name] = get_or_create(
             "dcim/location-types/",
-            {"name": name, "nestable": True},
+            {"name": name, "nestable": True, "content_types": ["dcim.device"]},
         )
 
     # -- Tenants ---------------------------------------------------------
