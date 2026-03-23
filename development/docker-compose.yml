@@ -40,7 +40,7 @@ services:
 
   # -- Nautobot (real instance) ------------------------------------------
   nautobot:
-    image: ghcr.io/nautobot/nautobot:3-py3.12
+    image: ghcr.io/nautobot/nautobot:3.0.9
     entrypoint: ["bash", "/opt/nautobot/dev-entrypoint.sh"]
     volumes:
       - ./entrypoint.sh:/opt/nautobot/dev-entrypoint.sh:ro
