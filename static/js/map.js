@@ -158,15 +158,17 @@ function renderDetail(locId, detail) {
 // ---------------------------------------------------------------------------
 const markerLayer = L.layerGroup().addTo(map);
 let allLocations = [];
+const CLUSTER_THRESHOLD = 100; // Use clustering if more than 100 locations
 
 async function loadLocations() {
-  showLoading(true);
+  showLoading(true, "Loading locations from Nautobot…");
   try {
     const resp = await fetch("/api/locations");
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
     allLocations = data.locations || [];
+    showLoading(true, `Processing ${allLocations.length} locations…`);
     populateFilters(allLocations);
     applyFilters();
   } catch (err) {
@@ -203,21 +205,106 @@ function renderMarkers(locations, searchMarker) {
     }).addTo(markerLayer);
   }
 
-  for (const loc of locations) {
-    const marker = L.marker([loc.latitude, loc.longitude], {
-      icon: iconForStatus(loc.status),
-      title: loc.name,
-    });
-
-    marker.bindPopup(() => buildBasicPopup(loc), { maxWidth: 320, minWidth: 240 });
-
-    marker.on("popupopen", () => {
-      fetchAndRenderDetail(loc.id);
-    });
-
-    marker.addTo(markerLayer);
+  // Use clustering for large datasets
+  if (locations.length > CLUSTER_THRESHOLD && !searchMarker) {
+    renderMarkersWithClustering(locations);
+  } else {
+    renderMarkersSimple(locations);
   }
 }
+
+function renderMarkersSimple(locations) {
+  for (const loc of locations) {
+    addMarker(loc);
+  }
+}
+
+function renderMarkersWithClustering(locations) {
+  // Simple grid-based clustering
+  // Group markers by zoom level grid cells
+  const currentZoom = map.getZoom();
+  const gridSize = currentZoom < 5 ? 2 : currentZoom < 8 ? 1 : 0.5;
+
+  const clusters = {};
+
+  for (const loc of locations) {
+    const gridLat = Math.floor(loc.latitude / gridSize) * gridSize;
+    const gridLon = Math.floor(loc.longitude / gridSize) * gridSize;
+    const key = `${gridLat},${gridLon}`;
+
+    if (!clusters[key]) {
+      clusters[key] = [];
+    }
+    clusters[key].push(loc);
+  }
+
+  // Render clusters or individual markers
+  for (const key in clusters) {
+    const group = clusters[key];
+
+    if (group.length === 1) {
+      // Single marker
+      addMarker(group[0]);
+    } else if (currentZoom < 8) {
+      // Create cluster marker
+      const lat = group.reduce((sum, l) => sum + l.latitude, 0) / group.length;
+      const lon = group.reduce((sum, l) => sum + l.longitude, 0) / group.length;
+
+      const clusterIcon = L.divIcon({
+        html: `<div style="width:40px;height:40px;background:#3388ff;color:white;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 0 8px rgba(0,0,0,.4)">${group.length}</div>`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+        className: "",
+      });
+
+      const clusterMarker = L.marker([lat, lon], { icon: clusterIcon });
+      clusterMarker.on('click', () => {
+        // Zoom in to show individual markers
+        map.setView([lat, lon], Math.min(currentZoom + 3, 15));
+      });
+
+      const locations = group.map(l => `<li>${escHtml(l.name)}</li>`).slice(0, 10).join('');
+      const more = group.length > 10 ? `<li style="color:#888">… and ${group.length - 10} more</li>` : '';
+      clusterMarker.bindPopup(
+        `<div class="popup-content">
+          <div class="popup-title">${group.length} locations</div>
+          <div style="font-size:0.85rem;margin-top:8px">Click to zoom in</div>
+          <ul style="margin:8px 0 0 0;padding-left:20px;font-size:0.8rem;max-height:150px;overflow-y:auto">
+            ${locations}${more}
+          </ul>
+        </div>`
+      );
+      clusterMarker.addTo(markerLayer);
+    } else {
+      // Zoom level high enough, show individual markers
+      for (const loc of group) {
+        addMarker(loc);
+      }
+    }
+  }
+}
+
+function addMarker(loc) {
+  const marker = L.marker([loc.latitude, loc.longitude], {
+    icon: iconForStatus(loc.status),
+    title: loc.name,
+  });
+
+  marker.bindPopup(() => buildBasicPopup(loc), { maxWidth: 320, minWidth: 240 });
+
+  marker.on("popupopen", () => {
+    fetchAndRenderDetail(loc.id);
+  });
+
+  marker.addTo(markerLayer);
+}
+
+// Re-cluster on zoom
+map.on('zoomend', () => {
+  if (allLocations.length > CLUSTER_THRESHOLD) {
+    applyFilters();
+  }
+});
 
 async function fetchAndRenderDetail(locId) {
   try {
@@ -236,12 +323,24 @@ async function fetchAndRenderDetail(locId) {
 // ---------------------------------------------------------------------------
 // Filters
 // ---------------------------------------------------------------------------
+const filterStatus = document.getElementById("filter-status");
 const filterType = document.getElementById("filter-type");
+const filterParent = document.getElementById("filter-parent");
 const filterTenant = document.getElementById("filter-tenant");
 
 function populateFilters(locations) {
+  const statuses = [...new Set(locations.map((l) => l.status).filter(Boolean))].sort();
   const types = [...new Set(locations.map((l) => l.location_type).filter(Boolean))].sort();
+  const parents = [...new Set(locations.map((l) => l.parent).filter(Boolean))].sort();
   const tenants = [...new Set(locations.map((l) => l.tenant).filter(Boolean))].sort();
+
+  filterStatus.innerHTML = '<option value="">All statuses</option>';
+  for (const status of statuses) {
+    const opt = document.createElement("option");
+    opt.value = status;
+    opt.textContent = status;
+    filterStatus.appendChild(opt);
+  }
 
   filterType.innerHTML = '<option value="">All types</option>';
   for (const type of types) {
@@ -249,6 +348,14 @@ function populateFilters(locations) {
     opt.value = type;
     opt.textContent = type;
     filterType.appendChild(opt);
+  }
+
+  filterParent.innerHTML = '<option value="">All parents</option>';
+  for (const parent of parents) {
+    const opt = document.createElement("option");
+    opt.value = parent;
+    opt.textContent = parent;
+    filterParent.appendChild(opt);
   }
 
   filterTenant.innerHTML = '<option value="">All tenants</option>';
@@ -261,11 +368,15 @@ function populateFilters(locations) {
 }
 
 function applyFilters() {
+  const statusVal = filterStatus.value;
   const typeVal = filterType.value;
+  const parentVal = filterParent.value;
   const tenantVal = filterTenant.value;
 
   const filtered = allLocations.filter((loc) => {
+    if (statusVal && loc.status !== statusVal) return false;
     if (typeVal && loc.location_type !== typeVal) return false;
+    if (parentVal && loc.parent !== parentVal) return false;
     if (tenantVal && loc.tenant !== tenantVal) return false;
     return true;
   });
@@ -274,8 +385,19 @@ function applyFilters() {
   updateLocationCount(filtered.length);
 }
 
+filterStatus.addEventListener("change", applyFilters);
 filterType.addEventListener("change", applyFilters);
+filterParent.addEventListener("change", applyFilters);
 filterTenant.addEventListener("change", applyFilters);
+
+// Clear filters button
+document.getElementById("clear-filters").addEventListener("click", () => {
+  filterStatus.value = "";
+  filterType.value = "";
+  filterParent.value = "";
+  filterTenant.value = "";
+  applyFilters();
+});
 
 const searchInput = document.getElementById("search-input");
 const searchBtn = document.getElementById("search-btn");
@@ -355,10 +477,15 @@ searchInput.addEventListener("input", () => {
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
-function showLoading(visible) {
-  document.getElementById("loading-overlay").style.display = visible
-    ? "flex"
-    : "none";
+function showLoading(visible, message) {
+  const overlay = document.getElementById("loading-overlay");
+  const text = document.getElementById("loading-text");
+  if (message) {
+    text.textContent = message;
+  } else {
+    text.textContent = "Loading locations from Nautobot…";
+  }
+  overlay.style.display = visible ? "flex" : "none";
 }
 
 function showError(message) {
