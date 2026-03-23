@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 NAUTOBOT_URL = os.getenv("NAUTOBOT_URL", "").rstrip("/")
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
+NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
 
 # SSL verification: "true" (default) = verify, "false" = skip verification,
@@ -58,10 +59,13 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
     if cached is not None:
         return cached
 
+    accept = "application/json"
+    if NAUTOBOT_API_VERSION:
+        accept += f"; version={NAUTOBOT_API_VERSION}"
     headers = {
         "Authorization": f"Token {NAUTOBOT_TOKEN}",
         "Content-Type": "application/json",
-        "Accept": "application/json; version=1.3",
+        "Accept": accept,
     }
     url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
     response = requests.get(

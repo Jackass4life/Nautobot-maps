@@ -410,3 +410,60 @@ class TestSSLVerification:
             flask_app.NAUTOBOT_URL = original_url
             flask_app.NAUTOBOT_TOKEN = original_token
             flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+
+
+# ---------------------------------------------------------------------------
+# Tests: Accept header / API version configuration
+# ---------------------------------------------------------------------------
+class TestApiVersionHeader:
+    def test_default_accept_header_has_no_version(self):
+        """When NAUTOBOT_API_VERSION is empty, Accept should be plain application/json."""
+        import requests as req_lib
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
+
+        flask_app._cache.clear()
+        original_url = flask_app.NAUTOBOT_URL
+        original_token = flask_app.NAUTOBOT_TOKEN
+        original_version = flask_app.NAUTOBOT_API_VERSION
+        flask_app.NAUTOBOT_URL = "https://nautobot.test"
+        flask_app.NAUTOBOT_TOKEN = "test-token"
+        flask_app.NAUTOBOT_API_VERSION = ""
+        try:
+            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs["headers"]["Accept"] == "application/json"
+        finally:
+            flask_app.NAUTOBOT_URL = original_url
+            flask_app.NAUTOBOT_TOKEN = original_token
+            flask_app.NAUTOBOT_API_VERSION = original_version
+
+    def test_accept_header_includes_version_when_set(self):
+        """When NAUTOBOT_API_VERSION is set, Accept should include the version."""
+        import requests as req_lib
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
+
+        flask_app._cache.clear()
+        original_url = flask_app.NAUTOBOT_URL
+        original_token = flask_app.NAUTOBOT_TOKEN
+        original_version = flask_app.NAUTOBOT_API_VERSION
+        flask_app.NAUTOBOT_URL = "https://nautobot.test"
+        flask_app.NAUTOBOT_TOKEN = "test-token"
+        flask_app.NAUTOBOT_API_VERSION = "3.0"
+        try:
+            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs["headers"]["Accept"] == "application/json; version=3.0"
+        finally:
+            flask_app.NAUTOBOT_URL = original_url
+            flask_app.NAUTOBOT_TOKEN = original_token
+            flask_app.NAUTOBOT_API_VERSION = original_version
