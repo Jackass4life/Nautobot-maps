@@ -259,6 +259,7 @@ def get_location_detail(location_id: str) -> dict:
         # pre-fetch all device types to resolve device_type_id → model/manufacturer.
         dt_mfr_map, dt_model_map = _build_device_type_maps()
         mfr_map = _build_id_name_map("dcim/manufacturers/")
+        role_map = _build_id_name_map("extras/roles/")
         tenant_map = _build_id_name_map("tenancy/tenants/")
         status_map = _build_id_name_map("extras/statuses/")
 
@@ -297,7 +298,13 @@ def get_location_detail(location_id: str) -> dict:
                         or dt_model_map.get(dt_id, "")
                     ),
                     "manufacturer": mfr_name,
-                    "role": _nested_str(d.get("role"), "name", "display"),
+                    "role": (
+                        _nested_str(d.get("role"), "name", "display")
+                        or role_map.get(
+                            d.get("role", {}).get("id", "") if isinstance(d.get("role"), dict) else "",
+                            "",
+                        )
+                    ),
                     "status": st_name,
                     "platform": _nested_str(d.get("platform"), "name", "display"),
                     "serial": d.get("serial", ""),
