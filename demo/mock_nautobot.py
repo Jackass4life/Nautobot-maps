@@ -35,6 +35,11 @@ LOCATION_TYPES = {
     "lt-ix":     {"id": "lt-ix",     "name": "Internet Exchange"},
 }
 
+STATUSES = {
+    "status-active":  {"id": "status-active",  "name": "Active",  "label": "Active"},
+    "status-planned": {"id": "status-planned", "name": "Planned", "label": "Planned"},
+}
+
 LOCATIONS = [
     {
         "id": "loc-cph",
@@ -433,6 +438,24 @@ def _paginate(items: list) -> dict:
 def locations():
     _check_auth()
     return jsonify(_paginate(LOCATIONS))
+
+
+@app.route("/api/dcim/location-types/")
+def location_types():
+    _check_auth()
+    return jsonify(_paginate(list(LOCATION_TYPES.values())))
+
+
+@app.route("/api/tenancy/tenants/")
+def tenants():
+    _check_auth()
+    return jsonify(_paginate(list(TENANTS.values())))
+
+
+@app.route("/api/extras/statuses/")
+def statuses():
+    _check_auth()
+    return jsonify(_paginate(list(STATUSES.values())))
 
 
 @app.route("/api/dcim/devices/")

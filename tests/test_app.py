@@ -145,6 +145,113 @@ class TestApiLocations:
         assert loc["asn"] == 65001
         assert loc["status"] == "Active"
 
+    def test_location_type_field_populated(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["location_type"] == "Data Center"
+
+    def test_parent_field_populated(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["parent"] == "Denmark"
+
+    def test_location_type_fallback_with_brief_nested_object(self, client):
+        """When location_type is brief (id+url only), the fallback map resolves the name."""
+        brief_locations = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-brief",
+                    "name": "Brief Location",
+                    "slug": "brief-loc",
+                    "status": {"label": "Active"},
+                    "location_type": {"id": "lt-dc", "url": "http://nautobot/api/dcim/location-types/lt-dc/"},
+                    "parent": None,
+                    "latitude": "55.0",
+                    "longitude": "12.0",
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "url": "",
+                },
+            ],
+        }
+        lt_page = {
+            "count": 1,
+            "next": None,
+            "results": [{"id": "lt-dc", "name": "Data Center"}],
+        }
+
+        def mock_get(endpoint, params=None):
+            if "dcim/location-types" in endpoint:
+                return lt_page
+            if "dcim/locations" in endpoint:
+                return brief_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["location_type"] == "Data Center"
+
+    def test_parent_fallback_with_brief_nested_object(self, client):
+        """When parent is brief (id+url only), the fallback map resolves the name."""
+        brief_locations = {
+            "count": 2,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-parent",
+                    "name": "Denmark",
+                    "slug": "denmark",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Region"},
+                    "parent": None,
+                    "latitude": None,
+                    "longitude": None,
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "url": "",
+                },
+                {
+                    "id": "loc-child",
+                    "name": "Copenhagen DC",
+                    "slug": "cph-dc",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Data Center"},
+                    "parent": {"id": "loc-parent", "url": "http://nautobot/api/dcim/locations/loc-parent/"},
+                    "latitude": "55.6761",
+                    "longitude": "12.5683",
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "url": "",
+                },
+            ],
+        }
+
+        def mock_get(endpoint, params=None):
+            if "dcim/locations" in endpoint:
+                return brief_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+            resp = client.get("/api/locations")
+        # loc-parent has no GPS (lat/lon=None) so only loc-child is returned
+        locs = resp.get_json()["locations"]
+        assert len(locs) == 1
+        assert locs[0]["parent"] == "Denmark"
+
     def test_missing_env_vars_returns_503(self, client):
         original_url = flask_app.NAUTOBOT_URL
         original_token = flask_app.NAUTOBOT_TOKEN

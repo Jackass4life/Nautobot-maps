@@ -186,6 +186,18 @@ def get_locations() -> list:
     # only contain ``id`` + ``url`` without a human-readable name/display field.
     tenant_map = _build_id_name_map("tenancy/tenants/")
     status_map = _build_id_name_map("extras/statuses/")
+    lt_map = _build_id_name_map("dcim/location-types/")
+
+    # Build a location id → name map from the raw data for parent resolution.
+    # Parents are locations themselves, and their nested objects may also be
+    # brief in Nautobot 3.x.
+    loc_name_map: dict = {}
+    for loc in raw:
+        uid = loc.get("id")
+        if uid:
+            name = _nested_str(loc, "name", "display")
+            if name:
+                loc_name_map[uid] = name
 
     if raw:
         logger.debug(
@@ -220,14 +232,28 @@ def get_locations() -> list:
             or status_map.get(status_id, "")
         )
 
+        lt_obj = loc.get("location_type") or {}
+        lt_id = lt_obj.get("id", "") if isinstance(lt_obj, dict) else ""
+        location_type_name = (
+            _nested_str(lt_obj, "name", "display")
+            or lt_map.get(lt_id, "")
+        )
+
+        parent_obj = loc.get("parent") or {}
+        parent_id = parent_obj.get("id", "") if isinstance(parent_obj, dict) else ""
+        parent_name = (
+            _nested_str(parent_obj, "name", "display")
+            or loc_name_map.get(parent_id, "")
+        )
+
         locations.append(
             {
                 "id": loc.get("id", ""),
                 "name": loc.get("name", "Unknown"),
                 "slug": loc.get("slug", ""),
                 "status": status_name,
-                "location_type": _nested_str(loc.get("location_type"), "name", "display"),
-                "parent": _nested_str(loc.get("parent"), "name", "display"),
+                "location_type": location_type_name,
+                "parent": parent_name,
                 "latitude": lat,
                 "longitude": lon,
                 "description": loc.get("description", ""),
