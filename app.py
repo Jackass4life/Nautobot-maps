@@ -134,7 +134,7 @@ def _build_tenant_group_map() -> dict:
     try:
         tg_name_map = _build_id_name_map("tenancy/tenant-groups/")
         tenants = fetch_all_pages("tenancy/tenants/")
-        result: dict = {}
+        tenant_group_map: dict = {}
         for tenant in tenants:
             tid = tenant.get("id")
             if not tid:
@@ -146,8 +146,8 @@ def _build_tenant_group_map() -> dict:
                 or tg_name_map.get(tg_id, "")
             )
             if tg_name:
-                result[tid] = tg_name
-        return result
+                tenant_group_map[tid] = tg_name
+        return tenant_group_map
     except Exception as exc:
         logger.debug("Could not build tenant group map: %s", exc)
         return {}
