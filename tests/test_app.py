@@ -321,3 +321,92 @@ class TestCaching:
         flask_app._cache["expiring-key"]["ts"] -= flask_app.CACHE_TTL + 1
         result = flask_app._cache_get("expiring-key")
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: SSL verification configuration
+# ---------------------------------------------------------------------------
+class TestSSLVerification:
+    def test_verify_ssl_defaults_to_true(self):
+        """When NAUTOBOT_VERIFY_SSL is not set, verify should default to True."""
+        # The module-level NAUTOBOT_VERIFY_SSL is parsed at import time from
+        # the env var (default "true"), so it should be True.
+        assert flask_app.NAUTOBOT_VERIFY_SSL is True
+
+    def test_verify_ssl_false_disables_verification(self):
+        """Setting NAUTOBOT_VERIFY_SSL=false should pass verify=False to requests."""
+        import requests as req_lib
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
+
+        flask_app._cache.clear()
+        original_url = flask_app.NAUTOBOT_URL
+        original_token = flask_app.NAUTOBOT_TOKEN
+        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+        flask_app.NAUTOBOT_URL = "https://nautobot.test"
+        flask_app.NAUTOBOT_TOKEN = "test-token"
+        flask_app.NAUTOBOT_VERIFY_SSL = False
+        try:
+            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs["verify"] is False
+        finally:
+            flask_app.NAUTOBOT_URL = original_url
+            flask_app.NAUTOBOT_TOKEN = original_token
+            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+
+    def test_verify_ssl_true_enables_verification(self):
+        """Setting NAUTOBOT_VERIFY_SSL=true should pass verify=True to requests."""
+        import requests as req_lib
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
+
+        flask_app._cache.clear()
+        original_url = flask_app.NAUTOBOT_URL
+        original_token = flask_app.NAUTOBOT_TOKEN
+        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+        flask_app.NAUTOBOT_URL = "https://nautobot.test"
+        flask_app.NAUTOBOT_TOKEN = "test-token"
+        flask_app.NAUTOBOT_VERIFY_SSL = True
+        try:
+            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs["verify"] is True
+        finally:
+            flask_app.NAUTOBOT_URL = original_url
+            flask_app.NAUTOBOT_TOKEN = original_token
+            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+
+    def test_verify_ssl_custom_ca_bundle_path(self):
+        """Setting NAUTOBOT_VERIFY_SSL to a path should pass that path to requests."""
+        import requests as req_lib
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
+
+        flask_app._cache.clear()
+        original_url = flask_app.NAUTOBOT_URL
+        original_token = flask_app.NAUTOBOT_TOKEN
+        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+        flask_app.NAUTOBOT_URL = "https://nautobot.test"
+        flask_app.NAUTOBOT_TOKEN = "test-token"
+        flask_app.NAUTOBOT_VERIFY_SSL = "/etc/ssl/certs/custom-ca.pem"
+        try:
+            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs["verify"] == "/etc/ssl/certs/custom-ca.pem"
+        finally:
+            flask_app.NAUTOBOT_URL = original_url
+            flask_app.NAUTOBOT_TOKEN = original_token
+            flask_app.NAUTOBOT_VERIFY_SSL = original_verify

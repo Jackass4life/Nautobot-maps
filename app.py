@@ -21,6 +21,17 @@ NAUTOBOT_URL = os.getenv("NAUTOBOT_URL", "").rstrip("/")
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
 
+# SSL verification: "true" (default) = verify, "false" = skip verification,
+# or a file path to a custom CA bundle.
+_ssl_env = os.getenv("NAUTOBOT_VERIFY_SSL", "true").strip()
+if _ssl_env.lower() == "false":
+    NAUTOBOT_VERIFY_SSL: bool | str = False
+elif _ssl_env.lower() == "true":
+    NAUTOBOT_VERIFY_SSL = True
+else:
+    # Treat the value as a path to a CA bundle / certificate file
+    NAUTOBOT_VERIFY_SSL = _ssl_env
+
 # Simple in-memory cache
 _cache: dict = {}
 
@@ -53,7 +64,9 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
         "Accept": "application/json; version=1.3",
     }
     url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.get(url, headers=headers, params=params, timeout=15)
+    response = requests.get(
+        url, headers=headers, params=params, timeout=15, verify=NAUTOBOT_VERIFY_SSL
+    )
     response.raise_for_status()
     data = response.json()
     _cache_set(cache_key, data)
