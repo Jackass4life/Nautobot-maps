@@ -6,6 +6,16 @@ A web application that displays Nautobot locations on an interactive OpenStreetM
 
 - 🗺️ Interactive map showing all Nautobot locations that have GPS coordinates
 - 📍 Color-coded markers by status (Active / Planned / Other)
+- 🔍 **Filtering** locations by:
+  - Status (Active, Planned, etc.)
+  - Location Type
+  - Parent Location (hierarchical)
+  - Tenant
+- ⚡ **Performance optimizations** for large environments:
+  - Automatic marker clustering for 100+ locations
+  - Grid-based clustering that adapts to zoom level
+  - Canvas rendering for improved performance
+  - Progressive loading indicators
 - 🖱️ Click a marker to see a popup with:
   - Location name, type, status, tenant, time zone, and physical address
   - ASN(s) assigned to the location
