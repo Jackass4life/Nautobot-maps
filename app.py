@@ -88,8 +88,14 @@ def _build_device_type_manufacturer_map() -> dict:
     device list responses does **not** include a ``manufacturer`` sub-object.
     Fetching all device types once lets us resolve the manufacturer for any
     device without an extra per-device API call.
+
+    The manufacturer sub-object inside a device-type listing may itself be a
+    brief object (id+url only in Nautobot 3.0.x), so we also build a
+    manufacturer UUID→name map and fall back to it when the inline name is
+    missing.
     """
     try:
+        mfr_map = _build_id_name_map("dcim/manufacturers/")
         items = fetch_all_pages("dcim/device-types/")
         result = {}
         for item in items:
@@ -97,7 +103,11 @@ def _build_device_type_manufacturer_map() -> dict:
             if not uid:
                 continue
             mfr_obj = item.get("manufacturer") or {}
-            mfr_name = _nested_str(mfr_obj, "name", "display")
+            mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
+            mfr_name = (
+                _nested_str(mfr_obj, "name", "display")
+                or mfr_map.get(mfr_id, "")
+            )
             if mfr_name:
                 result[uid] = mfr_name
         return result
