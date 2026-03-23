@@ -388,7 +388,8 @@ def locations():
 @app.route("/api/dcim/devices/")
 def devices():
     _check_auth()
-    location_id = request.args.get("location_id")
+    # Accept both "location" (Nautobot 3.x) and "location_id" (legacy) filter params.
+    location_id = request.args.get("location") or request.args.get("location_id")
     if location_id:
         items = DEVICES.get(location_id, [])
     else:

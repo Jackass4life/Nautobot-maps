@@ -10,6 +10,9 @@ permissions:
   contents: read
 
 jobs:
+  # -----------------------------------------------------------------------
+  # Unit + mock-integration tests (fast, Python matrix)
+  # -----------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -43,3 +46,47 @@ jobs:
           NAUTOBOT_URL: "http://127.0.0.1:8080"
           NAUTOBOT_TOKEN: "test-token"
           NAUTOBOT_VERIFY_SSL: "true"
+
+  # -----------------------------------------------------------------------
+  # Integration tests against a real Nautobot 3.x instance
+  # -----------------------------------------------------------------------
+  integration-nautobot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Nautobot stack
+        working-directory: development
+        run: docker compose up -d --wait --wait-timeout 300
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Seed Nautobot with test data
+        run: python development/seed_nautobot.py
+        env:
+          NAUTOBOT_URL: "http://localhost:8080"
+          NAUTOBOT_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
+
+      - name: Run live integration tests
+        run: python -m pytest tests/test_nautobot_live.py -v
+        env:
+          NAUTOBOT_LIVE_URL: "http://localhost:8080"
+          NAUTOBOT_LIVE_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
+          NAUTOBOT_URL: "http://localhost:8080"
+          NAUTOBOT_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
+          NAUTOBOT_VERIFY_SSL: "false"
+
+      - name: Dump Nautobot logs on failure
+        if: failure()
+        working-directory: development
+        run: docker compose logs nautobot --tail=200

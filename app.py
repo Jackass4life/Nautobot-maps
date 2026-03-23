@@ -37,6 +37,91 @@ else:
 _cache: dict = {}
 
 
+def _nested_str(obj: dict | None, *keys: str) -> str:
+    """Return the first non-empty value found in *obj* for the given keys.
+
+    Nautobot 2.x uses ``name`` / ``label`` for nested objects; Nautobot 3.x
+    returns a full model representation that uses ``display``.  Trying all
+    three keys keeps the code compatible with both versions and with the
+    mock fixtures used in unit/integration tests.
+    """
+    if not obj:
+        return ""
+    if isinstance(obj, str):
+        return obj
+    if not isinstance(obj, dict):
+        return str(obj)
+    for key in keys:
+        val = obj.get(key)
+        if val is not None and val != "":
+            return str(val)
+    return ""
+
+
+def _build_id_name_map(endpoint: str) -> dict:
+    """Fetch all objects from *endpoint* and return a ``{id: display_name}`` map.
+
+    Used as a fallback when nested objects in Nautobot's response don't
+    include a human-readable field (e.g. some Nautobot 3.x builds return
+    brief nested objects with only ``id`` and ``url``).
+    """
+    try:
+        items = fetch_all_pages(endpoint)
+        result = {}
+        for item in items:
+            uid = item.get("id")
+            if not uid:
+                continue
+            name = _nested_str(item, "name", "display", "label", "slug")
+            if name:
+                result[uid] = name
+        return result
+    except Exception as exc:
+        logger.debug("Could not build name lookup for %s: %s", endpoint, exc)
+        return {}
+
+
+def _build_device_type_maps() -> tuple:
+    """Return ``({device_type_id: manufacturer_name}, {device_type_id: model_name})``.
+
+    In Nautobot 3.x the brief nested ``device_type`` object returned inside
+    device list responses does **not** include ``manufacturer`` or ``model``
+    fields — only ``id`` and ``url``.  Fetching all device types once lets us
+    resolve both fields for any device without extra per-device API calls.
+
+    The manufacturer sub-object inside a device-type listing may itself be a
+    brief object (id+url only in Nautobot 3.0.x), so we also build a
+    manufacturer UUID→name map and fall back to it when the inline name is
+    missing.
+    """
+    try:
+        mfr_map = _build_id_name_map("dcim/manufacturers/")
+        items = fetch_all_pages("dcim/device-types/")
+        dt_mfr: dict = {}
+        dt_model: dict = {}
+        for item in items:
+            uid = item.get("id")
+            if not uid:
+                continue
+            # model name
+            model = item.get("model") or _nested_str(item, "display") or ""
+            if model:
+                dt_model[uid] = model
+            # manufacturer name
+            mfr_obj = item.get("manufacturer") or {}
+            mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
+            mfr_name = (
+                _nested_str(mfr_obj, "name", "display")
+                or mfr_map.get(mfr_id, "")
+            )
+            if mfr_name:
+                dt_mfr[uid] = mfr_name
+        return dt_mfr, dt_model
+    except Exception as exc:
+        logger.debug("Could not build device-type maps: %s", exc)
+        return {}, {}
+
+
 def _cache_get(key: str):
     entry = _cache.get(key)
     if entry and time.time() - entry["ts"] < CACHE_TTL:
@@ -96,6 +181,19 @@ def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
 def get_locations() -> list:
     """Fetch locations from Nautobot that have GPS coordinates."""
     raw = fetch_all_pages("dcim/locations/")
+
+    # Fallback lookup tables: cover Nautobot builds where brief nested objects
+    # only contain ``id`` + ``url`` without a human-readable name/display field.
+    tenant_map = _build_id_name_map("tenancy/tenants/")
+    status_map = _build_id_name_map("extras/statuses/")
+
+    if raw:
+        logger.debug(
+            "Nautobot location sample – tenant=%r  status=%r",
+            raw[0].get("tenant"),
+            raw[0].get("status"),
+        )
+
     locations = []
     for loc in raw:
         lat = loc.get("latitude")
@@ -108,24 +206,34 @@ def get_locations() -> list:
         except (TypeError, ValueError):
             continue
 
-        tenant = loc.get("tenant") or {}
-        location_type = loc.get("location_type") or {}
-        parent = loc.get("parent") or {}
+        tenant_obj = loc.get("tenant") or {}
+        tenant_id = tenant_obj.get("id", "") if isinstance(tenant_obj, dict) else ""
+        tenant_name = (
+            _nested_str(tenant_obj, "name", "display")
+            or tenant_map.get(tenant_id, "")
+        )
+
+        status_obj = loc.get("status") or {}
+        status_id = status_obj.get("id", "") if isinstance(status_obj, dict) else ""
+        status_name = (
+            _nested_str(status_obj, "label", "name", "display")
+            or status_map.get(status_id, "")
+        )
 
         locations.append(
             {
                 "id": loc.get("id", ""),
                 "name": loc.get("name", "Unknown"),
                 "slug": loc.get("slug", ""),
-                "status": (loc.get("status") or {}).get("label", ""),
-                "location_type": location_type.get("name", ""),
-                "parent": parent.get("name", ""),
+                "status": status_name,
+                "location_type": _nested_str(loc.get("location_type"), "name", "display"),
+                "parent": _nested_str(loc.get("parent"), "name", "display"),
                 "latitude": lat,
                 "longitude": lon,
                 "description": loc.get("description", ""),
                 "physical_address": loc.get("physical_address", ""),
-                "tenant": tenant.get("name", ""),
-                "tenant_id": tenant.get("id", ""),
+                "tenant": tenant_name,
+                "tenant_id": tenant_id,
                 "asn": loc.get("asn"),
                 "time_zone": loc.get("time_zone", ""),
                 "url": loc.get("url", ""),
@@ -139,36 +247,83 @@ def get_location_detail(location_id: str) -> dict:
     detail: dict = {}
 
     # Devices at this location
+    # Nautobot 3.x uses the "location" filter parameter (UUID accepted);
+    # "location_id" was removed in 3.x and returns 400.
     try:
-        devices_data = fetch_all_pages("dcim/devices/", {"location_id": location_id})
-        detail["devices"] = [
-            {
-                "id": d.get("id", ""),
-                "name": d.get("name", "Unknown"),
-                "device_type": (d.get("device_type") or {}).get("model", ""),
-                "manufacturer": (
-                    (d.get("device_type") or {}).get("manufacturer") or {}
-                ).get("name", ""),
-                "role": (d.get("role") or {}).get("name", ""),
-                "status": (d.get("status") or {}).get("label", ""),
-                "platform": (d.get("platform") or {}).get("name", ""),
-                "serial": d.get("serial", ""),
-                "tenant": (d.get("tenant") or {}).get("name", ""),
-            }
-            for d in devices_data
-        ]
+        devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
+
+        # Fallback lookup: covers Nautobot builds where brief nested objects
+        # only carry id+url without a human-readable name.
+        # In Nautobot 3.x the brief device_type nested object inside device
+        # list responses does NOT include manufacturer or model fields, so we
+        # pre-fetch all device types to resolve device_type_id → model/manufacturer.
+        dt_mfr_map, dt_model_map = _build_device_type_maps()
+        mfr_map = _build_id_name_map("dcim/manufacturers/")
+        role_map = _build_id_name_map("extras/roles/")
+        tenant_map = _build_id_name_map("tenancy/tenants/")
+        status_map = _build_id_name_map("extras/statuses/")
+
+        devices = []
+        for d in devices_data:
+            dt = d.get("device_type") or {}
+            dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
+            mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
+            mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
+            mfr_name = (
+                _nested_str(mfr_obj, "name", "display")
+                or mfr_map.get(mfr_id, "")
+                or dt_mfr_map.get(dt_id, "")
+            )
+
+            ten_obj = d.get("tenant") or {}
+            ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
+            ten_name = (
+                _nested_str(ten_obj, "name", "display")
+                or tenant_map.get(ten_id, "")
+            )
+
+            st_obj = d.get("status") or {}
+            st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
+            st_name = (
+                _nested_str(st_obj, "label", "name", "display")
+                or status_map.get(st_id, "")
+            )
+
+            devices.append(
+                {
+                    "id": d.get("id", ""),
+                    "name": d.get("name", "Unknown"),
+                    "device_type": (
+                        _nested_str(d.get("device_type"), "model", "display")
+                        or dt_model_map.get(dt_id, "")
+                    ),
+                    "manufacturer": mfr_name,
+                    "role": (
+                        _nested_str(d.get("role"), "name", "display")
+                        or role_map.get(
+                            d.get("role", {}).get("id", "") if isinstance(d.get("role"), dict) else "",
+                            "",
+                        )
+                    ),
+                    "status": st_name,
+                    "platform": _nested_str(d.get("platform"), "name", "display"),
+                    "serial": d.get("serial", ""),
+                    "tenant": ten_name,
+                }
+            )
+        detail["devices"] = devices
     except Exception as exc:
         logger.warning("Could not fetch devices for location %s: %s", location_id, exc)
         detail["devices"] = []
 
-    # ASN(s) associated with this location via the routing/asns endpoint (Nautobot 2.x)
+    # ASN(s) associated with this location via the ipam/asns endpoint
     try:
         asns_data = fetch_all_pages("ipam/asns/", {"location_id": location_id})
         detail["asns"] = [
             {
                 "asn": a.get("asn"),
                 "description": a.get("description", ""),
-                "tenant": (a.get("tenant") or {}).get("name", ""),
+                "tenant": _nested_str(a.get("tenant"), "name", "display"),
             }
             for a in asns_data
         ]
