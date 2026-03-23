@@ -18,7 +18,7 @@ A web application that displays Nautobot locations on an interactive OpenStreetM
 ## Requirements
 
 - Python 3.11+
-- A running Nautobot instance (v2.x recommended) with an API token
+- A running Nautobot instance (v3.x recommended) with an API token
 
 ## Quick Start
 
@@ -84,5 +84,5 @@ python -m pytest tests/ -v
 ## Notes on Nautobot Data
 
 - Only locations with both `latitude` **and** `longitude` fields populated appear on the map.
-- ASNs are fetched from the `ipam/asns` endpoint filtered by `location_id`; this requires Nautobot 2.x.
+- ASNs are fetched from the `ipam/asns` endpoint filtered by `location_id`; this requires Nautobot 2.x or later.
 - The geocoding service used for address search is [Nominatim](https://nominatim.org/) (OpenStreetMap) — no API key required.

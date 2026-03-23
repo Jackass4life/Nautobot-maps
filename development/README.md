@@ -1,6 +1,6 @@
 # Development Environment — Real Nautobot
 
-This directory provides a **real Nautobot 2.x** stack for local development
+This directory provides a **real Nautobot 3.x** stack for local development
 and CI integration testing, replacing the lightweight mock used in `demo/`.
 
 ## Components
@@ -9,7 +9,7 @@ and CI integration testing, replacing the lightweight mock used in `demo/`.
 |-----------------|--------------------------------------|-------|
 | PostgreSQL 15   | `postgres:15`                        | —     |
 | Redis 7         | `redis:7-alpine`                     | —     |
-| Nautobot 2.x    | `ghcr.io/nautobot/nautobot:2-py3.11` | 8080  |
+| Nautobot 3.x    | `ghcr.io/nautobot/nautobot:3-py3.12` | 8080  |
 | nautobot-maps   | built from repo `Dockerfile`         | 5000  |
 
 ## Quick Start

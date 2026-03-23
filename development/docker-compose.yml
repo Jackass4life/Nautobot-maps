@@ -2,7 +2,7 @@
 #
 # Real Nautobot development / integration-test stack.
 #
-# Spins up PostgreSQL, Redis, and a genuine Nautobot 2.x instance so the
+# Spins up PostgreSQL, Redis, and a genuine Nautobot 3.x instance so the
 # nautobot-maps application can be developed and validated against a real API.
 #
 # Usage:
@@ -40,7 +40,7 @@ services:
 
   # -- Nautobot (real instance) ------------------------------------------
   nautobot:
-    image: ghcr.io/nautobot/nautobot:2-py3.11
+    image: ghcr.io/nautobot/nautobot:3-py3.12
     entrypoint: ["bash", "/opt/nautobot/dev-entrypoint.sh"]
     volumes:
       - ./entrypoint.sh:/opt/nautobot/dev-entrypoint.sh:ro

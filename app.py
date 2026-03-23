@@ -161,7 +161,7 @@ def get_location_detail(location_id: str) -> dict:
         logger.warning("Could not fetch devices for location %s: %s", location_id, exc)
         detail["devices"] = []
 
-    # ASN(s) associated with this location via the routing/asns endpoint (Nautobot 2.x)
+    # ASN(s) associated with this location via the ipam/asns endpoint
     try:
         asns_data = fetch_all_pages("ipam/asns/", {"location_id": location_id})
         detail["asns"] = [
