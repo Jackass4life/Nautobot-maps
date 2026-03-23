@@ -81,13 +81,13 @@ def _build_id_name_map(endpoint: str) -> dict:
         return {}
 
 
-def _build_device_type_manufacturer_map() -> dict:
-    """Return a ``{device_type_id: manufacturer_name}`` map.
+def _build_device_type_maps() -> tuple:
+    """Return ``({device_type_id: manufacturer_name}, {device_type_id: model_name})``.
 
     In Nautobot 3.x the brief nested ``device_type`` object returned inside
-    device list responses does **not** include a ``manufacturer`` sub-object.
-    Fetching all device types once lets us resolve the manufacturer for any
-    device without an extra per-device API call.
+    device list responses does **not** include ``manufacturer`` or ``model``
+    fields — only ``id`` and ``url``.  Fetching all device types once lets us
+    resolve both fields for any device without extra per-device API calls.
 
     The manufacturer sub-object inside a device-type listing may itself be a
     brief object (id+url only in Nautobot 3.0.x), so we also build a
@@ -97,11 +97,17 @@ def _build_device_type_manufacturer_map() -> dict:
     try:
         mfr_map = _build_id_name_map("dcim/manufacturers/")
         items = fetch_all_pages("dcim/device-types/")
-        result = {}
+        dt_mfr: dict = {}
+        dt_model: dict = {}
         for item in items:
             uid = item.get("id")
             if not uid:
                 continue
+            # model name
+            model = item.get("model") or _nested_str(item, "display") or ""
+            if model:
+                dt_model[uid] = model
+            # manufacturer name
             mfr_obj = item.get("manufacturer") or {}
             mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
             mfr_name = (
@@ -109,11 +115,11 @@ def _build_device_type_manufacturer_map() -> dict:
                 or mfr_map.get(mfr_id, "")
             )
             if mfr_name:
-                result[uid] = mfr_name
-        return result
+                dt_mfr[uid] = mfr_name
+        return dt_mfr, dt_model
     except Exception as exc:
-        logger.debug("Could not build device-type/manufacturer map: %s", exc)
-        return {}
+        logger.debug("Could not build device-type maps: %s", exc)
+        return {}, {}
 
 
 def _cache_get(key: str):
@@ -249,9 +255,9 @@ def get_location_detail(location_id: str) -> dict:
         # Fallback lookup: covers Nautobot builds where brief nested objects
         # only carry id+url without a human-readable name.
         # In Nautobot 3.x the brief device_type nested object inside device
-        # list responses does NOT include a manufacturer sub-object, so we
-        # pre-fetch all device types to resolve device_type_id → manufacturer.
-        dt_mfr_map = _build_device_type_manufacturer_map()
+        # list responses does NOT include manufacturer or model fields, so we
+        # pre-fetch all device types to resolve device_type_id → model/manufacturer.
+        dt_mfr_map, dt_model_map = _build_device_type_maps()
         mfr_map = _build_id_name_map("dcim/manufacturers/")
         tenant_map = _build_id_name_map("tenancy/tenants/")
         status_map = _build_id_name_map("extras/statuses/")
@@ -286,7 +292,10 @@ def get_location_detail(location_id: str) -> dict:
                 {
                     "id": d.get("id", ""),
                     "name": d.get("name", "Unknown"),
-                    "device_type": _nested_str(d.get("device_type"), "model", "display"),
+                    "device_type": (
+                        _nested_str(d.get("device_type"), "model", "display")
+                        or dt_model_map.get(dt_id, "")
+                    ),
                     "manufacturer": mfr_name,
                     "role": _nested_str(d.get("role"), "name", "display"),
                     "status": st_name,
