@@ -118,30 +118,45 @@ function renderDetail(locId, detail) {
     </div>`;
   }
 
-  // Devices / network equipment
+  // Devices / network equipment – show ALL devices with status filter tabs
   if (detail.devices && detail.devices.length > 0) {
-    const maxShow = 6;
-    const shown = detail.devices.slice(0, maxShow);
-    const extra = detail.devices.length - maxShow;
-    const items = shown
-      .map(
-        (d) => `<li>
-          <div class="device-name">${escHtml(d.name)}</div>
-          <div class="device-meta">${[d.manufacturer, d.device_type, d.role, d.status]
-            .filter(Boolean)
-            .map(escHtml)
-            .join(" · ")}</div>
+    const statuses = [...new Set(detail.devices.map((d) => d.status).filter(Boolean))].sort();
+
+    // Only show filter tabs when multiple statuses exist
+    const filterBtns = statuses.length > 1
+      ? ['All', ...statuses]
+          .map(
+            (s) =>
+              `<button class="device-filter-btn${s === 'All' ? ' active' : ''}" data-filter="${escHtml(s)}" aria-pressed="${s === 'All' ? 'true' : 'false'}">${escHtml(s)}</button>`
+          )
+          .join("")
+      : "";
+
+    const items = detail.devices
+      .map((d) => {
+        const st = (d.status || "").toLowerCase();
+        const stClass =
+          st === "active" ? "device-status-active"
+          : st === "offline" ? "device-status-offline"
+          : "device-status-other";
+        const hwMeta = [d.manufacturer, d.device_type].filter(Boolean).map(escHtml).join(" · ");
+        return `<li data-device-status="${escHtml(d.status || "")}">
+          <div class="device-header">
+            <span class="device-name">${escHtml(d.name)}</span>
+            ${d.status ? `<span class="device-status-badge ${stClass}">${escHtml(d.status)}</span>` : ""}
+          </div>
+          ${hwMeta ? `<div class="device-meta">${hwMeta}</div>` : ""}
+          ${d.role ? `<div class="device-meta device-role">Role: ${escHtml(d.role)}</div>` : ""}
+          ${d.platform ? `<div class="device-meta device-platform">Software: ${escHtml(d.platform)}</div>` : ""}
           ${d.tenant ? `<div class="device-meta">Tenant: ${escHtml(d.tenant)}</div>` : ""}
-        </li>`
-      )
+        </li>`;
+      })
       .join("");
-    const moreNote =
-      extra > 0
-        ? `<li style="color:var(--color-text-muted);font-size:.75rem">… and ${extra} more device${extra > 1 ? "s" : ""}</li>`
-        : "";
+
     html += `<div class="popup-section">
       <div class="popup-section-title">Network Equipment (${detail.devices.length})</div>
-      <ul class="device-list">${items}${moreNote}</ul>
+      ${filterBtns ? `<div class="device-filters" id="device-filters-${escHtml(locId)}">${filterBtns}</div>` : ""}
+      <ul class="device-list device-list-scroll" id="device-list-${escHtml(locId)}" tabindex="0" aria-label="Device list">${items}</ul>
     </div>`;
   }
 
@@ -151,6 +166,29 @@ function renderDetail(locId, detail) {
 
   container.className = "";
   container.innerHTML = html;
+
+  // Wire up status filter buttons using event delegation
+  const filtersEl = document.getElementById(`device-filters-${locId}`);
+  if (filtersEl) {
+    filtersEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".device-filter-btn");
+      if (!btn) return;
+      filtersEl.querySelectorAll(".device-filter-btn").forEach((b) => {
+        b.classList.remove("active");
+        b.setAttribute("aria-pressed", "false");
+      });
+      btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
+      const filterVal = btn.dataset.filter;
+      const list = document.getElementById(`device-list-${locId}`);
+      if (list) {
+        list.querySelectorAll("li").forEach((li) => {
+          li.style.display =
+            filterVal === "All" || li.dataset.deviceStatus === filterVal ? "" : "none";
+        });
+      }
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +328,7 @@ function addMarker(loc) {
     title: loc.name,
   });
 
-  marker.bindPopup(() => buildBasicPopup(loc), { maxWidth: 320, minWidth: 240 });
+  marker.bindPopup(() => buildBasicPopup(loc), { maxWidth: 360, minWidth: 280 });
 
   marker.on("popupopen", () => {
     fetchAndRenderDetail(loc.id);
