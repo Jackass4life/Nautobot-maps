@@ -247,7 +247,7 @@ class TestApiLocations:
 
         with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
             resp = client.get("/api/locations")
-        # Only loc-child has GPS coordinates
+        # loc-parent has no GPS (lat/lon=None) so only loc-child is returned
         locs = resp.get_json()["locations"]
         assert len(locs) == 1
         assert locs[0]["parent"] == "Denmark"
