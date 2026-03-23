@@ -52,6 +52,7 @@ python app.py
 | `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `FLASK_DEBUG` | ❌ | `false` | Set `true` to enable Flask debug mode |
+| `FLASK_RUN_PORT` | ❌ | `5000` | Port for the development server (useful if 5000 is taken, e.g. by macOS AirPlay Receiver) |
 
 ## Docker
 
