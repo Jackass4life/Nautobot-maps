@@ -3,9 +3,13 @@
 Seed a real Nautobot instance with the same data used by demo/mock_nautobot.py.
 
 This script talks to the Nautobot REST API, creating location types, tenants,
-locations (with GPS coordinates), manufacturers, device types, roles, devices,
-RIRs, and ASNs so that the nautobot-maps integration tests can validate
-against a genuine Nautobot backend.
+locations (with GPS coordinates and ASN), manufacturers, device types, roles,
+and devices so that the nautobot-maps integration tests can validate against a
+genuine Nautobot backend.
+
+Note: In Nautobot 3.x core the ``/api/ipam/asns/`` endpoint does not exist
+(it is provided by the optional BGP Models plugin).  ASN numbers are stored
+directly as the ``asn`` integer field on each Location.
 
 Usage:
     NAUTOBOT_URL=http://localhost:8080 \
@@ -123,14 +127,14 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     wait_for_nautobot()
 
     # -- Statuses --------------------------------------------------------
-    print("[1/9] Looking up statuses …")
+    print("[1/8] Looking up statuses …")
     active = lookup_status("Active")
     planned = lookup_status("Planned")
     print(f"  Active  → {active['id']}")
     print(f"  Planned → {planned['id']}")
 
     # -- Location types --------------------------------------------------
-    print("[2/9] Creating location types …")
+    print("[2/8] Creating location types …")
     lt = {}
     for name in ("Data Center", "PoP", "Office", "Internet Exchange"):
         lt[name] = get_or_create(
@@ -139,13 +143,15 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Tenants ---------------------------------------------------------
-    print("[3/9] Creating tenants …")
+    print("[3/8] Creating tenants …")
     tenants = {}
     for name in ("Acme Corp", "Nordic Net", "EuroIX", "DataCenter GmbH"):
         tenants[name] = get_or_create("tenancy/tenants/", {"name": name})
 
     # -- Locations -------------------------------------------------------
-    print("[4/9] Creating locations …")
+    # ASN is a plain integer field on the Location object in Nautobot 3.x;
+    # /api/ipam/asns/ is a BGP-plugin endpoint and is not available in core.
+    print("[4/8] Creating locations …")
     location_defs = [
         {
             "name": "Copenhagen DC",
@@ -154,6 +160,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "tenant": tenants["Acme Corp"]["id"],
             "latitude": 55.6761,
             "longitude": 12.5683,
+            "asn": 65001,
             "physical_address": "Vermlandsgade 51, 2300 Copenhagen, Denmark",
             "time_zone": "Europe/Copenhagen",
             "description": "Primary Scandinavian data centre",
@@ -165,6 +172,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "tenant": tenants["Nordic Net"]["id"],
             "latitude": 55.6830,
             "longitude": 12.5750,
+            "asn": 65002,
             "physical_address": "Borgergade 10, 1300 Copenhagen, Denmark",
             "time_zone": "Europe/Copenhagen",
             "description": "Secondary colocation facility",
@@ -176,6 +184,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "tenant": tenants["Acme Corp"]["id"],
             "latitude": 59.3293,
             "longitude": 18.0686,
+            "asn": 65010,
             "physical_address": "Stureplan 4, 114 35 Stockholm, Sweden",
             "time_zone": "Europe/Stockholm",
             "description": "Stockholm internet exchange point",
@@ -198,6 +207,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "tenant": tenants["EuroIX"]["id"],
             "latitude": 52.3676,
             "longitude": 4.9041,
+            "asn": 65020,
             "physical_address": "Frederiksplein 42, 1017 XN Amsterdam, Netherlands",
             "time_zone": "Europe/Amsterdam",
             "description": "AMS-IX peering facility",
@@ -209,6 +219,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "tenant": tenants["DataCenter GmbH"]["id"],
             "latitude": 50.1109,
             "longitude": 8.6821,
+            "asn": 65030,
             "physical_address": "Hanauer Landstrasse 298, 60314 Frankfurt, Germany",
             "time_zone": "Europe/Berlin",
             "description": "DE-CIX Frankfurt data centre",
@@ -220,6 +231,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "tenant": tenants["Acme Corp"]["id"],
             "latitude": 48.8566,
             "longitude": 2.3522,
+            "asn": 65040,
             "physical_address": "Rue de la Paix 10, 75002 Paris, France",
             "time_zone": "Europe/Paris",
             "description": "Paris Telecom point of presence",
@@ -231,6 +243,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "tenant": tenants["Acme Corp"]["id"],
             "latitude": 51.5074,
             "longitude": -0.1278,
+            "asn": 65050,
             "physical_address": "1 Canada Square, Canary Wharf, London E14 5AB, UK",
             "time_zone": "Europe/London",
             "description": "Corporate headquarters and primary UK facility",
@@ -242,7 +255,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         locations[loc_def["name"]] = get_or_create("dcim/locations/", loc_def)
 
     # -- Manufacturers ---------------------------------------------------
-    print("[5/9] Creating manufacturers …")
+    print("[5/8] Creating manufacturers …")
     manufacturers = {}
     for name in (
         "Cisco",
@@ -254,7 +267,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         manufacturers[name] = get_or_create("dcim/manufacturers/", {"name": name})
 
     # -- Device types ----------------------------------------------------
-    print("[6/9] Creating device types …")
+    print("[6/8] Creating device types …")
     device_type_defs = [
         ("ASR1001-X", "Cisco"),
         ("Catalyst 9300", "Cisco"),
@@ -281,7 +294,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Roles -----------------------------------------------------------
-    print("[7/9] Creating roles …")
+    print("[7/8] Creating roles …")
     role_names = (
         "Core Router",
         "Distribution Switch",
@@ -303,7 +316,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Devices ---------------------------------------------------------
-    print("[8/9] Creating devices …")
+    print("[8/8] Creating devices …")
     device_defs = [
         # Copenhagen DC
         ("cph-core-rt01", "ASR1001-X", "Core Router", "Copenhagen DC", "Acme Corp", "IOS-XE", "FCZ2227B0M1"),
@@ -349,34 +362,6 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         if platform_name:
             dev_data["platform"] = platforms[platform_name]["id"]
         get_or_create("dcim/devices/", dev_data)
-
-    # -- RIR + ASNs ------------------------------------------------------
-    print("[9/9] Creating RIR and ASNs …")
-    rir = get_or_create("ipam/rirs/", {"name": "RFC 6996 - Private", "is_private": True})
-
-    asn_defs = [
-        (65001, "Acme Corp primary ASN", "Acme Corp"),
-        (65002, "Nordic Net Denmark ASN", "Nordic Net"),
-        (65010, "Acme Corp Sweden ASN", "Acme Corp"),
-        (65020, "EuroIX AMS-IX ASN", "EuroIX"),
-        (65021, "EuroIX transit ASN", "EuroIX"),
-        (65030, "DataCenter GmbH primary ASN", "DataCenter GmbH"),
-        (65040, "Acme Corp France ASN", "Acme Corp"),
-        (65050, "Acme Corp UK primary ASN", "Acme Corp"),
-        (65051, "Acme Corp UK backup ASN", "Acme Corp"),
-    ]
-
-    for asn_number, description, tenant_name in asn_defs:
-        get_or_create(
-            "ipam/asns/",
-            {
-                "asn": asn_number,
-                "rir": rir["id"],
-                "description": description,
-                "tenant": tenants[tenant_name]["id"],
-            },
-            lookup={"asn": str(asn_number)},
-        )
 
     print("\n=== Seeding complete ===\n")
 
