@@ -189,6 +189,8 @@ class TestApiLocationDetail:
         assert dev["device_type"] == "ASR1001-X"
         assert dev["role"] == "Core Router"
         assert dev["tenant"] == "Acme Corp"
+        assert dev["platform"] == "IOS-XE"
+        assert dev["status"] == "Active"
 
 
 # ---------------------------------------------------------------------------

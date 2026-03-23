@@ -197,9 +197,19 @@ class TestLocationDetailEndpoint:
         data = integration_client.get("/api/locations/loc-ams/detail").get_json()
         assert len(data["devices"]) == 3
 
-    def test_london_has_three_devices(self, integration_client):
+    def test_london_has_eight_devices(self, integration_client):
         data = integration_client.get("/api/locations/loc-lon/detail").get_json()
-        assert len(data["devices"]) == 3
+        assert len(data["devices"]) == 8
+
+    def test_london_has_offline_devices(self, integration_client):
+        data = integration_client.get("/api/locations/loc-lon/detail").get_json()
+        statuses = [d["status"] for d in data["devices"]]
+        assert "Offline" in statuses
+
+    def test_london_has_active_devices(self, integration_client):
+        data = integration_client.get("/api/locations/loc-lon/detail").get_json()
+        statuses = [d["status"] for d in data["devices"]]
+        assert "Active" in statuses
 
 
 # ---------------------------------------------------------------------------
