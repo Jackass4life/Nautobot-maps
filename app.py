@@ -272,4 +272,8 @@ def api_search():
 
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
-    app.run(host="0.0.0.0", port=5000, debug=debug)
+    try:
+        port = int(os.getenv("FLASK_RUN_PORT", 5000))
+    except (ValueError, TypeError):
+        port = 5000
+    app.run(host="0.0.0.0", port=port, debug=debug)
