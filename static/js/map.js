@@ -149,6 +149,7 @@ function renderDetail(locId, detail) {
           ${hwMeta ? `<div class="device-meta">${hwMeta}</div>` : ""}
           ${d.role ? `<div class="device-meta device-role">Role: ${escHtml(d.role)}</div>` : ""}
           ${d.platform ? `<div class="device-meta device-platform">Software: ${escHtml(d.platform)}</div>` : ""}
+          ${d.serial ? `<div class="device-meta device-serial">Serial: ${escHtml(d.serial)}</div>` : ""}
           ${d.tenant ? `<div class="device-meta">Tenant: ${escHtml(d.tenant)}</div>` : ""}
         </li>`;
       })

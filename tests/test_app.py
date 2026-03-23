@@ -190,6 +190,7 @@ class TestApiLocationDetail:
         assert dev["role"] == "Core Router"
         assert dev["tenant"] == "Acme Corp"
         assert dev["platform"] == "IOS-XE"
+        assert dev["serial"] == "SN123"
         assert dev["status"] == "Active"
 
     def test_device_with_null_fields(self, client):
