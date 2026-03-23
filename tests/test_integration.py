@@ -211,13 +211,13 @@ class TestLocationDetailEndpoint:
         statuses = [d["status"] for d in data["devices"]]
         assert "Active" in statuses
 
-    def test_colocated_london_colo_has_devices(self, integration_client):
+    def test_london_colo_has_devices(self, integration_client):
         """London Colo shares the same coordinates as London HQ and has its own devices."""
         data = integration_client.get("/api/locations/loc-lon2/detail").get_json()
         assert len(data["devices"]) == 1
         assert data["devices"][0]["name"] == "lon2-edge-rt01"
 
-    def test_colocated_london_colo_has_asns(self, integration_client):
+    def test_london_colo_has_asns(self, integration_client):
         """London Colo has its own ASN."""
         data = integration_client.get("/api/locations/loc-lon2/detail").get_json()
         assert len(data["asns"]) == 1

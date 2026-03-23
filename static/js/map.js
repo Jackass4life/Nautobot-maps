@@ -185,6 +185,7 @@ function renderDetail(locId, detail) {
 function groupByCoords(locations) {
   const groups = {};
   for (const loc of locations) {
+    if (loc.latitude == null || loc.longitude == null) continue;
     const key = `${loc.latitude.toFixed(4)},${loc.longitude.toFixed(4)}`;
     if (!groups[key]) groups[key] = [];
     groups[key].push(loc);
@@ -239,7 +240,9 @@ function buildLocationBody(loc) {
 /**
  * Build the tabbed popup for multiple co-located sites.
  */
+let _colocPopupId = 0;
 function buildColocatedPopup(locations) {
+  const popupId = `coloc-popup-${++_colocPopupId}`;
   const tabs = locations
     .map(
       (loc, i) =>
@@ -259,7 +262,7 @@ function buildColocatedPopup(locations) {
     )
     .join("");
 
-  return `<div class="popup-content coloc-popup">
+  return `<div class="popup-content coloc-popup" id="${popupId}">
     <div class="coloc-header">${locations.length} sites at this location</div>
     <div class="coloc-tabs">${tabs}</div>
     <div class="coloc-panels">${panels}</div>
@@ -270,7 +273,7 @@ function buildColocatedPopup(locations) {
  * Wire up tab-switching inside a co-located popup.
  */
 function wireColocatedTabs(locations) {
-  const popup = document.querySelector(".coloc-popup");
+  const popup = document.getElementById(`coloc-popup-${_colocPopupId}`);
   if (!popup) return;
 
   popup.addEventListener("click", (e) => {
