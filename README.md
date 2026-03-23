@@ -28,7 +28,7 @@ A web application that displays Nautobot locations on an interactive OpenStreetM
 ## Requirements
 
 - Python 3.11+
-- A running Nautobot instance (v3.x recommended) with an API token
+- A running Nautobot instance (v2.x or v3.x) with an API token
 
 ## Quick Start
 
@@ -75,6 +75,22 @@ docker compose up --build
 # → Open http://localhost:5000
 ```
 
+## Demo (Mock Nautobot)
+
+No Nautobot instance? Spin up a fully self-contained demo using the mock
+server bundled in `demo/`:
+
+```bash
+# From the repository root – no .env required
+docker compose -f demo/docker-compose.yml up --build
+# → Open http://localhost:5000
+```
+
+The demo pre-loads **8 European locations** (two in Copenhagen, plus Stockholm,
+Oslo, Amsterdam, Frankfurt, Paris, and London) with devices, ASNs, and tenants so you
+can explore every feature immediately.  See [`demo/README.md`](demo/README.md)
+for a full description of the seed data and suggested demo scenarios.
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -91,8 +107,38 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
+The test suite includes:
+
+- **Unit tests** (`tests/test_app.py`) — mock-based, run offline.
+- **Mock-integration tests** (`tests/test_integration.py`) — start a local
+  mock Nautobot server and exercise the full HTTP stack.
+- **Live integration tests** (`tests/test_nautobot_live.py`) — skipped by
+  default; set `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN` to run against a
+  real Nautobot instance.  The `development/` directory contains a
+  `docker-compose.yml` + `seed_nautobot.py` for a real Nautobot 3.x stack
+  (see [`development/README.md`](development/README.md)).
+
+## Nautobot Version Compatibility
+
+The application is tested against **Nautobot 2.x and 3.x**:
+
+| Feature | Nautobot 2.x | Nautobot 3.x |
+|---|---|---|
+| Location GPS coordinates | ✅ | ✅ |
+| Device list (`dcim/devices/`) | ✅ | ✅ |
+| ASN via `ipam/asns/` endpoint | ✅ (built-in) | ⚠️ BGP plugin only |
+| ASN as integer field on Location | — | ✅ |
+| Nested objects include `name`/`label` | ✅ | ⚠️ brief objects (id + url only) |
+
+> **Nautobot 3.x note:** In Nautobot 3.x core the `ipam/asns/` endpoint is
+> not available unless the BGP Models plugin is installed.  ASN numbers are
+> stored as an integer field directly on each Location object and are fetched
+> from there automatically.  Nested sub-objects in list responses may be
+> *brief* (containing only `id` and `url`), so the application resolves
+> human-readable names via dedicated lookup maps built from the relevant
+> endpoints.
+
 ## Notes on Nautobot Data
 
 - Only locations with both `latitude` **and** `longitude` fields populated appear on the map.
-- ASNs are fetched from the `ipam/asns` endpoint filtered by `location_id`; this requires Nautobot 2.x or later.
 - The geocoding service used for address search is [Nominatim](https://nominatim.org/) (OpenStreetMap) — no API key required.
