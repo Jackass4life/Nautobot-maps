@@ -36,7 +36,13 @@ session.headers.update(
         "Accept": "application/json",
     }
 )
-session.verify = False  # development environment uses self-signed / no TLS
+_verify_env = os.environ.get("NAUTOBOT_VERIFY_SSL", "false").strip().lower()
+if _verify_env == "true":
+    session.verify = True
+elif _verify_env == "false":
+    session.verify = False
+else:
+    session.verify = _verify_env  # treat as CA bundle path
 
 
 # ---------------------------------------------------------------------------

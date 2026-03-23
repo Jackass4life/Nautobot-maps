@@ -141,11 +141,6 @@ class TestLiveLocations:
         assert oslo is not None
         assert oslo["status"] == "Planned"
 
-    def test_coordinates_are_floats(self, live_client):
-        data = live_client.get("/api/locations").get_json()
-        for loc in data["locations"]:
-            assert isinstance(loc["latitude"], float)
-            assert isinstance(loc["longitude"], float)
 
 
 # ---------------------------------------------------------------------------

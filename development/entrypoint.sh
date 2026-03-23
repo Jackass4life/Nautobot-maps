@@ -10,6 +10,7 @@
 # Environment variables (all have sensible defaults for dev):
 #   DJANGO_SUPERUSER_PASSWORD  – admin password          (default: admin)
 #   NAUTOBOT_DB_HOST           – PostgreSQL hostname      (default: postgres)
+#   NAUTOBOT_DB_PORT           – PostgreSQL port          (default: 5432)
 
 set -euo pipefail
 
