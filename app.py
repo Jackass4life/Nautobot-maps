@@ -37,6 +37,23 @@ else:
 _cache: dict = {}
 
 
+def _nested_str(obj: dict | None, *keys: str) -> str:
+    """Return the first non-empty value found in *obj* for the given keys.
+
+    Nautobot 2.x uses ``name`` / ``label`` for nested objects; Nautobot 3.x
+    returns a full model representation that uses ``display``.  Trying all
+    three keys keeps the code compatible with both versions and with the
+    mock fixtures used in unit/integration tests.
+    """
+    if not obj:
+        return ""
+    for key in keys:
+        val = obj.get(key)
+        if val is not None and val != "":
+            return str(val)
+    return ""
+
+
 def _cache_get(key: str):
     entry = _cache.get(key)
     if entry and time.time() - entry["ts"] < CACHE_TTL:
@@ -109,22 +126,19 @@ def get_locations() -> list:
             continue
 
         tenant = loc.get("tenant") or {}
-        location_type = loc.get("location_type") or {}
-        parent = loc.get("parent") or {}
-
         locations.append(
             {
                 "id": loc.get("id", ""),
                 "name": loc.get("name", "Unknown"),
                 "slug": loc.get("slug", ""),
-                "status": (loc.get("status") or {}).get("label", ""),
-                "location_type": location_type.get("name", ""),
-                "parent": parent.get("name", ""),
+                "status": _nested_str(loc.get("status"), "label", "name", "display"),
+                "location_type": _nested_str(loc.get("location_type"), "name", "display"),
+                "parent": _nested_str(loc.get("parent"), "name", "display"),
                 "latitude": lat,
                 "longitude": lon,
                 "description": loc.get("description", ""),
                 "physical_address": loc.get("physical_address", ""),
-                "tenant": tenant.get("name", ""),
+                "tenant": _nested_str(loc.get("tenant"), "name", "display"),
                 "tenant_id": tenant.get("id", ""),
                 "asn": loc.get("asn"),
                 "time_zone": loc.get("time_zone", ""),
@@ -147,15 +161,16 @@ def get_location_detail(location_id: str) -> dict:
             {
                 "id": d.get("id", ""),
                 "name": d.get("name", "Unknown"),
-                "device_type": (d.get("device_type") or {}).get("model", ""),
-                "manufacturer": (
-                    (d.get("device_type") or {}).get("manufacturer") or {}
-                ).get("name", ""),
-                "role": (d.get("role") or {}).get("name", ""),
-                "status": (d.get("status") or {}).get("label", ""),
-                "platform": (d.get("platform") or {}).get("name", ""),
+                "device_type": _nested_str(d.get("device_type"), "model", "display"),
+                "manufacturer": _nested_str(
+                    (d.get("device_type") or {}).get("manufacturer"),
+                    "name", "display",
+                ),
+                "role": _nested_str(d.get("role"), "name", "display"),
+                "status": _nested_str(d.get("status"), "label", "name", "display"),
+                "platform": _nested_str(d.get("platform"), "name", "display"),
                 "serial": d.get("serial", ""),
-                "tenant": (d.get("tenant") or {}).get("name", ""),
+                "tenant": _nested_str(d.get("tenant"), "name", "display"),
             }
             for d in devices_data
         ]
@@ -170,7 +185,7 @@ def get_location_detail(location_id: str) -> dict:
             {
                 "asn": a.get("asn"),
                 "description": a.get("description", ""),
-                "tenant": (a.get("tenant") or {}).get("name", ""),
+                "tenant": _nested_str(a.get("tenant"), "name", "display"),
             }
             for a in asns_data
         ]
