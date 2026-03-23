@@ -133,6 +133,17 @@ class TestLocationsEndpoint:
         cph = next(l for l in data["locations"] if l["name"] == "Copenhagen DC")
         assert cph["tenant"] == "Acme Corp"
 
+    def test_tenant_group_field_populated(self, integration_client):
+        data = integration_client.get("/api/locations").get_json()
+        cph = next(l for l in data["locations"] if l["name"] == "Copenhagen DC")
+        assert cph["tenant_group"] == "Corporate"
+
+    def test_tenant_group_empty_when_no_group(self, integration_client):
+        """Frankfurt DC has tenant DataCenter GmbH which has no tenant group."""
+        data = integration_client.get("/api/locations").get_json()
+        fra = next(l for l in data["locations"] if l["name"] == "Frankfurt DC")
+        assert fra["tenant_group"] == ""
+
     def test_asn_field_populated(self, integration_client):
         data = integration_client.get("/api/locations").get_json()
         cph = next(l for l in data["locations"] if l["name"] == "Copenhagen DC")

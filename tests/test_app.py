@@ -33,7 +33,7 @@ SAMPLE_LOCATIONS_PAGE = {
             "longitude": "12.5683",
             "description": "Main DC",
             "physical_address": "Somestreet 1, Copenhagen",
-            "tenant": {"id": "ten-1", "name": "Acme Corp"},
+            "tenant": {"id": "ten-1", "name": "Acme Corp", "tenant_group": {"id": "tg-1", "name": "Corporate"}},
             "asn": 65001,
             "time_zone": "Europe/Copenhagen",
             "url": "https://nautobot.example.com/api/dcim/locations/loc-1/",
@@ -118,6 +118,18 @@ def mock_nautobot_get(endpoint, params=None):
         return SAMPLE_DEVICES_PAGE
     if "ipam/asns" in endpoint:
         return SAMPLE_ASNS_PAGE
+    if "tenancy/tenant-groups" in endpoint:
+        return {
+            "count": 1, "next": None,
+            "results": [{"id": "tg-1", "name": "Corporate"}],
+        }
+    if "tenancy/tenants" in endpoint:
+        return {
+            "count": 1, "next": None,
+            "results": [
+                {"id": "ten-1", "name": "Acme Corp", "tenant_group": {"id": "tg-1", "name": "Corporate"}},
+            ],
+        }
     return {"count": 0, "next": None, "results": []}
 
 
@@ -156,6 +168,19 @@ class TestApiLocations:
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["parent"] == "Denmark"
+
+    def test_tenant_group_field_populated(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["tenant_group"] == "Corporate"
+
+    def test_tenant_group_empty_when_no_tenant(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        # loc-2 (Aarhus PoP) has no tenant
+        loc = resp.get_json()["locations"][1]
+        assert loc["tenant_group"] == ""
 
     def test_location_type_fallback_with_brief_nested_object(self, client):
         """When location_type is brief (id+url only), the fallback map resolves the name."""
@@ -454,6 +479,10 @@ class TestIndex:
     def test_index_contains_filter_section(self, client):
         resp = client.get("/")
         assert b'id="filter-section"' in resp.data
+
+    def test_index_contains_filter_tenant_group(self, client):
+        resp = client.get("/")
+        assert b'id="filter-tenant-group"' in resp.data
 
 
 

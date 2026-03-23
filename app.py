@@ -122,6 +122,37 @@ def _build_device_type_maps() -> tuple:
         return {}, {}
 
 
+def _build_tenant_group_map() -> dict:
+    """Return ``{tenant_id: tenant_group_name}``.
+
+    Fetches all tenants and resolves each tenant's ``tenant_group`` field so
+    that locations can expose the tenant group without extra per-location API
+    calls.  A fallback name-map for tenant groups is built from the
+    ``tenancy/tenant-groups/`` endpoint for Nautobot builds where the nested
+    object is brief (id + url only).
+    """
+    try:
+        tg_name_map = _build_id_name_map("tenancy/tenant-groups/")
+        tenants = fetch_all_pages("tenancy/tenants/")
+        tenant_group_map: dict = {}
+        for tenant in tenants:
+            tid = tenant.get("id")
+            if not tid:
+                continue
+            tg_obj = tenant.get("tenant_group") or {}
+            tg_id = tg_obj.get("id", "") if isinstance(tg_obj, dict) else ""
+            tg_name = (
+                _nested_str(tg_obj, "name", "display")
+                or tg_name_map.get(tg_id, "")
+            )
+            if tg_name:
+                tenant_group_map[tid] = tg_name
+        return tenant_group_map
+    except Exception as exc:
+        logger.debug("Could not build tenant group map: %s", exc)
+        return {}
+
+
 def _cache_get(key: str):
     entry = _cache.get(key)
     if entry and time.time() - entry["ts"] < CACHE_TTL:
@@ -187,6 +218,7 @@ def get_locations() -> list:
     tenant_map = _build_id_name_map("tenancy/tenants/")
     status_map = _build_id_name_map("extras/statuses/")
     lt_map = _build_id_name_map("dcim/location-types/")
+    tenant_group_map = _build_tenant_group_map()
 
     # Build a location id → name map from the raw data for parent resolution.
     # Parents are locations themselves, and their nested objects may also be
@@ -246,6 +278,8 @@ def get_locations() -> list:
             or loc_name_map.get(parent_id, "")
         )
 
+        tenant_group_name = tenant_group_map.get(tenant_id, "")
+
         locations.append(
             {
                 "id": loc.get("id", ""),
@@ -260,6 +294,7 @@ def get_locations() -> list:
                 "physical_address": loc.get("physical_address", ""),
                 "tenant": tenant_name,
                 "tenant_id": tenant_id,
+                "tenant_group": tenant_group_name,
                 "asn": loc.get("asn"),
                 "time_zone": loc.get("time_zone", ""),
                 "url": loc.get("url", ""),
