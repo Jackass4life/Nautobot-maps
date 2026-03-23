@@ -67,7 +67,8 @@ function popupRow(label, value) {
 }
 
 function escHtml(str) {
-  return str
+  if (str == null) return "";
+  return String(str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
