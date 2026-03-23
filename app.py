@@ -291,8 +291,8 @@ def get_location_detail(location_id: str) -> dict:
 
             devices.append(
                 {
-                    "id": d.get("id", ""),
-                    "name": d.get("name", "Unknown"),
+                    "id": d.get("id") or "",
+                    "name": d.get("name") or "Unknown",
                     "device_type": (
                         _nested_str(d.get("device_type"), "model", "display")
                         or dt_model_map.get(dt_id, "")
@@ -307,7 +307,7 @@ def get_location_detail(location_id: str) -> dict:
                     ),
                     "status": st_name,
                     "platform": _nested_str(d.get("platform"), "name", "display"),
-                    "serial": d.get("serial", ""),
+                    "serial": d.get("serial") or "",
                     "tenant": ten_name,
                 }
             )

@@ -192,6 +192,53 @@ class TestApiLocationDetail:
         assert dev["platform"] == "IOS-XE"
         assert dev["status"] == "Active"
 
+    def test_device_with_null_fields(self, client):
+        """Devices with null nested fields must return strings, never None."""
+        sparse_devices = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "dev-sparse",
+                    "name": None,
+                    "device_type": None,
+                    "role": None,
+                    "status": None,
+                    "platform": None,
+                    "serial": None,
+                    "tenant": None,
+                }
+            ],
+        }
+
+        def mock_get(endpoint, params=None):
+            if "dcim/devices" in endpoint:
+                return sparse_devices
+            if "dcim/device-types" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "dcim/manufacturers" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "extras/roles" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "tenancy/tenants" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "extras/statuses" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "ipam/asns" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+            resp = client.get("/api/locations/loc-1/detail")
+        assert resp.status_code == 200
+        dev = resp.get_json()["devices"][0]
+        # Every field must be a string (not None/null) so the JS escHtml()
+        # function never receives null.
+        for field in ("id", "name", "device_type", "manufacturer", "role",
+                      "status", "platform", "serial", "tenant"):
+            assert dev[field] is not None, f"device field '{field}' is None"
+            assert isinstance(dev[field], str), f"device field '{field}' is not a string"
+
 
 # ---------------------------------------------------------------------------
 # Tests: /api/search
