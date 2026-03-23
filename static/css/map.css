@@ -372,6 +372,11 @@ html, body {
   max-width: 320px !important;
 }
 
+.leaflet-popup-content {
+  max-height: min(500px, 70vh);
+  overflow-y: auto;
+}
+
 .leaflet-popup-tip {
   background: var(--color-surface) !important;
 }
@@ -573,6 +578,14 @@ html, body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 6px;
+}
+
+.coloc-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  padding-bottom: 4px;
 }
 
 .coloc-tabs {
