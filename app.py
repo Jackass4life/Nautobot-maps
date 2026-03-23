@@ -139,8 +139,10 @@ def get_location_detail(location_id: str) -> dict:
     detail: dict = {}
 
     # Devices at this location
+    # Nautobot 3.x uses the "location" filter parameter (UUID accepted);
+    # "location_id" was removed in 3.x and returns 400.
     try:
-        devices_data = fetch_all_pages("dcim/devices/", {"location_id": location_id})
+        devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
         detail["devices"] = [
             {
                 "id": d.get("id", ""),
