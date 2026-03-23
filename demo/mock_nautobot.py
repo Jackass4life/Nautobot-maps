@@ -21,11 +21,16 @@ app = Flask(__name__)
 # Seed data
 # ---------------------------------------------------------------------------
 
+TENANT_GROUPS = {
+    "tg-corp":    {"id": "tg-corp",    "name": "Corporate",   "slug": "corporate"},
+    "tg-infra":   {"id": "tg-infra",   "name": "Infrastructure", "slug": "infrastructure"},
+}
+
 TENANTS = {
-    "ten-acme":    {"id": "ten-acme",    "name": "Acme Corp",       "slug": "acme-corp"},
-    "ten-nordnet": {"id": "ten-nordnet", "name": "Nordic Net",      "slug": "nordic-net"},
-    "ten-euroix":  {"id": "ten-euroix",  "name": "EuroIX",          "slug": "euroix"},
-    "ten-dcgmbh":  {"id": "ten-dcgmbh",  "name": "DataCenter GmbH", "slug": "datacenter-gmbh"},
+    "ten-acme":    {"id": "ten-acme",    "name": "Acme Corp",       "slug": "acme-corp",       "tenant_group": TENANT_GROUPS["tg-corp"]},
+    "ten-nordnet": {"id": "ten-nordnet", "name": "Nordic Net",      "slug": "nordic-net",      "tenant_group": TENANT_GROUPS["tg-infra"]},
+    "ten-euroix":  {"id": "ten-euroix",  "name": "EuroIX",          "slug": "euroix",          "tenant_group": TENANT_GROUPS["tg-infra"]},
+    "ten-dcgmbh":  {"id": "ten-dcgmbh",  "name": "DataCenter GmbH", "slug": "datacenter-gmbh", "tenant_group": None},
 }
 
 LOCATION_TYPES = {
@@ -480,6 +485,12 @@ def location_types():
 def tenants():
     _check_auth()
     return jsonify(_paginate(list(TENANTS.values())))
+
+
+@app.route("/api/tenancy/tenant-groups/")
+def tenant_groups():
+    _check_auth()
+    return jsonify(_paginate(list(TENANT_GROUPS.values())))
 
 
 @app.route("/api/extras/statuses/")

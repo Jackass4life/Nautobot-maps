@@ -515,12 +515,14 @@ const filterStatus = document.getElementById("filter-status");
 const filterType = document.getElementById("filter-type");
 const filterParent = document.getElementById("filter-parent");
 const filterTenant = document.getElementById("filter-tenant");
+const filterTenantGroup = document.getElementById("filter-tenant-group");
 
 function populateFilters(locations) {
   const statuses = [...new Set(locations.map((l) => l.status).filter(Boolean))].sort();
   const types = [...new Set(locations.map((l) => l.location_type).filter(Boolean))].sort();
   const parents = [...new Set(locations.map((l) => l.parent).filter(Boolean))].sort();
   const tenants = [...new Set(locations.map((l) => l.tenant).filter(Boolean))].sort();
+  const tenantGroups = [...new Set(locations.map((l) => l.tenant_group).filter(Boolean))].sort();
 
   filterStatus.innerHTML = '<option value="">All statuses</option>';
   for (const status of statuses) {
@@ -553,6 +555,14 @@ function populateFilters(locations) {
     opt.textContent = tenant;
     filterTenant.appendChild(opt);
   }
+
+  filterTenantGroup.innerHTML = '<option value="">All tenant groups</option>';
+  for (const group of tenantGroups) {
+    const opt = document.createElement("option");
+    opt.value = group;
+    opt.textContent = group;
+    filterTenantGroup.appendChild(opt);
+  }
 }
 
 function applyFilters() {
@@ -560,12 +570,14 @@ function applyFilters() {
   const typeVal = filterType.value;
   const parentVal = filterParent.value;
   const tenantVal = filterTenant.value;
+  const tenantGroupVal = filterTenantGroup.value;
 
   const filtered = allLocations.filter((loc) => {
     if (statusVal && loc.status !== statusVal) return false;
     if (typeVal && loc.location_type !== typeVal) return false;
     if (parentVal && loc.parent !== parentVal) return false;
     if (tenantVal && loc.tenant !== tenantVal) return false;
+    if (tenantGroupVal && loc.tenant_group !== tenantGroupVal) return false;
     return true;
   });
 
@@ -577,6 +589,7 @@ filterStatus.addEventListener("change", applyFilters);
 filterType.addEventListener("change", applyFilters);
 filterParent.addEventListener("change", applyFilters);
 filterTenant.addEventListener("change", applyFilters);
+filterTenantGroup.addEventListener("change", applyFilters);
 
 // Clear filters button
 document.getElementById("clear-filters").addEventListener("click", () => {
@@ -584,6 +597,7 @@ document.getElementById("clear-filters").addEventListener("click", () => {
   filterType.value = "";
   filterParent.value = "";
   filterTenant.value = "";
+  filterTenantGroup.value = "";
   applyFilters();
 });
 
