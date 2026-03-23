@@ -73,7 +73,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/')",
+          "import urllib.request, urllib.error, sys\ntry:\n  urllib.request.urlopen('http://localhost:8080/api/')\nexcept urllib.error.HTTPError as e:\n  sys.exit(0 if e.code in (401, 403) else 1)\nexcept Exception:\n  sys.exit(1)\n",
         ]
       interval: 10s
       timeout: 5s
