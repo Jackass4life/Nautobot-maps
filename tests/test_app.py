@@ -234,7 +234,7 @@ class TestApiLocationDetail:
         dev = resp.get_json()["devices"][0]
         # Every field must be a string (not None/null) so the JS escHtml()
         # function never receives null.
-        for field in ("name", "device_type", "manufacturer", "role",
+        for field in ("id", "name", "device_type", "manufacturer", "role",
                       "status", "platform", "serial", "tenant"):
             assert dev[field] is not None, f"device field '{field}' is None"
             assert isinstance(dev[field], str), f"device field '{field}' is not a string"
