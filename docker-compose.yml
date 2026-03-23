@@ -6,6 +6,7 @@ services:
     environment:
       - NAUTOBOT_URL=${NAUTOBOT_URL}
       - NAUTOBOT_TOKEN=${NAUTOBOT_TOKEN}
+      - NAUTOBOT_VERIFY_SSL=${NAUTOBOT_VERIFY_SSL:-true}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me}
       - CACHE_TTL=${CACHE_TTL:-300}
     restart: unless-stopped
