@@ -369,7 +369,6 @@ html, body {
   border: 1px solid var(--color-border) !important;
   border-radius: var(--radius) !important;
   box-shadow: var(--shadow) !important;
-  max-width: 320px !important;
 }
 
 .leaflet-popup-content {
