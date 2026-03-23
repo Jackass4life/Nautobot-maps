@@ -1,0 +1,105 @@
+# development/docker-compose.yml
+#
+# Real Nautobot development / integration-test stack.
+#
+# Spins up PostgreSQL, Redis, and a genuine Nautobot 2.x instance so the
+# nautobot-maps application can be developed and validated against a real API.
+#
+# Usage:
+#   docker compose up -d --wait          # start stack, wait for healthy
+#   python development/seed_nautobot.py  # populate test data
+#   docker compose down -v               # tear down (including volumes)
+#
+# Nautobot API is available at http://localhost:8080/api/
+# Nautobot UI  is available at http://localhost:8080/
+
+services:
+  # -- PostgreSQL --------------------------------------------------------
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: nautobot
+      POSTGRES_PASSWORD: nautobot
+      POSTGRES_DB: nautobot
+    volumes:
+      - nautobot_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nautobot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -- Redis -------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -- Nautobot (real instance) ------------------------------------------
+  nautobot:
+    image: ghcr.io/nautobot/nautobot:2-py3.11
+    entrypoint: ["bash", "/opt/nautobot/dev-entrypoint.sh"]
+    volumes:
+      - ./entrypoint.sh:/opt/nautobot/dev-entrypoint.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # Database
+      NAUTOBOT_DB_ENGINE: django.db.backends.postgresql
+      NAUTOBOT_DB_HOST: postgres
+      NAUTOBOT_DB_PORT: "5432"
+      NAUTOBOT_DB_NAME: nautobot
+      NAUTOBOT_DB_USER: nautobot
+      NAUTOBOT_DB_PASSWORD: nautobot
+      # Redis
+      NAUTOBOT_REDIS_HOST: redis
+      NAUTOBOT_REDIS_PORT: "6379"
+      # Security
+      NAUTOBOT_SECRET_KEY: "testing-secret-key-not-for-production-use"
+      NAUTOBOT_ALLOWED_HOSTS: "*"
+      # Superuser (created by entrypoint.sh)
+      DJANGO_SUPERUSER_PASSWORD: admin
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+  # -- nautobot-maps (optional – handy for local dev) --------------------
+  nautobot-maps:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: python app.py
+    ports:
+      - "5000:5000"
+    environment:
+      NAUTOBOT_URL: http://nautobot:8080
+      NAUTOBOT_TOKEN: aaaa-bbbb-cccc-dddd-eeee
+      FLASK_SECRET_KEY: dev-secret-key
+      FLASK_DEBUG: "true"
+      CACHE_TTL: "60"
+      NAUTOBOT_VERIFY_SSL: "false"
+    depends_on:
+      nautobot:
+        condition: service_healthy
+    profiles:
+      - full
+
+volumes:
+  nautobot_postgres_data:
