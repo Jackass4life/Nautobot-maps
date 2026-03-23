@@ -236,12 +236,24 @@ async function fetchAndRenderDetail(locId) {
 // ---------------------------------------------------------------------------
 // Filters
 // ---------------------------------------------------------------------------
+const filterStatus = document.getElementById("filter-status");
 const filterType = document.getElementById("filter-type");
+const filterParent = document.getElementById("filter-parent");
 const filterTenant = document.getElementById("filter-tenant");
 
 function populateFilters(locations) {
+  const statuses = [...new Set(locations.map((l) => l.status).filter(Boolean))].sort();
   const types = [...new Set(locations.map((l) => l.location_type).filter(Boolean))].sort();
+  const parents = [...new Set(locations.map((l) => l.parent).filter(Boolean))].sort();
   const tenants = [...new Set(locations.map((l) => l.tenant).filter(Boolean))].sort();
+
+  filterStatus.innerHTML = '<option value="">All statuses</option>';
+  for (const status of statuses) {
+    const opt = document.createElement("option");
+    opt.value = status;
+    opt.textContent = status;
+    filterStatus.appendChild(opt);
+  }
 
   filterType.innerHTML = '<option value="">All types</option>';
   for (const type of types) {
@@ -249,6 +261,14 @@ function populateFilters(locations) {
     opt.value = type;
     opt.textContent = type;
     filterType.appendChild(opt);
+  }
+
+  filterParent.innerHTML = '<option value="">All parents</option>';
+  for (const parent of parents) {
+    const opt = document.createElement("option");
+    opt.value = parent;
+    opt.textContent = parent;
+    filterParent.appendChild(opt);
   }
 
   filterTenant.innerHTML = '<option value="">All tenants</option>';
@@ -261,11 +281,15 @@ function populateFilters(locations) {
 }
 
 function applyFilters() {
+  const statusVal = filterStatus.value;
   const typeVal = filterType.value;
+  const parentVal = filterParent.value;
   const tenantVal = filterTenant.value;
 
   const filtered = allLocations.filter((loc) => {
+    if (statusVal && loc.status !== statusVal) return false;
     if (typeVal && loc.location_type !== typeVal) return false;
+    if (parentVal && loc.parent !== parentVal) return false;
     if (tenantVal && loc.tenant !== tenantVal) return false;
     return true;
   });
@@ -274,7 +298,9 @@ function applyFilters() {
   updateLocationCount(filtered.length);
 }
 
+filterStatus.addEventListener("change", applyFilters);
 filterType.addEventListener("change", applyFilters);
+filterParent.addEventListener("change", applyFilters);
 filterTenant.addEventListener("change", applyFilters);
 
 const searchInput = document.getElementById("search-input");

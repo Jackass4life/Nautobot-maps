@@ -286,9 +286,18 @@ class TestIndex:
         resp = client.get("/")
         assert b'id="filter-tenant"' in resp.data
 
+    def test_index_contains_filter_status(self, client):
+        resp = client.get("/")
+        assert b'id="filter-status"' in resp.data
+
+    def test_index_contains_filter_parent(self, client):
+        resp = client.get("/")
+        assert b'id="filter-parent"' in resp.data
+
     def test_index_contains_filter_section(self, client):
         resp = client.get("/")
         assert b'id="filter-section"' in resp.data
+
 
 
 # ---------------------------------------------------------------------------
