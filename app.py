@@ -81,6 +81,31 @@ def _build_id_name_map(endpoint: str) -> dict:
         return {}
 
 
+def _build_device_type_manufacturer_map() -> dict:
+    """Return a ``{device_type_id: manufacturer_name}`` map.
+
+    In Nautobot 3.x the brief nested ``device_type`` object returned inside
+    device list responses does **not** include a ``manufacturer`` sub-object.
+    Fetching all device types once lets us resolve the manufacturer for any
+    device without an extra per-device API call.
+    """
+    try:
+        items = fetch_all_pages("dcim/device-types/")
+        result = {}
+        for item in items:
+            uid = item.get("id")
+            if not uid:
+                continue
+            mfr_obj = item.get("manufacturer") or {}
+            mfr_name = _nested_str(mfr_obj, "name", "display")
+            if mfr_name:
+                result[uid] = mfr_name
+        return result
+    except Exception as exc:
+        logger.debug("Could not build device-type/manufacturer map: %s", exc)
+        return {}
+
+
 def _cache_get(key: str):
     entry = _cache.get(key)
     if entry and time.time() - entry["ts"] < CACHE_TTL:
@@ -213,6 +238,10 @@ def get_location_detail(location_id: str) -> dict:
 
         # Fallback lookup: covers Nautobot builds where brief nested objects
         # only carry id+url without a human-readable name.
+        # In Nautobot 3.x the brief device_type nested object inside device
+        # list responses does NOT include a manufacturer sub-object, so we
+        # pre-fetch all device types to resolve device_type_id → manufacturer.
+        dt_mfr_map = _build_device_type_manufacturer_map()
         mfr_map = _build_id_name_map("dcim/manufacturers/")
         tenant_map = _build_id_name_map("tenancy/tenants/")
         status_map = _build_id_name_map("extras/statuses/")
@@ -220,11 +249,13 @@ def get_location_detail(location_id: str) -> dict:
         devices = []
         for d in devices_data:
             dt = d.get("device_type") or {}
+            dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
             mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
             mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
             mfr_name = (
                 _nested_str(mfr_obj, "name", "display")
                 or mfr_map.get(mfr_id, "")
+                or dt_mfr_map.get(dt_id, "")
             )
 
             ten_obj = d.get("tenant") or {}
