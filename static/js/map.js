@@ -390,6 +390,15 @@ filterType.addEventListener("change", applyFilters);
 filterParent.addEventListener("change", applyFilters);
 filterTenant.addEventListener("change", applyFilters);
 
+// Clear filters button
+document.getElementById("clear-filters").addEventListener("click", () => {
+  filterStatus.value = "";
+  filterType.value = "";
+  filterParent.value = "";
+  filterTenant.value = "";
+  applyFilters();
+});
+
 const searchInput = document.getElementById("search-input");
 const searchBtn = document.getElementById("search-btn");
 const searchResults = document.getElementById("search-results");
