@@ -101,11 +101,11 @@ class TestLocationsEndpoint:
         assert resp.status_code == 200
 
     def test_all_seeded_locations_returned(self, integration_client):
-        """All 8 mock-Nautobot locations have GPS coords and must be returned."""
+        """All 9 mock-Nautobot locations have GPS coords and must be returned."""
         data = integration_client.get("/api/locations").get_json()
         assert data["locations"]
-        # The mock server has 8 locations, all with GPS
-        assert len(data["locations"]) == 8
+        # The mock server has 9 locations, all with GPS
+        assert len(data["locations"]) == 9
 
     def test_location_has_required_fields(self, integration_client):
         data = integration_client.get("/api/locations").get_json()
@@ -211,6 +211,33 @@ class TestLocationDetailEndpoint:
         statuses = [d["status"] for d in data["devices"]]
         assert "Active" in statuses
 
+    def test_colocated_london_colo_has_devices(self, integration_client):
+        """London Colo shares the same coordinates as London HQ and has its own devices."""
+        data = integration_client.get("/api/locations/loc-lon2/detail").get_json()
+        assert len(data["devices"]) == 1
+        assert data["devices"][0]["name"] == "lon2-edge-rt01"
+
+    def test_colocated_london_colo_has_asns(self, integration_client):
+        """London Colo has its own ASN."""
+        data = integration_client.get("/api/locations/loc-lon2/detail").get_json()
+        assert len(data["asns"]) == 1
+        assert data["asns"][0]["asn"] == 65052
+
+    def test_colocated_locations_both_in_locations_list(self, integration_client):
+        """Both London HQ and London Colo appear in the locations list."""
+        data = integration_client.get("/api/locations").get_json()
+        names = [l["name"] for l in data["locations"]]
+        assert "London HQ" in names
+        assert "London Colo" in names
+
+    def test_colocated_locations_have_same_coordinates(self, integration_client):
+        """London HQ and London Colo share identical lat/lon."""
+        data = integration_client.get("/api/locations").get_json()
+        london_hq = next(l for l in data["locations"] if l["name"] == "London HQ")
+        london_colo = next(l for l in data["locations"] if l["name"] == "London Colo")
+        assert london_hq["latitude"] == london_colo["latitude"]
+        assert london_hq["longitude"] == london_colo["longitude"]
+
 
 # ---------------------------------------------------------------------------
 # 4. /api/search – proximity search
@@ -262,6 +289,15 @@ class TestSearchEndpoint:
         data = resp.get_json()
         names = [l["name"] for l in data["locations"]]
         assert "London HQ" in names
+
+    def test_london_search_finds_colocated_sites(self, integration_client):
+        """Both London HQ and London Colo share the same coordinates."""
+        resp = integration_client.get("/api/search?q=51.5074,-0.1278")
+        data = resp.get_json()
+        names = [l["name"] for l in data["locations"]]
+        assert "London HQ" in names
+        assert "London Colo" in names
+        assert data["count"] == 2
 
     def test_missing_query_returns_400(self, integration_client):
         resp = integration_client.get("/api/search")

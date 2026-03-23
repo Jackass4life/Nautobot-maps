@@ -546,6 +546,74 @@ html, body {
 }
 
 /* =========================================================
+   Co-located sites (multiple sites at same address)
+   ========================================================= */
+.colocated-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  background: #e74c3c;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  box-shadow: 0 0 4px rgba(0,0,0,.3);
+}
+
+.coloc-header {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.coloc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.coloc-tab {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.coloc-tab:hover {
+  background: var(--color-surface);
+  border-color: var(--color-primary);
+}
+
+.coloc-tab.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.coloc-panel {
+  display: none;
+}
+
+.coloc-panel.active {
+  display: block;
+}
+
+/* =========================================================
    Responsive (collapse sidebar on small screens)
    ========================================================= */
 @media (max-width: 640px) {

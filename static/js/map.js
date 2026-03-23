@@ -76,27 +76,7 @@ function escHtml(str) {
 }
 
 function buildBasicPopup(loc) {
-  const statusLabel = loc.status || "Unknown";
-  const rows = [
-    popupRow("Type", loc.location_type),
-    popupRow("Parent", loc.parent),
-    popupRow("Tenant", loc.tenant),
-    popupRow("ASN", loc.asn),
-    popupRow("Address", loc.physical_address),
-    popupRow("Time zone", loc.time_zone),
-    popupRow("Description", loc.description),
-  ]
-    .filter(Boolean)
-    .join("");
-
-  return `<div class="popup-content">
-    <div class="popup-title">${escHtml(loc.name)}</div>
-    <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
-    ${rows ? `<div class="popup-section">${rows}</div>` : ""}
-    <div id="popup-detail-${escHtml(loc.id)}" class="popup-loading">
-      Loading equipment &amp; ASN details…
-    </div>
-  </div>`;
+  return `<div class="popup-content">${buildLocationBody(loc)}</div>`;
 }
 
 function renderDetail(locId, detail) {
@@ -194,6 +174,156 @@ function renderDetail(locId, detail) {
 }
 
 // ---------------------------------------------------------------------------
+// Co-located site helpers (multiple sites at the same coordinates)
+// ---------------------------------------------------------------------------
+
+/**
+ * Group locations by their coordinates, rounding to 4 decimal places
+ * (~11 m precision) so that sites at the same physical address are grouped
+ * even when their coordinates differ by trivial floating-point noise.
+ */
+function groupByCoords(locations) {
+  const groups = {};
+  for (const loc of locations) {
+    const key = `${loc.latitude.toFixed(4)},${loc.longitude.toFixed(4)}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(loc);
+  }
+  return groups;
+}
+
+/**
+ * Create a marker icon with a small count badge for co-located sites.
+ */
+function makeStackedIcon(count) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36">
+    <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24S24 21 24 12C24 5.373 18.627 0 12 0z"
+          fill="#3388ff" stroke="#fff" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="4.5" fill="#fff"/>
+  </svg>`;
+  return L.divIcon({
+    html: `<div style="width:24px;height:36px;position:relative">${svg}<span class="colocated-badge">${count}</span></div>`,
+    iconSize: [24, 36],
+    iconAnchor: [12, 36],
+    popupAnchor: [0, -36],
+    className: "",
+  });
+}
+
+/**
+ * Build popup content for a single location (reused by both solo and
+ * co-located popups).
+ */
+function buildLocationBody(loc) {
+  const statusLabel = loc.status || "Unknown";
+  const rows = [
+    popupRow("Type", loc.location_type),
+    popupRow("Parent", loc.parent),
+    popupRow("Tenant", loc.tenant),
+    popupRow("ASN", loc.asn),
+    popupRow("Address", loc.physical_address),
+    popupRow("Time zone", loc.time_zone),
+    popupRow("Description", loc.description),
+  ]
+    .filter(Boolean)
+    .join("");
+
+  return `<div class="popup-title">${escHtml(loc.name)}</div>
+    <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
+    ${rows ? `<div class="popup-section">${rows}</div>` : ""}
+    <div id="popup-detail-${escHtml(loc.id)}" class="popup-loading">
+      Loading equipment &amp; ASN details…
+    </div>`;
+}
+
+/**
+ * Build the tabbed popup for multiple co-located sites.
+ */
+function buildColocatedPopup(locations) {
+  const tabs = locations
+    .map(
+      (loc, i) =>
+        `<button class="coloc-tab${i === 0 ? " active" : ""}"
+                data-coloc-index="${i}"
+                data-loc-id="${escHtml(loc.id)}"
+                aria-pressed="${i === 0 ? "true" : "false"}">${escHtml(loc.name)}</button>`
+    )
+    .join("");
+
+  const panels = locations
+    .map(
+      (loc, i) =>
+        `<div class="coloc-panel${i === 0 ? " active" : ""}" data-coloc-index="${i}">
+          ${buildLocationBody(loc)}
+        </div>`
+    )
+    .join("");
+
+  return `<div class="popup-content coloc-popup">
+    <div class="coloc-header">${locations.length} sites at this location</div>
+    <div class="coloc-tabs">${tabs}</div>
+    <div class="coloc-panels">${panels}</div>
+  </div>`;
+}
+
+/**
+ * Wire up tab-switching inside a co-located popup.
+ */
+function wireColocatedTabs(locations) {
+  const popup = document.querySelector(".coloc-popup");
+  if (!popup) return;
+
+  popup.addEventListener("click", (e) => {
+    const tab = e.target.closest(".coloc-tab");
+    if (!tab) return;
+
+    const index = tab.dataset.colocIndex;
+    const locId = tab.dataset.locId;
+
+    // Update active tab
+    popup.querySelectorAll(".coloc-tab").forEach((t) => {
+      t.classList.remove("active");
+      t.setAttribute("aria-pressed", "false");
+    });
+    tab.classList.add("active");
+    tab.setAttribute("aria-pressed", "true");
+
+    // Update active panel
+    popup.querySelectorAll(".coloc-panel").forEach((p) => {
+      p.classList.remove("active");
+    });
+    const panel = popup.querySelector(`.coloc-panel[data-coloc-index="${index}"]`);
+    if (panel) panel.classList.add("active");
+
+    // Load details for the newly-selected location
+    fetchAndRenderDetail(locId);
+  });
+}
+
+/**
+ * Add a single marker for a group of co-located sites.
+ */
+function addColocatedMarker(locations) {
+  const first = locations[0];
+  const marker = L.marker([first.latitude, first.longitude], {
+    icon: makeStackedIcon(locations.length),
+    title: locations.map((l) => l.name).join(", "),
+  });
+
+  marker.bindPopup(() => buildColocatedPopup(locations), {
+    maxWidth: 400,
+    minWidth: 300,
+  });
+
+  marker.on("popupopen", () => {
+    fetchAndRenderDetail(locations[0].id);
+    wireColocatedTabs(locations);
+  });
+
+  marker.addTo(markerLayer);
+}
+
+// ---------------------------------------------------------------------------
 // Fetch locations and render markers
 // ---------------------------------------------------------------------------
 const markerLayer = L.layerGroup().addTo(map);
@@ -254,8 +384,14 @@ function renderMarkers(locations, searchMarker) {
 }
 
 function renderMarkersSimple(locations) {
-  for (const loc of locations) {
-    addMarker(loc);
+  const groups = groupByCoords(locations);
+  for (const key in groups) {
+    const group = groups[key];
+    if (group.length === 1) {
+      addMarker(group[0]);
+    } else {
+      addColocatedMarker(group);
+    }
   }
 }
 
@@ -316,9 +452,16 @@ function renderMarkersWithClustering(locations) {
       );
       clusterMarker.addTo(markerLayer);
     } else {
-      // Zoom level high enough, show individual markers
-      for (const loc of group) {
-        addMarker(loc);
+      // Zoom level high enough – show individual markers, but group
+      // co-located sites that share identical coordinates.
+      const subGroups = groupByCoords(group);
+      for (const subKey in subGroups) {
+        const subGroup = subGroups[subKey];
+        if (subGroup.length === 1) {
+          addMarker(subGroup[0]);
+        } else {
+          addColocatedMarker(subGroup);
+        }
       }
     }
   }

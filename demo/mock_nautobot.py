@@ -170,6 +170,23 @@ LOCATIONS = [
         "time_zone": "Europe/London",
         "url": "http://mock-nautobot:8080/api/dcim/locations/loc-lon/",
     },
+    {
+        "id": "loc-lon2",
+        "name": "London Colo",
+        "slug": "london-colo",
+        "status": {"label": "Active", "value": "active"},
+        "location_type": LOCATION_TYPES["lt-dc"],
+        "parent": None,
+        # Same building as London HQ – tests co-located site handling
+        "latitude": "51.5074",
+        "longitude": "-0.1278",
+        "description": "Co-located facility in London HQ building",
+        "physical_address": "1 Canada Square, Canary Wharf, London E14 5AB, UK",
+        "tenant": TENANTS["ten-nordnet"],
+        "asn": 65052,
+        "time_zone": "Europe/London",
+        "url": "http://mock-nautobot:8080/api/dcim/locations/loc-lon2/",
+    },
 ]
 
 # Devices keyed by location_id
@@ -296,6 +313,18 @@ DEVICES = {
             "tenant": TENANTS["ten-acme"],
         },
     ],
+    "loc-lon2": [
+        {
+            "id": "dev-lon2-1",
+            "name": "lon2-edge-rt01",
+            "device_type": {"model": "MX204", "manufacturer": {"name": "Juniper Networks"}},
+            "role": {"name": "Edge Router"},
+            "status": {"label": "Active"},
+            "platform": {"name": "Junos"},
+            "serial": "BT0217480999",
+            "tenant": TENANTS["ten-nordnet"],
+        },
+    ],
     "loc-lon": [
         {
             "id": "dev-lon-1",
@@ -395,6 +424,7 @@ ASNS = {
         {"asn": 65050, "description": "Acme Corp UK primary ASN", "tenant": TENANTS["ten-acme"]},
         {"asn": 65051, "description": "Acme Corp UK backup ASN",  "tenant": TENANTS["ten-acme"]},
     ],
+    "loc-lon2": [{"asn": 65052, "description": "Nordic Net UK ASN", "tenant": TENANTS["ten-nordnet"]}],
 }
 
 
