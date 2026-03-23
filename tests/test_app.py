@@ -329,16 +329,9 @@ class TestCaching:
 class TestSSLVerification:
     def test_verify_ssl_defaults_to_true(self):
         """When NAUTOBOT_VERIFY_SSL is not set, verify should default to True."""
-        original = flask_app.NAUTOBOT_VERIFY_SSL
-        try:
-            with patch.dict("os.environ", {"NAUTOBOT_VERIFY_SSL": "true"}):
-                # Simulate the parsing logic
-                val = "true"
-                assert val.lower() == "true"
-                # And check current module default
-                assert original is True or original == True
-        finally:
-            flask_app.NAUTOBOT_VERIFY_SSL = original
+        # The module-level NAUTOBOT_VERIFY_SSL is parsed at import time from
+        # the env var (default "true"), so it should be True.
+        assert flask_app.NAUTOBOT_VERIFY_SSL is True
 
     def test_verify_ssl_false_disables_verification(self):
         """Setting NAUTOBOT_VERIFY_SSL=false should pass verify=False to requests."""
