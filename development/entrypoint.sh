@@ -31,7 +31,7 @@ done
 echo "✔ PostgreSQL is accepting connections"
 
 echo "▶ Running database migrations …"
-nautobot-server post_upgrade --no-input 2>&1
+nautobot-server post_upgrade 2>&1
 echo "✔ Migrations complete"
 
 echo "▶ Creating superuser + API token …"
