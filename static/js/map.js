@@ -263,8 +263,10 @@ function buildColocatedPopup(locations) {
     .join("");
 
   return `<div class="popup-content coloc-popup" id="${popupId}">
-    <div class="coloc-header">${locations.length} sites at this location</div>
-    <div class="coloc-tabs">${tabs}</div>
+    <div class="coloc-sticky-header">
+      <div class="coloc-header">${locations.length} sites at this location</div>
+      <div class="coloc-tabs">${tabs}</div>
+    </div>
     <div class="coloc-panels">${panels}</div>
   </div>`;
 }
