@@ -9,7 +9,7 @@ and CI integration testing, replacing the lightweight mock used in `demo/`.
 |-----------------|--------------------------------------|-------|
 | PostgreSQL 15   | `postgres:15`                        | —     |
 | Redis 7         | `redis:7-alpine`                     | —     |
-| Nautobot 3.x    | `ghcr.io/nautobot/nautobot:3-py3.12` | 8080  |
+| Nautobot 3.x    | `ghcr.io/nautobot/nautobot:3.0.9`    | 8080  |
 | nautobot-maps   | built from repo `Dockerfile`         | 5000  |
 
 ## Quick Start
