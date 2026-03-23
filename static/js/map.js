@@ -167,8 +167,8 @@ async function loadLocations() {
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
     allLocations = data.locations || [];
-    renderMarkers(allLocations);
-    updateLocationCount(allLocations.length);
+    populateFilters(allLocations);
+    applyFilters();
   } catch (err) {
     showError("Failed to load locations: " + err.message);
   } finally {
@@ -234,8 +234,49 @@ async function fetchAndRenderDetail(locId) {
 }
 
 // ---------------------------------------------------------------------------
-// Search
+// Filters
 // ---------------------------------------------------------------------------
+const filterType = document.getElementById("filter-type");
+const filterTenant = document.getElementById("filter-tenant");
+
+function populateFilters(locations) {
+  const types = [...new Set(locations.map((l) => l.location_type).filter(Boolean))].sort();
+  const tenants = [...new Set(locations.map((l) => l.tenant).filter(Boolean))].sort();
+
+  filterType.innerHTML = '<option value="">All types</option>';
+  for (const type of types) {
+    const opt = document.createElement("option");
+    opt.value = type;
+    opt.textContent = type;
+    filterType.appendChild(opt);
+  }
+
+  filterTenant.innerHTML = '<option value="">All tenants</option>';
+  for (const tenant of tenants) {
+    const opt = document.createElement("option");
+    opt.value = tenant;
+    opt.textContent = tenant;
+    filterTenant.appendChild(opt);
+  }
+}
+
+function applyFilters() {
+  const typeVal = filterType.value;
+  const tenantVal = filterTenant.value;
+
+  const filtered = allLocations.filter((loc) => {
+    if (typeVal && loc.location_type !== typeVal) return false;
+    if (tenantVal && loc.tenant !== tenantVal) return false;
+    return true;
+  });
+
+  renderMarkers(filtered);
+  updateLocationCount(filtered.length);
+}
+
+filterType.addEventListener("change", applyFilters);
+filterTenant.addEventListener("change", applyFilters);
+
 const searchInput = document.getElementById("search-input");
 const searchBtn = document.getElementById("search-btn");
 const searchResults = document.getElementById("search-results");
@@ -307,8 +348,7 @@ searchInput.addEventListener("keydown", (e) => {
 searchInput.addEventListener("input", () => {
   if (!searchInput.value.trim()) {
     searchResults.classList.add("hidden");
-    renderMarkers(allLocations);
-    updateLocationCount(allLocations.length);
+    applyFilters();
   }
 });
 
