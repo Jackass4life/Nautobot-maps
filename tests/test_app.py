@@ -278,6 +278,18 @@ class TestIndex:
         resp = client.get("/")
         assert b'id="search-input"' in resp.data
 
+    def test_index_contains_filter_type(self, client):
+        resp = client.get("/")
+        assert b'id="filter-type"' in resp.data
+
+    def test_index_contains_filter_tenant(self, client):
+        resp = client.get("/")
+        assert b'id="filter-tenant"' in resp.data
+
+    def test_index_contains_filter_section(self, client):
+        resp = client.get("/")
+        assert b'id="filter-section"' in resp.data
+
 
 # ---------------------------------------------------------------------------
 # Tests: caching
