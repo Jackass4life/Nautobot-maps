@@ -47,11 +47,38 @@ def _nested_str(obj: dict | None, *keys: str) -> str:
     """
     if not obj:
         return ""
+    if isinstance(obj, str):
+        return obj
+    if not isinstance(obj, dict):
+        return str(obj)
     for key in keys:
         val = obj.get(key)
         if val is not None and val != "":
             return str(val)
     return ""
+
+
+def _build_id_name_map(endpoint: str) -> dict:
+    """Fetch all objects from *endpoint* and return a ``{id: display_name}`` map.
+
+    Used as a fallback when nested objects in Nautobot's response don't
+    include a human-readable field (e.g. some Nautobot 3.x builds return
+    brief nested objects with only ``id`` and ``url``).
+    """
+    try:
+        items = fetch_all_pages(endpoint)
+        result = {}
+        for item in items:
+            uid = item.get("id")
+            if not uid:
+                continue
+            name = _nested_str(item, "name", "display", "label", "slug")
+            if name:
+                result[uid] = name
+        return result
+    except Exception as exc:
+        logger.debug("Could not build name lookup for %s: %s", endpoint, exc)
+        return {}
 
 
 def _cache_get(key: str):
@@ -113,6 +140,19 @@ def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
 def get_locations() -> list:
     """Fetch locations from Nautobot that have GPS coordinates."""
     raw = fetch_all_pages("dcim/locations/")
+
+    # Fallback lookup tables: cover Nautobot builds where brief nested objects
+    # only contain ``id`` + ``url`` without a human-readable name/display field.
+    tenant_map = _build_id_name_map("tenancy/tenants/")
+    status_map = _build_id_name_map("extras/statuses/")
+
+    if raw:
+        logger.debug(
+            "Nautobot location sample – tenant=%r  status=%r",
+            raw[0].get("tenant"),
+            raw[0].get("status"),
+        )
+
     locations = []
     for loc in raw:
         lat = loc.get("latitude")
@@ -125,21 +165,34 @@ def get_locations() -> list:
         except (TypeError, ValueError):
             continue
 
-        tenant = loc.get("tenant") or {}
+        tenant_obj = loc.get("tenant") or {}
+        tenant_id = tenant_obj.get("id", "") if isinstance(tenant_obj, dict) else ""
+        tenant_name = (
+            _nested_str(tenant_obj, "name", "display")
+            or tenant_map.get(tenant_id, "")
+        )
+
+        status_obj = loc.get("status") or {}
+        status_id = status_obj.get("id", "") if isinstance(status_obj, dict) else ""
+        status_name = (
+            _nested_str(status_obj, "label", "name", "display")
+            or status_map.get(status_id, "")
+        )
+
         locations.append(
             {
                 "id": loc.get("id", ""),
                 "name": loc.get("name", "Unknown"),
                 "slug": loc.get("slug", ""),
-                "status": _nested_str(loc.get("status"), "label", "name", "display"),
+                "status": status_name,
                 "location_type": _nested_str(loc.get("location_type"), "name", "display"),
                 "parent": _nested_str(loc.get("parent"), "name", "display"),
                 "latitude": lat,
                 "longitude": lon,
                 "description": loc.get("description", ""),
                 "physical_address": loc.get("physical_address", ""),
-                "tenant": _nested_str(loc.get("tenant"), "name", "display"),
-                "tenant_id": tenant.get("id", ""),
+                "tenant": tenant_name,
+                "tenant_id": tenant_id,
                 "asn": loc.get("asn"),
                 "time_zone": loc.get("time_zone", ""),
                 "url": loc.get("url", ""),
@@ -157,23 +210,51 @@ def get_location_detail(location_id: str) -> dict:
     # "location_id" was removed in 3.x and returns 400.
     try:
         devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
-        detail["devices"] = [
-            {
-                "id": d.get("id", ""),
-                "name": d.get("name", "Unknown"),
-                "device_type": _nested_str(d.get("device_type"), "model", "display"),
-                "manufacturer": _nested_str(
-                    (d.get("device_type") or {}).get("manufacturer"),
-                    "name", "display",
-                ),
-                "role": _nested_str(d.get("role"), "name", "display"),
-                "status": _nested_str(d.get("status"), "label", "name", "display"),
-                "platform": _nested_str(d.get("platform"), "name", "display"),
-                "serial": d.get("serial", ""),
-                "tenant": _nested_str(d.get("tenant"), "name", "display"),
-            }
-            for d in devices_data
-        ]
+
+        # Fallback lookup: covers Nautobot builds where brief nested objects
+        # only carry id+url without a human-readable name.
+        mfr_map = _build_id_name_map("dcim/manufacturers/")
+        tenant_map = _build_id_name_map("tenancy/tenants/")
+        status_map = _build_id_name_map("extras/statuses/")
+
+        devices = []
+        for d in devices_data:
+            dt = d.get("device_type") or {}
+            mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
+            mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
+            mfr_name = (
+                _nested_str(mfr_obj, "name", "display")
+                or mfr_map.get(mfr_id, "")
+            )
+
+            ten_obj = d.get("tenant") or {}
+            ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
+            ten_name = (
+                _nested_str(ten_obj, "name", "display")
+                or tenant_map.get(ten_id, "")
+            )
+
+            st_obj = d.get("status") or {}
+            st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
+            st_name = (
+                _nested_str(st_obj, "label", "name", "display")
+                or status_map.get(st_id, "")
+            )
+
+            devices.append(
+                {
+                    "id": d.get("id", ""),
+                    "name": d.get("name", "Unknown"),
+                    "device_type": _nested_str(d.get("device_type"), "model", "display"),
+                    "manufacturer": mfr_name,
+                    "role": _nested_str(d.get("role"), "name", "display"),
+                    "status": st_name,
+                    "platform": _nested_str(d.get("platform"), "name", "display"),
+                    "serial": d.get("serial", ""),
+                    "tenant": ten_name,
+                }
+            )
+        detail["devices"] = devices
     except Exception as exc:
         logger.warning("Could not fetch devices for location %s: %s", location_id, exc)
         detail["devices"] = []
