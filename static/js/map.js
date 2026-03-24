@@ -229,8 +229,14 @@ function buildLocationBody(loc) {
     .filter(Boolean)
     .join("");
 
+  const nautobotLink =
+    window.NAUTOBOT_URL && loc.id
+      ? `<a class="nautobot-link" href="${escHtml(window.NAUTOBOT_URL)}/dcim/locations/${encodeURIComponent(loc.id)}/" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`
+      : "";
+
   return `<div class="popup-title">${escHtml(loc.name)}</div>
     <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
+    ${nautobotLink}
     ${rows ? `<div class="popup-section">${rows}</div>` : ""}
     <div id="popup-detail-${escHtml(loc.id)}" class="popup-loading">
       Loading equipment &amp; ASN details…

@@ -484,6 +484,26 @@ class TestIndex:
         resp = client.get("/")
         assert b'id="filter-tenant-group"' in resp.data
 
+    def test_index_contains_nautobot_url(self, client):
+        saved = flask_app.NAUTOBOT_URL
+        flask_app.NAUTOBOT_URL = "https://nautobot.example.com"
+        try:
+            resp = client.get("/")
+            assert b"window.NAUTOBOT_URL" in resp.data
+            assert b"https://nautobot.example.com" in resp.data
+        finally:
+            flask_app.NAUTOBOT_URL = saved
+
+    def test_index_nautobot_url_empty_when_unset(self, client):
+        saved = flask_app.NAUTOBOT_URL
+        flask_app.NAUTOBOT_URL = ""
+        try:
+            resp = client.get("/")
+            assert b"window.NAUTOBOT_URL" in resp.data
+            assert b'window.NAUTOBOT_URL = ""' in resp.data
+        finally:
+            flask_app.NAUTOBOT_URL = saved
+
 
 
 # ---------------------------------------------------------------------------

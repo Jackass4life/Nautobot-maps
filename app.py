@@ -462,7 +462,7 @@ def internal_server_error(exc):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", nautobot_url=NAUTOBOT_URL)
 
 
 @app.route("/api/locations")
