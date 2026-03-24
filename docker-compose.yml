@@ -2,6 +2,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   nautobot-maps:
     build: .
@@ -16,5 +21,6 @@ services:
       - CACHE_TYPE=${CACHE_TYPE:-RedisCache}
       - CACHE_REDIS_URL=${CACHE_REDIS_URL:-redis://redis:6379/0}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped

@@ -73,9 +73,20 @@ python app.py
 ```bash
 # Build and run with Docker Compose
 cp .env.example .env   # fill in your values
-docker compose up --build
+docker compose up --build -d
 # → Open http://localhost:5000
+
+# View logs
+docker compose logs -f
+
+# Stop and remove containers
+docker compose down
 ```
+
+> **Note:** Always use `docker compose up` (not `docker compose start`) to create
+> and start the containers.  The `start` sub-command only restarts previously
+> created containers and will fail with *"has no container to start"* on a fresh
+> checkout.
 
 ## Demo (Mock Nautobot)
 
