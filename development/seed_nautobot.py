@@ -174,10 +174,9 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     print("[4/9] Creating tags …")
     tags = {}
     for tag_name in ("critical", "production", "peering"):
-        tag_slug = tag_name  # In Nautobot, slug defaults to lowercase name
         tags[tag_name] = get_or_create(
             "extras/tags/",
-            {"name": tag_name, "slug": tag_slug},
+            {"name": tag_name, "content_types": ["dcim.location"]},
         )
 
     # -- Locations -------------------------------------------------------
