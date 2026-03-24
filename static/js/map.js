@@ -217,13 +217,17 @@ function makeStackedIcon(count) {
  */
 function buildLocationBody(loc) {
   const statusLabel = loc.status || "Unknown";
+  const tagsValue =
+    Array.isArray(loc.tags) && loc.tags.length > 0 ? loc.tags.join(", ") : "";
   const rows = [
     popupRow("Type", loc.location_type),
     popupRow("Parent", loc.parent),
+    popupRow("Facility", loc.facility),
     popupRow("Tenant", loc.tenant),
     popupRow("ASN", loc.asn),
     popupRow("Address", loc.physical_address),
     popupRow("Time zone", loc.time_zone),
+    popupRow("Tags", tagsValue),
     popupRow("Description", loc.description),
   ]
     .filter(Boolean)

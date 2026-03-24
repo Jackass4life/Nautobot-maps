@@ -36,6 +36,8 @@ SAMPLE_LOCATIONS_PAGE = {
             "tenant": {"id": "ten-1", "name": "Acme Corp", "tenant_group": {"id": "tg-1", "name": "Corporate"}},
             "asn": 65001,
             "time_zone": "Europe/Copenhagen",
+            "facility": "CPH-1",
+            "tags": [{"name": "critical"}, {"name": "production"}],
             "url": "https://nautobot.example.com/api/dcim/locations/loc-1/",
         },
         {
@@ -52,6 +54,8 @@ SAMPLE_LOCATIONS_PAGE = {
             "tenant": None,
             "asn": None,
             "time_zone": "Europe/Copenhagen",
+            "facility": "",
+            "tags": [],
             "url": "https://nautobot.example.com/api/dcim/locations/loc-2/",
         },
         # Location without coordinates – should be excluded
@@ -69,6 +73,8 @@ SAMPLE_LOCATIONS_PAGE = {
             "tenant": None,
             "asn": None,
             "time_zone": "",
+            "facility": "",
+            "tags": [],
             "url": "",
         },
     ],
@@ -181,6 +187,30 @@ class TestApiLocations:
         # loc-2 (Aarhus PoP) has no tenant
         loc = resp.get_json()["locations"][1]
         assert loc["tenant_group"] == ""
+
+    def test_facility_field_populated(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["facility"] == "CPH-1"
+
+    def test_facility_empty_when_not_set(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][1]
+        assert loc["facility"] == ""
+
+    def test_tags_field_populated(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["tags"] == ["critical", "production"]
+
+    def test_tags_empty_when_none(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][1]
+        assert loc["tags"] == []
 
     def test_location_type_fallback_with_brief_nested_object(self, client):
         """When location_type is brief (id+url only), the fallback map resolves the name."""

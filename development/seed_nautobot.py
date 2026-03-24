@@ -127,14 +127,14 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     wait_for_nautobot()
 
     # -- Statuses --------------------------------------------------------
-    print("[1/8] Looking up statuses …")
+    print("[1/9] Looking up statuses …")
     active = lookup_status("Active")
     planned = lookup_status("Planned")
     print(f"  Active  → {active['id']}")
     print(f"  Planned → {planned['id']}")
 
     # -- Location types --------------------------------------------------
-    print("[2/8] Creating location types …")
+    print("[2/9] Creating location types …")
     lt = {}
     for name in ("Data Center", "PoP", "Office", "Internet Exchange"):
         lt[name] = get_or_create(
@@ -143,15 +143,24 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Tenants ---------------------------------------------------------
-    print("[3/8] Creating tenants …")
+    print("[3/9] Creating tenants …")
     tenants = {}
     for name in ("Acme Corp", "Nordic Net", "EuroIX", "DataCenter GmbH"):
         tenants[name] = get_or_create("tenancy/tenants/", {"name": name})
 
+    # -- Tags ------------------------------------------------------------
+    print("[4/9] Creating tags …")
+    tags = {}
+    for tag_name in ("critical", "production", "peering"):
+        tags[tag_name] = get_or_create(
+            "extras/tags/",
+            {"name": tag_name, "content_types": ["dcim.location"]},
+        )
+
     # -- Locations -------------------------------------------------------
     # ASN is a plain integer field on the Location object in Nautobot 3.x;
     # /api/ipam/asns/ is a BGP-plugin endpoint and is not available in core.
-    print("[4/8] Creating locations …")
+    print("[5/9] Creating locations …")
     location_defs = [
         {
             "name": "Copenhagen DC",
@@ -164,6 +173,8 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "physical_address": "Vermlandsgade 51, 2300 Copenhagen, Denmark",
             "time_zone": "Europe/Copenhagen",
             "description": "Primary Scandinavian data centre",
+            "facility": "CPH-1",
+            "tags": [tags["critical"]["id"], tags["production"]["id"]],
         },
         {
             "name": "Copenhagen Colocation",
@@ -211,6 +222,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "physical_address": "Frederiksplein 42, 1017 XN Amsterdam, Netherlands",
             "time_zone": "Europe/Amsterdam",
             "description": "AMS-IX peering facility",
+            "tags": [tags["peering"]["id"]],
         },
         {
             "name": "Frankfurt DC",
@@ -223,6 +235,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "physical_address": "Hanauer Landstrasse 298, 60314 Frankfurt, Germany",
             "time_zone": "Europe/Berlin",
             "description": "DE-CIX Frankfurt data centre",
+            "facility": "FRA-5",
         },
         {
             "name": "Paris PoP",
@@ -255,7 +268,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         locations[loc_def["name"]] = get_or_create("dcim/locations/", loc_def)
 
     # -- Manufacturers ---------------------------------------------------
-    print("[5/8] Creating manufacturers …")
+    print("[6/9] Creating manufacturers …")
     manufacturers = {}
     for name in (
         "Cisco",
@@ -267,7 +280,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         manufacturers[name] = get_or_create("dcim/manufacturers/", {"name": name})
 
     # -- Device types ----------------------------------------------------
-    print("[6/8] Creating device types …")
+    print("[7/9] Creating device types …")
     device_type_defs = [
         ("ASR1001-X", "Cisco"),
         ("Catalyst 9300", "Cisco"),
@@ -294,7 +307,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Roles -----------------------------------------------------------
-    print("[7/8] Creating roles …")
+    print("[8/9] Creating roles …")
     role_names = (
         "Core Router",
         "Distribution Switch",
@@ -316,7 +329,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         )
 
     # -- Devices ---------------------------------------------------------
-    print("[8/8] Creating devices …")
+    print("[9/9] Creating devices …")
     device_defs = [
         # Copenhagen DC
         ("cph-core-rt01", "ASR1001-X", "Core Router", "Copenhagen DC", "Acme Corp", "IOS-XE", "FCZ2227B0M1"),
