@@ -413,6 +413,26 @@ html, body {
 .badge-planned  { background: rgba(240,165,0,.2);  color: var(--color-warning); }
 .badge-other    { background: rgba(128,128,128,.2); color: #aaa; }
 
+.nautobot-link {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(13,110,253,.15);
+  color: var(--color-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  vertical-align: middle;
+}
+
+.nautobot-link:hover {
+  background: var(--color-primary);
+  color: #fff;
+}
+
 .popup-section {
   margin-top: 8px;
   padding-top: 8px;

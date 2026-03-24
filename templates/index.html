@@ -106,6 +106,9 @@
   <!-- Leaflet JS (vendored locally for offline/air-gapped use) -->
   <script src="{{ url_for('static', filename='vendor/leaflet.js') }}"></script>
 
+  <!-- Pass Nautobot base URL to frontend for deep-linking -->
+  <script>window.NAUTOBOT_URL = {{ (nautobot_url or "") | tojson }};</script>
+
   <!-- App JS -->
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 </body>
