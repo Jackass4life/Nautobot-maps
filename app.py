@@ -285,6 +285,14 @@ def get_locations() -> list:
 
         tenant_group_name = tenant_group_map.get(tenant_id, "")
 
+        # Tags – each tag is a nested object with at least a name/display key.
+        raw_tags = loc.get("tags") or []
+        tag_names = []
+        for t in raw_tags:
+            tag_name = _nested_str(t, "name", "display") if isinstance(t, dict) else ""
+            if tag_name:
+                tag_names.append(tag_name)
+
         locations.append(
             {
                 "id": loc.get("id", ""),
@@ -297,11 +305,13 @@ def get_locations() -> list:
                 "longitude": lon,
                 "description": loc.get("description", ""),
                 "physical_address": loc.get("physical_address", ""),
+                "facility": loc.get("facility", ""),
                 "tenant": tenant_name,
                 "tenant_id": tenant_id,
                 "tenant_group": tenant_group_name,
                 "asn": loc.get("asn"),
                 "time_zone": loc.get("time_zone", ""),
+                "tags": tag_names,
                 "url": loc.get("url", ""),
             }
         )

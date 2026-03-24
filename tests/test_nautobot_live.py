@@ -141,6 +141,34 @@ class TestLiveLocations:
         assert oslo is not None
         assert oslo["status"] == "Planned"
 
+    def test_facility_populated(self, live_client):
+        data = live_client.get("/api/locations").get_json()
+        cph = next(
+            (loc for loc in data["locations"] if loc["name"] == "Copenhagen DC"),
+            None,
+        )
+        assert cph is not None
+        assert cph["facility"] == "CPH-1"
+
+    def test_tags_populated(self, live_client):
+        data = live_client.get("/api/locations").get_json()
+        cph = next(
+            (loc for loc in data["locations"] if loc["name"] == "Copenhagen DC"),
+            None,
+        )
+        assert cph is not None
+        assert "critical" in cph["tags"]
+        assert "production" in cph["tags"]
+
+    def test_tags_empty_when_not_set(self, live_client):
+        data = live_client.get("/api/locations").get_json()
+        oslo = next(
+            (loc for loc in data["locations"] if loc["name"] == "Oslo Office"),
+            None,
+        )
+        assert oslo is not None
+        assert oslo["tags"] == []
+
 
 
 # ---------------------------------------------------------------------------
