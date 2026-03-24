@@ -51,7 +51,7 @@ def live_client():
     flask_app.NAUTOBOT_URL = NAUTOBOT_LIVE_URL
     flask_app.NAUTOBOT_TOKEN = NAUTOBOT_LIVE_TOKEN
     flask_app.NAUTOBOT_VERIFY_SSL = False
-    flask_app._cache.clear()
+    flask_app.cache.clear()
 
     flask_app.app.config["TESTING"] = True
     flask_app.app.config["SECRET_KEY"] = "live-test-secret"
@@ -66,9 +66,9 @@ def live_client():
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    flask_app._cache.clear()
+    flask_app.cache.clear()
     yield
-    flask_app._cache.clear()
+    flask_app.cache.clear()
 
 
 # ---------------------------------------------------------------------------

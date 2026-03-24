@@ -10,7 +10,7 @@ def client():
     flask_app.app.config["TESTING"] = True
     flask_app.app.config["SECRET_KEY"] = "test-secret"
     # Clear cache before each test
-    flask_app._cache.clear()
+    flask_app.cache.clear()
     with flask_app.app.test_client() as c:
         yield c
 
@@ -518,7 +518,7 @@ class TestCaching:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app._cache.clear()
+        flask_app.cache.clear()
         with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
             # Patch env vars so nautobot_get doesn't raise RuntimeError
             flask_app.NAUTOBOT_URL = "http://nautobot.test"
@@ -534,20 +534,24 @@ class TestCaching:
         assert mock_get.call_count == 1
 
     def test_cache_set_and_get(self):
-        flask_app._cache.clear()
+        flask_app.cache.clear()
         flask_app._cache_set("test-key", {"data": 42})
         result = flask_app._cache_get("test-key")
         assert result == {"data": 42}
 
     def test_cache_expires(self):
+        """Verify that Flask-Caching is configured with the correct timeout."""
+        flask_app.cache.clear()
+        # Store with a very short timeout and verify it expires
+        flask_app.cache.set("expiring-key", "value", timeout=1)
         import time
-
-        flask_app._cache.clear()
-        flask_app._cache_set("expiring-key", "value")
-        # Manually expire the entry
-        flask_app._cache["expiring-key"]["ts"] -= flask_app.CACHE_TTL + 1
+        time.sleep(1.1)
         result = flask_app._cache_get("expiring-key")
         assert result is None
+
+    def test_cache_default_timeout_matches_cache_ttl(self):
+        """Flask-Caching default timeout should match the CACHE_TTL env var."""
+        assert flask_app.app.config["CACHE_DEFAULT_TIMEOUT"] == flask_app.CACHE_TTL
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +572,7 @@ class TestSSLVerification:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app._cache.clear()
+        flask_app.cache.clear()
         original_url = flask_app.NAUTOBOT_URL
         original_token = flask_app.NAUTOBOT_TOKEN
         original_verify = flask_app.NAUTOBOT_VERIFY_SSL
@@ -594,7 +598,7 @@ class TestSSLVerification:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app._cache.clear()
+        flask_app.cache.clear()
         original_url = flask_app.NAUTOBOT_URL
         original_token = flask_app.NAUTOBOT_TOKEN
         original_verify = flask_app.NAUTOBOT_VERIFY_SSL
@@ -620,7 +624,7 @@ class TestSSLVerification:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app._cache.clear()
+        flask_app.cache.clear()
         original_url = flask_app.NAUTOBOT_URL
         original_token = flask_app.NAUTOBOT_TOKEN
         original_verify = flask_app.NAUTOBOT_VERIFY_SSL
@@ -651,7 +655,7 @@ class TestApiVersionHeader:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app._cache.clear()
+        flask_app.cache.clear()
         original_url = flask_app.NAUTOBOT_URL
         original_token = flask_app.NAUTOBOT_TOKEN
         original_version = flask_app.NAUTOBOT_API_VERSION
@@ -677,7 +681,7 @@ class TestApiVersionHeader:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app._cache.clear()
+        flask_app.cache.clear()
         original_url = flask_app.NAUTOBOT_URL
         original_token = flask_app.NAUTOBOT_TOKEN
         original_version = flask_app.NAUTOBOT_API_VERSION

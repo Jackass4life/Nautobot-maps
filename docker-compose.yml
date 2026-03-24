@@ -1,4 +1,8 @@
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
   nautobot-maps:
     build: .
     ports:
@@ -9,4 +13,8 @@ services:
       - NAUTOBOT_VERIFY_SSL=${NAUTOBOT_VERIFY_SSL:-true}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me}
       - CACHE_TTL=${CACHE_TTL:-300}
+      - CACHE_TYPE=${CACHE_TYPE:-RedisCache}
+      - CACHE_REDIS_URL=${CACHE_REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      - redis
     restart: unless-stopped
