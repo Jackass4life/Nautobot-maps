@@ -325,6 +325,7 @@ function addColocatedMarker(locations) {
     wireColocatedTabs(locations);
   });
 
+  bindHoverAndLock(marker);
   marker.addTo(markerLayer);
 }
 
@@ -472,6 +473,80 @@ function renderMarkersWithClustering(locations) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Hover-to-preview, click-to-lock
+// ---------------------------------------------------------------------------
+/**
+ * Show popup on hover; close it when the cursor leaves unless the user has
+ * clicked ("locked") the popup.  A short delay prevents flicker when the
+ * cursor crosses from the marker into the popup element.
+ */
+function bindHoverAndLock(marker) {
+  let locked = false;
+  let closeTimer = null;
+
+  function cancelClose() {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+  }
+
+  function scheduleClose() {
+    cancelClose();
+    closeTimer = setTimeout(() => {
+      if (!locked && marker.isPopupOpen()) {
+        marker.closePopup();
+      }
+    }, 300);
+  }
+
+  // --- hover opens popup ---
+  marker.on("mouseover", () => {
+    cancelClose();
+    if (!marker.isPopupOpen()) {
+      marker.openPopup();
+    }
+  });
+
+  marker.on("mouseout", () => {
+    if (!locked) {
+      scheduleClose();
+    }
+  });
+
+  // --- click locks popup open ---
+  marker.on("click", () => {
+    cancelClose();
+    locked = true;
+    if (!marker.isPopupOpen()) {
+      marker.openPopup();
+    }
+    const el = marker.getPopup()?.getElement();
+    if (el) el.classList.add("popup-locked");
+  });
+
+  // --- keep popup alive while cursor is inside it ---
+  marker.on("popupopen", () => {
+    const el = marker.getPopup()?.getElement();
+    if (el) {
+      el.addEventListener("mouseenter", cancelClose);
+      el.addEventListener("mouseleave", () => {
+        if (!locked) scheduleClose();
+      });
+      if (locked) el.classList.add("popup-locked");
+    }
+  });
+
+  // --- reset on close ---
+  marker.on("popupclose", () => {
+    cancelClose();
+    locked = false;
+    const el = marker.getPopup()?.getElement();
+    if (el) el.classList.remove("popup-locked");
+  });
+}
+
 function addMarker(loc) {
   const marker = L.marker([loc.latitude, loc.longitude], {
     icon: iconForStatus(loc.status),
@@ -484,6 +559,7 @@ function addMarker(loc) {
     fetchAndRenderDetail(loc.id);
   });
 
+  bindHoverAndLock(marker);
   marker.addTo(markerLayer);
 }
 
