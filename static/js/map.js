@@ -524,6 +524,7 @@ function bindHoverAndLock(marker) {
     }
     const el = marker.getPopup()?.getElement();
     if (el) el.classList.add("popup-locked");
+    map.panTo(marker.getLatLng());
   });
 
   // --- keep popup alive while cursor is inside it ---
@@ -562,14 +563,6 @@ function addMarker(loc) {
   bindHoverAndLock(marker);
   marker.addTo(markerLayer);
 }
-
-// Center map on marker when its popup opens
-map.on('popupopen', (e) => {
-  const latlng = e.popup.getLatLng();
-  if (latlng) {
-    map.panTo(latlng);
-  }
-});
 
 // Re-cluster on zoom
 map.on('zoomend', () => {
