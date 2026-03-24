@@ -212,6 +212,56 @@ class TestApiLocations:
         loc = resp.get_json()["locations"][1]
         assert loc["tags"] == []
 
+    def test_tags_fallback_with_brief_nested_object(self, client):
+        """When tags are brief (id+url only), the fallback map resolves names."""
+        brief_locations = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-tags",
+                    "name": "Tagged Location",
+                    "slug": "tagged-loc",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Data Center"},
+                    "parent": None,
+                    "latitude": "55.0",
+                    "longitude": "12.0",
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "facility": "",
+                    "tags": [
+                        {"id": "tag-1", "url": "http://nautobot/api/extras/tags/tag-1/"},
+                        {"id": "tag-2", "url": "http://nautobot/api/extras/tags/tag-2/"},
+                    ],
+                    "url": "",
+                },
+            ],
+        }
+        tags_page = {
+            "count": 2,
+            "next": None,
+            "results": [
+                {"id": "tag-1", "name": "critical"},
+                {"id": "tag-2", "name": "production"},
+            ],
+        }
+
+        def mock_get(endpoint, params=None):
+            if "extras/tags" in endpoint:
+                return tags_page
+            if "dcim/locations" in endpoint:
+                return brief_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["tags"] == ["critical", "production"]
+
     def test_location_type_fallback_with_brief_nested_object(self, client):
         """When location_type is brief (id+url only), the fallback map resolves the name."""
         brief_locations = {

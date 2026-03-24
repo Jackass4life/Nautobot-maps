@@ -92,17 +92,39 @@ def _post(endpoint: str, data: dict) -> dict:
     return resp.json()
 
 
+def _patch(url: str, data: dict) -> dict:
+    """PATCH helper with error handling."""
+    resp = session.patch(url, json=data, timeout=30)
+    if not resp.ok:
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text[:500]
+        print(f"  ERROR {resp.status_code} PATCH {url}: {body}", file=sys.stderr)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get_or_create(endpoint: str, data: dict, lookup: dict | None = None) -> dict:
     """
     Return an existing object or create a new one.
+    If the object exists, update it with the new data.
 
     *lookup* defaults to ``{"name": data["name"]}`` if not given.
     """
     lookup = lookup or {"name": data.get("name", data.get("model", ""))}
     results = _get(endpoint, params=lookup).get("results", [])
     if results:
-        print(f"  ↳ found  {endpoint}  {lookup}")
-        return results[0]
+        existing = results[0]
+        obj_url = existing.get("url")
+        if obj_url:
+            # Update the existing object with new data
+            obj = _patch(obj_url, data)
+            print(f"  ↳ updated {endpoint}  {lookup}")
+            return obj
+        else:
+            print(f"  ↳ found  {endpoint}  {lookup}")
+            return existing
 
     obj = _post(endpoint, data)
     print(f"  ↳ created {endpoint}  {lookup}")
