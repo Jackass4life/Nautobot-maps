@@ -384,6 +384,11 @@ html, body {
   color: var(--color-text-muted) !important;
 }
 
+/* Locked-popup indicator (click-to-lock) */
+.popup-locked .leaflet-popup-content-wrapper {
+  border-left: 3px solid var(--color-primary) !important;
+}
+
 .popup-content {
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 0.85rem;
