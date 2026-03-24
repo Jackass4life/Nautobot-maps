@@ -142,3 +142,11 @@ The application is tested against **Nautobot 2.x and 3.x**:
 
 - Only locations with both `latitude` **and** `longitude` fields populated appear on the map.
 - The geocoding service used for address search is [Nominatim](https://nominatim.org/) (OpenStreetMap) — no API key required.
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).
