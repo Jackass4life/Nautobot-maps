@@ -261,6 +261,8 @@ class TestApiLocations:
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["tags"] == ["critical", "production"]
+
+    def test_location_type_fallback_with_brief_nested_object(self, client):
         """When location_type is brief (id+url only), the fallback map resolves the name."""
         brief_locations = {
             "count": 1,
