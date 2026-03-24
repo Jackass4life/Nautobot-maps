@@ -396,6 +396,66 @@ def get_location_detail(location_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Error handlers
+# ---------------------------------------------------------------------------
+
+
+def _wants_json():
+    """Return True when the client prefers a JSON response."""
+    return (
+        request.path.startswith("/api/")
+        or request.accept_mimetypes.best_match(["application/json", "text/html"])
+        == "application/json"
+    )
+
+
+@app.errorhandler(404)
+def page_not_found(exc):
+    if _wants_json():
+        return jsonify({"error": "Not found"}), 404
+    return (
+        render_template(
+            "error.html",
+            error_code=404,
+            error_title="Page Not Found",
+            error_message="The page you are looking for does not exist. "
+            "Check the URL or head back to the map.",
+        ),
+        404,
+    )
+
+
+@app.errorhandler(405)
+def method_not_allowed(exc):
+    if _wants_json():
+        return jsonify({"error": "Method not allowed"}), 405
+    return (
+        render_template(
+            "error.html",
+            error_code=405,
+            error_title="Method Not Allowed",
+            error_message="The HTTP method used is not allowed for this URL.",
+        ),
+        405,
+    )
+
+
+@app.errorhandler(500)
+def internal_server_error(exc):
+    if _wants_json():
+        return jsonify({"error": "Internal server error"}), 500
+    return (
+        render_template(
+            "error.html",
+            error_code=500,
+            error_title="Internal Server Error",
+            error_message="Something went wrong on our end. Please try again later.",
+        ),
+        500,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
