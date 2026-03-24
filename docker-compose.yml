@@ -1,3 +1,14 @@
+# docker-compose.yml — Nautobot Maps (production / quick-start)
+#
+# Start:   docker compose up --build -d
+# Logs:    docker compose logs -f
+# Stop:    docker compose down
+#
+# NOTE: Do NOT use "docker compose build && docker compose start".
+# "start" only restarts previously created containers and will fail with
+# "has no container to start" on a fresh checkout.  Always use
+# "docker compose up" which both creates and starts containers.
+
 services:
   redis:
     image: redis:7-alpine

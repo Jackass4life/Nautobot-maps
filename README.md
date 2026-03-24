@@ -70,9 +70,16 @@ python app.py
 
 ## Docker
 
+> **Important:** Always use `docker compose up` — **not** `docker compose build && docker compose start`.
+> The `start` sub-command only restarts previously created containers and will
+> fail with *"service … has no container to start"* on a fresh checkout.
+> `docker compose up` handles building, creating, and starting in one step.
+
 ```bash
-# Build and run with Docker Compose
-cp .env.example .env   # fill in your values
+# 1. Configure environment variables
+cp .env.example .env   # fill in NAUTOBOT_URL and NAUTOBOT_TOKEN
+
+# 2. Build images and start containers
 docker compose up --build -d
 # → Open http://localhost:5000
 
@@ -82,11 +89,6 @@ docker compose logs -f
 # Stop and remove containers
 docker compose down
 ```
-
-> **Note:** Always use `docker compose up` (not `docker compose start`) to create
-> and start the containers.  The `start` sub-command only restarts previously
-> created containers and will fail with *"has no container to start"* on a fresh
-> checkout.
 
 ## Demo (Mock Nautobot)
 
