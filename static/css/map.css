@@ -372,8 +372,7 @@ html, body {
 }
 
 .leaflet-popup-content {
-  max-height: min(500px, 70vh);
-  overflow-y: auto;
+  overflow-y: visible;
 }
 
 .leaflet-popup-tip {
@@ -573,6 +572,11 @@ html, body {
   justify-content: center;
   border: 2px solid #fff;
   box-shadow: 0 0 4px rgba(0,0,0,.3);
+}
+
+.coloc-popup {
+  max-height: min(500px, 70vh);
+  overflow-y: auto;
 }
 
 .coloc-header {
