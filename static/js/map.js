@@ -542,6 +542,8 @@ function bindHoverAndLock(marker) {
   marker.on("popupclose", () => {
     cancelClose();
     locked = false;
+    const el = marker.getPopup()?.getElement();
+    if (el) el.classList.remove("popup-locked");
   });
 }
 
