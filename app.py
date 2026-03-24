@@ -223,6 +223,7 @@ def get_locations() -> list:
     tenant_map = _build_id_name_map("tenancy/tenants/")
     status_map = _build_id_name_map("extras/statuses/")
     lt_map = _build_id_name_map("dcim/location-types/")
+    tag_map = _build_id_name_map("extras/tags/")
     tenant_group_map = _build_tenant_group_map()
 
     # Build a location id → name map from the raw data for parent resolution.
@@ -286,10 +287,19 @@ def get_locations() -> list:
         tenant_group_name = tenant_group_map.get(tenant_id, "")
 
         # Tags – each tag is a nested object with at least a name/display key.
+        # In Nautobot 3.x brief tag objects may only contain id+url, so fall
+        # back to the pre-built tag_map.
         raw_tags = loc.get("tags") or []
         tag_names = []
         for t in raw_tags:
-            tag_name = _nested_str(t, "name", "display") if isinstance(t, dict) else ""
+            if isinstance(t, dict):
+                tag_id = t.get("id", "")
+                tag_name = (
+                    _nested_str(t, "name", "display")
+                    or tag_map.get(tag_id, "")
+                )
+            else:
+                tag_name = ""
             if tag_name:
                 tag_names.append(tag_name)
 
