@@ -44,7 +44,7 @@ def integration_client(mock_nautobot_server):
     # Patch the module-level config variables so all calls go to the mock server
     flask_app.NAUTOBOT_URL = mock_nautobot_server
     flask_app.NAUTOBOT_TOKEN = "demo-token"
-    flask_app._cache.clear()
+    flask_app.cache.clear()
 
     flask_app.app.config["TESTING"] = True
     flask_app.app.config["SECRET_KEY"] = "integration-test-secret"
@@ -62,9 +62,9 @@ def integration_client(mock_nautobot_server):
 # ---------------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def clear_cache():
-    flask_app._cache.clear()
+    flask_app.cache.clear()
     yield
-    flask_app._cache.clear()
+    flask_app.cache.clear()
 
 
 # ---------------------------------------------------------------------------

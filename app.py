@@ -1,10 +1,10 @@
 import os
-import time
 import logging
 from functools import wraps
 
 import requests
 from flask import Flask, render_template, jsonify, request
+from flask_caching import Cache
 from dotenv import load_dotenv
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
@@ -22,6 +22,17 @@ NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
 NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
 
+# Flask-Caching configuration.
+# Defaults to SimpleCache (in-process) for development / single-worker setups.
+# Set CACHE_TYPE=RedisCache and CACHE_REDIS_URL=redis://redis:6379/0 in
+# production to share cache across multiple Gunicorn workers.
+app.config["CACHE_TYPE"] = os.getenv("CACHE_TYPE", "SimpleCache")
+app.config["CACHE_DEFAULT_TIMEOUT"] = CACHE_TTL
+_redis_url = os.getenv("CACHE_REDIS_URL", "")
+if _redis_url:
+    app.config["CACHE_REDIS_URL"] = _redis_url
+cache = Cache(app)
+
 # SSL verification: "true" (default) = verify, "false" = skip verification,
 # or a file path to a custom CA bundle.
 _ssl_env = os.getenv("NAUTOBOT_VERIFY_SSL", "true").strip()
@@ -33,8 +44,12 @@ else:
     # Treat the value as a path to a CA bundle / certificate file
     NAUTOBOT_VERIFY_SSL = _ssl_env
 
-# Simple in-memory cache
-_cache: dict = {}
+def _cache_get(key: str):
+    return cache.get(key)
+
+
+def _cache_set(key: str, data):
+    cache.set(key, data)
 
 
 def _nested_str(obj: dict | None, *keys: str) -> str:
@@ -152,16 +167,6 @@ def _build_tenant_group_map() -> dict:
         logger.debug("Could not build tenant group map: %s", exc)
         return {}
 
-
-def _cache_get(key: str):
-    entry = _cache.get(key)
-    if entry and time.time() - entry["ts"] < CACHE_TTL:
-        return entry["data"]
-    return None
-
-
-def _cache_set(key: str, data):
-    _cache[key] = {"data": data, "ts": time.time()}
 
 
 def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
