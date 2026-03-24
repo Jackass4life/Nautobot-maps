@@ -1,4 +1,4 @@
-# docker-compose.yml — Nautobot Maps (production / quick-start)
+# docker-compose.yml - Nautobot Maps (production / quick-start)
 #
 # Start:   docker compose up --build -d
 # Logs:    docker compose logs -f
