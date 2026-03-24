@@ -174,9 +174,10 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     print("[4/9] Creating tags …")
     tags = {}
     for tag_name in ("critical", "production", "peering"):
+        tag_slug = tag_name  # In Nautobot, slug defaults to lowercase name
         tags[tag_name] = get_or_create(
             "extras/tags/",
-            {"name": tag_name, "content_types": ["dcim.location"]},
+            {"name": tag_name, "slug": tag_slug, "content_types": ["dcim.location"]},
         )
 
     # -- Locations -------------------------------------------------------
@@ -196,7 +197,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "time_zone": "Europe/Copenhagen",
             "description": "Primary Scandinavian data centre",
             "facility": "CPH-1",
-            "tags": [tags["critical"]["id"], tags["production"]["id"]],
+            "tags": ["critical", "production"],
         },
         {
             "name": "Copenhagen Colocation",
@@ -244,7 +245,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
             "physical_address": "Frederiksplein 42, 1017 XN Amsterdam, Netherlands",
             "time_zone": "Europe/Amsterdam",
             "description": "AMS-IX peering facility",
-            "tags": [tags["peering"]["id"]],
+            "tags": ["peering"],
         },
         {
             "name": "Frankfurt DC",
