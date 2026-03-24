@@ -674,3 +674,39 @@ class TestApiVersionHeader:
             flask_app.NAUTOBOT_URL = original_url
             flask_app.NAUTOBOT_TOKEN = original_token
             flask_app.NAUTOBOT_API_VERSION = original_version
+
+
+# ---------------------------------------------------------------------------
+# Tests: Custom error handlers
+# ---------------------------------------------------------------------------
+class TestErrorHandlers:
+    def test_404_html_for_browser(self, client):
+        resp = client.get("/nonexistent-page")
+        assert resp.status_code == 404
+        assert b"Page Not Found" in resp.data
+        assert b"Back to Map" in resp.data
+
+    def test_404_json_for_api_path(self, client):
+        resp = client.get("/api/nonexistent")
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert data["error"] == "Not found"
+
+    def test_404_json_when_accept_json(self, client):
+        resp = client.get(
+            "/nonexistent-page", headers={"Accept": "application/json"}
+        )
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert data["error"] == "Not found"
+
+    def test_405_html_for_browser(self, client):
+        resp = client.post("/")
+        assert resp.status_code == 405
+        assert b"Method Not Allowed" in resp.data
+
+    def test_405_json_for_api_path(self, client):
+        resp = client.post("/api/locations")
+        assert resp.status_code == 405
+        data = resp.get_json()
+        assert data["error"] == "Method not allowed"
