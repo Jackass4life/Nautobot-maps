@@ -328,6 +328,7 @@ function addColocatedMarker(locations) {
   marker.bindPopup(() => buildColocatedPopup(locations), {
     maxWidth: 400,
     minWidth: 300,
+    keepInView: true,
   });
 
   marker.on("popupopen", () => {
@@ -464,7 +465,8 @@ function renderMarkersWithClustering(locations) {
           <ul style="margin:8px 0 0 0;padding-left:20px;font-size:0.8rem;max-height:150px;overflow-y:auto">
             ${locations}${more}
           </ul>
-        </div>`
+        </div>`,
+        { keepInView: true }
       );
       clusterMarker.addTo(markerLayer);
     } else {
@@ -564,7 +566,7 @@ function addMarker(loc) {
     title: loc.name,
   });
 
-  marker.bindPopup(() => buildBasicPopup(loc), { maxWidth: 360, minWidth: 280 });
+  marker.bindPopup(() => buildBasicPopup(loc), { maxWidth: 360, minWidth: 280, keepInView: true });
 
   marker.on("popupopen", () => {
     fetchAndRenderDetail(loc.id);
