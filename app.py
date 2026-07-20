@@ -328,6 +328,67 @@ def get_locations() -> list:
     return locations
 
 
+# ---------------------------------------------------------------------------
+# NOC alert helpers
+# ---------------------------------------------------------------------------
+
+# Device statuses that count as "down" for alert purposes
+_DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning"})
+
+# Keywords in a device role that identify core/critical infrastructure.
+# Matching is case-insensitive substring check.
+_CORE_ROLE_KEYWORDS: tuple = ("core", "spine", "distribution", "router", "gateway")
+
+
+def compute_alert_level(devices: list) -> dict:
+    """Return the NOC alert level for a location based on its device list.
+
+    Returns a dict::
+
+        {"level": "critical" | "medium" | "ok", "reason": "<human-readable text>"}
+
+    Rules:
+    * **critical** – at least one device whose role contains a core-network
+      keyword (core, spine, distribution, router, gateway) has a down status.
+    * **medium**   – more than 25 % of all devices have a down status.
+    * **ok**       – neither condition above is met (or no devices present).
+    """
+    if not devices:
+        return {"level": "ok", "reason": ""}
+
+    down_names: list = []
+    core_down_names: list = []
+
+    for device in devices:
+        status = (device.get("status") or "").lower().strip()
+        if status not in _DOWN_STATUSES:
+            continue
+        name = device.get("name") or "Unknown"
+        down_names.append(name)
+        role = (device.get("role") or "").lower()
+        if any(kw in role for kw in _CORE_ROLE_KEYWORDS):
+            core_down_names.append(name)
+
+    if core_down_names:
+        listed = ", ".join(core_down_names[:3])
+        suffix = f" (+{len(core_down_names) - 3} more)" if len(core_down_names) > 3 else ""
+        return {
+            "level": "critical",
+            "reason": f"Core device(s) offline: {listed}{suffix}",
+        }
+
+    total = len(devices)
+    down_count = len(down_names)
+    if total > 0 and down_count / total > 0.25:
+        pct = round(down_count / total * 100)
+        return {
+            "level": "medium",
+            "reason": f"{down_count}/{total} devices offline ({pct}%)",
+        }
+
+    return {"level": "ok", "reason": ""}
+
+
 def get_location_detail(location_id: str) -> dict:
     """Fetch detailed info (devices, prefixes, ASNs) for a single location."""
     detail: dict = {}
@@ -398,9 +459,11 @@ def get_location_detail(location_id: str) -> dict:
                 }
             )
         detail["devices"] = devices
+        detail["alert"] = compute_alert_level(devices)
     except Exception as exc:
         logger.warning("Could not fetch devices for location %s: %s", location_id, exc)
         detail["devices"] = []
+        detail["alert"] = {"level": "ok", "reason": ""}
 
     # ASN(s) associated with this location via the ipam/asns endpoint
     try:
