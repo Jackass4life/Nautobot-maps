@@ -31,6 +31,14 @@ services:
       - CACHE_TTL=${CACHE_TTL:-300}
       - CACHE_TYPE=${CACHE_TYPE:-RedisCache}
       - CACHE_REDIS_URL=${CACHE_REDIS_URL:-redis://redis:6379/0}
+      # Criticality configuration (all optional)
+      - CRITICAL_ROLE_KEYWORDS=${CRITICAL_ROLE_KEYWORDS:-}
+      - CRITICALITY_RULES_FILE=${CRITICALITY_RULES_FILE:-}
+      # SQLite persistence (optional – leave empty to disable)
+      - NAUTOBOT_MAPS_DB=${NAUTOBOT_MAPS_DB:-}
+      # LibreNMS integration (optional)
+      - LIBRENMS_URL=${LIBRENMS_URL:-}
+      - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
     depends_on:
       redis:
         condition: service_healthy

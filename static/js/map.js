@@ -662,7 +662,11 @@ map.on('zoomend', () => {
 
 async function fetchAndRenderDetail(locId) {
   try {
-    const resp = await fetch(`/api/locations/${encodeURIComponent(locId)}/detail`);
+    const loc = allLocations.find((l) => l.id === locId);
+    const locType = loc ? (loc.location_type || "") : "";
+    const url = `/api/locations/${encodeURIComponent(locId)}/detail`
+      + (locType ? `?location_type=${encodeURIComponent(locType)}` : "");
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const detail = await resp.json();
     renderDetail(locId, detail);
