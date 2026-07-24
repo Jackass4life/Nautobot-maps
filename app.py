@@ -257,6 +257,49 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
     return data
 
 
+def nautobot_post(endpoint: str, payload: dict) -> dict:
+    """Perform a POST request against the Nautobot REST API."""
+    if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
+        raise RuntimeError(
+            "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables."
+        )
+    accept = "application/json"
+    if NAUTOBOT_API_VERSION:
+        accept += f"; version={NAUTOBOT_API_VERSION}"
+    headers = {
+        "Authorization": f"Token {NAUTOBOT_TOKEN}",
+        "Content-Type": "application/json",
+        "Accept": accept,
+    }
+    url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
+    response = requests.post(
+        url, headers=headers, json=payload, timeout=15, verify=NAUTOBOT_VERIFY_SSL
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def nautobot_delete(endpoint: str) -> None:
+    """Perform a DELETE request against the Nautobot REST API."""
+    if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
+        raise RuntimeError(
+            "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables."
+        )
+    accept = "application/json"
+    if NAUTOBOT_API_VERSION:
+        accept += f"; version={NAUTOBOT_API_VERSION}"
+    headers = {
+        "Authorization": f"Token {NAUTOBOT_TOKEN}",
+        "Content-Type": "application/json",
+        "Accept": accept,
+    }
+    url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
+    response = requests.delete(
+        url, headers=headers, timeout=15, verify=NAUTOBOT_VERIFY_SSL
+    )
+    response.raise_for_status()
+
+
 def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
     """Fetch all paginated results from a Nautobot API endpoint."""
     params = dict(params or {})
@@ -1035,6 +1078,142 @@ def api_delete_criticality_override(device_id: str):
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Roles proxy endpoints
+# ---------------------------------------------------------------------------
+
+@app.route("/api/roles", methods=["GET"])
+def api_list_roles():
+    """Return all roles from Nautobot (proxied from extras/roles/)."""
+    try:
+        roles = fetch_all_pages("extras/roles/")
+        return jsonify({"roles": roles})
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except requests.HTTPError as exc:
+        logger.error("Nautobot API HTTP error: %s", exc)
+        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
+    except Exception as exc:
+        logger.error("Unexpected error listing roles: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/roles", methods=["POST"])
+def api_create_role():
+    """Create a new role in Nautobot (proxied to extras/roles/).
+
+    Expected JSON body follows the Nautobot Role schema, e.g.::
+
+        {"name": "Core Router", "color": "aa1409", "content_types": [...]}
+    """
+    body = request.get_json(silent=True) or {}
+    if not body.get("name"):
+        return jsonify({"error": "name is required"}), 400
+    try:
+        created = nautobot_post("extras/roles/", body)
+        cache.delete_memoized(fetch_all_pages)
+        return jsonify(created), 201
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except requests.HTTPError as exc:
+        logger.error("Nautobot API HTTP error: %s", exc)
+        try:
+            detail = exc.response.json()
+        except Exception:
+            detail = str(exc)
+        return jsonify({"error": "Failed to communicate with Nautobot API", "detail": detail}), exc.response.status_code
+    except Exception as exc:
+        logger.error("Unexpected error creating role: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/roles/<role_id>", methods=["DELETE"])
+def api_delete_role(role_id: str):
+    """Delete a role from Nautobot by its UUID (proxied to extras/roles/<id>/)."""
+    try:
+        nautobot_delete(f"extras/roles/{role_id}/")
+        cache.clear()
+        return jsonify({"status": "deleted", "id": role_id})
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except requests.HTTPError as exc:
+        logger.error("Nautobot API HTTP error: %s", exc)
+        if exc.response.status_code == 404:
+            return jsonify({"error": "Role not found"}), 404
+        return jsonify({"error": "Failed to communicate with Nautobot API"}), exc.response.status_code
+    except Exception as exc:
+        logger.error("Unexpected error deleting role: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# ---------------------------------------------------------------------------
+# Location-type proxy endpoints
+# ---------------------------------------------------------------------------
+
+@app.route("/api/location-types", methods=["GET"])
+def api_list_location_types():
+    """Return all location types from Nautobot (proxied from dcim/location-types/)."""
+    try:
+        location_types = fetch_all_pages("dcim/location-types/")
+        return jsonify({"location_types": location_types})
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except requests.HTTPError as exc:
+        logger.error("Nautobot API HTTP error: %s", exc)
+        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
+    except Exception as exc:
+        logger.error("Unexpected error listing location types: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/location-types", methods=["POST"])
+def api_create_location_type():
+    """Create a new location type in Nautobot (proxied to dcim/location-types/).
+
+    Expected JSON body follows the Nautobot LocationType schema, e.g.::
+
+        {"name": "Data Center", "slug": "data-center"}
+    """
+    body = request.get_json(silent=True) or {}
+    if not body.get("name"):
+        return jsonify({"error": "name is required"}), 400
+    try:
+        created = nautobot_post("dcim/location-types/", body)
+        cache.clear()
+        return jsonify(created), 201
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except requests.HTTPError as exc:
+        logger.error("Nautobot API HTTP error: %s", exc)
+        try:
+            detail = exc.response.json()
+        except Exception:
+            detail = str(exc)
+        return jsonify({"error": "Failed to communicate with Nautobot API", "detail": detail}), exc.response.status_code
+    except Exception as exc:
+        logger.error("Unexpected error creating location type: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/location-types/<lt_id>", methods=["DELETE"])
+def api_delete_location_type(lt_id: str):
+    """Delete a location type from Nautobot by its UUID (proxied to dcim/location-types/<id>/)."""
+    try:
+        nautobot_delete(f"dcim/location-types/{lt_id}/")
+        cache.clear()
+        return jsonify({"status": "deleted", "id": lt_id})
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except requests.HTTPError as exc:
+        logger.error("Nautobot API HTTP error: %s", exc)
+        if exc.response.status_code == 404:
+            return jsonify({"error": "Location type not found"}), 404
+        return jsonify({"error": "Failed to communicate with Nautobot API"}), exc.response.status_code
+    except Exception as exc:
+        logger.error("Unexpected error deleting location type: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 if __name__ == "__main__":

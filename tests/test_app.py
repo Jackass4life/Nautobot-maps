@@ -1218,3 +1218,173 @@ class TestLibreNMSEnrichment:
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
+
+
+# ---------------------------------------------------------------------------
+# Tests: /api/roles
+# ---------------------------------------------------------------------------
+
+SAMPLE_ROLES_PAGE = {
+    "count": 2,
+    "next": None,
+    "results": [
+        {"id": "role-1", "name": "Core Router", "color": "aa1409", "content_types": []},
+        {"id": "role-2", "name": "Firewall", "color": "f44336", "content_types": []},
+    ],
+}
+
+
+class TestApiRoles:
+    def test_list_roles_returns_all(self, client):
+        """GET /api/roles returns all roles from Nautobot."""
+        with patch.object(flask_app, "nautobot_get", return_value=SAMPLE_ROLES_PAGE):
+            resp = client.get("/api/roles")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "roles" in data
+        assert len(data["roles"]) == 2
+        assert data["roles"][0]["name"] == "Core Router"
+
+    def test_list_roles_nautobot_unconfigured_returns_503(self, client):
+        """GET /api/roles returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_get",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.get("/api/roles")
+        assert resp.status_code == 503
+
+    def test_create_role_success(self, client):
+        """POST /api/roles proxies to Nautobot and returns 201 on success."""
+        created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
+        with patch.object(flask_app, "nautobot_post", return_value=created):
+            resp = client.post("/api/roles",
+                               json={"name": "Edge Router", "color": "2196f3"},
+                               content_type="application/json")
+        assert resp.status_code == 201
+        assert resp.get_json()["name"] == "Edge Router"
+
+    def test_create_role_missing_name_returns_400(self, client):
+        """POST /api/roles without a name returns 400."""
+        resp = client.post("/api/roles",
+                           json={"color": "2196f3"},
+                           content_type="application/json")
+        assert resp.status_code == 400
+        assert "name is required" in resp.get_json()["error"]
+
+    def test_create_role_nautobot_unconfigured_returns_503(self, client):
+        """POST /api/roles returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_post",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.post("/api/roles",
+                               json={"name": "Test Role"},
+                               content_type="application/json")
+        assert resp.status_code == 503
+
+    def test_delete_role_success(self, client):
+        """DELETE /api/roles/<id> proxies to Nautobot and returns 200."""
+        with patch.object(flask_app, "nautobot_delete", return_value=None):
+            resp = client.delete("/api/roles/role-1")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "deleted"
+        assert resp.get_json()["id"] == "role-1"
+
+    def test_delete_role_not_found_returns_404(self, client):
+        """DELETE /api/roles/<id> returns 404 when Nautobot responds with 404."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        http_err = flask_app.requests.HTTPError(response=mock_response)
+        with patch.object(flask_app, "nautobot_delete", side_effect=http_err):
+            resp = client.delete("/api/roles/does-not-exist")
+        assert resp.status_code == 404
+        assert "not found" in resp.get_json()["error"].lower()
+
+    def test_delete_role_nautobot_unconfigured_returns_503(self, client):
+        """DELETE /api/roles/<id> returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_delete",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.delete("/api/roles/role-1")
+        assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Tests: /api/location-types
+# ---------------------------------------------------------------------------
+
+SAMPLE_LOCATION_TYPES_PAGE = {
+    "count": 2,
+    "next": None,
+    "results": [
+        {"id": "lt-dc", "name": "Data Center"},
+        {"id": "lt-pop", "name": "PoP"},
+    ],
+}
+
+
+class TestApiLocationTypes:
+    def test_list_location_types_returns_all(self, client):
+        """GET /api/location-types returns all location types from Nautobot."""
+        with patch.object(flask_app, "nautobot_get", return_value=SAMPLE_LOCATION_TYPES_PAGE):
+            resp = client.get("/api/location-types")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "location_types" in data
+        assert len(data["location_types"]) == 2
+        assert data["location_types"][0]["name"] == "Data Center"
+
+    def test_list_location_types_nautobot_unconfigured_returns_503(self, client):
+        """GET /api/location-types returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_get",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.get("/api/location-types")
+        assert resp.status_code == 503
+
+    def test_create_location_type_success(self, client):
+        """POST /api/location-types proxies to Nautobot and returns 201 on success."""
+        created = {"id": "lt-new", "name": "Office", "slug": "office"}
+        with patch.object(flask_app, "nautobot_post", return_value=created):
+            resp = client.post("/api/location-types",
+                               json={"name": "Office", "slug": "office"},
+                               content_type="application/json")
+        assert resp.status_code == 201
+        assert resp.get_json()["name"] == "Office"
+
+    def test_create_location_type_missing_name_returns_400(self, client):
+        """POST /api/location-types without a name returns 400."""
+        resp = client.post("/api/location-types",
+                           json={"slug": "office"},
+                           content_type="application/json")
+        assert resp.status_code == 400
+        assert "name is required" in resp.get_json()["error"]
+
+    def test_create_location_type_nautobot_unconfigured_returns_503(self, client):
+        """POST /api/location-types returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_post",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.post("/api/location-types",
+                               json={"name": "Test Type"},
+                               content_type="application/json")
+        assert resp.status_code == 503
+
+    def test_delete_location_type_success(self, client):
+        """DELETE /api/location-types/<id> proxies to Nautobot and returns 200."""
+        with patch.object(flask_app, "nautobot_delete", return_value=None):
+            resp = client.delete("/api/location-types/lt-dc")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "deleted"
+        assert resp.get_json()["id"] == "lt-dc"
+
+    def test_delete_location_type_not_found_returns_404(self, client):
+        """DELETE /api/location-types/<id> returns 404 when Nautobot responds with 404."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        http_err = flask_app.requests.HTTPError(response=mock_response)
+        with patch.object(flask_app, "nautobot_delete", side_effect=http_err):
+            resp = client.delete("/api/location-types/does-not-exist")
+        assert resp.status_code == 404
+        assert "not found" in resp.get_json()["error"].lower()
+
+    def test_delete_location_type_nautobot_unconfigured_returns_503(self, client):
+        """DELETE /api/location-types/<id> returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_delete",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.delete("/api/location-types/lt-dc")
+        assert resp.status_code == 503
