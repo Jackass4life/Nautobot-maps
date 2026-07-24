@@ -1122,7 +1122,7 @@ def api_create_role():
         try:
             detail = exc.response.json()
         except Exception:
-            detail = str(exc)
+            detail = "Could not parse Nautobot error response"
         return jsonify({"error": "Failed to communicate with Nautobot API", "detail": detail}), exc.response.status_code
     except Exception as exc:
         logger.error("Unexpected error creating role: %s", exc)
@@ -1190,7 +1190,7 @@ def api_create_location_type():
         try:
             detail = exc.response.json()
         except Exception:
-            detail = str(exc)
+            detail = "Could not parse Nautobot error response"
         return jsonify({"error": "Failed to communicate with Nautobot API", "detail": detail}), exc.response.status_code
     except Exception as exc:
         logger.error("Unexpected error creating location type: %s", exc)
