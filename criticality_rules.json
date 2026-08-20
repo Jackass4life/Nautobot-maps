@@ -1,0 +1,9 @@
+{
+  "_comment": "Per-location-type critical device role keywords. Keys are matched case-insensitively against the location_type field. The 'default' entry is used when no specific type matches. To activate this file set CRITICALITY_RULES_FILE=criticality_rules.json in your environment.",
+  "default":    ["core", "spine", "distribution", "router", "gateway"],
+  "datacenter": ["core", "spine", "firewall", "router", "gateway", "border"],
+  "data center":["core", "spine", "firewall", "router", "gateway", "border"],
+  "pop":        ["core", "router", "gateway"],
+  "office":     ["core", "router"],
+  "branch":     ["router", "gateway"]
+}

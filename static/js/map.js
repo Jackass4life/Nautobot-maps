@@ -19,14 +19,15 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 // ---------------------------------------------------------------------------
 // Marker icon factory
 // ---------------------------------------------------------------------------
-function makeIcon(color) {
+function makeIcon(color, pulse) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36">
     <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24S24 21 24 12C24 5.373 18.627 0 12 0z"
           fill="${color}" stroke="#fff" stroke-width="1.5"/>
     <circle cx="12" cy="12" r="4.5" fill="#fff"/>
   </svg>`;
+  const cls = pulse ? ' class="marker-pulse"' : '';
   return L.divIcon({
-    html: `<div style="width:24px;height:36px">${svg}</div>`,
+    html: `<div${cls} style="width:24px;height:36px">${svg}</div>`,
     iconSize: [24, 36],
     iconAnchor: [12, 36],
     popupAnchor: [0, -36],
@@ -35,10 +36,12 @@ function makeIcon(color) {
 }
 
 const ICONS = {
-  active: makeIcon("#2ecc71"),
-  planned: makeIcon("#f0a500"),
-  other: makeIcon("#888888"),
-  search: makeIcon("#e74c3c"),
+  active:   makeIcon("#2ecc71"),
+  planned:  makeIcon("#f0a500"),
+  other:    makeIcon("#888888"),
+  search:   makeIcon("#e74c3c"),
+  medium:   makeIcon("#ff8c00"),
+  critical: makeIcon("#e74c3c", true),
 };
 
 function iconForStatus(status) {
@@ -84,6 +87,19 @@ function renderDetail(locId, detail) {
   if (!container) return;
 
   let html = "";
+
+  // NOC alert banner
+  if (detail.alert && detail.alert.level !== "ok") {
+    const lvl = detail.alert.level;
+    const icon = lvl === "critical" ? "🔴" : "🟠";
+    html += `<div class="alert-banner alert-${escHtml(lvl)}">
+      <span class="alert-banner-icon">${icon}</span>
+      <div>
+        <div class="alert-banner-level">${escHtml(lvl.toUpperCase())}</div>
+        ${detail.alert.reason ? `<div class="alert-banner-reason">${escHtml(detail.alert.reason)}</div>` : ""}
+      </div>
+    </div>`;
+  }
 
   // ASNs
   if (detail.asns && detail.asns.length > 0) {
@@ -195,15 +211,21 @@ function groupByCoords(locations) {
 
 /**
  * Create a marker icon with a small count badge for co-located sites.
+ * Pass alertLevel ("critical" | "medium") to colour the pin accordingly.
  */
-function makeStackedIcon(count) {
+function makeStackedIcon(count, alertLevel) {
+  const color = alertLevel === "critical" ? "#e74c3c"
+              : alertLevel === "medium"   ? "#ff8c00"
+              : "#3388ff";
+  const pulse = alertLevel === "critical";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36">
     <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24S24 21 24 12C24 5.373 18.627 0 12 0z"
-          fill="#3388ff" stroke="#fff" stroke-width="1.5"/>
+          fill="${color}" stroke="#fff" stroke-width="1.5"/>
     <circle cx="12" cy="12" r="4.5" fill="#fff"/>
   </svg>`;
+  const cls = pulse ? ' class="marker-pulse"' : '';
   return L.divIcon({
-    html: `<div style="width:24px;height:36px;position:relative">${svg}<span class="colocated-badge">${count}</span></div>`,
+    html: `<div${cls} style="width:24px;height:36px;position:relative">${svg}<span class="colocated-badge">${count}</span></div>`,
     iconSize: [24, 36],
     iconAnchor: [12, 36],
     popupAnchor: [0, -36],
@@ -337,6 +359,14 @@ function addColocatedMarker(locations) {
   });
 
   bindHoverAndLock(marker);
+
+  // Register all location IDs so alert updates can find this marker
+  const ids = locations.map((l) => l.id);
+  for (const loc of locations) {
+    markerByLocId[loc.id] = marker;
+    colocGroupByLocId[loc.id] = ids;
+  }
+
   marker.addTo(markerLayer);
 }
 
@@ -346,6 +376,49 @@ function addColocatedMarker(locations) {
 const markerLayer = L.layerGroup().addTo(map);
 let allLocations = [];
 const CLUSTER_THRESHOLD = 100; // Use clustering if more than 100 locations
+
+// ---------------------------------------------------------------------------
+// NOC alert marker registry
+// Keeps track of every rendered marker so icons can be updated after
+// device-detail loads reveal the site's alert level.
+// ---------------------------------------------------------------------------
+/** locId → L.marker */
+const markerByLocId = {};
+/** locId → array of all locIds sharing the same co-located marker */
+const colocGroupByLocId = {};
+/** locId → "critical" | "medium" | "ok" */
+const locationAlerts = {};
+
+/**
+ * Called after device details are loaded for a location.
+ * Updates the map-marker icon to reflect the computed alert level,
+ * and (for co-located groups) promotes to the highest level across
+ * all members that have been loaded so far.
+ */
+function updateMarkerForAlert(locId, alertLevel) {
+  locationAlerts[locId] = alertLevel;
+  const marker = markerByLocId[locId];
+  if (!marker) return;
+
+  const groupIds = colocGroupByLocId[locId];
+  if (groupIds) {
+    // Co-located marker: pick the worst level across the known group
+    const groupLevel = groupIds.reduce((highest, id) => {
+      const lvl = locationAlerts[id] || "ok";
+      if (lvl === "critical") return "critical";
+      if (lvl === "medium" && highest !== "critical") return "medium";
+      return highest;
+    }, "ok");
+    if (groupLevel !== "ok") {
+      marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
+    }
+    return;
+  }
+
+  // Single marker
+  if (alertLevel === "critical") marker.setIcon(ICONS.critical);
+  else if (alertLevel === "medium") marker.setIcon(ICONS.medium);
+}
 
 async function loadLocations() {
   showLoading(true, "Loading locations from Nautobot…");
@@ -367,6 +440,9 @@ async function loadLocations() {
 
 function renderMarkers(locations, searchMarker) {
   markerLayer.clearLayers();
+  // Clear registry so stale references don't linger after a re-render
+  for (const key of Object.keys(markerByLocId)) delete markerByLocId[key];
+  for (const key of Object.keys(colocGroupByLocId)) delete colocGroupByLocId[key];
 
   // Add search point marker if provided
   if (searchMarker) {
@@ -573,6 +649,7 @@ function addMarker(loc) {
   });
 
   bindHoverAndLock(marker);
+  markerByLocId[loc.id] = marker;
   marker.addTo(markerLayer);
 }
 
@@ -585,10 +662,17 @@ map.on('zoomend', () => {
 
 async function fetchAndRenderDetail(locId) {
   try {
-    const resp = await fetch(`/api/locations/${encodeURIComponent(locId)}/detail`);
+    const loc = allLocations.find((l) => l.id === locId);
+    const locType = loc ? (loc.location_type || "") : "";
+    const url = `/api/locations/${encodeURIComponent(locId)}/detail`
+      + (locType ? `?location_type=${encodeURIComponent(locType)}` : "");
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const detail = await resp.json();
     renderDetail(locId, detail);
+    if (detail.alert) {
+      updateMarkerForAlert(locId, detail.alert.level);
+    }
   } catch (err) {
     const container = document.getElementById(`popup-detail-${locId}`);
     if (container) {

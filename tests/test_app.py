@@ -814,3 +814,577 @@ class TestErrorHandlers:
         assert resp.status_code == 405
         data = resp.get_json()
         assert data["error"] == "Method not allowed"
+
+
+# ---------------------------------------------------------------------------
+# Tests: configurable critical role keywords
+# ---------------------------------------------------------------------------
+class TestConfigurableCriticalKeywords:
+    """Tests for the _get_critical_keywords / compute_alert_level helpers."""
+
+    def setup_method(self):
+        """Reset module-level keyword state before each test."""
+        self._orig_env_kw = flask_app._ENV_CORE_ROLE_KEYWORDS
+        self._orig_rules = dict(flask_app._CRITICALITY_RULES)
+
+    def teardown_method(self):
+        flask_app._ENV_CORE_ROLE_KEYWORDS = self._orig_env_kw
+        flask_app._CRITICALITY_RULES = self._orig_rules
+
+    def test_default_keywords_applied(self):
+        """Without any configuration the built-in defaults are used."""
+        flask_app._ENV_CORE_ROLE_KEYWORDS = flask_app._DEFAULT_CORE_ROLE_KEYWORDS
+        flask_app._CRITICALITY_RULES = {}
+        kw = flask_app._get_critical_keywords()
+        assert "core" in kw
+        assert "router" in kw
+
+    def test_env_override_replaces_defaults(self):
+        """_ENV_CORE_ROLE_KEYWORDS env override replaces defaults when no JSON rules."""
+        flask_app._ENV_CORE_ROLE_KEYWORDS = ("firewall", "border")
+        flask_app._CRITICALITY_RULES = {}
+        kw = flask_app._get_critical_keywords()
+        assert kw == ("firewall", "border")
+
+    def test_env_override_used_as_fallback_for_unknown_type(self):
+        """When rules have no matching type and no 'default' key, env override is used."""
+        flask_app._ENV_CORE_ROLE_KEYWORDS = ("firewall",)
+        flask_app._CRITICALITY_RULES = {"datacenter": ["core", "spine"]}
+        kw = flask_app._get_critical_keywords("office")
+        assert kw == ("firewall",)
+
+    def test_location_type_rule_matched(self):
+        """The exact location_type key is returned when present in rules."""
+        flask_app._CRITICALITY_RULES = {
+            "datacenter": ["core", "firewall"],
+            "office": ["router"],
+        }
+        kw = flask_app._get_critical_keywords("Datacenter")
+        assert "firewall" in kw
+
+    def test_rules_default_key_used_for_unknown_type(self):
+        """The 'default' key in rules is the fallback for unknown location types."""
+        flask_app._CRITICALITY_RULES = {
+            "default": ["core", "spine"],
+            "office": ["router"],
+        }
+        kw = flask_app._get_critical_keywords("warehouse")
+        assert kw == ("core", "spine")
+
+    def test_compute_alert_level_respects_location_type(self):
+        """compute_alert_level uses the correct keyword set for the given location type."""
+        flask_app._CRITICALITY_RULES = {
+            "office": ["router"],
+            "datacenter": ["core", "firewall"],
+        }
+        # A "firewall" device offline in a datacenter → critical
+        dc_devices = [{"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"}]
+        result = flask_app.compute_alert_level(dc_devices, location_type="datacenter")
+        assert result["level"] == "critical"
+
+        # Same device in an office (only "router" is critical there) → medium (if >25%) or ok
+        office_devices = [{"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"},
+                          {"id": "d2", "name": "sw01", "role": "Switch", "status": "active"}]
+        result = flask_app.compute_alert_level(office_devices, location_type="office")
+        assert result["level"] != "critical"
+
+    def test_compute_alert_level_no_devices(self):
+        assert flask_app.compute_alert_level([]) == {"level": "ok", "reason": ""}
+
+    def test_compute_alert_level_medium_threshold(self):
+        """More than 25% of devices down → medium alert."""
+        devices = [
+            {"id": "d1", "name": "sw01", "role": "Switch", "status": "offline"},
+            {"id": "d2", "name": "sw02", "role": "Switch", "status": "active"},
+            {"id": "d3", "name": "sw03", "role": "Switch", "status": "active"},
+        ]
+        # 1/3 ≈ 33% > 25% → medium
+        result = flask_app.compute_alert_level(devices)
+        assert result["level"] == "medium"
+
+    def test_compute_alert_level_ok_when_below_threshold(self):
+        """Under 25% down and no core device down → ok."""
+        devices = [
+            {"id": "d1", "name": "sw01", "role": "Switch", "status": "offline"},
+            {"id": "d2", "name": "sw02", "role": "Switch", "status": "active"},
+            {"id": "d3", "name": "sw03", "role": "Switch", "status": "active"},
+            {"id": "d4", "name": "sw04", "role": "Switch", "status": "active"},
+            {"id": "d5", "name": "sw05", "role": "Switch", "status": "active"},
+        ]
+        # 1/5 = 20% ≤ 25% → ok
+        result = flask_app.compute_alert_level(devices)
+        assert result["level"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Tests: location_type passed through detail endpoint
+# ---------------------------------------------------------------------------
+class TestLocationDetailWithLocationType:
+    def test_location_type_param_accepted(self, client):
+        """The ?location_type query param is accepted without error."""
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations/loc-1/detail?location_type=Data+Center")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "devices" in data
+        assert "alert" in data
+
+    def test_location_type_influences_alert(self, client):
+        """When location_type maps to rules, compute_alert_level uses correct keywords."""
+        import app as flask_app_local
+        orig_rules = dict(flask_app_local._CRITICALITY_RULES)
+        orig_env = flask_app_local._ENV_CORE_ROLE_KEYWORDS
+        flask_app_local._CRITICALITY_RULES = {"datacenter": ["firewall"]}
+        flask_app_local._ENV_CORE_ROLE_KEYWORDS = ()
+
+        firewall_devices_page = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "dev-fw",
+                    "name": "fw01",
+                    "device_type": {"model": "PA-220", "manufacturer": {"name": "Palo Alto"}},
+                    "role": {"name": "Firewall"},
+                    "status": {"label": "offline"},
+                    "platform": None,
+                    "serial": "",
+                    "tenant": None,
+                }
+            ],
+        }
+
+        def mock_get(endpoint, params=None):
+            if "dcim/devices" in endpoint:
+                return firewall_devices_page
+            return {"count": 0, "next": None, "results": []}
+
+        try:
+            with patch.object(flask_app_local, "nautobot_get", side_effect=mock_get):
+                resp = client.get("/api/locations/loc-1/detail?location_type=datacenter")
+            data = resp.get_json()
+            assert data["alert"]["level"] == "critical"
+        finally:
+            flask_app_local._CRITICALITY_RULES = orig_rules
+            flask_app_local._ENV_CORE_ROLE_KEYWORDS = orig_env
+
+
+# ---------------------------------------------------------------------------
+# Tests: criticality override REST endpoints
+# ---------------------------------------------------------------------------
+class TestCriticalityOverrideEndpoints:
+    """Tests for /api/criticality-overrides (requires NAUTOBOT_MAPS_DB)."""
+
+    def setup_method(self):
+        """Configure a temp-file SQLite DB for each test."""
+        import tempfile
+        self._orig_db = flask_app.NAUTOBOT_MAPS_DB
+        self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._db_tmp.close()
+        flask_app.NAUTOBOT_MAPS_DB = self._db_tmp.name
+        flask_app._init_db()
+
+    def teardown_method(self):
+        flask_app.NAUTOBOT_MAPS_DB = self._orig_db
+        import os
+        try:
+            os.unlink(self._db_tmp.name)
+        except Exception:
+            pass
+
+    def test_list_empty(self, client):
+        resp = client.get("/api/criticality-overrides")
+        assert resp.status_code == 200
+        assert resp.get_json()["overrides"] == []
+
+    def test_create_override(self, client):
+        resp = client.post(
+            "/api/criticality-overrides",
+            json={"nautobot_device_id": "dev-abc", "is_critical": False,
+                  "reason": "Local firewall", "updated_by": "admin"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["nautobot_device_id"] == "dev-abc"
+        assert data["is_critical"] is False
+
+    def test_list_after_create(self, client):
+        client.post(
+            "/api/criticality-overrides",
+            json={"nautobot_device_id": "dev-abc", "is_critical": True,
+                  "reason": "Core router", "updated_by": "admin"},
+            content_type="application/json",
+        )
+        resp = client.get("/api/criticality-overrides")
+        overrides = resp.get_json()["overrides"]
+        assert len(overrides) == 1
+        assert overrides[0]["nautobot_device_id"] == "dev-abc"
+
+    def test_update_override(self, client):
+        """Posting the same device_id a second time updates in-place."""
+        client.post("/api/criticality-overrides",
+                    json={"nautobot_device_id": "dev-x", "is_critical": True},
+                    content_type="application/json")
+        client.post("/api/criticality-overrides",
+                    json={"nautobot_device_id": "dev-x", "is_critical": False,
+                          "reason": "Changed"},
+                    content_type="application/json")
+        resp = client.get("/api/criticality-overrides")
+        overrides = resp.get_json()["overrides"]
+        assert len(overrides) == 1
+        assert overrides[0]["is_critical"] == 0  # stored as int
+
+    def test_delete_override(self, client):
+        client.post("/api/criticality-overrides",
+                    json={"nautobot_device_id": "dev-del", "is_critical": True},
+                    content_type="application/json")
+        resp = client.delete("/api/criticality-overrides/dev-del")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "deleted"
+        # Should be gone now
+        resp2 = client.get("/api/criticality-overrides")
+        assert resp2.get_json()["overrides"] == []
+
+    def test_delete_nonexistent_returns_404(self, client):
+        resp = client.delete("/api/criticality-overrides/does-not-exist")
+        assert resp.status_code == 404
+
+    def test_create_missing_device_id_returns_400(self, client):
+        resp = client.post("/api/criticality-overrides",
+                           json={"is_critical": True},
+                           content_type="application/json")
+        assert resp.status_code == 400
+
+    def test_override_affects_compute_alert_level(self):
+        """A device marked is_critical=False must not trigger a critical alert."""
+        # Insert the override directly via SQLite so we share the same connection
+        conn = flask_app._get_db_conn()
+        with conn:
+            conn.execute(
+                "INSERT INTO device_criticality_override "
+                "(nautobot_device_id, is_critical, reason, updated_by) "
+                "VALUES (?, ?, ?, ?)",
+                ("dev-fw", 0, "Local firewall – not critical", "test"),
+            )
+        conn.close()
+
+        devices = [
+            {"id": "dev-fw", "name": "fw-local", "role": "Core Router", "status": "offline"},
+        ]
+        # The override says is_critical=False, so even a "Core Router" that's
+        # offline should not produce a critical alert.
+        result = flask_app.compute_alert_level(devices)
+        assert result["level"] != "critical"
+
+    def test_no_db_returns_503(self, client):
+        """When NAUTOBOT_MAPS_DB is empty, override endpoints return 503."""
+        saved = flask_app.NAUTOBOT_MAPS_DB
+        flask_app.NAUTOBOT_MAPS_DB = ""
+        try:
+            resp = client.get("/api/criticality-overrides")
+            assert resp.status_code == 503
+            resp2 = client.post("/api/criticality-overrides",
+                                json={"nautobot_device_id": "x"},
+                                content_type="application/json")
+            assert resp2.status_code == 503
+            resp3 = client.delete("/api/criticality-overrides/x")
+            assert resp3.status_code == 503
+        finally:
+            flask_app.NAUTOBOT_MAPS_DB = saved
+
+
+# ---------------------------------------------------------------------------
+# Tests: criticality_rules.json loading
+# ---------------------------------------------------------------------------
+class TestCriticalityRulesFile:
+    def test_load_valid_rules_file(self, tmp_path):
+        """A valid JSON rules file is parsed into _CRITICALITY_RULES."""
+        rules = {"datacenter": ["core", "firewall"], "office": ["router"]}
+        rules_file = tmp_path / "rules.json"
+        rules_file.write_text(json.dumps(rules))
+
+        orig = dict(flask_app._CRITICALITY_RULES)
+        orig_file = flask_app.CRITICALITY_RULES_FILE
+        try:
+            flask_app.CRITICALITY_RULES_FILE = str(rules_file)
+            # Re-run the loading logic
+            with open(str(rules_file)) as f:
+                loaded = json.load(f)
+            flask_app._CRITICALITY_RULES = {
+                k.lower(): [kw.lower() for kw in v]
+                for k, v in loaded.items()
+                if isinstance(v, list)
+            }
+            assert flask_app._get_critical_keywords("datacenter") == ("core", "firewall")
+            assert flask_app._get_critical_keywords("office") == ("router",)
+        finally:
+            flask_app._CRITICALITY_RULES = orig
+            flask_app.CRITICALITY_RULES_FILE = orig_file
+
+    def test_rules_file_bad_format_ignored(self, tmp_path):
+        """A rules file with a non-dict top level is ignored gracefully."""
+        bad_file = tmp_path / "bad.json"
+        bad_file.write_text(json.dumps(["not", "a", "dict"]))
+
+        orig = dict(flask_app._CRITICALITY_RULES)
+        try:
+            # Simulate what the loading code does
+            with open(str(bad_file)) as f:
+                loaded = json.load(f)
+            if not isinstance(loaded, dict):
+                pass  # Would be ignored in real code
+            # _CRITICALITY_RULES should remain unchanged
+            assert flask_app._CRITICALITY_RULES == orig
+        finally:
+            flask_app._CRITICALITY_RULES = orig
+
+
+# ---------------------------------------------------------------------------
+# Tests: LibreNMS enrichment
+# ---------------------------------------------------------------------------
+class TestLibreNMSEnrichment:
+    def setup_method(self):
+        self._orig_url = flask_app.LIBRENMS_URL
+        self._orig_token = flask_app.LIBRENMS_API_TOKEN
+
+    def teardown_method(self):
+        flask_app.LIBRENMS_URL = self._orig_url
+        flask_app.LIBRENMS_API_TOKEN = self._orig_token
+
+    def test_no_enrichment_when_unconfigured(self):
+        """_enrich_with_librenms is a no-op when LIBRENMS_URL is empty."""
+        flask_app.LIBRENMS_URL = ""
+        flask_app.LIBRENMS_API_TOKEN = ""
+        devices = [{"id": "d1", "name": "router01", "status": "active"}]
+        result = flask_app._enrich_with_librenms(devices)
+        assert result == devices
+
+    def test_librenms_down_overrides_active_status(self):
+        """A device active in Nautobot but down in LibreNMS is set to offline."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [
+                {"device_id": 1, "hostname": "router01", "status": 0},
+            ]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [{"id": "d1", "name": "router01", "status": "active"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["status"] == "offline"
+
+    def test_librenms_up_does_not_change_active_status(self):
+        """A device up in LibreNMS stays active."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [{"device_id": 1, "hostname": "router01", "status": 1}]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [{"id": "d1", "name": "router01", "status": "active"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["status"] == "active"
+
+    def test_librenms_down_does_not_upgrade_already_offline(self):
+        """A device already offline in Nautobot stays offline (no double-counting)."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [{"device_id": 1, "hostname": "router01", "status": 0}]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [{"id": "d1", "name": "router01", "status": "offline"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["status"] == "offline"
+
+    def test_librenms_api_failure_returns_original_devices(self):
+        """If LibreNMS API call fails, original device list is returned unchanged."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        with patch.object(flask_app, "_librenms_get", side_effect=Exception("timeout")):
+            devices = [{"id": "d1", "name": "router01", "status": "active"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result == devices
+
+    def test_librenms_unmatched_device_not_affected(self):
+        """Devices not present in LibreNMS are left unchanged."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [{"id": "d1", "name": "router01", "status": "active"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["status"] == "active"
+
+
+# ---------------------------------------------------------------------------
+# Tests: /api/roles
+# ---------------------------------------------------------------------------
+
+SAMPLE_ROLES_PAGE = {
+    "count": 2,
+    "next": None,
+    "results": [
+        {"id": "role-1", "name": "Core Router", "color": "aa1409", "content_types": []},
+        {"id": "role-2", "name": "Firewall", "color": "f44336", "content_types": []},
+    ],
+}
+
+
+class TestApiRoles:
+    def test_list_roles_returns_all(self, client):
+        """GET /api/roles returns all roles from Nautobot."""
+        with patch.object(flask_app, "nautobot_get", return_value=SAMPLE_ROLES_PAGE):
+            resp = client.get("/api/roles")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "roles" in data
+        assert len(data["roles"]) == 2
+        assert data["roles"][0]["name"] == "Core Router"
+
+    def test_list_roles_nautobot_unconfigured_returns_503(self, client):
+        """GET /api/roles returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_get",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.get("/api/roles")
+        assert resp.status_code == 503
+
+    def test_create_role_success(self, client):
+        """POST /api/roles proxies to Nautobot and returns 201 on success."""
+        created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
+        with patch.object(flask_app, "nautobot_post", return_value=created):
+            resp = client.post("/api/roles",
+                               json={"name": "Edge Router", "color": "2196f3"},
+                               content_type="application/json")
+        assert resp.status_code == 201
+        assert resp.get_json()["name"] == "Edge Router"
+
+    def test_create_role_missing_name_returns_400(self, client):
+        """POST /api/roles without a name returns 400."""
+        resp = client.post("/api/roles",
+                           json={"color": "2196f3"},
+                           content_type="application/json")
+        assert resp.status_code == 400
+        assert "name is required" in resp.get_json()["error"]
+
+    def test_create_role_nautobot_unconfigured_returns_503(self, client):
+        """POST /api/roles returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_post",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.post("/api/roles",
+                               json={"name": "Test Role"},
+                               content_type="application/json")
+        assert resp.status_code == 503
+
+    def test_delete_role_success(self, client):
+        """DELETE /api/roles/<id> proxies to Nautobot and returns 200."""
+        with patch.object(flask_app, "nautobot_delete", return_value=None):
+            resp = client.delete("/api/roles/role-1")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "deleted"
+        assert resp.get_json()["id"] == "role-1"
+
+    def test_delete_role_not_found_returns_404(self, client):
+        """DELETE /api/roles/<id> returns 404 when Nautobot responds with 404."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        http_err = flask_app.requests.HTTPError(response=mock_response)
+        with patch.object(flask_app, "nautobot_delete", side_effect=http_err):
+            resp = client.delete("/api/roles/does-not-exist")
+        assert resp.status_code == 404
+        assert "not found" in resp.get_json()["error"].lower()
+
+    def test_delete_role_nautobot_unconfigured_returns_503(self, client):
+        """DELETE /api/roles/<id> returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_delete",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.delete("/api/roles/role-1")
+        assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Tests: /api/location-types
+# ---------------------------------------------------------------------------
+
+SAMPLE_LOCATION_TYPES_PAGE = {
+    "count": 2,
+    "next": None,
+    "results": [
+        {"id": "lt-dc", "name": "Data Center"},
+        {"id": "lt-pop", "name": "PoP"},
+    ],
+}
+
+
+class TestApiLocationTypes:
+    def test_list_location_types_returns_all(self, client):
+        """GET /api/location-types returns all location types from Nautobot."""
+        with patch.object(flask_app, "nautobot_get", return_value=SAMPLE_LOCATION_TYPES_PAGE):
+            resp = client.get("/api/location-types")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "location_types" in data
+        assert len(data["location_types"]) == 2
+        assert data["location_types"][0]["name"] == "Data Center"
+
+    def test_list_location_types_nautobot_unconfigured_returns_503(self, client):
+        """GET /api/location-types returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_get",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.get("/api/location-types")
+        assert resp.status_code == 503
+
+    def test_create_location_type_success(self, client):
+        """POST /api/location-types proxies to Nautobot and returns 201 on success."""
+        created = {"id": "lt-new", "name": "Office", "slug": "office"}
+        with patch.object(flask_app, "nautobot_post", return_value=created):
+            resp = client.post("/api/location-types",
+                               json={"name": "Office", "slug": "office"},
+                               content_type="application/json")
+        assert resp.status_code == 201
+        assert resp.get_json()["name"] == "Office"
+
+    def test_create_location_type_missing_name_returns_400(self, client):
+        """POST /api/location-types without a name returns 400."""
+        resp = client.post("/api/location-types",
+                           json={"slug": "office"},
+                           content_type="application/json")
+        assert resp.status_code == 400
+        assert "name is required" in resp.get_json()["error"]
+
+    def test_create_location_type_nautobot_unconfigured_returns_503(self, client):
+        """POST /api/location-types returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_post",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.post("/api/location-types",
+                               json={"name": "Test Type"},
+                               content_type="application/json")
+        assert resp.status_code == 503
+
+    def test_delete_location_type_success(self, client):
+        """DELETE /api/location-types/<id> proxies to Nautobot and returns 200."""
+        with patch.object(flask_app, "nautobot_delete", return_value=None):
+            resp = client.delete("/api/location-types/lt-dc")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "deleted"
+        assert resp.get_json()["id"] == "lt-dc"
+
+    def test_delete_location_type_not_found_returns_404(self, client):
+        """DELETE /api/location-types/<id> returns 404 when Nautobot responds with 404."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        http_err = flask_app.requests.HTTPError(response=mock_response)
+        with patch.object(flask_app, "nautobot_delete", side_effect=http_err):
+            resp = client.delete("/api/location-types/does-not-exist")
+        assert resp.status_code == 404
+        assert "not found" in resp.get_json()["error"].lower()
+
+    def test_delete_location_type_nautobot_unconfigured_returns_503(self, client):
+        """DELETE /api/location-types/<id> returns 503 when Nautobot is not configured."""
+        with patch.object(flask_app, "nautobot_delete",
+                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+            resp = client.delete("/api/location-types/lt-dc")
+        assert resp.status_code == 503

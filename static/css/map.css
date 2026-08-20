@@ -656,6 +656,66 @@ html, body {
 }
 
 /* =========================================================
+   NOC alert banner (shown inside popup after detail loads)
+   ========================================================= */
+.alert-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+}
+
+.alert-banner.alert-critical {
+  background: rgba(231, 76, 60, 0.18);
+  border: 1px solid rgba(231, 76, 60, 0.5);
+}
+
+.alert-banner.alert-medium {
+  background: rgba(255, 140, 0, 0.18);
+  border: 1px solid rgba(255, 140, 0, 0.5);
+}
+
+.alert-banner-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.alert-banner-level {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+}
+
+.alert-critical .alert-banner-level { color: var(--color-danger); }
+.alert-medium   .alert-banner-level { color: #ff8c00; }
+
+.alert-banner-reason {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+
+/* Pulsing ring for critical markers */
+@keyframes markerPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+  70%  { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+}
+
+.marker-pulse {
+  border-radius: 50% 50% 50% 0;
+  animation: markerPulse 1.4s ease-out infinite;
+}
+
+/* Alert legend dots */
+.dot-medium   { background: #ff8c00; }
+.dot-critical { background: var(--color-danger); }
+
+/* =========================================================
    Responsive (collapse sidebar on small screens)
    ========================================================= */
 @media (max-width: 640px) {
