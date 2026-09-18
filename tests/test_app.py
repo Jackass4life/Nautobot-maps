@@ -450,7 +450,7 @@ class TestAlertBoard:
             },
         ]
 
-        def mock_devices(location_id, location_type=None):
+        def mock_devices(location_id, location_type=None, **_kwargs):
             if location_id == "loc-1":
                 return (
                     [{"id": "d1", "name": "core1", "role": "Core Router", "status": "offline"}],
@@ -471,6 +471,7 @@ class TestAlertBoard:
             )
 
         with patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
              patch.object(flask_app, "_get_location_devices_and_alert", side_effect=mock_devices):
             data = flask_app.get_alert_board_data()
 
@@ -478,6 +479,7 @@ class TestAlertBoard:
             "total": 3,
             "critical": 1,
             "medium": 1,
+            "unknown": 0,
             "ok": 1,
             "non_ok": 2,
         }
@@ -506,7 +508,7 @@ class TestAlertBoard:
             "time_zone": "Europe/Copenhagen",
             "tags": ["critical"],
             "url": "",
-        }]), patch.object(
+        }]), patch.object(flask_app, "fetch_all_pages", return_value=[]), patch.object(
             flask_app,
             "_get_location_devices_and_alert",
             return_value=(
@@ -521,6 +523,20 @@ class TestAlertBoard:
         assert data["summary"]["critical"] == 1
         assert data["alerts"][0]["name"] == "Copenhagen DC"
         assert data["alerts"][0]["alert_level"] == "critical"
+
+    def test_get_alert_board_data_marks_location_unknown_on_error(self):
+        flask_app.cache.clear()
+        sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
+            data = flask_app.get_alert_board_data()
+
+        assert data["summary"]["unknown"] == 1
+        assert data["summary"]["ok"] == 0
+        assert data["alerts"][0]["alert_level"] == "unknown"
+        assert "lookup failed" in data["alerts"][0]["alert_reason"]
 
 
 # ---------------------------------------------------------------------------

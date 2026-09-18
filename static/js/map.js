@@ -391,6 +391,25 @@ const colocGroupByLocId = {};
 /** locId → "critical" | "medium" | "ok" */
 const locationAlerts = {};
 
+function openLocationFromQuery() {
+  if (!initialLocationId || initialLocationOpened) return;
+  const loc = allLocations.find((item) => item.id === initialLocationId);
+  const marker = markerByLocId[initialLocationId];
+  if (!loc || !marker) return;
+
+  initialLocationOpened = true;
+  map.flyTo([loc.latitude, loc.longitude], 13, { duration: 0.8 });
+  marker.openPopup();
+
+  const groupIds = colocGroupByLocId[initialLocationId];
+  if (groupIds && groupIds.length > 1) {
+    setTimeout(() => {
+      const targetTab = document.querySelector(`.coloc-tab[data-loc-id="${CSS.escape(initialLocationId)}"]`);
+      if (targetTab) targetTab.click();
+    }, 0);
+  }
+}
+
 /**
  * Called after device details are loaded for a location.
  * Updates the map-marker icon to reflect the computed alert level,
@@ -413,25 +432,6 @@ function updateMarkerForAlert(locId, alertLevel) {
     }, "ok");
     if (groupLevel !== "ok") {
       marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
-    }
-
-    function openLocationFromQuery() {
-      if (!initialLocationId || initialLocationOpened) return;
-      const loc = allLocations.find((item) => item.id === initialLocationId);
-      const marker = markerByLocId[initialLocationId];
-      if (!loc || !marker) return;
-
-      initialLocationOpened = true;
-      map.flyTo([loc.latitude, loc.longitude], 13, { duration: 0.8 });
-      marker.openPopup();
-
-      const groupIds = colocGroupByLocId[initialLocationId];
-      if (groupIds && groupIds.length > 1) {
-        setTimeout(() => {
-          const targetTab = document.querySelector(`.coloc-tab[data-loc-id="${CSS.escape(initialLocationId)}"]`);
-          if (targetTab) targetTab.click();
-        }, 0);
-      }
     }
     return;
   }

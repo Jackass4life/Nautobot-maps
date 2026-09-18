@@ -317,8 +317,13 @@ def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
     return results
 
 
-def get_locations() -> list:
-    """Fetch locations from Nautobot that have GPS coordinates."""
+def get_locations(include_without_coordinates: bool = False) -> list:
+    """Fetch locations from Nautobot.
+
+    By default, only locations with valid GPS coordinates are returned.
+    Set ``include_without_coordinates=True`` to include all locations and
+    keep missing/invalid coordinates as ``None``.
+    """
     raw = fetch_all_pages("dcim/locations/")
 
     # Fallback lookup tables: cover Nautobot builds where brief nested objects
@@ -349,14 +354,20 @@ def get_locations() -> list:
 
     locations = []
     for loc in raw:
-        lat = loc.get("latitude")
-        lon = loc.get("longitude")
-        if lat is None or lon is None:
-            continue
-        try:
-            lat = float(lat)
-            lon = float(lon)
-        except (TypeError, ValueError):
+        lat = None
+        lon = None
+        raw_lat = loc.get("latitude")
+        raw_lon = loc.get("longitude")
+        has_coordinates = raw_lat is not None and raw_lon is not None
+        if has_coordinates:
+            try:
+                lat = float(raw_lat)
+                lon = float(raw_lon)
+            except (TypeError, ValueError):
+                has_coordinates = False
+                lat = None
+                lon = None
+        if not has_coordinates and not include_without_coordinates:
             continue
 
         tenant_obj = loc.get("tenant") or {}
@@ -590,38 +601,14 @@ def _librenms_get(path: str, params: dict | None = None) -> dict:
     return response.json()
 
 
-def _enrich_with_librenms(devices: list) -> list:
-    """Merge live LibreNMS status into *devices* (in-place copy returned).
+def _fetch_librenms_inventory() -> list:
+    """Fetch full LibreNMS inventory once."""
+    data = _librenms_get("devices", {"type": "all"})
+    return data.get("devices", [])
 
-    For each device, LibreNMS is queried by hostname.  The mapping between
-    Nautobot device IDs and LibreNMS device IDs is persisted in the
-    ``librenms_device_map`` SQLite table when the DB is configured.
 
-    LibreNMS ``status`` field: ``1`` = up, ``0`` = down.  When LibreNMS
-    reports a device as down but Nautobot has it as active, the status is
-    set to ``"offline"`` so ``compute_alert_level`` counts it as down.
-
-    The enrichment is *additive*: Nautobot status is never upgraded (a device
-    already offline in Nautobot stays offline regardless of LibreNMS).
-    """
-    if not LIBRENMS_URL or not LIBRENMS_API_TOKEN:
-        return devices
-
-    try:
-        data = _librenms_get("devices", {"type": "all"})
-        lnms_devices = data.get("devices", [])
-    except Exception as exc:
-        logger.warning("LibreNMS enrichment failed (could not fetch devices): %s", exc)
-        return devices
-
-    # Build hostname → LibreNMS record map (case-insensitive)
-    lnms_by_hostname: dict = {}
-    for ld in lnms_devices:
-        hostname = (ld.get("hostname") or "").lower()
-        if hostname:
-            lnms_by_hostname[hostname] = ld
-
-    # Load Nautobot UUID → LibreNMS device ID overrides from DB
+def _load_librenms_id_map() -> dict:
+    """Load persisted Nautobot UUID → LibreNMS device mapping."""
     lnms_id_map: dict = {}
     conn = _get_db_conn()
     if conn is not None:
@@ -641,6 +628,45 @@ def _enrich_with_librenms(devices: list) -> list:
             logger.debug("Could not read librenms_device_map: %s", exc)
         finally:
             conn.close()
+    return lnms_id_map
+
+
+def _enrich_with_librenms(
+    devices: list, lnms_devices: list | None = None, lnms_id_map: dict | None = None
+) -> list:
+    """Merge live LibreNMS status into *devices* (in-place copy returned).
+
+    For each device, LibreNMS is queried by hostname.  The mapping between
+    Nautobot device IDs and LibreNMS device IDs is persisted in the
+    ``librenms_device_map`` SQLite table when the DB is configured.
+
+    LibreNMS ``status`` field: ``1`` = up, ``0`` = down.  When LibreNMS
+    reports a device as down but Nautobot has it as active, the status is
+    set to ``"offline"`` so ``compute_alert_level`` counts it as down.
+
+    The enrichment is *additive*: Nautobot status is never upgraded (a device
+    already offline in Nautobot stays offline regardless of LibreNMS).
+    """
+    if not LIBRENMS_URL or not LIBRENMS_API_TOKEN:
+        return devices
+
+    if lnms_devices is None:
+        try:
+            lnms_devices = _fetch_librenms_inventory()
+        except Exception as exc:
+            logger.warning("LibreNMS enrichment failed (could not fetch devices): %s", exc)
+            return devices
+
+    # Build hostname → LibreNMS record map (case-insensitive)
+    lnms_by_hostname: dict = {}
+    for ld in lnms_devices:
+        hostname = (ld.get("hostname") or "").lower()
+        if hostname:
+            lnms_by_hostname[hostname] = ld
+
+    # Load Nautobot UUID → LibreNMS device ID overrides from DB
+    if lnms_id_map is None:
+        lnms_id_map = _load_librenms_id_map()
 
     enriched = []
     for device in devices:
@@ -708,24 +734,38 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
 
 
 def _get_location_devices_and_alert(
-    location_id: str, location_type: str | None = None
+    location_id: str,
+    location_type: str | None = None,
+    devices_data: list | None = None,
+    lookup_maps: dict | None = None,
+    lnms_devices: list | None = None,
+    lnms_id_map: dict | None = None,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location."""
-    # Devices at this location
-    # Nautobot 3.x uses the "location" filter parameter (UUID accepted);
-    # "location_id" was removed in 3.x and returns 400.
-    devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
+    if devices_data is None:
+        # Devices at this location
+        # Nautobot 3.x uses the "location" filter parameter (UUID accepted);
+        # "location_id" was removed in 3.x and returns 400.
+        devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
 
     # Fallback lookup: covers Nautobot builds where brief nested objects
     # only carry id+url without a human-readable name.
     # In Nautobot 3.x the brief device_type nested object inside device
     # list responses does NOT include manufacturer or model fields, so we
     # pre-fetch all device types to resolve device_type_id → model/manufacturer.
-    dt_mfr_map, dt_model_map = _build_device_type_maps()
-    mfr_map = _build_id_name_map("dcim/manufacturers/")
-    role_map = _build_id_name_map("extras/roles/")
-    tenant_map = _build_id_name_map("tenancy/tenants/")
-    status_map = _build_id_name_map("extras/statuses/")
+    if lookup_maps is None:
+        dt_mfr_map, dt_model_map = _build_device_type_maps()
+        mfr_map = _build_id_name_map("dcim/manufacturers/")
+        role_map = _build_id_name_map("extras/roles/")
+        tenant_map = _build_id_name_map("tenancy/tenants/")
+        status_map = _build_id_name_map("extras/statuses/")
+    else:
+        dt_mfr_map = lookup_maps.get("dt_mfr_map", {})
+        dt_model_map = lookup_maps.get("dt_model_map", {})
+        mfr_map = lookup_maps.get("mfr_map", {})
+        role_map = lookup_maps.get("role_map", {})
+        tenant_map = lookup_maps.get("tenant_map", {})
+        status_map = lookup_maps.get("status_map", {})
 
     devices = []
     for d in devices_data:
@@ -778,7 +818,9 @@ def _get_location_devices_and_alert(
             }
         )
 
-    enriched = _enrich_with_librenms(devices)
+    enriched = _enrich_with_librenms(
+        devices, lnms_devices=lnms_devices, lnms_id_map=lnms_id_map
+    )
     return enriched, compute_alert_level(enriched, location_type)
 
 
@@ -787,7 +829,9 @@ def _iso_utc_now() -> str:
 
 
 def _alert_sort_key(level: str) -> int:
-    return {"critical": 0, "medium": 1, "ok": 2}.get((level or "").lower(), 3)
+    return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get(
+        (level or "").lower(), 4
+    )
 
 
 def _apply_alert_board_freshness(payload: dict) -> dict:
@@ -818,21 +862,62 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
     if cached is not None:
         return _apply_alert_board_freshness(cached)
 
-    locations = get_locations()
+    locations = get_locations(include_without_coordinates=True)
     alerts = []
-    summary = {"critical": 0, "medium": 0, "ok": 0}
+    summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
+
+    all_devices = fetch_all_pages("dcim/devices/")
+    devices_by_location: dict = {}
+    for device in all_devices:
+        location_obj = device.get("location") or {}
+        location_id = location_obj.get("id", "") if isinstance(location_obj, dict) else ""
+        if not location_id:
+            continue
+        devices_by_location.setdefault(location_id, []).append(device)
+
+    dt_mfr_map, dt_model_map = _build_device_type_maps()
+    lookup_maps = {
+        "dt_mfr_map": dt_mfr_map,
+        "dt_model_map": dt_model_map,
+        "mfr_map": _build_id_name_map("dcim/manufacturers/"),
+        "role_map": _build_id_name_map("extras/roles/"),
+        "tenant_map": _build_id_name_map("tenancy/tenants/"),
+        "status_map": _build_id_name_map("extras/statuses/"),
+    }
+    lnms_devices = None
+    lnms_id_map = None
+    dependency_error = ""
+    if LIBRENMS_URL and LIBRENMS_API_TOKEN:
+        try:
+            lnms_devices = _fetch_librenms_inventory()
+            lnms_id_map = _load_librenms_id_map()
+        except Exception as exc:
+            dependency_error = f"LibreNMS unavailable: {exc}"
+            logger.warning("Could not refresh LibreNMS inventory for alert board: %s", exc)
 
     for loc in locations:
-        try:
-            devices, alert = _get_location_devices_and_alert(
-                loc["id"], loc.get("location_type") or None
-            )
-        except Exception as exc:
-            logger.warning(
-                "Could not compute alert summary for location %s: %s", loc.get("id"), exc
-            )
+        if dependency_error:
             devices = []
-            alert = {"level": "ok", "reason": ""}
+            alert = {"level": "unknown", "reason": dependency_error}
+        else:
+            loc_devices = devices_by_location.get(loc["id"], [])
+            try:
+                devices, alert = _get_location_devices_and_alert(
+                    loc["id"],
+                    loc.get("location_type") or None,
+                    devices_data=loc_devices,
+                    lookup_maps=lookup_maps,
+                    lnms_devices=lnms_devices,
+                    lnms_id_map=lnms_id_map,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not compute alert summary for location %s: %s",
+                    loc.get("id"),
+                    exc,
+                )
+                devices = []
+                alert = {"level": "unknown", "reason": str(exc)}
 
         down_devices = [
             d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
@@ -864,8 +949,11 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
             "total": len(alerts),
             "critical": summary.get("critical", 0),
             "medium": summary.get("medium", 0),
+            "unknown": summary.get("unknown", 0),
             "ok": summary.get("ok", 0),
-            "non_ok": summary.get("critical", 0) + summary.get("medium", 0),
+            "non_ok": summary.get("critical", 0)
+            + summary.get("medium", 0)
+            + summary.get("unknown", 0),
         },
         "alerts": alerts,
     }

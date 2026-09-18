@@ -25,8 +25,9 @@ function escHtml(str) {
 function severityWeight(level) {
   if (level === "critical") return 0;
   if (level === "medium") return 1;
-  if (level === "ok") return 2;
-  return 3;
+  if (level === "unknown") return 2;
+  if (level === "ok") return 3;
+  return 4;
 }
 
 function populateSelect(selectEl, values, label) {
@@ -60,8 +61,15 @@ function populateFilters(alerts) {
 function renderSummary(summary) {
   document.getElementById("summary-critical").textContent = summary.critical || 0;
   document.getElementById("summary-medium").textContent = summary.medium || 0;
+  document.getElementById("summary-unknown").textContent = summary.unknown || 0;
   document.getElementById("summary-ok").textContent = summary.ok || 0;
   document.getElementById("summary-total").textContent = summary.total || 0;
+}
+
+function mapActionCell(item) {
+  const hasCoordinates = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
+  if (!hasCoordinates) return '<span class="map-link-disabled">No coordinates</span>';
+  return `<a class="map-link" href="/?location_id=${encodeURIComponent(item.id)}">Open map</a>`;
 }
 
 function formatBoardStatus(payload, visibleCount) {
@@ -98,7 +106,7 @@ function renderTableRows(alerts, payload) {
       <td>${item.device_count || 0}</td>
       <td>${item.down_device_count || 0}</td>
       <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
-      <td><a class="map-link" href="/?location_id=${encodeURIComponent(item.id)}">Open map</a></td>
+      <td>${mapActionCell(item)}</td>
     </tr>
   `).join("");
   formatBoardStatus(payload, alerts.length);
