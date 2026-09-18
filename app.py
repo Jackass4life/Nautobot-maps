@@ -892,7 +892,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
             lnms_devices = _fetch_librenms_inventory()
             lnms_id_map = _load_librenms_id_map()
         except Exception as exc:
-            dependency_error = f"LibreNMS unavailable: {exc}"
+            dependency_error = "LibreNMS dependency unavailable"
             logger.warning("Could not refresh LibreNMS inventory for alert board: %s", exc)
 
     for loc in locations:
@@ -917,7 +917,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
                     exc,
                 )
                 devices = []
-                alert = {"level": "unknown", "reason": str(exc)}
+                alert = {"level": "unknown", "reason": "Could not compute alert state"}
 
         down_devices = [
             d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES

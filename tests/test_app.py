@@ -536,7 +536,7 @@ class TestAlertBoard:
         assert data["summary"]["unknown"] == 1
         assert data["summary"]["ok"] == 0
         assert data["alerts"][0]["alert_level"] == "unknown"
-        assert "lookup failed" in data["alerts"][0]["alert_reason"]
+        assert data["alerts"][0]["alert_reason"] == "Could not compute alert state"
 
 
 # ---------------------------------------------------------------------------
