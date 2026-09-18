@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nautobot Alert Board</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Nautobot Maps</p>
+        <h1>Alert Board</h1>
+        <p class="page-subtitle">LibreNMS is used as a collector; this board owns the alert view for location health.</p>
+      </div>
+      <nav class="app-nav" aria-label="Primary">
+        <a class="app-nav-link" href="/">Map</a>
+        <a class="app-nav-link active" href="/alerts" aria-current="page">Alert Board</a>
+      </nav>
+    </header>
+
+    <section class="summary-grid" aria-label="Alert summary">
+      <article class="summary-card summary-critical">
+        <span class="summary-label">Critical</span>
+        <strong id="summary-critical">0</strong>
+      </article>
+      <article class="summary-card summary-medium">
+        <span class="summary-label">Medium</span>
+        <strong id="summary-medium">0</strong>
+      </article>
+      <article class="summary-card summary-unknown">
+        <span class="summary-label">Unknown</span>
+        <strong id="summary-unknown">0</strong>
+      </article>
+      <article class="summary-card summary-ok">
+        <span class="summary-label">OK</span>
+        <strong id="summary-ok">0</strong>
+      </article>
+      <article class="summary-card">
+        <span class="summary-label">Total sites</span>
+        <strong id="summary-total">0</strong>
+      </article>
+    </section>
+
+    <section class="toolbar" aria-label="Filters">
+      <div class="toolbar-grid">
+        <input id="filter-site" type="text" placeholder="Filter by site name" aria-label="Site" />
+        <select id="filter-severity" aria-label="Severity">
+          <option value="">All severities</option>
+          <option value="critical">Critical</option>
+          <option value="medium">Medium</option>
+          <option value="unknown">Unknown</option>
+          <option value="ok">OK</option>
+        </select>
+        <select id="filter-status" aria-label="Status">
+          <option value="">All statuses</option>
+        </select>
+        <select id="filter-type" aria-label="Type">
+          <option value="">All location types</option>
+        </select>
+        <select id="filter-tenant" aria-label="Tenant">
+          <option value="">All tenants</option>
+        </select>
+        <select id="sort-by" aria-label="Sort">
+          <option value="severity">Sort: severity</option>
+          <option value="site">Sort: site</option>
+          <option value="down">Sort: devices down</option>
+          <option value="devices">Sort: device count</option>
+        </select>
+      </div>
+      <div class="toolbar-meta">
+        <span id="board-status">Loading alert board…</span>
+        <button id="refresh-alerts" type="button">Refresh</button>
+      </div>
+    </section>
+
+    <section class="table-shell" aria-label="Alert table">
+      <table>
+        <thead>
+          <tr>
+            <th>Site</th>
+            <th>Alert</th>
+            <th>Status</th>
+            <th>Type</th>
+            <th>Tenant</th>
+            <th>Devices</th>
+            <th>Down</th>
+            <th>Reason</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="alerts-table-body">
+          <tr>
+            <td colspan="9" class="empty-state">Loading alerts…</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <div id="error-toast" class="hidden" role="alert"></div>
+  <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
+</body>
+</html>

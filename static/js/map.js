@@ -376,6 +376,8 @@ function addColocatedMarker(locations) {
 const markerLayer = L.layerGroup().addTo(map);
 let allLocations = [];
 const CLUSTER_THRESHOLD = 100; // Use clustering if more than 100 locations
+const initialLocationId = new URLSearchParams(window.location.search).get("location_id");
+let initialLocationOpened = false;
 
 // ---------------------------------------------------------------------------
 // NOC alert marker registry
@@ -384,10 +386,37 @@ const CLUSTER_THRESHOLD = 100; // Use clustering if more than 100 locations
 // ---------------------------------------------------------------------------
 /** locId → L.marker */
 const markerByLocId = {};
+/** locId → cluster marker when rendered as a grid cluster */
+const clusterByLocId = {};
 /** locId → array of all locIds sharing the same co-located marker */
 const colocGroupByLocId = {};
 /** locId → "critical" | "medium" | "ok" */
 const locationAlerts = {};
+
+function openLocationFromQuery() {
+  if (!initialLocationId || initialLocationOpened) return;
+  const loc = allLocations.find((item) => item.id === initialLocationId);
+  const marker = markerByLocId[initialLocationId];
+  if (!loc) return;
+  if (!marker) {
+    const clusterMarker = clusterByLocId[initialLocationId];
+    if (!clusterMarker) return;
+    map.flyTo(clusterMarker.getLatLng(), Math.max(map.getZoom(), 8), { duration: 0.8 });
+    return;
+  }
+
+  initialLocationOpened = true;
+  map.flyTo([loc.latitude, loc.longitude], 13, { duration: 0.8 });
+  marker.openPopup();
+
+  const groupIds = colocGroupByLocId[initialLocationId];
+  if (groupIds && groupIds.length > 1) {
+    setTimeout(() => {
+      const targetTab = document.querySelector(`.coloc-tab[data-loc-id="${CSS.escape(initialLocationId)}"]`);
+      if (targetTab) targetTab.click();
+    }, 0);
+  }
+}
 
 /**
  * Called after device details are loaded for a location.
@@ -442,6 +471,7 @@ function renderMarkers(locations, searchMarker) {
   markerLayer.clearLayers();
   // Clear registry so stale references don't linger after a re-render
   for (const key of Object.keys(markerByLocId)) delete markerByLocId[key];
+  for (const key of Object.keys(clusterByLocId)) delete clusterByLocId[key];
   for (const key of Object.keys(colocGroupByLocId)) delete colocGroupByLocId[key];
 
   // Add search point marker if provided
@@ -544,6 +574,9 @@ function renderMarkersWithClustering(locations) {
         </div>`,
         { keepInView: true }
       );
+      for (const loc of group) {
+        clusterByLocId[loc.id] = clusterMarker;
+      }
       clusterMarker.addTo(markerLayer);
     } else {
       // Zoom level high enough – show individual markers, but group
@@ -756,6 +789,7 @@ function applyFilters() {
 
   renderMarkers(filtered);
   updateLocationCount(filtered.length);
+  openLocationFromQuery();
 }
 
 filterStatus.addEventListener("change", applyFilters);
