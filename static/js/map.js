@@ -386,6 +386,8 @@ let initialLocationOpened = false;
 // ---------------------------------------------------------------------------
 /** locId → L.marker */
 const markerByLocId = {};
+/** locId → cluster marker when rendered as a grid cluster */
+const clusterByLocId = {};
 /** locId → array of all locIds sharing the same co-located marker */
 const colocGroupByLocId = {};
 /** locId → "critical" | "medium" | "ok" */
@@ -395,7 +397,13 @@ function openLocationFromQuery() {
   if (!initialLocationId || initialLocationOpened) return;
   const loc = allLocations.find((item) => item.id === initialLocationId);
   const marker = markerByLocId[initialLocationId];
-  if (!loc || !marker) return;
+  if (!loc) return;
+  if (!marker) {
+    const clusterMarker = clusterByLocId[initialLocationId];
+    if (!clusterMarker) return;
+    map.flyTo(clusterMarker.getLatLng(), Math.max(map.getZoom(), 8), { duration: 0.8 });
+    return;
+  }
 
   initialLocationOpened = true;
   map.flyTo([loc.latitude, loc.longitude], 13, { duration: 0.8 });
@@ -463,6 +471,7 @@ function renderMarkers(locations, searchMarker) {
   markerLayer.clearLayers();
   // Clear registry so stale references don't linger after a re-render
   for (const key of Object.keys(markerByLocId)) delete markerByLocId[key];
+  for (const key of Object.keys(clusterByLocId)) delete clusterByLocId[key];
   for (const key of Object.keys(colocGroupByLocId)) delete colocGroupByLocId[key];
 
   // Add search point marker if provided
@@ -565,6 +574,9 @@ function renderMarkersWithClustering(locations) {
         </div>`,
         { keepInView: true }
       );
+      for (const loc of group) {
+        clusterByLocId[loc.id] = clusterMarker;
+      }
       clusterMarker.addTo(markerLayer);
     } else {
       // Zoom level high enough – show individual markers, but group

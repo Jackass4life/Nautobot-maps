@@ -45,24 +45,24 @@
 
     <section class="toolbar" aria-label="Filters">
       <div class="toolbar-grid">
-        <input id="filter-site" type="text" placeholder="Filter by site name" />
-        <select id="filter-severity">
+        <input id="filter-site" type="text" placeholder="Filter by site name" aria-label="Site" />
+        <select id="filter-severity" aria-label="Severity">
           <option value="">All severities</option>
           <option value="critical">Critical</option>
           <option value="medium">Medium</option>
           <option value="unknown">Unknown</option>
           <option value="ok">OK</option>
         </select>
-        <select id="filter-status">
+        <select id="filter-status" aria-label="Status">
           <option value="">All statuses</option>
         </select>
-        <select id="filter-type">
+        <select id="filter-type" aria-label="Type">
           <option value="">All location types</option>
         </select>
-        <select id="filter-tenant">
+        <select id="filter-tenant" aria-label="Tenant">
           <option value="">All tenants</option>
         </select>
-        <select id="sort-by">
+        <select id="sort-by" aria-label="Sort">
           <option value="severity">Sort: severity</option>
           <option value="site">Sort: site</option>
           <option value="down">Sort: devices down</option>

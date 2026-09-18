@@ -886,38 +886,34 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
     }
     lnms_devices = None
     lnms_id_map = None
-    dependency_error = ""
     if LIBRENMS_URL and LIBRENMS_API_TOKEN:
         try:
             lnms_devices = _fetch_librenms_inventory()
             lnms_id_map = _load_librenms_id_map()
         except Exception as exc:
-            dependency_error = "LibreNMS dependency unavailable"
             logger.warning("Could not refresh LibreNMS inventory for alert board: %s", exc)
+            lnms_devices = []
+            lnms_id_map = {}
 
     for loc in locations:
-        if dependency_error:
+        loc_devices = devices_by_location.get(loc["id"], [])
+        try:
+            devices, alert = _get_location_devices_and_alert(
+                loc["id"],
+                loc.get("location_type") or None,
+                devices_data=loc_devices,
+                lookup_maps=lookup_maps,
+                lnms_devices=lnms_devices,
+                lnms_id_map=lnms_id_map,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not compute alert summary for location %s: %s",
+                loc.get("id"),
+                exc,
+            )
             devices = []
-            alert = {"level": "unknown", "reason": dependency_error}
-        else:
-            loc_devices = devices_by_location.get(loc["id"], [])
-            try:
-                devices, alert = _get_location_devices_and_alert(
-                    loc["id"],
-                    loc.get("location_type") or None,
-                    devices_data=loc_devices,
-                    lookup_maps=lookup_maps,
-                    lnms_devices=lnms_devices,
-                    lnms_id_map=lnms_id_map,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Could not compute alert summary for location %s: %s",
-                    loc.get("id"),
-                    exc,
-                )
-                devices = []
-                alert = {"level": "unknown", "reason": "Could not compute alert state"}
+            alert = {"level": "unknown", "reason": "Could not compute alert state"}
 
         down_devices = [
             d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES

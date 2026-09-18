@@ -538,6 +538,33 @@ class TestAlertBoard:
         assert data["alerts"][0]["alert_level"] == "unknown"
         assert data["alerts"][0]["alert_reason"] == "Could not compute alert state"
 
+    def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
+        flask_app.cache.clear()
+        sample_locations = [
+            {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
+            {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
+        ]
+
+        with patch.object(flask_app, "LIBRENMS_URL", "https://librenms.example.com"), \
+             patch.object(flask_app, "LIBRENMS_API_TOKEN", "token"), \
+             patch.object(flask_app, "_fetch_librenms_inventory", side_effect=RuntimeError("down")), \
+             patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(
+                 flask_app,
+                 "_get_location_devices_and_alert",
+                 side_effect=[
+                     ([{"id": "d1", "status": "offline"}], {"level": "critical", "reason": "Core down"}),
+                     ([{"id": "d2", "status": "active"}], {"level": "ok", "reason": ""}),
+                 ],
+             ) as get_alert:
+            data = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert get_alert.call_count == 2
+        assert data["summary"]["critical"] == 1
+        assert data["summary"]["ok"] == 1
+        assert data["summary"]["unknown"] == 0
+
 
 # ---------------------------------------------------------------------------
 # Tests: /api/locations/<id>/detail
