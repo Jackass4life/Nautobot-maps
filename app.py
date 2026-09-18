@@ -1028,8 +1028,11 @@ def api_alerts():
     }
     try:
         return jsonify(get_alert_board_data(force_refresh=force_refresh))
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+    except RuntimeError:
+        return (
+            jsonify({"error": "Alert board unavailable because Nautobot is not configured"}),
+            503,
+        )
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error while building alert board: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
