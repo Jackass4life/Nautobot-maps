@@ -376,6 +376,8 @@ function addColocatedMarker(locations) {
 const markerLayer = L.layerGroup().addTo(map);
 let allLocations = [];
 const CLUSTER_THRESHOLD = 100; // Use clustering if more than 100 locations
+const initialLocationId = new URLSearchParams(window.location.search).get("location_id");
+let initialLocationOpened = false;
 
 // ---------------------------------------------------------------------------
 // NOC alert marker registry
@@ -411,6 +413,25 @@ function updateMarkerForAlert(locId, alertLevel) {
     }, "ok");
     if (groupLevel !== "ok") {
       marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
+    }
+
+    function openLocationFromQuery() {
+      if (!initialLocationId || initialLocationOpened) return;
+      const loc = allLocations.find((item) => item.id === initialLocationId);
+      const marker = markerByLocId[initialLocationId];
+      if (!loc || !marker) return;
+
+      initialLocationOpened = true;
+      map.flyTo([loc.latitude, loc.longitude], 13, { duration: 0.8 });
+      marker.openPopup();
+
+      const groupIds = colocGroupByLocId[initialLocationId];
+      if (groupIds && groupIds.length > 1) {
+        setTimeout(() => {
+          const targetTab = document.querySelector(`.coloc-tab[data-loc-id="${CSS.escape(initialLocationId)}"]`);
+          if (targetTab) targetTab.click();
+        }, 0);
+      }
     }
     return;
   }
@@ -756,6 +777,7 @@ function applyFilters() {
 
   renderMarkers(filtered);
   updateLocationCount(filtered.length);
+  openLocationFromQuery();
 }
 
 filterStatus.addEventListener("change", applyFilters);

@@ -20,6 +20,7 @@ A web application that displays Nautobot locations on an interactive OpenStreetM
   - Location name, type, status, tenant, time zone, and physical address
   - ASN(s) assigned to the location
   - Network equipment (devices) at the location with model, role, and status
+- 🚨 Dedicated **Alert Board** page showing per-site alert severity with filters for site, tenant, location type, status, and severity
 - 🔍 Search by **address** (geocoded via OpenStreetMap/Nominatim) **or GPS coordinates** (`lat,lon`)
   - Returns all Nautobot locations within **5 km** of the searched point, sorted by distance
   - Draws a 5 km radius circle on the map
@@ -111,6 +112,8 @@ for a full description of the seed data and suggested demo scenarios.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Map web UI |
+| `GET` | `/alerts` | Alert board web UI |
+| `GET` | `/api/alerts` | Alert summary for all Nautobot locations |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
 | `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
 | `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |

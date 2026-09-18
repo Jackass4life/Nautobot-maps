@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 import logging
+from datetime import datetime, timezone
 from functools import wraps
 
 import requests
@@ -706,79 +707,179 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
         conn.close()
 
 
-def get_location_detail(location_id: str, location_type: str | None = None) -> dict:
-    """Fetch detailed info (devices, prefixes, ASNs) for a single location."""
-    detail: dict = {}
-
+def _get_location_devices_and_alert(
+    location_id: str, location_type: str | None = None
+) -> tuple[list, dict]:
+    """Return ``(devices, alert)`` for a location."""
     # Devices at this location
     # Nautobot 3.x uses the "location" filter parameter (UUID accepted);
     # "location_id" was removed in 3.x and returns 400.
+    devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
+
+    # Fallback lookup: covers Nautobot builds where brief nested objects
+    # only carry id+url without a human-readable name.
+    # In Nautobot 3.x the brief device_type nested object inside device
+    # list responses does NOT include manufacturer or model fields, so we
+    # pre-fetch all device types to resolve device_type_id → model/manufacturer.
+    dt_mfr_map, dt_model_map = _build_device_type_maps()
+    mfr_map = _build_id_name_map("dcim/manufacturers/")
+    role_map = _build_id_name_map("extras/roles/")
+    tenant_map = _build_id_name_map("tenancy/tenants/")
+    status_map = _build_id_name_map("extras/statuses/")
+
+    devices = []
+    for d in devices_data:
+        dt = d.get("device_type") or {}
+        dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
+        mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
+        mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
+        mfr_name = (
+            _nested_str(mfr_obj, "name", "display")
+            or mfr_map.get(mfr_id, "")
+            or dt_mfr_map.get(dt_id, "")
+        )
+
+        ten_obj = d.get("tenant") or {}
+        ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
+        ten_name = (
+            _nested_str(ten_obj, "name", "display")
+            or tenant_map.get(ten_id, "")
+        )
+
+        st_obj = d.get("status") or {}
+        st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
+        st_name = (
+            _nested_str(st_obj, "label", "name", "display")
+            or status_map.get(st_id, "")
+        )
+
+        devices.append(
+            {
+                "id": d.get("id") or "",
+                "name": d.get("name") or "Unknown",
+                "device_type": (
+                    _nested_str(d.get("device_type"), "model", "display")
+                    or dt_model_map.get(dt_id, "")
+                ),
+                "manufacturer": mfr_name,
+                "role": (
+                    _nested_str(d.get("role"), "name", "display")
+                    or role_map.get(
+                        d.get("role", {}).get("id", "")
+                        if isinstance(d.get("role"), dict)
+                        else "",
+                        "",
+                    )
+                ),
+                "status": st_name,
+                "platform": _nested_str(d.get("platform"), "name", "display"),
+                "serial": d.get("serial") or "",
+                "tenant": ten_name,
+            }
+        )
+
+    enriched = _enrich_with_librenms(devices)
+    return enriched, compute_alert_level(enriched, location_type)
+
+
+def _iso_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _alert_sort_key(level: str) -> int:
+    return {"critical": 0, "medium": 1, "ok": 2}.get((level or "").lower(), 3)
+
+
+def _apply_alert_board_freshness(payload: dict) -> dict:
+    """Attach freshness metadata to an alert-board payload."""
+    checked_at = payload.get("checked_at")
+    age_seconds = 0
+    if checked_at:
+        try:
+            parsed = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+            age_seconds = max(
+                0, int((datetime.now(timezone.utc) - parsed).total_seconds())
+            )
+        except ValueError:
+            age_seconds = 0
+    result = dict(payload)
+    stale_after_seconds = int(result.get("stale_after_seconds", CACHE_TTL))
+    result["age_seconds"] = age_seconds
+    result["stale"] = age_seconds > stale_after_seconds
+    return result
+
+
+def get_alert_board_data(force_refresh: bool = False) -> dict:
+    """Return alert summaries for all locations."""
+    cache_key = "alert-board-data:v1"
+    if force_refresh:
+        cache.delete(cache_key)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return _apply_alert_board_freshness(cached)
+
+    locations = get_locations()
+    alerts = []
+    summary = {"critical": 0, "medium": 0, "ok": 0}
+
+    for loc in locations:
+        try:
+            devices, alert = _get_location_devices_and_alert(
+                loc["id"], loc.get("location_type") or None
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not compute alert summary for location %s: %s", loc.get("id"), exc
+            )
+            devices = []
+            alert = {"level": "ok", "reason": ""}
+
+        down_devices = [
+            d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
+        ]
+        level = (alert.get("level") or "ok").lower()
+        summary[level] = summary.get(level, 0) + 1
+        alerts.append(
+            {
+                **loc,
+                "alert_level": level,
+                "alert_reason": alert.get("reason", ""),
+                "device_count": len(devices),
+                "down_device_count": len(down_devices),
+            }
+        )
+
+    alerts.sort(
+        key=lambda item: (
+            _alert_sort_key(item.get("alert_level", "ok")),
+            -item.get("down_device_count", 0),
+            item.get("name", "").lower(),
+        )
+    )
+
+    payload = {
+        "checked_at": _iso_utc_now(),
+        "stale_after_seconds": CACHE_TTL,
+        "summary": {
+            "total": len(alerts),
+            "critical": summary.get("critical", 0),
+            "medium": summary.get("medium", 0),
+            "ok": summary.get("ok", 0),
+            "non_ok": summary.get("critical", 0) + summary.get("medium", 0),
+        },
+        "alerts": alerts,
+    }
+    _cache_set(cache_key, payload)
+    return _apply_alert_board_freshness(payload)
+
+
+def get_location_detail(location_id: str, location_type: str | None = None) -> dict:
+    """Fetch detailed info (devices, prefixes, ASNs) for a single location."""
+    detail: dict = {}
     try:
-        devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
-
-        # Fallback lookup: covers Nautobot builds where brief nested objects
-        # only carry id+url without a human-readable name.
-        # In Nautobot 3.x the brief device_type nested object inside device
-        # list responses does NOT include manufacturer or model fields, so we
-        # pre-fetch all device types to resolve device_type_id → model/manufacturer.
-        dt_mfr_map, dt_model_map = _build_device_type_maps()
-        mfr_map = _build_id_name_map("dcim/manufacturers/")
-        role_map = _build_id_name_map("extras/roles/")
-        tenant_map = _build_id_name_map("tenancy/tenants/")
-        status_map = _build_id_name_map("extras/statuses/")
-
-        devices = []
-        for d in devices_data:
-            dt = d.get("device_type") or {}
-            dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
-            mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
-            mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
-            mfr_name = (
-                _nested_str(mfr_obj, "name", "display")
-                or mfr_map.get(mfr_id, "")
-                or dt_mfr_map.get(dt_id, "")
-            )
-
-            ten_obj = d.get("tenant") or {}
-            ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
-            ten_name = (
-                _nested_str(ten_obj, "name", "display")
-                or tenant_map.get(ten_id, "")
-            )
-
-            st_obj = d.get("status") or {}
-            st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
-            st_name = (
-                _nested_str(st_obj, "label", "name", "display")
-                or status_map.get(st_id, "")
-            )
-
-            devices.append(
-                {
-                    "id": d.get("id") or "",
-                    "name": d.get("name") or "Unknown",
-                    "device_type": (
-                        _nested_str(d.get("device_type"), "model", "display")
-                        or dt_model_map.get(dt_id, "")
-                    ),
-                    "manufacturer": mfr_name,
-                    "role": (
-                        _nested_str(d.get("role"), "name", "display")
-                        or role_map.get(
-                            d.get("role", {}).get("id", "") if isinstance(d.get("role"), dict) else "",
-                            "",
-                        )
-                    ),
-                    "status": st_name,
-                    "platform": _nested_str(d.get("platform"), "name", "display"),
-                    "serial": d.get("serial") or "",
-                    "tenant": ten_name,
-                }
-            )
+        devices, alert = _get_location_devices_and_alert(location_id, location_type)
         detail["devices"] = devices
-        enriched = _enrich_with_librenms(devices)
-        detail["devices"] = enriched
-        detail["alert"] = compute_alert_level(enriched, location_type)
+        detail["alert"] = alert
     except Exception as exc:
         logger.warning("Could not fetch devices for location %s: %s", location_id, exc)
         detail["devices"] = []
@@ -872,6 +973,11 @@ def index():
     return render_template("index.html", nautobot_url=NAUTOBOT_URL)
 
 
+@app.route("/alerts")
+def alert_board():
+    return render_template("alerts.html", nautobot_url=NAUTOBOT_URL)
+
+
 @app.route("/api/locations")
 def api_locations():
     """Return all Nautobot locations that have GPS coordinates."""
@@ -908,6 +1014,27 @@ def api_location_detail(location_id: str):
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
     except Exception as exc:
         logger.error("Unexpected error fetching location detail: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/alerts")
+def api_alerts():
+    """Return alert-board summaries for all Nautobot locations."""
+    force_refresh = request.args.get("refresh", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "refresh",
+    }
+    try:
+        return jsonify(get_alert_board_data(force_refresh=force_refresh))
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except requests.HTTPError as exc:
+        logger.error("Nautobot API HTTP error while building alert board: %s", exc)
+        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
+    except Exception as exc:
+        logger.error("Unexpected error building alert board: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
 
 

@@ -380,6 +380,150 @@ class TestApiLocations:
 
 
 # ---------------------------------------------------------------------------
+# Tests: alert board
+# ---------------------------------------------------------------------------
+class TestAlertBoard:
+    def test_alert_board_page_renders(self, client):
+        resp = client.get("/alerts")
+        assert resp.status_code == 200
+        assert b"Alert Board" in resp.data
+
+    def test_get_alert_board_data_aggregates_and_sorts(self):
+        flask_app.cache.clear()
+        sample_locations = [
+            {
+                "id": "loc-1",
+                "name": "Bravo Site",
+                "status": "Active",
+                "location_type": "Data Center",
+                "parent": "Region A",
+                "latitude": 10.0,
+                "longitude": 20.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "Tenant A",
+                "tenant_id": "ten-1",
+                "tenant_group": "Group A",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+            {
+                "id": "loc-2",
+                "name": "Alpha Site",
+                "status": "Active",
+                "location_type": "Office",
+                "parent": "",
+                "latitude": 11.0,
+                "longitude": 21.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+            {
+                "id": "loc-3",
+                "name": "Charlie Site",
+                "status": "Planned",
+                "location_type": "PoP",
+                "parent": "",
+                "latitude": 12.0,
+                "longitude": 22.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+        ]
+
+        def mock_devices(location_id, location_type=None):
+            if location_id == "loc-1":
+                return (
+                    [{"id": "d1", "name": "core1", "role": "Core Router", "status": "offline"}],
+                    {"level": "critical", "reason": "Core device(s) offline: core1"},
+                )
+            if location_id == "loc-2":
+                return (
+                    [
+                        {"id": "d2", "name": "sw1", "role": "Switch", "status": "offline"},
+                        {"id": "d3", "name": "sw2", "role": "Switch", "status": "active"},
+                        {"id": "d4", "name": "sw3", "role": "Switch", "status": "active"},
+                    ],
+                    {"level": "medium", "reason": "1/3 devices offline (33%)"},
+                )
+            return (
+                [{"id": "d5", "name": "sw4", "role": "Switch", "status": "active"}],
+                {"level": "ok", "reason": ""},
+            )
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=mock_devices):
+            data = flask_app.get_alert_board_data()
+
+        assert data["summary"] == {
+            "total": 3,
+            "critical": 1,
+            "medium": 1,
+            "ok": 1,
+            "non_ok": 2,
+        }
+        assert [item["id"] for item in data["alerts"]] == ["loc-1", "loc-2", "loc-3"]
+        assert data["alerts"][0]["down_device_count"] == 1
+        assert data["alerts"][1]["alert_level"] == "medium"
+        assert data["stale"] is False
+
+    def test_api_alerts_returns_board_data(self, client):
+        flask_app.cache.clear()
+        with patch.object(flask_app, "get_locations", return_value=[{
+            "id": "loc-1",
+            "name": "Copenhagen DC",
+            "status": "Active",
+            "location_type": "Data Center",
+            "parent": "Denmark",
+            "latitude": 55.6761,
+            "longitude": 12.5683,
+            "description": "",
+            "physical_address": "",
+            "facility": "CPH-1",
+            "tenant": "Acme Corp",
+            "tenant_id": "ten-1",
+            "tenant_group": "Corporate",
+            "asn": 65001,
+            "time_zone": "Europe/Copenhagen",
+            "tags": ["critical"],
+            "url": "",
+        }]), patch.object(
+            flask_app,
+            "_get_location_devices_and_alert",
+            return_value=(
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+            ),
+        ):
+            resp = client.get("/api/alerts")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["summary"]["critical"] == 1
+        assert data["alerts"][0]["name"] == "Copenhagen DC"
+        assert data["alerts"][0]["alert_level"] == "critical"
+
+
+# ---------------------------------------------------------------------------
 # Tests: /api/locations/<id>/detail
 # ---------------------------------------------------------------------------
 class TestApiLocationDetail:
