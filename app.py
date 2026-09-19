@@ -613,7 +613,7 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
     }
     url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
     response = requests.get(
-        url, headers=headers, params=params, timeout=15, verify=NAUTOBOT_VERIFY_SSL
+        url, headers=headers, params=params, timeout=(5, 30), verify=NAUTOBOT_VERIFY_SSL
     )
     response.raise_for_status()
     data = response.json()

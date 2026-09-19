@@ -997,6 +997,29 @@ class TestSSLVerification:
             flask_app.NAUTOBOT_TOKEN = original_token
             flask_app.NAUTOBOT_VERIFY_SSL = original_verify
 
+    def test_get_requests_use_connect_and_read_timeouts(self):
+        """Nautobot GETs should set separate connect/read timeouts."""
+        import requests as req_lib
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
+
+        flask_app.cache.clear()
+        original_url = flask_app.NAUTOBOT_URL
+        original_token = flask_app.NAUTOBOT_TOKEN
+        flask_app.NAUTOBOT_URL = "https://nautobot.test"
+        flask_app.NAUTOBOT_TOKEN = "test-token"
+        try:
+            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs["timeout"] == (5, 30)
+        finally:
+            flask_app.NAUTOBOT_URL = original_url
+            flask_app.NAUTOBOT_TOKEN = original_token
+
     def test_insecure_request_warning_suppressed_when_verify_disabled(self):
         original_verify = flask_app.NAUTOBOT_VERIFY_SSL
         flask_app.NAUTOBOT_VERIFY_SSL = False
