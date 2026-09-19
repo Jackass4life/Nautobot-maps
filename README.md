@@ -81,6 +81,13 @@ python app.py
 | `FLASK_DEBUG` | ❌ | `false` | Set `true` to enable Flask debug mode |
 | `FLASK_RUN_PORT` | ❌ | `5000` | Port for the development server (useful if 5000 is taken, e.g. by macOS AirPlay Receiver) |
 
+### LibreNMS integration settings
+
+Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to enable optional LibreNMS enrichment.
+`LIBRENMS_VERIFY_SSL` defaults to `true`; set it to `false`/`no`/`0` only when you
+explicitly accept the TLS trust tradeoff (for example, an internal CA not in the trust
+store). Prefer using a trusted CA bundle (for example via `REQUESTS_CA_BUNDLE`) when possible.
+
 ## Docker
 
 > **Important:** Always use `docker compose up` — **not** `docker compose build && docker compose start`.
