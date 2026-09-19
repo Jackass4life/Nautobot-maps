@@ -95,6 +95,10 @@ def _is_auth_config_valid() -> bool:
     return AUTH_MODE in _SUPPORTED_AUTH_MODES
 
 
+def _get_flask_run_host() -> str:
+    return "127.0.0.1" if AUTH_MODE == "header" else "0.0.0.0"
+
+
 def _auth_role_level(role: str) -> int:
     return _AUTH_ROLE_LEVELS.get(_normalize_auth_role(role), 0)
 
@@ -1560,4 +1564,4 @@ if __name__ == "__main__":
         port = int(os.getenv("FLASK_RUN_PORT", 5000))
     except (ValueError, TypeError):
         port = 5000
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    app.run(host=_get_flask_run_host(), port=port, debug=debug)

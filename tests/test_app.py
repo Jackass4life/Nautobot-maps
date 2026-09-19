@@ -1677,6 +1677,14 @@ class TestApiLocationTypes:
 
 
 class TestAuthConfiguration:
+    def test_header_auth_binds_flask_to_loopback(self):
+        with auth_config(mode="header"):
+            assert flask_app._get_flask_run_host() == "127.0.0.1"
+
+    def test_non_header_auth_keeps_public_flask_bind(self):
+        with auth_config(mode="disabled"):
+            assert flask_app._get_flask_run_host() == "0.0.0.0"
+
     def test_auth_disabled_keeps_write_endpoints_unchanged(self, client):
         with auth_config(mode="disabled"):
             resp = client.post(
