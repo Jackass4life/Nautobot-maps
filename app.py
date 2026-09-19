@@ -267,6 +267,7 @@ def _init_db() -> None:
     try:
         with conn:
             if _is_postgres():
+                conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS device_criticality_override (
