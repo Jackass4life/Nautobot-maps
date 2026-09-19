@@ -1686,7 +1686,9 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
 
 
 
-def get_locations(include_without_coordinates: bool = False) -> list:
+def get_locations(
+    include_without_coordinates: bool = False, snapshot_only: bool = False
+) -> list:
     """Fetch locations from Nautobot.
 
     By default, only locations with valid GPS coordinates are returned.
@@ -1695,8 +1697,11 @@ def get_locations(include_without_coordinates: bool = False) -> list:
     """
     cached = _read_cached_locations(include_without_coordinates=include_without_coordinates)
     if cached:
-        _ensure_inventory_snapshot()
+        if not snapshot_only:
+            _ensure_inventory_snapshot()
         return cached
+    if snapshot_only:
+        return []
     _ensure_inventory_snapshot(force=True, wait=True)
     cached = _read_cached_locations(include_without_coordinates=include_without_coordinates)
     if cached:
@@ -1915,7 +1920,10 @@ def _load_librenms_id_map() -> dict:
 
 
 def _enrich_with_librenms(
-    devices: list, lnms_devices: list | None = None, lnms_id_map: dict | None = None
+    devices: list,
+    lnms_devices: list | None = None,
+    lnms_id_map: dict | None = None,
+    snapshot_only: bool = False,
 ) -> list:
     """Merge live LibreNMS status into *devices* (in-place copy returned).
 
@@ -1935,15 +1943,17 @@ def _enrich_with_librenms(
 
     if lnms_devices is None:
         lnms_devices = _read_cached_librenms_inventory()
-    if not lnms_devices:
+    if not lnms_devices and not snapshot_only:
         _ensure_inventory_snapshot()
         lnms_devices = _read_cached_librenms_inventory()
-    if not lnms_devices:
+    if not lnms_devices and not snapshot_only:
         try:
             lnms_devices = _fetch_librenms_inventory()
         except Exception as exc:
             logger.warning("LibreNMS enrichment failed (could not fetch devices): %s", exc)
             return devices
+    if not lnms_devices:
+        return devices
 
     # Build hostname → LibreNMS record map (case-insensitive)
     lnms_by_hostname: dict = {}
@@ -2030,14 +2040,16 @@ def _get_location_devices_and_alert(
     lookup_maps: dict | None = None,
     lnms_devices: list | None = None,
     lnms_id_map: dict | None = None,
+    snapshot_only: bool = False,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location."""
     if devices_data is None:
         devices_data = _read_cached_devices(location_id)
         if devices_data:
             devices_already_normalized = True
-            _ensure_inventory_snapshot()
-        else:
+            if not snapshot_only:
+                _ensure_inventory_snapshot()
+        elif not snapshot_only:
             _ensure_inventory_snapshot()
 
     devices = (
@@ -2060,7 +2072,10 @@ def _get_location_devices_and_alert(
     )
 
     enriched = _enrich_with_librenms(
-        devices, lnms_devices=lnms_devices, lnms_id_map=lnms_id_map
+        devices,
+        lnms_devices=lnms_devices,
+        lnms_id_map=lnms_id_map,
+        snapshot_only=snapshot_only,
     )
     return enriched, compute_alert_level(enriched, location_type)
 
@@ -2445,9 +2460,12 @@ def _apply_alert_board_freshness(payload: dict) -> dict:
     return result
 
 
-def _build_alert_board_payload() -> dict:
+def _build_alert_board_payload(snapshot_only: bool = False) -> dict:
     """Build and return a fresh alert-board payload."""
-    locations = get_locations(include_without_coordinates=True)
+    locations = get_locations(
+        include_without_coordinates=True,
+        snapshot_only=snapshot_only,
+    )
     alerts = []
     summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
     default_alert_context = {
@@ -2462,7 +2480,7 @@ def _build_alert_board_payload() -> dict:
     if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
         try:
             lnms_devices = _read_cached_librenms_inventory()
-            if not lnms_devices:
+            if not lnms_devices and not snapshot_only:
                 _ensure_inventory_snapshot(force=True, wait=True)
                 lnms_devices = _read_cached_librenms_inventory()
             lnms_id_map = _load_librenms_id_map()
@@ -2480,6 +2498,7 @@ def _build_alert_board_payload() -> dict:
                 loc.get("location_type") or None,
                 lnms_devices=lnms_devices,
                 lnms_id_map=lnms_id_map,
+                snapshot_only=snapshot_only,
             )
         except Exception as exc:
             logger.warning(
@@ -2611,12 +2630,12 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
     """Return alert summaries for all locations."""
     cache_key = "alert-board-data:v2"
     if force_refresh:
-        cache.delete(cache_key)
+        _ensure_inventory_snapshot(force=True, wait=False)
     cached = _cache_get(cache_key)
     if cached is not None:
         return _apply_alert_board_freshness(cached)
 
-    payload = _build_alert_board_payload()
+    payload = _build_alert_board_payload(snapshot_only=True)
     _cache_set(cache_key, payload, timeout=CACHE_TTL)
     return _apply_alert_board_freshness(payload)
 

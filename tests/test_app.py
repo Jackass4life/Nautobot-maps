@@ -697,8 +697,7 @@ class TestAlertBoard:
         assert data["summary"]["ok"] == 2
         assert data["summary"]["non_ok"] == 0
         assert [item["alert_level"] for item in data["alerts"]] == ["ok", "ok"]
-        assert ensure_snapshot.call_count >= 1
-        assert all(call.args == () and call.kwargs == {} for call in ensure_snapshot.call_args_list)
+        ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
         flask_app.cache.clear()
@@ -765,6 +764,7 @@ class TestAlertBoard:
 
         with patch.object(flask_app, "get_locations", return_value=sample_locations), \
              patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_ensure_inventory_snapshot"), \
              patch.object(
                  flask_app,
                  "_get_location_devices_and_alert",
@@ -791,6 +791,7 @@ class TestAlertBoard:
 
         with patch.object(flask_app, "get_locations", return_value=sample_locations), \
              patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_ensure_inventory_snapshot"), \
              patch.object(
                  flask_app,
                  "_get_location_devices_and_alert",
@@ -1896,7 +1897,7 @@ class TestAlertLifecycleTracking:
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
 
-    def test_get_alert_board_data_sets_ttl_and_rebuilds_on_force_refresh(self):
+    def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):
         first_payload = {
             "checked_at": "2026-01-01T00:00:00Z",
             "stale_after_seconds": flask_app.CACHE_TTL,
@@ -1914,18 +1915,43 @@ class TestAlertLifecycleTracking:
             flask_app,
             "_build_alert_board_payload",
             side_effect=[first_payload, second_payload],
-        ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set:
+        ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set, patch.object(
+            flask_app,
+            "_ensure_inventory_snapshot",
+        ) as ensure_snapshot:
             first = flask_app.get_alert_board_data(force_refresh=True)
             second = flask_app.get_alert_board_data()
             refreshed = flask_app.get_alert_board_data(force_refresh=True)
         assert first["checked_at"] == second["checked_at"] == "2026-01-01T00:00:00Z"
-        assert refreshed["checked_at"] == "2026-01-01T00:05:00Z"
-        assert build_payload.call_count == 2
-        assert cache_set.call_count == 2
+        assert refreshed["checked_at"] == "2026-01-01T00:00:00Z"
+        assert build_payload.call_count == 1
+        assert cache_set.call_count == 1
+        assert ensure_snapshot.call_count == 2
+        assert all(
+            call.args == () and call.kwargs == {"force": True, "wait": False}
+            for call in ensure_snapshot.call_args_list
+        )
         assert all(
             call.kwargs.get("timeout") == flask_app.CACHE_TTL
             for call in cache_set.call_args_list
         )
+
+    def test_get_alert_board_data_builds_snapshot_only_payload(self):
+        flask_app.cache.clear()
+        payload = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        with patch.object(
+            flask_app, "_build_alert_board_payload", return_value=payload
+        ) as build_payload, patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot:
+            result = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert result["checked_at"] == "2026-01-01T00:00:00Z"
+        build_payload.assert_called_once_with(snapshot_only=True)
+        ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
     def test_postgres_lifecycle_path_uses_postgres_sql(self):
         class _FakeResult:
