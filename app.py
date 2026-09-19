@@ -2458,6 +2458,13 @@ def _build_alert_board_payload() -> dict:
     locations = get_locations(include_without_coordinates=True)
     alerts = []
     summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
+    default_alert_context = {
+        "active_alert_instance_count": 0,
+        "historical_downtime_seconds": 0,
+        "current_downtime_seconds": 0,
+        "active_cases": [],
+        "down_devices": [],
+    }
     lnms_devices = None
     lnms_id_map = None
     if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
@@ -2472,115 +2479,116 @@ def _build_alert_board_payload() -> dict:
             lnms_devices = []
             lnms_id_map = {}
 
-    persistence_conn = _get_db_conn()
-    try:
-        for loc in locations:
-            observation_succeeded = True
-            try:
-                devices, alert = _get_location_devices_and_alert(
-                    loc["id"],
-                    loc.get("location_type") or None,
-                    lnms_devices=lnms_devices,
-                    lnms_id_map=lnms_id_map,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Could not compute alert summary for location %s: %s",
-                    loc.get("id"),
-                    exc,
-                )
-                observation_succeeded = False
-                devices = []
-                alert = {"level": "unknown", "reason": "Could not compute alert state"}
+    persistence_unavailable = False
+    for loc in locations:
+        observation_succeeded = True
+        try:
+            devices, alert = _get_location_devices_and_alert(
+                loc["id"],
+                loc.get("location_type") or None,
+                lnms_devices=lnms_devices,
+                lnms_id_map=lnms_id_map,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not compute alert summary for location %s: %s",
+                loc.get("id"),
+                exc,
+            )
+            observation_succeeded = False
+            devices = []
+            alert = {"level": "unknown", "reason": "Could not compute alert state"}
 
-            down_devices = [
-                d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
-            ]
-            checked_at = _iso_utc_now()
-            if observation_succeeded and persistence_conn is not None:
-                _upsert_alert_lifecycle_for_site(
-                    loc,
-                    devices,
-                    alert,
-                    checked_at,
-                    conn=persistence_conn,
-                )
-            if persistence_conn is not None:
-                alert_context = _get_alert_context_for_site(
-                    loc.get("id", ""),
-                    checked_at,
-                    conn=persistence_conn,
-                )
+        down_devices = [
+            d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
+        ]
+        checked_at = _iso_utc_now()
+        alert_context = default_alert_context
+        if not persistence_unavailable:
+            persistence_conn = None
+            try:
+                persistence_conn = _get_db_conn()
+            except Exception as exc:
+                logger.warning("Could not connect to persistence DB for alert board: %s", exc)
+                persistence_unavailable = True
+            if persistence_conn is None:
+                persistence_unavailable = True
             else:
-                alert_context = {
-                    "active_alert_instance_count": 0,
-                    "historical_downtime_seconds": 0,
-                    "current_downtime_seconds": 0,
-                    "active_cases": [],
-                    "down_devices": [],
-                }
-            current_down_devices = [
-                {
-                    "device_id": device.get("id") or "",
-                    "device_name": device.get("name") or "Unknown",
-                    "status": device.get("status") or "",
-                    "role": device.get("role") or "",
-                    "case_numbers": [],
-                }
-                for device in down_devices
-            ]
-            current_down_device_map = {
-                item["device_id"] or item["device_name"]: item for item in current_down_devices
+                try:
+                    if observation_succeeded:
+                        _upsert_alert_lifecycle_for_site(
+                            loc,
+                            devices,
+                            alert,
+                            checked_at,
+                            conn=persistence_conn,
+                        )
+                    alert_context = _get_alert_context_for_site(
+                        loc.get("id", ""),
+                        checked_at,
+                        conn=persistence_conn,
+                    )
+                finally:
+                    persistence_conn.close()
+        current_down_devices = [
+            {
+                "device_id": device.get("id") or "",
+                "device_name": device.get("name") or "Unknown",
+                "status": device.get("status") or "",
+                "role": device.get("role") or "",
+                "case_numbers": [],
             }
-            merged_down_devices = []
-            seen_down_device_keys: set[str] = set()
-            for item in alert_context["down_devices"]:
-                item_key = item.get("device_id") or item.get("device_name") or ""
-                merged = dict(item)
-                current_item = current_down_device_map.get(item_key, {})
-                merged.update(
-                    {
-                        "device_id": current_item.get("device_id", merged.get("device_id", "")),
-                        "device_name": current_item.get("device_name", merged.get("device_name", "")),
-                        "status": current_item.get("status", merged.get("status", "")),
-                        "role": current_item.get("role", merged.get("role", "")),
-                    }
-                )
-                merged.setdefault("status", "")
-                merged.setdefault("role", "")
-                merged.setdefault("case_numbers", [])
-                merged_down_devices.append(merged)
-                if item_key:
-                    seen_down_device_keys.add(item_key)
-            for item in current_down_devices:
-                item_key = item["device_id"] or item["device_name"]
-                if item_key in seen_down_device_keys:
-                    continue
-                merged_down_devices.append(item)
-                if item_key:
-                    seen_down_device_keys.add(item_key)
-            level = (alert.get("level") or "ok").lower()
-            summary[level] = summary.get(level, 0) + 1
-            alerts.append(
+            for device in down_devices
+        ]
+        current_down_device_map = {
+            item["device_id"] or item["device_name"]: item for item in current_down_devices
+        }
+        merged_down_devices = []
+        seen_down_device_keys: set[str] = set()
+        for item in alert_context["down_devices"]:
+            item_key = item.get("device_id") or item.get("device_name") or ""
+            merged = dict(item)
+            current_item = current_down_device_map.get(item_key, {})
+            merged.update(
                 {
-                    **loc,
-                    "alert_level": level,
-                    "alert_reason": alert.get("reason", ""),
-                    "device_count": len(devices),
-                    "down_device_count": len(down_devices),
-                    "current_downtime_seconds": alert_context["current_downtime_seconds"],
-                    "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
-                    "active_alert_instance_count": max(
-                        int(alert_context["active_alert_instance_count"]),
-                        len(merged_down_devices),
-                    ),
-                    "active_cases": alert_context["active_cases"],
-                    "down_devices": merged_down_devices,
+                    "device_id": current_item.get("device_id", merged.get("device_id", "")),
+                    "device_name": current_item.get("device_name", merged.get("device_name", "")),
+                    "status": current_item.get("status", merged.get("status", "")),
+                    "role": current_item.get("role", merged.get("role", "")),
                 }
             )
-    finally:
-        if persistence_conn is not None:
-            persistence_conn.close()
+            merged.setdefault("status", "")
+            merged.setdefault("role", "")
+            merged.setdefault("case_numbers", [])
+            merged_down_devices.append(merged)
+            if item_key:
+                seen_down_device_keys.add(item_key)
+        for item in current_down_devices:
+            item_key = item["device_id"] or item["device_name"]
+            if item_key in seen_down_device_keys:
+                continue
+            merged_down_devices.append(item)
+            if item_key:
+                seen_down_device_keys.add(item_key)
+        level = (alert.get("level") or "ok").lower()
+        summary[level] = summary.get(level, 0) + 1
+        alerts.append(
+            {
+                **loc,
+                "alert_level": level,
+                "alert_reason": alert.get("reason", ""),
+                "device_count": len(devices),
+                "down_device_count": len(down_devices),
+                "current_downtime_seconds": alert_context["current_downtime_seconds"],
+                "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
+                "active_alert_instance_count": max(
+                    int(alert_context["active_alert_instance_count"]),
+                    len(merged_down_devices),
+                ),
+                "active_cases": alert_context["active_cases"],
+                "down_devices": merged_down_devices,
+            }
+        )
 
     alerts.sort(
         key=lambda item: (
