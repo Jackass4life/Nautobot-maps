@@ -2631,7 +2631,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
     cache_key = "alert-board-data:v2"
     if force_refresh:
         _ensure_inventory_snapshot(force=True, wait=False)
-    cached = None if force_refresh else _cache_get(cache_key)
+    cached = _cache_get(cache_key)
     if cached is not None:
         return _apply_alert_board_freshness(cached)
 
