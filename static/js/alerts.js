@@ -137,7 +137,9 @@ function renderAlertHistory(siteId, instances) {
     `;
   }).join("");
   historyPanel.classList.remove("hidden");
-  historyPanel.focus();
+  if (historyCloseBtn) {
+    historyCloseBtn.focus();
+  }
 }
 
 async function readJsonResponse(resp) {
