@@ -1,3 +1,4 @@
+import importlib
 import json
 from contextlib import contextmanager
 import pytest
@@ -1677,6 +1678,12 @@ class TestApiLocationTypes:
 
 
 class TestAuthConfiguration:
+    @staticmethod
+    def _reload_gunicorn_config():
+        import gunicorn_config
+
+        return importlib.reload(gunicorn_config)
+
     def test_header_auth_binds_flask_to_loopback(self):
         with auth_config(mode="header"):
             assert flask_app._get_flask_run_host() == "127.0.0.1"
@@ -1684,6 +1691,14 @@ class TestAuthConfiguration:
     def test_non_header_auth_keeps_public_flask_bind(self):
         with auth_config(mode="disabled"):
             assert flask_app._get_flask_run_host() == "0.0.0.0"
+
+    def test_header_auth_binds_gunicorn_to_loopback(self, monkeypatch):
+        monkeypatch.setenv("AUTH_MODE", "header")
+        assert self._reload_gunicorn_config().bind == "127.0.0.1:5000"
+
+    def test_non_header_auth_keeps_public_gunicorn_bind(self, monkeypatch):
+        monkeypatch.setenv("AUTH_MODE", "disabled")
+        assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
 
     def test_auth_disabled_keeps_write_endpoints_unchanged(self, client):
         with auth_config(mode="disabled"):
