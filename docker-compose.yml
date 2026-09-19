@@ -36,6 +36,14 @@ services:
       - CRITICALITY_RULES_FILE=${CRITICALITY_RULES_FILE:-}
       # SQLite persistence (optional – leave empty to disable)
       - NAUTOBOT_MAPS_DB=${NAUTOBOT_MAPS_DB:-}
+      # Optional authentication / RBAC
+      - AUTH_MODE=${AUTH_MODE:-disabled}
+      - AUTH_HEADER_USER=${AUTH_HEADER_USER:-X-Forwarded-User}
+      - AUTH_HEADER_GROUPS=${AUTH_HEADER_GROUPS:-X-Forwarded-Groups}
+      - AUTH_DEFAULT_ROLE=${AUTH_DEFAULT_ROLE:-}
+      - AUTH_VIEWER_GROUPS=${AUTH_VIEWER_GROUPS:-}
+      - AUTH_OPERATOR_GROUPS=${AUTH_OPERATOR_GROUPS:-}
+      - AUTH_ADMIN_GROUPS=${AUTH_ADMIN_GROUPS:-}
       # LibreNMS integration (optional)
       - LIBRENMS_URL=${LIBRENMS_URL:-}
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}

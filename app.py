@@ -2,11 +2,12 @@ import json
 import os
 import sqlite3
 import logging
+import re
 from datetime import datetime, timezone
 from functools import wraps
 
 import requests
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, g
 from flask_caching import Cache
 from dotenv import load_dotenv
 from geopy.distance import geodesic
@@ -32,6 +33,12 @@ LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "")
 # SQLite database path (leave empty to disable persistence features)
 NAUTOBOT_MAPS_DB = os.getenv("NAUTOBOT_MAPS_DB", "")
 
+# Optional authentication / RBAC configuration
+AUTH_MODE = os.getenv("AUTH_MODE", "disabled").strip().lower() or "disabled"
+AUTH_HEADER_USER = os.getenv("AUTH_HEADER_USER", "X-Forwarded-User").strip() or "X-Forwarded-User"
+AUTH_HEADER_GROUPS = os.getenv("AUTH_HEADER_GROUPS", "X-Forwarded-Groups").strip() or "X-Forwarded-Groups"
+AUTH_DEFAULT_ROLE = os.getenv("AUTH_DEFAULT_ROLE", "").strip().lower()
+
 # Path to a JSON file with per-location-type criticality keyword rules
 CRITICALITY_RULES_FILE = os.getenv("CRITICALITY_RULES_FILE", "")
 
@@ -56,6 +63,114 @@ elif _ssl_env.lower() == "true":
 else:
     # Treat the value as a path to a CA bundle / certificate file
     NAUTOBOT_VERIFY_SSL = _ssl_env
+
+
+_AUTH_ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}
+_SUPPORTED_AUTH_MODES = {"disabled", "header"}
+
+
+def _parse_csv_set(value: str) -> set[str]:
+    """Return a lower-cased set from a comma/semicolon-separated string."""
+    return {
+        item.strip().lower()
+        for item in re.split(r"[;,]", value or "")
+        if item.strip()
+    }
+
+
+AUTH_VIEWER_GROUPS = _parse_csv_set(os.getenv("AUTH_VIEWER_GROUPS", ""))
+AUTH_OPERATOR_GROUPS = _parse_csv_set(os.getenv("AUTH_OPERATOR_GROUPS", ""))
+AUTH_ADMIN_GROUPS = _parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
+
+
+def _normalize_auth_role(role: str) -> str:
+    role = (role or "").strip().lower()
+    return role if role in _AUTH_ROLE_LEVELS else ""
+
+
+AUTH_DEFAULT_ROLE = _normalize_auth_role(AUTH_DEFAULT_ROLE)
+
+
+def _is_auth_config_valid() -> bool:
+    return AUTH_MODE in _SUPPORTED_AUTH_MODES
+
+
+def _auth_role_level(role: str) -> int:
+    return _AUTH_ROLE_LEVELS.get(_normalize_auth_role(role), 0)
+
+
+def _resolve_role_from_groups(groups: list[str]) -> str:
+    normalized_groups = {group.strip().lower() for group in groups if group.strip()}
+    if normalized_groups & AUTH_ADMIN_GROUPS:
+        return "admin"
+    if normalized_groups & AUTH_OPERATOR_GROUPS:
+        return "operator"
+    if normalized_groups & AUTH_VIEWER_GROUPS:
+        return "viewer"
+    return AUTH_DEFAULT_ROLE
+
+
+def _get_current_user() -> dict:
+    """Return the current authenticated user context for the request."""
+    current = getattr(g, "_current_user", None)
+    if current is not None:
+        return current
+
+    current = {
+        "is_authenticated": False,
+        "username": "",
+        "groups": [],
+        "role": "",
+        "auth_mode": AUTH_MODE,
+    }
+    if AUTH_MODE == "disabled":
+        g._current_user = current
+        return current
+
+    if AUTH_MODE == "header":
+        username = request.headers.get(AUTH_HEADER_USER, "").strip()
+        groups_header = request.headers.get(AUTH_HEADER_GROUPS, "")
+        groups = [item.strip() for item in re.split(r"[;,]", groups_header) if item.strip()]
+        current = {
+            "is_authenticated": bool(username),
+            "username": username,
+            "groups": groups,
+            "role": _resolve_role_from_groups(groups),
+            "auth_mode": AUTH_MODE,
+        }
+
+    g._current_user = current
+    return current
+
+
+def require_role(required_role: str):
+    """Allow access when auth is disabled or the current user meets *required_role*."""
+    normalized_required_role = _normalize_auth_role(required_role)
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if AUTH_MODE == "disabled":
+                return func(*args, **kwargs)
+            if not _is_auth_config_valid():
+                return jsonify({"error": "Unsupported AUTH_MODE configuration"}), 503
+
+            current_user = _get_current_user()
+            if not current_user["is_authenticated"]:
+                return jsonify({"error": "Authentication required"}), 401
+            if _auth_role_level(current_user["role"]) < _auth_role_level(normalized_required_role):
+                return jsonify(
+                    {
+                        "error": "Insufficient permissions",
+                        "required_role": normalized_required_role,
+                        "current_role": current_user["role"] or None,
+                    }
+                ), 403
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 # ---------------------------------------------------------------------------
@@ -1196,6 +1311,7 @@ def api_search():
 # ---------------------------------------------------------------------------
 
 @app.route("/api/criticality-overrides", methods=["GET"])
+@require_role("operator")
 def api_list_criticality_overrides():
     """Return all per-device criticality overrides stored in the DB.
 
@@ -1220,6 +1336,7 @@ def api_list_criticality_overrides():
 
 
 @app.route("/api/criticality-overrides", methods=["POST"])
+@require_role("operator")
 def api_set_criticality_override():
     """Create or update a per-device criticality override.
 
@@ -1245,6 +1362,8 @@ def api_set_criticality_override():
     is_critical = bool(body.get("is_critical", True))
     reason = (body.get("reason") or "").strip()
     updated_by = (body.get("updated_by") or "").strip()
+    if not updated_by:
+        updated_by = _get_current_user().get("username", "")
     try:
         with conn:
             conn.execute(
@@ -1269,6 +1388,7 @@ def api_set_criticality_override():
 
 
 @app.route("/api/criticality-overrides/<device_id>", methods=["DELETE"])
+@require_role("operator")
 def api_delete_criticality_override(device_id: str):
     """Delete a per-device criticality override.
 
@@ -1315,6 +1435,7 @@ def api_list_roles():
 
 
 @app.route("/api/roles", methods=["POST"])
+@require_role("admin")
 def api_create_role():
     """Create a new role in Nautobot (proxied to extras/roles/).
 
@@ -1344,6 +1465,7 @@ def api_create_role():
 
 
 @app.route("/api/roles/<role_id>", methods=["DELETE"])
+@require_role("admin")
 def api_delete_role(role_id: str):
     """Delete a role from Nautobot by its UUID (proxied to extras/roles/<id>/)."""
     try:
@@ -1383,6 +1505,7 @@ def api_list_location_types():
 
 
 @app.route("/api/location-types", methods=["POST"])
+@require_role("admin")
 def api_create_location_type():
     """Create a new location type in Nautobot (proxied to dcim/location-types/).
 
@@ -1412,6 +1535,7 @@ def api_create_location_type():
 
 
 @app.route("/api/location-types/<lt_id>", methods=["DELETE"])
+@require_role("admin")
 def api_delete_location_type(lt_id: str):
     """Delete a location type from Nautobot by its UUID (proxied to dcim/location-types/<id>/)."""
     try:

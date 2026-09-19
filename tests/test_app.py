@@ -1,8 +1,47 @@
 import json
+from contextlib import contextmanager
 import pytest
 from unittest.mock import patch, MagicMock
 
 import app as flask_app
+
+
+@contextmanager
+def auth_config(
+    mode="disabled",
+    user_header="X-Forwarded-User",
+    groups_header="X-Forwarded-Groups",
+    viewer_groups=None,
+    operator_groups=None,
+    admin_groups=None,
+    default_role="",
+):
+    saved = {
+        "AUTH_MODE": flask_app.AUTH_MODE,
+        "AUTH_HEADER_USER": flask_app.AUTH_HEADER_USER,
+        "AUTH_HEADER_GROUPS": flask_app.AUTH_HEADER_GROUPS,
+        "AUTH_VIEWER_GROUPS": set(flask_app.AUTH_VIEWER_GROUPS),
+        "AUTH_OPERATOR_GROUPS": set(flask_app.AUTH_OPERATOR_GROUPS),
+        "AUTH_ADMIN_GROUPS": set(flask_app.AUTH_ADMIN_GROUPS),
+        "AUTH_DEFAULT_ROLE": flask_app.AUTH_DEFAULT_ROLE,
+    }
+    flask_app.AUTH_MODE = mode
+    flask_app.AUTH_HEADER_USER = user_header
+    flask_app.AUTH_HEADER_GROUPS = groups_header
+    flask_app.AUTH_VIEWER_GROUPS = set(viewer_groups or set())
+    flask_app.AUTH_OPERATOR_GROUPS = set(operator_groups or set())
+    flask_app.AUTH_ADMIN_GROUPS = set(admin_groups or set())
+    flask_app.AUTH_DEFAULT_ROLE = flask_app._normalize_auth_role(default_role)
+    try:
+        yield
+    finally:
+        flask_app.AUTH_MODE = saved["AUTH_MODE"]
+        flask_app.AUTH_HEADER_USER = saved["AUTH_HEADER_USER"]
+        flask_app.AUTH_HEADER_GROUPS = saved["AUTH_HEADER_GROUPS"]
+        flask_app.AUTH_VIEWER_GROUPS = saved["AUTH_VIEWER_GROUPS"]
+        flask_app.AUTH_OPERATOR_GROUPS = saved["AUTH_OPERATOR_GROUPS"]
+        flask_app.AUTH_ADMIN_GROUPS = saved["AUTH_ADMIN_GROUPS"]
+        flask_app.AUTH_DEFAULT_ROLE = saved["AUTH_DEFAULT_ROLE"]
 
 
 @pytest.fixture
@@ -1280,6 +1319,43 @@ class TestCriticalityOverrideEndpoints:
         finally:
             flask_app.NAUTOBOT_MAPS_DB = saved
 
+    def test_requires_operator_role_when_auth_enabled(self, client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = client.post(
+                "/api/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-viewers"},
+            )
+        assert resp.status_code == 403
+        assert resp.get_json()["required_role"] == "operator"
+
+    def test_accepts_operator_group_when_auth_enabled(self, client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = client.post(
+                "/api/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+        assert resp.status_code == 200
+
+    def test_uses_authenticated_username_as_updated_by(self, client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = client.post(
+                "/api/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+            assert resp.status_code == 200
+            listed = client.get(
+                "/api/criticality-overrides",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+        assert listed.status_code == 200
+        assert listed.get_json()["overrides"][0]["updated_by"] == "alice"
+
 
 # ---------------------------------------------------------------------------
 # Tests: criticality_rules.json loading
@@ -1466,6 +1542,29 @@ class TestApiRoles:
                                content_type="application/json")
         assert resp.status_code == 503
 
+    def test_create_role_requires_admin_when_auth_enabled(self, client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = client.post(
+                "/api/roles",
+                json={"name": "Edge Router", "color": "2196f3"},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+        assert resp.status_code == 403
+        assert resp.get_json()["required_role"] == "admin"
+
+    def test_create_role_accepts_admin_group_when_auth_enabled(self, client):
+        created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
+        with auth_config(mode="header", admin_groups={"nautobot-admins"}):
+            with patch.object(flask_app, "nautobot_post", return_value=created):
+                resp = client.post(
+                    "/api/roles",
+                    json={"name": "Edge Router", "color": "2196f3"},
+                    content_type="application/json",
+                    headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "nautobot-admins"},
+                )
+        assert resp.status_code == 201
+
     def test_delete_role_success(self, client):
         """DELETE /api/roles/<id> proxies to Nautobot and returns 200."""
         with patch.object(flask_app, "nautobot_delete", return_value=None):
@@ -1575,3 +1674,34 @@ class TestApiLocationTypes:
                           side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
             resp = client.delete("/api/location-types/lt-dc")
         assert resp.status_code == 503
+
+
+class TestAuthConfiguration:
+    def test_auth_disabled_keeps_write_endpoints_unchanged(self, client):
+        with auth_config(mode="disabled"):
+            resp = client.post(
+                "/api/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+            )
+        assert resp.status_code == 503
+
+    def test_missing_identity_header_returns_401(self, client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = client.post(
+                "/api/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+            )
+        assert resp.status_code == 401
+
+    def test_default_role_allows_authenticated_viewer_only_access(self, client):
+        with auth_config(mode="header", default_role="viewer"):
+            resp = client.post(
+                "/api/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice"},
+            )
+        assert resp.status_code == 403
+        assert resp.get_json()["current_role"] == "viewer"
