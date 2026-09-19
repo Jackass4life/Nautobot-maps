@@ -72,20 +72,21 @@ function mapActionCell(item) {
     ? `<a class="map-link" href="/?location_id=${encodeURIComponent(item.id)}">Open map</a>`
     : '<span class="map-link-disabled">No coordinates</span>';
   const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
-  if (!downDevices.length) {
-    return mapLink;
-  }
+  const siteLabel = escHtml(item.name || item.id || "site");
   const options = downDevices
     .map((d) => `<option value="${escHtml(d.device_id || "")}">${escHtml(d.device_name || d.device_id || "Unknown")}</option>`)
     .join("");
+  const caseForm = downDevices.length ? `
+      <div class="case-form">
+        <select class="case-device-select" data-site-id="${escHtml(item.id)}" aria-label="Select down device for ${siteLabel}">${options}</select>
+        <input class="case-input" data-site-id="${escHtml(item.id)}" type="text" placeholder="Case #" aria-label="Case number for ${siteLabel}" />
+        <button class="case-save-btn" type="button" data-site-id="${escHtml(item.id)}">Add case</button>
+      </div>
+    ` : "";
   return `
     <div class="action-stack">
       ${mapLink}
-      <div class="case-form">
-        <select class="case-device-select" data-site-id="${escHtml(item.id)}">${options}</select>
-        <input class="case-input" data-site-id="${escHtml(item.id)}" type="text" placeholder="Case #" />
-        <button class="case-save-btn" type="button" data-site-id="${escHtml(item.id)}">Add case</button>
-      </div>
+      ${caseForm}
       <button class="history-btn" type="button" data-site-id="${escHtml(item.id)}">History</button>
     </div>
   `;

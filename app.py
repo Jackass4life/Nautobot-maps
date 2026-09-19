@@ -229,7 +229,7 @@ def _sql_placeholders(count: int) -> str:
 
 
 def _sql_now() -> str:
-    return "TIMEZONE('utc', NOW())" if _is_postgres() else "datetime('now')"
+    return "CURRENT_TIMESTAMP" if _is_postgres() else "datetime('now')"
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -274,7 +274,7 @@ def _init_db() -> None:
                         is_critical        INTEGER NOT NULL DEFAULT 1,
                         reason             TEXT    NOT NULL DEFAULT '',
                         updated_by         TEXT    NOT NULL DEFAULT '',
-                        updated_at         TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+                        updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                     """
                 )
@@ -303,8 +303,8 @@ def _init_db() -> None:
                         last_seen_down_at      TIMESTAMPTZ NOT NULL,
                         resolved_at            TIMESTAMPTZ,
                         total_downtime_seconds BIGINT NOT NULL DEFAULT 0,
-                        created_at             TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
-                        updated_at             TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+                        created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                     """
                 )
@@ -318,7 +318,7 @@ def _init_db() -> None:
                         alert_level       TEXT NOT NULL DEFAULT 'unknown',
                         alert_reason      TEXT NOT NULL DEFAULT '',
                         snapshot_json     TEXT NOT NULL DEFAULT '{}',
-                        created_at        TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+                        created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                     """
                 )
@@ -329,7 +329,7 @@ def _init_db() -> None:
                         alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
                         case_number       TEXT NOT NULL,
                         created_by        TEXT NOT NULL DEFAULT '',
-                        created_at        TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
+                        created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(alert_instance_id, case_number)
                     )
                     """
@@ -413,6 +413,9 @@ def _init_db() -> None:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
                 )
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
+                )
             if _is_postgres():
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
@@ -422,6 +425,9 @@ def _init_db() -> None:
                 )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
+                )
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
                 )
     finally:
         conn.close()
@@ -1283,15 +1289,20 @@ def _upsert_alert_lifecycle_for_site(
                     f"""
                     SELECT id, status, down_started_at, alert_level, alert_reason
                     FROM alert_instances
-                    WHERE alert_key = {marker}
+                    WHERE alert_key = {marker} AND status = 'open'
                     ORDER BY id DESC
                     LIMIT 1
                     """,
                     (alert_key,),
                 ).fetchone()
-                if latest_row is None or _row_to_dict(latest_row).get("status") != "open":
+                if latest_row is None:
                     now_sql = _sql_now()
                     p = _sql_placeholders(10).split(",")
+                    conflict_sql = (
+                        "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
+                        if _is_postgres()
+                        else ""
+                    )
                     inserted = conn.execute(
                         f"""
                         INSERT INTO alert_instances
@@ -1300,6 +1311,7 @@ def _upsert_alert_lifecycle_for_site(
                              created_at, updated_at)
                         VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]},
                                 NULL, 0, {now_sql}, {now_sql})
+                        {conflict_sql}
                         RETURNING id
                         """,
                         (
@@ -1316,52 +1328,11 @@ def _upsert_alert_lifecycle_for_site(
                         ),
                     ).fetchone()
                     inserted_id = _row_to_dict(inserted).get("id")
-                    if inserted_id is None:
-                        continue
-                    _insert_alert_event(
-                        conn=conn,
-                        instance_id=int(inserted_id),
-                        event_type="opened",
-                        event_at=checked_at,
-                        alert_level=level,
-                        alert_reason=reason,
-                        snapshot={
-                            "site_id": site_id,
-                            "site_name": site.get("name") or "",
-                            "device_id": device_id,
-                            "device_name": device.get("name") or "",
-                            "status": status,
-                        },
-                    )
-                else:
-                    current = _row_to_dict(latest_row)
-                    now_sql = _sql_now()
-                    p = _sql_placeholders(6).split(",")
-                    conn.execute(
-                        f"""
-                        UPDATE alert_instances
-                        SET site_name = {p[0]},
-                            device_name = {p[1]},
-                            alert_level = {p[2]},
-                            alert_reason = {p[3]},
-                            last_seen_down_at = {p[4]},
-                            updated_at = {now_sql}
-                        WHERE id = {p[5]}
-                        """,
-                        (
-                            site.get("name") or "",
-                            device.get("name") or "",
-                            level,
-                            reason,
-                            checked_at,
-                            current["id"],
-                        ),
-                    )
-                    if current.get("alert_level") != level or current.get("alert_reason") != reason:
+                    if inserted_id is not None:
                         _insert_alert_event(
                             conn=conn,
-                            instance_id=current["id"],
-                            event_type="updated",
+                            instance_id=int(inserted_id),
+                            event_type="opened",
                             event_at=checked_at,
                             alert_level=level,
                             alert_reason=reason,
@@ -1373,6 +1344,58 @@ def _upsert_alert_lifecycle_for_site(
                                 "status": status,
                             },
                         )
+                        continue
+                    latest_row = conn.execute(
+                        f"""
+                        SELECT id, status, down_started_at, alert_level, alert_reason
+                        FROM alert_instances
+                        WHERE alert_key = {marker} AND status = 'open'
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (alert_key,),
+                    ).fetchone()
+                    if latest_row is None:
+                        continue
+                current = _row_to_dict(latest_row)
+                now_sql = _sql_now()
+                p = _sql_placeholders(6).split(",")
+                conn.execute(
+                    f"""
+                    UPDATE alert_instances
+                    SET site_name = {p[0]},
+                        device_name = {p[1]},
+                        alert_level = {p[2]},
+                        alert_reason = {p[3]},
+                        last_seen_down_at = {p[4]},
+                        updated_at = {now_sql}
+                    WHERE id = {p[5]}
+                    """,
+                    (
+                        site.get("name") or "",
+                        device.get("name") or "",
+                        level,
+                        reason,
+                        checked_at,
+                        current["id"],
+                    ),
+                )
+                if current.get("alert_level") != level or current.get("alert_reason") != reason:
+                    _insert_alert_event(
+                        conn=conn,
+                        instance_id=current["id"],
+                        event_type="updated",
+                        event_at=checked_at,
+                        alert_level=level,
+                        alert_reason=reason,
+                        snapshot={
+                            "site_id": site_id,
+                            "site_name": site.get("name") or "",
+                            "device_id": device_id,
+                            "device_name": device.get("name") or "",
+                            "status": status,
+                        },
+                    )
             _resolve_open_alert_instances_for_site(conn, site_id, open_alert_keys, checked_at)
     except Exception as exc:
         logger.warning("Could not persist alert lifecycle for site %s: %s", site_id, exc)
@@ -1392,6 +1415,29 @@ def _get_case_numbers_for_instance(conn, instance_id: int) -> list[str]:
         (instance_id,),
     ).fetchall()
     return [(_row_to_dict(row).get("case_number") or "").strip() for row in rows if (_row_to_dict(row).get("case_number") or "").strip()]
+
+
+def _get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, list[str]]:
+    if not instance_ids:
+        return {}
+    markers = _sql_placeholders(len(instance_ids))
+    rows = conn.execute(
+        f"""
+        SELECT alert_instance_id, case_number
+        FROM alert_cases
+        WHERE alert_instance_id IN ({markers})
+        ORDER BY created_at DESC, id DESC
+        """,
+        tuple(instance_ids),
+    ).fetchall()
+    case_numbers_by_instance: dict[int, list[str]] = {instance_id: [] for instance_id in instance_ids}
+    for row in rows:
+        data = _row_to_dict(row)
+        instance_id = int(data.get("alert_instance_id") or 0)
+        case_number = (data.get("case_number") or "").strip()
+        if instance_id and case_number:
+            case_numbers_by_instance.setdefault(instance_id, []).append(case_number)
+    return case_numbers_by_instance
 
 
 def _get_alert_context_for_site(site_id: str, checked_at: str) -> dict:
@@ -1420,17 +1466,24 @@ def _get_alert_context_for_site(site_id: str, checked_at: str) -> dict:
         active_cases: set[str] = set()
         down_devices = []
         current_downtime_seconds = 0
+        open_rows = []
         for row in rows:
             data = _row_to_dict(row)
             historical_seconds += int(data.get("total_downtime_seconds") or 0)
             if data.get("status") != "open":
                 continue
+            open_rows.append(data)
+        case_numbers_by_instance = _get_case_numbers_for_instances(
+            conn,
+            [int(data["id"]) for data in open_rows if data.get("id") is not None],
+        )
+        for data in open_rows:
             started = _parse_iso_datetime(data.get("down_started_at"))
             if started is not None:
                 elapsed = max(0, int((now_dt - started).total_seconds()))
                 historical_seconds += elapsed
                 current_downtime_seconds = max(current_downtime_seconds, elapsed)
-            case_numbers = _get_case_numbers_for_instance(conn, data["id"])
+            case_numbers = case_numbers_by_instance.get(int(data["id"]), [])
             active_cases.update(case_numbers)
             down_devices.append(
                 {
@@ -1484,7 +1537,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
     if force_refresh:
         cache.delete(cache_key)
     cached = _cache_get(cache_key)
-    if cached is not None and _current_persistence_dialect() == "":
+    if cached is not None:
         return _apply_alert_board_freshness(cached)
 
     locations = get_locations(include_without_coordinates=True)
@@ -1522,6 +1575,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
 
     for loc in locations:
         loc_devices = devices_by_location.get(loc["id"], [])
+        observation_succeeded = True
         try:
             devices, alert = _get_location_devices_and_alert(
                 loc["id"],
@@ -1537,6 +1591,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
                 loc.get("id"),
                 exc,
             )
+            observation_succeeded = False
             devices = []
             alert = {"level": "unknown", "reason": "Could not compute alert state"}
 
@@ -1544,7 +1599,8 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
             d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
         ]
         checked_at = _iso_utc_now()
-        _upsert_alert_lifecycle_for_site(loc, devices, alert, checked_at)
+        if observation_succeeded:
+            _upsert_alert_lifecycle_for_site(loc, devices, alert, checked_at)
         alert_context = _get_alert_context_for_site(loc.get("id", ""), checked_at)
         level = (alert.get("level") or "ok").lower()
         summary[level] = summary.get(level, 0) + 1
@@ -2033,7 +2089,7 @@ def api_add_alert_case():
     if not site_id or not device_id or not case_number:
         conn.close()
         return jsonify({"error": "site_id, device_id and case_number are required"}), 400
-    created_by = (body.get("created_by") or "").strip() or _get_current_user().get("username", "")
+    created_by = (_get_current_user().get("username") or "").strip()
     try:
         with conn:
             p0, p1 = _sql_placeholders(2).split(",")

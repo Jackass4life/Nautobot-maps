@@ -63,7 +63,7 @@ services:
       - LIBRENMS_URL=${LIBRENMS_URL:-}
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
       # PostgreSQL persistence (preferred). Leave empty to use SQLite fallback.
-      - NAUTOBOT_MAPS_DATABASE_URL=${NAUTOBOT_MAPS_DATABASE_URL:-postgresql://${POSTGRES_USER:-nautobot_maps}:${POSTGRES_PASSWORD:-nautobot_maps}@postgres:5432/${POSTGRES_DB:-nautobot_maps}}
+      - NAUTOBOT_MAPS_DATABASE_URL=${NAUTOBOT_MAPS_DATABASE_URL-postgresql://${POSTGRES_USER:-nautobot_maps}:${POSTGRES_PASSWORD:-nautobot_maps}@postgres:5432/${POSTGRES_DB:-nautobot_maps}}
       - NAUTOBOT_MAPS_DB=${NAUTOBOT_MAPS_DB:-}
     depends_on:
       redis:

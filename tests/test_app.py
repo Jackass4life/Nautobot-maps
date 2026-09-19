@@ -1466,6 +1466,79 @@ class TestAlertLifecycleTracking:
         instances = history.get_json()["instances"]
         assert instances[0]["cases"][0]["case_number"] == "INC-1001"
 
+    def test_add_case_uses_authenticated_user_for_created_by(self, client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            created = client.post(
+                "/api/alert-cases",
+                json={
+                    "site_id": "loc-1",
+                    "device_id": "dev-1",
+                    "case_number": "INC-1002",
+                    "created_by": "mallory",
+                },
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+            assert created.status_code == 200
+            history = client.get(
+                "/api/alert-history?site_id=loc-1&device_id=dev-1",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+        assert history.status_code == 200
+        instances = history.get_json()["instances"]
+        assert instances[0]["cases"][0]["created_by"] == "alice"
+
+    def test_failed_alert_observation_does_not_resolve_open_incident(self):
+        site = {"id": "loc-1", "name": "Site One"}
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            [{"id": "dev-1", "name": "router01", "status": "offline"}],
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
+            data = flask_app.get_alert_board_data(force_refresh=True)
+        assert data["alerts"][0]["alert_level"] == "unknown"
+        history = flask_app._get_alert_context_for_site("loc-1", flask_app._iso_utc_now())
+        assert history["active_alert_instance_count"] == 1
+        conn = flask_app._get_db_conn()
+        try:
+            rows = conn.execute(
+                "SELECT status FROM alert_instances WHERE site_id = ? ORDER BY id DESC",
+                ("loc-1",),
+            ).fetchall()
+        finally:
+            conn.close()
+        assert flask_app._row_to_dict(rows[0])["status"] == "open"
+
+    def test_get_alert_board_data_uses_cache_when_persistence_enabled(self):
+        sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
+        devices_return = (
+            [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+        )
+        with patch.object(flask_app, "get_locations", return_value=sample_locations) as get_locations, \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_get_location_devices_and_alert", return_value=devices_return) as get_alert:
+            first = flask_app.get_alert_board_data(force_refresh=True)
+            second = flask_app.get_alert_board_data()
+        assert first["alerts"] == second["alerts"]
+        assert get_locations.call_count == 1
+        assert get_alert.call_count == 1
+
 
 # ---------------------------------------------------------------------------
 # Tests: criticality_rules.json loading
