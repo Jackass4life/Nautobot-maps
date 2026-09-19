@@ -13,6 +13,7 @@ from flask_caching import Cache
 from dotenv import load_dotenv
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
+from werkzeug.exceptions import HTTPException
 
 try:
     import psycopg
@@ -1773,6 +1774,30 @@ def internal_server_error(exc):
         ),
         500,
     )
+
+
+@app.errorhandler(HTTPException)
+def api_http_error(exc):
+    if _wants_json():
+        status_code = exc.code or 500
+        if status_code == 404:
+            message = "Not found"
+        elif status_code == 405:
+            message = "Method not allowed"
+        elif status_code == 500:
+            message = "Internal server error"
+        else:
+            message = exc.description or "Request failed"
+        return jsonify({"error": message}), status_code
+    return exc
+
+
+@app.errorhandler(Exception)
+def api_unhandled_error(exc):
+    logger.error("Unhandled application error: %s", exc)
+    if _wants_json():
+        return jsonify({"error": "Internal server error"}), 500
+    return internal_server_error(exc)
 
 
 # ---------------------------------------------------------------------------

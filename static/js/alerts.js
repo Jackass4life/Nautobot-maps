@@ -239,9 +239,9 @@ async function loadAlertBoard(forceRefresh = false) {
   try {
     const suffix = forceRefresh ? `?refresh=${Date.now()}` : "";
     const resp = await fetch(`/api/alerts${suffix}`);
-    const payload = await resp.json();
+    const payload = await readJsonResponse(resp);
     if (!resp.ok || payload.error) {
-      throw new Error(payload.error || `HTTP ${resp.status}`);
+      throw new Error(payload.error || resp.statusText || `HTTP ${resp.status}`);
     }
     latestPayload = payload;
     allAlerts = payload.alerts || [];
