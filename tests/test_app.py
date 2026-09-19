@@ -1444,6 +1444,10 @@ class TestAlertLifecycleTracking:
         event_types = [event["event_type"] for event in instances[0]["events"]]
         assert "opened" in event_types
         assert "resolved" in event_types
+        resolved_event = next(event for event in instances[0]["events"] if event["event_type"] == "resolved")
+        assert resolved_event["snapshot"]["site_id"] == "loc-1"
+        assert resolved_event["snapshot"]["device_id"] == "dev-1"
+        assert resolved_event["snapshot"]["status"] == "resolved"
 
     def test_add_case_number_to_active_alert(self, client):
         site = {"id": "loc-1", "name": "Site One"}
@@ -1497,6 +1501,11 @@ class TestAlertLifecycleTracking:
         instances = history.get_json()["instances"]
         assert instances[0]["cases"][0]["created_by"] == "alice"
 
+    def test_alert_history_rejects_invalid_timestamp_filters(self, client):
+        resp = client.get("/api/alert-history?start_at=not-a-timestamp")
+        assert resp.status_code == 400
+        assert "start_at" in resp.get_json()["error"]
+
     def test_failed_alert_observation_does_not_resolve_open_incident(self):
         site = {"id": "loc-1", "name": "Site One"}
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
@@ -1538,6 +1547,76 @@ class TestAlertLifecycleTracking:
         assert first["alerts"] == second["alerts"]
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
+
+    def test_postgres_lifecycle_path_uses_postgres_sql(self):
+        class _FakeResult:
+            def __init__(self, rows=None):
+                self._rows = rows or []
+
+            def fetchone(self):
+                return self._rows[0] if self._rows else None
+
+            def fetchall(self):
+                return self._rows
+
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def close(self):
+                return None
+
+            def execute(self, query, params=()):
+                self.queries.append((query, params))
+                if "SELECT id, status, down_started_at, alert_level, alert_reason" in query:
+                    return _FakeResult([])
+                if "INSERT INTO alert_instances" in query:
+                    return _FakeResult([{"id": 101}])
+                if "INSERT INTO alert_events" in query:
+                    return _FakeResult([])
+                if "SELECT id, alert_key, site_id, site_name, device_id, device_name, down_started_at" in query:
+                    return _FakeResult([{
+                        "id": 101,
+                        "alert_key": "k",
+                        "site_id": "loc-1",
+                        "site_name": "Site One",
+                        "device_id": "dev-1",
+                        "device_name": "router01",
+                        "down_started_at": "2026-01-01T00:00:00Z",
+                    }])
+                if "UPDATE alert_instances" in query:
+                    return _FakeResult([])
+                return _FakeResult([])
+
+        fake_conn = _FakeConn()
+        checked_at = "2026-01-01T00:00:00Z"
+        with patch.object(flask_app, "_is_postgres", return_value=True):
+            flask_app._upsert_alert_lifecycle_for_site(
+                {"id": "loc-1", "name": "Site One"},
+                [{"id": "dev-1", "name": "router01", "status": "offline"}],
+                {"level": "critical", "reason": "offline"},
+                checked_at,
+                conn=fake_conn,
+            )
+            flask_app._resolve_open_alert_instances_for_site(
+                fake_conn,
+                "loc-1",
+                set(),
+                checked_at,
+            )
+        insert_sql = next(query for query, _ in fake_conn.queries if "INSERT INTO alert_instances" in query)
+        assert "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING" in insert_sql
+        assert "%s" in insert_sql
+        update_sql = next(query for query, _ in fake_conn.queries if "UPDATE alert_instances" in query)
+        assert "CURRENT_TIMESTAMP" in update_sql
+        event_params = [params for query, params in fake_conn.queries if "INSERT INTO alert_events" in query]
+        assert any(param == checked_at for params in event_params for param in params)
 
 
 # ---------------------------------------------------------------------------

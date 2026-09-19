@@ -9,6 +9,10 @@ const filterType = document.getElementById("filter-type");
 const filterTenant = document.getElementById("filter-tenant");
 const sortBy = document.getElementById("sort-by");
 const refreshBtn = document.getElementById("refresh-alerts");
+const historyPanel = document.getElementById("history-panel");
+const historyTitle = document.getElementById("history-title");
+const historyContent = document.getElementById("history-content");
+const historyCloseBtn = document.getElementById("history-close");
 
 let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
@@ -99,6 +103,39 @@ function formatDuration(seconds) {
   const minutes = Math.floor((total % 3600) / 60);
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) return escHtml(value);
+  return escHtml(parsed.toLocaleString());
+}
+
+function renderAlertHistory(siteId, instances) {
+  if (!historyPanel || !historyTitle || !historyContent) return;
+  historyTitle.textContent = `History · ${siteId}`;
+  if (!instances.length) {
+    historyContent.innerHTML = `<div class="history-instance"><div class="history-line">No incidents found.</div></div>`;
+    historyPanel.classList.remove("hidden");
+    return;
+  }
+  historyContent.innerHTML = instances.map((instance) => {
+    const cases = Array.isArray(instance.cases) ? instance.cases.map((entry) => escHtml(entry.case_number || "")).filter(Boolean) : [];
+    const events = Array.isArray(instance.events)
+      ? instance.events.map((event) => `${escHtml(event.event_type || "")} @ ${formatTimestamp(event.event_at)}`).join(", ")
+      : "";
+    return `
+      <article class="history-instance">
+        <div><strong>${escHtml(instance.device_name || instance.device_id || "Unknown device")}</strong> · ${escHtml(instance.status || "unknown")} · ${escHtml(instance.alert_level || "unknown")}</div>
+        <div class="history-line">Downtime: ${formatDuration(instance.total_downtime_seconds || 0)}</div>
+        <div class="history-line">Opened: ${formatTimestamp(instance.down_started_at)} · Resolved: ${formatTimestamp(instance.resolved_at)}</div>
+        <div class="history-line">Cases: ${cases.length ? cases.join(", ") : "—"}</div>
+        <div class="history-line">Events: ${events || "—"}</div>
+      </article>
+    `;
+  }).join("");
+  historyPanel.classList.remove("hidden");
 }
 
 function renderCases(item) {
@@ -217,6 +254,9 @@ function showError(message) {
 });
 
 refreshBtn.addEventListener("click", () => loadAlertBoard(true));
+if (historyCloseBtn && historyPanel) {
+  historyCloseBtn.addEventListener("click", () => historyPanel.classList.add("hidden"));
+}
 
 alertsTableBody.addEventListener("click", async (event) => {
   const caseBtn = event.target.closest(".case-save-btn");
@@ -259,9 +299,7 @@ alertsTableBody.addEventListener("click", async (event) => {
       const resp = await fetch(`/api/alert-history?site_id=${encodeURIComponent(siteId)}`);
       const payload = await resp.json();
       if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
-      const count = Array.isArray(payload.instances) ? payload.instances.length : 0;
-      const open = (payload.instances || []).filter((row) => row.status === "open").length;
-      showError(`History for ${siteId}: ${count} incidents (${open} open).`);
+      renderAlertHistory(siteId, Array.isArray(payload.instances) ? payload.instances : []);
     } catch (err) {
       showError(`Failed to load history: ${err.message}`);
     } finally {

@@ -101,6 +101,14 @@
     </section>
   </div>
 
+  <section id="history-panel" class="history-panel hidden" aria-live="polite">
+    <div class="history-panel-header">
+      <h2 id="history-title">History</h2>
+      <button id="history-close" type="button">Close</button>
+    </div>
+    <div id="history-content" class="history-content"></div>
+  </section>
+
   <div id="error-toast" class="hidden" role="alert"></div>
   <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
 </body>

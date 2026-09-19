@@ -1217,7 +1217,7 @@ def _resolve_open_alert_instances_for_site(
     marker = _sql_placeholders(1)
     open_rows = conn.execute(
         f"""
-        SELECT id, alert_key, down_started_at
+        SELECT id, alert_key, site_id, site_name, device_id, device_name, down_started_at
         FROM alert_instances
         WHERE site_id = {marker} AND status = 'open'
         """,
@@ -1253,7 +1253,13 @@ def _resolve_open_alert_instances_for_site(
             event_at=checked_at,
             alert_level="ok",
             alert_reason="Recovered",
-            snapshot={},
+            snapshot={
+                "site_id": row_data.get("site_id") or "",
+                "site_name": row_data.get("site_name") or "",
+                "device_id": row_data.get("device_id") or "",
+                "device_name": row_data.get("device_name") or "",
+                "status": "resolved",
+            },
         )
 
 
@@ -1262,8 +1268,11 @@ def _upsert_alert_lifecycle_for_site(
     devices: list[dict],
     alert: dict,
     checked_at: str,
+    conn=None,
 ) -> None:
-    conn = _get_db_conn()
+    owns_conn = conn is None
+    if conn is None:
+        conn = _get_db_conn()
     if conn is None:
         return
     site_id = (site.get("id") or "").strip()
@@ -1400,7 +1409,8 @@ def _upsert_alert_lifecycle_for_site(
     except Exception as exc:
         logger.warning("Could not persist alert lifecycle for site %s: %s", site_id, exc)
     finally:
-        conn.close()
+        if owns_conn:
+            conn.close()
 
 
 def _get_case_numbers_for_instance(conn, instance_id: int) -> list[str]:
@@ -1440,8 +1450,10 @@ def _get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, 
     return case_numbers_by_instance
 
 
-def _get_alert_context_for_site(site_id: str, checked_at: str) -> dict:
-    conn = _get_db_conn()
+def _get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dict:
+    owns_conn = conn is None
+    if conn is None:
+        conn = _get_db_conn()
     if conn is None:
         return {
             "active_alert_instance_count": 0,
@@ -1509,7 +1521,8 @@ def _get_alert_context_for_site(site_id: str, checked_at: str) -> dict:
             "down_devices": [],
         }
     finally:
-        conn.close()
+        if owns_conn:
+            conn.close()
 
 
 def _apply_alert_board_freshness(payload: dict) -> dict:
@@ -1573,51 +1586,75 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
             lnms_devices = []
             lnms_id_map = {}
 
-    for loc in locations:
-        loc_devices = devices_by_location.get(loc["id"], [])
-        observation_succeeded = True
-        try:
-            devices, alert = _get_location_devices_and_alert(
-                loc["id"],
-                loc.get("location_type") or None,
-                devices_data=loc_devices,
-                lookup_maps=lookup_maps,
-                lnms_devices=lnms_devices,
-                lnms_id_map=lnms_id_map,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Could not compute alert summary for location %s: %s",
-                loc.get("id"),
-                exc,
-            )
-            observation_succeeded = False
-            devices = []
-            alert = {"level": "unknown", "reason": "Could not compute alert state"}
+    persistence_conn = _get_db_conn()
+    try:
+        for loc in locations:
+            loc_devices = devices_by_location.get(loc["id"], [])
+            observation_succeeded = True
+            try:
+                devices, alert = _get_location_devices_and_alert(
+                    loc["id"],
+                    loc.get("location_type") or None,
+                    devices_data=loc_devices,
+                    lookup_maps=lookup_maps,
+                    lnms_devices=lnms_devices,
+                    lnms_id_map=lnms_id_map,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not compute alert summary for location %s: %s",
+                    loc.get("id"),
+                    exc,
+                )
+                observation_succeeded = False
+                devices = []
+                alert = {"level": "unknown", "reason": "Could not compute alert state"}
 
-        down_devices = [
-            d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
-        ]
-        checked_at = _iso_utc_now()
-        if observation_succeeded:
-            _upsert_alert_lifecycle_for_site(loc, devices, alert, checked_at)
-        alert_context = _get_alert_context_for_site(loc.get("id", ""), checked_at)
-        level = (alert.get("level") or "ok").lower()
-        summary[level] = summary.get(level, 0) + 1
-        alerts.append(
-            {
-                **loc,
-                "alert_level": level,
-                "alert_reason": alert.get("reason", ""),
-                "device_count": len(devices),
-                "down_device_count": len(down_devices),
-                "current_downtime_seconds": alert_context["current_downtime_seconds"],
-                "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
-                "active_alert_instance_count": alert_context["active_alert_instance_count"],
-                "active_cases": alert_context["active_cases"],
-                "down_devices": alert_context["down_devices"],
-            }
-        )
+            down_devices = [
+                d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
+            ]
+            checked_at = _iso_utc_now()
+            if observation_succeeded and persistence_conn is not None:
+                _upsert_alert_lifecycle_for_site(
+                    loc,
+                    devices,
+                    alert,
+                    checked_at,
+                    conn=persistence_conn,
+                )
+            if persistence_conn is not None:
+                alert_context = _get_alert_context_for_site(
+                    loc.get("id", ""),
+                    checked_at,
+                    conn=persistence_conn,
+                )
+            else:
+                alert_context = {
+                    "active_alert_instance_count": 0,
+                    "historical_downtime_seconds": 0,
+                    "current_downtime_seconds": 0,
+                    "active_cases": [],
+                    "down_devices": [],
+                }
+            level = (alert.get("level") or "ok").lower()
+            summary[level] = summary.get(level, 0) + 1
+            alerts.append(
+                {
+                    **loc,
+                    "alert_level": level,
+                    "alert_reason": alert.get("reason", ""),
+                    "device_count": len(devices),
+                    "down_device_count": len(down_devices),
+                    "current_downtime_seconds": alert_context["current_downtime_seconds"],
+                    "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
+                    "active_alert_instance_count": alert_context["active_alert_instance_count"],
+                    "active_cases": alert_context["active_cases"],
+                    "down_devices": alert_context["down_devices"],
+                }
+            )
+    finally:
+        if persistence_conn is not None:
+            persistence_conn.close()
 
     alerts.sort(
         key=lambda item: (
@@ -2007,6 +2044,16 @@ def api_alert_history():
     start_at = (request.args.get("start_at") or "").strip()
     end_at = (request.args.get("end_at") or "").strip()
     try:
+        if start_at:
+            parsed_start_at = _parse_iso_datetime(start_at)
+            if parsed_start_at is None:
+                return jsonify({"error": "start_at must be an ISO-8601 timestamp"}), 400
+            start_at = parsed_start_at.isoformat()
+        if end_at:
+            parsed_end_at = _parse_iso_datetime(end_at)
+            if parsed_end_at is None:
+                return jsonify({"error": "end_at must be an ISO-8601 timestamp"}), 400
+            end_at = parsed_end_at.isoformat()
         conditions = []
         params = []
         if site_id:
@@ -2034,39 +2081,46 @@ def api_alert_history():
             """,
             tuple(params),
         ).fetchall()
-        instances = []
-        for row in rows:
-            instance = _row_to_dict(row)
-            marker = _sql_placeholders(1)
+        instances = [_row_to_dict(row) for row in rows]
+        instance_ids = [int(row["id"]) for row in instances if row.get("id") is not None]
+        events_by_instance: dict[int, list[dict]] = {instance_id: [] for instance_id in instance_ids}
+        cases_by_instance: dict[int, list[dict]] = {instance_id: [] for instance_id in instance_ids}
+        if instance_ids:
+            markers = _sql_placeholders(len(instance_ids))
             ev_rows = conn.execute(
                 f"""
-                SELECT event_type, event_at, alert_level, alert_reason, snapshot_json
+                SELECT alert_instance_id, event_type, event_at, alert_level, alert_reason, snapshot_json
                 FROM alert_events
-                WHERE alert_instance_id = {marker}
-                ORDER BY id ASC
+                WHERE alert_instance_id IN ({markers})
+                ORDER BY alert_instance_id ASC, id ASC
                 """,
-                (instance["id"],),
+                tuple(instance_ids),
             ).fetchall()
             case_rows = conn.execute(
                 f"""
-                SELECT case_number, created_by, created_at
+                SELECT alert_instance_id, case_number, created_by, created_at
                 FROM alert_cases
-                WHERE alert_instance_id = {marker}
-                ORDER BY id DESC
+                WHERE alert_instance_id IN ({markers})
+                ORDER BY alert_instance_id ASC, id DESC
                 """,
-                (instance["id"],),
+                tuple(instance_ids),
             ).fetchall()
-            events = []
             for ev_row in ev_rows:
                 event = _row_to_dict(ev_row)
+                instance_id = int(event.pop("alert_instance_id"))
                 try:
                     event["snapshot"] = json.loads(event.pop("snapshot_json", "{}") or "{}")
                 except Exception:
                     event["snapshot"] = {}
-                events.append(event)
-            instance["events"] = events
-            instance["cases"] = [_row_to_dict(c_row) for c_row in case_rows]
-            instances.append(instance)
+                events_by_instance.setdefault(instance_id, []).append(event)
+            for case_row in case_rows:
+                case_data = _row_to_dict(case_row)
+                instance_id = int(case_data.pop("alert_instance_id"))
+                cases_by_instance.setdefault(instance_id, []).append(case_data)
+        for instance in instances:
+            instance_id = int(instance["id"])
+            instance["events"] = events_by_instance.get(instance_id, [])
+            instance["cases"] = cases_by_instance.get(instance_id, [])
         return jsonify({"instances": instances})
     except Exception as exc:
         logger.error("Could not fetch alert history: %s", exc)
