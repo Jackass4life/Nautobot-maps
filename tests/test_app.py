@@ -1897,7 +1897,7 @@ class TestAlertLifecycleTracking:
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
 
-    def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):
+    def test_get_alert_board_data_sets_ttl_rebuilds_and_enqueues_sync_on_force_refresh(self):
         first_payload = {
             "checked_at": "2026-01-01T00:00:00Z",
             "stale_after_seconds": flask_app.CACHE_TTL,
@@ -1923,9 +1923,9 @@ class TestAlertLifecycleTracking:
             second = flask_app.get_alert_board_data()
             refreshed = flask_app.get_alert_board_data(force_refresh=True)
         assert first["checked_at"] == second["checked_at"] == "2026-01-01T00:00:00Z"
-        assert refreshed["checked_at"] == "2026-01-01T00:00:00Z"
-        assert build_payload.call_count == 1
-        assert cache_set.call_count == 1
+        assert refreshed["checked_at"] == "2026-01-01T00:05:00Z"
+        assert build_payload.call_count == 2
+        assert cache_set.call_count == 2
         assert ensure_snapshot.call_count == 2
         assert all(
             call.args == () and call.kwargs == {"force": True, "wait": False}
