@@ -668,6 +668,38 @@ class TestAlertBoard:
         assert data["alerts"][0]["alert_level"] == "unknown"
         assert data["alerts"][0]["alert_reason"] == "Could not compute alert state"
 
+    def test_location_alert_uses_cached_snapshot_only_on_device_cache_miss(self):
+        with patch.object(flask_app, "_read_cached_devices", return_value=[]), patch.object(
+            flask_app, "_ensure_inventory_snapshot"
+        ) as ensure_snapshot, patch.object(
+            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
+        ):
+            devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
+
+        assert devices == []
+        assert alert == {"level": "ok", "reason": ""}
+        ensure_snapshot.assert_called_once_with()
+
+    def test_get_alert_board_data_does_not_live_fetch_devices_on_cache_miss(self):
+        flask_app.cache.clear()
+        sample_locations = [
+            {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
+            {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
+        ]
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), patch.object(
+            flask_app, "_read_cached_devices", return_value=[]
+        ), patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot, patch.object(
+            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
+        ):
+            data = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert data["summary"]["ok"] == 2
+        assert data["summary"]["non_ok"] == 0
+        assert [item["alert_level"] for item in data["alerts"]] == ["ok", "ok"]
+        assert ensure_snapshot.call_count == 2
+        assert all(call.args == () and call.kwargs == {} for call in ensure_snapshot.call_args_list)
+
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
         flask_app.cache.clear()
         sample_locations = [
