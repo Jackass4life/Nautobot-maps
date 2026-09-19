@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 from functools import wraps
 
 import requests
+import urllib3
 from flask import Flask, render_template, jsonify, request, g
 from flask_caching import Cache
 from dotenv import load_dotenv
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
+from urllib3.exceptions import InsecureRequestWarning
 
 try:
     import psycopg
@@ -72,6 +74,14 @@ elif _ssl_env.lower() == "true":
 else:
     # Treat the value as a path to a CA bundle / certificate file
     NAUTOBOT_VERIFY_SSL = _ssl_env
+
+
+def _configure_nautobot_ssl_warnings() -> None:
+    if NAUTOBOT_VERIFY_SSL is False:
+        urllib3.disable_warnings(InsecureRequestWarning)
+
+
+_configure_nautobot_ssl_warnings()
 
 
 _AUTH_ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}

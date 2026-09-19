@@ -950,6 +950,26 @@ class TestSSLVerification:
             flask_app.NAUTOBOT_TOKEN = original_token
             flask_app.NAUTOBOT_VERIFY_SSL = original_verify
 
+    def test_insecure_request_warning_suppressed_when_verify_disabled(self):
+        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+        flask_app.NAUTOBOT_VERIFY_SSL = False
+        try:
+            with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
+                flask_app._configure_nautobot_ssl_warnings()
+            mock_disable.assert_called_once_with(flask_app.InsecureRequestWarning)
+        finally:
+            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+
+    def test_insecure_request_warning_not_suppressed_when_verify_enabled(self):
+        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+        flask_app.NAUTOBOT_VERIFY_SSL = True
+        try:
+            with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
+                flask_app._configure_nautobot_ssl_warnings()
+            mock_disable.assert_not_called()
+        finally:
+            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+
 
 # ---------------------------------------------------------------------------
 # Tests: Accept header / API version configuration
