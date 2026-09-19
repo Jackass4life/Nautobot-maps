@@ -1235,17 +1235,19 @@ def _resolve_open_alert_instances_for_site(
             elapsed = max(0, int((resolved - started).total_seconds()))
         now_sql = _sql_now()
         p0, p1, p2 = _sql_placeholders(3).split(",")
-        conn.execute(
+        cur = conn.execute(
             f"""
             UPDATE alert_instances
             SET status = 'resolved',
                 resolved_at = {p0},
                 total_downtime_seconds = COALESCE(total_downtime_seconds, 0) + {p1},
                 updated_at = {now_sql}
-            WHERE id = {p2}
+            WHERE id = {p2} AND status = 'open'
             """,
             (checked_at, elapsed, row_data["id"]),
         )
+        if cur.rowcount == 0:
+            continue
         _insert_alert_event(
             conn=conn,
             instance_id=row_data["id"],

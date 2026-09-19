@@ -1553,8 +1553,9 @@ class TestAlertLifecycleTracking:
 
     def test_postgres_lifecycle_path_uses_postgres_sql(self):
         class _FakeResult:
-            def __init__(self, rows=None):
+            def __init__(self, rows=None, rowcount=0):
                 self._rows = rows or []
+                self.rowcount = rowcount
 
             def fetchone(self):
                 return self._rows[0] if self._rows else None
@@ -1594,7 +1595,7 @@ class TestAlertLifecycleTracking:
                         "down_started_at": "2026-01-01T00:00:00Z",
                     }])
                 if "UPDATE alert_instances" in query:
-                    return _FakeResult([])
+                    return _FakeResult([], rowcount=1)
                 return _FakeResult([])
 
         fake_conn = _FakeConn()
@@ -1618,6 +1619,7 @@ class TestAlertLifecycleTracking:
         assert "%s" in insert_sql
         update_sql = next(query for query, _ in fake_conn.queries if "UPDATE alert_instances" in query)
         assert "CURRENT_TIMESTAMP" in update_sql
+        assert "AND status = 'open'" in update_sql
         event_params = [params for query, params in fake_conn.queries if "INSERT INTO alert_events" in query]
         assert any(param == checked_at for params in event_params for param in params)
 
