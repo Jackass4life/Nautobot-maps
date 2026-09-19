@@ -162,6 +162,12 @@ function renderCases(item) {
   return cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
 }
 
+function renderDeviceCases(device) {
+  const cases = Array.isArray(device.case_numbers) ? device.case_numbers : [];
+  if (!cases.length) return "—";
+  return cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
+}
+
 function formatBoardStatus(payload, visibleCount) {
   const checkedAt = payload.checked_at ? new Date(payload.checked_at) : null;
   const timestamp = checkedAt && !Number.isNaN(checkedAt.valueOf())
@@ -176,6 +182,38 @@ function alertBadge(level) {
   return `<span class="alert-badge alert-${escHtml(level || "unknown")}">${escHtml(label)}</span>`;
 }
 
+function formatLocationAddress(item) {
+  return item.physical_address || item.facility || "";
+}
+
+function compareText(left, right) {
+  return (left || "").localeCompare(right || "");
+}
+
+function renderDownDeviceRows(item) {
+  const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
+  if (!downDevices.length) return "";
+  const siteLabel = escHtml(item.name || item.id || "site");
+  return downDevices.map((device) => `
+    <tr class="down-device-row">
+      <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
+        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}</div>
+        <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+      </td>
+      <td>${alertBadge(item.alert_level)}</td>
+      <td>${escHtml(device.status || item.status || "—")}</td>
+      <td>${escHtml(item.location_type || "—")}</td>
+      <td>${escHtml(item.tenant || "—")}</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td class="cases-cell">${renderDeviceCases(device)}</td>
+      <td class="reason-cell">${escHtml(item.alert_reason || "Down device")}</td>
+      <td></td>
+    </tr>
+  `).join("");
+}
+
 function renderTableRows(alerts, payload) {
   if (!alerts.length) {
     alertsTableBody.innerHTML = '<tr><td colspan="11" class="empty-state">No sites match the current filters.</td></tr>';
@@ -183,11 +221,20 @@ function renderTableRows(alerts, payload) {
     return;
   }
 
-  alertsTableBody.innerHTML = alerts.map((item) => `
-    <tr>
+  alertsTableBody.innerHTML = alerts.map((item) => {
+    const address = formatLocationAddress(item);
+    const siteMeta = [
+      item.country && address && address.toLowerCase().endsWith(item.country.toLowerCase()) ? "" : item.country,
+      item.parent,
+      item.tenant_group,
+    ].filter(Boolean).map(escHtml).join(" · ");
+
+    return `
+    <tr class="site-row">
       <td>
         <div class="site-name">${escHtml(item.name)}</div>
-        <div class="site-meta">${[item.parent, item.tenant_group].filter(Boolean).map(escHtml).join(" · ") || "—"}</div>
+        ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
+        <div class="site-meta">${siteMeta || "—"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
       <td>${escHtml(item.status || "—")}</td>
@@ -200,7 +247,9 @@ function renderTableRows(alerts, payload) {
       <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
       <td>${mapActionCell(item)}</td>
     </tr>
-  `).join("");
+    ${renderDownDeviceRows(item)}
+  `;
+  }).join("");
   formatBoardStatus(payload, alerts.length);
 }
 
@@ -213,7 +262,13 @@ function applyFilters(payload) {
   const sort = sortBy.value;
 
   const filtered = allAlerts.filter((item) => {
-    if (siteNeedle && !(`${item.name} ${item.parent} ${item.facility}`.toLowerCase().includes(siteNeedle))) return false;
+    const searchableText = [
+      item.name,
+      item.parent,
+      formatLocationAddress(item),
+      item.country,
+    ].join(" ").toLowerCase();
+    if (siteNeedle && !searchableText.includes(siteNeedle)) return false;
     if (severity && item.alert_level !== severity) return false;
     if (status && item.status !== status) return false;
     if (type && item.location_type !== type) return false;
@@ -222,12 +277,14 @@ function applyFilters(payload) {
   });
 
   filtered.sort((a, b) => {
-    if (sort === "site") return a.name.localeCompare(b.name);
-    if (sort === "down") return (b.down_device_count || 0) - (a.down_device_count || 0) || a.name.localeCompare(b.name);
-    if (sort === "devices") return (b.device_count || 0) - (a.device_count || 0) || a.name.localeCompare(b.name);
+    if (sort === "site") return compareText(a.name, b.name);
+    if (sort === "address") return compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
+    if (sort === "country") return compareText(a.country, b.country) || compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
+    if (sort === "down") return (b.down_device_count || 0) - (a.down_device_count || 0) || compareText(a.name, b.name);
+    if (sort === "devices") return (b.device_count || 0) - (a.device_count || 0) || compareText(a.name, b.name);
     return severityWeight(a.alert_level) - severityWeight(b.alert_level)
       || (b.down_device_count || 0) - (a.down_device_count || 0)
-      || a.name.localeCompare(b.name);
+      || compareText(a.name, b.name);
   });
 
   renderTableRows(filtered, payload);

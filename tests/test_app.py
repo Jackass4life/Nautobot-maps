@@ -70,6 +70,7 @@ SAMPLE_LOCATIONS_PAGE = {
             "slug": "cph-dc",
             "status": {"label": "Active"},
             "location_type": {"name": "Data Center"},
+            "country": {"name": "Denmark"},
             "parent": {"name": "Denmark"},
             "latitude": "55.6761",
             "longitude": "12.5683",
@@ -240,6 +241,48 @@ class TestApiLocations:
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["location_type"] == "Data Center"
+
+    def test_country_field_populated(self, client):
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["country"] == "Denmark"
+
+    def test_country_field_falls_back_to_physical_address(self, client):
+        fallback_locations = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-fallback-country",
+                    "name": "Fallback Site",
+                    "slug": "fallback-site",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Office"},
+                    "parent": None,
+                    "latitude": "55.0",
+                    "longitude": "12.0",
+                    "description": "",
+                    "physical_address": "Examplevej 10, 2100 Copenhagen, Denmark",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "facility": "",
+                    "tags": [],
+                    "url": "",
+                },
+            ],
+        }
+
+        def mock_get(endpoint, params=None):
+            if "dcim/locations" in endpoint:
+                return fallback_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+            resp = client.get("/api/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["country"] == "Denmark"
 
     def test_parent_field_populated(self, client):
         with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
@@ -459,6 +502,8 @@ class TestAlertBoard:
         resp = client.get("/alerts")
         assert resp.status_code == 200
         assert b"Alert Board" in resp.data
+        assert b"Filter by site, address, or country" in resp.data
+        assert b"Sort: country" in resp.data
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
         flask_app.cache.clear()
@@ -571,7 +616,8 @@ class TestAlertBoard:
             "latitude": 55.6761,
             "longitude": 12.5683,
             "description": "",
-            "physical_address": "",
+            "physical_address": "Vermlandsgade 51, 2300 Copenhagen",
+            "country": "Denmark",
             "facility": "CPH-1",
             "tenant": "Acme Corp",
             "tenant_id": "ten-1",
@@ -595,6 +641,17 @@ class TestAlertBoard:
         assert data["summary"]["critical"] == 1
         assert data["alerts"][0]["name"] == "Copenhagen DC"
         assert data["alerts"][0]["alert_level"] == "critical"
+        assert data["alerts"][0]["physical_address"] == "Vermlandsgade 51, 2300 Copenhagen"
+        assert data["alerts"][0]["country"] == "Denmark"
+        assert data["alerts"][0]["down_devices"] == [
+            {
+                "device_id": "dev-1",
+                "device_name": "router01",
+                "status": "offline",
+                "role": "Core Router",
+                "case_numbers": [],
+            }
+        ]
 
     def test_get_alert_board_data_marks_location_unknown_on_error(self):
         flask_app.cache.clear()
@@ -1526,6 +1583,15 @@ class TestAlertLifecycleTracking:
         assert "historical_downtime_seconds" in entry
         assert "active_cases" in entry
         assert entry["active_alert_instance_count"] == 1
+        assert entry["down_devices"] == [
+            {
+                "device_id": "dev-1",
+                "device_name": "router01",
+                "status": "offline",
+                "role": "Core Router",
+                "case_numbers": [],
+            }
+        ]
 
     def test_alert_history_tracks_open_and_resolve(self, client):
         site = {"id": "loc-1", "name": "Site One"}
@@ -1578,6 +1644,64 @@ class TestAlertLifecycleTracking:
         assert history.status_code == 200
         instances = history.get_json()["instances"]
         assert instances[0]["cases"][0]["case_number"] == "INC-1001"
+
+    def test_api_alerts_preserves_case_numbers_on_current_down_devices(self, client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        created = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
+            content_type="application/json",
+        )
+        assert created.status_code == 200
+
+        with patch.object(flask_app, "get_locations", return_value=[{
+            "id": "loc-1",
+            "name": "Site One",
+            "status": "Active",
+            "location_type": "Data Center",
+            "parent": "",
+            "latitude": 1.0,
+            "longitude": 2.0,
+            "description": "",
+            "physical_address": "",
+            "facility": "",
+            "tenant": "",
+            "tenant_id": "",
+            "tenant_group": "",
+            "asn": None,
+            "time_zone": "",
+            "tags": [],
+            "url": "",
+        }]), patch.object(flask_app, "fetch_all_pages", return_value=[]), patch.object(
+            flask_app,
+            "_get_location_devices_and_alert",
+            return_value=(
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+            ),
+        ):
+            resp = client.get("/api/alerts")
+
+        assert resp.status_code == 200
+        entry = resp.get_json()["alerts"][0]
+        assert entry["active_cases"] == ["INC-1001"]
+        assert entry["down_devices"] == [
+            {
+                "device_id": "dev-1",
+                "device_name": "router01",
+                "status": "offline",
+                "role": "Core Router",
+                "case_numbers": ["INC-1001"],
+            }
+        ]
 
     def test_add_case_uses_authenticated_user_for_created_by(self, client):
         site = {"id": "loc-1", "name": "Site One"}

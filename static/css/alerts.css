@@ -29,6 +29,18 @@ html, body {
 
 .hidden { display: none !important; }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .page-shell {
   max-width: 1400px;
   margin: 0 auto;
@@ -196,10 +208,32 @@ tbody tr:hover {
   font-weight: 700;
 }
 
+.site-address {
+  margin-top: 4px;
+  color: #cfd3f9;
+  font-size: 0.85rem;
+}
+
 .site-meta {
   margin-top: 4px;
   color: var(--color-text-muted);
   font-size: 0.8rem;
+}
+
+.site-row > td {
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.down-device-row > td {
+  background: rgba(13, 110, 253, 0.06);
+}
+
+.down-device-cell {
+  padding-left: 28px;
+}
+
+.down-device-name {
+  font-weight: 600;
 }
 
 .alert-badge {
