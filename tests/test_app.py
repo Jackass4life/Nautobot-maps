@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import pytest
 from unittest.mock import patch, MagicMock
+from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
 
@@ -1108,6 +1109,12 @@ class TestErrorHandlers:
         assert resp.status_code == 405
         data = resp.get_json()
         assert data["error"] == "Method not allowed"
+
+    def test_http_exception_returns_json_for_api_path(self):
+        with flask_app.app.test_request_context("/api/alerts"):
+            resp, status = flask_app.api_http_error(GatewayTimeout())
+        assert status == 504
+        assert resp.get_json()["error"] == "The connection to an upstream server timed out."
 
 
 # ---------------------------------------------------------------------------
