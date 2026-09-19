@@ -1502,7 +1502,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         )
         devices = _normalize_devices(raw_devices, lookup_maps=_build_device_lookup_maps())
         completed_at = _iso_utc_now()
-        watermark = last_successful_sync or started_at
+        watermark = last_successful_sync
         observed_last_updated = _max_last_updated(raw_locations + raw_devices)
         observed_dt = _parse_iso_datetime(observed_last_updated)
         current_dt = _parse_iso_datetime(watermark)
@@ -1583,14 +1583,15 @@ def _sync_librenms_inventory(force: bool = False) -> None:
                 "LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot"
             )
         with conn:
+            completed_at = _iso_utc_now()
             conn.execute("DELETE FROM librenms_device_status")
             _write_cached_librenms_devices(conn, devices)
             _record_sync_state(
                 conn,
                 source,
                 last_started_at=started_at,
-                last_completed_at=_iso_utc_now(),
-                last_successful_sync=started_at,
+                last_completed_at=completed_at,
+                last_successful_sync=completed_at,
                 status="idle",
                 error_message="",
             )
