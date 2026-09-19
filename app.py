@@ -1443,8 +1443,8 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         )
         with conn:
             if full_reconcile:
-                conn.execute("DELETE FROM nautobot_location_cache")
                 conn.execute("DELETE FROM nautobot_device_cache")
+                conn.execute("DELETE FROM nautobot_location_cache")
             _write_cached_locations(conn, locations)
             _write_cached_devices(conn, devices)
             _record_sync_state(
