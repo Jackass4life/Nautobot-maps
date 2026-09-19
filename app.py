@@ -1730,6 +1730,8 @@ def _build_alert_board_payload() -> dict:
                 if item_key in seen_down_device_keys:
                     continue
                 merged_down_devices.append(item)
+                if item_key:
+                    seen_down_device_keys.add(item_key)
             level = (alert.get("level") or "ok").lower()
             summary[level] = summary.get(level, 0) + 1
             alerts.append(
