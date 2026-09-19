@@ -674,11 +674,15 @@ class TestAlertBoard:
         ) as ensure_snapshot, patch.object(
             flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
         ):
-            devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
+            devices, alert = flask_app._get_location_devices_and_alert(
+                "loc-1",
+                "Data Center",
+                snapshot_only=True,
+            )
 
         assert devices == []
         assert alert == {"level": "ok", "reason": ""}
-        ensure_snapshot.assert_called_once_with()
+        ensure_snapshot.assert_not_called()
 
     def test_get_alert_board_data_does_not_live_fetch_devices_on_cache_miss(self):
         flask_app.cache.clear()

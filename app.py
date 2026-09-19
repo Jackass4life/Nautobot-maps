@@ -2054,14 +2054,27 @@ def _get_location_devices_and_alert(
     snapshot_only: bool = False,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location."""
+    loaded_from_cache = False
     if devices_data is None:
         devices_data = _read_cached_devices(location_id)
         if devices_data:
             devices_already_normalized = True
+            loaded_from_cache = True
             if not snapshot_only:
                 _ensure_inventory_snapshot()
         elif not snapshot_only:
             _ensure_inventory_snapshot()
+            devices_data = _read_cached_devices(location_id)
+            if devices_data:
+                devices_already_normalized = True
+                loaded_from_cache = True
+            else:
+                devices_data = fetch_all_pages(
+                    "dcim/devices/",
+                    {"location_id": location_id},
+                )
+    elif devices_already_normalized:
+        loaded_from_cache = True
 
     devices = (
         [
@@ -2078,7 +2091,7 @@ def _get_location_devices_and_alert(
             }
             for d in devices_data
         ]
-        if devices_already_normalized
+        if devices_already_normalized and loaded_from_cache
         else _normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
 
