@@ -1040,7 +1040,7 @@ class TestSSLVerification:
         finally:
             flask_app.NAUTOBOT_VERIFY_SSL = original_verify
 
-    def test_insecure_request_warning_suppressed_when_librenms_verify_disabled(self):
+    def test_insecure_request_warning_not_suppressed_by_librenms_verify_setting(self):
         original_nautobot_verify = flask_app.NAUTOBOT_VERIFY_SSL
         original_librenms_verify = flask_app.LIBRENMS_VERIFY_SSL
         flask_app.NAUTOBOT_VERIFY_SSL = True
@@ -1048,7 +1048,7 @@ class TestSSLVerification:
         try:
             with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
                 flask_app._configure_nautobot_ssl_warnings()
-            mock_disable.assert_called_once_with(flask_app.InsecureRequestWarning)
+            mock_disable.assert_not_called()
         finally:
             flask_app.NAUTOBOT_VERIFY_SSL = original_nautobot_verify
             flask_app.LIBRENMS_VERIFY_SSL = original_librenms_verify
@@ -1885,6 +1885,18 @@ class TestLibreNMSEnrichment:
             flask_app._librenms_get("devices", {"type": "all"})
         _, kwargs = mock_get.call_args
         assert kwargs["verify"] is False
+
+    def test_librenms_get_suppresses_warning_locally_when_verify_disabled(self):
+        flask_app.LIBRENMS_URL = "https://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        flask_app.LIBRENMS_VERIFY_SSL = False
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"devices": []}
+        with patch.object(flask_app.requests, "get", return_value=mock_resp), \
+                patch.object(flask_app.warnings, "catch_warnings") as mock_catch:
+            flask_app._librenms_get("devices", {"type": "all"})
+        mock_catch.assert_called_once()
 
     def test_librenms_down_overrides_active_status(self):
         """A device active in Nautobot but down in LibreNMS is set to offline."""
