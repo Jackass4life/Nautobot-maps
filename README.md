@@ -66,6 +66,13 @@ python app.py
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `CACHE_TYPE` | ❌ | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with multiple workers |
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
+| `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
+| `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |
+| `AUTH_HEADER_GROUPS` | ❌ | `X-Forwarded-Groups` | Header-mode group header supplied by a trusted reverse proxy |
+| `AUTH_DEFAULT_ROLE` | ❌ | — | Optional fallback role (`viewer`, `operator`, or `admin`) for authenticated users with no matching group |
+| `AUTH_VIEWER_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `viewer` role |
+| `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
+| `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
 | `FLASK_DEBUG` | ❌ | `false` | Set `true` to enable Flask debug mode |
 | `FLASK_RUN_PORT` | ❌ | `5000` | Port for the development server (useful if 5000 is taken, e.g. by macOS AirPlay Receiver) |
 
@@ -117,6 +124,50 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
 | `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
 | `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |
+| `GET` | `/api/criticality-overrides` | List stored device criticality overrides *(operator when auth enabled)* |
+| `POST` | `/api/criticality-overrides` | Create/update a device criticality override *(operator when auth enabled)* |
+| `DELETE` | `/api/criticality-overrides/<device_id>` | Delete a device criticality override *(operator when auth enabled)* |
+| `GET` | `/api/roles` | List Nautobot roles |
+| `POST` | `/api/roles` | Create a Nautobot role *(admin when auth enabled)* |
+| `DELETE` | `/api/roles/<role_id>` | Delete a Nautobot role *(admin when auth enabled)* |
+| `GET` | `/api/location-types` | List Nautobot location types |
+| `POST` | `/api/location-types` | Create a Nautobot location type *(admin when auth enabled)* |
+| `DELETE` | `/api/location-types/<lt_id>` | Delete a Nautobot location type *(admin when auth enabled)* |
+
+## Optional Authentication / RBAC
+
+By default, Nautobot Maps stays public and behaves exactly as before:
+
+- `AUTH_MODE=disabled`
+- map, alerts, and read-only APIs remain public
+- administrative API routes continue to work without authentication
+
+To protect only administrative actions, set `AUTH_MODE=header` and place the app
+behind a trusted reverse proxy or SSO gateway that injects identity headers.
+This works well with OIDC or SAML providers when the proxy handles the login
+flow and forwards the authenticated username/groups to Nautobot Maps.
+
+### Roles
+
+- `viewer` — reserved for future read-only admin features
+- `operator` — can manage `/api/criticality-overrides`
+- `admin` — can also create/delete Nautobot roles and location types
+
+### Example header-based SSO configuration
+
+```dotenv
+AUTH_MODE=header
+AUTH_HEADER_USER=X-Forwarded-User
+AUTH_HEADER_GROUPS=X-Forwarded-Groups
+AUTH_OPERATOR_GROUPS=nautobot-operators
+AUTH_ADMIN_GROUPS=nautobot-admins
+```
+
+Recommended deployment patterns:
+
+1. **Public read-only mode**: leave `AUTH_MODE=disabled`.
+2. **Protected admin mode**: enable `AUTH_MODE=header` behind an internal reverse proxy.
+3. **Optional SSO mode**: connect your reverse proxy or auth gateway to OIDC/SAML and forward trusted user/group headers to this app.
 
 ## Running Tests
 
