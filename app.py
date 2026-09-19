@@ -1400,6 +1400,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
     source = "nautobot_inventory"
     reconcile_source = "nautobot_inventory_reconcile"
     started_at = _iso_utc_now()
+    last_successful_sync = None
     try:
         last_successful_sync = None if force else _get_sync_state(source, conn=conn).get(
             "last_successful_sync"
@@ -1429,6 +1430,25 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
             params["last_updated__gte"] = last_successful_sync
         raw_locations = fetch_all_pages("dcim/locations/", params or None)
         raw_devices = fetch_all_pages("dcim/devices/", params or None)
+        if full_reconcile:
+            existing_counts = conn.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM nautobot_location_cache) AS location_count,
+                    (SELECT COUNT(*) FROM nautobot_device_cache) AS device_count
+                """
+            ).fetchone()
+            existing_counts = _row_to_dict(existing_counts)
+            if (
+                int(existing_counts.get("location_count") or 0) > 0
+                and not raw_locations
+            ) or (
+                int(existing_counts.get("device_count") or 0) > 0
+                and not raw_devices
+            ):
+                raise RuntimeError(
+                    "Full inventory reconcile returned an empty dataset; keeping the existing cached snapshot"
+                )
         existing_location_name_map = _read_cached_location_name_map(conn=conn)
         locations = _normalize_locations(
             raw_locations,
@@ -1491,6 +1511,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
         return
     source = "librenms_inventory"
     started_at = _iso_utc_now()
+    last_successful_sync = None
     try:
         last_successful_sync = None if force else _get_sync_state(source, conn=conn).get(
             "last_successful_sync"
@@ -1536,41 +1557,46 @@ def _sync_librenms_inventory(force: bool = False) -> None:
 
 
 def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
-    conn = _get_db_conn()
-    if conn is None:
-        return False
-    try:
-        needs_nautobot = bool(NAUTOBOT_URL and NAUTOBOT_TOKEN) and (
-            force or _sync_due("nautobot_inventory", INVENTORY_SYNC_INTERVAL_SECONDS, conn=conn)
-        )
-        needs_librenms = bool((LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip()) and (
-            force or _sync_due("librenms_inventory", LIBRENMS_SYNC_INTERVAL_SECONDS, conn=conn)
-        )
-    finally:
-        conn.close()
-    if not needs_nautobot and not needs_librenms:
-        return False
-
-    state = {"ran": False}
-
-    def _run():
-        if not _inventory_sync_lock.acquire(blocking=wait):
-            return
+    def _run_with_lock() -> bool:
+        conn = _get_db_conn()
         try:
-            state["ran"] = True
+            if conn is None:
+                return False
+            needs_nautobot = bool(NAUTOBOT_URL and NAUTOBOT_TOKEN) and (
+                force
+                or _sync_due(
+                    "nautobot_inventory",
+                    INVENTORY_SYNC_INTERVAL_SECONDS,
+                    conn=conn,
+                )
+            )
+            needs_librenms = bool((LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip()) and (
+                force
+                or _sync_due(
+                    "librenms_inventory",
+                    LIBRENMS_SYNC_INTERVAL_SECONDS,
+                    conn=conn,
+                )
+            )
+            if not needs_nautobot and not needs_librenms:
+                return False
             if needs_nautobot:
                 _sync_nautobot_inventory(force=force)
             if needs_librenms:
                 _sync_librenms_inventory(force=force)
+            return True
         finally:
+            if conn is not None:
+                conn.close()
             _inventory_sync_lock.release()
 
     if wait:
-        _run()
-    else:
-        threading.Thread(target=_run, daemon=True).start()
-        return True
-    return state["ran"]
+        _inventory_sync_lock.acquire()
+        return _run_with_lock()
+    if not _inventory_sync_lock.acquire(blocking=False):
+        return False
+    threading.Thread(target=_run_with_lock, daemon=True).start()
+    return True
 
 
 

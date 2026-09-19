@@ -1811,8 +1811,8 @@ class TestInventoryCacheSync:
         self._db_tmp.close()
         flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
         flask_app.NAUTOBOT_MAPS_DB = self._db_tmp.name
-        flask_app.NAUTOBOT_URL = "https://nautobot.example.com"
-        flask_app.NAUTOBOT_TOKEN = "token"
+        flask_app.NAUTOBOT_URL = ""
+        flask_app.NAUTOBOT_TOKEN = ""
         flask_app.LIBRENMS_URL = ""
         flask_app.LIBRENMS_API_TOKEN = ""
         flask_app._init_db()
@@ -1865,9 +1865,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        with patch.object(flask_app, "NAUTOBOT_URL", ""), patch.object(flask_app, "NAUTOBOT_TOKEN", ""), patch.object(
-            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
-        ):
+        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             locations = flask_app.get_locations()
 
         assert locations == [
@@ -1945,9 +1943,7 @@ class TestInventoryCacheSync:
             conn.close()
 
         flask_app.cache.clear()
-        with patch.object(flask_app, "NAUTOBOT_URL", ""), patch.object(flask_app, "NAUTOBOT_TOKEN", ""), patch.object(
-            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
-        ):
+        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["critical"] == 1
@@ -1999,7 +1995,9 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        with patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
             flask_app, "_read_cached_location_name_map", return_value={}
         ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
             flask_app._sync_nautobot_inventory(force=True)
@@ -2105,7 +2103,9 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        with patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
             flask_app, "_read_cached_location_name_map", return_value={}
         ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
             flask_app._sync_nautobot_inventory(force=True)
