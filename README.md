@@ -75,8 +75,18 @@ python app.py
 | `AUTH_VIEWER_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `viewer` role |
 | `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
+| `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
+| `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
+| `LIBRENMS_VERIFY_SSL` | ❌ | `true` | LibreNMS TLS verification toggle: set `false`/`no`/`0` to skip certificate verification |
 | `FLASK_DEBUG` | ❌ | `false` | Set `true` to enable Flask debug mode |
 | `FLASK_RUN_PORT` | ❌ | `5000` | Port for the development server (useful if 5000 is taken, e.g. by macOS AirPlay Receiver) |
+
+### LibreNMS integration settings
+
+Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to enable optional LibreNMS enrichment.
+`LIBRENMS_VERIFY_SSL` defaults to `true`; set it to `false`/`no`/`0` only when you
+explicitly accept the TLS trust tradeoff (for example, an internal CA not in the trust
+store). Prefer using a trusted CA bundle (for example via `REQUESTS_CA_BUNDLE`) when possible.
 
 ## Docker
 

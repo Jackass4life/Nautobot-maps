@@ -4,6 +4,7 @@ import sqlite3
 import logging
 import re
 import hashlib
+import warnings
 from datetime import datetime, timezone
 from functools import wraps
 from urllib.parse import urlsplit
@@ -55,6 +56,7 @@ CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
 # LibreNMS optional integration
 LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
 LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
+LIBRENMS_VERIFY_SSL = os.getenv("LIBRENMS_VERIFY_SSL", "true").strip().lower() not in ("0", "false", "no")
 
 # SQLite database path (leave empty to disable persistence features)
 NAUTOBOT_MAPS_DB = os.getenv("NAUTOBOT_MAPS_DB", "")
@@ -969,7 +971,16 @@ def _librenms_get(path: str, params: dict | None = None) -> dict:
 
     headers = {"X-Auth-Token": api_token}
     url = f"{base_url}/api/v0/{path.lstrip('/')}"
-    response = requests.get(url, headers=headers, params=params, timeout=15)
+    if LIBRENMS_VERIFY_SSL is False:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", InsecureRequestWarning)
+            response = requests.get(
+                url, headers=headers, params=params, timeout=15, verify=False
+            )
+    else:
+        response = requests.get(
+            url, headers=headers, params=params, timeout=15, verify=LIBRENMS_VERIFY_SSL
+        )
     response.raise_for_status()
     return response.json()
 
