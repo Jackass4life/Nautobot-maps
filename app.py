@@ -1297,7 +1297,11 @@ def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
     if not state:
         return True
     if state.get("status") == "running":
-        return False
+        started_at = _parse_iso_datetime(state.get("last_started_at"))
+        if started_at is None:
+            return True
+        stale_after = max(900, interval_seconds * 2)
+        return (datetime.now(timezone.utc) - started_at).total_seconds() >= stale_after
     completed_at = _parse_iso_datetime(state.get("last_completed_at"))
     if completed_at is None:
         return True
@@ -1493,7 +1497,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         completed_at = _iso_utc_now()
         watermark = _max_last_updated(
             raw_locations + raw_devices,
-            fallback=completed_at if full_reconcile else started_at,
+            fallback=last_successful_sync or completed_at,
         )
         with conn:
             if full_reconcile:
@@ -3214,5 +3218,4 @@ if __name__ == "__main__":
         port = int(os.getenv("FLASK_RUN_PORT", 5000))
     except (ValueError, TypeError):
         port = 5000
-    _ensure_inventory_snapshot()
     app.run(host=_get_flask_run_host(), port=port, debug=debug)
