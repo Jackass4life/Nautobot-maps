@@ -301,6 +301,10 @@ def _max_last_updated(items: list, fallback: str | None = None) -> str | None:
     return result
 
 
+def _advisory_lock_key(name: str) -> int:
+    return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "big", signed=True)
+
+
 def _get_db_conn():
     """Return a persistence connection, or ``None`` when persistence is disabled."""
     dialect = _current_persistence_dialect()
@@ -317,6 +321,35 @@ def _get_db_conn():
         conn.row_factory = sqlite3.Row
         return conn
     return None
+
+
+def _acquire_db_inventory_lock(name: str):
+    if not _is_postgres():
+        return None
+    conn = _get_db_conn()
+    if conn is None:
+        return None
+    try:
+        key = _advisory_lock_key(name)
+        row = conn.execute(
+            "SELECT pg_try_advisory_lock(%s) AS acquired",
+            (key,),
+        ).fetchone()
+        acquired = _row_to_dict(row).get("acquired")
+        if not acquired:
+            conn.close()
+            return False
+
+        def _release() -> None:
+            try:
+                conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
+            finally:
+                conn.close()
+
+        return _release
+    except Exception:
+        conn.close()
+        raise
 
 
 def _init_db() -> None:
@@ -1440,10 +1473,11 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
             ).fetchone()
             existing_counts = _row_to_dict(existing_counts)
             if (
-                int(existing_counts.get("location_count") or 0) > 0
+                (
+                    int(existing_counts.get("location_count") or 0) > 0
+                    or int(existing_counts.get("device_count") or 0) > 0
+                )
                 and not raw_locations
-            ) or (
-                int(existing_counts.get("device_count") or 0) > 0
                 and not raw_devices
             ):
                 raise RuntimeError(
@@ -1558,8 +1592,13 @@ def _sync_librenms_inventory(force: bool = False) -> None:
 
 def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
     def _run_with_lock() -> bool:
-        conn = _get_db_conn()
+        conn = None
+        release_db_lock = None
         try:
+            release_db_lock = _acquire_db_inventory_lock("inventory_snapshot_sync")
+            if release_db_lock is False:
+                return False
+            conn = _get_db_conn()
             if conn is None:
                 return False
             needs_nautobot = bool(NAUTOBOT_URL and NAUTOBOT_TOKEN) and (
@@ -1588,6 +1627,8 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
         finally:
             if conn is not None:
                 conn.close()
+            if callable(release_db_lock):
+                release_db_lock()
             _inventory_sync_lock.release()
 
     if wait:
