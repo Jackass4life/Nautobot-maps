@@ -2008,6 +2008,18 @@ class TestAuthConfiguration:
         monkeypatch.setenv("AUTH_MODE", "disabled")
         assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
 
+    def test_default_gunicorn_timeout_is_120_seconds(self, monkeypatch):
+        monkeypatch.delenv("GUNICORN_TIMEOUT", raising=False)
+        assert self._reload_gunicorn_config().timeout == 120
+
+    def test_gunicorn_timeout_has_a_120_second_floor(self, monkeypatch):
+        monkeypatch.setenv("GUNICORN_TIMEOUT", "30")
+        assert self._reload_gunicorn_config().timeout == 120
+
+    def test_gunicorn_timeout_allows_values_above_floor(self, monkeypatch):
+        monkeypatch.setenv("GUNICORN_TIMEOUT", "180")
+        assert self._reload_gunicorn_config().timeout == 180
+
     def test_auth_disabled_keeps_write_endpoints_unchanged(self, client):
         with auth_config(mode="disabled"):
             resp = client.post(
