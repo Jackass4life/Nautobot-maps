@@ -1691,6 +1691,15 @@ class TestLibreNMSEnrichment:
         result = flask_app._enrich_with_librenms(devices)
         assert result == devices
 
+    def test_fetch_inventory_skips_when_config_is_blank(self):
+        """_fetch_librenms_inventory skips API calls when URL/token are blank."""
+        flask_app.LIBRENMS_URL = "   "
+        flask_app.LIBRENMS_API_TOKEN = "   "
+        with patch.object(flask_app.requests, "get") as mock_get:
+            result = flask_app._fetch_librenms_inventory()
+        assert result == []
+        mock_get.assert_not_called()
+
     def test_librenms_down_overrides_active_status(self):
         """A device active in Nautobot but down in LibreNMS is set to offline."""
         flask_app.LIBRENMS_URL = "http://librenms.test"

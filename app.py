@@ -35,8 +35,8 @@ NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
 
 # LibreNMS optional integration
-LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").rstrip("/")
-LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "")
+LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
+LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 
 # SQLite database path (leave empty to disable persistence features)
 NAUTOBOT_MAPS_DB = os.getenv("NAUTOBOT_MAPS_DB", "")
@@ -934,8 +934,13 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
 
 def _librenms_get(path: str, params: dict | None = None) -> dict:
     """Perform a GET request against the LibreNMS REST API."""
-    headers = {"X-Auth-Token": LIBRENMS_API_TOKEN}
-    url = f"{LIBRENMS_URL}/api/v0/{path.lstrip('/')}"
+    base_url = (LIBRENMS_URL or "").strip().rstrip("/")
+    api_token = (LIBRENMS_API_TOKEN or "").strip()
+    if not base_url or not api_token:
+        return {}
+
+    headers = {"X-Auth-Token": api_token}
+    url = f"{base_url}/api/v0/{path.lstrip('/')}"
     response = requests.get(url, headers=headers, params=params, timeout=15)
     response.raise_for_status()
     return response.json()
@@ -943,6 +948,8 @@ def _librenms_get(path: str, params: dict | None = None) -> dict:
 
 def _fetch_librenms_inventory() -> list:
     """Fetch full LibreNMS inventory once."""
+    if not (LIBRENMS_URL or "").strip() or not (LIBRENMS_API_TOKEN or "").strip():
+        return []
     data = _librenms_get("devices", {"type": "all"})
     return data.get("devices", [])
 
@@ -987,7 +994,7 @@ def _enrich_with_librenms(
     The enrichment is *additive*: Nautobot status is never upgraded (a device
     already offline in Nautobot stays offline regardless of LibreNMS).
     """
-    if not LIBRENMS_URL or not LIBRENMS_API_TOKEN:
+    if not (LIBRENMS_URL or "").strip() or not (LIBRENMS_API_TOKEN or "").strip():
         return devices
 
     if lnms_devices is None:
@@ -1579,7 +1586,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
     }
     lnms_devices = None
     lnms_id_map = None
-    if LIBRENMS_URL and LIBRENMS_API_TOKEN:
+    if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
         try:
             lnms_devices = _fetch_librenms_inventory()
             lnms_id_map = _load_librenms_id_map()
