@@ -1234,7 +1234,7 @@ def _resolve_open_alert_instances_for_site(
         if started and resolved:
             elapsed = max(0, int((resolved - started).total_seconds()))
         now_sql = _sql_now()
-        p0, p1, p2 = _sql_placeholders(3).split(",")
+        p0, p1, p2, p3 = _sql_placeholders(4).split(",")
         cur = conn.execute(
             f"""
             UPDATE alert_instances
@@ -1242,9 +1242,9 @@ def _resolve_open_alert_instances_for_site(
                 resolved_at = {p0},
                 total_downtime_seconds = COALESCE(total_downtime_seconds, 0) + {p1},
                 updated_at = {now_sql}
-            WHERE id = {p2} AND status = 'open'
+            WHERE id = {p2} AND status = 'open' AND down_started_at <= {p3}
             """,
-            (checked_at, elapsed, row_data["id"]),
+            (checked_at, elapsed, row_data["id"], checked_at),
         )
         if cur.rowcount == 0:
             continue

@@ -1620,6 +1620,7 @@ class TestAlertLifecycleTracking:
         update_sql = next(query for query, _ in fake_conn.queries if "UPDATE alert_instances" in query)
         assert "CURRENT_TIMESTAMP" in update_sql
         assert "AND status = 'open'" in update_sql
+        assert "AND down_started_at <=" in update_sql
         event_params = [params for query, params in fake_conn.queries if "INSERT INTO alert_events" in query]
         assert any(param == checked_at for params in event_params for param in params)
 
