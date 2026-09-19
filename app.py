@@ -6,7 +6,7 @@ import re
 import hashlib
 import threading
 import warnings
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import urlsplit
 
@@ -299,6 +299,13 @@ def _max_last_updated(items: list, fallback: str | None = None) -> str | None:
             latest = candidate
             result = candidate.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return result
+
+
+def _next_watermark(value: str | None) -> str | None:
+    parsed = _parse_iso_datetime(value)
+    if parsed is None:
+        return value
+    return (parsed + timedelta(microseconds=1)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _advisory_lock_key(name: str) -> int:
@@ -1495,10 +1502,12 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         )
         devices = _normalize_devices(raw_devices, lookup_maps=_build_device_lookup_maps())
         completed_at = _iso_utc_now()
-        watermark = _max_last_updated(
-            raw_locations + raw_devices,
-            fallback=last_successful_sync or completed_at,
-        )
+        watermark = last_successful_sync or completed_at
+        observed_last_updated = _max_last_updated(raw_locations + raw_devices)
+        observed_dt = _parse_iso_datetime(observed_last_updated)
+        current_dt = _parse_iso_datetime(watermark)
+        if observed_dt and (current_dt is None or observed_dt > current_dt):
+            watermark = _next_watermark(observed_last_updated)
         with conn:
             if full_reconcile:
                 conn.execute("DELETE FROM nautobot_device_cache")
@@ -1565,6 +1574,14 @@ def _sync_librenms_inventory(force: bool = False) -> None:
                 error_message="",
             )
         devices = _fetch_librenms_inventory()
+        existing_count = conn.execute(
+            "SELECT COUNT(*) AS device_count FROM librenms_device_status"
+        ).fetchone()
+        existing_count = int(_row_to_dict(existing_count).get("device_count") or 0)
+        if existing_count > 0 and not devices:
+            raise RuntimeError(
+                "LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot"
+            )
         with conn:
             conn.execute("DELETE FROM librenms_device_status")
             _write_cached_librenms_devices(conn, devices)

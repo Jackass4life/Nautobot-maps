@@ -1,5 +1,6 @@
 import importlib
 import json
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import pytest
@@ -1950,6 +1951,65 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["id"] == "loc-1"
         assert data["alerts"][0]["down_device_count"] == 1
         assert data["alerts"][0]["alert_level"] == "critical"
+
+    def test_cached_location_read_triggers_background_refresh_when_sync_is_due(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Cached Site",
+                            "slug": "cached-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:00:00Z",
+                    last_successful_sync="2026-01-01T00:00:00Z",
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        refresh_called = threading.Event()
+
+        def fake_sync(force=False):
+            refresh_called.set()
+
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(
+            flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 0
+        ), patch.object(
+            flask_app, "_sync_nautobot_inventory", side_effect=fake_sync
+        ):
+            locations = flask_app.get_locations()
+            assert refresh_called.wait(1), "expected cached read to trigger a background refresh"
+
+        assert locations[0]["id"] == "loc-1"
 
     def test_sync_nautobot_inventory_uses_last_successful_sync_watermark(self):
         calls = []
