@@ -234,6 +234,20 @@ tbody tr:hover {
   color: var(--color-text-muted);
 }
 
+.cases-cell {
+  min-width: 180px;
+}
+
+.case-pill {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(13, 110, 253, 0.2);
+  color: #b7d0ff;
+  font-size: 0.75rem;
+}
+
 .map-link {
   color: #9dc2ff;
   text-decoration: none;
@@ -241,6 +255,39 @@ tbody tr:hover {
 
 .map-link-disabled {
   color: var(--color-text-muted);
+}
+
+.action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.case-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.case-form select,
+.case-form input,
+.case-form button,
+.history-btn {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 6px 8px;
+  font-size: 0.78rem;
+}
+
+.case-form button,
+.history-btn {
+  cursor: pointer;
+}
+
+.case-form button {
+  background: rgba(13, 110, 253, 0.2);
 }
 
 .empty-state {
@@ -291,6 +338,6 @@ tbody tr:hover {
   }
 
   table {
-    min-width: 900px;
+    min-width: 1200px;
   }
 }

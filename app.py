@@ -3,6 +3,7 @@ import os
 import sqlite3
 import logging
 import re
+import hashlib
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -12,6 +13,13 @@ from flask_caching import Cache
 from dotenv import load_dotenv
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except Exception:  # pragma: no cover - optional dependency
+    psycopg = None
+    dict_row = None
 
 load_dotenv()
 
@@ -32,6 +40,7 @@ LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "")
 
 # SQLite database path (leave empty to disable persistence features)
 NAUTOBOT_MAPS_DB = os.getenv("NAUTOBOT_MAPS_DB", "")
+NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
 
 # Optional authentication / RBAC configuration
 AUTH_MODE = os.getenv("AUTH_MODE", "disabled").strip().lower() or "disabled"
@@ -178,49 +187,251 @@ def require_role(required_role: str):
 
 
 # ---------------------------------------------------------------------------
-# SQLite persistence (optional – only active when NAUTOBOT_MAPS_DB is set)
+# Persistence (PostgreSQL preferred; SQLite fallback)
 # ---------------------------------------------------------------------------
 
-def _get_db_conn() -> sqlite3.Connection | None:
-    """Return a SQLite connection if NAUTOBOT_MAPS_DB is configured, else None."""
-    if not NAUTOBOT_MAPS_DB:
+def _current_persistence_dialect() -> str:
+    db_url = (NAUTOBOT_MAPS_DATABASE_URL or "").strip()
+    if db_url.lower().startswith(("postgres://", "postgresql://")):
+        return "postgres"
+    if NAUTOBOT_MAPS_DB:
+        return "sqlite"
+    return ""
+
+
+def _is_postgres() -> bool:
+    return _current_persistence_dialect() == "postgres"
+
+
+def _serialize_value(value):
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return value
+
+
+def _row_to_dict(row) -> dict:
+    if row is None:
+        return {}
+    if isinstance(row, dict):
+        return {k: _serialize_value(v) for k, v in row.items()}
+    if isinstance(row, sqlite3.Row):
+        return {k: _serialize_value(v) for k, v in dict(row).items()}
+    try:
+        data = dict(row)
+        return {k: _serialize_value(v) for k, v in data.items()}
+    except Exception:
+        return {}
+
+
+def _sql_placeholders(count: int) -> str:
+    token = "%s" if _is_postgres() else "?"
+    return ",".join(token for _ in range(count))
+
+
+def _sql_now() -> str:
+    return "TIMEZONE('utc', NOW())" if _is_postgres() else "datetime('now')"
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
         return None
-    conn = sqlite3.connect(NAUTOBOT_MAPS_DB)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _get_db_conn():
+    """Return a persistence connection, or ``None`` when persistence is disabled."""
+    dialect = _current_persistence_dialect()
+    if dialect == "postgres":
+        if psycopg is None:
+            logger.error(
+                "NAUTOBOT_MAPS_DATABASE_URL is set but psycopg is unavailable; "
+                "install psycopg to enable PostgreSQL persistence"
+            )
+            return None
+        return psycopg.connect(NAUTOBOT_MAPS_DATABASE_URL, row_factory=dict_row)
+    if dialect == "sqlite":
+        conn = sqlite3.connect(NAUTOBOT_MAPS_DB)
+        conn.row_factory = sqlite3.Row
+        return conn
+    return None
 
 
 def _init_db() -> None:
-    """Create the persistence tables if they don't exist yet."""
+    """Create persistence tables if they don't exist."""
     conn = _get_db_conn()
     if conn is None:
         return
-    with conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS device_criticality_override (
-                nautobot_device_id TEXT PRIMARY KEY,
-                is_critical        INTEGER NOT NULL DEFAULT 1,
-                reason             TEXT    NOT NULL DEFAULT '',
-                updated_by         TEXT    NOT NULL DEFAULT '',
-                updated_at         TEXT    NOT NULL DEFAULT (datetime('now'))
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS librenms_device_map (
-                nautobot_device_id  TEXT PRIMARY KEY,
-                librenms_device_id  INTEGER NOT NULL,
-                librenms_hostname   TEXT    NOT NULL DEFAULT ''
-            )
-            """
-        )
-    conn.close()
-    logger.info("Nautobot Maps DB initialised at %s", NAUTOBOT_MAPS_DB)
+    try:
+        with conn:
+            if _is_postgres():
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS device_criticality_override (
+                        nautobot_device_id TEXT PRIMARY KEY,
+                        is_critical        INTEGER NOT NULL DEFAULT 1,
+                        reason             TEXT    NOT NULL DEFAULT '',
+                        updated_by         TEXT    NOT NULL DEFAULT '',
+                        updated_at         TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS librenms_device_map (
+                        nautobot_device_id  TEXT PRIMARY KEY,
+                        librenms_device_id  INTEGER NOT NULL,
+                        librenms_hostname   TEXT    NOT NULL DEFAULT ''
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_instances (
+                        id                     BIGSERIAL PRIMARY KEY,
+                        alert_key              TEXT NOT NULL,
+                        site_id                TEXT NOT NULL,
+                        site_name              TEXT NOT NULL DEFAULT '',
+                        device_id              TEXT NOT NULL,
+                        device_name            TEXT NOT NULL DEFAULT '',
+                        alert_level            TEXT NOT NULL DEFAULT 'unknown',
+                        alert_reason           TEXT NOT NULL DEFAULT '',
+                        status                 TEXT NOT NULL DEFAULT 'open',
+                        down_started_at        TIMESTAMPTZ NOT NULL,
+                        last_seen_down_at      TIMESTAMPTZ NOT NULL,
+                        resolved_at            TIMESTAMPTZ,
+                        total_downtime_seconds BIGINT NOT NULL DEFAULT 0,
+                        created_at             TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
+                        updated_at             TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_events (
+                        id                BIGSERIAL PRIMARY KEY,
+                        alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
+                        event_type        TEXT NOT NULL,
+                        event_at          TIMESTAMPTZ NOT NULL,
+                        alert_level       TEXT NOT NULL DEFAULT 'unknown',
+                        alert_reason      TEXT NOT NULL DEFAULT '',
+                        snapshot_json     TEXT NOT NULL DEFAULT '{}',
+                        created_at        TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_cases (
+                        id                BIGSERIAL PRIMARY KEY,
+                        alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
+                        case_number       TEXT NOT NULL,
+                        created_by        TEXT NOT NULL DEFAULT '',
+                        created_at        TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
+                        UNIQUE(alert_instance_id, case_number)
+                    )
+                    """
+                )
+            else:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS device_criticality_override (
+                        nautobot_device_id TEXT PRIMARY KEY,
+                        is_critical        INTEGER NOT NULL DEFAULT 1,
+                        reason             TEXT    NOT NULL DEFAULT '',
+                        updated_by         TEXT    NOT NULL DEFAULT '',
+                        updated_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS librenms_device_map (
+                        nautobot_device_id  TEXT PRIMARY KEY,
+                        librenms_device_id  INTEGER NOT NULL,
+                        librenms_hostname   TEXT    NOT NULL DEFAULT ''
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_instances (
+                        id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+                        alert_key              TEXT NOT NULL,
+                        site_id                TEXT NOT NULL,
+                        site_name              TEXT NOT NULL DEFAULT '',
+                        device_id              TEXT NOT NULL,
+                        device_name            TEXT NOT NULL DEFAULT '',
+                        alert_level            TEXT NOT NULL DEFAULT 'unknown',
+                        alert_reason           TEXT NOT NULL DEFAULT '',
+                        status                 TEXT NOT NULL DEFAULT 'open',
+                        down_started_at        TEXT NOT NULL,
+                        last_seen_down_at      TEXT NOT NULL,
+                        resolved_at            TEXT,
+                        total_downtime_seconds INTEGER NOT NULL DEFAULT 0,
+                        created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_events (
+                        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                        alert_instance_id INTEGER NOT NULL,
+                        event_type        TEXT NOT NULL,
+                        event_at          TEXT NOT NULL,
+                        alert_level       TEXT NOT NULL DEFAULT 'unknown',
+                        alert_reason      TEXT NOT NULL DEFAULT '',
+                        snapshot_json     TEXT NOT NULL DEFAULT '{}',
+                        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+                        FOREIGN KEY(alert_instance_id) REFERENCES alert_instances(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_cases (
+                        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                        alert_instance_id INTEGER NOT NULL,
+                        case_number       TEXT NOT NULL,
+                        created_by        TEXT NOT NULL DEFAULT '',
+                        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+                        UNIQUE(alert_instance_id, case_number),
+                        FOREIGN KEY(alert_instance_id) REFERENCES alert_instances(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_site_status ON alert_instances(site_id, status)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
+                )
+            if _is_postgres():
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_site_status ON alert_instances(site_id, status)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
+                )
+    finally:
+        conn.close()
+    logger.info(
+        "Nautobot Maps persistence initialised (%s)",
+        "postgres" if _is_postgres() else ("sqlite" if _current_persistence_dialect() == "sqlite" else "disabled"),
+    )
 
 
-# Initialise the DB at startup (no-op when NAUTOBOT_MAPS_DB is not set).
+# Initialise the DB at startup (no-op when persistence is not configured).
 _init_db()
 
 def _cache_get(key: str):
@@ -659,13 +870,17 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
         try:
             ids = [d.get("id") for d in devices if d.get("id")]
             if ids:
-                placeholders = ",".join("?" * len(ids))
+                placeholders = _sql_placeholders(len(ids))
                 rows = conn.execute(
                     f"SELECT nautobot_device_id, is_critical FROM device_criticality_override "
                     f"WHERE nautobot_device_id IN ({placeholders})",
                     ids,
                 ).fetchall()
-                override_map = {r["nautobot_device_id"]: bool(r["is_critical"]) for r in rows}
+                override_map = {
+                    _row_to_dict(r).get("nautobot_device_id"): bool(_row_to_dict(r).get("is_critical"))
+                    for r in rows
+                    if _row_to_dict(r).get("nautobot_device_id")
+                }
         except Exception as exc:
             logger.debug("Could not read criticality overrides: %s", exc)
         finally:
@@ -836,14 +1051,15 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
         return
     try:
         with conn:
+            p0, p1, p2 = _sql_placeholders(3).split(",")
             conn.execute(
                 """
                 INSERT INTO librenms_device_map (nautobot_device_id, librenms_device_id, librenms_hostname)
-                VALUES (?, ?, ?)
+                VALUES ({p0}, {p1}, {p2})
                 ON CONFLICT(nautobot_device_id) DO UPDATE SET
                     librenms_device_id = excluded.librenms_device_id,
                     librenms_hostname   = excluded.librenms_hostname
-                """,
+                """.format(p0=p0, p1=p1, p2=p2),
                 (nautobot_device_id, librenms_device_id, librenms_hostname),
             )
     except Exception as exc:
@@ -953,6 +1169,296 @@ def _alert_sort_key(level: str) -> int:
     )
 
 
+def _build_alert_key(site_id: str, device_id: str, alert_level: str) -> str:
+    raw = f"{site_id.strip()}::{device_id.strip()}::{(alert_level or '').lower()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _insert_alert_event(
+    conn,
+    instance_id: int,
+    event_type: str,
+    event_at: str,
+    alert_level: str,
+    alert_reason: str,
+    snapshot: dict,
+) -> None:
+    now_sql = _sql_now()
+    placeholders = _sql_placeholders(6)
+    conn.execute(
+        f"""
+        INSERT INTO alert_events
+            (alert_instance_id, event_type, event_at, alert_level, alert_reason, snapshot_json, created_at)
+        VALUES ({placeholders}, {now_sql})
+        """,
+        (
+            instance_id,
+            event_type,
+            event_at,
+            alert_level,
+            alert_reason,
+            json.dumps(snapshot, separators=(",", ":"), sort_keys=True),
+        ),
+    )
+
+
+def _resolve_open_alert_instances_for_site(
+    conn,
+    site_id: str,
+    open_alert_keys: set[str],
+    checked_at: str,
+) -> None:
+    marker = _sql_placeholders(1)
+    open_rows = conn.execute(
+        f"""
+        SELECT id, alert_key, down_started_at
+        FROM alert_instances
+        WHERE site_id = {marker} AND status = 'open'
+        """,
+        (site_id,),
+    ).fetchall()
+    for row in open_rows:
+        row_data = _row_to_dict(row)
+        alert_key = row_data.get("alert_key", "")
+        if alert_key in open_alert_keys:
+            continue
+        started = _parse_iso_datetime(row_data.get("down_started_at"))
+        resolved = _parse_iso_datetime(checked_at)
+        elapsed = 0
+        if started and resolved:
+            elapsed = max(0, int((resolved - started).total_seconds()))
+        now_sql = _sql_now()
+        p0, p1, p2 = _sql_placeholders(3).split(",")
+        conn.execute(
+            f"""
+            UPDATE alert_instances
+            SET status = 'resolved',
+                resolved_at = {p0},
+                total_downtime_seconds = COALESCE(total_downtime_seconds, 0) + {p1},
+                updated_at = {now_sql}
+            WHERE id = {p2}
+            """,
+            (checked_at, elapsed, row_data["id"]),
+        )
+        _insert_alert_event(
+            conn=conn,
+            instance_id=row_data["id"],
+            event_type="resolved",
+            event_at=checked_at,
+            alert_level="ok",
+            alert_reason="Recovered",
+            snapshot={},
+        )
+
+
+def _upsert_alert_lifecycle_for_site(
+    site: dict,
+    devices: list[dict],
+    alert: dict,
+    checked_at: str,
+) -> None:
+    conn = _get_db_conn()
+    if conn is None:
+        return
+    site_id = (site.get("id") or "").strip()
+    if not site_id:
+        conn.close()
+        return
+    open_alert_keys: set[str] = set()
+    try:
+        with conn:
+            for device in devices:
+                status = (device.get("status") or "").lower().strip()
+                if status not in _DOWN_STATUSES:
+                    continue
+                device_id = (device.get("id") or "").strip()
+                if not device_id:
+                    continue
+                level = (alert.get("level") or "unknown").lower()
+                reason = alert.get("reason") or ""
+                alert_key = _build_alert_key(site_id, device_id, level)
+                open_alert_keys.add(alert_key)
+                marker = _sql_placeholders(1)
+                latest_row = conn.execute(
+                    f"""
+                    SELECT id, status, down_started_at, alert_level, alert_reason
+                    FROM alert_instances
+                    WHERE alert_key = {marker}
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (alert_key,),
+                ).fetchone()
+                if latest_row is None or _row_to_dict(latest_row).get("status") != "open":
+                    now_sql = _sql_now()
+                    p = _sql_placeholders(10).split(",")
+                    inserted = conn.execute(
+                        f"""
+                        INSERT INTO alert_instances
+                            (alert_key, site_id, site_name, device_id, device_name, alert_level, alert_reason,
+                             status, down_started_at, last_seen_down_at, resolved_at, total_downtime_seconds,
+                             created_at, updated_at)
+                        VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]},
+                                NULL, 0, {now_sql}, {now_sql})
+                        RETURNING id
+                        """,
+                        (
+                            alert_key,
+                            site_id,
+                            site.get("name") or "",
+                            device_id,
+                            device.get("name") or "",
+                            level,
+                            reason,
+                            "open",
+                            checked_at,
+                            checked_at,
+                        ),
+                    ).fetchone()
+                    inserted_id = _row_to_dict(inserted).get("id")
+                    if inserted_id is None:
+                        continue
+                    _insert_alert_event(
+                        conn=conn,
+                        instance_id=int(inserted_id),
+                        event_type="opened",
+                        event_at=checked_at,
+                        alert_level=level,
+                        alert_reason=reason,
+                        snapshot={
+                            "site_id": site_id,
+                            "site_name": site.get("name") or "",
+                            "device_id": device_id,
+                            "device_name": device.get("name") or "",
+                            "status": status,
+                        },
+                    )
+                else:
+                    current = _row_to_dict(latest_row)
+                    now_sql = _sql_now()
+                    p = _sql_placeholders(6).split(",")
+                    conn.execute(
+                        f"""
+                        UPDATE alert_instances
+                        SET site_name = {p[0]},
+                            device_name = {p[1]},
+                            alert_level = {p[2]},
+                            alert_reason = {p[3]},
+                            last_seen_down_at = {p[4]},
+                            updated_at = {now_sql}
+                        WHERE id = {p[5]}
+                        """,
+                        (
+                            site.get("name") or "",
+                            device.get("name") or "",
+                            level,
+                            reason,
+                            checked_at,
+                            current["id"],
+                        ),
+                    )
+                    if current.get("alert_level") != level or current.get("alert_reason") != reason:
+                        _insert_alert_event(
+                            conn=conn,
+                            instance_id=current["id"],
+                            event_type="updated",
+                            event_at=checked_at,
+                            alert_level=level,
+                            alert_reason=reason,
+                            snapshot={
+                                "site_id": site_id,
+                                "site_name": site.get("name") or "",
+                                "device_id": device_id,
+                                "device_name": device.get("name") or "",
+                                "status": status,
+                            },
+                        )
+            _resolve_open_alert_instances_for_site(conn, site_id, open_alert_keys, checked_at)
+    except Exception as exc:
+        logger.warning("Could not persist alert lifecycle for site %s: %s", site_id, exc)
+    finally:
+        conn.close()
+
+
+def _get_case_numbers_for_instance(conn, instance_id: int) -> list[str]:
+    marker = _sql_placeholders(1)
+    rows = conn.execute(
+        f"""
+        SELECT case_number
+        FROM alert_cases
+        WHERE alert_instance_id = {marker}
+        ORDER BY created_at DESC
+        """,
+        (instance_id,),
+    ).fetchall()
+    return [(_row_to_dict(row).get("case_number") or "").strip() for row in rows if (_row_to_dict(row).get("case_number") or "").strip()]
+
+
+def _get_alert_context_for_site(site_id: str, checked_at: str) -> dict:
+    conn = _get_db_conn()
+    if conn is None:
+        return {
+            "active_alert_instance_count": 0,
+            "historical_downtime_seconds": 0,
+            "current_downtime_seconds": 0,
+            "active_cases": [],
+            "down_devices": [],
+        }
+    now_dt = _parse_iso_datetime(checked_at) or datetime.now(timezone.utc)
+    try:
+        site_marker = _sql_placeholders(1)
+        rows = conn.execute(
+            f"""
+            SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds
+            FROM alert_instances
+            WHERE site_id = {site_marker}
+            ORDER BY id DESC
+            """,
+            (site_id,),
+        ).fetchall()
+        historical_seconds = 0
+        active_cases: set[str] = set()
+        down_devices = []
+        current_downtime_seconds = 0
+        for row in rows:
+            data = _row_to_dict(row)
+            historical_seconds += int(data.get("total_downtime_seconds") or 0)
+            if data.get("status") != "open":
+                continue
+            started = _parse_iso_datetime(data.get("down_started_at"))
+            if started is not None:
+                elapsed = max(0, int((now_dt - started).total_seconds()))
+                historical_seconds += elapsed
+                current_downtime_seconds = max(current_downtime_seconds, elapsed)
+            case_numbers = _get_case_numbers_for_instance(conn, data["id"])
+            active_cases.update(case_numbers)
+            down_devices.append(
+                {
+                    "device_id": data.get("device_id") or "",
+                    "device_name": data.get("device_name") or "",
+                    "case_numbers": case_numbers,
+                }
+            )
+        return {
+            "active_alert_instance_count": len(down_devices),
+            "historical_downtime_seconds": historical_seconds,
+            "current_downtime_seconds": current_downtime_seconds,
+            "active_cases": sorted(active_cases),
+            "down_devices": down_devices,
+        }
+    except Exception as exc:
+        logger.debug("Could not load alert context for site %s: %s", site_id, exc)
+        return {
+            "active_alert_instance_count": 0,
+            "historical_downtime_seconds": 0,
+            "current_downtime_seconds": 0,
+            "active_cases": [],
+            "down_devices": [],
+        }
+    finally:
+        conn.close()
+
+
 def _apply_alert_board_freshness(payload: dict) -> dict:
     """Attach freshness metadata to an alert-board payload."""
     checked_at = payload.get("checked_at")
@@ -974,11 +1480,11 @@ def _apply_alert_board_freshness(payload: dict) -> dict:
 
 def get_alert_board_data(force_refresh: bool = False) -> dict:
     """Return alert summaries for all locations."""
-    cache_key = "alert-board-data:v1"
+    cache_key = "alert-board-data:v2"
     if force_refresh:
         cache.delete(cache_key)
     cached = _cache_get(cache_key)
-    if cached is not None:
+    if cached is not None and _current_persistence_dialect() == "":
         return _apply_alert_board_freshness(cached)
 
     locations = get_locations(include_without_coordinates=True)
@@ -1037,6 +1543,9 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
         down_devices = [
             d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
         ]
+        checked_at = _iso_utc_now()
+        _upsert_alert_lifecycle_for_site(loc, devices, alert, checked_at)
+        alert_context = _get_alert_context_for_site(loc.get("id", ""), checked_at)
         level = (alert.get("level") or "ok").lower()
         summary[level] = summary.get(level, 0) + 1
         alerts.append(
@@ -1046,6 +1555,11 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
                 "alert_reason": alert.get("reason", ""),
                 "device_count": len(devices),
                 "down_device_count": len(down_devices),
+                "current_downtime_seconds": alert_context["current_downtime_seconds"],
+                "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
+                "active_alert_instance_count": alert_context["active_alert_instance_count"],
+                "active_cases": alert_context["active_cases"],
+                "down_devices": alert_context["down_devices"],
             }
         )
 
@@ -1319,18 +1833,18 @@ def api_search():
 def api_list_criticality_overrides():
     """Return all per-device criticality overrides stored in the DB.
 
-    Returns 503 when the DB is not configured (``NAUTOBOT_MAPS_DB`` not set).
+    Returns 503 when the persistence DB is not configured.
     """
     conn = _get_db_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured (set NAUTOBOT_MAPS_DB)"}), 503
+        return jsonify({"error": "Persistence DB not configured"}), 503
     try:
         rows = conn.execute(
             "SELECT nautobot_device_id, is_critical, reason, updated_by, updated_at "
             "FROM device_criticality_override ORDER BY updated_at DESC"
         ).fetchall()
         return jsonify(
-            {"overrides": [dict(r) for r in rows]}
+            {"overrides": [_row_to_dict(r) for r in rows]}
         )
     except Exception as exc:
         logger.error("Could not list criticality overrides: %s", exc)
@@ -1357,7 +1871,7 @@ def api_set_criticality_override():
     """
     conn = _get_db_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured (set NAUTOBOT_MAPS_DB)"}), 503
+        return jsonify({"error": "Persistence DB not configured"}), 503
     body = request.get_json(silent=True) or {}
     device_id = (body.get("nautobot_device_id") or "").strip()
     if not device_id:
@@ -1370,11 +1884,13 @@ def api_set_criticality_override():
         updated_by = _get_current_user().get("username", "")
     try:
         with conn:
+            p0, p1, p2, p3 = _sql_placeholders(4).split(",")
+            now_sql = _sql_now()
             conn.execute(
-                """
+                f"""
                 INSERT INTO device_criticality_override
                     (nautobot_device_id, is_critical, reason, updated_by, updated_at)
-                VALUES (?, ?, ?, ?, datetime('now'))
+                VALUES ({p0}, {p1}, {p2}, {p3}, {now_sql})
                 ON CONFLICT(nautobot_device_id) DO UPDATE SET
                     is_critical = excluded.is_critical,
                     reason      = excluded.reason,
@@ -1401,11 +1917,12 @@ def api_delete_criticality_override(device_id: str):
     """
     conn = _get_db_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured (set NAUTOBOT_MAPS_DB)"}), 503
+        return jsonify({"error": "Persistence DB not configured"}), 503
     try:
         with conn:
+            marker = _sql_placeholders(1)
             cur = conn.execute(
-                "DELETE FROM device_criticality_override WHERE nautobot_device_id = ?",
+                f"DELETE FROM device_criticality_override WHERE nautobot_device_id = {marker}",
                 (device_id,),
             )
         if cur.rowcount == 0:
@@ -1413,6 +1930,147 @@ def api_delete_criticality_override(device_id: str):
         return jsonify({"status": "deleted", "nautobot_device_id": device_id})
     except Exception as exc:
         logger.error("Could not delete criticality override: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Alert lifecycle / case tracking endpoints
+# ---------------------------------------------------------------------------
+
+@app.route("/api/alert-history", methods=["GET"])
+@require_role("operator")
+def api_alert_history():
+    """Return historical alert instances with events and case numbers."""
+    conn = _get_db_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    site_id = (request.args.get("site_id") or "").strip()
+    device_id = (request.args.get("device_id") or "").strip()
+    start_at = (request.args.get("start_at") or "").strip()
+    end_at = (request.args.get("end_at") or "").strip()
+    try:
+        conditions = []
+        params = []
+        if site_id:
+            conditions.append(f"site_id = {_sql_placeholders(1)}")
+            params.append(site_id)
+        if device_id:
+            conditions.append(f"device_id = {_sql_placeholders(1)}")
+            params.append(device_id)
+        if start_at:
+            conditions.append(f"created_at >= {_sql_placeholders(1)}")
+            params.append(start_at)
+        if end_at:
+            conditions.append(f"created_at <= {_sql_placeholders(1)}")
+            params.append(end_at)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = conn.execute(
+            f"""
+            SELECT id, alert_key, site_id, site_name, device_id, device_name, alert_level,
+                   alert_reason, status, down_started_at, last_seen_down_at, resolved_at,
+                   total_downtime_seconds, created_at, updated_at
+            FROM alert_instances
+            {where_clause}
+            ORDER BY id DESC
+            LIMIT 500
+            """,
+            tuple(params),
+        ).fetchall()
+        instances = []
+        for row in rows:
+            instance = _row_to_dict(row)
+            marker = _sql_placeholders(1)
+            ev_rows = conn.execute(
+                f"""
+                SELECT event_type, event_at, alert_level, alert_reason, snapshot_json
+                FROM alert_events
+                WHERE alert_instance_id = {marker}
+                ORDER BY id ASC
+                """,
+                (instance["id"],),
+            ).fetchall()
+            case_rows = conn.execute(
+                f"""
+                SELECT case_number, created_by, created_at
+                FROM alert_cases
+                WHERE alert_instance_id = {marker}
+                ORDER BY id DESC
+                """,
+                (instance["id"],),
+            ).fetchall()
+            events = []
+            for ev_row in ev_rows:
+                event = _row_to_dict(ev_row)
+                try:
+                    event["snapshot"] = json.loads(event.pop("snapshot_json", "{}") or "{}")
+                except Exception:
+                    event["snapshot"] = {}
+                events.append(event)
+            instance["events"] = events
+            instance["cases"] = [_row_to_dict(c_row) for c_row in case_rows]
+            instances.append(instance)
+        return jsonify({"instances": instances})
+    except Exception as exc:
+        logger.error("Could not fetch alert history: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/alert-cases", methods=["POST"])
+@require_role("operator")
+def api_add_alert_case():
+    """Attach a case number to the latest open alert instance for site/device."""
+    conn = _get_db_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    body = request.get_json(silent=True) or {}
+    site_id = (body.get("site_id") or "").strip()
+    device_id = (body.get("device_id") or "").strip()
+    case_number = (body.get("case_number") or "").strip()
+    if not site_id or not device_id or not case_number:
+        conn.close()
+        return jsonify({"error": "site_id, device_id and case_number are required"}), 400
+    created_by = (body.get("created_by") or "").strip() or _get_current_user().get("username", "")
+    try:
+        with conn:
+            p0, p1 = _sql_placeholders(2).split(",")
+            row = conn.execute(
+                f"""
+                SELECT id
+                FROM alert_instances
+                WHERE site_id = {p0} AND device_id = {p1} AND status = 'open'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (site_id, device_id),
+            ).fetchone()
+            if row is None:
+                return jsonify({"error": "No active alert found for site/device"}), 404
+            instance_id = _row_to_dict(row)["id"]
+            p0, p1, p2 = _sql_placeholders(3).split(",")
+            now_sql = _sql_now()
+            conn.execute(
+                f"""
+                INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at)
+                VALUES ({p0}, {p1}, {p2}, {now_sql})
+                ON CONFLICT(alert_instance_id, case_number) DO NOTHING
+                """,
+                (instance_id, case_number, created_by),
+            )
+        return jsonify(
+            {
+                "status": "ok",
+                "alert_instance_id": instance_id,
+                "site_id": site_id,
+                "device_id": device_id,
+                "case_number": case_number,
+            }
+        )
+    except Exception as exc:
+        logger.error("Could not add alert case: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()

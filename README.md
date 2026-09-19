@@ -66,6 +66,8 @@ python app.py
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `CACHE_TYPE` | ❌ | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with multiple workers |
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
+| `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | Preferred persistence DB URL (`postgresql://...`) for overrides, alert downtime history, and case tracking |
+| `NAUTOBOT_MAPS_DB` | ❌ | — | SQLite fallback path when PostgreSQL URL is not configured |
 | `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
 | `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |
 | `AUTH_HEADER_GROUPS` | ❌ | `X-Forwarded-Groups` | Header-mode group header supplied by a trusted reverse proxy |
@@ -127,6 +129,8 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/api/criticality-overrides` | List stored device criticality overrides *(operator when auth enabled)* |
 | `POST` | `/api/criticality-overrides` | Create/update a device criticality override *(operator when auth enabled)* |
 | `DELETE` | `/api/criticality-overrides/<device_id>` | Delete a device criticality override *(operator when auth enabled)* |
+| `GET` | `/api/alert-history` | Historical alert incidents/events/cases (filter by `site_id`, `device_id`, `start_at`, `end_at`) *(operator when auth enabled)* |
+| `POST` | `/api/alert-cases` | Attach a case number to an active site/device alert *(operator when auth enabled)* |
 | `GET` | `/api/roles` | List Nautobot roles |
 | `POST` | `/api/roles` | Create a Nautobot role *(admin when auth enabled)* |
 | `DELETE` | `/api/roles/<role_id>` | Delete a Nautobot role *(admin when auth enabled)* |
@@ -168,6 +172,11 @@ Recommended deployment patterns:
 1. **Public read-only mode**: leave `AUTH_MODE=disabled`.
 2. **Protected admin mode**: enable `AUTH_MODE=header` behind an internal reverse proxy.
 3. **Optional SSO mode**: connect your reverse proxy or auth gateway to OIDC/SAML and forward trusted user/group headers to this app.
+
+## Alert lifecycle history and case tracking
+
+When persistence is configured, `/api/alerts` now includes per-site downtime/case context (`current_downtime_seconds`, `historical_downtime_seconds`, `active_cases`, `down_devices`).  
+For best durability and concurrency, use PostgreSQL via `NAUTOBOT_MAPS_DATABASE_URL`.
 
 ## Running Tests
 

@@ -68,8 +68,42 @@ function renderSummary(summary) {
 
 function mapActionCell(item) {
   const hasCoordinates = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
-  if (!hasCoordinates) return '<span class="map-link-disabled">No coordinates</span>';
-  return `<a class="map-link" href="/?location_id=${encodeURIComponent(item.id)}">Open map</a>`;
+  const mapLink = hasCoordinates
+    ? `<a class="map-link" href="/?location_id=${encodeURIComponent(item.id)}">Open map</a>`
+    : '<span class="map-link-disabled">No coordinates</span>';
+  const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
+  if (!downDevices.length) {
+    return mapLink;
+  }
+  const options = downDevices
+    .map((d) => `<option value="${escHtml(d.device_id || "")}">${escHtml(d.device_name || d.device_id || "Unknown")}</option>`)
+    .join("");
+  return `
+    <div class="action-stack">
+      ${mapLink}
+      <div class="case-form">
+        <select class="case-device-select" data-site-id="${escHtml(item.id)}">${options}</select>
+        <input class="case-input" data-site-id="${escHtml(item.id)}" type="text" placeholder="Case #" />
+        <button class="case-save-btn" type="button" data-site-id="${escHtml(item.id)}">Add case</button>
+      </div>
+      <button class="history-btn" type="button" data-site-id="${escHtml(item.id)}">History</button>
+    </div>
+  `;
+}
+
+function formatDuration(seconds) {
+  const total = Number(seconds || 0);
+  if (!Number.isFinite(total) || total <= 0) return "—";
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function renderCases(item) {
+  const cases = Array.isArray(item.active_cases) ? item.active_cases : [];
+  if (!cases.length) return "—";
+  return cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
 }
 
 function formatBoardStatus(payload, visibleCount) {
@@ -88,7 +122,7 @@ function alertBadge(level) {
 
 function renderTableRows(alerts, payload) {
   if (!alerts.length) {
-    alertsTableBody.innerHTML = '<tr><td colspan="9" class="empty-state">No sites match the current filters.</td></tr>';
+    alertsTableBody.innerHTML = '<tr><td colspan="11" class="empty-state">No sites match the current filters.</td></tr>';
     formatBoardStatus(payload, 0);
     return;
   }
@@ -105,6 +139,8 @@ function renderTableRows(alerts, payload) {
       <td>${escHtml(item.tenant || "—")}</td>
       <td>${item.device_count || 0}</td>
       <td>${item.down_device_count || 0}</td>
+      <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
+      <td class="cases-cell">${renderCases(item)}</td>
       <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
       <td>${mapActionCell(item)}</td>
     </tr>
@@ -157,7 +193,7 @@ async function loadAlertBoard(forceRefresh = false) {
     renderSummary(payload.summary || {});
     applyFilters(payload);
   } catch (err) {
-    alertsTableBody.innerHTML = `<tr><td colspan="9" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
+    alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
     boardStatus.textContent = "Alert board unavailable";
     showError(`Failed to load alert board: ${err.message}`);
   } finally {
@@ -180,5 +216,57 @@ function showError(message) {
 });
 
 refreshBtn.addEventListener("click", () => loadAlertBoard(true));
+
+alertsTableBody.addEventListener("click", async (event) => {
+  const caseBtn = event.target.closest(".case-save-btn");
+  if (caseBtn) {
+    const siteId = caseBtn.dataset.siteId;
+    const row = caseBtn.closest(".action-stack");
+    const deviceSelect = row.querySelector(".case-device-select");
+    const caseInput = row.querySelector(".case-input");
+    const deviceId = deviceSelect?.value || "";
+    const caseNumber = (caseInput?.value || "").trim();
+    if (!siteId || !deviceId || !caseNumber) {
+      showError("Select a device and enter a case number first.");
+      return;
+    }
+    caseBtn.disabled = true;
+    try {
+      const resp = await fetch("/api/alert-cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: siteId, device_id: deviceId, case_number: caseNumber }),
+      });
+      const payload = await resp.json();
+      if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+      if (caseInput) caseInput.value = "";
+      await loadAlertBoard(true);
+    } catch (err) {
+      showError(`Failed to add case: ${err.message}`);
+    } finally {
+      caseBtn.disabled = false;
+    }
+    return;
+  }
+
+  const historyBtn = event.target.closest(".history-btn");
+  if (historyBtn) {
+    const siteId = historyBtn.dataset.siteId;
+    if (!siteId) return;
+    historyBtn.disabled = true;
+    try {
+      const resp = await fetch(`/api/alert-history?site_id=${encodeURIComponent(siteId)}`);
+      const payload = await resp.json();
+      if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+      const count = Array.isArray(payload.instances) ? payload.instances.length : 0;
+      const open = (payload.instances || []).filter((row) => row.status === "open").length;
+      showError(`History for ${siteId}: ${count} incidents (${open} open).`);
+    } catch (err) {
+      showError(`Failed to load history: ${err.message}`);
+    } finally {
+      historyBtn.disabled = false;
+    }
+  }
+});
 
 loadAlertBoard();

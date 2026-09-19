@@ -1,6 +1,7 @@
 import importlib
 import json
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -1356,6 +1357,114 @@ class TestCriticalityOverrideEndpoints:
             )
         assert listed.status_code == 200
         assert listed.get_json()["overrides"][0]["updated_by"] == "alice"
+
+
+# ---------------------------------------------------------------------------
+# Tests: alert lifecycle history and cases
+# ---------------------------------------------------------------------------
+class TestAlertLifecycleTracking:
+    def setup_method(self):
+        import tempfile
+        self._orig_db = flask_app.NAUTOBOT_MAPS_DB
+        self._orig_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
+        self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._db_tmp.close()
+        flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
+        flask_app.NAUTOBOT_MAPS_DB = self._db_tmp.name
+        flask_app._init_db()
+        flask_app.cache.clear()
+
+    def teardown_method(self):
+        flask_app.NAUTOBOT_MAPS_DB = self._orig_db
+        flask_app.NAUTOBOT_MAPS_DATABASE_URL = self._orig_db_url
+        import os
+        try:
+            os.unlink(self._db_tmp.name)
+        except Exception:
+            pass
+
+    def test_api_alerts_contains_lifecycle_fields(self, client):
+        with patch.object(flask_app, "get_locations", return_value=[{
+            "id": "loc-1",
+            "name": "Site One",
+            "status": "Active",
+            "location_type": "Data Center",
+            "parent": "",
+            "latitude": 1.0,
+            "longitude": 2.0,
+            "description": "",
+            "physical_address": "",
+            "facility": "",
+            "tenant": "",
+            "tenant_id": "",
+            "tenant_group": "",
+            "asn": None,
+            "time_zone": "",
+            "tags": [],
+            "url": "",
+        }]), patch.object(flask_app, "fetch_all_pages", return_value=[]), patch.object(
+            flask_app,
+            "_get_location_devices_and_alert",
+            return_value=(
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+            ),
+        ):
+            resp = client.get("/api/alerts")
+        assert resp.status_code == 200
+        entry = resp.get_json()["alerts"][0]
+        assert "current_downtime_seconds" in entry
+        assert "historical_downtime_seconds" in entry
+        assert "active_cases" in entry
+        assert entry["active_alert_instance_count"] == 1
+
+    def test_alert_history_tracks_open_and_resolve(self, client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        t1 = datetime(2026, 1, 1, 0, 5, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            [{"id": "dev-1", "name": "router01", "status": "active"}],
+            {"level": "ok", "reason": ""},
+            t1,
+        )
+        resp = client.get("/api/alert-history?site_id=loc-1")
+        assert resp.status_code == 200
+        instances = resp.get_json()["instances"]
+        assert len(instances) == 1
+        assert instances[0]["status"] == "resolved"
+        assert instances[0]["total_downtime_seconds"] == 300
+        event_types = [event["event_type"] for event in instances[0]["events"]]
+        assert "opened" in event_types
+        assert "resolved" in event_types
+
+    def test_add_case_number_to_active_alert(self, client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        created = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
+            content_type="application/json",
+        )
+        assert created.status_code == 200
+        history = client.get("/api/alert-history?site_id=loc-1&device_id=dev-1")
+        assert history.status_code == 200
+        instances = history.get_json()["instances"]
+        assert instances[0]["cases"][0]["case_number"] == "INC-1001"
 
 
 # ---------------------------------------------------------------------------
