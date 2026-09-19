@@ -1918,7 +1918,11 @@ class TestAlertLifecycleTracking:
         ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set, patch.object(
             flask_app,
             "_ensure_inventory_snapshot",
-        ) as ensure_snapshot:
+        ) as ensure_snapshot, patch.object(
+            flask_app,
+            "_nautobot_snapshot_initialized",
+            return_value=True,
+        ):
             first = flask_app.get_alert_board_data(force_refresh=True)
             second = flask_app.get_alert_board_data()
             refreshed = flask_app.get_alert_board_data(force_refresh=True)
@@ -1952,6 +1956,35 @@ class TestAlertLifecycleTracking:
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
         build_payload.assert_called_once_with(snapshot_only=True)
         ensure_snapshot.assert_called_once_with(force=True, wait=False)
+
+    def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
+        flask_app.cache.clear()
+        payload = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        with patch.object(
+            flask_app,
+            "_build_alert_board_payload",
+            return_value=payload,
+        ) as build_payload, patch.object(
+            flask_app,
+            "_cache_set",
+            wraps=flask_app._cache_set,
+        ) as cache_set, patch.object(
+            flask_app,
+            "_nautobot_snapshot_initialized",
+            return_value=False,
+        ), patch.object(flask_app, "_ensure_inventory_snapshot"):
+            first = flask_app.get_alert_board_data(force_refresh=True)
+            second = flask_app.get_alert_board_data()
+
+        assert first["alerts"] == []
+        assert second["alerts"] == []
+        assert build_payload.call_count == 2
+        assert cache_set.call_count == 0
 
     def test_postgres_lifecycle_path_uses_postgres_sql(self):
         class _FakeResult:

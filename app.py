@@ -1340,6 +1340,17 @@ def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
     )
 
 
+def _nautobot_snapshot_initialized(conn=None) -> bool:
+    """Return whether Nautobot inventory snapshot has completed at least once."""
+    state = _get_sync_state("nautobot_inventory", conn=conn)
+    if not state:
+        return False
+    return bool(
+        state.get("status") == "idle"
+        and state.get("last_completed_at")
+    )
+
+
 def _write_cached_locations(conn, locations: list) -> None:
     placeholders = _sql_placeholders(19).split(",")
     for loc in locations:
@@ -2636,7 +2647,9 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
         return _apply_alert_board_freshness(cached)
 
     payload = _build_alert_board_payload(snapshot_only=True)
-    _cache_set(cache_key, payload, timeout=CACHE_TTL)
+    should_cache = bool(payload.get("alerts")) or _nautobot_snapshot_initialized()
+    if should_cache:
+        _cache_set(cache_key, payload, timeout=CACHE_TTL)
     return _apply_alert_board_freshness(payload)
 
 
