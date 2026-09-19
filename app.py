@@ -59,6 +59,7 @@ INVENTORY_SYNC_INTERVAL_SECONDS = int(
 LIBRENMS_SYNC_INTERVAL_SECONDS = int(
     os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", str(CACHE_TTL))
 )
+_FULL_RECONCILE_INTERVAL_SECONDS = 86400
 
 # LibreNMS optional integration
 LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
@@ -287,6 +288,17 @@ def _json_load_list(value) -> list:
         return parsed if isinstance(parsed, list) else []
     except Exception:
         return []
+
+
+def _max_last_updated(items: list, fallback: str | None = None) -> str | None:
+    latest = _parse_iso_datetime(fallback)
+    result = fallback
+    for item in items:
+        candidate = _parse_iso_datetime((item or {}).get("last_updated"))
+        if candidate and (latest is None or candidate > latest):
+            latest = candidate
+            result = candidate.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return result
 
 
 def _get_db_conn():
@@ -1386,10 +1398,20 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
             conn.close()
         return
     source = "nautobot_inventory"
+    reconcile_source = "nautobot_inventory_reconcile"
     started_at = _iso_utc_now()
     try:
         last_successful_sync = None if force else _get_sync_state(source, conn=conn).get(
             "last_successful_sync"
+        )
+        full_reconcile = (
+            force
+            or not last_successful_sync
+            or _sync_due(
+                reconcile_source,
+                _FULL_RECONCILE_INTERVAL_SECONDS,
+                conn=conn,
+            )
         )
         with conn:
             _record_sync_state(
@@ -1403,7 +1425,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
             )
 
         params = {}
-        if last_successful_sync:
+        if last_successful_sync and not full_reconcile:
             params["last_updated__gte"] = last_successful_sync
         raw_locations = fetch_all_pages("dcim/locations/", params or None)
         raw_devices = fetch_all_pages("dcim/devices/", params or None)
@@ -1414,8 +1436,13 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
             existing_location_name_map=existing_location_name_map,
         )
         devices = _normalize_devices(raw_devices, lookup_maps=_build_device_lookup_maps())
+        completed_at = _iso_utc_now()
+        watermark = _max_last_updated(
+            raw_locations + raw_devices,
+            fallback=completed_at if full_reconcile else started_at,
+        )
         with conn:
-            if not last_successful_sync:
+            if full_reconcile:
                 conn.execute("DELETE FROM nautobot_location_cache")
                 conn.execute("DELETE FROM nautobot_device_cache")
             _write_cached_locations(conn, locations)
@@ -1424,11 +1451,21 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                 conn,
                 source,
                 last_started_at=started_at,
-                last_completed_at=_iso_utc_now(),
-                last_successful_sync=started_at,
+                last_completed_at=completed_at,
+                last_successful_sync=watermark,
                 status="idle",
                 error_message="",
             )
+            if full_reconcile:
+                _record_sync_state(
+                    conn,
+                    reconcile_source,
+                    last_started_at=started_at,
+                    last_completed_at=completed_at,
+                    last_successful_sync=completed_at,
+                    status="idle",
+                    error_message="",
+                )
         cache.delete("alert-board-data:v2")
     except Exception as exc:
         logger.warning("Could not sync Nautobot inventory into persistence DB: %s", exc)
@@ -1438,7 +1475,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                 source,
                 last_started_at=started_at,
                 last_completed_at=_iso_utc_now(),
-                last_successful_sync=None if force else last_successful_sync,
+                last_successful_sync=last_successful_sync,
                 status="error",
                 error_message=str(exc),
             )
@@ -1514,10 +1551,13 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
     if not needs_nautobot and not needs_librenms:
         return False
 
+    state = {"ran": False}
+
     def _run():
-        if not _inventory_sync_lock.acquire(blocking=False):
+        if not _inventory_sync_lock.acquire(blocking=wait):
             return
         try:
+            state["ran"] = True
             if needs_nautobot:
                 _sync_nautobot_inventory(force=force)
             if needs_librenms:
@@ -1529,7 +1569,8 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
         _run()
     else:
         threading.Thread(target=_run, daemon=True).start()
-    return True
+        return True
+    return state["ran"]
 
 
 
@@ -1922,10 +1963,6 @@ def _get_location_devices_and_alert(
 
 def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-_ensure_inventory_snapshot()
-
 
 def _alert_sort_key(level: str) -> int:
     return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get(
@@ -3110,4 +3147,5 @@ if __name__ == "__main__":
         port = int(os.getenv("FLASK_RUN_PORT", 5000))
     except (ValueError, TypeError):
         port = 5000
+    _ensure_inventory_snapshot()
     app.run(host=_get_flask_run_host(), port=port, debug=debug)

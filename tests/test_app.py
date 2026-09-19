@@ -2014,6 +2014,105 @@ class TestInventoryCacheSync:
         assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
 
+    def test_full_reconcile_prunes_deleted_cached_inventory(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-stale",
+                            "name": "Stale Site",
+                            "slug": "stale-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2025-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+                flask_app._write_cached_devices(
+                    conn,
+                    [
+                        {
+                            "id": "dev-stale",
+                            "location_id": "loc-stale",
+                            "name": "stale-router",
+                            "device_type": "ASR1001-X",
+                            "manufacturer": "Cisco",
+                            "role": "Core Router",
+                            "status": "active",
+                            "platform": "IOS-XE",
+                            "serial": "SN-STALE",
+                            "tenant": "",
+                            "last_updated": "2025-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+        finally:
+            conn.close()
+
+        def fake_fetch(endpoint, params=None):
+            if endpoint == "dcim/locations/":
+                return [
+                    {
+                        "id": "loc-1",
+                        "name": "Fresh Site",
+                        "slug": "fresh-site",
+                        "status": {"label": "Active"},
+                        "location_type": {"name": "Data Center"},
+                        "parent": None,
+                        "latitude": "3.0",
+                        "longitude": "4.0",
+                        "description": "",
+                        "physical_address": "",
+                        "facility": "",
+                        "tenant": None,
+                        "asn": None,
+                        "time_zone": "",
+                        "tags": [],
+                        "url": "",
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            if endpoint == "dcim/devices/":
+                return [
+                    {
+                        "id": "dev-1",
+                        "name": "router01",
+                        "location": {"id": "loc-1"},
+                        "device_type": {"model": "ASR1001-X", "manufacturer": {"name": "Cisco"}},
+                        "role": {"name": "Core Router"},
+                        "status": {"label": "Active"},
+                        "platform": {"name": "IOS-XE"},
+                        "serial": "SN123",
+                        "tenant": None,
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            return []
+
+        with patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+            flask_app, "_read_cached_location_name_map", return_value={}
+        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+            flask_app._sync_nautobot_inventory(force=True)
+
+        assert [item["id"] for item in flask_app._read_cached_locations(include_without_coordinates=True)] == ["loc-1"]
+        assert [item["id"] for item in flask_app._read_cached_devices()] == ["dev-1"]
+
 
 # ---------------------------------------------------------------------------
 # Tests: criticality_rules.json loading
