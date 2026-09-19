@@ -684,6 +684,43 @@ class TestAlertBoard:
         assert alert == {"level": "ok", "reason": ""}
         ensure_snapshot.assert_not_called()
 
+    def test_location_detail_live_device_fetch_retries_with_location_filter_on_400(self):
+        bad_request = flask_app.requests.HTTPError(
+            "bad request",
+            response=MagicMock(status_code=400),
+        )
+        live_device_page = [
+            {
+                "id": "dev-1",
+                "name": "router01",
+                "device_type": {"model": "ASR9006", "manufacturer": {"name": "Cisco"}},
+                "role": {"name": "Core Router"},
+                "status": {"label": "active"},
+                "platform": None,
+                "serial": "ABC123",
+                "tenant": None,
+            }
+        ]
+        fetch_calls = []
+
+        def _mock_fetch(endpoint, params=None):
+            fetch_calls.append((endpoint, params))
+            if len(fetch_calls) == 1:
+                raise bad_request
+            return live_device_page
+
+        with patch.object(flask_app, "_read_cached_devices", side_effect=[[], []]), patch.object(
+            flask_app, "_ensure_inventory_snapshot"
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=_mock_fetch):
+            devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
+
+        assert len(devices) == 1
+        assert alert["level"] == "ok"
+        assert fetch_calls[:2] == [
+            ("dcim/devices/", {"location_id": "loc-1"}),
+            ("dcim/devices/", {"location": "loc-1"}),
+        ]
+
     def test_get_alert_board_data_does_not_live_fetch_devices_on_cache_miss(self):
         flask_app.cache.clear()
         sample_locations = [
