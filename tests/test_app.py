@@ -863,6 +863,22 @@ class TestCaching:
 
 
 # ---------------------------------------------------------------------------
+# Tests: NAUTOBOT_URL validation
+# ---------------------------------------------------------------------------
+class TestNautobotURLValidation:
+    def test_validate_nautobot_url_accepts_https_url(self):
+        assert flask_app._validate_nautobot_url("https://nautobot.example.com") == "https://nautobot.example.com"
+
+    def test_validate_nautobot_url_rejects_missing_scheme(self):
+        with pytest.raises(RuntimeError, match="Invalid NAUTOBOT_URL configuration"):
+            flask_app._validate_nautobot_url("nautobot.example.com")
+
+    def test_validate_nautobot_url_rejects_invalid_prefix(self):
+        with pytest.raises(RuntimeError, match="Invalid NAUTOBOT_URL configuration"):
+            flask_app._validate_nautobot_url("NAUTOBOT_URL=https://nautobot.example.com")
+
+
+# ---------------------------------------------------------------------------
 # Tests: SSL verification configuration
 # ---------------------------------------------------------------------------
 class TestSSLVerification:

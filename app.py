@@ -6,6 +6,7 @@ import re
 import hashlib
 from datetime import datetime, timezone
 from functools import wraps
+from urllib.parse import urlsplit
 
 import requests
 from flask import Flask, render_template, jsonify, request, g
@@ -29,7 +30,21 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-me-to-a-random-string")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-NAUTOBOT_URL = os.getenv("NAUTOBOT_URL", "").rstrip("/")
+
+def _validate_nautobot_url(value: str) -> str:
+    normalized = (value or "").strip().rstrip("/")
+    if not normalized:
+        return normalized
+    parsed = urlsplit(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(
+            "Invalid NAUTOBOT_URL configuration: expected an absolute http(s) URL with a host, "
+            "for example https://nautobot.example.com"
+        )
+    return normalized
+
+
+NAUTOBOT_URL = _validate_nautobot_url(os.getenv("NAUTOBOT_URL", ""))
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
 NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
