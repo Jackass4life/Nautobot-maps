@@ -674,11 +674,52 @@ class TestAlertBoard:
         ) as ensure_snapshot, patch.object(
             flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
         ):
-            devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
+            devices, alert = flask_app._get_location_devices_and_alert(
+                "loc-1",
+                "Data Center",
+                snapshot_only=True,
+            )
 
         assert devices == []
         assert alert == {"level": "ok", "reason": ""}
-        ensure_snapshot.assert_called_once_with()
+        ensure_snapshot.assert_not_called()
+
+    def test_location_detail_live_device_fetch_retries_with_location_filter_on_400(self):
+        bad_request = flask_app.requests.HTTPError(
+            "bad request",
+            response=MagicMock(status_code=400),
+        )
+        live_device_page = [
+            {
+                "id": "dev-1",
+                "name": "router01",
+                "device_type": {"model": "ASR9006", "manufacturer": {"name": "Cisco"}},
+                "role": {"name": "Core Router"},
+                "status": {"label": "active"},
+                "platform": None,
+                "serial": "ABC123",
+                "tenant": None,
+            }
+        ]
+        fetch_calls = []
+
+        def _mock_fetch(endpoint, params=None):
+            fetch_calls.append((endpoint, params))
+            if len(fetch_calls) == 1:
+                raise bad_request
+            return live_device_page
+
+        with patch.object(flask_app, "_read_cached_devices", side_effect=[[], []]), patch.object(
+            flask_app, "_ensure_inventory_snapshot"
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=_mock_fetch):
+            devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
+
+        assert len(devices) == 1
+        assert alert["level"] == "ok"
+        assert fetch_calls[:2] == [
+            ("dcim/devices/", {"location_id": "loc-1"}),
+            ("dcim/devices/", {"location": "loc-1"}),
+        ]
 
     def test_get_alert_board_data_does_not_live_fetch_devices_on_cache_miss(self):
         flask_app.cache.clear()
@@ -697,8 +738,7 @@ class TestAlertBoard:
         assert data["summary"]["ok"] == 2
         assert data["summary"]["non_ok"] == 0
         assert [item["alert_level"] for item in data["alerts"]] == ["ok", "ok"]
-        assert ensure_snapshot.call_count >= 1
-        assert all(call.args == () and call.kwargs == {} for call in ensure_snapshot.call_args_list)
+        ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
         flask_app.cache.clear()
@@ -765,6 +805,7 @@ class TestAlertBoard:
 
         with patch.object(flask_app, "get_locations", return_value=sample_locations), \
              patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_ensure_inventory_snapshot"), \
              patch.object(
                  flask_app,
                  "_get_location_devices_and_alert",
@@ -791,6 +832,7 @@ class TestAlertBoard:
 
         with patch.object(flask_app, "get_locations", return_value=sample_locations), \
              patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_ensure_inventory_snapshot"), \
              patch.object(
                  flask_app,
                  "_get_location_devices_and_alert",
@@ -1896,7 +1938,7 @@ class TestAlertLifecycleTracking:
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
 
-    def test_get_alert_board_data_sets_ttl_and_rebuilds_on_force_refresh(self):
+    def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):
         first_payload = {
             "checked_at": "2026-01-01T00:00:00Z",
             "stale_after_seconds": flask_app.CACHE_TTL,
@@ -1914,18 +1956,76 @@ class TestAlertLifecycleTracking:
             flask_app,
             "_build_alert_board_payload",
             side_effect=[first_payload, second_payload],
-        ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set:
+        ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set, patch.object(
+            flask_app,
+            "_ensure_inventory_snapshot",
+        ) as ensure_snapshot, patch.object(
+            flask_app,
+            "_nautobot_snapshot_initialized",
+            return_value=True,
+        ):
             first = flask_app.get_alert_board_data(force_refresh=True)
             second = flask_app.get_alert_board_data()
             refreshed = flask_app.get_alert_board_data(force_refresh=True)
         assert first["checked_at"] == second["checked_at"] == "2026-01-01T00:00:00Z"
-        assert refreshed["checked_at"] == "2026-01-01T00:05:00Z"
-        assert build_payload.call_count == 2
-        assert cache_set.call_count == 2
+        assert refreshed["checked_at"] == "2026-01-01T00:00:00Z"
+        assert build_payload.call_count == 1
+        assert cache_set.call_count == 1
+        assert ensure_snapshot.call_count == 2
+        assert all(
+            call.args == () and call.kwargs == {"force": True, "wait": False}
+            for call in ensure_snapshot.call_args_list
+        )
         assert all(
             call.kwargs.get("timeout") == flask_app.CACHE_TTL
             for call in cache_set.call_args_list
         )
+
+    def test_get_alert_board_data_builds_snapshot_only_payload(self):
+        flask_app.cache.clear()
+        payload = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        with patch.object(
+            flask_app, "_build_alert_board_payload", return_value=payload
+        ) as build_payload, patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot:
+            result = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert result["checked_at"] == "2026-01-01T00:00:00Z"
+        build_payload.assert_called_once_with(snapshot_only=True)
+        ensure_snapshot.assert_called_once_with(force=True, wait=False)
+
+    def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
+        flask_app.cache.clear()
+        payload = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        with patch.object(
+            flask_app,
+            "_build_alert_board_payload",
+            return_value=payload,
+        ) as build_payload, patch.object(
+            flask_app,
+            "_cache_set",
+            wraps=flask_app._cache_set,
+        ) as cache_set, patch.object(
+            flask_app,
+            "_nautobot_snapshot_initialized",
+            return_value=False,
+        ), patch.object(flask_app, "_ensure_inventory_snapshot"):
+            first = flask_app.get_alert_board_data(force_refresh=True)
+            second = flask_app.get_alert_board_data()
+
+        assert first["alerts"] == []
+        assert second["alerts"] == []
+        assert build_payload.call_count == 2
+        assert cache_set.call_count == 0
 
     def test_postgres_lifecycle_path_uses_postgres_sql(self):
         class _FakeResult:

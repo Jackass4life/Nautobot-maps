@@ -134,7 +134,7 @@ for a full description of the seed data and suggested demo scenarios.
 |---|---|---|
 | `GET` | `/` | Map web UI |
 | `GET` | `/alerts` | Alert board web UI |
-| `GET` | `/api/alerts` | Alert summary for all Nautobot locations |
+| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues background sync) |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
 | `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
 | `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |
@@ -192,7 +192,7 @@ For best durability and concurrency, use PostgreSQL via `NAUTOBOT_MAPS_DATABASE_
 
 ## Inventory-backed reads
 
-When persistence is configured, Nautobot Maps keeps cached Nautobot locations/devices and LibreNMS device status in the database and prefers those tables as the primary read source for `/api/locations`, `/api/locations/<id>/detail`, and `/api/alerts`. A background sync refreshes Nautobot incrementally with `last_updated__gte=<last_successful_sync>` and refreshes LibreNMS status on the configured interval, while request handlers continue serving the last persisted snapshot.
+When persistence is configured, Nautobot Maps keeps cached Nautobot locations/devices and LibreNMS device status in the database and prefers those tables as the primary read source for `/api/locations`, `/api/locations/<id>/detail`, and `/api/alerts`. A background sync refreshes Nautobot incrementally with `last_updated__gte=<last_successful_sync>` and refreshes LibreNMS status on the configured interval, while request handlers continue serving the last persisted snapshot. On `/api/alerts`, `refresh=1|true|yes|refresh` only signals a background sync and never performs live upstream Nautobot/LibreNMS fetches inline.
 
 ## Running Tests
 
