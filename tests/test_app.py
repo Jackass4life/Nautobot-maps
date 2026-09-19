@@ -1692,9 +1692,9 @@ class TestAuthConfiguration:
         with auth_config(mode="disabled"):
             assert flask_app._get_flask_run_host() == "0.0.0.0"
 
-    def test_header_auth_keeps_gunicorn_container_reachable(self, monkeypatch):
+    def test_header_auth_binds_gunicorn_to_loopback(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "header")
-        assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
+        assert self._reload_gunicorn_config().bind == "127.0.0.1:5000"
 
     def test_non_header_auth_keeps_public_gunicorn_bind(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "disabled")

@@ -2,6 +2,8 @@ import os
 
 
 def _get_bind() -> str:
+    if os.getenv("AUTH_MODE", "disabled").strip().lower() == "header":
+        return "127.0.0.1:5000"
     return "0.0.0.0:5000"
 
 
