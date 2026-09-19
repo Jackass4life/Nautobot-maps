@@ -68,6 +68,8 @@ python app.py
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
 | `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | Preferred persistence DB URL (`postgresql://...`) for overrides, alert downtime history, and case tracking |
 | `NAUTOBOT_MAPS_DB` | ❌ | — | SQLite fallback path when PostgreSQL URL is not configured |
+| `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Interval for background Nautobot inventory sync into the persistence database |
+| `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Interval for background LibreNMS status refresh into the persistence database |
 | `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
 | `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |
 | `AUTH_HEADER_GROUPS` | ❌ | `X-Forwarded-Groups` | Header-mode group header supplied by a trusted reverse proxy |
@@ -187,6 +189,10 @@ Recommended deployment patterns:
 
 When persistence is configured, `/api/alerts` now includes per-site downtime/case context (`current_downtime_seconds`, `historical_downtime_seconds`, `active_cases`, `down_devices`).  
 For best durability and concurrency, use PostgreSQL via `NAUTOBOT_MAPS_DATABASE_URL`.
+
+## Inventory-backed reads
+
+When persistence is configured, Nautobot Maps keeps cached Nautobot locations/devices and LibreNMS device status in the database and prefers those tables as the primary read source for `/api/locations`, `/api/locations/<id>/detail`, and `/api/alerts`. A background sync refreshes Nautobot incrementally with `last_updated__gte=<last_successful_sync>` and refreshes LibreNMS status on the configured interval, while request handlers continue serving the last persisted snapshot.
 
 ## Running Tests
 
