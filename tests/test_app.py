@@ -864,6 +864,22 @@ class TestCaching:
 
 
 # ---------------------------------------------------------------------------
+# Tests: NAUTOBOT_URL validation
+# ---------------------------------------------------------------------------
+class TestNautobotURLValidation:
+    def test_validate_nautobot_url_accepts_https_url(self):
+        assert flask_app._validate_nautobot_url("https://nautobot.example.com") == "https://nautobot.example.com"
+
+    def test_validate_nautobot_url_rejects_missing_scheme(self):
+        with pytest.raises(RuntimeError, match="Invalid NAUTOBOT_URL configuration"):
+            flask_app._validate_nautobot_url("nautobot.example.com")
+
+    def test_validate_nautobot_url_rejects_invalid_prefix(self):
+        with pytest.raises(RuntimeError, match="Invalid NAUTOBOT_URL configuration"):
+            flask_app._validate_nautobot_url("NAUTOBOT_URL=https://nautobot.example.com")
+
+
+# ---------------------------------------------------------------------------
 # Tests: SSL verification configuration
 # ---------------------------------------------------------------------------
 class TestSSLVerification:
@@ -949,6 +965,26 @@ class TestSSLVerification:
         finally:
             flask_app.NAUTOBOT_URL = original_url
             flask_app.NAUTOBOT_TOKEN = original_token
+            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+
+    def test_insecure_request_warning_suppressed_when_verify_disabled(self):
+        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+        flask_app.NAUTOBOT_VERIFY_SSL = False
+        try:
+            with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
+                flask_app._configure_nautobot_ssl_warnings()
+            mock_disable.assert_called_once_with(flask_app.InsecureRequestWarning)
+        finally:
+            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+
+    def test_insecure_request_warning_not_suppressed_when_verify_enabled(self):
+        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+        flask_app.NAUTOBOT_VERIFY_SSL = True
+        try:
+            with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
+                flask_app._configure_nautobot_ssl_warnings()
+            mock_disable.assert_not_called()
+        finally:
             flask_app.NAUTOBOT_VERIFY_SSL = original_verify
 
 
@@ -1558,6 +1594,37 @@ class TestAlertLifecycleTracking:
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
 
+    def test_get_alert_board_data_sets_ttl_and_rebuilds_on_force_refresh(self):
+        first_payload = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        second_payload = {
+            "checked_at": "2026-01-01T00:05:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        flask_app.cache.clear()
+        with patch.object(
+            flask_app,
+            "_build_alert_board_payload",
+            side_effect=[first_payload, second_payload],
+        ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set:
+            first = flask_app.get_alert_board_data(force_refresh=True)
+            second = flask_app.get_alert_board_data()
+            refreshed = flask_app.get_alert_board_data(force_refresh=True)
+        assert first["checked_at"] == second["checked_at"] == "2026-01-01T00:00:00Z"
+        assert refreshed["checked_at"] == "2026-01-01T00:05:00Z"
+        assert build_payload.call_count == 2
+        assert cache_set.call_count == 2
+        assert all(
+            call.kwargs.get("timeout") == flask_app.CACHE_TTL
+            for call in cache_set.call_args_list
+        )
+
     def test_postgres_lifecycle_path_uses_postgres_sql(self):
         class _FakeResult:
             def __init__(self, rows=None, rowcount=0):
@@ -1631,6 +1698,38 @@ class TestAlertLifecycleTracking:
         event_params = [params for query, params in fake_conn.queries if "INSERT INTO alert_events" in query]
         assert any(param == checked_at for params in event_params for param in params)
 
+    def test_init_db_postgres_uses_advisory_lock_before_ddl(self):
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params=()):
+                self.queries.append(query)
+                return None
+
+            def close(self):
+                return None
+
+        fake_conn = _FakeConn()
+        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
+            flask_app, "_is_postgres", return_value=True
+        ):
+            flask_app._init_db()
+
+        lock_idx = next(i for i, query in enumerate(fake_conn.queries) if "pg_advisory_xact_lock" in query)
+        table_idx = next(
+            i
+            for i, query in enumerate(fake_conn.queries)
+            if "CREATE TABLE IF NOT EXISTS device_criticality_override" in query
+        )
+        assert lock_idx < table_idx
+
 
 # ---------------------------------------------------------------------------
 # Tests: criticality_rules.json loading
@@ -1697,6 +1796,15 @@ class TestLibreNMSEnrichment:
         devices = [{"id": "d1", "name": "router01", "status": "active"}]
         result = flask_app._enrich_with_librenms(devices)
         assert result == devices
+
+    def test_fetch_inventory_skips_when_config_is_blank(self):
+        """_fetch_librenms_inventory skips API calls when URL/token are blank."""
+        flask_app.LIBRENMS_URL = "   "
+        flask_app.LIBRENMS_API_TOKEN = "   "
+        with patch.object(flask_app.requests, "get") as mock_get:
+            result = flask_app._fetch_librenms_inventory()
+        assert result == []
+        mock_get.assert_not_called()
 
     def test_librenms_down_overrides_active_status(self):
         """A device active in Nautobot but down in LibreNMS is set to offline."""
@@ -1973,6 +2081,18 @@ class TestAuthConfiguration:
     def test_non_header_auth_keeps_public_gunicorn_bind(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "disabled")
         assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
+
+    def test_default_gunicorn_timeout_is_120_seconds(self, monkeypatch):
+        monkeypatch.delenv("GUNICORN_TIMEOUT", raising=False)
+        assert self._reload_gunicorn_config().timeout == 120
+
+    def test_gunicorn_timeout_has_a_120_second_floor(self, monkeypatch):
+        monkeypatch.setenv("GUNICORN_TIMEOUT", "30")
+        assert self._reload_gunicorn_config().timeout == 120
+
+    def test_gunicorn_timeout_allows_values_above_floor(self, monkeypatch):
+        monkeypatch.setenv("GUNICORN_TIMEOUT", "180")
+        assert self._reload_gunicorn_config().timeout == 180
 
     def test_auth_disabled_keeps_write_endpoints_unchanged(self, client):
         with auth_config(mode="disabled"):

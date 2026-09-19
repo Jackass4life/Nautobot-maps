@@ -6,14 +6,17 @@ import re
 import hashlib
 from datetime import datetime, timezone
 from functools import wraps
+from urllib.parse import urlsplit
 
 import requests
+import urllib3
 from flask import Flask, render_template, jsonify, request, g
 from flask_caching import Cache
 from dotenv import load_dotenv
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
+from urllib3.exceptions import InsecureRequestWarning
 
 try:
     import psycopg
@@ -30,14 +33,28 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-me-to-a-random-string")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-NAUTOBOT_URL = os.getenv("NAUTOBOT_URL", "").rstrip("/")
+
+def _validate_nautobot_url(value: str) -> str:
+    normalized = (value or "").strip().rstrip("/")
+    if not normalized:
+        return normalized
+    parsed = urlsplit(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(
+            "Invalid NAUTOBOT_URL configuration: expected an absolute http(s) URL with a host, "
+            "for example https://nautobot.example.com"
+        )
+    return normalized
+
+
+NAUTOBOT_URL = _validate_nautobot_url(os.getenv("NAUTOBOT_URL", ""))
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
 NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
 
 # LibreNMS optional integration
-LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").rstrip("/")
-LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "")
+LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
+LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 
 # SQLite database path (leave empty to disable persistence features)
 NAUTOBOT_MAPS_DB = os.getenv("NAUTOBOT_MAPS_DB", "")
@@ -73,6 +90,14 @@ elif _ssl_env.lower() == "true":
 else:
     # Treat the value as a path to a CA bundle / certificate file
     NAUTOBOT_VERIFY_SSL = _ssl_env
+
+
+def _configure_nautobot_ssl_warnings() -> None:
+    if NAUTOBOT_VERIFY_SSL is False:
+        urllib3.disable_warnings(InsecureRequestWarning)
+
+
+_configure_nautobot_ssl_warnings()
 
 
 _AUTH_ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}
@@ -268,6 +293,7 @@ def _init_db() -> None:
     try:
         with conn:
             if _is_postgres():
+                conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS device_criticality_override (
@@ -445,8 +471,8 @@ def _cache_get(key: str):
     return cache.get(key)
 
 
-def _cache_set(key: str, data):
-    cache.set(key, data)
+def _cache_set(key: str, data, timeout: int | None = None):
+    cache.set(key, data, timeout=timeout)
 
 
 def _nested_str(obj: dict | None, *keys: str) -> str:
@@ -935,8 +961,13 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
 
 def _librenms_get(path: str, params: dict | None = None) -> dict:
     """Perform a GET request against the LibreNMS REST API."""
-    headers = {"X-Auth-Token": LIBRENMS_API_TOKEN}
-    url = f"{LIBRENMS_URL}/api/v0/{path.lstrip('/')}"
+    base_url = (LIBRENMS_URL or "").strip().rstrip("/")
+    api_token = (LIBRENMS_API_TOKEN or "").strip()
+    if not base_url or not api_token:
+        return {}
+
+    headers = {"X-Auth-Token": api_token}
+    url = f"{base_url}/api/v0/{path.lstrip('/')}"
     response = requests.get(url, headers=headers, params=params, timeout=15)
     response.raise_for_status()
     return response.json()
@@ -944,6 +975,8 @@ def _librenms_get(path: str, params: dict | None = None) -> dict:
 
 def _fetch_librenms_inventory() -> list:
     """Fetch full LibreNMS inventory once."""
+    if not (LIBRENMS_URL or "").strip() or not (LIBRENMS_API_TOKEN or "").strip():
+        return []
     data = _librenms_get("devices", {"type": "all"})
     return data.get("devices", [])
 
@@ -988,7 +1021,7 @@ def _enrich_with_librenms(
     The enrichment is *additive*: Nautobot status is never upgraded (a device
     already offline in Nautobot stays offline regardless of LibreNMS).
     """
-    if not LIBRENMS_URL or not LIBRENMS_API_TOKEN:
+    if not (LIBRENMS_URL or "").strip() or not (LIBRENMS_API_TOKEN or "").strip():
         return devices
 
     if lnms_devices is None:
@@ -1547,15 +1580,8 @@ def _apply_alert_board_freshness(payload: dict) -> dict:
     return result
 
 
-def get_alert_board_data(force_refresh: bool = False) -> dict:
-    """Return alert summaries for all locations."""
-    cache_key = "alert-board-data:v2"
-    if force_refresh:
-        cache.delete(cache_key)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return _apply_alert_board_freshness(cached)
-
+def _build_alert_board_payload() -> dict:
+    """Build and return a fresh alert-board payload."""
     locations = get_locations(include_without_coordinates=True)
     alerts = []
     summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
@@ -1580,7 +1606,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
     }
     lnms_devices = None
     lnms_id_map = None
-    if LIBRENMS_URL and LIBRENMS_API_TOKEN:
+    if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
         try:
             lnms_devices = _fetch_librenms_inventory()
             lnms_id_map = _load_librenms_id_map()
@@ -1667,7 +1693,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
         )
     )
 
-    payload = {
+    return {
         "checked_at": _iso_utc_now(),
         "stale_after_seconds": CACHE_TTL,
         "summary": {
@@ -1682,7 +1708,19 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
         },
         "alerts": alerts,
     }
-    _cache_set(cache_key, payload)
+
+
+def get_alert_board_data(force_refresh: bool = False) -> dict:
+    """Return alert summaries for all locations."""
+    cache_key = "alert-board-data:v2"
+    if force_refresh:
+        cache.delete(cache_key)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return _apply_alert_board_freshness(cached)
+
+    payload = _build_alert_board_payload()
+    _cache_set(cache_key, payload, timeout=CACHE_TTL)
     return _apply_alert_board_freshness(payload)
 
 
