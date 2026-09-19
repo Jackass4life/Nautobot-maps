@@ -265,8 +265,7 @@ function applyFilters(payload) {
     const searchableText = [
       item.name,
       item.parent,
-      item.facility,
-      item.physical_address,
+      formatLocationAddress(item),
       item.country,
     ].join(" ").toLowerCase();
     if (siteNeedle && !searchableText.includes(siteNeedle)) return false;

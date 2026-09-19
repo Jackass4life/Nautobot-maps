@@ -1717,8 +1717,8 @@ def _build_alert_board_payload() -> dict:
             seen_down_device_keys: set[str] = set()
             for item in alert_context["down_devices"]:
                 item_key = item.get("device_id") or item.get("device_name") or ""
-                merged = dict(current_down_device_map.get(item_key, {}))
-                merged.update(item)
+                merged = dict(item)
+                merged.update(current_down_device_map.get(item_key, {}))
                 merged.setdefault("status", "")
                 merged.setdefault("role", "")
                 merged.setdefault("case_numbers", [])
