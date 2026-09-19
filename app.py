@@ -640,7 +640,8 @@ def nautobot_delete(endpoint: str) -> None:
 def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
     """Fetch all paginated results from a Nautobot API endpoint."""
     params = dict(params or {})
-    params.setdefault("limit", 200)
+    params.setdefault("limit", 1000)
+    params.setdefault("depth", 0)
     results = []
     offset = 0
     while True:
