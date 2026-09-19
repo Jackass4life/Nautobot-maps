@@ -118,25 +118,25 @@ function renderAlertHistory(siteId, instances) {
   historyTitle.textContent = `History · ${siteId}`;
   if (!instances.length) {
     historyContent.innerHTML = `<div class="history-instance"><div class="history-line">No incidents found.</div></div>`;
-    historyPanel.classList.remove("hidden");
-    return;
+  } else {
+    historyContent.innerHTML = instances.map((instance) => {
+      const cases = Array.isArray(instance.cases) ? instance.cases.map((entry) => escHtml(entry.case_number || "")).filter(Boolean) : [];
+      const events = Array.isArray(instance.events)
+        ? instance.events.map((event) => `${escHtml(event.event_type || "")} @ ${formatTimestamp(event.event_at)}`).join(", ")
+        : "";
+      return `
+        <article class="history-instance">
+          <div><strong>${escHtml(instance.device_name || instance.device_id || "Unknown device")}</strong> · ${escHtml(instance.status || "unknown")} · ${escHtml(instance.alert_level || "unknown")}</div>
+          <div class="history-line">Downtime: ${formatDuration(instance.total_downtime_seconds || 0)}</div>
+          <div class="history-line">Opened: ${formatTimestamp(instance.down_started_at)} · Resolved: ${formatTimestamp(instance.resolved_at)}</div>
+          <div class="history-line">Cases: ${cases.length ? cases.join(", ") : "—"}</div>
+          <div class="history-line">Events: ${events || "—"}</div>
+        </article>
+      `;
+    }).join("");
   }
-  historyContent.innerHTML = instances.map((instance) => {
-    const cases = Array.isArray(instance.cases) ? instance.cases.map((entry) => escHtml(entry.case_number || "")).filter(Boolean) : [];
-    const events = Array.isArray(instance.events)
-      ? instance.events.map((event) => `${escHtml(event.event_type || "")} @ ${formatTimestamp(event.event_at)}`).join(", ")
-      : "";
-    return `
-      <article class="history-instance">
-        <div><strong>${escHtml(instance.device_name || instance.device_id || "Unknown device")}</strong> · ${escHtml(instance.status || "unknown")} · ${escHtml(instance.alert_level || "unknown")}</div>
-        <div class="history-line">Downtime: ${formatDuration(instance.total_downtime_seconds || 0)}</div>
-        <div class="history-line">Opened: ${formatTimestamp(instance.down_started_at)} · Resolved: ${formatTimestamp(instance.resolved_at)}</div>
-        <div class="history-line">Cases: ${cases.length ? cases.join(", ") : "—"}</div>
-        <div class="history-line">Events: ${events || "—"}</div>
-      </article>
-    `;
-  }).join("");
   historyPanel.classList.remove("hidden");
+  historyPanel.setAttribute("aria-hidden", "false");
   if (historyCloseBtn) {
     historyCloseBtn.focus();
   }
@@ -275,6 +275,7 @@ refreshBtn.addEventListener("click", () => loadAlertBoard(true));
 if (historyCloseBtn && historyPanel) {
   historyCloseBtn.addEventListener("click", () => {
     historyPanel.classList.add("hidden");
+    historyPanel.setAttribute("aria-hidden", "true");
     if (historyTriggerBtn) {
       historyTriggerBtn.focus();
     }

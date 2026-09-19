@@ -2086,9 +2086,13 @@ def api_alert_history():
             tuple(params),
         ).fetchall()
         instances = [_row_to_dict(row) for row in rows]
-        instance_ids = [int(row["id"]) for row in instances if row.get("id") is not None]
-        events_by_instance: dict[int, list[dict]] = {instance_id: [] for instance_id in instance_ids}
-        cases_by_instance: dict[int, list[dict]] = {instance_id: [] for instance_id in instance_ids}
+        instance_ids = [row["id"] for row in instances if row.get("id") is not None]
+        events_by_instance: dict[str, list[dict]] = {
+            str(instance_id): [] for instance_id in instance_ids
+        }
+        cases_by_instance: dict[str, list[dict]] = {
+            str(instance_id): [] for instance_id in instance_ids
+        }
         if instance_ids:
             markers = _sql_placeholders(len(instance_ids))
             ev_rows = conn.execute(
@@ -2111,7 +2115,7 @@ def api_alert_history():
             ).fetchall()
             for ev_row in ev_rows:
                 event = _row_to_dict(ev_row)
-                instance_id = int(event.pop("alert_instance_id"))
+                instance_id = str(event.pop("alert_instance_id"))
                 try:
                     event["snapshot"] = json.loads(event.pop("snapshot_json", "{}") or "{}")
                 except Exception:
@@ -2119,10 +2123,10 @@ def api_alert_history():
                 events_by_instance.setdefault(instance_id, []).append(event)
             for case_row in case_rows:
                 case_data = _row_to_dict(case_row)
-                instance_id = int(case_data.pop("alert_instance_id"))
+                instance_id = str(case_data.pop("alert_instance_id"))
                 cases_by_instance.setdefault(instance_id, []).append(case_data)
         for instance in instances:
-            instance_id = int(instance["id"])
+            instance_id = str(instance.get("id"))
             instance["events"] = events_by_instance.get(instance_id, [])
             instance["cases"] = cases_by_instance.get(instance_id, [])
         return jsonify({"instances": instances})
