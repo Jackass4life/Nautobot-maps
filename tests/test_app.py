@@ -1624,6 +1624,38 @@ class TestAlertLifecycleTracking:
         event_params = [params for query, params in fake_conn.queries if "INSERT INTO alert_events" in query]
         assert any(param == checked_at for params in event_params for param in params)
 
+    def test_init_db_postgres_uses_advisory_lock_before_ddl(self):
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params=()):
+                self.queries.append(query)
+                return None
+
+            def close(self):
+                return None
+
+        fake_conn = _FakeConn()
+        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
+            flask_app, "_is_postgres", return_value=True
+        ):
+            flask_app._init_db()
+
+        lock_idx = next(i for i, query in enumerate(fake_conn.queries) if "pg_advisory_xact_lock" in query)
+        table_idx = next(
+            i
+            for i, query in enumerate(fake_conn.queries)
+            if "CREATE TABLE IF NOT EXISTS device_criticality_override" in query
+        )
+        assert lock_idx < table_idx
+
 
 # ---------------------------------------------------------------------------
 # Tests: criticality_rules.json loading
