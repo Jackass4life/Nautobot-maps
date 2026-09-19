@@ -718,6 +718,25 @@ def get_locations(include_without_coordinates: bool = False) -> list:
             raw[0].get("status"),
         )
 
+    def _extract_location_country(location: dict, physical_address: str) -> str:
+        country_obj = location.get("country")
+        if isinstance(country_obj, dict):
+            country_name = _nested_str(country_obj, "name", "display", "label")
+            if country_name:
+                return country_name
+        elif isinstance(country_obj, str) and country_obj.strip():
+            return country_obj.strip()
+
+        raw_country = location.get("country_name")
+        if isinstance(raw_country, str) and raw_country.strip():
+            return raw_country.strip()
+
+        if physical_address:
+            parts = [part.strip() for part in physical_address.split(",") if part.strip()]
+            if parts:
+                return parts[-1]
+        return ""
+
     locations = []
     for loc in raw:
         lat = None
@@ -783,6 +802,9 @@ def get_locations(include_without_coordinates: bool = False) -> list:
             if tag_name:
                 tag_names.append(tag_name)
 
+        physical_address = (loc.get("physical_address") or "").strip()
+        country = _extract_location_country(loc, physical_address)
+
         locations.append(
             {
                 "id": loc.get("id", ""),
@@ -794,7 +816,8 @@ def get_locations(include_without_coordinates: bool = False) -> list:
                 "latitude": lat,
                 "longitude": lon,
                 "description": loc.get("description", ""),
-                "physical_address": loc.get("physical_address", ""),
+                "physical_address": physical_address,
+                "country": country,
                 "facility": loc.get("facility", ""),
                 "tenant": tenant_name,
                 "tenant_id": tenant_id,
@@ -1677,6 +1700,36 @@ def _build_alert_board_payload() -> dict:
                     "active_cases": [],
                     "down_devices": [],
                 }
+            current_down_devices = [
+                {
+                    "device_id": device.get("id") or "",
+                    "device_name": device.get("name") or "Unknown",
+                    "status": device.get("status") or "",
+                    "role": device.get("role") or "",
+                    "case_numbers": [],
+                }
+                for device in down_devices
+            ]
+            current_down_device_map = {
+                item["device_id"] or item["device_name"]: item for item in current_down_devices
+            }
+            merged_down_devices = []
+            seen_down_device_keys: set[str] = set()
+            for item in alert_context["down_devices"]:
+                item_key = item.get("device_id") or item.get("device_name") or ""
+                merged = dict(current_down_device_map.get(item_key, {}))
+                merged.update(item)
+                merged.setdefault("status", "")
+                merged.setdefault("role", "")
+                merged.setdefault("case_numbers", [])
+                merged_down_devices.append(merged)
+                if item_key:
+                    seen_down_device_keys.add(item_key)
+            for item in current_down_devices:
+                item_key = item["device_id"] or item["device_name"]
+                if item_key in seen_down_device_keys:
+                    continue
+                merged_down_devices.append(item)
             level = (alert.get("level") or "ok").lower()
             summary[level] = summary.get(level, 0) + 1
             alerts.append(
@@ -1688,9 +1741,12 @@ def _build_alert_board_payload() -> dict:
                     "down_device_count": len(down_devices),
                     "current_downtime_seconds": alert_context["current_downtime_seconds"],
                     "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
-                    "active_alert_instance_count": alert_context["active_alert_instance_count"],
+                    "active_alert_instance_count": max(
+                        int(alert_context["active_alert_instance_count"]),
+                        len(merged_down_devices),
+                    ),
                     "active_cases": alert_context["active_cases"],
-                    "down_devices": alert_context["down_devices"],
+                    "down_devices": merged_down_devices,
                 }
             )
     finally:

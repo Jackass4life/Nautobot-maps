@@ -45,7 +45,7 @@
 
     <section class="toolbar" aria-label="Filters">
       <div class="toolbar-grid">
-        <input id="filter-site" type="text" placeholder="Filter by site name" aria-label="Site" />
+        <input id="filter-site" type="text" placeholder="Filter by site, address, or country" aria-label="Site, address, or country" />
         <select id="filter-severity" aria-label="Severity">
           <option value="">All severities</option>
           <option value="critical">Critical</option>
@@ -65,6 +65,8 @@
         <select id="sort-by" aria-label="Sort">
           <option value="severity">Sort: severity</option>
           <option value="site">Sort: site</option>
+          <option value="address">Sort: address</option>
+          <option value="country">Sort: country</option>
           <option value="down">Sort: devices down</option>
           <option value="devices">Sort: device count</option>
         </select>
@@ -79,7 +81,7 @@
       <table>
         <thead>
           <tr>
-            <th>Site</th>
+            <th>Location</th>
             <th>Alert</th>
             <th>Status</th>
             <th>Type</th>
