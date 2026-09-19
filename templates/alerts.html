@@ -101,7 +101,15 @@
     </section>
   </div>
 
-  <section id="history-panel" class="history-panel hidden" aria-live="polite">
+  <section
+    id="history-panel"
+    class="history-panel hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="history-title"
+    tabindex="-1"
+    aria-live="polite"
+  >
     <div class="history-panel-header">
       <h2 id="history-title">History</h2>
       <button id="history-close" type="button">Close</button>

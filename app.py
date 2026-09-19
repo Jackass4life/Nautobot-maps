@@ -2048,12 +2048,16 @@ def api_alert_history():
             parsed_start_at = _parse_iso_datetime(start_at)
             if parsed_start_at is None:
                 return jsonify({"error": "start_at must be an ISO-8601 timestamp"}), 400
-            start_at = parsed_start_at.isoformat()
+            if parsed_start_at.tzinfo is None:
+                parsed_start_at = parsed_start_at.replace(tzinfo=timezone.utc)
+            start_at = parsed_start_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         if end_at:
             parsed_end_at = _parse_iso_datetime(end_at)
             if parsed_end_at is None:
                 return jsonify({"error": "end_at must be an ISO-8601 timestamp"}), 400
-            end_at = parsed_end_at.isoformat()
+            if parsed_end_at.tzinfo is None:
+                parsed_end_at = parsed_end_at.replace(tzinfo=timezone.utc)
+            end_at = parsed_end_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         conditions = []
         params = []
         if site_id:

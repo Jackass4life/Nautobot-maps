@@ -1505,6 +1505,9 @@ class TestAlertLifecycleTracking:
         resp = client.get("/api/alert-history?start_at=not-a-timestamp")
         assert resp.status_code == 400
         assert "start_at" in resp.get_json()["error"]
+        resp = client.get("/api/alert-history?end_at=still-not-a-timestamp")
+        assert resp.status_code == 400
+        assert "end_at" in resp.get_json()["error"]
 
     def test_failed_alert_observation_does_not_resolve_open_incident(self):
         site = {"id": "loc-1", "name": "Site One"}

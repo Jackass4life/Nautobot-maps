@@ -16,6 +16,7 @@ const historyCloseBtn = document.getElementById("history-close");
 
 let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
+let historyTriggerBtn = null;
 
 function escHtml(str) {
   if (str == null) return "";
@@ -136,6 +137,21 @@ function renderAlertHistory(siteId, instances) {
     `;
   }).join("");
   historyPanel.classList.remove("hidden");
+  historyPanel.focus();
+}
+
+async function readJsonResponse(resp) {
+  const contentType = resp.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return resp.json();
+  }
+  const text = await resp.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (_err) {
+    return { error: text };
+  }
 }
 
 function renderCases(item) {
@@ -255,7 +271,12 @@ function showError(message) {
 
 refreshBtn.addEventListener("click", () => loadAlertBoard(true));
 if (historyCloseBtn && historyPanel) {
-  historyCloseBtn.addEventListener("click", () => historyPanel.classList.add("hidden"));
+  historyCloseBtn.addEventListener("click", () => {
+    historyPanel.classList.add("hidden");
+    if (historyTriggerBtn) {
+      historyTriggerBtn.focus();
+    }
+  });
 }
 
 alertsTableBody.addEventListener("click", async (event) => {
@@ -295,9 +316,10 @@ alertsTableBody.addEventListener("click", async (event) => {
     const siteId = historyBtn.dataset.siteId;
     if (!siteId) return;
     historyBtn.disabled = true;
+    historyTriggerBtn = historyBtn;
     try {
       const resp = await fetch(`/api/alert-history?site_id=${encodeURIComponent(siteId)}`);
-      const payload = await resp.json();
+      const payload = await readJsonResponse(resp);
       if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
       renderAlertHistory(siteId, Array.isArray(payload.instances) ? payload.instances : []);
     } catch (err) {
