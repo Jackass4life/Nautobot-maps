@@ -2038,15 +2038,7 @@ def _get_location_devices_and_alert(
             devices_already_normalized = True
             _ensure_inventory_snapshot()
         else:
-            _ensure_inventory_snapshot(force=True, wait=True)
-            devices_data = _read_cached_devices(location_id)
-            if devices_data:
-                devices_already_normalized = True
-            else:
-                # Devices at this location
-                # Nautobot 3.x uses the "location" filter parameter (UUID accepted);
-                # "location_id" was removed in 3.x and returns 400.
-                devices_data = fetch_all_pages("dcim/devices/", {"location": location_id})
+            _ensure_inventory_snapshot()
 
     devices = (
         [
