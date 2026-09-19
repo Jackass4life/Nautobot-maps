@@ -193,10 +193,11 @@ function compareText(left, right) {
 function renderDownDeviceRows(item) {
   const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
   if (!downDevices.length) return "";
+  const siteLabel = escHtml(item.name || item.id || "site");
   return downDevices.map((device) => `
     <tr class="down-device-row">
-      <td class="down-device-cell">
-        <div class="down-device-name">↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}</div>
+      <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
+        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}</div>
         <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
@@ -204,8 +205,8 @@ function renderDownDeviceRows(item) {
       <td>${escHtml(item.location_type || "—")}</td>
       <td>${escHtml(item.tenant || "—")}</td>
       <td>—</td>
-      <td>1</td>
-      <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
+      <td>—</td>
+      <td>—</td>
       <td class="cases-cell">${renderDeviceCases(device)}</td>
       <td class="reason-cell">${escHtml(item.alert_reason || "Down device")}</td>
       <td></td>
