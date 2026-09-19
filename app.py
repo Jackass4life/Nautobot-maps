@@ -1502,7 +1502,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         )
         devices = _normalize_devices(raw_devices, lookup_maps=_build_device_lookup_maps())
         completed_at = _iso_utc_now()
-        watermark = last_successful_sync or completed_at
+        watermark = last_successful_sync or started_at
         observed_last_updated = _max_last_updated(raw_locations + raw_devices)
         observed_dt = _parse_iso_datetime(observed_last_updated)
         current_dt = _parse_iso_datetime(watermark)
