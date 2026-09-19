@@ -1797,6 +1797,224 @@ class TestAlertLifecycleTracking:
         assert lock_idx < table_idx
 
 
+class TestInventoryCacheSync:
+    def setup_method(self):
+        import tempfile
+
+        self._orig_db = flask_app.NAUTOBOT_MAPS_DB
+        self._orig_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
+        self._orig_nautobot_url = flask_app.NAUTOBOT_URL
+        self._orig_nautobot_token = flask_app.NAUTOBOT_TOKEN
+        self._orig_librenms_url = flask_app.LIBRENMS_URL
+        self._orig_librenms_token = flask_app.LIBRENMS_API_TOKEN
+        self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._db_tmp.close()
+        flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
+        flask_app.NAUTOBOT_MAPS_DB = self._db_tmp.name
+        flask_app.NAUTOBOT_URL = "https://nautobot.example.com"
+        flask_app.NAUTOBOT_TOKEN = "token"
+        flask_app.LIBRENMS_URL = ""
+        flask_app.LIBRENMS_API_TOKEN = ""
+        flask_app._init_db()
+        flask_app.cache.clear()
+
+    def teardown_method(self):
+        flask_app.NAUTOBOT_MAPS_DB = self._orig_db
+        flask_app.NAUTOBOT_MAPS_DATABASE_URL = self._orig_db_url
+        flask_app.NAUTOBOT_URL = self._orig_nautobot_url
+        flask_app.NAUTOBOT_TOKEN = self._orig_nautobot_token
+        flask_app.LIBRENMS_URL = self._orig_librenms_url
+        flask_app.LIBRENMS_API_TOKEN = self._orig_librenms_token
+        import os
+
+        try:
+            os.unlink(self._db_tmp.name)
+        except Exception:
+            pass
+
+    def test_get_locations_prefers_cached_inventory_without_live_api(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Cached Site",
+                            "slug": "cached-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": ["cached"],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+        finally:
+            conn.close()
+
+        with patch.object(flask_app, "NAUTOBOT_URL", ""), patch.object(flask_app, "NAUTOBOT_TOKEN", ""), patch.object(
+            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
+        ):
+            locations = flask_app.get_locations()
+
+        assert locations == [
+            {
+                "id": "loc-1",
+                "name": "Cached Site",
+                "slug": "cached-site",
+                "status": "Active",
+                "location_type": "Data Center",
+                "parent": "",
+                "latitude": 1.0,
+                "longitude": 2.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": ["cached"],
+                "url": "",
+            }
+        ]
+
+    def test_alert_board_uses_cached_inventory_snapshot(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Cached Site",
+                            "slug": "cached-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+                flask_app._write_cached_devices(
+                    conn,
+                    [
+                        {
+                            "id": "dev-1",
+                            "location_id": "loc-1",
+                            "name": "router01",
+                            "device_type": "ASR1001-X",
+                            "manufacturer": "Cisco",
+                            "role": "Core Router",
+                            "status": "offline",
+                            "platform": "IOS-XE",
+                            "serial": "SN123",
+                            "tenant": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+        finally:
+            conn.close()
+
+        flask_app.cache.clear()
+        with patch.object(flask_app, "NAUTOBOT_URL", ""), patch.object(flask_app, "NAUTOBOT_TOKEN", ""), patch.object(
+            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
+        ):
+            data = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert data["summary"]["critical"] == 1
+        assert data["alerts"][0]["id"] == "loc-1"
+        assert data["alerts"][0]["down_device_count"] == 1
+        assert data["alerts"][0]["alert_level"] == "critical"
+
+    def test_sync_nautobot_inventory_uses_last_successful_sync_watermark(self):
+        calls = []
+
+        def fake_fetch(endpoint, params=None):
+            calls.append((endpoint, dict(params or {})))
+            if endpoint == "dcim/locations/":
+                return [
+                    {
+                        "id": "loc-1",
+                        "name": "Site One",
+                        "slug": "site-one",
+                        "status": {"label": "Active"},
+                        "location_type": {"name": "Data Center"},
+                        "parent": None,
+                        "latitude": "1.0",
+                        "longitude": "2.0",
+                        "description": "",
+                        "physical_address": "",
+                        "facility": "",
+                        "tenant": None,
+                        "asn": None,
+                        "time_zone": "",
+                        "tags": [],
+                        "url": "",
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            if endpoint == "dcim/devices/":
+                return [
+                    {
+                        "id": "dev-1",
+                        "name": "router01",
+                        "location": {"id": "loc-1"},
+                        "device_type": {"model": "ASR1001-X", "manufacturer": {"name": "Cisco"}},
+                        "role": {"name": "Core Router"},
+                        "status": {"label": "Active"},
+                        "platform": {"name": "IOS-XE"},
+                        "serial": "SN123",
+                        "tenant": None,
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            return []
+
+        with patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+            flask_app, "_read_cached_location_name_map", return_value={}
+        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+            flask_app._sync_nautobot_inventory(force=True)
+            first_state = flask_app._get_sync_state("nautobot_inventory")
+            flask_app._sync_nautobot_inventory()
+
+        location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
+        device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
+
+        assert location_calls[0] == {}
+        assert device_calls[0] == {}
+        assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
+        assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
+
+
 # ---------------------------------------------------------------------------
 # Tests: criticality_rules.json loading
 # ---------------------------------------------------------------------------
