@@ -727,6 +727,85 @@ class TestAlertBoard:
         assert data["summary"]["ok"] == 1
         assert data["summary"]["unknown"] == 0
 
+    def test_get_alert_board_data_uses_fresh_persistence_connection_per_location(self):
+        flask_app.cache.clear()
+        sample_locations = [
+            {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
+            {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
+        ]
+        opened_conns = []
+        upsert_conns = []
+        context_conns = []
+
+        class _FakeConn:
+            def __init__(self, name):
+                self.name = name
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        def fake_get_db_conn():
+            conn = _FakeConn(f"conn-{len(opened_conns) + 1}")
+            opened_conns.append(conn)
+            return conn
+
+        def fake_upsert(site, devices, alert, checked_at, conn=None):
+            upsert_conns.append(conn)
+
+        def fake_context(site_id, checked_at, conn=None):
+            context_conns.append(conn)
+            return {
+                "active_alert_instance_count": 0,
+                "historical_downtime_seconds": 0,
+                "current_downtime_seconds": 0,
+                "active_cases": [],
+                "down_devices": [],
+            }
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(
+                 flask_app,
+                 "_get_location_devices_and_alert",
+                 return_value=([], {"level": "ok", "reason": ""}),
+             ), \
+             patch.object(flask_app, "_get_db_conn", side_effect=fake_get_db_conn), \
+             patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert), \
+             patch.object(flask_app, "_get_alert_context_for_site", side_effect=fake_context):
+            data = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert data["summary"]["total"] == 2
+        assert len(opened_conns) == 2
+        assert upsert_conns == opened_conns
+        assert context_conns == opened_conns
+        assert opened_conns[0] is not opened_conns[1]
+        assert all(conn.closed for conn in opened_conns)
+
+    def test_get_alert_board_data_disables_persistence_after_connect_failure(self):
+        flask_app.cache.clear()
+        sample_locations = [
+            {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
+            {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
+        ]
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(
+                 flask_app,
+                 "_get_location_devices_and_alert",
+                 return_value=([], {"level": "ok", "reason": ""}),
+             ), \
+             patch.object(flask_app, "_get_db_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn, \
+             patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert, \
+             patch.object(flask_app, "_get_alert_context_for_site") as get_context:
+            data = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert data["summary"]["total"] == 2
+        assert get_db_conn.call_count == 1
+        upsert.assert_not_called()
+        get_context.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Tests: /api/locations/<id>/detail
