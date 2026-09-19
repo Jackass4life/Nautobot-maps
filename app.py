@@ -444,8 +444,8 @@ def _cache_get(key: str):
     return cache.get(key)
 
 
-def _cache_set(key: str, data):
-    cache.set(key, data)
+def _cache_set(key: str, data, timeout: int | None = None):
+    cache.set(key, data, timeout=timeout)
 
 
 def _nested_str(obj: dict | None, *keys: str) -> str:
@@ -1546,15 +1546,8 @@ def _apply_alert_board_freshness(payload: dict) -> dict:
     return result
 
 
-def get_alert_board_data(force_refresh: bool = False) -> dict:
-    """Return alert summaries for all locations."""
-    cache_key = "alert-board-data:v2"
-    if force_refresh:
-        cache.delete(cache_key)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return _apply_alert_board_freshness(cached)
-
+def _build_alert_board_payload() -> dict:
+    """Build and return a fresh alert-board payload."""
     locations = get_locations(include_without_coordinates=True)
     alerts = []
     summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
@@ -1666,7 +1659,7 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
         )
     )
 
-    payload = {
+    return {
         "checked_at": _iso_utc_now(),
         "stale_after_seconds": CACHE_TTL,
         "summary": {
@@ -1681,7 +1674,19 @@ def get_alert_board_data(force_refresh: bool = False) -> dict:
         },
         "alerts": alerts,
     }
-    _cache_set(cache_key, payload)
+
+
+def get_alert_board_data(force_refresh: bool = False) -> dict:
+    """Return alert summaries for all locations."""
+    cache_key = "alert-board-data:v2"
+    if force_refresh:
+        cache.delete(cache_key)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return _apply_alert_board_freshness(cached)
+
+    payload = _build_alert_board_payload()
+    _cache_set(cache_key, payload, timeout=CACHE_TTL)
     return _apply_alert_board_freshness(payload)
 
 

@@ -1551,6 +1551,37 @@ class TestAlertLifecycleTracking:
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
 
+    def test_get_alert_board_data_sets_ttl_and_rebuilds_on_force_refresh(self):
+        first_payload = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        second_payload = {
+            "checked_at": "2026-01-01T00:05:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
+            "alerts": [],
+        }
+        flask_app.cache.clear()
+        with patch.object(
+            flask_app,
+            "_build_alert_board_payload",
+            side_effect=[first_payload, second_payload],
+        ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set:
+            first = flask_app.get_alert_board_data(force_refresh=True)
+            second = flask_app.get_alert_board_data()
+            refreshed = flask_app.get_alert_board_data(force_refresh=True)
+        assert first["checked_at"] == second["checked_at"] == "2026-01-01T00:00:00Z"
+        assert refreshed["checked_at"] == "2026-01-01T00:05:00Z"
+        assert build_payload.call_count == 2
+        assert cache_set.call_count == 2
+        assert all(
+            call.kwargs.get("timeout") == flask_app.CACHE_TTL
+            for call in cache_set.call_args_list
+        )
+
     def test_postgres_lifecycle_path_uses_postgres_sql(self):
         class _FakeResult:
             def __init__(self, rows=None, rowcount=0):
