@@ -181,6 +181,36 @@ def mock_nautobot_get(endpoint, params=None):
 
 
 # ---------------------------------------------------------------------------
+# Tests: pagination helper
+# ---------------------------------------------------------------------------
+class TestFetchAllPages:
+    def test_sets_large_limit_and_depth_defaults(self):
+        calls = []
+
+        def fake_get(endpoint, params=None):
+            calls.append((endpoint, dict(params or {})))
+            return {"count": 1, "next": None, "results": [{"id": "dev-1"}]}
+
+        with patch.object(flask_app, "nautobot_get", side_effect=fake_get):
+            results = flask_app.fetch_all_pages("dcim/devices/")
+
+        assert results == [{"id": "dev-1"}]
+        assert calls == [("dcim/devices/", {"limit": 1000, "depth": 0, "offset": 0})]
+
+    def test_respects_explicit_limit_and_depth(self):
+        calls = []
+
+        def fake_get(endpoint, params=None):
+            calls.append((endpoint, dict(params or {})))
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(flask_app, "nautobot_get", side_effect=fake_get):
+            flask_app.fetch_all_pages("dcim/devices/", {"limit": 25, "depth": 2})
+
+        assert calls == [("dcim/devices/", {"limit": 25, "depth": 2, "offset": 0})]
+
+
+# ---------------------------------------------------------------------------
 # Tests: /api/locations
 # ---------------------------------------------------------------------------
 class TestApiLocations:
