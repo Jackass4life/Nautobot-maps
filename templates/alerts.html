@@ -86,18 +86,38 @@
             <th>Tenant</th>
             <th>Devices</th>
             <th>Down</th>
+            <th>Downtime</th>
+            <th>Cases</th>
             <th>Reason</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody id="alerts-table-body">
           <tr>
-            <td colspan="9" class="empty-state">Loading alerts…</td>
+            <td colspan="11" class="empty-state">Loading alerts…</td>
           </tr>
         </tbody>
       </table>
     </section>
   </div>
+
+  <section
+    id="history-panel"
+    class="history-panel hidden"
+    role="dialog"
+    aria-modal="false"
+    aria-labelledby="history-title"
+    aria-describedby="history-content"
+    tabindex="-1"
+    aria-live="polite"
+    aria-hidden="true"
+  >
+    <div class="history-panel-header">
+      <h2 id="history-title">History</h2>
+      <button id="history-close" type="button">Close</button>
+    </div>
+    <div id="history-content" class="history-content"></div>
+  </section>
 
   <div id="error-toast" class="hidden" role="alert"></div>
   <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
