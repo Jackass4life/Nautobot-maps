@@ -666,6 +666,15 @@ def _init_db() -> None:
                     None,
                 )
                 if time_zone_column and time_zone_column["notnull"]:
+                    legacy_schema_objects = conn.execute(
+                        """
+                        SELECT type, sql
+                        FROM sqlite_master
+                        WHERE tbl_name = 'nautobot_location_cache'
+                          AND type IN ('index', 'trigger')
+                          AND sql IS NOT NULL
+                        """
+                    ).fetchall()
                     conn.execute("ALTER TABLE nautobot_location_cache RENAME TO nautobot_location_cache_legacy")
                     conn.execute(
                         """
@@ -708,6 +717,8 @@ def _init_db() -> None:
                         """
                     )
                     conn.execute("DROP TABLE nautobot_location_cache_legacy")
+                    for schema_object in legacy_schema_objects:
+                        conn.execute(schema_object["sql"])
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )

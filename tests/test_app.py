@@ -2230,6 +2230,9 @@ class TestAlertLifecycleTracking:
                 """,
                 ("loc-legacy", "UTC"),
             )
+            conn.execute(
+                "CREATE INDEX idx_legacy_location_cache_name ON nautobot_location_cache(name)"
+            )
             conn.commit()
             conn.close()
 
@@ -2242,6 +2245,8 @@ class TestAlertLifecycleTracking:
             columns = conn.execute("PRAGMA table_info(nautobot_location_cache)").fetchall()
             time_zone_column = next(col for col in columns if col["name"] == "time_zone")
             assert time_zone_column["notnull"] == 0
+            indexes = conn.execute("PRAGMA index_list(nautobot_location_cache)").fetchall()
+            assert any(idx["name"] == "idx_legacy_location_cache_name" for idx in indexes)
 
             conn.execute(
                 """
