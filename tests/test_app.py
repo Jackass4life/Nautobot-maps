@@ -2446,6 +2446,88 @@ class TestInventoryCacheSync:
 
         assert location["time_zone"] is None
 
+    def test_write_cached_locations_coalesces_explicit_none_text_fields(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Cached Site",
+                            "slug": "cached-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": None,
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": None,
+                            "physical_address": None,
+                            "facility": None,
+                            "tenant": None,
+                            "tenant_id": None,
+                            "tenant_group": None,
+                            "asn": None,
+                            "time_zone": None,
+                            "tags": [],
+                            "url": None,
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+        finally:
+            conn.close()
+
+        locations = flask_app._read_cached_locations(include_without_coordinates=True)
+        assert len(locations) == 1
+        assert locations[0]["parent"] == ""
+        assert locations[0]["description"] == ""
+        assert locations[0]["physical_address"] == ""
+        assert locations[0]["facility"] == ""
+        assert locations[0]["tenant"] == ""
+        assert locations[0]["tenant_id"] == ""
+        assert locations[0]["tenant_group"] == ""
+        assert locations[0]["time_zone"] is None
+        assert locations[0]["url"] == ""
+
+    def test_write_cached_devices_coalesces_explicit_none_text_fields(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_devices(
+                    conn,
+                    [
+                        {
+                            "id": "dev-1",
+                            "location_id": None,
+                            "name": None,
+                            "device_type": None,
+                            "manufacturer": None,
+                            "role": None,
+                            "status": None,
+                            "platform": None,
+                            "serial": None,
+                            "tenant": None,
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+        finally:
+            conn.close()
+
+        devices = flask_app._read_cached_devices()
+        assert len(devices) == 1
+        assert devices[0]["location_id"] == ""
+        assert devices[0]["name"] == ""
+        assert devices[0]["device_type"] == ""
+        assert devices[0]["manufacturer"] == ""
+        assert devices[0]["role"] == ""
+        assert devices[0]["status"] == ""
+        assert devices[0]["platform"] == ""
+        assert devices[0]["serial"] == ""
+        assert devices[0]["tenant"] == ""
+
     def test_alert_board_uses_cached_inventory_snapshot(self):
         conn = flask_app._get_db_conn()
         try:
