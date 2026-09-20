@@ -1907,11 +1907,14 @@ def _location_is_excluded_from_alert_board(location: dict) -> bool:
     name = (location.get("name") or "").strip().lower()
     status = (location.get("status") or "").strip().lower()
     location_type = (location.get("location_type") or "").strip().lower()
-    tags = {
-        str(tag).strip().lower()
-        for tag in (location.get("tags") or [])
-        if str(tag).strip()
-    }
+    tags = set()
+    for tag in (location.get("tags") or []):
+        if isinstance(tag, dict):
+            tag_name = _nested_str(tag, "name", "display", "label", "value")
+        else:
+            tag_name = str(tag).strip()
+        if tag_name:
+            tags.add(tag_name.strip().lower())
     return bool(
         (name and name in ALERT_BOARD_EXCLUDED_LOCATION_NAMES)
         or (status and status in ALERT_BOARD_EXCLUDED_LOCATION_STATUSES)

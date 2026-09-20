@@ -275,7 +275,7 @@ function renderTableRows(alerts, payload) {
   formatBoardStatus(payload, alerts.length);
 }
 
-function applyFilters(payload) {
+function getFilteredAlerts() {
   const siteNeedle = filterSite.value.trim().toLowerCase();
   const severity = filterSeverity.value;
   const status = filterStatus.value;
@@ -309,6 +309,11 @@ function applyFilters(payload) {
       || compareText(a.name, b.name);
   });
 
+  return filtered;
+}
+
+function applyFilters(payload) {
+  const filtered = getFilteredAlerts();
   renderTableRows(filtered, payload);
   syncQuickSeverityButtons();
 }
@@ -399,7 +404,7 @@ if (collapseAllSitesBtn) {
 
 if (expandAllSitesBtn) {
   expandAllSitesBtn.addEventListener("click", () => {
-    expandedSiteIds = new Set(allAlerts.map((item) => String(item.id || "")).filter(Boolean));
+    expandedSiteIds = new Set(getFilteredAlerts().map((item) => String(item.id || "")).filter(Boolean));
     applyFilters(latestPayload);
   });
 }

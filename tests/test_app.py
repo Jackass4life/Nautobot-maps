@@ -723,6 +723,17 @@ class TestAlertBoard:
         assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1", "loc-2"]
         assert get_alert.call_count == 2
 
+    def test_location_exclusion_supports_object_tags(self):
+        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}):
+            assert flask_app._location_is_excluded_from_alert_board(
+                {
+                    "name": "Warehouse",
+                    "status": "Active",
+                    "location_type": "Office",
+                    "tags": [{"name": "Non-Operational"}],
+                }
+            )
+
     def test_get_alert_board_data_marks_location_unknown_on_error(self):
         flask_app.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
