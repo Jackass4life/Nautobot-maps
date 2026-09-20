@@ -6,6 +6,7 @@ import re
 import hashlib
 import threading
 import warnings
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import urlsplit
@@ -240,6 +241,17 @@ def _is_postgres() -> bool:
     return _current_persistence_dialect() == "postgres"
 
 
+@contextmanager
+def _db_transaction(conn):
+    transaction = getattr(conn, "transaction", None)
+    if callable(transaction):
+        with transaction():
+            yield conn
+        return
+    with conn:
+        yield conn
+
+
 def _serialize_value(value):
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -365,7 +377,7 @@ def _init_db() -> None:
     if conn is None:
         return
     try:
-        with conn:
+        with _db_transaction(conn):
             if _is_postgres():
                 conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
                 conn.execute(
@@ -1492,7 +1504,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                 conn=conn,
             )
         )
-        with conn:
+        with _db_transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -1542,7 +1554,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         current_dt = _parse_iso_datetime(watermark)
         if observed_dt and (current_dt is None or observed_dt > current_dt):
             watermark = _next_watermark(observed_last_updated)
-        with conn:
+        with _db_transaction(conn):
             if full_reconcile:
                 conn.execute("DELETE FROM nautobot_device_cache")
                 conn.execute("DELETE FROM nautobot_location_cache")
@@ -1570,7 +1582,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         cache.delete("alert-board-data:v2")
     except Exception as exc:
         logger.warning("Could not sync Nautobot inventory into persistence DB: %s", exc)
-        with conn:
+        with _db_transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -1597,7 +1609,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
         last_successful_sync = None if force else _get_sync_state(source, conn=conn).get(
             "last_successful_sync"
         )
-        with conn:
+        with _db_transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -1616,7 +1628,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
             raise RuntimeError(
                 "LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot"
             )
-        with conn:
+        with _db_transaction(conn):
             completed_at = _iso_utc_now()
             conn.execute("DELETE FROM librenms_device_status")
             _write_cached_librenms_devices(conn, devices)
@@ -1632,7 +1644,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
         cache.delete("alert-board-data:v2")
     except Exception as exc:
         logger.warning("Could not sync LibreNMS inventory into persistence DB: %s", exc)
-        with conn:
+        with _db_transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -2025,7 +2037,7 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
     if conn is None:
         return
     try:
-        with conn:
+        with _db_transaction(conn):
             p0, p1, p2 = _sql_placeholders(3).split(",")
             conn.execute(
                 """
@@ -2230,7 +2242,7 @@ def _upsert_alert_lifecycle_for_site(
         return
     open_alert_keys: set[str] = set()
     try:
-        with conn:
+        with _db_transaction(conn):
             for device in devices:
                 status = (device.get("status") or "").lower().strip()
                 if status not in _DOWN_STATUSES:
@@ -2992,7 +3004,7 @@ def api_set_criticality_override():
     if not updated_by:
         updated_by = _get_current_user().get("username", "")
     try:
-        with conn:
+        with _db_transaction(conn):
             p0, p1, p2, p3 = _sql_placeholders(4).split(",")
             now_sql = _sql_now()
             conn.execute(
@@ -3028,7 +3040,7 @@ def api_delete_criticality_override(device_id: str):
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     try:
-        with conn:
+        with _db_transaction(conn):
             marker = _sql_placeholders(1)
             cur = conn.execute(
                 f"DELETE FROM device_criticality_override WHERE nautobot_device_id = {marker}",
@@ -3169,7 +3181,7 @@ def api_add_alert_case():
         return jsonify({"error": "site_id, device_id and case_number are required"}), 400
     created_by = (_get_current_user().get("username") or "").strip()
     try:
-        with conn:
+        with _db_transaction(conn):
             p0, p1 = _sql_placeholders(2).split(",")
             row = conn.execute(
                 f"""
