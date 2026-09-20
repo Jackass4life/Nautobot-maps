@@ -42,7 +42,7 @@
 html, body {
   height: 100%;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: linear-gradient(180deg, color-mix(in oklab, var(--color-bg) 90%, #9db9ff 10%), var(--color-bg));
+  background: var(--color-bg);
   color: var(--color-text);
 }
 
@@ -83,7 +83,7 @@ html, body {
 #sidebar-header {
   padding: 20px 16px 14px;
   border-bottom: 1px solid var(--color-border);
-  background: color-mix(in oklab, var(--color-surface) 88%, var(--color-primary) 12%);
+  background: var(--color-surface);
 }
 
 #sidebar-header h1 {
@@ -302,7 +302,7 @@ html, body {
 .advanced-filters {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  background: color-mix(in oklab, var(--color-surface-2) 92%, var(--color-primary) 8%);
+  background: var(--color-surface-2);
   padding: 4px 8px;
 }
 
@@ -416,7 +416,7 @@ html, body {
   left: var(--sidebar-width);
   right: 0;
   bottom: 0;
-  background: color-mix(in oklab, var(--color-bg) 75%, #000 25%);
+  background: rgba(0, 0, 0, 0.45);
   z-index: 2000;
   display: flex;
   flex-direction: column;
@@ -476,7 +476,29 @@ html, body {
 }
 
 .leaflet-container {
-  background: color-mix(in oklab, var(--color-bg) 80%, #c4d7ff 20%);
+  background: var(--color-bg);
+}
+
+@supports (color: color-mix(in oklab, white, black)) {
+  html, body {
+    background: linear-gradient(180deg, color-mix(in oklab, var(--color-bg) 90%, #9db9ff 10%), var(--color-bg));
+  }
+
+  #sidebar-header {
+    background: color-mix(in oklab, var(--color-surface) 88%, var(--color-primary) 12%);
+  }
+
+  .advanced-filters {
+    background: color-mix(in oklab, var(--color-surface-2) 92%, var(--color-primary) 8%);
+  }
+
+  #loading-overlay {
+    background: color-mix(in oklab, var(--color-bg) 75%, #000 25%);
+  }
+
+  .leaflet-container {
+    background: color-mix(in oklab, var(--color-bg) 80%, #c4d7ff 20%);
+  }
 }
 
 .leaflet-popup-content {

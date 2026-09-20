@@ -45,11 +45,11 @@
     </section>
 
     <section class="toolbar" aria-label="Filters">
-      <div class="quick-filters" aria-label="Quick filters">
-        <button class="quick-filter-btn active" type="button" data-quick-severity="">All</button>
-        <button class="quick-filter-btn" type="button" data-quick-severity="critical">Critical</button>
-        <button class="quick-filter-btn" type="button" data-quick-severity="medium">Medium</button>
-        <button class="quick-filter-btn" type="button" id="clear-alert-filters">Reset</button>
+      <div class="quick-filters" role="group" aria-label="Quick filters">
+        <button class="quick-filter-btn active" type="button" data-quick-severity="" aria-pressed="true">All</button>
+        <button class="quick-filter-btn" type="button" data-quick-severity="critical" aria-pressed="false">Critical</button>
+        <button class="quick-filter-btn" type="button" data-quick-severity="medium" aria-pressed="false">Medium</button>
+        <button class="secondary-filter-btn" type="button" id="clear-alert-filters">Reset</button>
       </div>
       <div class="toolbar-grid">
         <input id="filter-site" type="text" placeholder="Filter by site, address, or country" aria-label="Site, address, or country" />

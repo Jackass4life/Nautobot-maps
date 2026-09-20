@@ -774,7 +774,6 @@ function populateFilters(locations) {
 }
 
 function applyFilters() {
-  syncQuickStatusButtons();
   const statusVal = filterStatus.value;
   const typeVal = filterType.value;
   const parentVal = filterParent.value;
@@ -793,6 +792,7 @@ function applyFilters() {
   renderMarkers(filtered);
   updateLocationCount(filtered.length);
   openLocationFromQuery();
+  syncQuickStatusButtons();
 }
 
 filterStatus.addEventListener("change", applyFilters);
@@ -813,7 +813,9 @@ document.getElementById("clear-filters").addEventListener("click", () => {
 
 function syncQuickStatusButtons() {
   quickStatusButtons.forEach((button) => {
-    button.classList.toggle("active", (button.dataset.quickStatus || "") === filterStatus.value);
+    const isActive = (button.dataset.quickStatus || "") === filterStatus.value;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
   });
 }
 
@@ -829,6 +831,7 @@ function applyTheme(theme) {
   if (themeToggle) {
     const darkEnabled = theme === "dark";
     themeToggle.textContent = darkEnabled ? "Light mode" : "Dark mode";
+    themeToggle.setAttribute("aria-label", darkEnabled ? "Switch to light mode" : "Switch to dark mode");
     themeToggle.setAttribute("aria-pressed", darkEnabled ? "true" : "false");
   }
 }

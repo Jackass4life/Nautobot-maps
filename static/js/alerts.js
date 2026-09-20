@@ -257,7 +257,6 @@ function renderTableRows(alerts, payload) {
 }
 
 function applyFilters(payload) {
-  syncQuickSeverityButtons();
   const siteNeedle = filterSite.value.trim().toLowerCase();
   const severity = filterSeverity.value;
   const status = filterStatus.value;
@@ -292,11 +291,14 @@ function applyFilters(payload) {
   });
 
   renderTableRows(filtered, payload);
+  syncQuickSeverityButtons();
 }
 
 function syncQuickSeverityButtons() {
   quickSeverityButtons.forEach((button) => {
-    button.classList.toggle("active", (button.dataset.quickSeverity || "") === filterSeverity.value);
+    const isActive = (button.dataset.quickSeverity || "") === filterSeverity.value;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
   });
 }
 
@@ -336,50 +338,53 @@ function showError(message) {
   element.addEventListener(element.tagName === "INPUT" ? "input" : "change", () => {
     applyFilters(latestPayload);
   });
-
-  quickSeverityButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      filterSeverity.value = button.dataset.quickSeverity || "";
-      applyFilters(latestPayload);
-    });
-  });
-
-  if (clearAlertFiltersBtn) {
-    clearAlertFiltersBtn.addEventListener("click", () => {
-      filterSite.value = "";
-      filterSeverity.value = "";
-      filterStatus.value = "";
-      filterType.value = "";
-      filterTenant.value = "";
-      sortBy.value = "severity";
-      applyFilters(latestPayload);
-    });
-  }
-
-  function applyTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    if (themeToggle) {
-      const darkEnabled = theme === "dark";
-      themeToggle.textContent = darkEnabled ? "Light mode" : "Dark mode";
-      themeToggle.setAttribute("aria-pressed", darkEnabled ? "true" : "false");
-    }
-  }
-
-  function initTheme() {
-    let theme = "light";
-    try {
-      const stored = localStorage.getItem("nautobot-maps-theme");
-      if (stored === "dark" || stored === "light") {
-        theme = stored;
-      } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        theme = "dark";
-      }
-    } catch (_err) {
-      theme = "light";
-    }
-    applyTheme(theme);
-  }
 });
+
+quickSeverityButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    if (refreshBtn.disabled) return;
+    filterSeverity.value = button.dataset.quickSeverity || "";
+    filterSeverity.dispatchEvent(new Event("change"));
+  });
+});
+
+if (clearAlertFiltersBtn) {
+  clearAlertFiltersBtn.addEventListener("click", () => {
+    if (refreshBtn.disabled) return;
+    filterSite.value = "";
+    filterSeverity.value = "";
+    filterStatus.value = "";
+    filterType.value = "";
+    filterTenant.value = "";
+    sortBy.value = "severity";
+    applyFilters(latestPayload);
+  });
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  if (themeToggle) {
+    const darkEnabled = theme === "dark";
+    themeToggle.textContent = darkEnabled ? "Light mode" : "Dark mode";
+    themeToggle.setAttribute("aria-label", darkEnabled ? "Switch to light mode" : "Switch to dark mode");
+    themeToggle.setAttribute("aria-pressed", darkEnabled ? "true" : "false");
+  }
+}
+
+function initTheme() {
+  let theme = "light";
+  try {
+    const stored = localStorage.getItem("nautobot-maps-theme");
+    if (stored === "dark" || stored === "light") {
+      theme = stored;
+    } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      theme = "dark";
+    }
+  } catch (_err) {
+    theme = "light";
+  }
+  applyTheme(theme);
+}
 
 refreshBtn.addEventListener("click", () => loadAlertBoard(true));
 if (historyCloseBtn && historyPanel) {
