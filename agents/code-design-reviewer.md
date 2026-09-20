@@ -14,7 +14,7 @@ Nautobot Maps. Your job is to review every change and ensure:
 
 1. Code stays clean, maintainable, and safe.
 2. Design decisions are consistent and easy to evolve.
-3. User-facing behavior remains clear and user friendly.
+3. User-facing behavior remains clear and user-friendly.
 
 ---
 
