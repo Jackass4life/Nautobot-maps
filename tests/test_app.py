@@ -2174,7 +2174,13 @@ class TestAlertLifecycleTracking:
             for i, query in enumerate(fake_conn.queries)
             if "CREATE TABLE IF NOT EXISTS device_criticality_override" in query
         )
+        alter_idx = next(
+            i
+            for i, query in enumerate(fake_conn.queries)
+            if "ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL" in query
+        )
         assert lock_idx < table_idx
+        assert alter_idx > table_idx
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 1
 
@@ -2293,6 +2299,44 @@ class TestInventoryCacheSync:
                 "url": "",
             }
         ]
+
+    def test_cached_locations_allow_null_time_zone(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Cached Site",
+                            "slug": "cached-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": None,
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+        finally:
+            conn.close()
+
+        locations = flask_app._read_cached_locations(include_without_coordinates=True)
+
+        assert locations[0]["id"] == "loc-1"
+        assert locations[0]["time_zone"] is None
 
     def test_alert_board_uses_cached_inventory_snapshot(self):
         conn = flask_app._get_db_conn()

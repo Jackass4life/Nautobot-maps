@@ -434,7 +434,7 @@ def _init_db() -> None:
                         tenant_id         TEXT NOT NULL DEFAULT '',
                         tenant_group      TEXT NOT NULL DEFAULT '',
                         asn               BIGINT,
-                        time_zone         TEXT NOT NULL DEFAULT '',
+                        time_zone         TEXT,
                         tags_json         TEXT NOT NULL DEFAULT '[]',
                         url               TEXT NOT NULL DEFAULT '',
                         last_updated      TIMESTAMPTZ,
@@ -570,7 +570,7 @@ def _init_db() -> None:
                         tenant_id         TEXT NOT NULL DEFAULT '',
                         tenant_group      TEXT NOT NULL DEFAULT '',
                         asn               INTEGER,
-                        time_zone         TEXT NOT NULL DEFAULT '',
+                        time_zone         TEXT,
                         tags_json         TEXT NOT NULL DEFAULT '[]',
                         url               TEXT NOT NULL DEFAULT '',
                         last_updated      TEXT,
@@ -673,6 +673,9 @@ def _init_db() -> None:
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
                 )
             if _is_postgres():
+                conn.execute(
+                    "ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL"
+                )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
