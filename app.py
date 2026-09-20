@@ -2339,9 +2339,7 @@ def _get_location_devices_and_alert(
         if use_normalized_devices
         else _normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
-    if require_primary_ip and not (
-        loaded_from_cache and _nautobot_inventory_primary_ip_backfill_pending()
-    ):
+    if require_primary_ip:
         devices = [device for device in devices if _device_has_primary_ip(device)]
 
     enriched = _enrich_with_librenms(

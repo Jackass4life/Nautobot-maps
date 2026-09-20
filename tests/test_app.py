@@ -2980,7 +2980,7 @@ class TestInventoryCacheSync:
         assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
 
-    def test_alert_board_keeps_cached_devices_visible_while_primary_ip_backfill_is_pending(self):
+    def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
         conn = flask_app._get_db_conn()
         try:
             with conn:
@@ -3045,9 +3045,9 @@ class TestInventoryCacheSync:
         with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
-        assert data["summary"]["critical"] == 1
-        assert data["alerts"][0]["device_count"] == 1
-        assert data["alerts"][0]["down_device_count"] == 1
+        assert data["summary"]["ok"] == 1
+        assert data["alerts"][0]["device_count"] == 0
+        assert data["alerts"][0]["down_device_count"] == 0
 
     def test_api_alerts_filters_cached_devices_without_primary_ip(self, client):
         conn = flask_app._get_db_conn()
