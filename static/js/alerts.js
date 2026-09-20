@@ -329,6 +329,9 @@ function syncQuickSeverityButtons() {
 async function loadAlertBoard(forceRefresh = false) {
   boardStatus.textContent = "Loading alert board…";
   refreshBtn.disabled = true;
+  if (toggleNonOperational) toggleNonOperational.disabled = true;
+  if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = true;
+  if (expandAllSitesBtn) expandAllSitesBtn.disabled = true;
   try {
     const params = new URLSearchParams();
     if (forceRefresh) params.set("refresh", String(Date.now()));
@@ -350,6 +353,9 @@ async function loadAlertBoard(forceRefresh = false) {
     showError(`Failed to load alert board: ${err.message}`);
   } finally {
     refreshBtn.disabled = false;
+    if (toggleNonOperational) toggleNonOperational.disabled = false;
+    if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = false;
+    if (expandAllSitesBtn) expandAllSitesBtn.disabled = false;
   }
 }
 
@@ -391,12 +397,14 @@ if (clearAlertFiltersBtn) {
 if (toggleNonOperational) {
   toggleNonOperational.addEventListener("change", () => {
     if (refreshBtn.disabled) return;
+    expandedSiteIds = new Set();
     loadAlertBoard(false);
   });
 }
 
 if (collapseAllSitesBtn) {
   collapseAllSitesBtn.addEventListener("click", () => {
+    if (refreshBtn.disabled) return;
     expandedSiteIds = new Set();
     applyFilters(latestPayload);
   });
@@ -404,6 +412,7 @@ if (collapseAllSitesBtn) {
 
 if (expandAllSitesBtn) {
   expandAllSitesBtn.addEventListener("click", () => {
+    if (refreshBtn.disabled) return;
     expandedSiteIds = new Set(getFilteredAlerts().map((item) => String(item.id || "")).filter(Boolean));
     applyFilters(latestPayload);
   });

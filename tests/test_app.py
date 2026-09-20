@@ -508,6 +508,7 @@ class TestAlertBoard:
         assert b"Sort: country" in resp.data
         assert b"Show non-operational sites" in resp.data
         assert b"Collapse all" in resp.data
+        assert b"Expand all" in resp.data
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
         flask_app.cache.clear()
