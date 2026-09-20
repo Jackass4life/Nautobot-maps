@@ -25,8 +25,8 @@
 }
 
 [data-theme="dark"] {
-  --color-primary: #5b8fff;
-  --color-primary-dark: #4678e6;
+  --color-primary: #2563eb;
+  --color-primary-dark: #1e4fc8;
   --color-bg: #0f172a;
   --color-surface: #111c34;
   --color-surface-2: #1c2740;
