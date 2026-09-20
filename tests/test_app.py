@@ -2335,9 +2335,9 @@ class TestInventoryCacheSync:
             conn.close()
 
         locations = flask_app._read_cached_locations(include_without_coordinates=True)
+        location = next(item for item in locations if item["id"] == "loc-1")
 
-        assert locations[0]["id"] == "loc-1"
-        assert locations[0]["time_zone"] is None
+        assert location["time_zone"] is None
 
     def test_alert_board_uses_cached_inventory_snapshot(self):
         conn = flask_app._get_db_conn()
