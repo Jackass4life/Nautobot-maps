@@ -2178,6 +2178,27 @@ class TestAlertLifecycleTracking:
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 1
 
+    def test_get_db_conn_postgres_enables_autocommit(self):
+        sentinel_conn = object()
+        sentinel_row_factory = object()
+        with patch.object(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"), patch.object(
+            flask_app, "NAUTOBOT_MAPS_DB", ""
+        ), patch.object(
+            flask_app, "psycopg"
+        ) as psycopg_module, patch.object(
+            flask_app, "dict_row", sentinel_row_factory
+        ):
+            psycopg_module.connect.return_value = sentinel_conn
+
+            conn = flask_app._get_db_conn()
+
+        assert conn is sentinel_conn
+        psycopg_module.connect.assert_called_once_with(
+            "postgresql://db.example/maps",
+            row_factory=sentinel_row_factory,
+            autocommit=True,
+        )
+
 
 class TestInventoryCacheSync:
     def setup_method(self):
@@ -2465,19 +2486,28 @@ class TestInventoryCacheSync:
         class _FakeTransaction:
             def __init__(self, conn):
                 self.conn = conn
+                self.nested = False
 
             def __enter__(self):
                 self.conn.transaction_entries += 1
+                self.nested = self.conn.transaction_open
+                self.conn.transaction_open = True
                 return self.conn
 
             def __exit__(self, exc_type, exc, tb):
+                if exc_type is None and not self.nested:
+                    self.conn.commits += 1
+                self.conn.transaction_open = self.nested
                 return False
 
         class _FakeConn:
-            def __init__(self):
+            def __init__(self, autocommit=True):
+                self.autocommit = autocommit
                 self.closed = False
                 self.connection_context_entries = 0
                 self.transaction_entries = 0
+                self.transaction_open = False
+                self.commits = 0
                 self.queries = []
 
             def __enter__(self):
@@ -2494,6 +2524,8 @@ class TestInventoryCacheSync:
             def execute(self, query, params=()):
                 if self.closed:
                     raise RuntimeError("the connection is closed")
+                if not self.autocommit and query.lstrip().upper().startswith("SELECT"):
+                    self.transaction_open = True
                 self.queries.append((query, params))
                 if "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query:
                     return _FakeResult([{"device_count": 1}])
@@ -2502,7 +2534,7 @@ class TestInventoryCacheSync:
             def close(self):
                 self.closed = True
 
-        fake_conn = _FakeConn()
+        fake_conn = _FakeConn(autocommit=True)
         with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
             flask_app, "LIBRENMS_URL", "https://librenms.example.com"
         ), patch.object(
@@ -2517,6 +2549,7 @@ class TestInventoryCacheSync:
 
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 2
+        assert fake_conn.commits == 2
         assert any(
             "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query
             for query, _ in fake_conn.queries

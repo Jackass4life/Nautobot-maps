@@ -334,7 +334,11 @@ def _get_db_conn():
                 "install psycopg to enable PostgreSQL persistence"
             )
             return None
-        return psycopg.connect(NAUTOBOT_MAPS_DATABASE_URL, row_factory=dict_row)
+        return psycopg.connect(
+            NAUTOBOT_MAPS_DATABASE_URL,
+            row_factory=dict_row,
+            autocommit=True,
+        )
     if dialect == "sqlite":
         conn = sqlite3.connect(NAUTOBOT_MAPS_DB)
         conn.row_factory = sqlite3.Row
