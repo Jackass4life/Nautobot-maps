@@ -20,7 +20,7 @@ A web application that displays Nautobot locations on an interactive OpenStreetM
   - Location name, type, status, tenant, time zone, and physical address
   - ASN(s) assigned to the location
   - Network equipment (devices) at the location with model, role, and status
-- 🚨 Dedicated **Alert Board** page showing per-site alert severity with filters for site, tenant, location type, status, and severity
+- 🚨 Dedicated **Alert Board** page showing per-site alert severity with filters for site, tenant, location type, status, and severity, collapsible per-site device rows, and server-side filtering for primary-IP-backed devices
 - 🔍 Search by **address** (geocoded via OpenStreetMap/Nominatim) **or GPS coordinates** (`lat,lon`)
   - Returns all Nautobot locations within **5 km** of the searched point, sorted by distance
   - Draws a 5 km radius circle on the map
@@ -70,6 +70,10 @@ python app.py
 | `NAUTOBOT_MAPS_DB` | ❌ | — | SQLite fallback path when PostgreSQL URL is not configured |
 | `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Interval for background Nautobot inventory sync into the persistence database |
 | `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Interval for background LibreNMS status refresh into the persistence database |
+| `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` | ❌ | `graveyard,warehouse` | Comma/semicolon-separated location types hidden from `/api/alerts` and the alert board by default |
+| `ALERT_BOARD_EXCLUDED_LOCATION_STATUSES` | ❌ | — | Optional comma/semicolon-separated location statuses hidden from the alert board |
+| `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | ❌ | — | Optional comma/semicolon-separated Nautobot tag names hidden from the alert board |
+| `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | ❌ | — | Optional fallback comma/semicolon-separated location names hidden from the alert board |
 | `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
 | `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |
 | `AUTH_HEADER_GROUPS` | ❌ | `X-Forwarded-Groups` | Header-mode group header supplied by a trusted reverse proxy |
@@ -134,7 +138,7 @@ for a full description of the seed data and suggested demo scenarios.
 |---|---|---|
 | `GET` | `/` | Map web UI |
 | `GET` | `/alerts` | Alert board web UI |
-| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues background sync) |
+| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues background sync, `?include_non_operational=1` includes excluded locations) |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
 | `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
 | `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |
@@ -189,6 +193,12 @@ Recommended deployment patterns:
 
 When persistence is configured, `/api/alerts` now includes per-site downtime/case context (`current_downtime_seconds`, `historical_downtime_seconds`, `active_cases`, `down_devices`).  
 For best durability and concurrency, use PostgreSQL via `NAUTOBOT_MAPS_DATABASE_URL`.
+
+## Alert board filtering
+
+`/api/alerts` and `/alerts` only count devices that have a Nautobot primary IP (`primary_ip`, `primary_ip4`, or `primary_ip6`). This keeps access points and other non-alerted devices off the board without removing them from the cached inventory used elsewhere.
+
+Non-operational locations are hidden server-side by default when their location type matches `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` (default: `graveyard,warehouse`). You can also exclude by location status, tag, or fallback name list with the related `ALERT_BOARD_EXCLUDED_LOCATION_*` settings. The UI keeps those locations hidden by default but can request the full dataset with the `include_non_operational=1` query parameter.
 
 ## Inventory-backed reads
 

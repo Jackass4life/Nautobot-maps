@@ -137,6 +137,7 @@ SAMPLE_DEVICES_PAGE = {
             },
             "role": {"name": "Core Router"},
             "status": {"label": "Active"},
+            "primary_ip4": {"address": "192.0.2.1/32"},
             "platform": {"name": "IOS-XE"},
             "serial": "SN123",
             "tenant": {"name": "Acme Corp"},
@@ -505,6 +506,8 @@ class TestAlertBoard:
         assert b"Alert Board" in resp.data
         assert b"Filter by site, address, or country" in resp.data
         assert b"Sort: country" in resp.data
+        assert b"Show non-operational sites" in resp.data
+        assert b"Collapse all" in resp.data
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
         flask_app.cache.clear()
@@ -654,6 +657,72 @@ class TestAlertBoard:
             }
         ]
 
+    def test_api_alerts_hides_non_operational_locations_unless_requested(self, client):
+        flask_app.cache.clear()
+        sample_locations = [
+            {
+                "id": "loc-1",
+                "name": "Production Site",
+                "status": "Active",
+                "location_type": "Data Center",
+                "parent": "",
+                "latitude": 1.0,
+                "longitude": 2.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+            {
+                "id": "loc-2",
+                "name": "Spare Kit",
+                "status": "Active",
+                "location_type": "Warehouse",
+                "parent": "",
+                "latitude": 3.0,
+                "longitude": 4.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+        ]
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), patch.object(
+            flask_app,
+            "_get_location_devices_and_alert",
+            return_value=(
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "active", "primary_ip": "192.0.2.1/32"}],
+                {"level": "ok", "reason": ""},
+            ),
+        ) as get_alert:
+            resp = client.get("/api/alerts")
+            assert resp.status_code == 200
+            assert resp.get_json()["summary"]["total"] == 1
+            assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1"]
+            assert get_alert.call_count == 1
+
+            flask_app.cache.clear()
+            get_alert.reset_mock()
+            resp = client.get("/api/alerts?include_non_operational=1")
+
+        assert resp.status_code == 200
+        assert resp.get_json()["summary"]["total"] == 2
+        assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1", "loc-2"]
+        assert get_alert.call_count == 2
+
     def test_get_alert_board_data_marks_location_unknown_on_error(self):
         flask_app.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
@@ -683,6 +752,47 @@ class TestAlertBoard:
         assert devices == []
         assert alert == {"level": "ok", "reason": ""}
         ensure_snapshot.assert_not_called()
+
+    def test_location_alert_filters_devices_without_primary_ip(self):
+        devices, alert = flask_app._get_location_devices_and_alert(
+            "loc-1",
+            "Data Center",
+            devices_data=[
+                {
+                    "id": "dev-1",
+                    "name": "ap01",
+                    "device_type": "AP",
+                    "manufacturer": "Cisco",
+                    "role": "Access Point",
+                    "status": "offline",
+                    "primary_ip": "",
+                    "platform": "",
+                    "serial": "",
+                    "tenant": "",
+                },
+                {
+                    "id": "dev-2",
+                    "name": "router01",
+                    "device_type": "ASR1001-X",
+                    "manufacturer": "Cisco",
+                    "role": "Core Router",
+                    "status": "offline",
+                    "primary_ip": "192.0.2.1/32",
+                    "platform": "",
+                    "serial": "",
+                    "tenant": "",
+                },
+            ],
+            devices_already_normalized=True,
+            snapshot_only=True,
+            require_primary_ip=True,
+        )
+
+        assert [device["id"] for device in devices] == ["dev-2"]
+        assert alert == {
+            "level": "critical",
+            "reason": "Core device(s) offline: router01",
+        }
 
     def test_location_detail_live_device_fetch_retries_with_location_filter_on_400(self):
         bad_request = flask_app.requests.HTTPError(
@@ -1995,7 +2105,10 @@ class TestAlertLifecycleTracking:
             result = flask_app.get_alert_board_data(force_refresh=True)
 
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
-        build_payload.assert_called_once_with(snapshot_only=True)
+        build_payload.assert_called_once_with(
+            snapshot_only=True,
+            include_non_operational=False,
+        )
         ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
     def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
@@ -2506,6 +2619,7 @@ class TestInventoryCacheSync:
                             "manufacturer": None,
                             "role": None,
                             "status": None,
+                            "primary_ip": None,
                             "platform": None,
                             "serial": None,
                             "tenant": None,
@@ -2524,6 +2638,7 @@ class TestInventoryCacheSync:
         assert devices[0]["manufacturer"] == ""
         assert devices[0]["role"] == ""
         assert devices[0]["status"] == ""
+        assert devices[0]["primary_ip"] == ""
         assert devices[0]["platform"] == ""
         assert devices[0]["serial"] == ""
         assert devices[0]["tenant"] == ""
@@ -2569,6 +2684,7 @@ class TestInventoryCacheSync:
                             "manufacturer": "Cisco",
                             "role": "Core Router",
                             "status": "offline",
+                            "primary_ip": "192.0.2.1/32",
                             "platform": "IOS-XE",
                             "serial": "SN123",
                             "tenant": "",
@@ -2789,7 +2905,9 @@ class TestInventoryCacheSync:
             for query, _ in fake_conn.queries
         )
         assert any("DELETE FROM librenms_device_status" in query for query, _ in fake_conn.queries)
-        cache_delete.assert_called_once_with("alert-board-data:v2")
+        cache_delete.assert_any_call("alert-board-data:v3")
+        cache_delete.assert_any_call("alert-board-data:v3:include-non-operational")
+        assert cache_delete.call_count == 2
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
         conn = flask_app._get_db_conn()
@@ -2832,6 +2950,7 @@ class TestInventoryCacheSync:
                             "manufacturer": "Cisco",
                             "role": "Core Router",
                             "status": "active",
+                            "primary_ip": "198.51.100.1/32",
                             "platform": "IOS-XE",
                             "serial": "SN-STALE",
                             "tenant": "",

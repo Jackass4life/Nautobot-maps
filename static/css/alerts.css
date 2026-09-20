@@ -185,6 +185,14 @@ html, body {
   margin-bottom: 12px;
 }
 
+.tree-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
 .quick-filter-btn {
   border: 1px solid var(--color-border);
   border-radius: 999px;
@@ -203,6 +211,23 @@ html, body {
   min-height: 34px;
   padding: 0 12px;
   cursor: pointer;
+}
+
+.toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.toggle-chip input {
+  margin: 0;
 }
 
 .quick-filter-btn.active {
@@ -275,6 +300,18 @@ tbody tr:hover {
   font-weight: 700;
 }
 
+.site-name-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.site-summary {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
 .site-address {
   margin-top: 4px;
   color: var(--color-text-muted);
@@ -301,6 +338,27 @@ tbody tr:hover {
 
 .down-device-name {
   font-weight: 600;
+}
+
+.site-toggle-btn,
+.site-toggle-spacer {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  margin-top: 1px;
+}
+
+.site-toggle-btn {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0;
+}
+
+.site-toggle-spacer {
+  display: inline-block;
 }
 
 .alert-badge {
