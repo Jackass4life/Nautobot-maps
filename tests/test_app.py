@@ -2233,6 +2233,17 @@ class TestAlertLifecycleTracking:
             conn.execute(
                 "CREATE INDEX idx_legacy_location_cache_name ON nautobot_location_cache(name)"
             )
+            conn.execute(
+                """
+                CREATE TRIGGER trg_legacy_location_cache_insert
+                AFTER INSERT ON nautobot_location_cache
+                BEGIN
+                    UPDATE nautobot_location_cache
+                    SET url = NEW.url
+                    WHERE location_id = NEW.location_id;
+                END
+                """
+            )
             conn.commit()
             conn.close()
 
@@ -2247,6 +2258,17 @@ class TestAlertLifecycleTracking:
             assert time_zone_column["notnull"] == 0
             indexes = conn.execute("PRAGMA index_list(nautobot_location_cache)").fetchall()
             assert any(idx["name"] == "idx_legacy_location_cache_name" for idx in indexes)
+            trigger = conn.execute(
+                """
+                SELECT sql
+                FROM sqlite_master
+                WHERE type = 'trigger'
+                  AND name = 'trg_legacy_location_cache_insert'
+                """
+            ).fetchone()
+            assert trigger is not None
+            assert "ON nautobot_location_cache" in trigger["sql"]
+            assert "nautobot_location_cache_legacy" not in trigger["sql"]
 
             conn.execute(
                 """

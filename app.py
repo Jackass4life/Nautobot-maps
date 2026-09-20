@@ -718,7 +718,11 @@ def _init_db() -> None:
                     )
                     conn.execute("DROP TABLE nautobot_location_cache_legacy")
                     for schema_object in legacy_schema_objects:
-                        conn.execute(schema_object["sql"])
+                        schema_sql = schema_object["sql"].replace(
+                            "nautobot_location_cache_legacy",
+                            "nautobot_location_cache",
+                        )
+                        conn.execute(schema_sql)
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
