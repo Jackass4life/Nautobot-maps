@@ -674,7 +674,21 @@ def _init_db() -> None:
                 )
             if _is_postgres():
                 conn.execute(
-                    "ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL"
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'nautobot_location_cache'
+                              AND column_name = 'time_zone'
+                              AND is_nullable = 'NO'
+                        ) THEN
+                            ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL;
+                        END IF;
+                    END;
+                    $$;
+                    """
                 )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"

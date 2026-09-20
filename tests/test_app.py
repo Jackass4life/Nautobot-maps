@@ -2178,6 +2178,7 @@ class TestAlertLifecycleTracking:
             i
             for i, query in enumerate(fake_conn.queries)
             if "ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL" in query
+            and "information_schema.columns" in query
         )
         assert lock_idx < table_idx
         assert alter_idx > table_idx
