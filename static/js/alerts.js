@@ -24,6 +24,7 @@ let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
 let historyTriggerBtn = null;
 let expandedSiteIds = new Set();
+let allSitesExpanded = false;
 
 function escHtml(str) {
   if (str == null) return "";
@@ -198,7 +199,8 @@ function compareText(left, right) {
 }
 
 function isSiteExpanded(item) {
-  return expandedSiteIds.has(String(item.id || ""));
+  const siteId = String(item.id || "");
+  return allSitesExpanded ? !expandedSiteIds.has(siteId) : expandedSiteIds.has(siteId);
 }
 
 function renderDownDeviceRows(item, isExpanded) {
@@ -398,6 +400,7 @@ if (toggleNonOperational) {
   toggleNonOperational.addEventListener("change", () => {
     if (refreshBtn.disabled) return;
     expandedSiteIds = new Set();
+    allSitesExpanded = false;
     loadAlertBoard(false);
   });
 }
@@ -405,6 +408,7 @@ if (toggleNonOperational) {
 if (collapseAllSitesBtn) {
   collapseAllSitesBtn.addEventListener("click", () => {
     if (refreshBtn.disabled) return;
+    allSitesExpanded = false;
     expandedSiteIds = new Set();
     applyFilters(latestPayload);
   });
@@ -413,7 +417,8 @@ if (collapseAllSitesBtn) {
 if (expandAllSitesBtn) {
   expandAllSitesBtn.addEventListener("click", () => {
     if (refreshBtn.disabled) return;
-    expandedSiteIds = new Set(getFilteredAlerts().map((item) => String(item.id || "")).filter(Boolean));
+    allSitesExpanded = true;
+    expandedSiteIds = new Set();
     applyFilters(latestPayload);
   });
 }
@@ -459,7 +464,13 @@ alertsTableBody.addEventListener("click", async (event) => {
   if (toggleBtn) {
     const siteId = String(toggleBtn.dataset.siteId || "");
     if (!siteId) return;
-    if (expandedSiteIds.has(siteId)) {
+    if (allSitesExpanded) {
+      if (expandedSiteIds.has(siteId)) {
+        expandedSiteIds.delete(siteId);
+      } else {
+        expandedSiteIds.add(siteId);
+      }
+    } else if (expandedSiteIds.has(siteId)) {
       expandedSiteIds.delete(siteId);
     } else {
       expandedSiteIds.add(siteId);
