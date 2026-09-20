@@ -668,7 +668,7 @@ def _init_db() -> None:
                 if time_zone_column and time_zone_column["notnull"]:
                     legacy_schema_objects = conn.execute(
                         """
-                        SELECT type, sql
+                        SELECT type, name, sql
                         FROM sqlite_master
                         WHERE tbl_name = 'nautobot_location_cache'
                           AND type IN ('index', 'trigger')
@@ -718,6 +718,8 @@ def _init_db() -> None:
                     )
                     conn.execute("DROP TABLE nautobot_location_cache_legacy")
                     for schema_object in legacy_schema_objects:
+                        object_type = schema_object["type"].upper()
+                        conn.execute(f"DROP {object_type} IF EXISTS {schema_object['name']}")
                         schema_sql = schema_object["sql"].replace(
                             "nautobot_location_cache_legacy",
                             "nautobot_location_cache",
