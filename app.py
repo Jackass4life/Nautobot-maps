@@ -657,6 +657,57 @@ def _init_db() -> None:
                     )
                     """
                 )
+                time_zone_column = next(
+                    (
+                        column
+                        for column in conn.execute("PRAGMA table_info(nautobot_location_cache)").fetchall()
+                        if column["name"] == "time_zone"
+                    ),
+                    None,
+                )
+                if time_zone_column and time_zone_column["notnull"]:
+                    conn.execute("ALTER TABLE nautobot_location_cache RENAME TO nautobot_location_cache_legacy")
+                    conn.execute(
+                        """
+                        CREATE TABLE nautobot_location_cache (
+                            location_id       TEXT PRIMARY KEY,
+                            name              TEXT NOT NULL DEFAULT '',
+                            slug              TEXT NOT NULL DEFAULT '',
+                            status            TEXT NOT NULL DEFAULT '',
+                            location_type     TEXT NOT NULL DEFAULT '',
+                            parent            TEXT NOT NULL DEFAULT '',
+                            latitude          REAL,
+                            longitude         REAL,
+                            description       TEXT NOT NULL DEFAULT '',
+                            physical_address  TEXT NOT NULL DEFAULT '',
+                            facility          TEXT NOT NULL DEFAULT '',
+                            tenant            TEXT NOT NULL DEFAULT '',
+                            tenant_id         TEXT NOT NULL DEFAULT '',
+                            tenant_group      TEXT NOT NULL DEFAULT '',
+                            asn               INTEGER,
+                            time_zone         TEXT,
+                            tags_json         TEXT NOT NULL DEFAULT '[]',
+                            url               TEXT NOT NULL DEFAULT '',
+                            last_updated      TEXT,
+                            synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+                        )
+                        """
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO nautobot_location_cache (
+                            location_id, name, slug, status, location_type, parent, latitude, longitude,
+                            description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
+                            time_zone, tags_json, url, last_updated, synced_at
+                        )
+                        SELECT
+                            location_id, name, slug, status, location_type, parent, latitude, longitude,
+                            description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
+                            time_zone, tags_json, url, last_updated, synced_at
+                        FROM nautobot_location_cache_legacy
+                        """
+                    )
+                    conn.execute("DROP TABLE nautobot_location_cache_legacy")
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )

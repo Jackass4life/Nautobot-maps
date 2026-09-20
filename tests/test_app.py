@@ -2185,6 +2185,86 @@ class TestAlertLifecycleTracking:
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 1
 
+    def test_init_db_sqlite_migrates_legacy_time_zone_not_null(self):
+        import os
+        import sqlite3
+        import tempfile
+
+        original_db = flask_app.NAUTOBOT_MAPS_DB
+        original_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+
+        try:
+            conn = sqlite3.connect(tmp.name)
+            conn.execute(
+                """
+                CREATE TABLE nautobot_location_cache (
+                    location_id       TEXT PRIMARY KEY,
+                    name              TEXT NOT NULL DEFAULT '',
+                    slug              TEXT NOT NULL DEFAULT '',
+                    status            TEXT NOT NULL DEFAULT '',
+                    location_type     TEXT NOT NULL DEFAULT '',
+                    parent            TEXT NOT NULL DEFAULT '',
+                    latitude          REAL,
+                    longitude         REAL,
+                    description       TEXT NOT NULL DEFAULT '',
+                    physical_address  TEXT NOT NULL DEFAULT '',
+                    facility          TEXT NOT NULL DEFAULT '',
+                    tenant            TEXT NOT NULL DEFAULT '',
+                    tenant_id         TEXT NOT NULL DEFAULT '',
+                    tenant_group      TEXT NOT NULL DEFAULT '',
+                    asn               INTEGER,
+                    time_zone         TEXT NOT NULL DEFAULT '',
+                    tags_json         TEXT NOT NULL DEFAULT '[]',
+                    url               TEXT NOT NULL DEFAULT '',
+                    last_updated      TEXT,
+                    synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO nautobot_location_cache (location_id, time_zone)
+                VALUES (?, ?)
+                """,
+                ("loc-legacy", "UTC"),
+            )
+            conn.commit()
+            conn.close()
+
+            flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
+            flask_app.NAUTOBOT_MAPS_DB = tmp.name
+            flask_app._init_db()
+
+            conn = sqlite3.connect(tmp.name)
+            conn.row_factory = sqlite3.Row
+            columns = conn.execute("PRAGMA table_info(nautobot_location_cache)").fetchall()
+            time_zone_column = next(col for col in columns if col["name"] == "time_zone")
+            assert time_zone_column["notnull"] == 0
+
+            conn.execute(
+                """
+                INSERT INTO nautobot_location_cache (location_id, time_zone)
+                VALUES (?, ?)
+                """,
+                ("loc-null", None),
+            )
+            conn.commit()
+            inserted = conn.execute(
+                "SELECT time_zone FROM nautobot_location_cache WHERE location_id = ?",
+                ("loc-null",),
+            ).fetchone()
+            assert inserted["time_zone"] is None
+            conn.close()
+        finally:
+            flask_app.NAUTOBOT_MAPS_DB = original_db
+            flask_app.NAUTOBOT_MAPS_DATABASE_URL = original_db_url
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+
     def test_get_db_conn_postgres_enables_autocommit(self):
         sentinel_conn = object()
         sentinel_row_factory = object()
