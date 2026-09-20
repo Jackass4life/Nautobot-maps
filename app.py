@@ -1367,6 +1367,10 @@ def _nautobot_snapshot_initialized(conn=None) -> bool:
     )
 
 
+def _coalesce_cache_text(value):
+    return "" if value is None else value
+
+
 def _write_cached_locations(conn, locations: list) -> None:
     placeholders = _sql_placeholders(19).split(",")
     for loc in locations:
@@ -1399,24 +1403,24 @@ def _write_cached_locations(conn, locations: list) -> None:
                 synced_at = excluded.synced_at
             """,
             (
-                loc.get("id", ""),
-                loc.get("name", ""),
-                loc.get("slug", ""),
-                loc.get("status", ""),
-                loc.get("location_type", ""),
-                loc.get("parent", ""),
+                _coalesce_cache_text(loc.get("id", "")),
+                _coalesce_cache_text(loc.get("name", "")),
+                _coalesce_cache_text(loc.get("slug", "")),
+                _coalesce_cache_text(loc.get("status", "")),
+                _coalesce_cache_text(loc.get("location_type", "")),
+                _coalesce_cache_text(loc.get("parent", "")),
                 loc.get("latitude"),
                 loc.get("longitude"),
-                loc.get("description", ""),
-                loc.get("physical_address", ""),
-                loc.get("facility", ""),
-                loc.get("tenant", ""),
-                loc.get("tenant_id", ""),
-                loc.get("tenant_group", ""),
+                _coalesce_cache_text(loc.get("description", "")),
+                _coalesce_cache_text(loc.get("physical_address", "")),
+                _coalesce_cache_text(loc.get("facility", "")),
+                _coalesce_cache_text(loc.get("tenant", "")),
+                _coalesce_cache_text(loc.get("tenant_id", "")),
+                _coalesce_cache_text(loc.get("tenant_group", "")),
                 loc.get("asn"),
-                loc.get("time_zone", ""),
+                _coalesce_cache_text(loc.get("time_zone", "")),
                 json.dumps(loc.get("tags", []), separators=(",", ":"), sort_keys=True),
-                loc.get("url", ""),
+                _coalesce_cache_text(loc.get("url", "")),
                 loc.get("last_updated") or None,
             ),
         )
@@ -1445,16 +1449,16 @@ def _write_cached_devices(conn, devices: list) -> None:
                 synced_at = excluded.synced_at
             """,
             (
-                device.get("id", ""),
-                device.get("location_id", ""),
-                device.get("name", ""),
-                device.get("device_type", ""),
-                device.get("manufacturer", ""),
-                device.get("role", ""),
-                device.get("status", ""),
-                device.get("platform", ""),
-                device.get("serial", ""),
-                device.get("tenant", ""),
+                _coalesce_cache_text(device.get("id", "")),
+                _coalesce_cache_text(device.get("location_id", "")),
+                _coalesce_cache_text(device.get("name", "")),
+                _coalesce_cache_text(device.get("device_type", "")),
+                _coalesce_cache_text(device.get("manufacturer", "")),
+                _coalesce_cache_text(device.get("role", "")),
+                _coalesce_cache_text(device.get("status", "")),
+                _coalesce_cache_text(device.get("platform", "")),
+                _coalesce_cache_text(device.get("serial", "")),
+                _coalesce_cache_text(device.get("tenant", "")),
                 device.get("last_updated") or None,
             ),
         )
