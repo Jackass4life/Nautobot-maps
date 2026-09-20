@@ -55,15 +55,13 @@ Nautobot Maps. Your job is to review every change and ensure:
 
 Before approving, confirm:
 
-```
-[ ] Core behavior is correct and covered by tests
-[ ] Design keeps boundaries clear (API, persistence, caching, UI responsibilities)
-[ ] New logic is easy to read and reason about
-[ ] User-visible messages and states are understandable
-[ ] Error paths are handled without confusing users
-[ ] No new security risks or secret leaks introduced
-[ ] Documentation is updated when behavior changes
-```
+- [ ] Core behavior is correct and covered by tests
+- [ ] Design keeps boundaries clear (API, persistence, caching, UI responsibilities)
+- [ ] New logic is easy to read and reason about
+- [ ] User-visible messages and states are understandable
+- [ ] Error paths are handled without confusing users
+- [ ] No new security risks or secret leaks introduced
+- [ ] Documentation is updated when behavior changes
 
 ---
 
