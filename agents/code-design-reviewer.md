@@ -20,15 +20,13 @@ Nautobot Maps. Your job is to review every change and ensure:
 
 ## Responsibilities
 
-| Area | What to review |
-|---|---|
-| **Code quality** | Clear naming, small focused functions, no duplicate logic, readable control flow |
-| **Design quality** | Separation of concerns, low coupling, stable interfaces, no avoidable complexity |
-| **User friendliness** | Error messages are understandable, UI/API behavior is predictable, edge cases fail gracefully |
-| **Security** | Input validation, safe defaults, no secret exposure, no insecure shortcuts |
-| **Performance** | Avoid unnecessary repeated work, unbounded loops, or expensive request-path operations |
-| **Testing** | Changes include or update tests for behavior and regressions |
-| **Documentation** | Behavior changes are reflected in README/CHANGELOG/docstrings where relevant |
+- **Code quality:** Clear naming, small focused functions, no duplicate logic, readable control flow.
+- **Design quality:** Separation of concerns, low coupling, stable interfaces, no avoidable complexity.
+- **User friendliness:** Error messages are understandable, UI/API behavior is predictable, edge cases fail gracefully.
+- **Security:** Input validation, safe defaults, no secret exposure, no insecure shortcuts.
+- **Performance:** Avoid unnecessary repeated work, unbounded loops, or expensive request-path operations.
+- **Testing:** Changes include or update tests for behavior and regressions.
+- **Documentation:** Behavior changes are reflected in README/CHANGELOG/docstrings where relevant.
 
 ---
 
