@@ -9,25 +9,40 @@
 
 :root {
   --sidebar-width: 320px;
-  --color-primary: #0d6efd;
-  --color-primary-dark: #0b5ed7;
-  --color-bg: #1e1e2e;
-  --color-surface: #2a2a3e;
-  --color-surface-2: #32324a;
-  --color-text: #e0e0f0;
-  --color-text-muted: #9090b0;
-  --color-border: #44445a;
-  --color-success: #2ecc71;
-  --color-warning: #f0a500;
-  --color-danger: #e74c3c;
-  --radius: 8px;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --color-primary: #2563eb;
+  --color-primary-dark: #1e4fc8;
+  --color-bg: #f3f6fb;
+  --color-surface: #ffffff;
+  --color-surface-2: #f6f8fc;
+  --color-text: #1f2937;
+  --color-text-muted: #64748b;
+  --color-border: #d6dce8;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --radius: 10px;
+  --shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="dark"] {
+  --color-primary: #5b8fff;
+  --color-primary-dark: #4678e6;
+  --color-bg: #0f172a;
+  --color-surface: #111c34;
+  --color-surface-2: #1c2740;
+  --color-text: #e2e8f0;
+  --color-text-muted: #9fb0cb;
+  --color-border: #2a3a59;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 html, body {
   height: 100%;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: var(--color-bg);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-bg) 90%, #9db9ff 10%), var(--color-bg));
   color: var(--color-text);
 }
 
@@ -49,6 +64,7 @@ html, body {
   flex-direction: column;
   overflow-y: auto;
   box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
 }
 
 #map {
@@ -58,6 +74,7 @@ html, body {
   right: 0;
   bottom: 0;
   z-index: 1;
+  border-left: 1px solid var(--color-border);
 }
 
 /* =========================================================
@@ -66,7 +83,7 @@ html, body {
 #sidebar-header {
   padding: 20px 16px 14px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg);
+  background: color-mix(in oklab, var(--color-surface) 88%, var(--color-primary) 12%);
 }
 
 #sidebar-header h1 {
@@ -77,6 +94,18 @@ html, body {
   gap: 8px;
   color: var(--color-primary);
   letter-spacing: 0.02em;
+}
+
+.theme-toggle {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 #sidebar-header h1 svg {
@@ -247,6 +276,54 @@ html, body {
   gap: 8px;
 }
 
+.quick-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.quick-filter-btn,
+.secondary-btn {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.quick-filter-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.advanced-filters {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--color-surface-2) 92%, var(--color-primary) 8%);
+  padding: 4px 8px;
+}
+
+.advanced-filters summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.advanced-filter-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.secondary-btn {
+  width: fit-content;
+}
+
 #filter-section label {
   display: block;
   font-size: 0.78rem;
@@ -339,7 +416,7 @@ html, body {
   left: var(--sidebar-width);
   right: 0;
   bottom: 0;
-  background: rgba(30, 30, 46, 0.85);
+  background: color-mix(in oklab, var(--color-bg) 75%, #000 25%);
   z-index: 2000;
   display: flex;
   flex-direction: column;
@@ -396,6 +473,10 @@ html, body {
   border: 1px solid var(--color-border) !important;
   border-radius: var(--radius) !important;
   box-shadow: var(--shadow) !important;
+}
+
+.leaflet-container {
+  background: color-mix(in oklab, var(--color-bg) 80%, #c4d7ff 20%);
 }
 
 .leaflet-popup-content {

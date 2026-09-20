@@ -5,25 +5,39 @@
 }
 
 :root {
-  --color-primary: #0d6efd;
-  --color-bg: #1e1e2e;
-  --color-surface: #2a2a3e;
-  --color-surface-2: #32324a;
-  --color-text: #e0e0f0;
-  --color-text-muted: #9090b0;
-  --color-border: #44445a;
-  --color-danger: #e74c3c;
-  --color-warning: #f0a500;
-  --color-success: #2ecc71;
+  --color-primary: #2563eb;
+  --color-bg: #f3f6fb;
+  --color-surface: #ffffff;
+  --color-surface-2: #f6f8fc;
+  --color-text: #1f2937;
+  --color-text-muted: #64748b;
+  --color-border: #d6dce8;
+  --color-danger: #dc2626;
+  --color-warning: #d97706;
+  --color-success: #16a34a;
   --radius: 10px;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  --shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="dark"] {
+  --color-primary: #5b8fff;
+  --color-bg: #0f172a;
+  --color-surface: #111c34;
+  --color-surface-2: #1c2740;
+  --color-text: #e2e8f0;
+  --color-text-muted: #9fb0cb;
+  --color-border: #2a3a59;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-success: #22c55e;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 html, body {
   margin: 0;
   min-height: 100%;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: var(--color-bg);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-bg) 90%, #9db9ff 10%), var(--color-bg));
   color: var(--color-text);
 }
 
@@ -45,6 +59,20 @@ html, body {
   max-width: 1400px;
   margin: 0 auto;
   padding: 24px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  text-decoration: none;
+  background: var(--color-surface-2);
+  cursor: pointer;
 }
 
 .page-header {
@@ -144,6 +172,29 @@ html, body {
   margin-bottom: 16px;
 }
 
+.quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.quick-filter-btn {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  min-height: 34px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.quick-filter-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
 .toolbar-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -210,7 +261,7 @@ tbody tr:hover {
 
 .site-address {
   margin-top: 4px;
-  color: #cfd3f9;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
 }
 
@@ -250,17 +301,17 @@ tbody tr:hover {
 
 .alert-critical {
   background: rgba(231, 76, 60, 0.18);
-  color: #ffb2ab;
+  color: var(--color-danger);
 }
 
 .alert-medium {
   background: rgba(240, 165, 0, 0.18);
-  color: #ffd486;
+  color: var(--color-warning);
 }
 
 .alert-ok {
   background: rgba(46, 204, 113, 0.18);
-  color: #9df3bc;
+  color: var(--color-success);
 }
 
 .reason-cell {
@@ -278,12 +329,12 @@ tbody tr:hover {
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(13, 110, 253, 0.2);
-  color: #b7d0ff;
+  color: var(--color-primary);
   font-size: 0.75rem;
 }
 
 .map-link {
-  color: #9dc2ff;
+  color: var(--color-primary);
   text-decoration: none;
 }
 

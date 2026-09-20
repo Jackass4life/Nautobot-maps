@@ -722,6 +722,8 @@ const filterType = document.getElementById("filter-type");
 const filterParent = document.getElementById("filter-parent");
 const filterTenant = document.getElementById("filter-tenant");
 const filterTenantGroup = document.getElementById("filter-tenant-group");
+const quickStatusButtons = Array.from(document.querySelectorAll("[data-quick-status]"));
+const themeToggle = document.getElementById("theme-toggle");
 
 function populateFilters(locations) {
   const statuses = [...new Set(locations.map((l) => l.status).filter(Boolean))].sort();
@@ -772,6 +774,7 @@ function populateFilters(locations) {
 }
 
 function applyFilters() {
+  syncQuickStatusButtons();
   const statusVal = filterStatus.value;
   const typeVal = filterType.value;
   const parentVal = filterParent.value;
@@ -807,6 +810,56 @@ document.getElementById("clear-filters").addEventListener("click", () => {
   filterTenantGroup.value = "";
   applyFilters();
 });
+
+function syncQuickStatusButtons() {
+  quickStatusButtons.forEach((button) => {
+    button.classList.toggle("active", (button.dataset.quickStatus || "") === filterStatus.value);
+  });
+}
+
+quickStatusButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    filterStatus.value = button.dataset.quickStatus || "";
+    applyFilters();
+  });
+});
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  if (themeToggle) {
+    const darkEnabled = theme === "dark";
+    themeToggle.textContent = darkEnabled ? "Light mode" : "Dark mode";
+    themeToggle.setAttribute("aria-pressed", darkEnabled ? "true" : "false");
+  }
+}
+
+function initTheme() {
+  let theme = "light";
+  try {
+    const stored = localStorage.getItem("nautobot-maps-theme");
+    if (stored === "dark" || stored === "light") {
+      theme = stored;
+    } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      theme = "dark";
+    }
+  } catch (_err) {
+    theme = "light";
+  }
+  applyTheme(theme);
+}
+
+if (themeToggle) {
+  initTheme();
+  themeToggle.addEventListener("click", () => {
+    const nextTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    applyTheme(nextTheme);
+    try {
+      localStorage.setItem("nautobot-maps-theme", nextTheme);
+    } catch (_err) {
+      // noop
+    }
+  });
+}
 
 const searchInput = document.getElementById("search-input");
 const searchBtn = document.getElementById("search-btn");

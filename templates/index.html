@@ -11,7 +11,7 @@
   <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/map.css') }}" />
 </head>
-<body>
+<body class="map-page">
   <!-- Sidebar / search panel -->
   <div id="sidebar">
     <div id="sidebar-header">
@@ -29,6 +29,7 @@
       <div class="app-nav">
         <a class="app-nav-link active" href="/">Map</a>
         <a class="app-nav-link" href="/alerts">Alert Board</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
       </div>
     </div>
 
@@ -56,22 +57,32 @@
 
     <div id="filter-section">
       <label>Filter locations</label>
+      <div class="quick-filters" aria-label="Quick filters">
+        <button class="quick-filter-btn active" type="button" data-quick-status="">All</button>
+        <button class="quick-filter-btn" type="button" data-quick-status="active">Active</button>
+        <button class="quick-filter-btn" type="button" data-quick-status="planned">Planned</button>
+      </div>
       <select id="filter-status" title="Filter by status">
         <option value="">All statuses</option>
       </select>
       <select id="filter-type" title="Filter by location type">
         <option value="">All types</option>
       </select>
-      <select id="filter-parent" title="Filter by parent location">
-        <option value="">All parents</option>
-      </select>
-      <select id="filter-tenant" title="Filter by tenant">
-        <option value="">All tenants</option>
-      </select>
-      <select id="filter-tenant-group" title="Filter by tenant group">
-        <option value="">All tenant groups</option>
-      </select>
-      <button id="clear-filters" title="Clear all filters" style="margin-top:8px;padding:6px 12px;background:#6c757d;color:white;border:none;border-radius:4px;cursor:pointer;font-size:0.85rem">
+      <details class="advanced-filters">
+        <summary>Advanced filters</summary>
+        <div class="advanced-filter-grid">
+          <select id="filter-parent" title="Filter by parent location">
+            <option value="">All parents</option>
+          </select>
+          <select id="filter-tenant" title="Filter by tenant">
+            <option value="">All tenants</option>
+          </select>
+          <select id="filter-tenant-group" title="Filter by tenant group">
+            <option value="">All tenant groups</option>
+          </select>
+        </div>
+      </details>
+      <button id="clear-filters" class="secondary-btn" title="Clear all filters">
         Clear Filters
       </button>
     </div>
