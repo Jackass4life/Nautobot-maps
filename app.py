@@ -434,7 +434,7 @@ def _init_db() -> None:
                         tenant_id         TEXT NOT NULL DEFAULT '',
                         tenant_group      TEXT NOT NULL DEFAULT '',
                         asn               BIGINT,
-                        time_zone         TEXT NOT NULL DEFAULT '',
+                        time_zone         TEXT,
                         tags_json         TEXT NOT NULL DEFAULT '[]',
                         url               TEXT NOT NULL DEFAULT '',
                         last_updated      TIMESTAMPTZ,
@@ -570,7 +570,7 @@ def _init_db() -> None:
                         tenant_id         TEXT NOT NULL DEFAULT '',
                         tenant_group      TEXT NOT NULL DEFAULT '',
                         asn               INTEGER,
-                        time_zone         TEXT NOT NULL DEFAULT '',
+                        time_zone         TEXT,
                         tags_json         TEXT NOT NULL DEFAULT '[]',
                         url               TEXT NOT NULL DEFAULT '',
                         last_updated      TEXT,
@@ -657,6 +657,74 @@ def _init_db() -> None:
                     )
                     """
                 )
+                time_zone_column = next(
+                    (
+                        column
+                        for column in conn.execute("PRAGMA table_info(nautobot_location_cache)").fetchall()
+                        if column["name"] == "time_zone"
+                    ),
+                    None,
+                )
+                if time_zone_column and time_zone_column["notnull"]:
+                    legacy_schema_objects = conn.execute(
+                        """
+                        SELECT type, name, sql
+                        FROM sqlite_master
+                        WHERE tbl_name = 'nautobot_location_cache'
+                          AND type IN ('index', 'trigger')
+                          AND sql IS NOT NULL
+                        """
+                    ).fetchall()
+                    conn.execute("ALTER TABLE nautobot_location_cache RENAME TO nautobot_location_cache_legacy")
+                    conn.execute(
+                        """
+                        CREATE TABLE nautobot_location_cache (
+                            location_id       TEXT PRIMARY KEY,
+                            name              TEXT NOT NULL DEFAULT '',
+                            slug              TEXT NOT NULL DEFAULT '',
+                            status            TEXT NOT NULL DEFAULT '',
+                            location_type     TEXT NOT NULL DEFAULT '',
+                            parent            TEXT NOT NULL DEFAULT '',
+                            latitude          REAL,
+                            longitude         REAL,
+                            description       TEXT NOT NULL DEFAULT '',
+                            physical_address  TEXT NOT NULL DEFAULT '',
+                            facility          TEXT NOT NULL DEFAULT '',
+                            tenant            TEXT NOT NULL DEFAULT '',
+                            tenant_id         TEXT NOT NULL DEFAULT '',
+                            tenant_group      TEXT NOT NULL DEFAULT '',
+                            asn               INTEGER,
+                            time_zone         TEXT,
+                            tags_json         TEXT NOT NULL DEFAULT '[]',
+                            url               TEXT NOT NULL DEFAULT '',
+                            last_updated      TEXT,
+                            synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+                        )
+                        """
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO nautobot_location_cache (
+                            location_id, name, slug, status, location_type, parent, latitude, longitude,
+                            description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
+                            time_zone, tags_json, url, last_updated, synced_at
+                        )
+                        SELECT
+                            location_id, name, slug, status, location_type, parent, latitude, longitude,
+                            description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
+                            time_zone, tags_json, url, last_updated, synced_at
+                        FROM nautobot_location_cache_legacy
+                        """
+                    )
+                    conn.execute("DROP TABLE nautobot_location_cache_legacy")
+                    for schema_object in legacy_schema_objects:
+                        object_type = schema_object["type"].upper()
+                        conn.execute(f"DROP {object_type} IF EXISTS {schema_object['name']}")
+                        schema_sql = schema_object["sql"].replace(
+                            "nautobot_location_cache_legacy",
+                            "nautobot_location_cache",
+                        )
+                        conn.execute(schema_sql)
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
@@ -673,6 +741,23 @@ def _init_db() -> None:
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
                 )
             if _is_postgres():
+                conn.execute(
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'nautobot_location_cache'
+                              AND column_name = 'time_zone'
+                              AND is_nullable = 'NO'
+                        ) THEN
+                            ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL;
+                        END IF;
+                    END;
+                    $$;
+                    """
+                )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
@@ -1418,7 +1503,7 @@ def _write_cached_locations(conn, locations: list) -> None:
                 _coalesce_cache_text(loc.get("tenant_id", "")),
                 _coalesce_cache_text(loc.get("tenant_group", "")),
                 loc.get("asn"),
-                _coalesce_cache_text(loc.get("time_zone", "")),
+                loc.get("time_zone"),
                 json.dumps(loc.get("tags", []), separators=(",", ":"), sort_keys=True),
                 _coalesce_cache_text(loc.get("url", "")),
                 loc.get("last_updated") or None,

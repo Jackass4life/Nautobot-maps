@@ -2174,9 +2174,123 @@ class TestAlertLifecycleTracking:
             for i, query in enumerate(fake_conn.queries)
             if "CREATE TABLE IF NOT EXISTS device_criticality_override" in query
         )
+        alter_idx = next(
+            i
+            for i, query in enumerate(fake_conn.queries)
+            if "ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL" in query
+            and "information_schema.columns" in query
+        )
         assert lock_idx < table_idx
+        assert alter_idx > table_idx
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 1
+
+    def test_init_db_sqlite_migrates_legacy_time_zone_not_null(self):
+        import os
+        import sqlite3
+        import tempfile
+
+        original_db = flask_app.NAUTOBOT_MAPS_DB
+        original_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+
+        try:
+            conn = sqlite3.connect(tmp.name)
+            conn.execute(
+                """
+                CREATE TABLE nautobot_location_cache (
+                    location_id       TEXT PRIMARY KEY,
+                    name              TEXT NOT NULL DEFAULT '',
+                    slug              TEXT NOT NULL DEFAULT '',
+                    status            TEXT NOT NULL DEFAULT '',
+                    location_type     TEXT NOT NULL DEFAULT '',
+                    parent            TEXT NOT NULL DEFAULT '',
+                    latitude          REAL,
+                    longitude         REAL,
+                    description       TEXT NOT NULL DEFAULT '',
+                    physical_address  TEXT NOT NULL DEFAULT '',
+                    facility          TEXT NOT NULL DEFAULT '',
+                    tenant            TEXT NOT NULL DEFAULT '',
+                    tenant_id         TEXT NOT NULL DEFAULT '',
+                    tenant_group      TEXT NOT NULL DEFAULT '',
+                    asn               INTEGER,
+                    time_zone         TEXT NOT NULL DEFAULT '',
+                    tags_json         TEXT NOT NULL DEFAULT '[]',
+                    url               TEXT NOT NULL DEFAULT '',
+                    last_updated      TEXT,
+                    synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO nautobot_location_cache (location_id, time_zone)
+                VALUES (?, ?)
+                """,
+                ("loc-legacy", "UTC"),
+            )
+            conn.execute(
+                "CREATE INDEX idx_legacy_location_cache_name ON nautobot_location_cache(name)"
+            )
+            conn.execute(
+                """
+                CREATE TRIGGER trg_legacy_location_cache_insert
+                AFTER INSERT ON nautobot_location_cache
+                BEGIN
+                    UPDATE nautobot_location_cache
+                    SET url = NEW.url
+                    WHERE location_id = NEW.location_id;
+                END
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
+            flask_app.NAUTOBOT_MAPS_DB = tmp.name
+            flask_app._init_db()
+
+            conn = sqlite3.connect(tmp.name)
+            conn.row_factory = sqlite3.Row
+            columns = conn.execute("PRAGMA table_info(nautobot_location_cache)").fetchall()
+            time_zone_column = next(col for col in columns if col["name"] == "time_zone")
+            assert time_zone_column["notnull"] == 0
+            indexes = conn.execute("PRAGMA index_list(nautobot_location_cache)").fetchall()
+            assert any(idx["name"] == "idx_legacy_location_cache_name" for idx in indexes)
+            trigger = conn.execute(
+                """
+                SELECT sql
+                FROM sqlite_master
+                WHERE type = 'trigger'
+                  AND name = 'trg_legacy_location_cache_insert'
+                """
+            ).fetchone()
+            assert trigger is not None
+            assert "ON nautobot_location_cache" in trigger["sql"]
+            assert "nautobot_location_cache_legacy" not in trigger["sql"]
+
+            conn.execute(
+                """
+                INSERT INTO nautobot_location_cache (location_id, time_zone)
+                VALUES (?, ?)
+                """,
+                ("loc-null", None),
+            )
+            conn.commit()
+            inserted = conn.execute(
+                "SELECT time_zone FROM nautobot_location_cache WHERE location_id = ?",
+                ("loc-null",),
+            ).fetchone()
+            assert inserted["time_zone"] is None
+            conn.close()
+        finally:
+            flask_app.NAUTOBOT_MAPS_DB = original_db
+            flask_app.NAUTOBOT_MAPS_DATABASE_URL = original_db_url
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
 
     def test_get_db_conn_postgres_enables_autocommit(self):
         sentinel_conn = object()
@@ -2294,6 +2408,44 @@ class TestInventoryCacheSync:
             }
         ]
 
+    def test_cached_locations_allow_null_time_zone(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Cached Site",
+                            "slug": "cached-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": None,
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+        finally:
+            conn.close()
+
+        locations = flask_app._read_cached_locations(include_without_coordinates=True)
+        location = next(item for item in locations if item["id"] == "loc-1")
+
+        assert location["time_zone"] is None
+
     def test_write_cached_locations_coalesces_explicit_none_text_fields(self):
         conn = flask_app._get_db_conn()
         try:
@@ -2336,7 +2488,7 @@ class TestInventoryCacheSync:
         assert locations[0]["tenant"] == ""
         assert locations[0]["tenant_id"] == ""
         assert locations[0]["tenant_group"] == ""
-        assert locations[0]["time_zone"] == ""
+        assert locations[0]["time_zone"] is None
         assert locations[0]["url"] == ""
 
     def test_write_cached_devices_coalesces_explicit_none_text_fields(self):
