@@ -2039,20 +2039,41 @@ class TestAlertLifecycleTracking:
             def fetchall(self):
                 return self._rows
 
-        class _FakeConn:
-            def __init__(self):
-                self.queries = []
+        class _FakeTransaction:
+            def __init__(self, conn):
+                self.conn = conn
 
             def __enter__(self):
-                return self
+                self.conn.transaction_entries += 1
+                return self.conn
 
             def __exit__(self, exc_type, exc, tb):
                 return False
 
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+                self.closed = False
+                self.connection_context_entries = 0
+                self.transaction_entries = 0
+
+            def __enter__(self):
+                self.connection_context_entries += 1
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self.closed = True
+                return False
+
             def close(self):
-                return None
+                self.closed = True
+
+            def transaction(self):
+                return _FakeTransaction(self)
 
             def execute(self, query, params=()):
+                if self.closed:
+                    raise RuntimeError("the connection is closed")
                 self.queries.append((query, params))
                 if "SELECT id, status, down_started_at, alert_level, alert_reason" in query:
                     return _FakeResult([])
@@ -2099,24 +2120,47 @@ class TestAlertLifecycleTracking:
         assert "AND down_started_at <=" in update_sql
         event_params = [params for query, params in fake_conn.queries if "INSERT INTO alert_events" in query]
         assert any(param == checked_at for params in event_params for param in params)
+        assert fake_conn.connection_context_entries == 0
+        assert fake_conn.transaction_entries == 1
 
     def test_init_db_postgres_uses_advisory_lock_before_ddl(self):
-        class _FakeConn:
-            def __init__(self):
-                self.queries = []
+        class _FakeTransaction:
+            def __init__(self, conn):
+                self.conn = conn
 
             def __enter__(self):
-                return self
+                self.conn.transaction_entries += 1
+                return self.conn
 
             def __exit__(self, exc_type, exc, tb):
                 return False
 
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+                self.closed = False
+                self.connection_context_entries = 0
+                self.transaction_entries = 0
+
+            def __enter__(self):
+                self.connection_context_entries += 1
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self.closed = True
+                return False
+
             def execute(self, query, params=()):
+                if self.closed:
+                    raise RuntimeError("the connection is closed")
                 self.queries.append(query)
                 return None
 
             def close(self):
-                return None
+                self.closed = True
+
+            def transaction(self):
+                return _FakeTransaction(self)
 
         fake_conn = _FakeConn()
         with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
@@ -2131,6 +2175,29 @@ class TestAlertLifecycleTracking:
             if "CREATE TABLE IF NOT EXISTS device_criticality_override" in query
         )
         assert lock_idx < table_idx
+        assert fake_conn.connection_context_entries == 0
+        assert fake_conn.transaction_entries == 1
+
+    def test_get_db_conn_postgres_enables_autocommit(self):
+        sentinel_conn = object()
+        sentinel_row_factory = object()
+        with patch.object(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"), patch.object(
+            flask_app, "NAUTOBOT_MAPS_DB", ""
+        ), patch.object(
+            flask_app, "psycopg"
+        ) as psycopg_module, patch.object(
+            flask_app, "dict_row", sentinel_row_factory
+        ):
+            psycopg_module.connect.return_value = sentinel_conn
+
+            conn = flask_app._get_db_conn()
+
+        assert conn is sentinel_conn
+        psycopg_module.connect.assert_called_once_with(
+            "postgresql://db.example/maps",
+            row_factory=sentinel_row_factory,
+            autocommit=True,
+        )
 
 
 class TestInventoryCacheSync:
@@ -2406,6 +2473,89 @@ class TestInventoryCacheSync:
         assert device_calls[0] == {}
         assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
+
+    def test_sync_librenms_inventory_keeps_postgres_connection_open_between_transactions(self):
+        class _FakeResult:
+            def __init__(self, rows=None, rowcount=0):
+                self._rows = rows or []
+                self.rowcount = rowcount
+
+            def fetchone(self):
+                return self._rows[0] if self._rows else None
+
+        class _FakeTransaction:
+            def __init__(self, conn):
+                self.conn = conn
+                self.nested = False
+
+            def __enter__(self):
+                self.conn.transaction_entries += 1
+                self.nested = self.conn.transaction_open
+                self.conn.transaction_open = True
+                return self.conn
+
+            def __exit__(self, exc_type, exc, tb):
+                if exc_type is None and not self.nested:
+                    self.conn.commits += 1
+                self.conn.transaction_open = self.nested
+                return False
+
+        class _FakeConn:
+            def __init__(self, autocommit=True):
+                self.autocommit = autocommit
+                self.closed = False
+                self.connection_context_entries = 0
+                self.transaction_entries = 0
+                self.transaction_open = False
+                self.commits = 0
+                self.queries = []
+
+            def __enter__(self):
+                self.connection_context_entries += 1
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self.closed = True
+                return False
+
+            def transaction(self):
+                return _FakeTransaction(self)
+
+            def execute(self, query, params=()):
+                if self.closed:
+                    raise RuntimeError("the connection is closed")
+                if not self.autocommit and query.lstrip().upper().startswith("SELECT"):
+                    self.transaction_open = True
+                self.queries.append((query, params))
+                if "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query:
+                    return _FakeResult([{"device_count": 1}])
+                return _FakeResult()
+
+            def close(self):
+                self.closed = True
+
+        fake_conn = _FakeConn(autocommit=True)
+        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
+            flask_app, "LIBRENMS_URL", "https://librenms.example.com"
+        ), patch.object(
+            flask_app, "LIBRENMS_API_TOKEN", "token"
+        ), patch.object(
+            flask_app, "_get_sync_state", return_value={"last_successful_sync": None}
+        ), patch.object(
+            flask_app, "_fetch_librenms_inventory",
+            return_value=[{"device_id": 1, "hostname": "router01", "status": 1, "status_reason": ""}],
+        ), patch.object(flask_app.cache, "delete") as cache_delete:
+            flask_app._sync_librenms_inventory()
+
+        assert fake_conn.connection_context_entries == 0
+        assert fake_conn.transaction_entries == 2
+        assert fake_conn.commits == 2
+        assert any(
+            "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query
+            for query, _ in fake_conn.queries
+        )
+        assert any("DELETE FROM librenms_device_status" in query for query, _ in fake_conn.queries)
+        cache_delete.assert_called_once_with("alert-board-data:v2")
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
         conn = flask_app._get_db_conn()
