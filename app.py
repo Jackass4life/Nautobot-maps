@@ -767,6 +767,7 @@ def _init_db() -> None:
                     conn.execute(
                         "ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT ''"
                     )
+                    _mark_nautobot_inventory_sync_pending(conn)
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
@@ -783,6 +784,18 @@ def _init_db() -> None:
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
                 )
             if _is_postgres():
+                primary_ip_column_missing = _row_to_dict(
+                    conn.execute(
+                        """
+                        SELECT NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'nautobot_device_cache'
+                              AND column_name = 'primary_ip'
+                        ) AS missing
+                        """
+                    ).fetchone()
+                ).get("missing")
                 conn.execute(
                     """
                     DO $$
@@ -808,6 +821,8 @@ def _init_db() -> None:
                     $$;
                     """
                 )
+                if primary_ip_column_missing:
+                    _mark_nautobot_inventory_sync_pending(conn)
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
@@ -1486,6 +1501,22 @@ def _get_sync_state(source: str, conn=None) -> dict:
             conn.close()
 
 
+def _mark_nautobot_inventory_sync_pending(conn) -> None:
+    marker = _sql_placeholders(1)
+    conn.execute(
+        f"""
+        UPDATE inventory_sync_state
+        SET last_started_at = NULL,
+            last_completed_at = NULL,
+            last_successful_sync = NULL,
+            status = 'pending',
+            error_message = ''
+        WHERE source = {marker}
+        """,
+        ("nautobot_inventory",),
+    )
+
+
 def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
     state = _get_sync_state(source, conn=conn)
     if not state:
@@ -1903,6 +1934,11 @@ def _device_has_primary_ip(device: dict) -> bool:
     return bool((device.get("primary_ip") or "").strip())
 
 
+def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
+    state = _get_sync_state("nautobot_inventory", conn=conn)
+    return bool(state and state.get("status") == "pending")
+
+
 def _location_is_excluded_from_alert_board(location: dict) -> bool:
     name = (location.get("name") or "").strip().lower()
     status = (location.get("status") or "").strip().lower()
@@ -2267,10 +2303,11 @@ def _get_location_devices_and_alert(
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location."""
     loaded_from_cache = False
+    use_normalized_devices = devices_already_normalized
     if devices_data is None:
         devices_data = _read_cached_devices(location_id)
         if devices_data:
-            devices_already_normalized = True
+            use_normalized_devices = True
             loaded_from_cache = True
             if not snapshot_only:
                 _ensure_inventory_snapshot()
@@ -2278,12 +2315,10 @@ def _get_location_devices_and_alert(
             _ensure_inventory_snapshot()
             devices_data = _read_cached_devices(location_id)
             if devices_data:
-                devices_already_normalized = True
+                use_normalized_devices = True
                 loaded_from_cache = True
             else:
                 devices_data = _fetch_live_location_devices(location_id)
-    elif devices_already_normalized:
-        loaded_from_cache = True
 
     devices = (
         [
@@ -2301,10 +2336,12 @@ def _get_location_devices_and_alert(
             }
             for d in devices_data
         ]
-        if devices_already_normalized and loaded_from_cache
+        if use_normalized_devices
         else _normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
-    if require_primary_ip:
+    if require_primary_ip and not (
+        loaded_from_cache and _nautobot_inventory_primary_ip_backfill_pending()
+    ):
         devices = [device for device in devices if _device_has_primary_ip(device)]
 
     enriched = _enrich_with_librenms(
