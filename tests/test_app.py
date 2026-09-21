@@ -1804,7 +1804,7 @@ class TestConfigurableCriticalKeywords:
         assert result["level"] != "critical"
 
     def test_compute_alert_level_no_devices(self):
-        assert flask_app.compute_alert_level([]) == {"level": "ok", "reason": ""}
+        assert flask_app.compute_alert_level([]) == {"level": "no_data", "reason": ""}
 
     def test_compute_alert_level_medium_threshold(self):
         """More than 25% of devices down → medium alert."""
@@ -1817,8 +1817,8 @@ class TestConfigurableCriticalKeywords:
         result = flask_app.compute_alert_level(devices)
         assert result["level"] == "medium"
 
-    def test_compute_alert_level_below_threshold_stays_ok(self):
-        """At or below 25% down and no core device down keeps the legacy OK level."""
+    def test_compute_alert_level_below_threshold_is_low(self):
+        """At or below 25% down and no core device down is a low alert."""
         devices = [
             {"id": "d1", "name": "sw01", "role": "Switch", "status": "offline"},
             {"id": "d2", "name": "sw02", "role": "Switch", "status": "active"},
@@ -1826,9 +1826,9 @@ class TestConfigurableCriticalKeywords:
             {"id": "d4", "name": "sw04", "role": "Switch", "status": "active"},
             {"id": "d5", "name": "sw05", "role": "Switch", "status": "active"},
         ]
-        # 1/5 = 20% ≤ 25% → ok
+        # 1/5 = 20% ≤ 25% → low
         result = flask_app.compute_alert_level(devices)
-        assert result == {"level": "ok", "reason": ""}
+        assert result == {"level": "low", "reason": ""}
 
 
 # ---------------------------------------------------------------------------

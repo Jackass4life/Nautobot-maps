@@ -2208,7 +2208,7 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
     "office").
     """
     if not devices:
-        return {"level": "ok", "reason": ""}
+        return {"level": "no_data", "reason": ""}
 
     core_keywords = _get_critical_keywords(location_type)
 
@@ -2275,6 +2275,8 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
             "level": "medium",
             "reason": f"{down_count}/{total} devices offline ({pct}%)",
         }
+    if down_count > 0:
+        return {"level": "low", "reason": ""}
     return {"level": "ok", "reason": ""}
 
 

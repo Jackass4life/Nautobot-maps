@@ -279,7 +279,9 @@ function renderTableRows(alerts, payload) {
     const address = formatLocationAddress(item);
     const isExpanded = isSiteExpanded(item);
     const downCount = item.down_device_count || 0;
-    const toggleButton = downCount
+    const hasDeviceRows = (Array.isArray(item.devices) && item.devices.length)
+      || (Array.isArray(item.down_devices) && item.down_devices.length);
+    const toggleButton = hasDeviceRows
       ? `<button class="site-toggle-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="${isExpanded ? "Collapse" : "Expand"} ${escHtml(item.name || item.id || "site")}">${isExpanded ? "▾" : "▸"}</button>`
       : '<span class="site-toggle-spacer" aria-hidden="true"></span>';
     const siteMeta = [
