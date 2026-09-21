@@ -951,6 +951,7 @@ class TestAlertBoard:
                  "_get_location_devices_and_alert",
                  return_value=([], {"level": "ok", "reason": ""}),
              ), \
+             patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=False), \
              patch.object(flask_app, "_get_db_conn", side_effect=fake_get_db_conn), \
              patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert), \
              patch.object(flask_app, "_get_alert_context_for_site", side_effect=fake_context):
@@ -2005,6 +2006,20 @@ class TestAlertLifecycleTracking:
             content_type="application/json",
         )
         assert created.status_code == 200
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
 
         with patch.object(flask_app, "get_locations", return_value=[{
             "id": "loc-1",
@@ -2317,6 +2332,13 @@ class TestAlertLifecycleTracking:
         assert fake_conn.transaction_entries == 1
 
     def test_init_db_postgres_uses_advisory_lock_before_ddl(self):
+        class _FakeResult:
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
         class _FakeTransaction:
             def __init__(self, conn):
                 self.conn = conn
@@ -2347,7 +2369,9 @@ class TestAlertLifecycleTracking:
                 if self.closed:
                     raise RuntimeError("the connection is closed")
                 self.queries.append(query)
-                return None
+                if "SELECT NOT EXISTS (" in query:
+                    return _FakeResult({"missing": False})
+                return _FakeResult()
 
             def close(self):
                 self.closed = True
