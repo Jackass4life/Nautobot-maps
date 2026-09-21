@@ -9,12 +9,34 @@ Run with:
     python -m pytest tests/test_integration.py -v
 """
 import os
+import pathlib
+import shutil
+import subprocess
 import threading
 import pytest
 from werkzeug.serving import make_server
 
 import mock_nautobot  # provided via tests/conftest.py path injection
 import app as flask_app
+
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _extract_js_function(source, name):
+    token = f"function {name}("
+    start = source.index(token)
+    brace_start = source.index("{", start)
+    depth = 0
+    for idx in range(brace_start, len(source)):
+        char = source[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:idx + 1]
+    raise ValueError(f"Could not extract function {name}")
 
 
 # ---------------------------------------------------------------------------
@@ -91,20 +113,142 @@ class TestMapUI:
         resp = integration_client.get("/static/js/map.js")
         assert resp.status_code == 200
 
-    def test_js_contains_hover_to_preview(self, integration_client):
-        """The JS bundle includes the hover-to-preview / click-to-lock logic."""
+    def test_js_contains_location_inspector_flow(self, integration_client):
+        """The JS bundle includes the persistent location inspector logic."""
         resp = integration_client.get("/static/js/map.js")
         js = resp.data.decode()
-        assert "bindHoverAndLock" in js
-        assert "mouseover" in js
-        assert "mouseout" in js
-        assert "popup-locked" in js
+        assert "openInspectorForLocation" in js
+        assert "loadLocationDetail" in js
+        assert "detailCache" in js
+        assert "inspector-device-search" in js
+        assert "Loading alert status…" in js
 
-    def test_css_contains_locked_indicator(self, integration_client):
-        """The CSS defines a visual indicator for locked popups."""
+    def test_css_contains_inspector_layout(self, integration_client):
+        """The CSS defines the responsive inspector drawer/bottom-sheet layout."""
         resp = integration_client.get("/static/css/map.css")
         css = resp.data.decode()
-        assert ".popup-locked" in css
+        assert "#location-inspector" in css
+        assert ".inspector-site-tab" in css
+        assert ".inspector-device-search" in css
+        assert "bottom: 0;" in css
+
+    def test_js_runtime_helpers_cover_resize_and_keyboard_access(self):
+        """Inspector helper runtime behavior should defer resize and wire keyboard activation."""
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the inspector runtime helper regression test")
+        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        schedule_map_resize = _extract_js_function(js, "scheduleMapResize")
+        wire_marker_accessibility = _extract_js_function(js, "wireMarkerAccessibility")
+
+        script = f"""
+{schedule_map_resize}
+{wire_marker_accessibility}
+const rafCallbacks = [];
+global.window = {{
+  requestAnimationFrame(callback) {{
+    rafCallbacks.push(callback);
+    return rafCallbacks.length;
+  }},
+}};
+let invalidations = 0;
+const initialMap = {{
+  invalidateSize() {{
+    invalidations += 1;
+  }},
+  getContainer() {{
+    return {{ id: "map" }};
+  }},
+}};
+let map = initialMap;
+scheduleMapResize();
+if (rafCallbacks.length !== 1) {{
+  throw new Error(`expected one queued animation frame, got ${{rafCallbacks.length}}`);
+}}
+map = {{
+  invalidateSize() {{
+    throw new Error("resize should use the originally scheduled map instance");
+  }},
+  getContainer() {{
+    return {{ id: "replacement-map" }};
+  }},
+}};
+rafCallbacks.shift()();
+if (invalidations !== 0 || rafCallbacks.length !== 1) {{
+  throw new Error("resize should wait for the second animation frame");
+}}
+rafCallbacks.shift()();
+if (invalidations !== 1) {{
+  throw new Error(`expected one resize invalidation, got ${{invalidations}}`);
+}}
+map = {{
+  invalidateSize() {{
+    throw new Error("guard should skip resize when no container is available");
+  }},
+  getContainer() {{
+    return null;
+  }},
+}};
+scheduleMapResize();
+if (rafCallbacks.length !== 0) {{
+  throw new Error("guarded resize should not queue animation frames");
+}}
+const listeners = {{}};
+const element = {{
+  dataset: {{}},
+  setAttribute(name, value) {{
+    this[name] = value;
+  }},
+  addEventListener(name, handler) {{
+    listeners[name] = handler;
+  }},
+}};
+let activations = 0;
+const marker = {{
+  on(name, handler) {{
+    if (name === "add") this._onAdd = handler;
+  }},
+  getElement() {{
+    return element;
+  }},
+}};
+wireMarkerAccessibility(marker, "Zoom to 3 clustered locations", () => {{
+  activations += 1;
+}});
+marker._onAdd();
+if (element.role !== "button" || element.tabindex !== "0" || element["aria-label"] !== "Zoom to 3 clustered locations") {{
+  throw new Error("marker accessibility attributes were not applied");
+}}
+let prevented = false;
+listeners.keydown({{
+  key: "Enter",
+  preventDefault() {{
+    prevented = true;
+  }},
+}});
+listeners.keydown({{
+  key: " ",
+  preventDefault() {{
+    prevented = true;
+  }},
+}});
+listeners.keydown({{
+  key: "Escape",
+  preventDefault() {{
+    throw new Error("non-activation keys should not be prevented");
+  }},
+}});
+if (!prevented || activations !== 2) {{
+  throw new Error(`expected two keyboard activations, got ${{activations}}`);
+}}
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
 # ---------------------------------------------------------------------------
