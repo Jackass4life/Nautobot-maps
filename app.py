@@ -1792,7 +1792,8 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         current_dt = _parse_iso_datetime(watermark)
         if observed_dt and (current_dt is None or observed_dt > current_dt):
             watermark = _next_watermark(observed_last_updated)
-        watermark = _max_iso_datetime_value(watermark, started_at) or started_at
+        if full_reconcile:
+            watermark = _max_iso_datetime_value(watermark, started_at) or started_at
         with _db_transaction(conn):
             if full_reconcile:
                 conn.execute("DELETE FROM nautobot_device_cache")
