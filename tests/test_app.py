@@ -1327,6 +1327,17 @@ class TestIndex:
         resp = client.get("/")
         assert b'id="filter-tenant-group"' in resp.data
 
+    def test_index_contains_location_inspector(self, client):
+        resp = client.get("/")
+        assert b'id="location-inspector"' in resp.data
+        assert b'id="inspector-content"' in resp.data
+        assert b'id="inspector-site-tabs"' in resp.data
+
+    def test_index_contains_inspector_actions(self, client):
+        resp = client.get("/")
+        assert b'id="inspector-pin"' in resp.data
+        assert b'id="inspector-close"' in resp.data
+
     def test_index_contains_nautobot_url(self, client):
         saved = flask_app.NAUTOBOT_URL
         flask_app.NAUTOBOT_URL = "https://nautobot.example.com"

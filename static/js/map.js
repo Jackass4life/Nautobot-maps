@@ -59,16 +59,8 @@ function badgeClass(status) {
 }
 
 // ---------------------------------------------------------------------------
-// Popup helpers
+// Location inspector helpers
 // ---------------------------------------------------------------------------
-function popupRow(label, value) {
-  if (!value && value !== 0) return "";
-  return `<div class="popup-row">
-    <span class="popup-label">${label}</span>
-    <span class="popup-value">${escHtml(String(value))}</span>
-  </div>`;
-}
-
 function escHtml(str) {
   if (str == null) return "";
   return String(str)
@@ -78,126 +70,79 @@ function escHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
-function buildBasicPopup(loc) {
-  return `<div class="popup-content">${buildLocationBody(loc)}</div>`;
+function inspectorRow(label, value) {
+  if (!value && value !== 0) return "";
+  return `<div class="inspector-row">
+    <span class="inspector-row-label">${escHtml(label)}</span>
+    <span class="inspector-row-value">${escHtml(String(value))}</span>
+  </div>`;
 }
 
-function renderDetail(locId, detail) {
-  const container = document.getElementById(`popup-detail-${locId}`);
-  if (!container) return;
+function normalizeDeviceHealth(status) {
+  const value = (status || "").trim().toLowerCase();
+  if (["active", "online", "up"].includes(value)) return "active";
+  if (value.includes("offline") || ["down", "failed", "inactive"].includes(value)) return "down";
+  return "unknown";
+}
 
-  let html = "";
+function deviceFilterLabel(filterKey) {
+  if (filterKey === "active") return "Active";
+  if (filterKey === "down") return "Down";
+  if (filterKey === "unknown") return "Unknown";
+  return "All";
+}
 
-  // NOC alert banner
-  if (detail.alert && detail.alert.level !== "ok") {
-    const lvl = detail.alert.level;
-    const icon = lvl === "critical" ? "🔴" : "🟠";
-    html += `<div class="alert-banner alert-${escHtml(lvl)}">
-      <span class="alert-banner-icon">${icon}</span>
-      <div>
-        <div class="alert-banner-level">${escHtml(lvl.toUpperCase())}</div>
-        ${detail.alert.reason ? `<div class="alert-banner-reason">${escHtml(detail.alert.reason)}</div>` : ""}
-      </div>
-    </div>`;
+function buildNautobotLink(loc) {
+  if (!window.NAUTOBOT_URL || !loc.id) return "";
+  return `<a class="nautobot-link" href="${escHtml(window.NAUTOBOT_URL)}/dcim/locations/${encodeURIComponent(loc.id)}/" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`;
+}
+
+function buildAlertBanner(alert) {
+  if (!alert || alert.level === "ok") return "";
+  const lvl = alert.level === "critical" ? "critical" : "medium";
+  const icon = lvl === "critical" ? "🔴" : "🟠";
+  return `<div class="alert-banner alert-${escHtml(lvl)}">
+    <span class="alert-banner-icon">${icon}</span>
+    <div>
+      <div class="alert-banner-level">${escHtml(lvl.toUpperCase())}</div>
+      ${alert.reason ? `<div class="alert-banner-reason">${escHtml(alert.reason)}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function buildHealthSummary(devices) {
+  const counts = { total: devices.length, active: 0, down: 0, unknown: 0 };
+  for (const device of devices) {
+    counts[normalizeDeviceHealth(device.status)] += 1;
   }
+  return counts;
+}
 
-  // ASNs
-  if (detail.asns && detail.asns.length > 0) {
-    const tags = detail.asns
-      .map(
-        (a) =>
-          `<span class="asn-tag" title="${escHtml(a.description || "")}">AS${a.asn}${a.tenant ? " · " + escHtml(a.tenant) : ""}</span>`
-      )
-      .join("");
-    html += `<div class="popup-section">
-      <div class="popup-section-title">ASN(s)</div>
-      ${tags}
-    </div>`;
-  }
-
-  // Devices / network equipment – show ALL devices with status filter tabs
-  if (detail.devices && detail.devices.length > 0) {
-    const statuses = [...new Set(detail.devices.map((d) => d.status).filter(Boolean))].sort();
-
-    // Only show filter tabs when multiple statuses exist
-    const filterBtns = statuses.length > 1
-      ? ['All', ...statuses]
-          .map(
-            (s) =>
-              `<button class="device-filter-btn${s === 'All' ? ' active' : ''}" data-filter="${escHtml(s)}" aria-pressed="${s === 'All' ? 'true' : 'false'}">${escHtml(s)}</button>`
-          )
-          .join("")
-      : "";
-
-    const items = detail.devices
-      .map((d) => {
-        const st = (d.status || "").toLowerCase();
-        const stClass =
-          st === "active" ? "device-status-active"
-          : st === "offline" ? "device-status-offline"
-          : "device-status-other";
-        const hwMeta = [d.manufacturer, d.device_type].filter(Boolean).map(escHtml).join(" · ");
-        return `<li data-device-status="${escHtml(d.status || "")}">
-          <div class="device-header">
-            <span class="device-name">${escHtml(d.name)}</span>
-            ${d.status ? `<span class="device-status-badge ${stClass}">${escHtml(d.status)}</span>` : ""}
-          </div>
-          ${hwMeta ? `<div class="device-meta">${hwMeta}</div>` : ""}
-          ${d.role ? `<div class="device-meta device-role">Role: ${escHtml(d.role)}</div>` : ""}
-          ${d.platform ? `<div class="device-meta device-platform">Software: ${escHtml(d.platform)}</div>` : ""}
-          ${d.serial ? `<div class="device-meta device-serial">Serial: ${escHtml(d.serial)}</div>` : ""}
-          ${d.tenant ? `<div class="device-meta">Tenant: ${escHtml(d.tenant)}</div>` : ""}
-        </li>`;
-      })
-      .join("");
-
-    html += `<div class="popup-section">
-      <div class="popup-section-title">Network Equipment (${detail.devices.length})</div>
-      ${filterBtns ? `<div class="device-filters" id="device-filters-${escHtml(locId)}">${filterBtns}</div>` : ""}
-      <ul class="device-list device-list-scroll" id="device-list-${escHtml(locId)}" tabindex="0" aria-label="Device list">${items}</ul>
-    </div>`;
-  }
-
-  if (!html) {
-    html = `<div class="popup-section" style="color:var(--color-text-muted);font-size:.8rem">No equipment or ASN data found.</div>`;
-  }
-
-  container.className = "";
-  container.innerHTML = html;
-
-  // Wire up status filter buttons using event delegation
-  const filtersEl = document.getElementById(`device-filters-${locId}`);
-  if (filtersEl) {
-    filtersEl.addEventListener("click", (e) => {
-      const btn = e.target.closest(".device-filter-btn");
-      if (!btn) return;
-      filtersEl.querySelectorAll(".device-filter-btn").forEach((b) => {
-        b.classList.remove("active");
-        b.setAttribute("aria-pressed", "false");
-      });
-      btn.classList.add("active");
-      btn.setAttribute("aria-pressed", "true");
-      const filterVal = btn.dataset.filter;
-      const list = document.getElementById(`device-list-${locId}`);
-      if (list) {
-        list.querySelectorAll("li").forEach((li) => {
-          li.style.display =
-            filterVal === "All" || li.dataset.deviceStatus === filterVal ? "" : "none";
-        });
-      }
-    });
-  }
+function filterDevicesForInspector(devices, filterKey, searchTerm) {
+  const query = (searchTerm || "").trim().toLowerCase();
+  return devices.filter((device) => {
+    if (filterKey !== "all" && normalizeDeviceHealth(device.status) !== filterKey) return false;
+    if (!query) return true;
+    const haystack = [
+      device.name,
+      device.status,
+      device.manufacturer,
+      device.device_type,
+      device.role,
+      device.platform,
+      device.serial,
+      device.tenant,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Co-located site helpers (multiple sites at the same coordinates)
 // ---------------------------------------------------------------------------
-
-/**
- * Group locations by their coordinates, rounding to 4 decimal places
- * (~11 m precision) so that sites at the same physical address are grouped
- * even when their coordinates differ by trivial floating-point noise.
- */
 function groupByCoords(locations) {
   const groups = {};
   for (const loc of locations) {
@@ -209,10 +154,6 @@ function groupByCoords(locations) {
   return groups;
 }
 
-/**
- * Create a marker icon with a small count badge for co-located sites.
- * Pass alertLevel ("critical" | "medium") to colour the pin accordingly.
- */
 function makeStackedIcon(count, alertLevel) {
   const color = alertLevel === "critical" ? "#e74c3c"
               : alertLevel === "medium"   ? "#ff8c00"
@@ -233,135 +174,407 @@ function makeStackedIcon(count, alertLevel) {
   });
 }
 
-/**
- * Build popup content for a single location (reused by both solo and
- * co-located popups).
- */
-function buildLocationBody(loc) {
+// ---------------------------------------------------------------------------
+// Fetch locations and render markers
+// ---------------------------------------------------------------------------
+const markerLayer = L.layerGroup().addTo(map);
+let allLocations = [];
+const CLUSTER_THRESHOLD = 100;
+const initialLocationId = new URLSearchParams(window.location.search).get("location_id");
+let initialLocationOpened = false;
+
+const markerByLocId = {};
+const clusterByLocId = {};
+const colocGroupByLocId = {};
+const locationAlerts = {};
+const detailCache = new Map();
+const inFlightDetailRequests = new Map();
+
+const inspector = document.getElementById("location-inspector");
+const inspectorBackdrop = document.getElementById("inspector-backdrop");
+const inspectorTitle = document.getElementById("inspector-title");
+const inspectorSubtitle = document.getElementById("inspector-subtitle");
+const inspectorTabs = document.getElementById("inspector-site-tabs");
+const inspectorState = document.getElementById("inspector-state");
+const inspectorContent = document.getElementById("inspector-content");
+const inspectorCloseButton = document.getElementById("inspector-close");
+const inspectorPinButton = document.getElementById("inspector-pin");
+
+let selectedLocationId = null;
+let selectedGroupIds = [];
+let selectedDetail = null;
+let inspectorError = "";
+let inspectorLoading = false;
+let inspectorPinned = true;
+let inspectorDeviceFilter = "all";
+let inspectorDeviceSearch = "";
+let lastInspectorTrigger = null;
+let suppressNextMapClickClose = false;
+
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
+function syncInspectorBackdrop() {
+  const shouldShow = isInspectorOpen() && isMobileViewport();
+  inspectorBackdrop.classList.toggle("hidden", !shouldShow);
+}
+
+function isInspectorOpen() {
+  return !inspector.classList.contains("hidden");
+}
+
+function setInspectorPinned(pinned) {
+  inspectorPinned = Boolean(pinned);
+  inspectorPinButton.textContent = inspectorPinned ? "Pinned" : "Unpinned";
+  inspectorPinButton.setAttribute("aria-pressed", inspectorPinned ? "true" : "false");
+  inspectorPinButton.setAttribute(
+    "aria-label",
+    inspectorPinned ? "Unpin location inspector" : "Pin location inspector"
+  );
+}
+
+function updateLocationQuery(locId) {
+  const params = new URLSearchParams(window.location.search);
+  if (locId) params.set("location_id", locId);
+  else params.delete("location_id");
+  const query = params.toString();
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, "", nextUrl);
+}
+
+function getLocationById(locId) {
+  return allLocations.find((loc) => loc.id === locId) || null;
+}
+
+function getSelectedGroupLocations() {
+  const ids = selectedGroupIds.length > 0 ? selectedGroupIds : selectedLocationId ? [selectedLocationId] : [];
+  return ids
+    .map((locId) => getLocationById(locId))
+    .filter(Boolean);
+}
+
+function renderInspectorTabs() {
+  const groupLocations = getSelectedGroupLocations();
+  if (groupLocations.length <= 1) {
+    inspectorTabs.classList.add("hidden");
+    inspectorTabs.innerHTML = "";
+    return;
+  }
+  inspectorTabs.classList.remove("hidden");
+  inspectorTabs.innerHTML = groupLocations
+    .map(
+      (loc) =>
+        `<button class="inspector-site-tab${loc.id === selectedLocationId ? " active" : ""}" type="button" data-location-id="${escHtml(loc.id)}" aria-pressed="${loc.id === selectedLocationId ? "true" : "false"}">${escHtml(loc.name)}</button>`
+    )
+    .join("");
+}
+
+function renderInspectorContent() {
+  if (!selectedLocationId) {
+    inspectorTitle.textContent = "Select a location";
+    inspectorSubtitle.textContent = "Click a map marker to inspect a location.";
+    inspectorTabs.classList.add("hidden");
+    inspectorTabs.innerHTML = "";
+    inspectorState.classList.remove("hidden");
+    inspectorState.textContent = "Select a location from the map to view health, metadata, equipment, and ASN details.";
+    inspectorContent.classList.add("hidden");
+    inspectorContent.innerHTML = "";
+    return;
+  }
+
+  const loc = getLocationById(selectedLocationId);
+  if (!loc) return;
+
   const statusLabel = loc.status || "Unknown";
-  const tagsValue =
-    Array.isArray(loc.tags) && loc.tags.length > 0 ? loc.tags.join(", ") : "";
-  const rows = [
-    popupRow("Type", loc.location_type),
-    popupRow("Parent", loc.parent),
-    popupRow("Facility", loc.facility),
-    popupRow("Tenant", loc.tenant),
-    popupRow("ASN", loc.asn),
-    popupRow("Address", loc.physical_address),
-    popupRow("Time zone", loc.time_zone),
-    popupRow("Tags", tagsValue),
-    popupRow("Description", loc.description),
-  ]
-    .filter(Boolean)
-    .join("");
+  const primaryRows = [
+    inspectorRow("Type", loc.location_type),
+    inspectorRow("Parent", loc.parent),
+    inspectorRow("Address", loc.physical_address),
+    inspectorRow("Country", loc.country),
+    inspectorRow("Facility", loc.facility),
+  ].filter(Boolean).join("");
+  const secondaryRows = [
+    inspectorRow("Tenant", loc.tenant),
+    inspectorRow("Tenant group", loc.tenant_group),
+    inspectorRow("ASN", loc.asn),
+    inspectorRow("Time zone", loc.time_zone),
+    inspectorRow("Tags", Array.isArray(loc.tags) && loc.tags.length > 0 ? loc.tags.join(", ") : ""),
+    inspectorRow("Description", loc.description),
+  ].filter(Boolean).join("");
 
-  const nautobotLink =
-    window.NAUTOBOT_URL && loc.id
-      ? `<a class="nautobot-link" href="${escHtml(window.NAUTOBOT_URL)}/dcim/locations/${encodeURIComponent(loc.id)}/" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`
-      : "";
+  const devices = selectedDetail && Array.isArray(selectedDetail.devices) ? selectedDetail.devices : [];
+  const summary = buildHealthSummary(devices);
+  const filteredDevices = filterDevicesForInspector(devices, inspectorDeviceFilter, inspectorDeviceSearch);
+  const asns = selectedDetail && Array.isArray(selectedDetail.asns) ? selectedDetail.asns : [];
+  const alert = selectedDetail && selectedDetail.alert ? selectedDetail.alert : null;
+  const alertPill = alert && alert.level !== "ok"
+    ? `<span class="inspector-pill inspector-alert-pill${alert.level === "critical" ? " is-critical" : ""}">${escHtml(alert.level.toUpperCase())}</span>`
+    : `<span class="inspector-pill">${escHtml("Healthy")}</span>`;
 
-  return `<div class="popup-title">${escHtml(loc.name)}</div>
-    <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
-    ${nautobotLink}
-    ${rows ? `<div class="popup-section">${rows}</div>` : ""}
-    <div id="popup-detail-${escHtml(loc.id)}" class="popup-loading">
-      Loading equipment &amp; ASN details…
+  inspectorTitle.textContent = loc.name || "Location inspector";
+  inspectorSubtitle.textContent = selectedGroupIds.length > 1
+    ? `${selectedGroupIds.length} co-located locations`
+    : "Location details";
+  renderInspectorTabs();
+  inspectorState.classList.add("hidden");
+  inspectorContent.classList.remove("hidden");
+
+  let equipmentBody = "";
+  if (inspectorLoading) {
+    equipmentBody = `<div class="inspector-empty">Loading equipment and health details…</div>`;
+  } else if (inspectorError) {
+    equipmentBody = `<div class="inspector-error">
+      Could not load details: ${escHtml(inspectorError)}
+      <div class="inspector-actions-row">
+        <button id="inspector-retry" class="secondary-btn" type="button">Retry</button>
+      </div>
     </div>`;
-}
-
-/**
- * Build the tabbed popup for multiple co-located sites.
- */
-let _colocPopupId = 0;
-function buildColocatedPopup(locations) {
-  const popupId = `coloc-popup-${++_colocPopupId}`;
-  const tabs = locations
-    .map(
-      (loc, i) =>
-        `<button class="coloc-tab${i === 0 ? " active" : ""}"
-                data-coloc-index="${i}"
-                data-loc-id="${escHtml(loc.id)}"
-                aria-pressed="${i === 0 ? "true" : "false"}">${escHtml(loc.name)}</button>`
-    )
-    .join("");
-
-  const panels = locations
-    .map(
-      (loc, i) =>
-        `<div class="coloc-panel${i === 0 ? " active" : ""}" data-coloc-index="${i}">
-          ${buildLocationBody(loc)}
-        </div>`
-    )
-    .join("");
-
-  return `<div class="popup-content coloc-popup" id="${popupId}">
-    <div class="coloc-sticky-header">
-      <div class="coloc-header">${locations.length} sites at this location</div>
-      <div class="coloc-tabs">${tabs}</div>
+  } else if (devices.length === 0) {
+    equipmentBody = `<div class="inspector-empty">No equipment found for this location.</div>`;
+  } else {
+    const filterCounts = {
+      all: devices.length,
+      active: summary.active,
+      down: summary.down,
+      unknown: summary.unknown,
+    };
+    const filterButtons = ["all", "active", "down", "unknown"]
+      .map(
+        (key) =>
+          `<button class="device-filter-btn${inspectorDeviceFilter === key ? " active" : ""}" type="button" data-device-filter="${key}" aria-pressed="${inspectorDeviceFilter === key ? "true" : "false"}">${deviceFilterLabel(key)} (${filterCounts[key] || 0})</button>`
+      )
+      .join("");
+    const cards = filteredDevices
+      .map((device) => {
+        const health = normalizeDeviceHealth(device.status);
+        const badgeClassName = health === "active"
+          ? "device-status-active"
+          : health === "down"
+            ? "device-status-offline"
+            : "device-status-other";
+        const hardware = [device.manufacturer, device.device_type].filter(Boolean).map(escHtml).join(" · ");
+        return `<li class="device-card">
+          <div class="device-card-header">
+            <div class="device-card-title">${escHtml(device.name || "Unnamed device")}</div>
+            <span class="device-status-badge ${badgeClassName}">${escHtml(device.status || "Unknown")}</span>
+          </div>
+          <div class="device-card-body">
+            ${hardware ? `<div class="device-meta">${hardware}</div>` : ""}
+            ${device.role ? `<div class="device-meta device-role">Role: ${escHtml(device.role)}</div>` : ""}
+            ${device.platform ? `<div class="device-meta device-platform">Software: ${escHtml(device.platform)}</div>` : ""}
+            ${device.serial ? `<div class="device-meta">Serial: ${escHtml(device.serial)}</div>` : ""}
+            ${device.tenant ? `<div class="device-meta">Tenant: ${escHtml(device.tenant)}</div>` : ""}
+          </div>
+        </li>`;
+      })
+      .join("");
+    equipmentBody = `<div class="inspector-device-toolbar">
+      <div class="device-filters" aria-label="Equipment health filters">${filterButtons}</div>
+      <input id="inspector-device-search" class="inspector-device-search" type="search" value="${escHtml(inspectorDeviceSearch)}" placeholder="Search equipment" aria-label="Search equipment" />
     </div>
-    <div class="coloc-panels">${panels}</div>
-  </div>`;
+    ${filteredDevices.length > 0
+      ? `<ul class="inspector-device-list" aria-label="Equipment list">${cards}</ul>`
+      : `<div class="inspector-empty">No equipment matches the current filter.</div>`}`;
+  }
+
+  let asnBody = "";
+  if (inspectorLoading) {
+    asnBody = `<div class="inspector-empty">Loading ASN details…</div>`;
+  } else if (inspectorError) {
+    asnBody = `<div class="inspector-empty">Retry loading to retrieve ASN details.</div>`;
+  } else if (asns.length === 0) {
+    asnBody = `<div class="inspector-empty">No ASN or network information found for this location.</div>`;
+  } else {
+    asnBody = asns
+      .map(
+        (asn) =>
+          `<span class="asn-tag" title="${escHtml(asn.description || "")}">AS${escHtml(asn.asn)}${asn.tenant ? ` · ${escHtml(asn.tenant)}` : ""}</span>`
+      )
+      .join("");
+  }
+
+  const loadingSummary = inspectorLoading
+    ? `<div class="inspector-empty">Loading health summary…</div>`
+    : "";
+  const errorSummary = !inspectorLoading && inspectorError
+    ? `<div class="inspector-empty">Health summary unavailable until details load successfully.</div>`
+    : "";
+
+  inspectorContent.innerHTML = `
+    <div class="inspector-section">
+      <div class="inspector-header-row">
+        <div class="inspector-status-group">
+          <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
+          ${alertPill}
+        </div>
+      </div>
+      ${buildAlertBanner(alert)}
+      <div class="inspector-actions-row">
+        ${buildNautobotLink(loc)}
+      </div>
+    </div>
+
+    <section class="inspector-section" aria-labelledby="inspector-health-title">
+      <div id="inspector-health-title" class="inspector-section-title">Health summary</div>
+      ${loadingSummary || errorSummary || `
+        <div class="inspector-summary-grid">
+          <div class="inspector-summary-card">
+            <div class="inspector-summary-label">Total</div>
+            <div class="inspector-summary-value">${summary.total}</div>
+          </div>
+          <div class="inspector-summary-card">
+            <div class="inspector-summary-label">Active</div>
+            <div class="inspector-summary-value">${summary.active}</div>
+          </div>
+          <div class="inspector-summary-card">
+            <div class="inspector-summary-label">Down</div>
+            <div class="inspector-summary-value">${summary.down}</div>
+          </div>
+          <div class="inspector-summary-card">
+            <div class="inspector-summary-label">Unknown</div>
+            <div class="inspector-summary-value">${summary.unknown}</div>
+          </div>
+        </div>`}
+    </section>
+
+    <section class="inspector-section inspector-meta" aria-labelledby="inspector-meta-title">
+      <div id="inspector-meta-title" class="inspector-section-title">Location metadata</div>
+      ${primaryRows || `<div class="inspector-empty">No primary metadata available for this location.</div>`}
+      ${secondaryRows ? `<details><summary>More metadata</summary>${secondaryRows}</details>` : ""}
+    </section>
+
+    <section class="inspector-section" aria-labelledby="inspector-equipment-title">
+      <div id="inspector-equipment-title" class="inspector-section-title">Network equipment</div>
+      ${equipmentBody}
+    </section>
+
+    <section class="inspector-section" aria-labelledby="inspector-asn-title">
+      <div id="inspector-asn-title" class="inspector-section-title">ASN and network information</div>
+      ${asnBody}
+    </section>
+  `;
 }
 
-/**
- * Wire up tab-switching inside a co-located popup.
- */
-function wireColocatedTabs(locations) {
-  const popup = document.getElementById(`coloc-popup-${_colocPopupId}`);
-  if (!popup) return;
+function openInspectorForLocation(locId, options = {}) {
+  const loc = getLocationById(locId);
+  if (!loc) return;
+  const locationChanged = locId !== selectedLocationId;
 
-  popup.addEventListener("click", (e) => {
-    const tab = e.target.closest(".coloc-tab");
-    if (!tab) return;
+  selectedLocationId = locId;
+  selectedGroupIds = options.groupIds && options.groupIds.length > 0 ? [...options.groupIds] : [locId];
+  selectedDetail = detailCache.get(locId) || null;
+  inspectorError = "";
+  inspectorLoading = !selectedDetail;
+  if (locationChanged) {
+    inspectorDeviceFilter = "all";
+    inspectorDeviceSearch = "";
+  }
+  if (options.focusElement) {
+    lastInspectorTrigger = options.focusElement;
+  }
 
-    const index = tab.dataset.colocIndex;
-    const locId = tab.dataset.locId;
+  document.body.classList.add("inspector-open");
+  inspector.classList.remove("hidden");
+  inspector.setAttribute("aria-hidden", "false");
+  syncInspectorBackdrop();
+  updateLocationQuery(locId);
+  renderInspectorContent();
 
-    // Update active tab
-    popup.querySelectorAll(".coloc-tab").forEach((t) => {
-      t.classList.remove("active");
-      t.setAttribute("aria-pressed", "false");
+  if (options.focusInspector !== false) {
+    inspectorCloseButton.focus();
+  }
+
+  if (selectedDetail) {
+    if (selectedDetail.alert) updateMarkerForAlert(locId, selectedDetail.alert.level);
+    return;
+  }
+
+  loadLocationDetail(locId)
+    .then((detail) => {
+      if (selectedLocationId !== locId) return;
+      selectedDetail = detail;
+      inspectorLoading = false;
+      inspectorError = "";
+      renderInspectorContent();
+      if (detail.alert) updateMarkerForAlert(locId, detail.alert.level);
+    })
+    .catch((err) => {
+      if (selectedLocationId !== locId) return;
+      selectedDetail = null;
+      inspectorLoading = false;
+      inspectorError = err.message || "Unknown error";
+      renderInspectorContent();
     });
-    tab.classList.add("active");
-    tab.setAttribute("aria-pressed", "true");
+}
 
-    // Update active panel
-    popup.querySelectorAll(".coloc-panel").forEach((p) => {
-      p.classList.remove("active");
+function closeInspector(options = {}) {
+  document.body.classList.remove("inspector-open");
+  inspector.classList.add("hidden");
+  inspector.setAttribute("aria-hidden", "true");
+  syncInspectorBackdrop();
+  selectedLocationId = null;
+  selectedGroupIds = [];
+  selectedDetail = null;
+  inspectorError = "";
+  inspectorLoading = false;
+  inspectorDeviceFilter = "all";
+  inspectorDeviceSearch = "";
+  renderInspectorContent();
+  updateLocationQuery(null);
+
+  if (options.restoreFocus !== false && lastInspectorTrigger && typeof lastInspectorTrigger.focus === "function") {
+    lastInspectorTrigger.focus();
+  }
+}
+
+function wireMarkerAccessibility(marker, label, activate) {
+  marker.on("add", () => {
+    const el = marker.getElement();
+    if (!el || el.dataset.inspectorWired === "true") return;
+    el.dataset.inspectorWired = "true";
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", label);
+    el.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      activate(el);
     });
-    const panel = popup.querySelector(`.coloc-panel[data-coloc-index="${index}"]`);
-    if (panel) panel.classList.add("active");
-
-    // Load details for the newly-selected location
-    fetchAndRenderDetail(locId);
   });
 }
 
-/**
- * Add a single marker for a group of co-located sites.
- */
+function handleMarkerActivation(marker, locId, groupIds, focusElement) {
+  suppressNextMapClickClose = true;
+  setTimeout(() => {
+    suppressNextMapClickClose = false;
+  }, 0);
+  map.panTo(marker.getLatLng());
+  openInspectorForLocation(locId, { groupIds, focusElement, focusInspector: true });
+}
+
 function addColocatedMarker(locations) {
   const first = locations[0];
+  const ids = locations.map((loc) => loc.id);
   const marker = L.marker([first.latitude, first.longitude], {
     icon: makeStackedIcon(locations.length),
-    title: locations.map((l) => l.name).join(", "),
+    title: locations.map((loc) => loc.name).join(", "),
   });
 
-  marker.bindPopup(() => buildColocatedPopup(locations), {
-    maxWidth: 400,
-    minWidth: 300,
-    keepInView: true,
+  marker.on("click", (event) => {
+    if (event && event.originalEvent) {
+      event.originalEvent.preventDefault();
+      event.originalEvent.stopPropagation();
+    }
+    handleMarkerActivation(marker, first.id, ids, marker.getElement());
   });
 
-  marker.on("popupopen", () => {
-    fetchAndRenderDetail(locations[0].id);
-    wireColocatedTabs(locations);
-  });
+  wireMarkerAccessibility(
+    marker,
+    `Inspect ${locations.length} co-located locations`,
+    (focusElement) => handleMarkerActivation(marker, first.id, ids, focusElement)
+  );
 
-  bindHoverAndLock(marker);
-
-  // Register all location IDs so alert updates can find this marker
-  const ids = locations.map((l) => l.id);
   for (const loc of locations) {
     markerByLocId[loc.id] = marker;
     colocGroupByLocId[loc.id] = ids;
@@ -370,60 +583,34 @@ function addColocatedMarker(locations) {
   marker.addTo(markerLayer);
 }
 
-// ---------------------------------------------------------------------------
-// Fetch locations and render markers
-// ---------------------------------------------------------------------------
-const markerLayer = L.layerGroup().addTo(map);
-let allLocations = [];
-const CLUSTER_THRESHOLD = 100; // Use clustering if more than 100 locations
-const initialLocationId = new URLSearchParams(window.location.search).get("location_id");
-let initialLocationOpened = false;
+function openLocationById(locId, options = {}) {
+  const loc = getLocationById(locId);
+  if (!loc) return false;
 
-// ---------------------------------------------------------------------------
-// NOC alert marker registry
-// Keeps track of every rendered marker so icons can be updated after
-// device-detail loads reveal the site's alert level.
-// ---------------------------------------------------------------------------
-/** locId → L.marker */
-const markerByLocId = {};
-/** locId → cluster marker when rendered as a grid cluster */
-const clusterByLocId = {};
-/** locId → array of all locIds sharing the same co-located marker */
-const colocGroupByLocId = {};
-/** locId → "critical" | "medium" | "ok" */
-const locationAlerts = {};
+  const marker = markerByLocId[locId];
+  if (!marker) {
+    const clusterMarker = clusterByLocId[locId];
+    if (!clusterMarker) return false;
+    map.flyTo(clusterMarker.getLatLng(), Math.max(map.getZoom(), 8), { duration: 0.8 });
+    return false;
+  }
+
+  map.flyTo([loc.latitude, loc.longitude], Math.max(map.getZoom(), 13), { duration: 0.8 });
+  openInspectorForLocation(locId, {
+    groupIds: colocGroupByLocId[locId] || [locId],
+    focusElement: marker.getElement(),
+    focusInspector: options.focusInspector !== false,
+  });
+  return true;
+}
 
 function openLocationFromQuery() {
   if (!initialLocationId || initialLocationOpened) return;
-  const loc = allLocations.find((item) => item.id === initialLocationId);
-  const marker = markerByLocId[initialLocationId];
-  if (!loc) return;
-  if (!marker) {
-    const clusterMarker = clusterByLocId[initialLocationId];
-    if (!clusterMarker) return;
-    map.flyTo(clusterMarker.getLatLng(), Math.max(map.getZoom(), 8), { duration: 0.8 });
-    return;
-  }
-
-  initialLocationOpened = true;
-  map.flyTo([loc.latitude, loc.longitude], 13, { duration: 0.8 });
-  marker.openPopup();
-
-  const groupIds = colocGroupByLocId[initialLocationId];
-  if (groupIds && groupIds.length > 1) {
-    setTimeout(() => {
-      const targetTab = document.querySelector(`.coloc-tab[data-loc-id="${CSS.escape(initialLocationId)}"]`);
-      if (targetTab) targetTab.click();
-    }, 0);
+  if (openLocationById(initialLocationId, { focusInspector: false })) {
+    initialLocationOpened = true;
   }
 }
 
-/**
- * Called after device details are loaded for a location.
- * Updates the map-marker icon to reflect the computed alert level,
- * and (for co-located groups) promotes to the highest level across
- * all members that have been loaded so far.
- */
 function updateMarkerForAlert(locId, alertLevel) {
   locationAlerts[locId] = alertLevel;
   const marker = markerByLocId[locId];
@@ -431,22 +618,42 @@ function updateMarkerForAlert(locId, alertLevel) {
 
   const groupIds = colocGroupByLocId[locId];
   if (groupIds) {
-    // Co-located marker: pick the worst level across the known group
     const groupLevel = groupIds.reduce((highest, id) => {
-      const lvl = locationAlerts[id] || "ok";
-      if (lvl === "critical") return "critical";
-      if (lvl === "medium" && highest !== "critical") return "medium";
+      const level = locationAlerts[id] || "ok";
+      if (level === "critical") return "critical";
+      if (level === "medium" && highest !== "critical") return "medium";
       return highest;
     }, "ok");
-    if (groupLevel !== "ok") {
-      marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
-    }
+    if (groupLevel !== "ok") marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
     return;
   }
 
-  // Single marker
   if (alertLevel === "critical") marker.setIcon(ICONS.critical);
   else if (alertLevel === "medium") marker.setIcon(ICONS.medium);
+}
+
+async function loadLocationDetail(locId) {
+  if (detailCache.has(locId)) return detailCache.get(locId);
+  if (inFlightDetailRequests.has(locId)) return inFlightDetailRequests.get(locId);
+
+  const request = (async () => {
+    const loc = getLocationById(locId);
+    const locType = loc ? (loc.location_type || "") : "";
+    const url = `/api/locations/${encodeURIComponent(locId)}/detail`
+      + (locType ? `?location_type=${encodeURIComponent(locType)}` : "");
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const detail = await resp.json();
+    detailCache.set(locId, detail);
+    return detail;
+  })();
+
+  inFlightDetailRequests.set(locId, request);
+  try {
+    return await request;
+  } finally {
+    inFlightDetailRequests.delete(locId);
+  }
 }
 
 async function loadLocations() {
@@ -469,12 +676,10 @@ async function loadLocations() {
 
 function renderMarkers(locations, searchMarker) {
   markerLayer.clearLayers();
-  // Clear registry so stale references don't linger after a re-render
   for (const key of Object.keys(markerByLocId)) delete markerByLocId[key];
   for (const key of Object.keys(clusterByLocId)) delete clusterByLocId[key];
   for (const key of Object.keys(colocGroupByLocId)) delete colocGroupByLocId[key];
 
-  // Add search point marker if provided
   if (searchMarker) {
     const { lat, lon } = searchMarker;
     const searchIcon = L.divIcon({
@@ -487,7 +692,6 @@ function renderMarkers(locations, searchMarker) {
       .bindPopup(`<div class="popup-content"><div class="popup-title" aria-label="Search location">&#128269; Search point</div></div>`)
       .addTo(markerLayer);
 
-    // Draw 5 km radius circle
     L.circle([lat, lon], {
       radius: 5000,
       color: "#e74c3c",
@@ -498,7 +702,6 @@ function renderMarkers(locations, searchMarker) {
     }).addTo(markerLayer);
   }
 
-  // Use clustering for large datasets
   if (locations.length > CLUSTER_THRESHOLD && !searchMarker) {
     renderMarkersWithClustering(locations);
   } else {
@@ -510,45 +713,32 @@ function renderMarkersSimple(locations) {
   const groups = groupByCoords(locations);
   for (const key in groups) {
     const group = groups[key];
-    if (group.length === 1) {
-      addMarker(group[0]);
-    } else {
-      addColocatedMarker(group);
-    }
+    if (group.length === 1) addMarker(group[0]);
+    else addColocatedMarker(group);
   }
 }
 
 function renderMarkersWithClustering(locations) {
-  // Simple grid-based clustering
-  // Group markers by zoom level grid cells
   const currentZoom = map.getZoom();
   const gridSize = currentZoom < 5 ? 2 : currentZoom < 8 ? 1 : 0.5;
-
   const clusters = {};
 
   for (const loc of locations) {
     const gridLat = Math.floor(loc.latitude / gridSize) * gridSize;
     const gridLon = Math.floor(loc.longitude / gridSize) * gridSize;
     const key = `${gridLat},${gridLon}`;
-
-    if (!clusters[key]) {
-      clusters[key] = [];
-    }
+    if (!clusters[key]) clusters[key] = [];
     clusters[key].push(loc);
   }
 
-  // Render clusters or individual markers
   for (const key in clusters) {
     const group = clusters[key];
 
     if (group.length === 1) {
-      // Single marker
       addMarker(group[0]);
     } else if (currentZoom < 8) {
-      // Create cluster marker
-      const lat = group.reduce((sum, l) => sum + l.latitude, 0) / group.length;
-      const lon = group.reduce((sum, l) => sum + l.longitude, 0) / group.length;
-
+      const lat = group.reduce((sum, loc) => sum + loc.latitude, 0) / group.length;
+      const lon = group.reduce((sum, loc) => sum + loc.longitude, 0) / group.length;
       const clusterIcon = L.divIcon({
         html: `<div style="width:40px;height:40px;background:#3388ff;color:white;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 0 8px rgba(0,0,0,.4)">${group.length}</div>`,
         iconSize: [40, 40],
@@ -557,19 +747,18 @@ function renderMarkersWithClustering(locations) {
       });
 
       const clusterMarker = L.marker([lat, lon], { icon: clusterIcon });
-      clusterMarker.on('click', () => {
-        // Zoom in to show individual markers
+      clusterMarker.on("click", () => {
         map.setView([lat, lon], Math.min(currentZoom + 3, 15));
       });
 
-      const locations = group.map(l => `<li>${escHtml(l.name)}</li>`).slice(0, 10).join('');
-      const more = group.length > 10 ? `<li style="color:#888">… and ${group.length - 10} more</li>` : '';
+      const listedLocations = group.map((loc) => `<li>${escHtml(loc.name)}</li>`).slice(0, 10).join("");
+      const more = group.length > 10 ? `<li style="color:#888">… and ${group.length - 10} more</li>` : "";
       clusterMarker.bindPopup(
         `<div class="popup-content">
           <div class="popup-title">${group.length} locations</div>
           <div style="font-size:0.85rem;margin-top:8px">Click to zoom in</div>
           <ul style="margin:8px 0 0 0;padding-left:20px;font-size:0.8rem;max-height:150px;overflow-y:auto">
-            ${locations}${more}
+            ${listedLocations}${more}
           </ul>
         </div>`,
         { keepInView: true }
@@ -579,94 +768,14 @@ function renderMarkersWithClustering(locations) {
       }
       clusterMarker.addTo(markerLayer);
     } else {
-      // Zoom level high enough – show individual markers, but group
-      // co-located sites that share identical coordinates.
       const subGroups = groupByCoords(group);
       for (const subKey in subGroups) {
         const subGroup = subGroups[subKey];
-        if (subGroup.length === 1) {
-          addMarker(subGroup[0]);
-        } else {
-          addColocatedMarker(subGroup);
-        }
+        if (subGroup.length === 1) addMarker(subGroup[0]);
+        else addColocatedMarker(subGroup);
       }
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Hover-to-preview, click-to-lock
-// ---------------------------------------------------------------------------
-/**
- * Show popup on hover; close it when the cursor leaves unless the user has
- * clicked ("locked") the popup.  A short delay prevents flicker when the
- * cursor crosses from the marker into the popup element.
- */
-function bindHoverAndLock(marker) {
-  let locked = false;
-  let closeTimer = null;
-
-  function cancelClose() {
-    if (closeTimer) {
-      clearTimeout(closeTimer);
-      closeTimer = null;
-    }
-  }
-
-  function scheduleClose() {
-    cancelClose();
-    closeTimer = setTimeout(() => {
-      if (!locked && marker.isPopupOpen()) {
-        marker.closePopup();
-      }
-    }, 300);
-  }
-
-  // --- hover opens popup ---
-  marker.on("mouseover", () => {
-    cancelClose();
-    if (!marker.isPopupOpen()) {
-      marker.openPopup();
-    }
-  });
-
-  marker.on("mouseout", () => {
-    if (!locked) {
-      scheduleClose();
-    }
-  });
-
-  // --- click locks popup open ---
-  marker.on("click", () => {
-    cancelClose();
-    locked = true;
-    if (!marker.isPopupOpen()) {
-      marker.openPopup();
-    }
-    const el = marker.getPopup()?.getElement();
-    if (el) el.classList.add("popup-locked");
-    map.panTo(marker.getLatLng());
-  });
-
-  // --- keep popup alive while cursor is inside it ---
-  marker.on("popupopen", () => {
-    const el = marker.getPopup()?.getElement();
-    if (el) {
-      el.addEventListener("mouseenter", cancelClose);
-      el.addEventListener("mouseleave", () => {
-        if (!locked) scheduleClose();
-      });
-      if (locked) el.classList.add("popup-locked");
-    }
-  });
-
-  // --- reset on close ---
-  marker.on("popupclose", () => {
-    cancelClose();
-    locked = false;
-    const el = marker.getPopup()?.getElement();
-    if (el) el.classList.remove("popup-locked");
-  });
 }
 
 function addMarker(loc) {
@@ -675,44 +784,83 @@ function addMarker(loc) {
     title: loc.name,
   });
 
-  marker.bindPopup(() => buildBasicPopup(loc), { maxWidth: 360, minWidth: 280, keepInView: true });
-
-  marker.on("popupopen", () => {
-    fetchAndRenderDetail(loc.id);
+  marker.on("click", (event) => {
+    if (event && event.originalEvent) {
+      event.originalEvent.preventDefault();
+      event.originalEvent.stopPropagation();
+    }
+    handleMarkerActivation(marker, loc.id, [loc.id], marker.getElement());
   });
 
-  bindHoverAndLock(marker);
+  wireMarkerAccessibility(
+    marker,
+    `Inspect ${loc.name}`,
+    (focusElement) => handleMarkerActivation(marker, loc.id, [loc.id], focusElement)
+  );
+
   markerByLocId[loc.id] = marker;
   marker.addTo(markerLayer);
 }
 
-// Re-cluster on zoom
-map.on('zoomend', () => {
+map.on("zoomend", () => {
   if (allLocations.length > CLUSTER_THRESHOLD) {
     applyFilters();
   }
 });
 
-async function fetchAndRenderDetail(locId) {
-  try {
-    const loc = allLocations.find((l) => l.id === locId);
-    const locType = loc ? (loc.location_type || "") : "";
-    const url = `/api/locations/${encodeURIComponent(locId)}/detail`
-      + (locType ? `?location_type=${encodeURIComponent(locType)}` : "");
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const detail = await resp.json();
-    renderDetail(locId, detail);
-    if (detail.alert) {
-      updateMarkerForAlert(locId, detail.alert.level);
-    }
-  } catch (err) {
-    const container = document.getElementById(`popup-detail-${locId}`);
-    if (container) {
-      container.textContent = "Could not load details: " + err.message;
-    }
+map.on("click", () => {
+  if (!isInspectorOpen() || inspectorPinned || suppressNextMapClickClose) return;
+  closeInspector({ restoreFocus: false });
+});
+
+window.addEventListener("resize", syncInspectorBackdrop);
+
+inspectorCloseButton.addEventListener("click", () => closeInspector());
+inspectorPinButton.addEventListener("click", () => setInspectorPinned(!inspectorPinned));
+inspectorBackdrop.addEventListener("click", () => {
+  if (!inspectorPinned) closeInspector({ restoreFocus: false });
+});
+inspectorTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-location-id]");
+  if (!button) return;
+  openInspectorForLocation(button.dataset.locationId, {
+    groupIds: selectedGroupIds,
+    focusInspector: false,
+  });
+});
+inspectorContent.addEventListener("click", (event) => {
+  const retryButton = event.target.closest("#inspector-retry");
+  if (retryButton && selectedLocationId) {
+    detailCache.delete(selectedLocationId);
+    openInspectorForLocation(selectedLocationId, {
+      groupIds: selectedGroupIds,
+      focusInspector: false,
+    });
+    return;
   }
-}
+
+  const filterButton = event.target.closest("[data-device-filter]");
+  if (!filterButton) return;
+  inspectorDeviceFilter = filterButton.dataset.deviceFilter || "all";
+  renderInspectorContent();
+});
+inspectorContent.addEventListener("input", (event) => {
+  if (event.target.id !== "inspector-device-search") return;
+  inspectorDeviceSearch = event.target.value || "";
+  renderInspectorContent();
+  const searchInput = document.getElementById("inspector-device-search");
+  if (searchInput) {
+    searchInput.focus();
+    searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && isInspectorOpen()) {
+    closeInspector();
+  }
+});
+setInspectorPinned(true);
+renderInspectorContent();
 
 // ---------------------------------------------------------------------------
 // Filters
@@ -911,7 +1059,7 @@ async function doSearch() {
           <div class="result-meta">${[loc.location_type, loc.tenant].filter(Boolean).map(escHtml).join(" · ") || "—"}</div>
           <span class="result-distance">${loc.distance_km} km</span>`;
         li.addEventListener("click", () => {
-          map.flyTo([loc.latitude, loc.longitude], 14);
+          openLocationById(loc.id, { focusInspector: false });
         });
         searchResultsList.appendChild(li);
       }

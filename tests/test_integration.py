@@ -91,20 +91,22 @@ class TestMapUI:
         resp = integration_client.get("/static/js/map.js")
         assert resp.status_code == 200
 
-    def test_js_contains_hover_to_preview(self, integration_client):
-        """The JS bundle includes the hover-to-preview / click-to-lock logic."""
+    def test_js_contains_location_inspector_flow(self, integration_client):
+        """The JS bundle includes the persistent location inspector logic."""
         resp = integration_client.get("/static/js/map.js")
         js = resp.data.decode()
-        assert "bindHoverAndLock" in js
-        assert "mouseover" in js
-        assert "mouseout" in js
-        assert "popup-locked" in js
+        assert "openInspectorForLocation" in js
+        assert "loadLocationDetail" in js
+        assert "detailCache" in js
+        assert "inspector-device-search" in js
 
-    def test_css_contains_locked_indicator(self, integration_client):
-        """The CSS defines a visual indicator for locked popups."""
+    def test_css_contains_inspector_layout(self, integration_client):
+        """The CSS defines the responsive inspector drawer/bottom-sheet layout."""
         resp = integration_client.get("/static/css/map.css")
         css = resp.data.decode()
-        assert ".popup-locked" in css
+        assert "#location-inspector" in css
+        assert ".inspector-site-tab" in css
+        assert ".inspector-device-search" in css
 
 
 # ---------------------------------------------------------------------------

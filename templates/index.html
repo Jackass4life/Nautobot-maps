@@ -115,6 +115,28 @@
   <!-- Map container -->
   <div id="map"></div>
 
+  <div id="inspector-backdrop" class="hidden" aria-hidden="true"></div>
+
+  <aside id="location-inspector" class="hidden" aria-hidden="true" aria-labelledby="inspector-title">
+    <div class="inspector-shell">
+      <div class="inspector-handle" aria-hidden="true"></div>
+      <div class="inspector-header">
+        <div class="inspector-header-copy">
+          <div class="inspector-kicker">Location inspector</div>
+          <h2 id="inspector-title">Select a location</h2>
+          <div id="inspector-subtitle" class="inspector-subtitle">Click a map marker to inspect a location.</div>
+        </div>
+        <div class="inspector-toolbar">
+          <button id="inspector-pin" class="secondary-btn" type="button" aria-pressed="true" aria-label="Unpin location inspector">Pinned</button>
+          <button id="inspector-close" class="inspector-close" type="button" aria-label="Close location inspector">&times;</button>
+        </div>
+      </div>
+      <div id="inspector-site-tabs" class="hidden" role="group" aria-label="Co-located locations"></div>
+      <div id="inspector-state" class="inspector-state">Select a location from the map to view health, metadata, equipment, and ASN details.</div>
+      <div id="inspector-content" class="hidden"></div>
+    </div>
+  </aside>
+
   <!-- Loading overlay -->
   <div id="loading-overlay">
     <div id="loading-spinner"></div>
