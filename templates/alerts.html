@@ -26,12 +26,12 @@
       <article class="summary-card summary-{{ level|replace('_', '-') }}">
         <div class="summary-heading">
           <span class="summary-label">{{ meta.label }}</span>
-          <span
+          <abbr
             class="summary-info"
             tabindex="0"
             title="{{ meta.description }}"
             aria-label="{{ meta.label }}: {{ meta.description }}"
-          >i</span>
+          >(i)</abbr>
         </div>
         <strong id="summary-{{ level|replace('_', '-') }}">0</strong>
       </article>

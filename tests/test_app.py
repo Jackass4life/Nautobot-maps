@@ -523,7 +523,8 @@ class TestAlertBoard:
         assert resp.status_code == 200
         assert b"Alert Board" in resp.data
         assert b"Critical-tier site with one or more devices down, or any site fully unreachable." in resp.data
-        assert b"Site has no poll data" in resp.data
+        assert b"Site has no poll data \xe2\x80\x94 shown separately from severity tiers and included in non-OK totals." in resp.data
+        assert b"(i)" in resp.data
         assert b"Filter by site, address, or country" in resp.data
         assert b"Sort: country" in resp.data
         assert b"Show non-operational sites" in resp.data
@@ -2262,6 +2263,33 @@ class TestAlertLifecycleTracking:
         assert first["alerts"] == second["alerts"]
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
+
+    def test_get_alert_board_data_normalizes_cached_legacy_unknown_payload(self):
+        flask_app.cache.clear()
+        legacy_payload = {
+            "checked_at": "2026-01-01T00:00:00Z",
+            "stale_after_seconds": flask_app.CACHE_TTL,
+            "summary": {
+                "total": 2,
+                "critical": 0,
+                "medium": 0,
+                "unknown": 1,
+                "ok": 1,
+                "non_ok": 0,
+            },
+            "alerts": [
+                {"id": "loc-ok", "name": "OK Site", "alert_level": "ok", "down_device_count": 0},
+                {"id": "loc-legacy", "name": "Legacy Site", "alert_level": "unknown", "down_device_count": 0},
+            ],
+        }
+        flask_app._cache_set("alert-board-data:v3", legacy_payload, timeout=flask_app.CACHE_TTL)
+
+        data = flask_app.get_alert_board_data()
+
+        assert data["summary"]["no_data"] == 1
+        assert data["summary"]["unknown"] == 1
+        assert data["summary"]["non_ok"] == 1
+        assert [item["alert_level"] for item in data["alerts"]] == ["no_data", "ok"]
 
     def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):
         first_payload = {

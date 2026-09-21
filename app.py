@@ -83,7 +83,7 @@ ALERT_STATUS_TIER_DEFINITIONS = {
     },
     "no_data": {
         "label": "No data",
-        "description": "Site has no poll data — excluded from severity counts.",
+        "description": "Site has no poll data — shown separately from severity tiers and included in non-OK totals.",
     },
 }
 
@@ -2903,10 +2903,44 @@ def _apply_alert_board_freshness(payload: dict) -> dict:
             )
         except ValueError:
             age_seconds = 0
-    result = dict(payload)
+    result = _normalize_alert_board_payload(payload)
     stale_after_seconds = int(result.get("stale_after_seconds", CACHE_TTL))
     result["age_seconds"] = age_seconds
     result["stale"] = age_seconds > stale_after_seconds
+    return result
+
+
+def _normalize_alert_board_payload(payload: dict) -> dict:
+    """Normalize legacy alert-board payload values for the current UI contract."""
+    result = dict(payload or {})
+    summary = dict(result.get("summary") or {})
+    no_data_count = max(
+        int(summary.get("no_data") or 0),
+        int(summary.get("unknown") or 0),
+    )
+    summary["low"] = int(summary.get("low") or 0)
+    summary["no_data"] = no_data_count
+    summary["unknown"] = no_data_count
+    summary["non_ok"] = (
+        int(summary.get("critical") or 0)
+        + int(summary.get("medium") or 0)
+        + int(summary.get("low") or 0)
+        + no_data_count
+    )
+    result["summary"] = summary
+    alerts = []
+    for item in result.get("alerts") or []:
+        normalized = dict(item)
+        normalized["alert_level"] = _alert_board_level(item.get("alert_level") or "")
+        alerts.append(normalized)
+    alerts.sort(
+        key=lambda item: (
+            _alert_sort_key(item.get("alert_level", "no_data")),
+            -item.get("down_device_count", 0),
+            item.get("name", "").lower(),
+        )
+    )
+    result["alerts"] = alerts
     return result
 
 
