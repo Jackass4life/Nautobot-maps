@@ -2510,6 +2510,7 @@ class TestAlertLifecycleTracking:
             def __init__(self):
                 self.queries = []
                 self.transaction_entries = 0
+                self.has_cache_version = False
 
             def close(self):
                 return None
@@ -2521,6 +2522,26 @@ class TestAlertLifecycleTracking:
                 self.queries.append((query, params))
                 if "SELECT NOT EXISTS" in query and "column_name = 'primary_ip'" in query:
                     return _FakeResult([{"missing": False}])
+                if "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query:
+                    self.has_cache_version = True
+                if "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message" in query:
+                    if not self.has_cache_version:
+                        raise RuntimeError("column inventory_sync_state.cache_version does not exist")
+                    return _FakeResult(
+                        [
+                            {
+                                "source": "nautobot_inventory",
+                                "last_started_at": None,
+                                "last_completed_at": None,
+                                "last_successful_sync": None,
+                                "cache_version": "",
+                                "status": "idle",
+                                "error_message": "",
+                            }
+                        ]
+                    )
+                if "INSERT INTO inventory_sync_state" in query and not self.has_cache_version:
+                    raise RuntimeError("column inventory_sync_state.cache_version does not exist")
                 return _FakeResult([])
 
         fake_conn = _FakeConn()
@@ -2529,12 +2550,19 @@ class TestAlertLifecycleTracking:
         ):
             flask_app._init_db()
 
-        migration_query = next(
-            query
-            for query, _ in fake_conn.queries
-            if "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query
+        state = flask_app._get_sync_state("nautobot_inventory", conn=fake_conn)
+        assert state["cache_version"] == ""
+
+        flask_app._record_sync_state(
+            fake_conn,
+            "nautobot_inventory",
+            cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
         )
-        assert "column_name = 'cache_version'" in migration_query
+        assert any(
+            params[4] == flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION
+            for query, params in fake_conn.queries
+            if "INSERT INTO inventory_sync_state" in query
+        )
 
     def test_init_db_sqlite_migrates_legacy_time_zone_not_null(self):
         import os
