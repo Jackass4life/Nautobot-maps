@@ -846,8 +846,25 @@ def _init_db() -> None:
     )
 
 
+def _mark_nautobot_inventory_sync_pending(conn) -> None:
+    marker = _sql_placeholders(1)
+    conn.execute(
+        f"""
+        UPDATE inventory_sync_state
+        SET last_started_at = NULL,
+            last_completed_at = NULL,
+            last_successful_sync = NULL,
+            status = 'pending',
+            error_message = ''
+        WHERE source = {marker}
+        """,
+        ("nautobot_inventory",),
+    )
+
+
 # Initialise the DB at startup (no-op when persistence is not configured).
 _init_db()
+
 
 def _cache_get(key: str):
     return cache.get(key)
@@ -1499,22 +1516,6 @@ def _get_sync_state(source: str, conn=None) -> dict:
     finally:
         if owns_conn:
             conn.close()
-
-
-def _mark_nautobot_inventory_sync_pending(conn) -> None:
-    marker = _sql_placeholders(1)
-    conn.execute(
-        f"""
-        UPDATE inventory_sync_state
-        SET last_started_at = NULL,
-            last_completed_at = NULL,
-            last_successful_sync = NULL,
-            status = 'pending',
-            error_message = ''
-        WHERE source = {marker}
-        """,
-        ("nautobot_inventory",),
-    )
 
 
 def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
