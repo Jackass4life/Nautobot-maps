@@ -2805,8 +2805,12 @@ def _build_alert_board_payload(
             if persistence_conn is None:
                 persistence_unavailable = True
             else:
+                primary_ip_backfill_pending = False
                 try:
-                    if observation_succeeded and not _nautobot_inventory_primary_ip_backfill_pending(conn=persistence_conn):
+                    primary_ip_backfill_pending = _nautobot_inventory_primary_ip_backfill_pending(
+                        conn=persistence_conn
+                    )
+                    if observation_succeeded and not primary_ip_backfill_pending:
                         _upsert_alert_lifecycle_for_site(
                             loc,
                             devices,
@@ -2819,6 +2823,14 @@ def _build_alert_board_payload(
                         checked_at,
                         conn=persistence_conn,
                     )
+                    if primary_ip_backfill_pending:
+                        alert_context = {
+                            **alert_context,
+                            "active_alert_instance_count": 0,
+                            "current_downtime_seconds": 0,
+                            "active_cases": [],
+                            "down_devices": [],
+                        }
                 finally:
                     persistence_conn.close()
         current_down_devices = [

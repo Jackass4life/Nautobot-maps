@@ -994,11 +994,11 @@ class TestAlertBoard:
                  flask_app,
                  "_get_alert_context_for_site",
                  return_value={
-                     "active_alert_instance_count": 0,
-                     "historical_downtime_seconds": 0,
-                     "current_downtime_seconds": 0,
-                     "active_cases": [],
-                     "down_devices": [],
+                     "active_alert_instance_count": 1,
+                     "historical_downtime_seconds": 3600,
+                     "current_downtime_seconds": 1800,
+                     "active_cases": ["INC-1001"],
+                     "down_devices": [{"device_id": "dev-legacy", "device_name": "legacy01"}],
                  },
              ) as get_context:
             data = flask_app.get_alert_board_data(force_refresh=True)
@@ -1006,6 +1006,12 @@ class TestAlertBoard:
         assert data["summary"]["total"] == 1
         upsert.assert_not_called()
         get_context.assert_called_once()
+        entry = data["alerts"][0]
+        assert entry["active_alert_instance_count"] == 0
+        assert entry["current_downtime_seconds"] == 0
+        assert entry["historical_downtime_seconds"] == 3600
+        assert entry["active_cases"] == []
+        assert entry["down_devices"] == []
 
 
 # ---------------------------------------------------------------------------
