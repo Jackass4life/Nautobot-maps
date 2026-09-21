@@ -2521,7 +2521,7 @@ class TestAlertLifecycleTracking:
             def execute(self, query, params=()):
                 self.queries.append((query, params))
                 if "SELECT NOT EXISTS" in query and "column_name = 'primary_ip'" in query:
-                    return _FakeResult([{"missing": False}])
+                    return _FakeResult([{"missing": True}])
                 if "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query:
                     self.has_cache_version = True
                 if "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message" in query:
@@ -2554,6 +2554,13 @@ class TestAlertLifecycleTracking:
             "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query
             for query, _ in fake_conn.queries
         )
+        reset_query, reset_params = next(
+            (query, params)
+            for query, params in fake_conn.queries
+            if "UPDATE inventory_sync_state" in query
+        )
+        assert "status = 'pending'" in reset_query
+        assert reset_params == ("nautobot_inventory",)
         state = flask_app._get_sync_state("nautobot_inventory", conn=fake_conn)
         assert state["cache_version"] == ""
 
