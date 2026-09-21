@@ -2806,7 +2806,7 @@ def _build_alert_board_payload(
                 persistence_unavailable = True
             else:
                 try:
-                    if observation_succeeded:
+                    if observation_succeeded and not _nautobot_inventory_primary_ip_backfill_pending(conn=persistence_conn):
                         _upsert_alert_lifecycle_for_site(
                             loc,
                             devices,
