@@ -1936,6 +1936,7 @@ def _device_has_primary_ip(device: dict) -> bool:
 
 
 def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
+    """Treat primary-IP backfill as pending until Nautobot has a successful watermark."""
     state = _get_sync_state("nautobot_inventory", conn=conn)
     return not bool((state or {}).get("last_successful_sync"))
 
