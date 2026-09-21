@@ -36,12 +36,17 @@ function escHtml(str) {
 }
 
 function severityWeight(level) {
+  level = normalizeSeverityValue(level);
   if (level === "critical") return 0;
   if (level === "medium") return 1;
   if (level === "low") return 2;
-  if (level === "no_data" || level === "unknown") return 3;
+  if (level === "no_data") return 3;
   if (level === "ok") return 4;
   return 5;
+}
+
+function normalizeSeverityValue(value) {
+  return value === "unknown" ? "no_data" : (value || "");
 }
 
 function populateSelect(selectEl, values, label) {
@@ -73,12 +78,20 @@ function populateFilters(alerts) {
 }
 
 function renderSummary(summary) {
-  document.getElementById("summary-critical").textContent = summary.critical || 0;
-  document.getElementById("summary-medium").textContent = summary.medium || 0;
-  document.getElementById("summary-low").textContent = summary.low || 0;
-  document.getElementById("summary-no-data").textContent = summary.no_data ?? summary.unknown ?? 0;
-  document.getElementById("summary-ok").textContent = summary.ok || 0;
-  document.getElementById("summary-total").textContent = summary.total || 0;
+  const summaryValues = {
+    "summary-critical": summary.critical || 0,
+    "summary-medium": summary.medium || 0,
+    "summary-low": summary.low || 0,
+    "summary-no-data": summary.no_data ?? summary.unknown ?? 0,
+    "summary-ok": summary.ok || 0,
+    "summary-total": summary.total || 0,
+  };
+  Object.entries(summaryValues).forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = value;
+    }
+  });
 }
 
 function mapActionCell(item) {
@@ -188,6 +201,7 @@ function formatBoardStatus(payload, visibleCount) {
 }
 
 function alertBadge(level) {
+  level = normalizeSeverityValue(level);
   const label = level === "no_data" ? "NO DATA" : (level ? level.toUpperCase() : "UNKNOWN");
   return `<span class="alert-badge alert-${escHtml(level || "unknown")}">${escHtml(label)}</span>`;
 }
@@ -203,8 +217,16 @@ function compareText(left, right) {
 function normalizeAlertItem(item) {
   return {
     ...item,
-    alert_level: item.alert_level === "unknown" ? "no_data" : item.alert_level,
+    alert_level: normalizeSeverityValue(item.alert_level),
   };
+}
+
+function syncSeverityFilterValue() {
+  const normalized = normalizeSeverityValue(filterSeverity.value);
+  if (normalized !== filterSeverity.value) {
+    filterSeverity.value = normalized;
+  }
+  return normalized;
 }
 
 function isSiteExpanded(item) {
@@ -291,7 +313,7 @@ function renderTableRows(alerts, payload) {
 
 function getFilteredAlerts() {
   const siteNeedle = filterSite.value.trim().toLowerCase();
-  const severity = filterSeverity.value;
+  const severity = syncSeverityFilterValue();
   const status = filterStatus.value;
   const type = filterType.value;
   const tenant = filterTenant.value;

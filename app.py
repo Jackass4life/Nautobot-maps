@@ -2531,7 +2531,11 @@ def _alert_sort_key(level: str) -> int:
 
 def _alert_board_level(level: str) -> str:
     normalized = (level or "").lower().strip()
-    return "no_data" if normalized == "unknown" else normalized or "ok"
+    if normalized == "unknown" or not normalized:
+        return "no_data"
+    if normalized in ALERT_STATUS_TIER_DEFINITIONS:
+        return normalized
+    return "no_data"
 
 
 def _build_alert_key(site_id: str, device_id: str, alert_level: str) -> str:
@@ -3091,7 +3095,8 @@ def _build_alert_board_payload(
             "ok": summary.get("ok", 0),
             "non_ok": summary.get("critical", 0)
             + summary.get("medium", 0)
-            + summary.get("low", 0),
+            + summary.get("low", 0)
+            + summary.get("no_data", 0),
         },
         "alerts": alerts,
     }

@@ -957,7 +957,7 @@ class TestAlertBoard:
 
         assert data["summary"]["ok"] == 0
         assert data["summary"]["no_data"] == 2
-        assert data["summary"]["non_ok"] == 0
+        assert data["summary"]["non_ok"] == 2
         assert [item["alert_level"] for item in data["alerts"]] == ["no_data", "no_data"]
         ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
