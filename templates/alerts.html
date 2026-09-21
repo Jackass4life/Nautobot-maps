@@ -22,22 +22,20 @@
     </header>
 
     <section class="summary-grid" aria-label="Alert summary">
-      <article class="summary-card summary-critical">
-        <span class="summary-label">Critical</span>
-        <strong id="summary-critical">0</strong>
+      {% for level, meta in alert_status_tier_definitions.items() %}
+      <article class="summary-card summary-{{ level|replace('_', '-') }}">
+        <div class="summary-heading">
+          <span class="summary-label">{{ meta.label }}</span>
+          <span
+            class="summary-info"
+            tabindex="0"
+            title="{{ meta.description }}"
+            aria-label="{{ meta.label }}: {{ meta.description }}"
+          >i</span>
+        </div>
+        <strong id="summary-{{ level|replace('_', '-') }}">0</strong>
       </article>
-      <article class="summary-card summary-medium">
-        <span class="summary-label">Medium</span>
-        <strong id="summary-medium">0</strong>
-      </article>
-      <article class="summary-card summary-unknown">
-        <span class="summary-label">Unknown</span>
-        <strong id="summary-unknown">0</strong>
-      </article>
-      <article class="summary-card summary-ok">
-        <span class="summary-label">OK</span>
-        <strong id="summary-ok">0</strong>
-      </article>
+      {% endfor %}
       <article class="summary-card">
         <span class="summary-label">Total sites</span>
         <strong id="summary-total">0</strong>
@@ -65,7 +63,8 @@
           <option value="">All severities</option>
           <option value="critical">Critical</option>
           <option value="medium">Medium</option>
-          <option value="unknown">Unknown</option>
+          <option value="low">Low</option>
+          <option value="no_data">No data</option>
           <option value="ok">OK</option>
         </select>
         <select id="filter-status" aria-label="Status">

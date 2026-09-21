@@ -64,6 +64,29 @@ LIBRENMS_SYNC_INTERVAL_SECONDS = int(
 _FULL_RECONCILE_INTERVAL_SECONDS = 86400
 _NAUTOBOT_INVENTORY_CACHE_VERSION = "2"
 
+ALERT_STATUS_TIER_DEFINITIONS = {
+    "critical": {
+        "label": "Critical",
+        "description": "Critical-tier site with one or more devices down, or any site fully unreachable.",
+    },
+    "medium": {
+        "label": "Medium",
+        "description": "More than 25% of the site's devices down.",
+    },
+    "low": {
+        "label": "Low",
+        "description": "One or more devices down, under 25%.",
+    },
+    "ok": {
+        "label": "OK",
+        "description": "All devices reachable.",
+    },
+    "no_data": {
+        "label": "No data",
+        "description": "Site has no poll data — excluded from severity counts.",
+    },
+}
+
 # LibreNMS optional integration
 LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
 LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
@@ -1290,6 +1313,23 @@ def _extract_primary_ip(device: dict) -> str:
     return ""
 
 
+def _extract_librenms_polled_ip(device: dict) -> str:
+    for key in ("ip", "ipv4", "ipv6", "host"):
+        value = device.get(key)
+        if isinstance(value, str):
+            normalized = _normalize_librenms_ip_key(value)
+            if normalized and _is_ip_literal(normalized):
+                return normalized
+        extracted = _nested_str(value, "host", "address", "display", "name")
+        normalized = _normalize_librenms_ip_key(extracted)
+        if normalized and _is_ip_literal(normalized):
+            return normalized
+    hostname = _normalize_librenms_ip_key(device.get("hostname") or "")
+    if hostname and _is_ip_literal(hostname):
+        return hostname
+    return ""
+
+
 def _normalize_librenms_host_key(value: str) -> str:
     return (value or "").strip().lower().split(".", 1)[0]
 
@@ -2127,22 +2167,26 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
 
     Returns a dict::
 
-        {"level": "critical" | "medium" | "ok", "reason": "<human-readable text>"}
+        {"level": "critical" | "medium" | "low" | "ok" | "no_data", "reason": "<human-readable text>"}
 
     Rules:
     * **critical** – at least one device whose role contains a core-network
       keyword has a down status.  The keyword set is resolved from
       ``CRITICAL_ROLE_KEYWORDS`` / ``CRITICALITY_RULES_FILE`` / the
-      per-device ``is_critical`` override stored in the SQLite DB.
+      per-device ``is_critical`` override stored in the SQLite DB, or all
+      monitored devices are down.
     * **medium**   – more than 25 % of all devices have a down status.
-    * **ok**       – neither condition above is met (or no devices present).
+    * **low**      – one or more devices have a down status, but not enough to
+      qualify as medium.
+    * **ok**       – all monitored devices are reachable.
+    * **no_data**  – no monitored devices have poll data for the site.
 
     The optional *location_type* parameter selects the matching keyword set
     when location-type-scoped rules are configured (e.g. "datacenter" vs
     "office").
     """
     if not devices:
-        return {"level": "ok", "reason": ""}
+        return {"level": "no_data", "reason": "No poll data"}
 
     core_keywords = _get_critical_keywords(location_type)
 
@@ -2198,10 +2242,21 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
 
     total = len(devices)
     down_count = len(down_names)
+    if total > 0 and down_count == total:
+        return {
+            "level": "critical",
+            "reason": f"All {total} monitored device{'s' if total != 1 else ''} unreachable",
+        }
     if total > 0 and down_count / total > 0.25:
         pct = round(down_count / total * 100)
         return {
             "level": "medium",
+            "reason": f"{down_count}/{total} devices offline ({pct}%)",
+        }
+    if down_count > 0:
+        pct = round(down_count / total * 100)
+        return {
+            "level": "low",
             "reason": f"{down_count}/{total} devices offline ({pct}%)",
         }
 
@@ -2358,6 +2413,9 @@ def _enrich_with_librenms(
                 if lnms_id:
                     _store_librenms_map(nautobot_id, lnms_id, lnms_host)
 
+        device["display_ip"] = (device.get("primary_ip") or "").strip() or _extract_librenms_polled_ip(
+            lnms_record or {}
+        )
         enriched.append(device)
     return enriched
 
@@ -2463,9 +2521,17 @@ def _iso_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 def _alert_sort_key(level: str) -> int:
-    return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get(
-        (level or "").lower(), 4
+    normalized = (level or "").lower()
+    if normalized == "unknown":
+        normalized = "no_data"
+    return {"critical": 0, "medium": 1, "low": 2, "no_data": 3, "ok": 4}.get(
+        normalized, 5
     )
+
+
+def _alert_board_level(level: str) -> str:
+    normalized = (level or "").lower().strip()
+    return "no_data" if normalized == "unknown" else normalized or "ok"
 
 
 def _build_alert_key(site_id: str, device_id: str, alert_level: str) -> str:
@@ -2796,6 +2862,7 @@ def _get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dic
                 {
                     "device_id": data.get("device_id") or "",
                     "device_name": data.get("device_name") or "",
+                    "device_ip": data.get("device_ip") or "",
                     "case_numbers": case_numbers,
                 }
             )
@@ -2853,7 +2920,7 @@ def _build_alert_board_payload(
             loc for loc in locations if not _location_is_excluded_from_alert_board(loc)
         ]
     alerts = []
-    summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
+    summary = {"critical": 0, "medium": 0, "low": 0, "no_data": 0, "ok": 0}
     default_alert_context = {
         "active_alert_instance_count": 0,
         "historical_downtime_seconds": 0,
@@ -2944,6 +3011,7 @@ def _build_alert_board_payload(
             {
                 "device_id": device.get("id") or "",
                 "device_name": device.get("name") or "Unknown",
+                "device_ip": device.get("display_ip") or device.get("primary_ip") or "",
                 "status": device.get("status") or "",
                 "role": device.get("role") or "",
                 "case_numbers": [],
@@ -2963,10 +3031,12 @@ def _build_alert_board_payload(
                 {
                     "device_id": current_item.get("device_id", merged.get("device_id", "")),
                     "device_name": current_item.get("device_name", merged.get("device_name", "")),
+                    "device_ip": current_item.get("device_ip", merged.get("device_ip", "")),
                     "status": current_item.get("status", merged.get("status", "")),
                     "role": current_item.get("role", merged.get("role", "")),
                 }
             )
+            merged.setdefault("device_ip", "")
             merged.setdefault("status", "")
             merged.setdefault("role", "")
             merged.setdefault("case_numbers", [])
@@ -2980,7 +3050,7 @@ def _build_alert_board_payload(
             merged_down_devices.append(item)
             if item_key:
                 seen_down_device_keys.add(item_key)
-        level = (alert.get("level") or "ok").lower()
+        level = _alert_board_level(alert.get("level") or "ok")
         summary[level] = summary.get(level, 0) + 1
         alerts.append(
             {
@@ -3015,11 +3085,13 @@ def _build_alert_board_payload(
             "total": len(alerts),
             "critical": summary.get("critical", 0),
             "medium": summary.get("medium", 0),
-            "unknown": summary.get("unknown", 0),
+            "low": summary.get("low", 0),
+            "no_data": summary.get("no_data", 0),
+            "unknown": summary.get("no_data", 0),
             "ok": summary.get("ok", 0),
             "non_ok": summary.get("critical", 0)
             + summary.get("medium", 0)
-            + summary.get("unknown", 0),
+            + summary.get("low", 0),
         },
         "alerts": alerts,
     }
@@ -3180,7 +3252,11 @@ def index():
 
 @app.route("/alerts")
 def alert_board():
-    return render_template("alerts.html", nautobot_url=NAUTOBOT_URL)
+    return render_template(
+        "alerts.html",
+        nautobot_url=NAUTOBOT_URL,
+        alert_status_tier_definitions=ALERT_STATUS_TIER_DEFINITIONS,
+    )
 
 
 @app.route("/api/locations")

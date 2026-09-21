@@ -38,9 +38,10 @@ function escHtml(str) {
 function severityWeight(level) {
   if (level === "critical") return 0;
   if (level === "medium") return 1;
-  if (level === "unknown") return 2;
-  if (level === "ok") return 3;
-  return 4;
+  if (level === "low") return 2;
+  if (level === "no_data" || level === "unknown") return 3;
+  if (level === "ok") return 4;
+  return 5;
 }
 
 function populateSelect(selectEl, values, label) {
@@ -74,7 +75,8 @@ function populateFilters(alerts) {
 function renderSummary(summary) {
   document.getElementById("summary-critical").textContent = summary.critical || 0;
   document.getElementById("summary-medium").textContent = summary.medium || 0;
-  document.getElementById("summary-unknown").textContent = summary.unknown || 0;
+  document.getElementById("summary-low").textContent = summary.low || 0;
+  document.getElementById("summary-no-data").textContent = summary.no_data ?? summary.unknown ?? 0;
   document.getElementById("summary-ok").textContent = summary.ok || 0;
   document.getElementById("summary-total").textContent = summary.total || 0;
 }
@@ -186,7 +188,7 @@ function formatBoardStatus(payload, visibleCount) {
 }
 
 function alertBadge(level) {
-  const label = level ? level.toUpperCase() : "UNKNOWN";
+  const label = level === "no_data" ? "NO DATA" : (level ? level.toUpperCase() : "UNKNOWN");
   return `<span class="alert-badge alert-${escHtml(level || "unknown")}">${escHtml(label)}</span>`;
 }
 
@@ -196,6 +198,13 @@ function formatLocationAddress(item) {
 
 function compareText(left, right) {
   return (left || "").localeCompare(right || "");
+}
+
+function normalizeAlertItem(item) {
+  return {
+    ...item,
+    alert_level: item.alert_level === "unknown" ? "no_data" : item.alert_level,
+  };
 }
 
 function isSiteExpanded(item) {
@@ -210,7 +219,10 @@ function renderDownDeviceRows(item, isExpanded) {
   return downDevices.map((device) => `
     <tr class="down-device-row${isExpanded ? "" : " hidden"}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
-        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}</div>
+        <div class="down-device-name">
+          <span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}
+          ${device.device_ip ? `<span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}
+        </div>
         <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
@@ -345,7 +357,7 @@ async function loadAlertBoard(forceRefresh = false) {
       throw new Error(payload.error || resp.statusText || `HTTP ${resp.status}`);
     }
     latestPayload = payload;
-    allAlerts = payload.alerts || [];
+    allAlerts = (payload.alerts || []).map(normalizeAlertItem);
     populateFilters(allAlerts);
     renderSummary(payload.summary || {});
     applyFilters(payload);

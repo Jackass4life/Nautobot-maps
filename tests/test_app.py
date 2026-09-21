@@ -522,6 +522,8 @@ class TestAlertBoard:
         resp = client.get("/alerts")
         assert resp.status_code == 200
         assert b"Alert Board" in resp.data
+        assert b"Critical-tier site with one or more devices down, or any site fully unreachable." in resp.data
+        assert b"Site has no poll data" in resp.data
         assert b"Filter by site, address, or country" in resp.data
         assert b"Sort: country" in resp.data
         assert b"Show non-operational sites" in resp.data
@@ -606,8 +608,14 @@ class TestAlertBoard:
                     {"level": "medium", "reason": "1/3 devices offline (33%)"},
                 )
             return (
-                [{"id": "d5", "name": "sw4", "role": "Switch", "status": "active"}],
-                {"level": "ok", "reason": ""},
+                [
+                    {"id": "d5", "name": "sw4", "role": "Switch", "status": "offline"},
+                    {"id": "d6", "name": "sw5", "role": "Switch", "status": "active"},
+                    {"id": "d7", "name": "sw6", "role": "Switch", "status": "active"},
+                    {"id": "d8", "name": "sw7", "role": "Switch", "status": "active"},
+                    {"id": "d9", "name": "sw8", "role": "Switch", "status": "active"},
+                ],
+                {"level": "low", "reason": "1/5 devices offline (20%)"},
             )
 
         with patch.object(flask_app, "get_locations", return_value=sample_locations), \
@@ -619,9 +627,11 @@ class TestAlertBoard:
             "total": 3,
             "critical": 1,
             "medium": 1,
+            "low": 1,
+            "no_data": 0,
             "unknown": 0,
-            "ok": 1,
-            "non_ok": 2,
+            "ok": 0,
+            "non_ok": 3,
         }
         assert [item["id"] for item in data["alerts"]] == ["loc-1", "loc-2", "loc-3"]
         assert data["alerts"][0]["down_device_count"] == 1
@@ -653,7 +663,7 @@ class TestAlertBoard:
             flask_app,
             "_get_location_devices_and_alert",
             return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline", "primary_ip": "192.0.2.1/32"}],
                 {"level": "critical", "reason": "Core device(s) offline: router01"},
             ),
         ):
@@ -670,6 +680,7 @@ class TestAlertBoard:
             {
                 "device_id": "dev-1",
                 "device_name": "router01",
+                "device_ip": "192.0.2.1/32",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": [],
@@ -830,9 +841,10 @@ class TestAlertBoard:
              patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
             data = flask_app.get_alert_board_data()
 
+        assert data["summary"]["no_data"] == 1
         assert data["summary"]["unknown"] == 1
         assert data["summary"]["ok"] == 0
-        assert data["alerts"][0]["alert_level"] == "unknown"
+        assert data["alerts"][0]["alert_level"] == "no_data"
         assert data["alerts"][0]["alert_reason"] == "Could not compute alert state"
 
     def test_location_alert_uses_cached_snapshot_only_on_device_cache_miss(self):
@@ -848,7 +860,7 @@ class TestAlertBoard:
             )
 
         assert devices == []
-        assert alert == {"level": "ok", "reason": ""}
+        assert alert == {"level": "no_data", "reason": "No poll data"}
         ensure_snapshot.assert_not_called()
 
     def test_location_alert_filters_devices_without_primary_ip(self):
@@ -943,9 +955,10 @@ class TestAlertBoard:
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
-        assert data["summary"]["ok"] == 2
+        assert data["summary"]["ok"] == 0
+        assert data["summary"]["no_data"] == 2
         assert data["summary"]["non_ok"] == 0
-        assert [item["alert_level"] for item in data["alerts"]] == ["ok", "ok"]
+        assert [item["alert_level"] for item in data["alerts"]] == ["no_data", "no_data"]
         ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
@@ -973,6 +986,7 @@ class TestAlertBoard:
         assert get_alert.call_count == 2
         assert data["summary"]["critical"] == 1
         assert data["summary"]["ok"] == 1
+        assert data["summary"]["no_data"] == 0
         assert data["summary"]["unknown"] == 0
 
     def test_get_alert_board_data_uses_fresh_persistence_connection_per_location(self):
@@ -1723,14 +1737,14 @@ class TestConfigurableCriticalKeywords:
         result = flask_app.compute_alert_level(dc_devices, location_type="datacenter")
         assert result["level"] == "critical"
 
-        # Same device in an office (only "router" is critical there) → medium (if >25%) or ok
+        # Same device in an office (only "router" is critical there) → medium (if >25%) or low
         office_devices = [{"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"},
                           {"id": "d2", "name": "sw01", "role": "Switch", "status": "active"}]
         result = flask_app.compute_alert_level(office_devices, location_type="office")
         assert result["level"] != "critical"
 
     def test_compute_alert_level_no_devices(self):
-        assert flask_app.compute_alert_level([]) == {"level": "ok", "reason": ""}
+        assert flask_app.compute_alert_level([]) == {"level": "no_data", "reason": "No poll data"}
 
     def test_compute_alert_level_medium_threshold(self):
         """More than 25% of devices down → medium alert."""
@@ -1743,8 +1757,8 @@ class TestConfigurableCriticalKeywords:
         result = flask_app.compute_alert_level(devices)
         assert result["level"] == "medium"
 
-    def test_compute_alert_level_ok_when_below_threshold(self):
-        """Under 25% down and no core device down → ok."""
+    def test_compute_alert_level_low_when_below_threshold(self):
+        """Under 25% down and no core device down → low."""
         devices = [
             {"id": "d1", "name": "sw01", "role": "Switch", "status": "offline"},
             {"id": "d2", "name": "sw02", "role": "Switch", "status": "active"},
@@ -1752,9 +1766,9 @@ class TestConfigurableCriticalKeywords:
             {"id": "d4", "name": "sw04", "role": "Switch", "status": "active"},
             {"id": "d5", "name": "sw05", "role": "Switch", "status": "active"},
         ]
-        # 1/5 = 20% ≤ 25% → ok
+        # 1/5 = 20% ≤ 25% → low
         result = flask_app.compute_alert_level(devices)
-        assert result["level"] == "ok"
+        assert result["level"] == "low"
 
 
 # ---------------------------------------------------------------------------
@@ -1912,9 +1926,10 @@ class TestCriticalityOverrideEndpoints:
 
         devices = [
             {"id": "dev-fw", "name": "fw-local", "role": "Core Router", "status": "offline"},
+            {"id": "dev-sw", "name": "sw-local", "role": "Switch", "status": "active"},
         ]
         # The override says is_critical=False, so even a "Core Router" that's
-        # offline should not produce a critical alert.
+        # offline should not produce a critical alert when the site is not fully unreachable.
         result = flask_app.compute_alert_level(devices)
         assert result["level"] != "critical"
 
@@ -2019,7 +2034,7 @@ class TestAlertLifecycleTracking:
             flask_app,
             "_get_location_devices_and_alert",
             return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline", "primary_ip": "192.0.2.1/32"}],
                 {"level": "critical", "reason": "Core device(s) offline: router01"},
             ),
         ):
@@ -2034,6 +2049,7 @@ class TestAlertLifecycleTracking:
             {
                 "device_id": "dev-1",
                 "device_name": "router01",
+                "device_ip": "192.0.2.1/32",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": [],
@@ -2146,7 +2162,7 @@ class TestAlertLifecycleTracking:
             flask_app,
             "_get_location_devices_and_alert",
             return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline", "primary_ip": "192.0.2.1/32"}],
                 {"level": "critical", "reason": "Core device(s) offline: router01"},
             ),
         ):
@@ -2159,6 +2175,7 @@ class TestAlertLifecycleTracking:
             {
                 "device_id": "dev-1",
                 "device_name": "router01",
+                "device_ip": "192.0.2.1/32",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": ["INC-1001"],
@@ -2218,7 +2235,7 @@ class TestAlertLifecycleTracking:
              patch.object(flask_app, "fetch_all_pages", return_value=[]), \
              patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
             data = flask_app.get_alert_board_data(force_refresh=True)
-        assert data["alerts"][0]["alert_level"] == "unknown"
+        assert data["alerts"][0]["alert_level"] == "no_data"
         history = flask_app._get_alert_context_for_site("loc-1", flask_app._iso_utc_now())
         assert history["active_alert_instance_count"] == 1
         conn = flask_app._get_db_conn()
@@ -3623,7 +3640,8 @@ class TestInventoryCacheSync:
         with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
-        assert data["summary"]["ok"] == 1
+        assert data["summary"]["ok"] == 0
+        assert data["summary"]["no_data"] == 1
         assert data["alerts"][0]["device_count"] == 0
         assert data["alerts"][0]["down_device_count"] == 0
 
@@ -3715,6 +3733,7 @@ class TestInventoryCacheSync:
             {
                 "device_id": "dev-2",
                 "device_name": "router01",
+                "device_ip": "192.0.2.1/32",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": [],
@@ -4108,6 +4127,17 @@ class TestLibreNMSEnrichment:
             ]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
+
+    def test_librenms_enrichment_uses_polled_ip_when_primary_ip_missing(self):
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [{"device_id": 1, "hostname": "router01", "status": 1, "ip": "198.51.100.10"}]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [{"id": "d1", "name": "router01", "primary_ip": "", "status": "active"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["display_ip"] == "198.51.100.10"
 
     def test_librenms_ip_hostnames_do_not_collide_with_short_name_keys(self):
         """IP-valued LibreNMS hostnames must not be short-name normalized."""
