@@ -214,6 +214,24 @@ class TestFetchAllPages:
         assert calls == [("dcim/devices/", {"limit": 25, "depth": 2, "offset": 0})]
 
 
+class TestPrimaryIpExtraction:
+    def test_prefers_primary_ip4_host_before_address(self):
+        device = {
+            "primary_ip": None,
+            "primary_ip4": {"host": "10.11.12.13", "address": "10.11.12.13/25"},
+        }
+
+        assert flask_app._extract_primary_ip(device) == "10.11.12.13"
+
+    def test_falls_back_to_primary_ip6_then_legacy_primary_ip(self):
+        for device, expected in (
+            ({"primary_ip": "192.0.2.9/32", "primary_ip4": {"host": "10.11.12.13"}, "primary_ip6": {"address": "2001:db8::1/64"}}, "10.11.12.13"),
+            ({"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": {"address": "2001:db8::1/64"}}, "2001:db8::1/64"),
+            ({"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": None}, "192.0.2.9/32"),
+        ):
+            assert flask_app._extract_primary_ip(device) == expected
+
+
 # ---------------------------------------------------------------------------
 # Tests: /api/locations
 # ---------------------------------------------------------------------------
@@ -839,8 +857,8 @@ class TestAlertBoard:
         assert len(devices) == 1
         assert alert["level"] == "ok"
         assert fetch_calls[:2] == [
-            ("dcim/devices/", {"location_id": "loc-1"}),
-            ("dcim/devices/", {"location": "loc-1"}),
+            ("dcim/devices/", {"location_id": "loc-1", "depth": 1}),
+            ("dcim/devices/", {"location": "loc-1", "depth": 1}),
         ]
 
     def test_get_alert_board_data_does_not_live_fetch_devices_on_cache_miss(self):
@@ -933,6 +951,7 @@ class TestAlertBoard:
                  "_get_location_devices_and_alert",
                  return_value=([], {"level": "ok", "reason": ""}),
              ), \
+             patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=False), \
              patch.object(flask_app, "_get_db_conn", side_effect=fake_get_db_conn), \
              patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert), \
              patch.object(flask_app, "_get_alert_context_for_site", side_effect=fake_context):
@@ -2021,6 +2040,20 @@ class TestAlertLifecycleTracking:
             content_type="application/json",
         )
         assert created.status_code == 200
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
 
         with patch.object(flask_app, "get_locations", return_value=[{
             "id": "loc-1",
@@ -2333,6 +2366,13 @@ class TestAlertLifecycleTracking:
         assert fake_conn.transaction_entries == 1
 
     def test_init_db_postgres_uses_advisory_lock_before_ddl(self):
+        class _FakeResult:
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
         class _FakeTransaction:
             def __init__(self, conn):
                 self.conn = conn
@@ -2363,7 +2403,9 @@ class TestAlertLifecycleTracking:
                 if self.closed:
                     raise RuntimeError("the connection is closed")
                 self.queries.append(query)
-                return None
+                if "SELECT NOT EXISTS (" in query:
+                    return _FakeResult({"missing": False})
+                return _FakeResult()
 
             def close(self):
                 self.closed = True
@@ -3060,9 +3102,10 @@ class TestInventoryCacheSync:
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
         assert location_calls[0] == {}
-        assert device_calls[0] == {}
+        assert device_calls[0] == {"depth": 1}
         assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
+        assert device_calls[1]["depth"] == 1
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
         conn = flask_app._get_db_conn()

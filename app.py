@@ -1229,11 +1229,11 @@ def _normalize_locations(
 
 
 def _extract_primary_ip(device: dict) -> str:
-    for key in ("primary_ip", "primary_ip4", "primary_ip6"):
+    for key in ("primary_ip4", "primary_ip6", "primary_ip"):
         value = device.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-        extracted = _nested_str(value, "address", "display", "name")
+        extracted = _nested_str(value, "host", "address", "display", "name")
         if extracted:
             return extracted
     return ""
@@ -1709,7 +1709,9 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         if last_successful_sync and not full_reconcile:
             params["last_updated__gte"] = last_successful_sync
         raw_locations = fetch_all_pages("dcim/locations/", params or None)
-        raw_devices = fetch_all_pages("dcim/devices/", params or None)
+        device_params = dict(params)
+        device_params["depth"] = 1
+        raw_devices = fetch_all_pages("dcim/devices/", device_params or None)
         if full_reconcile:
             existing_counts = conn.execute(
                 """
@@ -2283,13 +2285,13 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
 def _fetch_live_location_devices(location_id: str) -> list:
     """Fetch devices for one location, handling Nautobot filter-key variants."""
     try:
-        return fetch_all_pages("dcim/devices/", {"location_id": location_id})
+        return fetch_all_pages("dcim/devices/", {"location_id": location_id, "depth": 1})
     except requests.HTTPError as exc:
         response = getattr(exc, "response", None)
         status_code = getattr(response, "status_code", None)
         if status_code != 400:
             raise
-    return fetch_all_pages("dcim/devices/", {"location": location_id})
+    return fetch_all_pages("dcim/devices/", {"location": location_id, "depth": 1})
 
 
 def _get_location_devices_and_alert(
