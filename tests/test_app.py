@@ -1828,7 +1828,7 @@ class TestConfigurableCriticalKeywords:
         ]
         # 1/5 = 20% ≤ 25% → low
         result = flask_app.compute_alert_level(devices)
-        assert result == {"level": "low", "reason": ""}
+        assert result == {"level": "low", "reason": "1/5 devices offline (20%)"}
 
 
 # ---------------------------------------------------------------------------

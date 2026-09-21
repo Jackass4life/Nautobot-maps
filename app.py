@@ -2276,7 +2276,11 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
             "reason": f"{down_count}/{total} devices offline ({pct}%)",
         }
     if down_count > 0:
-        return {"level": "low", "reason": ""}
+        pct = round(down_count / total * 100)
+        return {
+            "level": "low",
+            "reason": f"{down_count}/{total} devices offline ({pct}%)",
+        }
     return {"level": "ok", "reason": ""}
 
 
