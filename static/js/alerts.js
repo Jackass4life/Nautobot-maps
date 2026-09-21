@@ -11,6 +11,9 @@ const sortBy = document.getElementById("sort-by");
 const refreshBtn = document.getElementById("refresh-alerts");
 const quickSeverityButtons = Array.from(document.querySelectorAll("[data-quick-severity]"));
 const clearAlertFiltersBtn = document.getElementById("clear-alert-filters");
+const toggleNonOperational = document.getElementById("toggle-non-operational");
+const collapseAllSitesBtn = document.getElementById("collapse-all-sites");
+const expandAllSitesBtn = document.getElementById("expand-all-sites");
 const themeToggle = document.getElementById("theme-toggle");
 const historyPanel = document.getElementById("history-panel");
 const historyTitle = document.getElementById("history-title");
@@ -20,6 +23,8 @@ const historyCloseBtn = document.getElementById("history-close");
 let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
 let historyTriggerBtn = null;
+let expandedSiteIds = new Set();
+let allSitesExpanded = false;
 
 function escHtml(str) {
   if (str == null) return "";
@@ -193,12 +198,17 @@ function compareText(left, right) {
   return (left || "").localeCompare(right || "");
 }
 
-function renderDownDeviceRows(item) {
+function isSiteExpanded(item) {
+  const siteId = String(item.id || "");
+  return allSitesExpanded ? !expandedSiteIds.has(siteId) : expandedSiteIds.has(siteId);
+}
+
+function renderDownDeviceRows(item, isExpanded) {
   const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
   if (!downDevices.length) return "";
   const siteLabel = escHtml(item.name || item.id || "site");
   return downDevices.map((device) => `
-    <tr class="down-device-row">
+    <tr class="down-device-row${isExpanded ? "" : " hidden"}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
         <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}</div>
         <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
@@ -226,6 +236,11 @@ function renderTableRows(alerts, payload) {
 
   alertsTableBody.innerHTML = alerts.map((item) => {
     const address = formatLocationAddress(item);
+    const isExpanded = isSiteExpanded(item);
+    const downCount = item.down_device_count || 0;
+    const toggleButton = downCount
+      ? `<button class="site-toggle-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="${isExpanded ? "Collapse" : "Expand"} ${escHtml(item.name || item.id || "site")}">${isExpanded ? "▾" : "▸"}</button>`
+      : '<span class="site-toggle-spacer" aria-hidden="true"></span>';
     const siteMeta = [
       item.country && address && address.toLowerCase().endsWith(item.country.toLowerCase()) ? "" : item.country,
       item.parent,
@@ -235,7 +250,13 @@ function renderTableRows(alerts, payload) {
     return `
     <tr class="site-row">
       <td>
-        <div class="site-name">${escHtml(item.name)}</div>
+        <div class="site-name-row">
+          ${toggleButton}
+          <div>
+            <div class="site-name">${escHtml(item.name)}</div>
+            <div class="site-summary">${downCount} down · ${item.device_count || 0} monitored</div>
+          </div>
+        </div>
         ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
         <div class="site-meta">${siteMeta || "—"}</div>
       </td>
@@ -250,13 +271,13 @@ function renderTableRows(alerts, payload) {
       <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
       <td>${mapActionCell(item)}</td>
     </tr>
-    ${renderDownDeviceRows(item)}
+    ${renderDownDeviceRows(item, isExpanded)}
   `;
   }).join("");
   formatBoardStatus(payload, alerts.length);
 }
 
-function applyFilters(payload) {
+function getFilteredAlerts() {
   const siteNeedle = filterSite.value.trim().toLowerCase();
   const severity = filterSeverity.value;
   const status = filterStatus.value;
@@ -290,6 +311,11 @@ function applyFilters(payload) {
       || compareText(a.name, b.name);
   });
 
+  return filtered;
+}
+
+function applyFilters(payload) {
+  const filtered = getFilteredAlerts();
   renderTableRows(filtered, payload);
   syncQuickSeverityButtons();
 }
@@ -305,9 +331,15 @@ function syncQuickSeverityButtons() {
 async function loadAlertBoard(forceRefresh = false) {
   boardStatus.textContent = "Loading alert board…";
   refreshBtn.disabled = true;
+  if (toggleNonOperational) toggleNonOperational.disabled = true;
+  if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = true;
+  if (expandAllSitesBtn) expandAllSitesBtn.disabled = true;
   try {
-    const suffix = forceRefresh ? `?refresh=${Date.now()}` : "";
-    const resp = await fetch(`/api/alerts${suffix}`);
+    const params = new URLSearchParams();
+    if (forceRefresh) params.set("refresh", String(Date.now()));
+    if (toggleNonOperational?.checked) params.set("include_non_operational", "1");
+    const query = params.toString();
+    const resp = await fetch(`/api/alerts${query ? `?${query}` : ""}`);
     const payload = await readJsonResponse(resp);
     if (!resp.ok || payload.error) {
       throw new Error(payload.error || resp.statusText || `HTTP ${resp.status}`);
@@ -323,6 +355,9 @@ async function loadAlertBoard(forceRefresh = false) {
     showError(`Failed to load alert board: ${err.message}`);
   } finally {
     refreshBtn.disabled = false;
+    if (toggleNonOperational) toggleNonOperational.disabled = false;
+    if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = false;
+    if (expandAllSitesBtn) expandAllSitesBtn.disabled = false;
   }
 }
 
@@ -357,6 +392,33 @@ if (clearAlertFiltersBtn) {
     filterType.value = "";
     filterTenant.value = "";
     sortBy.value = "severity";
+    applyFilters(latestPayload);
+  });
+}
+
+if (toggleNonOperational) {
+  toggleNonOperational.addEventListener("change", () => {
+    if (refreshBtn.disabled) return;
+    expandedSiteIds = new Set();
+    allSitesExpanded = false;
+    loadAlertBoard(false);
+  });
+}
+
+if (collapseAllSitesBtn) {
+  collapseAllSitesBtn.addEventListener("click", () => {
+    if (refreshBtn.disabled) return;
+    allSitesExpanded = false;
+    expandedSiteIds = new Set();
+    applyFilters(latestPayload);
+  });
+}
+
+if (expandAllSitesBtn) {
+  expandAllSitesBtn.addEventListener("click", () => {
+    if (refreshBtn.disabled) return;
+    allSitesExpanded = true;
+    expandedSiteIds = new Set();
     applyFilters(latestPayload);
   });
 }
@@ -398,6 +460,25 @@ if (historyCloseBtn && historyPanel) {
 }
 
 alertsTableBody.addEventListener("click", async (event) => {
+  const toggleBtn = event.target.closest(".site-toggle-btn");
+  if (toggleBtn) {
+    const siteId = String(toggleBtn.dataset.siteId || "");
+    if (!siteId) return;
+    if (allSitesExpanded) {
+      if (expandedSiteIds.has(siteId)) {
+        expandedSiteIds.delete(siteId);
+      } else {
+        expandedSiteIds.add(siteId);
+      }
+    } else if (expandedSiteIds.has(siteId)) {
+      expandedSiteIds.delete(siteId);
+    } else {
+      expandedSiteIds.add(siteId);
+    }
+    applyFilters(latestPayload);
+    return;
+  }
+
   const caseBtn = event.target.closest(".case-save-btn");
   if (caseBtn) {
     const siteId = caseBtn.dataset.siteId;

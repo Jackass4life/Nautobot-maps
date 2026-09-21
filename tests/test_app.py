@@ -137,6 +137,7 @@ SAMPLE_DEVICES_PAGE = {
             },
             "role": {"name": "Core Router"},
             "status": {"label": "Active"},
+            "primary_ip4": {"address": "192.0.2.1/32"},
             "platform": {"name": "IOS-XE"},
             "serial": "SN123",
             "tenant": {"name": "Acme Corp"},
@@ -505,6 +506,9 @@ class TestAlertBoard:
         assert b"Alert Board" in resp.data
         assert b"Filter by site, address, or country" in resp.data
         assert b"Sort: country" in resp.data
+        assert b"Show non-operational sites" in resp.data
+        assert b"Collapse all" in resp.data
+        assert b"Expand all" in resp.data
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
         flask_app.cache.clear()
@@ -654,6 +658,83 @@ class TestAlertBoard:
             }
         ]
 
+    def test_api_alerts_hides_non_operational_locations_unless_requested(self, client):
+        flask_app.cache.clear()
+        sample_locations = [
+            {
+                "id": "loc-1",
+                "name": "Production Site",
+                "status": "Active",
+                "location_type": "Data Center",
+                "parent": "",
+                "latitude": 1.0,
+                "longitude": 2.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+            {
+                "id": "loc-2",
+                "name": "Spare Kit",
+                "status": "Active",
+                "location_type": "Warehouse",
+                "parent": "",
+                "latitude": 3.0,
+                "longitude": 4.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+        ]
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), patch.object(
+            flask_app,
+            "_get_location_devices_and_alert",
+            return_value=(
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "active", "primary_ip": "192.0.2.1/32"}],
+                {"level": "ok", "reason": ""},
+            ),
+        ) as get_alert:
+            resp = client.get("/api/alerts")
+            assert resp.status_code == 200
+            assert resp.get_json()["summary"]["total"] == 1
+            assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1"]
+            assert get_alert.call_count == 1
+
+            flask_app.cache.clear()
+            get_alert.reset_mock()
+            resp = client.get("/api/alerts?include_non_operational=1")
+
+        assert resp.status_code == 200
+        assert resp.get_json()["summary"]["total"] == 2
+        assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1", "loc-2"]
+        assert get_alert.call_count == 2
+
+    def test_location_exclusion_supports_object_tags(self):
+        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}):
+            assert flask_app._location_is_excluded_from_alert_board(
+                {
+                    "name": "Warehouse",
+                    "status": "Active",
+                    "location_type": "Office",
+                    "tags": [{"name": "Non-Operational"}],
+                }
+            )
+
     def test_get_alert_board_data_marks_location_unknown_on_error(self):
         flask_app.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
@@ -683,6 +764,47 @@ class TestAlertBoard:
         assert devices == []
         assert alert == {"level": "ok", "reason": ""}
         ensure_snapshot.assert_not_called()
+
+    def test_location_alert_filters_devices_without_primary_ip(self):
+        devices, alert = flask_app._get_location_devices_and_alert(
+            "loc-1",
+            "Data Center",
+            devices_data=[
+                {
+                    "id": "dev-1",
+                    "name": "ap01",
+                    "device_type": "AP",
+                    "manufacturer": "Cisco",
+                    "role": "Access Point",
+                    "status": "offline",
+                    "primary_ip": "",
+                    "platform": "",
+                    "serial": "",
+                    "tenant": "",
+                },
+                {
+                    "id": "dev-2",
+                    "name": "router01",
+                    "device_type": "ASR1001-X",
+                    "manufacturer": "Cisco",
+                    "role": "Core Router",
+                    "status": "offline",
+                    "primary_ip": "192.0.2.1/32",
+                    "platform": "",
+                    "serial": "",
+                    "tenant": "",
+                },
+            ],
+            devices_already_normalized=True,
+            snapshot_only=True,
+            require_primary_ip=True,
+        )
+
+        assert [device["id"] for device in devices] == ["dev-2"]
+        assert alert == {
+            "level": "critical",
+            "reason": "Core device(s) offline: router01",
+        }
 
     def test_location_detail_live_device_fetch_retries_with_location_filter_on_400(self):
         bad_request = flask_app.requests.HTTPError(
@@ -847,6 +969,56 @@ class TestAlertBoard:
         assert get_db_conn.call_count == 1
         upsert.assert_not_called()
         get_context.assert_not_called()
+
+    def test_get_alert_board_data_skips_lifecycle_upsert_until_first_successful_nautobot_sync(self):
+        flask_app.cache.clear()
+        sample_locations = [
+            {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
+        ]
+        class _FakeConn:
+            def close(self):
+                return None
+
+        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
+             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
+             patch.object(flask_app, "_ensure_inventory_snapshot"), \
+             patch.object(
+                 flask_app,
+                 "_get_location_devices_and_alert",
+                 return_value=([], {"level": "ok", "reason": ""}),
+             ), \
+             patch.object(flask_app, "_get_db_conn", return_value=_FakeConn()), \
+             patch.object(
+                 flask_app,
+                 "_get_sync_state",
+                 return_value={
+                     "status": "error",
+                     "last_successful_sync": None,
+                 },
+             ), \
+             patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert, \
+             patch.object(
+                 flask_app,
+                 "_get_alert_context_for_site",
+                 return_value={
+                     "active_alert_instance_count": 1,
+                     "historical_downtime_seconds": 3600,
+                     "current_downtime_seconds": 1800,
+                     "active_cases": ["INC-1001"],
+                     "down_devices": [{"device_id": "dev-legacy", "device_name": "legacy01"}],
+                 },
+             ) as get_context:
+            data = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert data["summary"]["total"] == 1
+        upsert.assert_not_called()
+        get_context.assert_called_once()
+        entry = data["alerts"][0]
+        assert entry["active_alert_instance_count"] == 0
+        assert entry["current_downtime_seconds"] == 0
+        assert entry["historical_downtime_seconds"] == 3600
+        assert entry["active_cases"] == []
+        assert entry["down_devices"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -1995,7 +2167,10 @@ class TestAlertLifecycleTracking:
             result = flask_app.get_alert_board_data(force_refresh=True)
 
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
-        build_payload.assert_called_once_with(snapshot_only=True)
+        build_payload.assert_called_once_with(
+            snapshot_only=True,
+            include_non_operational=False,
+        )
         ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
     def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
@@ -2185,6 +2360,56 @@ class TestAlertLifecycleTracking:
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 1
 
+    def test_init_db_postgres_marks_primary_ip_migration_pending(self):
+        class _FakeResult:
+            def __init__(self, rows=None):
+                self._rows = rows or []
+
+            def fetchone(self):
+                return self._rows[0] if self._rows else None
+
+        class _FakeTransaction:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __enter__(self):
+                self.conn.transaction_entries += 1
+                return self.conn
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+                self.transaction_entries = 0
+
+            def close(self):
+                return None
+
+            def transaction(self):
+                return _FakeTransaction(self)
+
+            def execute(self, query, params=()):
+                self.queries.append((query, params))
+                if "SELECT NOT EXISTS" in query and "column_name = 'primary_ip'" in query:
+                    return _FakeResult([{"missing": True}])
+                return _FakeResult([])
+
+        fake_conn = _FakeConn()
+        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
+            flask_app, "_is_postgres", return_value=True
+        ):
+            flask_app._init_db()
+
+        reset_query, reset_params = next(
+            (query, params)
+            for query, params in fake_conn.queries
+            if "UPDATE inventory_sync_state" in query
+        )
+        assert "status = 'pending'" in reset_query
+        assert reset_params == ("nautobot_inventory",)
+
     def test_init_db_sqlite_migrates_legacy_time_zone_not_null(self):
         import os
         import sqlite3
@@ -2283,6 +2508,100 @@ class TestAlertLifecycleTracking:
                 ("loc-null",),
             ).fetchone()
             assert inserted["time_zone"] is None
+            conn.close()
+        finally:
+            flask_app.NAUTOBOT_MAPS_DB = original_db
+            flask_app.NAUTOBOT_MAPS_DATABASE_URL = original_db_url
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+
+    def test_init_db_sqlite_marks_primary_ip_migration_pending(self):
+        import os
+        import sqlite3
+        import tempfile
+
+        original_db = flask_app.NAUTOBOT_MAPS_DB
+        original_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+
+        try:
+            conn = sqlite3.connect(tmp.name)
+            conn.execute(
+                """
+                CREATE TABLE inventory_sync_state (
+                    source               TEXT PRIMARY KEY,
+                    last_started_at      TEXT,
+                    last_completed_at    TEXT,
+                    last_successful_sync TEXT,
+                    status               TEXT NOT NULL DEFAULT 'idle',
+                    error_message        TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE nautobot_device_cache (
+                    device_id      TEXT PRIMARY KEY,
+                    location_id    TEXT NOT NULL DEFAULT '',
+                    name           TEXT NOT NULL DEFAULT '',
+                    device_type    TEXT NOT NULL DEFAULT '',
+                    manufacturer   TEXT NOT NULL DEFAULT '',
+                    role           TEXT NOT NULL DEFAULT '',
+                    status         TEXT NOT NULL DEFAULT '',
+                    platform       TEXT NOT NULL DEFAULT '',
+                    serial         TEXT NOT NULL DEFAULT '',
+                    tenant         TEXT NOT NULL DEFAULT '',
+                    last_updated   TEXT,
+                    synced_at      TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO inventory_sync_state (
+                    source,
+                    last_started_at,
+                    last_completed_at,
+                    last_successful_sync,
+                    status,
+                    error_message
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "nautobot_inventory",
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:05:00Z",
+                    "2026-01-01T00:05:00Z",
+                    "idle",
+                    "",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
+            flask_app.NAUTOBOT_MAPS_DB = tmp.name
+            flask_app._init_db()
+
+            conn = sqlite3.connect(tmp.name)
+            conn.row_factory = sqlite3.Row
+            columns = conn.execute("PRAGMA table_info(nautobot_device_cache)").fetchall()
+            assert any(col["name"] == "primary_ip" for col in columns)
+            state = conn.execute(
+                """
+                SELECT last_completed_at, last_successful_sync, status
+                FROM inventory_sync_state
+                WHERE source = ?
+                """,
+                ("nautobot_inventory",),
+            ).fetchone()
+            assert state["last_completed_at"] is None
+            assert state["last_successful_sync"] is None
+            assert state["status"] == "pending"
             conn.close()
         finally:
             flask_app.NAUTOBOT_MAPS_DB = original_db
@@ -2506,6 +2825,7 @@ class TestInventoryCacheSync:
                             "manufacturer": None,
                             "role": None,
                             "status": None,
+                            "primary_ip": None,
                             "platform": None,
                             "serial": None,
                             "tenant": None,
@@ -2524,6 +2844,7 @@ class TestInventoryCacheSync:
         assert devices[0]["manufacturer"] == ""
         assert devices[0]["role"] == ""
         assert devices[0]["status"] == ""
+        assert devices[0]["primary_ip"] == ""
         assert devices[0]["platform"] == ""
         assert devices[0]["serial"] == ""
         assert devices[0]["tenant"] == ""
@@ -2569,6 +2890,7 @@ class TestInventoryCacheSync:
                             "manufacturer": "Cisco",
                             "role": "Core Router",
                             "status": "offline",
+                            "primary_ip": "192.0.2.1/32",
                             "platform": "IOS-XE",
                             "serial": "SN123",
                             "tenant": "",
@@ -2708,6 +3030,168 @@ class TestInventoryCacheSync:
         assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
 
+    def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Pending Site",
+                            "slug": "pending-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+                flask_app._write_cached_devices(
+                    conn,
+                    [
+                        {
+                            "id": "dev-1",
+                            "location_id": "loc-1",
+                            "name": "router01",
+                            "device_type": "ASR1001-X",
+                            "manufacturer": "Cisco",
+                            "role": "Core Router",
+                            "status": "offline",
+                            "primary_ip": "",
+                            "platform": "IOS-XE",
+                            "serial": "SN123",
+                            "tenant": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at=None,
+                    last_completed_at=None,
+                    last_successful_sync=None,
+                    status="pending",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        flask_app.cache.clear()
+        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
+            data = flask_app.get_alert_board_data(force_refresh=True)
+
+        assert data["summary"]["ok"] == 1
+        assert data["alerts"][0]["device_count"] == 0
+        assert data["alerts"][0]["down_device_count"] == 0
+
+    def test_api_alerts_filters_cached_devices_without_primary_ip(self, client):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._write_cached_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Filtered Site",
+                            "slug": "filtered-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+                flask_app._write_cached_devices(
+                    conn,
+                    [
+                        {
+                            "id": "dev-1",
+                            "location_id": "loc-1",
+                            "name": "ap01",
+                            "device_type": "AP",
+                            "manufacturer": "Cisco",
+                            "role": "Access Point",
+                            "status": "offline",
+                            "primary_ip": "",
+                            "platform": "",
+                            "serial": "",
+                            "tenant": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        },
+                        {
+                            "id": "dev-2",
+                            "location_id": "loc-1",
+                            "name": "router01",
+                            "device_type": "ASR1001-X",
+                            "manufacturer": "Cisco",
+                            "role": "Core Router",
+                            "status": "offline",
+                            "primary_ip": "192.0.2.1/32",
+                            "platform": "IOS-XE",
+                            "serial": "SN123",
+                            "tenant": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        },
+                    ],
+                )
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        flask_app.cache.clear()
+        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
+            resp = client.get("/api/alerts")
+
+        assert resp.status_code == 200
+        entry = resp.get_json()["alerts"][0]
+        assert entry["device_count"] == 1
+        assert entry["down_device_count"] == 1
+        assert entry["down_devices"] == [
+            {
+                "device_id": "dev-2",
+                "device_name": "router01",
+                "status": "offline",
+                "role": "Core Router",
+                "case_numbers": [],
+            }
+        ]
+
     def test_sync_librenms_inventory_keeps_postgres_connection_open_between_transactions(self):
         class _FakeResult:
             def __init__(self, rows=None, rowcount=0):
@@ -2789,7 +3273,9 @@ class TestInventoryCacheSync:
             for query, _ in fake_conn.queries
         )
         assert any("DELETE FROM librenms_device_status" in query for query, _ in fake_conn.queries)
-        cache_delete.assert_called_once_with("alert-board-data:v2")
+        cache_delete.assert_any_call("alert-board-data:v3")
+        cache_delete.assert_any_call("alert-board-data:v3:include-non-operational")
+        assert cache_delete.call_count == 2
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
         conn = flask_app._get_db_conn()
@@ -2832,6 +3318,7 @@ class TestInventoryCacheSync:
                             "manufacturer": "Cisco",
                             "role": "Core Router",
                             "status": "active",
+                            "primary_ip": "198.51.100.1/32",
                             "platform": "IOS-XE",
                             "serial": "SN-STALE",
                             "tenant": "",

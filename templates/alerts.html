@@ -51,6 +51,14 @@
         <button class="quick-filter-btn" type="button" data-quick-severity="medium" aria-pressed="false">Medium</button>
         <button class="secondary-filter-btn" type="button" id="clear-alert-filters">Reset</button>
       </div>
+      <div class="tree-controls" role="group" aria-label="Alert tree controls">
+        <label class="toggle-chip" for="toggle-non-operational">
+          <input id="toggle-non-operational" type="checkbox" />
+          <span>Show non-operational sites</span>
+        </label>
+        <button class="secondary-filter-btn" type="button" id="collapse-all-sites">Collapse all</button>
+        <button class="secondary-filter-btn" type="button" id="expand-all-sites">Expand all</button>
+      </div>
       <div class="toolbar-grid">
         <input id="filter-site" type="text" placeholder="Filter by site, address, or country" aria-label="Site, address, or country" />
         <select id="filter-severity" aria-label="Severity">

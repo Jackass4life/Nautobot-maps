@@ -79,6 +79,22 @@ AUTH_DEFAULT_ROLE = os.getenv("AUTH_DEFAULT_ROLE", "").strip().lower()
 
 # Path to a JSON file with per-location-type criticality keyword rules
 CRITICALITY_RULES_FILE = os.getenv("CRITICALITY_RULES_FILE", "")
+ALERT_BOARD_EXCLUDED_LOCATION_TYPES_RAW = os.getenv(
+    "ALERT_BOARD_EXCLUDED_LOCATION_TYPES",
+    "graveyard,warehouse",
+)
+ALERT_BOARD_EXCLUDED_LOCATION_STATUSES_RAW = os.getenv(
+    "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES",
+    "",
+)
+ALERT_BOARD_EXCLUDED_LOCATION_TAGS_RAW = os.getenv(
+    "ALERT_BOARD_EXCLUDED_LOCATION_TAGS",
+    "",
+)
+ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW = os.getenv(
+    "ALERT_BOARD_EXCLUDED_LOCATION_NAMES",
+    "",
+)
 
 # Flask-Caching configuration.
 # Defaults to SimpleCache (in-process) for development / single-worker setups.
@@ -128,6 +144,18 @@ def _parse_csv_set(value: str) -> set[str]:
 AUTH_VIEWER_GROUPS = _parse_csv_set(os.getenv("AUTH_VIEWER_GROUPS", ""))
 AUTH_OPERATOR_GROUPS = _parse_csv_set(os.getenv("AUTH_OPERATOR_GROUPS", ""))
 AUTH_ADMIN_GROUPS = _parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
+ALERT_BOARD_EXCLUDED_LOCATION_TYPES = _parse_csv_set(
+    ALERT_BOARD_EXCLUDED_LOCATION_TYPES_RAW
+)
+ALERT_BOARD_EXCLUDED_LOCATION_STATUSES = _parse_csv_set(
+    ALERT_BOARD_EXCLUDED_LOCATION_STATUSES_RAW
+)
+ALERT_BOARD_EXCLUDED_LOCATION_TAGS = _parse_csv_set(
+    ALERT_BOARD_EXCLUDED_LOCATION_TAGS_RAW
+)
+ALERT_BOARD_EXCLUDED_LOCATION_NAMES = _parse_csv_set(
+    ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW
+)
 
 
 def _normalize_auth_role(role: str) -> str:
@@ -452,6 +480,7 @@ def _init_db() -> None:
                         manufacturer   TEXT NOT NULL DEFAULT '',
                         role           TEXT NOT NULL DEFAULT '',
                         status         TEXT NOT NULL DEFAULT '',
+                        primary_ip     TEXT NOT NULL DEFAULT '',
                         platform       TEXT NOT NULL DEFAULT '',
                         serial         TEXT NOT NULL DEFAULT '',
                         tenant         TEXT NOT NULL DEFAULT '',
@@ -588,6 +617,7 @@ def _init_db() -> None:
                         manufacturer   TEXT NOT NULL DEFAULT '',
                         role           TEXT NOT NULL DEFAULT '',
                         status         TEXT NOT NULL DEFAULT '',
+                        primary_ip     TEXT NOT NULL DEFAULT '',
                         platform       TEXT NOT NULL DEFAULT '',
                         serial         TEXT NOT NULL DEFAULT '',
                         tenant         TEXT NOT NULL DEFAULT '',
@@ -725,6 +755,19 @@ def _init_db() -> None:
                             "nautobot_location_cache",
                         )
                         conn.execute(schema_sql)
+                device_primary_ip_column = next(
+                    (
+                        column
+                        for column in conn.execute("PRAGMA table_info(nautobot_device_cache)").fetchall()
+                        if column["name"] == "primary_ip"
+                    ),
+                    None,
+                )
+                if device_primary_ip_column is None:
+                    conn.execute(
+                        "ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT ''"
+                    )
+                    _mark_nautobot_inventory_sync_pending(conn)
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
@@ -741,6 +784,18 @@ def _init_db() -> None:
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
                 )
             if _is_postgres():
+                primary_ip_column_missing = _row_to_dict(
+                    conn.execute(
+                        """
+                        SELECT NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'nautobot_device_cache'
+                              AND column_name = 'primary_ip'
+                        ) AS missing
+                        """
+                    ).fetchone()
+                ).get("missing")
                 conn.execute(
                     """
                     DO $$
@@ -754,10 +809,20 @@ def _init_db() -> None:
                         ) THEN
                             ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL;
                         END IF;
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'nautobot_device_cache'
+                              AND column_name = 'primary_ip'
+                        ) THEN
+                            ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT '';
+                        END IF;
                     END;
                     $$;
                     """
                 )
+                if primary_ip_column_missing:
+                    _mark_nautobot_inventory_sync_pending(conn)
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
                 )
@@ -781,8 +846,25 @@ def _init_db() -> None:
     )
 
 
+def _mark_nautobot_inventory_sync_pending(conn) -> None:
+    marker = _sql_placeholders(1)
+    conn.execute(
+        f"""
+        UPDATE inventory_sync_state
+        SET last_started_at = NULL,
+            last_completed_at = NULL,
+            last_successful_sync = NULL,
+            status = 'pending',
+            error_message = ''
+        WHERE source = {marker}
+        """,
+        ("nautobot_inventory",),
+    )
+
+
 # Initialise the DB at startup (no-op when persistence is not configured).
 _init_db()
+
 
 def _cache_get(key: str):
     return cache.get(key)
@@ -1146,6 +1228,17 @@ def _normalize_locations(
     return locations
 
 
+def _extract_primary_ip(device: dict) -> str:
+    for key in ("primary_ip", "primary_ip4", "primary_ip6"):
+        value = device.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        extracted = _nested_str(value, "address", "display", "name")
+        if extracted:
+            return extracted
+    return ""
+
+
 def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> list:
     if lookup_maps is None:
         lookup_maps = _build_device_lookup_maps()
@@ -1201,6 +1294,7 @@ def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> l
                     )
                 ),
                 "status": st_name,
+                "primary_ip": _extract_primary_ip(d),
                 "platform": _nested_str(d.get("platform"), "name", "display"),
                 "serial": d.get("serial") or "",
                 "tenant": ten_name,
@@ -1305,14 +1399,14 @@ def _read_cached_devices(location_id: str | None = None, conn=None) -> list:
             marker = _sql_placeholders(1)
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "platform, serial, tenant FROM nautobot_device_cache "
+                "primary_ip, platform, serial, tenant FROM nautobot_device_cache "
                 f"WHERE location_id = {marker} ORDER BY name ASC"
             )
             params = (location_id,)
         else:
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "platform, serial, tenant FROM nautobot_device_cache ORDER BY location_id, name ASC"
+                "primary_ip, platform, serial, tenant FROM nautobot_device_cache ORDER BY location_id, name ASC"
             )
         rows = conn.execute(query, params).fetchall()
         return [
@@ -1324,6 +1418,7 @@ def _read_cached_devices(location_id: str | None = None, conn=None) -> list:
                 "manufacturer": data.get("manufacturer", ""),
                 "role": data.get("role", ""),
                 "status": data.get("status", ""),
+                "primary_ip": data.get("primary_ip", ""),
                 "platform": data.get("platform", ""),
                 "serial": data.get("serial", ""),
                 "tenant": data.get("tenant", ""),
@@ -1512,13 +1607,13 @@ def _write_cached_locations(conn, locations: list) -> None:
 
 
 def _write_cached_devices(conn, devices: list) -> None:
-    placeholders = _sql_placeholders(11).split(",")
+    placeholders = _sql_placeholders(12).split(",")
     for device in devices:
         conn.execute(
             f"""
             INSERT INTO nautobot_device_cache
                 (device_id, location_id, name, device_type, manufacturer, role, status,
-                 platform, serial, tenant, last_updated, synced_at)
+                 primary_ip, platform, serial, tenant, last_updated, synced_at)
             VALUES ({", ".join(placeholders)}, {_sql_now()})
             ON CONFLICT(device_id) DO UPDATE SET
                 location_id = excluded.location_id,
@@ -1527,6 +1622,7 @@ def _write_cached_devices(conn, devices: list) -> None:
                 manufacturer = excluded.manufacturer,
                 role = excluded.role,
                 status = excluded.status,
+                primary_ip = excluded.primary_ip,
                 platform = excluded.platform,
                 serial = excluded.serial,
                 tenant = excluded.tenant,
@@ -1541,6 +1637,7 @@ def _write_cached_devices(conn, devices: list) -> None:
                 _coalesce_cache_text(device.get("manufacturer", "")),
                 _coalesce_cache_text(device.get("role", "")),
                 _coalesce_cache_text(device.get("status", "")),
+                _coalesce_cache_text(device.get("primary_ip", "")),
                 _coalesce_cache_text(device.get("platform", "")),
                 _coalesce_cache_text(device.get("serial", "")),
                 _coalesce_cache_text(device.get("tenant", "")),
@@ -1672,7 +1769,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                     status="idle",
                     error_message="",
                 )
-        cache.delete("alert-board-data:v2")
+        _invalidate_alert_board_cache()
     except Exception as exc:
         logger.warning("Could not sync Nautobot inventory into persistence DB: %s", exc)
         with _db_transaction(conn):
@@ -1734,7 +1831,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
                 status="idle",
                 error_message="",
             )
-        cache.delete("alert-board-data:v2")
+        _invalidate_alert_board_cache()
     except Exception as exc:
         logger.warning("Could not sync LibreNMS inventory into persistence DB: %s", exc)
         with _db_transaction(conn):
@@ -1832,6 +1929,41 @@ def get_locations(
 
 # Device statuses that count as "down" for alert purposes
 _DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning"})
+
+
+def _device_has_primary_ip(device: dict) -> bool:
+    return bool((device.get("primary_ip") or "").strip())
+
+
+def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
+    """Treat primary-IP backfill as pending until Nautobot has a successful watermark."""
+    state = _get_sync_state("nautobot_inventory", conn=conn)
+    return not bool((state or {}).get("last_successful_sync"))
+
+
+def _location_is_excluded_from_alert_board(location: dict) -> bool:
+    name = (location.get("name") or "").strip().lower()
+    status = (location.get("status") or "").strip().lower()
+    location_type = (location.get("location_type") or "").strip().lower()
+    tags = set()
+    for tag in (location.get("tags") or []):
+        if isinstance(tag, dict):
+            tag_name = _nested_str(tag, "name", "display", "label", "value")
+        else:
+            tag_name = str(tag).strip()
+        if tag_name:
+            tags.add(tag_name.strip().lower())
+    return bool(
+        (name and name in ALERT_BOARD_EXCLUDED_LOCATION_NAMES)
+        or (status and status in ALERT_BOARD_EXCLUDED_LOCATION_STATUSES)
+        or (location_type and location_type in ALERT_BOARD_EXCLUDED_LOCATION_TYPES)
+        or (tags & ALERT_BOARD_EXCLUDED_LOCATION_TAGS)
+    )
+
+
+def _invalidate_alert_board_cache() -> None:
+    cache.delete("alert-board-data:v3")
+    cache.delete("alert-board-data:v3:include-non-operational")
 
 # ---------------------------------------------------------------------------
 # Configurable critical-role keyword system
@@ -2169,13 +2301,15 @@ def _get_location_devices_and_alert(
     lnms_devices: list | None = None,
     lnms_id_map: dict | None = None,
     snapshot_only: bool = False,
+    require_primary_ip: bool = False,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location."""
     loaded_from_cache = False
+    use_normalized_devices = devices_already_normalized
     if devices_data is None:
         devices_data = _read_cached_devices(location_id)
         if devices_data:
-            devices_already_normalized = True
+            use_normalized_devices = True
             loaded_from_cache = True
             if not snapshot_only:
                 _ensure_inventory_snapshot()
@@ -2183,12 +2317,10 @@ def _get_location_devices_and_alert(
             _ensure_inventory_snapshot()
             devices_data = _read_cached_devices(location_id)
             if devices_data:
-                devices_already_normalized = True
+                use_normalized_devices = True
                 loaded_from_cache = True
             else:
                 devices_data = _fetch_live_location_devices(location_id)
-    elif devices_already_normalized:
-        loaded_from_cache = True
 
     devices = (
         [
@@ -2199,15 +2331,18 @@ def _get_location_devices_and_alert(
                 "manufacturer": d.get("manufacturer", ""),
                 "role": d.get("role", ""),
                 "status": d.get("status", ""),
+                "primary_ip": d.get("primary_ip", ""),
                 "platform": d.get("platform", ""),
                 "serial": d.get("serial", ""),
                 "tenant": d.get("tenant", ""),
             }
             for d in devices_data
         ]
-        if devices_already_normalized and loaded_from_cache
+        if use_normalized_devices
         else _normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
+    if require_primary_ip:
+        devices = [device for device in devices if _device_has_primary_ip(device)]
 
     enriched = _enrich_with_librenms(
         devices,
@@ -2598,12 +2733,19 @@ def _apply_alert_board_freshness(payload: dict) -> dict:
     return result
 
 
-def _build_alert_board_payload(snapshot_only: bool = False) -> dict:
+def _build_alert_board_payload(
+    snapshot_only: bool = False,
+    include_non_operational: bool = False,
+) -> dict:
     """Build and return a fresh alert-board payload."""
     locations = get_locations(
         include_without_coordinates=True,
         snapshot_only=snapshot_only,
     )
+    if not include_non_operational:
+        locations = [
+            loc for loc in locations if not _location_is_excluded_from_alert_board(loc)
+        ]
     alerts = []
     summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
     default_alert_context = {
@@ -2637,6 +2779,7 @@ def _build_alert_board_payload(snapshot_only: bool = False) -> dict:
                 lnms_devices=lnms_devices,
                 lnms_id_map=lnms_id_map,
                 snapshot_only=snapshot_only,
+                require_primary_ip=True,
             )
         except Exception as exc:
             logger.warning(
@@ -2663,8 +2806,12 @@ def _build_alert_board_payload(snapshot_only: bool = False) -> dict:
             if persistence_conn is None:
                 persistence_unavailable = True
             else:
+                primary_ip_backfill_pending = False
                 try:
-                    if observation_succeeded:
+                    primary_ip_backfill_pending = _nautobot_inventory_primary_ip_backfill_pending(
+                        conn=persistence_conn
+                    )
+                    if observation_succeeded and not primary_ip_backfill_pending:
                         _upsert_alert_lifecycle_for_site(
                             loc,
                             devices,
@@ -2677,6 +2824,14 @@ def _build_alert_board_payload(snapshot_only: bool = False) -> dict:
                         checked_at,
                         conn=persistence_conn,
                     )
+                    if primary_ip_backfill_pending:
+                        alert_context = {
+                            **alert_context,
+                            "active_alert_instance_count": 0,
+                            "current_downtime_seconds": 0,
+                            "active_cases": [],
+                            "down_devices": [],
+                        }
                 finally:
                     persistence_conn.close()
         current_down_devices = [
@@ -2764,16 +2919,24 @@ def _build_alert_board_payload(snapshot_only: bool = False) -> dict:
     }
 
 
-def get_alert_board_data(force_refresh: bool = False) -> dict:
+def get_alert_board_data(
+    force_refresh: bool = False,
+    include_non_operational: bool = False,
+) -> dict:
     """Return alert summaries for all locations."""
-    cache_key = "alert-board-data:v2"
+    cache_key = "alert-board-data:v3"
+    if include_non_operational:
+        cache_key = f"{cache_key}:include-non-operational"
     if force_refresh:
         _ensure_inventory_snapshot(force=True, wait=False)
     cached = _cache_get(cache_key)
     if cached is not None:
         return _apply_alert_board_freshness(cached)
 
-    payload = _build_alert_board_payload(snapshot_only=True)
+    payload = _build_alert_board_payload(
+        snapshot_only=True,
+        include_non_operational=include_non_operational,
+    )
     should_cache = bool(payload.get("alerts")) or _nautobot_snapshot_initialized()
     if should_cache:
         _cache_set(cache_key, payload, timeout=CACHE_TTL)
@@ -2957,8 +3120,22 @@ def api_alerts():
         "yes",
         "refresh",
     }
+    include_non_operational = request.args.get(
+        "include_non_operational",
+        "",
+    ).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "include",
+    }
     try:
-        return jsonify(get_alert_board_data(force_refresh=force_refresh))
+        return jsonify(
+            get_alert_board_data(
+                force_refresh=force_refresh,
+                include_non_operational=include_non_operational,
+            )
+        )
     except RuntimeError:
         return (
             jsonify({"error": "Alert board unavailable because Nautobot is not configured"}),
