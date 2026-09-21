@@ -256,6 +256,20 @@ function getSelectedGroupLocations() {
     .filter(Boolean);
 }
 
+function getColocatedLocationIds(locId) {
+  const loc = getLocationById(locId);
+  if (!loc || loc.latitude == null || loc.longitude == null) return [locId];
+  const key = `${loc.latitude.toFixed(4)},${loc.longitude.toFixed(4)}`;
+  return allLocations
+    .filter(
+      (candidate) =>
+        candidate.latitude != null
+        && candidate.longitude != null
+        && `${candidate.latitude.toFixed(4)},${candidate.longitude.toFixed(4)}` === key
+    )
+    .map((candidate) => candidate.id);
+}
+
 function renderInspectorTabs() {
   const groupLocations = getSelectedGroupLocations();
   if (groupLocations.length <= 1) {
@@ -588,6 +602,14 @@ function addColocatedMarker(locations) {
 function openLocationById(locId, options = {}) {
   const loc = getLocationById(locId);
   if (!loc) return false;
+  const expectedGroupIds = getColocatedLocationIds(locId);
+  const shouldResolveColocatedGroup =
+    expectedGroupIds.length > 1 && !colocGroupByLocId[locId] && map.getZoom() < 8;
+  if (shouldResolveColocatedGroup) {
+    pendingLocationOpen = { locId, options };
+    map.flyTo([loc.latitude, loc.longitude], Math.max(map.getZoom(), 8), { duration: 0.8 });
+    return false;
+  }
 
   const marker = markerByLocId[locId];
   if (!marker) {
@@ -600,9 +622,9 @@ function openLocationById(locId, options = {}) {
 
   map.flyTo([loc.latitude, loc.longitude], Math.max(map.getZoom(), 13), { duration: 0.8 });
   openInspectorForLocation(locId, {
-    groupIds: colocGroupByLocId[locId] || [locId],
+    groupIds: colocGroupByLocId[locId] || expectedGroupIds,
     focusElement: options.focusElement || marker.getElement(),
-    focusInspector: options.focusInspector !== false,
+    focusInspector: options.focusInspector,
   });
   return true;
 }
