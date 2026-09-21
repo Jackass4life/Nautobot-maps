@@ -4,6 +4,7 @@ import sqlite3
 import logging
 import re
 import hashlib
+import ipaddress
 import threading
 import warnings
 from contextlib import contextmanager
@@ -1253,6 +1254,31 @@ def _extract_primary_ip(device: dict) -> str:
     return ""
 
 
+def _normalize_librenms_host_key(value: str) -> str:
+    return (value or "").strip().lower().split(".", 1)[0]
+
+
+def _normalize_librenms_ip_key(value: str) -> str:
+    candidate = (value or "").strip().split("/", 1)[0]
+    if not candidate:
+        return ""
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return candidate
+
+
+def _is_ip_literal(value: str) -> bool:
+    candidate = _normalize_librenms_ip_key(value)
+    if not candidate:
+        return False
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    return True
+
+
 def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> list:
     if lookup_maps is None:
         lookup_maps = _build_device_lookup_maps()
@@ -2219,12 +2245,17 @@ def _enrich_with_librenms(
     if not lnms_devices:
         return devices
 
-    # Build hostname → LibreNMS record map (case-insensitive)
+    # Build separate name/IP lookup maps so IP-valued hostnames are never
+    # short-name normalized into ambiguous keys such as "10".
     lnms_by_hostname: dict = {}
+    lnms_by_ip: dict = {}
     for ld in lnms_devices:
-        hostname = (ld.get("hostname") or "").lower()
+        hostname = (ld.get("hostname") or "").strip()
         if hostname:
-            lnms_by_hostname[hostname] = ld
+            if _is_ip_literal(hostname):
+                lnms_by_ip[_normalize_librenms_ip_key(hostname)] = ld
+            else:
+                lnms_by_hostname[_normalize_librenms_host_key(hostname)] = ld
 
     # Load Nautobot UUID → LibreNMS device ID overrides from DB
     if lnms_id_map is None:
@@ -2247,8 +2278,12 @@ def _enrich_with_librenms(
 
         # 2. Fall back to hostname matching
         if lnms_record is None:
-            device_name = (device.get("name") or "").lower()
+            device_name = _normalize_librenms_host_key(device.get("name") or "")
             lnms_record = lnms_by_hostname.get(device_name)
+            if lnms_record is None:
+                primary_ip = _normalize_librenms_ip_key(device.get("primary_ip") or "")
+                if primary_ip:
+                    lnms_record = lnms_by_ip.get(primary_ip)
 
         if lnms_record is not None:
             lnms_status = lnms_record.get("status")
