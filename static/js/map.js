@@ -568,6 +568,9 @@ function wireMarkerAccessibility(marker, label, activate) {
 }
 
 function scheduleMapResize() {
+  if (!map || typeof map.invalidateSize !== "function" || typeof map.getContainer !== "function" || !map.getContainer()) {
+    return;
+  }
   window.requestAnimationFrame(() => {
     window.requestAnimationFrame(() => {
       map.invalidateSize({ pan: false, animate: false });
