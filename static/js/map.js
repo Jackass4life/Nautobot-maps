@@ -210,6 +210,8 @@ let inspectorDeviceFilter = "all";
 let inspectorDeviceSearch = "";
 let lastInspectorTrigger = null;
 let suppressNextMapClickClose = false;
+let pendingLocationOpen = null;
+let resizeAnimationFrame = null;
 
 function isMobileViewport() {
   return window.matchMedia("(max-width: 640px)").matches;
@@ -591,6 +593,7 @@ function openLocationById(locId, options = {}) {
   if (!marker) {
     const clusterMarker = clusterByLocId[locId];
     if (!clusterMarker) return false;
+    pendingLocationOpen = { locId, options };
     map.flyTo(clusterMarker.getLatLng(), Math.max(map.getZoom(), 8), { duration: 0.8 });
     return false;
   }
@@ -606,7 +609,7 @@ function openLocationById(locId, options = {}) {
 
 function openLocationFromQuery() {
   if (!initialLocationId || initialLocationOpened) return;
-  if (openLocationById(initialLocationId, { focusInspector: false })) {
+  if (openLocationById(initialLocationId, { focusInspector: false, markInitial: true })) {
     initialLocationOpened = true;
   }
 }
@@ -806,6 +809,14 @@ map.on("zoomend", () => {
   if (allLocations.length > CLUSTER_THRESHOLD) {
     applyFilters();
   }
+  if (pendingLocationOpen) {
+    const pending = pendingLocationOpen;
+    pendingLocationOpen = null;
+    const opened = openLocationById(pending.locId, pending.options);
+    if (pending.options.markInitial && opened) {
+      initialLocationOpened = true;
+    }
+  }
 });
 
 map.on("click", () => {
@@ -813,7 +824,13 @@ map.on("click", () => {
   closeInspector({ restoreFocus: false });
 });
 
-window.addEventListener("resize", syncInspectorBackdrop);
+window.addEventListener("resize", () => {
+  if (resizeAnimationFrame != null) return;
+  resizeAnimationFrame = window.requestAnimationFrame(() => {
+    resizeAnimationFrame = null;
+    syncInspectorBackdrop();
+  });
+});
 
 inspectorCloseButton.addEventListener("click", () => closeInspector());
 inspectorPinButton.addEventListener("click", () => setInspectorPinned(!inspectorPinned));
@@ -856,6 +873,10 @@ inspectorContent.addEventListener("input", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isInspectorOpen()) {
+    if (inspectorPinned) {
+      setInspectorPinned(false);
+      return;
+    }
     closeInspector();
   }
 });
