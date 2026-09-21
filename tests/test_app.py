@@ -2487,6 +2487,55 @@ class TestAlertLifecycleTracking:
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
 
+    def test_init_db_postgres_migrates_legacy_sync_state_cache_version(self):
+        class _FakeResult:
+            def __init__(self, rows=None):
+                self._rows = rows or []
+
+            def fetchone(self):
+                return self._rows[0] if self._rows else None
+
+        class _FakeTransaction:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __enter__(self):
+                self.conn.transaction_entries += 1
+                return self.conn
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+                self.transaction_entries = 0
+
+            def close(self):
+                return None
+
+            def transaction(self):
+                return _FakeTransaction(self)
+
+            def execute(self, query, params=()):
+                self.queries.append((query, params))
+                if "SELECT NOT EXISTS" in query and "column_name = 'primary_ip'" in query:
+                    return _FakeResult([{"missing": False}])
+                return _FakeResult([])
+
+        fake_conn = _FakeConn()
+        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
+            flask_app, "_is_postgres", return_value=True
+        ):
+            flask_app._init_db()
+
+        migration_query = next(
+            query
+            for query, _ in fake_conn.queries
+            if "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query
+        )
+        assert "column_name = 'cache_version'" in migration_query
+
     def test_init_db_sqlite_migrates_legacy_time_zone_not_null(self):
         import os
         import sqlite3
