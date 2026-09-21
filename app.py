@@ -1919,7 +1919,6 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
                 or _sync_due(
                     "nautobot_inventory",
                     INVENTORY_SYNC_INTERVAL_SECONDS,
-                    state=nautobot_state,
                     conn=conn,
                 )
             )
