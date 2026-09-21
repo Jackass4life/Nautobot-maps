@@ -1937,7 +1937,7 @@ def _device_has_primary_ip(device: dict) -> bool:
 
 def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
     state = _get_sync_state("nautobot_inventory", conn=conn)
-    return bool(state and state.get("status") == "pending")
+    return not bool((state or {}).get("last_successful_sync"))
 
 
 def _location_is_excluded_from_alert_board(location: dict) -> bool:

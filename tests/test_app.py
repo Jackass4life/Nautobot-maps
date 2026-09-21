@@ -970,7 +970,7 @@ class TestAlertBoard:
         upsert.assert_not_called()
         get_context.assert_not_called()
 
-    def test_get_alert_board_data_skips_lifecycle_upsert_while_primary_ip_backfill_pending(self):
+    def test_get_alert_board_data_skips_lifecycle_upsert_until_first_successful_nautobot_sync(self):
         flask_app.cache.clear()
         sample_locations = [
             {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
@@ -988,7 +988,14 @@ class TestAlertBoard:
                  return_value=([], {"level": "ok", "reason": ""}),
              ), \
              patch.object(flask_app, "_get_db_conn", return_value=_FakeConn()), \
-             patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=True), \
+             patch.object(
+                 flask_app,
+                 "_get_sync_state",
+                 return_value={
+                     "status": "error",
+                     "last_successful_sync": None,
+                 },
+             ), \
              patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert, \
              patch.object(
                  flask_app,
