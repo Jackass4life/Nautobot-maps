@@ -3617,6 +3617,44 @@ class TestLibreNMSEnrichment:
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
 
+    def test_librenms_down_matches_short_hostname(self):
+        """Name-valued LibreNMS hostnames match Nautobot short device names."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [{"device_id": 1, "hostname": "router01.example.com", "status": 0}]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [{"id": "d1", "name": "router01", "status": "active"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["status"] == "offline"
+
+    def test_librenms_down_matches_primary_ip_when_hostname_is_ip(self):
+        """IP-valued LibreNMS hostnames match Nautobot primary_ip without mask bits."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [{"device_id": 1, "hostname": "192.0.2.1", "status": 0}]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [
+                {"id": "d1", "name": "router01", "primary_ip": "192.0.2.1/32", "status": "active"}
+            ]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["status"] == "offline"
+
+    def test_librenms_ip_hostnames_do_not_collide_with_short_name_keys(self):
+        """IP-valued LibreNMS hostnames must not be short-name normalized."""
+        flask_app.LIBRENMS_URL = "http://librenms.test"
+        flask_app.LIBRENMS_API_TOKEN = "tok"
+        lnms_response = {
+            "devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]
+        }
+        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+            devices = [{"id": "d1", "name": "10", "primary_ip": "192.0.2.5/32", "status": "active"}]
+            result = flask_app._enrich_with_librenms(devices)
+        assert result[0]["status"] == "active"
+
 
 # ---------------------------------------------------------------------------
 # Tests: /api/roles
