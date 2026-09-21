@@ -2550,6 +2550,10 @@ class TestAlertLifecycleTracking:
         ):
             flask_app._init_db()
 
+        assert any(
+            "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query
+            for query, _ in fake_conn.queries
+        )
         state = flask_app._get_sync_state("nautobot_inventory", conn=fake_conn)
         assert state["cache_version"] == ""
 
