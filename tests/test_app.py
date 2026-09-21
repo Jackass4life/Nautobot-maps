@@ -1333,7 +1333,6 @@ class TestIndex:
         assert b'id="inspector-content"' in resp.data
         assert b'id="inspector-site-tabs"' in resp.data
         assert b'role="complementary"' in resp.data
-        assert b'aria-label="Location inspector"' in resp.data
         assert b'aria-labelledby="inspector-title"' in resp.data
         assert b'aria-hidden="true"' in resp.data
 

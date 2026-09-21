@@ -603,8 +603,7 @@ function openLocationById(locId, options = {}) {
   const loc = getLocationById(locId);
   if (!loc) return false;
   const expectedGroupIds = getColocatedLocationIds(locId);
-  const shouldResolveColocatedGroup =
-    expectedGroupIds.length > 1 && !colocGroupByLocId[locId] && map.getZoom() < 8;
+  const shouldResolveColocatedGroup = expectedGroupIds.length > 1 && map.getZoom() < 8;
   if (shouldResolveColocatedGroup) {
     pendingLocationOpen = { locId, options };
     map.flyTo([loc.latitude, loc.longitude], Math.max(map.getZoom(), 8), { duration: 0.8 });
