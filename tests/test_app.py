@@ -482,7 +482,7 @@ class TestApiLocations:
         try:
             resp = client.get("/api/locations")
             assert resp.status_code == 503
-            assert "error" in resp.get_json()
+            assert resp.get_json()["error"] == "Nautobot service unavailable"
         finally:
             flask_app.NAUTOBOT_URL = original_url
             flask_app.NAUTOBOT_TOKEN = original_token
@@ -1163,6 +1163,40 @@ class TestApiSearch:
         data = resp.get_json()
         for loc in data["locations"]:
             assert "distance_km" in loc
+
+
+class TestNautobotRuntimeErrors:
+    def test_runtime_errors_do_not_leak_internal_messages(self, client):
+        secret = "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"
+        cases = [
+            ("get", "/api/locations", "get_locations", {}),
+            ("get", "/api/locations/loc-1/detail", "get_location_detail", {}),
+            ("get", "/api/search?q=55.6761,12.5683", "get_locations", {}),
+            ("get", "/api/roles", "fetch_all_pages", {}),
+            (
+                "post",
+                "/api/roles",
+                "nautobot_post",
+                {"json": {"name": "Test Role"}, "content_type": "application/json"},
+            ),
+            ("delete", "/api/roles/role-1", "nautobot_delete", {}),
+            ("get", "/api/location-types", "fetch_all_pages", {}),
+            (
+                "post",
+                "/api/location-types",
+                "nautobot_post",
+                {"json": {"name": "Test Type"}, "content_type": "application/json"},
+            ),
+            ("delete", "/api/location-types/lt-dc", "nautobot_delete", {}),
+        ]
+
+        for method, url, patch_target, kwargs in cases:
+            with patch.object(flask_app, patch_target, side_effect=RuntimeError(secret)):
+                resp = getattr(client, method)(url, **kwargs)
+
+            assert resp.status_code == 503
+            assert resp.get_json()["error"] == "Nautobot service unavailable"
+            assert secret not in resp.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------

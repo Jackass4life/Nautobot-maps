@@ -3057,6 +3057,11 @@ def api_unhandled_error(exc):
     return internal_server_error(exc)
 
 
+def _nautobot_service_unavailable(context: str, exc: Exception):
+    logger.warning("%s: %s", context, exc)
+    return jsonify({"error": "Nautobot service unavailable"}), 503
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -3079,7 +3084,7 @@ def api_locations():
         locations = get_locations()
         return jsonify({"locations": locations})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Locations endpoint unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
@@ -3102,7 +3107,7 @@ def api_location_detail(location_id: str):
         detail = get_location_detail(location_id, location_type=location_type)
         return jsonify(detail)
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Location detail endpoint unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
@@ -3189,7 +3194,7 @@ def api_search():
     try:
         all_locations = get_locations()
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Location search unavailable", exc)
     except Exception as exc:
         logger.error("Error fetching locations for search: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
@@ -3503,7 +3508,7 @@ def api_list_roles():
         roles = fetch_all_pages("extras/roles/")
         return jsonify({"roles": roles})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Roles listing unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
@@ -3529,7 +3534,7 @@ def api_create_role():
         cache.delete_memoized(fetch_all_pages)
         return jsonify(created), 201
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Role creation unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         try:
@@ -3551,7 +3556,7 @@ def api_delete_role(role_id: str):
         cache.clear()
         return jsonify({"status": "deleted", "id": role_id})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Role deletion unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         if exc.response.status_code == 404:
@@ -3573,7 +3578,7 @@ def api_list_location_types():
         location_types = fetch_all_pages("dcim/location-types/")
         return jsonify({"location_types": location_types})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Location type listing unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
@@ -3599,7 +3604,7 @@ def api_create_location_type():
         cache.clear()
         return jsonify(created), 201
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Location type creation unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         try:
@@ -3621,7 +3626,7 @@ def api_delete_location_type(lt_id: str):
         cache.clear()
         return jsonify({"status": "deleted", "id": lt_id})
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        return _nautobot_service_unavailable("Location type deletion unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         if exc.response.status_code == 404:
