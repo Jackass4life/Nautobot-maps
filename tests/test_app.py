@@ -3362,6 +3362,32 @@ class TestInventoryCacheSync:
         assert state["last_successful_sync"] == "2026-01-02T00:00:00Z"
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
+    def test_ensure_inventory_snapshot_runs_nautobot_sync_on_cache_version_mismatch(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version="1",
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(flask_app, "_sync_due", return_value=False), patch.object(
+            flask_app, "_sync_nautobot_inventory"
+        ) as sync_nautobot:
+            assert flask_app._ensure_inventory_snapshot(wait=True) is True
+
+        sync_nautobot.assert_called_once_with(force=False)
+
     def test_sync_nautobot_inventory_full_reconcile_advances_watermark(self):
         calls = []
 

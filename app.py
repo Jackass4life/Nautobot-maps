@@ -1912,11 +1912,14 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
             conn = _get_db_conn()
             if conn is None:
                 return False
+            nautobot_state = _get_sync_state("nautobot_inventory", conn=conn)
             needs_nautobot = bool(NAUTOBOT_URL and NAUTOBOT_TOKEN) and (
                 force
+                or _nautobot_inventory_cache_version_mismatch(nautobot_state)
                 or _sync_due(
                     "nautobot_inventory",
                     INVENTORY_SYNC_INTERVAL_SECONDS,
+                    state=nautobot_state,
                     conn=conn,
                 )
             )
