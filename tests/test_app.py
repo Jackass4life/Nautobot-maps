@@ -523,6 +523,7 @@ class TestAlertBoard:
         assert resp.status_code == 200
         assert b"Alert Board" in resp.data
         assert b"Critical-tier site with one or more devices down, or any site fully unreachable." in resp.data
+        assert b"One or more devices down, 25% or less." in resp.data
         assert b"Site has no poll data \xe2\x80\x94 excluded from severity counts." in resp.data
         assert b"(i)" in resp.data
         assert b"Filter by site, address, or country" in resp.data
@@ -616,7 +617,7 @@ class TestAlertBoard:
                     {"id": "d8", "name": "sw7", "role": "Switch", "status": "active"},
                     {"id": "d9", "name": "sw8", "role": "Switch", "status": "active"},
                 ],
-                {"level": "low", "reason": "1/5 devices offline (20%)"},
+                {"level": "ok", "reason": ""},
             )
 
         with patch.object(flask_app, "get_locations", return_value=sample_locations), \
@@ -628,15 +629,16 @@ class TestAlertBoard:
             "total": 3,
             "critical": 1,
             "medium": 1,
-            "low": 1,
+            "low": 0,
             "no_data": 0,
             "unknown": 0,
-            "ok": 0,
-            "non_ok": 3,
+            "ok": 1,
+            "non_ok": 2,
         }
         assert [item["id"] for item in data["alerts"]] == ["loc-1", "loc-2", "loc-3"]
         assert data["alerts"][0]["down_device_count"] == 1
         assert data["alerts"][1]["alert_level"] == "medium"
+        assert data["alerts"][2]["alert_level"] == "ok"
         assert data["stale"] is False
 
     def test_api_alerts_returns_board_data(self, client):
@@ -664,7 +666,10 @@ class TestAlertBoard:
             flask_app,
             "_get_location_devices_and_alert",
             return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline", "primary_ip": "192.0.2.1/32"}],
+                [
+                    {"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline", "primary_ip": "192.0.2.1/32"},
+                    {"id": "dev-2", "name": "sw01", "role": "Switch", "status": "active", "primary_ip": "192.0.2.2/32"},
+                ],
                 {"level": "critical", "reason": "Core device(s) offline: router01"},
             ),
         ):
@@ -686,6 +691,24 @@ class TestAlertBoard:
                 "role": "Core Router",
                 "case_numbers": [],
             }
+        ]
+        assert data["alerts"][0]["devices"] == [
+            {
+                "device_id": "dev-1",
+                "device_name": "router01",
+                "device_ip": "192.0.2.1/32",
+                "status": "offline",
+                "role": "Core Router",
+                "case_numbers": [],
+            },
+            {
+                "device_id": "dev-2",
+                "device_name": "sw01",
+                "device_ip": "192.0.2.2/32",
+                "status": "active",
+                "role": "Switch",
+                "case_numbers": [],
+            },
         ]
 
     def test_api_alerts_hides_non_operational_locations_unless_requested(self, client):
@@ -843,6 +866,7 @@ class TestAlertBoard:
             data = flask_app.get_alert_board_data()
 
         assert data["summary"]["no_data"] == 1
+        assert data["summary"]["non_ok"] == 0
         assert data["summary"]["unknown"] == 1
         assert data["summary"]["ok"] == 0
         assert data["alerts"][0]["alert_level"] == "no_data"
@@ -861,7 +885,7 @@ class TestAlertBoard:
             )
 
         assert devices == []
-        assert alert == {"level": "no_data", "reason": "No poll data"}
+        assert alert == {"level": "ok", "reason": ""}
         ensure_snapshot.assert_not_called()
 
     def test_location_alert_filters_devices_without_primary_ip(self):
@@ -991,10 +1015,10 @@ class TestAlertBoard:
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
-        assert data["summary"]["ok"] == 0
-        assert data["summary"]["no_data"] == 2
-        assert data["summary"]["non_ok"] == 2
-        assert [item["alert_level"] for item in data["alerts"]] == ["no_data", "no_data"]
+        assert data["summary"]["ok"] == 2
+        assert data["summary"]["no_data"] == 0
+        assert data["summary"]["non_ok"] == 0
+        assert [item["alert_level"] for item in data["alerts"]] == ["ok", "ok"]
         ensure_snapshot.assert_called_once_with(force=True, wait=False)
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
@@ -1780,7 +1804,7 @@ class TestConfigurableCriticalKeywords:
         assert result["level"] != "critical"
 
     def test_compute_alert_level_no_devices(self):
-        assert flask_app.compute_alert_level([]) == {"level": "no_data", "reason": "No poll data"}
+        assert flask_app.compute_alert_level([]) == {"level": "ok", "reason": ""}
 
     def test_compute_alert_level_medium_threshold(self):
         """More than 25% of devices down → medium alert."""
@@ -1793,8 +1817,8 @@ class TestConfigurableCriticalKeywords:
         result = flask_app.compute_alert_level(devices)
         assert result["level"] == "medium"
 
-    def test_compute_alert_level_low_when_below_threshold(self):
-        """Under 25% down and no core device down → low."""
+    def test_compute_alert_level_below_threshold_stays_ok(self):
+        """At or below 25% down and no core device down keeps the legacy OK level."""
         devices = [
             {"id": "d1", "name": "sw01", "role": "Switch", "status": "offline"},
             {"id": "d2", "name": "sw02", "role": "Switch", "status": "active"},
@@ -1802,9 +1826,9 @@ class TestConfigurableCriticalKeywords:
             {"id": "d4", "name": "sw04", "role": "Switch", "status": "active"},
             {"id": "d5", "name": "sw05", "role": "Switch", "status": "active"},
         ]
-        # 1/5 = 20% ≤ 25% → low
+        # 1/5 = 20% ≤ 25% → ok
         result = flask_app.compute_alert_level(devices)
-        assert result["level"] == "low"
+        assert result == {"level": "ok", "reason": ""}
 
 
 # ---------------------------------------------------------------------------
@@ -2323,7 +2347,7 @@ class TestAlertLifecycleTracking:
 
         assert data["summary"]["no_data"] == 1
         assert data["summary"]["unknown"] == 1
-        assert data["summary"]["non_ok"] == 1
+        assert data["summary"]["non_ok"] == 0
         assert [item["alert_level"] for item in data["alerts"]] == ["no_data", "ok"]
 
     def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):

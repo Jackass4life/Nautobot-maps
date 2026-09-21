@@ -234,18 +234,24 @@ function isSiteExpanded(item) {
   return allSitesExpanded ? !expandedSiteIds.has(siteId) : expandedSiteIds.has(siteId);
 }
 
-function renderDownDeviceRows(item, isExpanded) {
-  const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
-  if (!downDevices.length) return "";
+function renderDeviceRows(item, isExpanded) {
+  const deviceRows = Array.isArray(item.devices) && item.devices.length
+    ? item.devices
+    : (Array.isArray(item.down_devices) ? item.down_devices : []);
+  if (!deviceRows.length) return "";
   const siteLabel = escHtml(item.name || item.id || "site");
-  return downDevices.map((device) => `
-    <tr class="down-device-row${isExpanded ? "" : " hidden"}">
-      <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
+  return deviceRows.map((device) => {
+    const normalizedStatus = String(device.status || "").trim().toLowerCase();
+    const isDown = ["offline", "failed", "decommissioning"].includes(normalizedStatus);
+    const rowLabel = isDown ? "Down device" : "Device";
+    return `
+    <tr class="device-row${isDown ? " down-device-row" : ""}${isExpanded ? "" : " hidden"}">
+      <td class="down-device-cell" aria-label="${rowLabel} for ${siteLabel}">
         <div class="down-device-name">
-          <span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}
+          <span class="visually-hidden">${rowLabel} for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}
           ${device.device_ip ? `<span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}
         </div>
-        <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+        <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || rowLabel}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
       <td>${escHtml(device.status || item.status || "—")}</td>
@@ -255,10 +261,11 @@ function renderDownDeviceRows(item, isExpanded) {
       <td>—</td>
       <td>—</td>
       <td class="cases-cell">${renderDeviceCases(device)}</td>
-      <td class="reason-cell">${escHtml(item.alert_reason || "Down device")}</td>
+      <td class="reason-cell">${escHtml(isDown ? (item.alert_reason || "Down device") : "—")}</td>
       <td></td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function renderTableRows(alerts, payload) {
@@ -305,7 +312,7 @@ function renderTableRows(alerts, payload) {
       <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
       <td>${mapActionCell(item)}</td>
     </tr>
-    ${renderDownDeviceRows(item, isExpanded)}
+    ${renderDeviceRows(item, isExpanded)}
   `;
   }).join("");
   formatBoardStatus(payload, alerts.length);

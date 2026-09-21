@@ -75,7 +75,7 @@ ALERT_STATUS_TIER_DEFINITIONS = {
     },
     "low": {
         "label": "Low",
-        "description": "One or more devices down, under 25%.",
+        "description": "One or more devices down, 25% or less.",
     },
     "ok": {
         "label": "OK",
@@ -2208,7 +2208,7 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
     "office").
     """
     if not devices:
-        return {"level": "no_data", "reason": "No poll data"}
+        return {"level": "ok", "reason": ""}
 
     core_keywords = _get_critical_keywords(location_type)
 
@@ -2275,13 +2275,6 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
             "level": "medium",
             "reason": f"{down_count}/{total} devices offline ({pct}%)",
         }
-    if down_count > 0:
-        pct = round(down_count / total * 100)
-        return {
-            "level": "low",
-            "reason": f"{down_count}/{total} devices offline ({pct}%)",
-        }
-
     return {"level": "ok", "reason": ""}
 
 
@@ -2954,7 +2947,6 @@ def _normalize_alert_board_payload(payload: dict) -> dict:
         int(summary.get("critical") or 0)
         + int(summary.get("medium") or 0)
         + int(summary.get("low") or 0)
-        + no_data_count
     )
     result["summary"] = summary
     alerts = []
@@ -3117,6 +3109,24 @@ def _build_alert_board_payload(
             merged_down_devices.append(item)
             if item_key:
                 seen_down_device_keys.add(item_key)
+        merged_down_device_map = {
+            (item.get("device_id") or item.get("device_name") or ""): item
+            for item in merged_down_devices
+        }
+        device_rows = []
+        for device in devices:
+            item_key = device.get("id") or device.get("name") or ""
+            persisted = merged_down_device_map.get(item_key, {})
+            device_rows.append(
+                {
+                    "device_id": device.get("id") or "",
+                    "device_name": device.get("name") or "Unknown",
+                    "device_ip": device.get("display_ip") or device.get("primary_ip") or "",
+                    "status": device.get("status") or "",
+                    "role": device.get("role") or "",
+                    "case_numbers": list(persisted.get("case_numbers") or []),
+                }
+            )
         level = _alert_board_level(alert.get("level") or "ok")
         summary[level] = summary.get(level, 0) + 1
         alerts.append(
@@ -3133,6 +3143,7 @@ def _build_alert_board_payload(
                     len(merged_down_devices),
                 ),
                 "active_cases": alert_context["active_cases"],
+                "devices": device_rows,
                 "down_devices": merged_down_devices,
             }
         )
@@ -3158,8 +3169,7 @@ def _build_alert_board_payload(
             "ok": summary.get("ok", 0),
             "non_ok": summary.get("critical", 0)
             + summary.get("medium", 0)
-            + summary.get("low", 0)
-            + summary.get("no_data", 0),
+            + summary.get("low", 0),
         },
         "alerts": alerts,
     }
