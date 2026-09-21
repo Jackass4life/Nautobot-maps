@@ -2285,13 +2285,13 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
 def _fetch_live_location_devices(location_id: str) -> list:
     """Fetch devices for one location, handling Nautobot filter-key variants."""
     try:
-        return fetch_all_pages("dcim/devices/", {"location_id": location_id})
+        return fetch_all_pages("dcim/devices/", {"location_id": location_id, "depth": 1})
     except requests.HTTPError as exc:
         response = getattr(exc, "response", None)
         status_code = getattr(response, "status_code", None)
         if status_code != 400:
             raise
-    return fetch_all_pages("dcim/devices/", {"location": location_id})
+    return fetch_all_pages("dcim/devices/", {"location": location_id, "depth": 1})
 
 
 def _get_location_devices_and_alert(

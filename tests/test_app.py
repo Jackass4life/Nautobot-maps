@@ -857,8 +857,8 @@ class TestAlertBoard:
         assert len(devices) == 1
         assert alert["level"] == "ok"
         assert fetch_calls[:2] == [
-            ("dcim/devices/", {"location_id": "loc-1"}),
-            ("dcim/devices/", {"location": "loc-1"}),
+            ("dcim/devices/", {"location_id": "loc-1", "depth": 1}),
+            ("dcim/devices/", {"location": "loc-1", "depth": 1}),
         ]
 
     def test_get_alert_board_data_does_not_live_fetch_devices_on_cache_miss(self):
