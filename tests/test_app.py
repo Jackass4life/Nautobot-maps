@@ -753,6 +753,58 @@ class TestAlertBoard:
                 }
             )
 
+    def test_parse_csv_set_normalizes_case_and_whitespace(self):
+        assert flask_app._parse_csv_set(" Decommissioning ; Core Site, POP ") == {
+            "decommissioning",
+            "core site",
+            "pop",
+        }
+
+    def test_location_exclusion_matches_mixed_case_configured_values(self):
+        with patch.object(
+            flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", flask_app._parse_csv_set("Warehouse")
+        ), patch.object(
+            flask_app,
+            "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES",
+            flask_app._parse_csv_set("Decommissioning"),
+        ), patch.object(
+            flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", flask_app._parse_csv_set("Branch Office")
+        ), patch.object(
+            flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", flask_app._parse_csv_set("Non-Operational")
+        ):
+            assert flask_app._location_is_excluded_from_alert_board(
+                {
+                    "name": "warehouse",
+                    "status": "Active",
+                    "location_type": "Office",
+                    "tags": [],
+                }
+            )
+            assert flask_app._location_is_excluded_from_alert_board(
+                {
+                    "name": "Site A",
+                    "status": "decommissioning",
+                    "location_type": "Office",
+                    "tags": [],
+                }
+            )
+            assert flask_app._location_is_excluded_from_alert_board(
+                {
+                    "name": "Site B",
+                    "status": "Active",
+                    "location_type": "branch office",
+                    "tags": [],
+                }
+            )
+            assert flask_app._location_is_excluded_from_alert_board(
+                {
+                    "name": "Site C",
+                    "status": "Active",
+                    "location_type": "Office",
+                    "tags": ["non-operational"],
+                }
+            )
+
     def test_get_alert_board_data_marks_location_unknown_on_error(self):
         flask_app.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
