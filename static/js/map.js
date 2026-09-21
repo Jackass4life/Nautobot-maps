@@ -324,9 +324,14 @@ function renderInspectorContent() {
   const filteredDevices = filterDevicesForInspector(devices, inspectorDeviceFilter, inspectorDeviceSearch);
   const asns = selectedDetail && Array.isArray(selectedDetail.asns) ? selectedDetail.asns : [];
   const alert = selectedDetail && selectedDetail.alert ? selectedDetail.alert : null;
-  const alertPill = alert && alert.level !== "ok"
-    ? `<span class="inspector-pill inspector-alert-pill${alert.level === "critical" ? " is-critical" : ""}">${escHtml(alert.level.toUpperCase())}</span>`
-    : `<span class="inspector-pill">${escHtml("Healthy")}</span>`;
+  let alertPill = `<span class="inspector-pill">${escHtml("Healthy")}</span>`;
+  if (inspectorLoading) {
+    alertPill = `<span class="inspector-pill">${escHtml("Loading alert status…")}</span>`;
+  } else if (inspectorError) {
+    alertPill = `<span class="inspector-pill">${escHtml("Alert status unavailable")}</span>`;
+  } else if (alert && alert.level !== "ok") {
+    alertPill = `<span class="inspector-pill inspector-alert-pill${alert.level === "critical" ? " is-critical" : ""}">${escHtml(alert.level.toUpperCase())}</span>`;
+  }
 
   inspectorTitle.textContent = loc.name || "Location inspector";
   inspectorSubtitle.textContent = selectedGroupIds.length > 1
@@ -494,6 +499,7 @@ function openInspectorForLocation(locId, options = {}) {
   inspector.classList.remove("hidden");
   inspector.setAttribute("aria-hidden", "false");
   syncInspectorBackdrop();
+  scheduleMapResize();
   updateLocationQuery(locId);
   renderInspectorContent();
 
@@ -529,6 +535,7 @@ function closeInspector(options = {}) {
   inspector.classList.add("hidden");
   inspector.setAttribute("aria-hidden", "true");
   syncInspectorBackdrop();
+  scheduleMapResize();
   selectedLocationId = null;
   selectedGroupIds = [];
   selectedDetail = null;
@@ -557,6 +564,12 @@ function wireMarkerAccessibility(marker, label, activate) {
       event.preventDefault();
       activate(el);
     });
+  });
+}
+
+function scheduleMapResize() {
+  window.requestAnimationFrame(() => {
+    map.invalidateSize({ pan: false, animate: false });
   });
 }
 
@@ -774,6 +787,13 @@ function renderMarkersWithClustering(locations) {
       clusterMarker.on("click", () => {
         map.setView([lat, lon], Math.min(currentZoom + 3, 15));
       });
+      wireMarkerAccessibility(
+        clusterMarker,
+        `Zoom to ${group.length} clustered locations`,
+        () => {
+          map.setView([lat, lon], Math.min(currentZoom + 3, 15));
+        }
+      );
 
       const listedLocations = group.map((loc) => `<li>${escHtml(loc.name)}</li>`).slice(0, 10).join("");
       const more = group.length > 10 ? `<li style="color:#888">… and ${group.length - 10} more</li>` : "";

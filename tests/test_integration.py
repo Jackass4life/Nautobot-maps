@@ -99,6 +99,10 @@ class TestMapUI:
         assert "loadLocationDetail" in js
         assert "detailCache" in js
         assert "inspector-device-search" in js
+        assert "scheduleMapResize" in js
+        assert "map.invalidateSize" in js
+        assert "Loading alert status…" in js
+        assert "Zoom to ${group.length} clustered locations" in js
 
     def test_css_contains_inspector_layout(self, integration_client):
         """The CSS defines the responsive inspector drawer/bottom-sheet layout."""
@@ -107,6 +111,7 @@ class TestMapUI:
         assert "#location-inspector" in css
         assert ".inspector-site-tab" in css
         assert ".inspector-device-search" in css
+        assert "bottom: 0;" in css
 
 
 # ---------------------------------------------------------------------------
