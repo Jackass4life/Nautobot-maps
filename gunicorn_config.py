@@ -10,3 +10,9 @@ def _get_bind() -> str:
 bind = os.getenv("GUNICORN_BIND", _get_bind())
 workers = int(os.getenv("GUNICORN_WORKERS", "4"))
 timeout = max(120, int(os.getenv("GUNICORN_TIMEOUT", "120")))
+
+
+def when_ready(server) -> None:
+    import app as flask_app
+
+    flask_app._log_alert_board_exclusions()

@@ -172,9 +172,6 @@ def _log_alert_board_exclusions() -> None:
     )
 
 
-_log_alert_board_exclusions()
-
-
 def _normalize_auth_role(role: str) -> str:
     role = (role or "").strip().lower()
     return role if role in _AUTH_ROLE_LEVELS else ""
@@ -3662,4 +3659,5 @@ if __name__ == "__main__":
         port = int(os.getenv("FLASK_RUN_PORT", 5000))
     except (ValueError, TypeError):
         port = 5000
+    _log_alert_board_exclusions()
     app.run(host=_get_flask_run_host(), port=port, debug=debug)

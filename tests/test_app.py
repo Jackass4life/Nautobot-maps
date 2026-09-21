@@ -3850,6 +3850,12 @@ class TestAuthConfiguration:
         monkeypatch.setenv("AUTH_MODE", "disabled")
         assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
 
+    def test_gunicorn_when_ready_logs_alert_board_exclusions(self):
+        with patch("app._log_alert_board_exclusions") as log_exclusions:
+            self._reload_gunicorn_config().when_ready(None)
+
+        log_exclusions.assert_called_once_with()
+
     def test_default_gunicorn_timeout_is_120_seconds(self, monkeypatch):
         monkeypatch.delenv("GUNICORN_TIMEOUT", raising=False)
         assert self._reload_gunicorn_config().timeout == 120
