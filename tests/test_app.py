@@ -224,11 +224,12 @@ class TestPrimaryIpExtraction:
         assert flask_app._extract_primary_ip(device) == "10.11.12.13"
 
     def test_falls_back_to_primary_ip6_then_legacy_primary_ip(self):
-        ipv6_device = {"primary_ip4": None, "primary_ip6": {"address": "2001:db8::1/64"}}
-        legacy_device = {"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": None}
-
-        assert flask_app._extract_primary_ip(ipv6_device) == "2001:db8::1/64"
-        assert flask_app._extract_primary_ip(legacy_device) == "192.0.2.9/32"
+        for device, expected in (
+            ({"primary_ip": "192.0.2.9/32", "primary_ip4": {"host": "10.11.12.13"}, "primary_ip6": {"address": "2001:db8::1/64"}}, "10.11.12.13"),
+            ({"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": {"address": "2001:db8::1/64"}}, "2001:db8::1/64"),
+            ({"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": None}, "192.0.2.9/32"),
+        ):
+            assert flask_app._extract_primary_ip(device) == expected
 
 
 # ---------------------------------------------------------------------------
