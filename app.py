@@ -1245,7 +1245,13 @@ def _normalize_librenms_host_key(value: str) -> str:
 
 
 def _normalize_librenms_ip_key(value: str) -> str:
-    return (value or "").strip().split("/", 1)[0]
+    candidate = (value or "").strip().split("/", 1)[0]
+    if not candidate:
+        return ""
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return candidate
 
 
 def _is_ip_literal(value: str) -> bool:
