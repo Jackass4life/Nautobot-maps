@@ -83,7 +83,7 @@ ALERT_STATUS_TIER_DEFINITIONS = {
     },
     "no_data": {
         "label": "No data",
-        "description": "Site has no poll data — shown separately from severity tiers and included in non-OK totals.",
+        "description": "Site has no poll data — excluded from severity counts.",
     },
 }
 
@@ -561,6 +561,7 @@ def _init_db() -> None:
                         site_name              TEXT NOT NULL DEFAULT '',
                         device_id              TEXT NOT NULL,
                         device_name            TEXT NOT NULL DEFAULT '',
+                        device_ip              TEXT NOT NULL DEFAULT '',
                         alert_level            TEXT NOT NULL DEFAULT 'unknown',
                         alert_reason           TEXT NOT NULL DEFAULT '',
                         status                 TEXT NOT NULL DEFAULT 'open',
@@ -699,6 +700,7 @@ def _init_db() -> None:
                         site_name              TEXT NOT NULL DEFAULT '',
                         device_id              TEXT NOT NULL,
                         device_name            TEXT NOT NULL DEFAULT '',
+                        device_ip              TEXT NOT NULL DEFAULT '',
                         alert_level            TEXT NOT NULL DEFAULT 'unknown',
                         alert_reason           TEXT NOT NULL DEFAULT '',
                         status                 TEXT NOT NULL DEFAULT 'open',
@@ -831,6 +833,18 @@ def _init_db() -> None:
                     conn.execute(
                         "ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT ''"
                     )
+                alert_instance_device_ip_column = next(
+                    (
+                        column
+                        for column in conn.execute("PRAGMA table_info(alert_instances)").fetchall()
+                        if column["name"] == "device_ip"
+                    ),
+                    None,
+                )
+                if alert_instance_device_ip_column is None:
+                    conn.execute(
+                        "ALTER TABLE alert_instances ADD COLUMN device_ip TEXT NOT NULL DEFAULT ''"
+                    )
                 if device_primary_ip_column is None:
                     _mark_nautobot_inventory_sync_pending(conn)
                 conn.execute(
@@ -889,6 +903,14 @@ def _init_db() -> None:
                               AND column_name = 'cache_version'
                         ) THEN
                             ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT '';
+                        END IF;
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'alert_instances'
+                              AND column_name = 'device_ip'
+                        ) THEN
+                            ALTER TABLE alert_instances ADD COLUMN device_ip TEXT NOT NULL DEFAULT '';
                         END IF;
                     END;
                     $$;
@@ -2505,15 +2527,18 @@ def _get_location_devices_and_alert(
         if use_normalized_devices
         else _normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
-    if require_primary_ip:
-        devices = [device for device in devices if _device_has_primary_ip(device)]
-
     enriched = _enrich_with_librenms(
         devices,
         lnms_devices=lnms_devices,
         lnms_id_map=lnms_id_map,
         snapshot_only=snapshot_only,
     )
+    if require_primary_ip:
+        enriched = [
+            device
+            for device in enriched
+            if ((device.get("display_ip") or device.get("primary_ip") or "").strip())
+        ]
     return enriched, compute_alert_level(enriched, location_type)
 
 
@@ -2656,6 +2681,7 @@ def _upsert_alert_lifecycle_for_site(
                     continue
                 level = (alert.get("level") or "unknown").lower()
                 reason = alert.get("reason") or ""
+                device_ip = (device.get("display_ip") or device.get("primary_ip") or "").strip()
                 alert_key = _build_alert_key(site_id, device_id, level)
                 open_alert_keys.add(alert_key)
                 marker = _sql_placeholders(1)
@@ -2671,7 +2697,7 @@ def _upsert_alert_lifecycle_for_site(
                 ).fetchone()
                 if latest_row is None:
                     now_sql = _sql_now()
-                    p = _sql_placeholders(10).split(",")
+                    p = _sql_placeholders(11).split(",")
                     conflict_sql = (
                         "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
                         if _is_postgres()
@@ -2680,10 +2706,10 @@ def _upsert_alert_lifecycle_for_site(
                     inserted = conn.execute(
                         f"""
                         INSERT INTO alert_instances
-                            (alert_key, site_id, site_name, device_id, device_name, alert_level, alert_reason,
+                            (alert_key, site_id, site_name, device_id, device_name, device_ip, alert_level, alert_reason,
                              status, down_started_at, last_seen_down_at, resolved_at, total_downtime_seconds,
                              created_at, updated_at)
-                        VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]},
+                        VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]}, {p[10]},
                                 NULL, 0, {now_sql}, {now_sql})
                         {conflict_sql}
                         RETURNING id
@@ -2694,6 +2720,7 @@ def _upsert_alert_lifecycle_for_site(
                             site.get("name") or "",
                             device_id,
                             device.get("name") or "",
+                            device_ip,
                             level,
                             reason,
                             "open",
@@ -2733,21 +2760,23 @@ def _upsert_alert_lifecycle_for_site(
                         continue
                 current = _row_to_dict(latest_row)
                 now_sql = _sql_now()
-                p = _sql_placeholders(6).split(",")
+                p = _sql_placeholders(7).split(",")
                 conn.execute(
                     f"""
                     UPDATE alert_instances
                     SET site_name = {p[0]},
                         device_name = {p[1]},
-                        alert_level = {p[2]},
-                        alert_reason = {p[3]},
-                        last_seen_down_at = {p[4]},
+                        device_ip = {p[2]},
+                        alert_level = {p[3]},
+                        alert_reason = {p[4]},
+                        last_seen_down_at = {p[5]},
                         updated_at = {now_sql}
-                    WHERE id = {p[5]}
+                    WHERE id = {p[6]}
                     """,
                     (
                         site.get("name") or "",
                         device.get("name") or "",
+                        device_ip,
                         level,
                         reason,
                         checked_at,
@@ -2832,7 +2861,7 @@ def _get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dic
         site_marker = _sql_placeholders(1)
         rows = conn.execute(
             f"""
-            SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds
+            SELECT id, device_id, device_name, device_ip, status, down_started_at, total_downtime_seconds
             FROM alert_instances
             WHERE site_id = {site_marker}
             ORDER BY id DESC

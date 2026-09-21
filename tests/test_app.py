@@ -523,7 +523,7 @@ class TestAlertBoard:
         assert resp.status_code == 200
         assert b"Alert Board" in resp.data
         assert b"Critical-tier site with one or more devices down, or any site fully unreachable." in resp.data
-        assert b"Site has no poll data \xe2\x80\x94 shown separately from severity tiers and included in non-OK totals." in resp.data
+        assert b"Site has no poll data \xe2\x80\x94 excluded from severity counts." in resp.data
         assert b"(i)" in resp.data
         assert b"Filter by site, address, or country" in resp.data
         assert b"Sort: country" in resp.data
@@ -903,6 +903,41 @@ class TestAlertBoard:
         assert alert == {
             "level": "critical",
             "reason": "Core device(s) offline: router01",
+        }
+
+    def test_location_alert_primary_ip_filter_uses_librenms_polled_ip_fallback(self):
+        with patch.object(flask_app, "LIBRENMS_URL", "http://librenms.test"), patch.object(
+            flask_app, "LIBRENMS_API_TOKEN", "tok"
+        ):
+            devices, alert = flask_app._get_location_devices_and_alert(
+                "loc-1",
+                "Data Center",
+                devices_data=[
+                    {
+                        "id": "dev-1",
+                        "name": "ap01",
+                        "device_type": "AP",
+                        "manufacturer": "Cisco",
+                        "role": "Access Point",
+                        "status": "offline",
+                        "primary_ip": "",
+                        "platform": "",
+                        "serial": "",
+                        "tenant": "",
+                    },
+                ],
+                devices_already_normalized=True,
+                lnms_devices=[{"device_id": 1, "hostname": "ap01", "status": 1, "ip": "198.51.100.10"}],
+                lnms_id_map={},
+                snapshot_only=True,
+                require_primary_ip=True,
+            )
+
+        assert [device["id"] for device in devices] == ["dev-1"]
+        assert devices[0]["display_ip"] == "198.51.100.10"
+        assert alert == {
+            "level": "critical",
+            "reason": "All 1 monitored device unreachable",
         }
 
     def test_location_detail_live_device_fetch_retries_with_location_filter_on_400(self):
@@ -2839,6 +2874,27 @@ class TestAlertLifecycleTracking:
             )
             conn.execute(
                 """
+                CREATE TABLE alert_instances (
+                    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alert_key              TEXT NOT NULL,
+                    site_id                TEXT NOT NULL,
+                    site_name              TEXT NOT NULL DEFAULT '',
+                    device_id              TEXT NOT NULL,
+                    device_name            TEXT NOT NULL DEFAULT '',
+                    alert_level            TEXT NOT NULL DEFAULT 'unknown',
+                    alert_reason           TEXT NOT NULL DEFAULT '',
+                    status                 TEXT NOT NULL DEFAULT 'open',
+                    down_started_at        TEXT NOT NULL,
+                    last_seen_down_at      TEXT NOT NULL,
+                    resolved_at            TEXT,
+                    total_downtime_seconds INTEGER NOT NULL DEFAULT 0,
+                    created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+            conn.execute(
+                """
                 INSERT INTO inventory_sync_state (
                     source,
                     last_started_at,
@@ -2871,8 +2927,12 @@ class TestAlertLifecycleTracking:
             sync_state_columns = conn.execute(
                 "PRAGMA table_info(inventory_sync_state)"
             ).fetchall()
+            alert_instance_columns = conn.execute(
+                "PRAGMA table_info(alert_instances)"
+            ).fetchall()
             assert any(col["name"] == "primary_ip" for col in columns)
             assert any(col["name"] == "cache_version" for col in sync_state_columns)
+            assert any(col["name"] == "device_ip" for col in alert_instance_columns)
             state = conn.execute(
                 """
                 SELECT last_completed_at, last_successful_sync, cache_version, status
