@@ -569,7 +569,9 @@ function wireMarkerAccessibility(marker, label, activate) {
 
 function scheduleMapResize() {
   window.requestAnimationFrame(() => {
-    map.invalidateSize({ pan: false, animate: false });
+    window.requestAnimationFrame(() => {
+      map.invalidateSize({ pan: false, animate: false });
+    });
   });
 }
 
