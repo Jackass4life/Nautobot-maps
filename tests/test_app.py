@@ -753,6 +753,22 @@ class TestAlertBoard:
                 }
             )
 
+    def test_log_alert_board_exclusions_reports_resolved_sets(self):
+        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"staging", "decommissioning"}), \
+             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()), \
+             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}), \
+             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}), \
+             patch.object(flask_app.logger, "info") as info:
+            flask_app._log_alert_board_exclusions()
+
+        info.assert_called_once_with(
+            "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s",
+            "{decommissioning,staging}",
+            "{}",
+            "{warehouse}",
+            "{non-operational}",
+        )
+
     def test_get_alert_board_data_marks_location_unknown_on_error(self):
         flask_app.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]

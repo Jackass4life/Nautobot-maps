@@ -141,6 +141,10 @@ def _parse_csv_set(value: str) -> set[str]:
     }
 
 
+def _format_set_for_log(values: set[str]) -> str:
+    return "{" + ",".join(sorted(values)) + "}"
+
+
 AUTH_VIEWER_GROUPS = _parse_csv_set(os.getenv("AUTH_VIEWER_GROUPS", ""))
 AUTH_OPERATOR_GROUPS = _parse_csv_set(os.getenv("AUTH_OPERATOR_GROUPS", ""))
 AUTH_ADMIN_GROUPS = _parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
@@ -156,6 +160,19 @@ ALERT_BOARD_EXCLUDED_LOCATION_TAGS = _parse_csv_set(
 ALERT_BOARD_EXCLUDED_LOCATION_NAMES = _parse_csv_set(
     ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW
 )
+
+
+def _log_alert_board_exclusions() -> None:
+    logger.info(
+        "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s",
+        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES),
+        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_NAMES),
+        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TYPES),
+        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TAGS),
+    )
+
+
+_log_alert_board_exclusions()
 
 
 def _normalize_auth_role(role: str) -> str:
