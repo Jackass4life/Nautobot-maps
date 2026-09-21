@@ -148,7 +148,7 @@ global.window = {{
   }},
 }};
 let invalidations = 0;
-let map = {{
+const initialMap = {{
   invalidateSize() {{
     invalidations += 1;
   }},
@@ -156,10 +156,19 @@ let map = {{
     return {{ id: "map" }};
   }},
 }};
+let map = initialMap;
 scheduleMapResize();
 if (rafCallbacks.length !== 1) {{
   throw new Error(`expected one queued animation frame, got ${{rafCallbacks.length}}`);
 }}
+map = {{
+  invalidateSize() {{
+    throw new Error("resize should use the originally scheduled map instance");
+  }},
+  getContainer() {{
+    return {{ id: "replacement-map" }};
+  }},
+}};
 rafCallbacks.shift()();
 if (invalidations !== 0 || rafCallbacks.length !== 1) {{
   throw new Error("resize should wait for the second animation frame");

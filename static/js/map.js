@@ -568,12 +568,14 @@ function wireMarkerAccessibility(marker, label, activate) {
 }
 
 function scheduleMapResize() {
-  if (!map || typeof map.invalidateSize !== "function" || typeof map.getContainer !== "function" || !map.getContainer()) {
+  const currentMap = map;
+  if (!currentMap || typeof currentMap.invalidateSize !== "function" || typeof currentMap.getContainer !== "function" || !currentMap.getContainer()) {
     return;
   }
   window.requestAnimationFrame(() => {
     window.requestAnimationFrame(() => {
-      map.invalidateSize({ pan: false, animate: false });
+      if (typeof currentMap.getContainer !== "function" || !currentMap.getContainer() || typeof currentMap.invalidateSize !== "function") return;
+      currentMap.invalidateSize({ pan: false, animate: false });
     });
   });
 }
