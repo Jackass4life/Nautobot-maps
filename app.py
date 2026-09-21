@@ -62,6 +62,7 @@ LIBRENMS_SYNC_INTERVAL_SECONDS = int(
     os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", str(CACHE_TTL))
 )
 _FULL_RECONCILE_INTERVAL_SECONDS = 86400
+_NAUTOBOT_INVENTORY_CACHE_VERSION = "2"
 
 # LibreNMS optional integration
 LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
@@ -363,6 +364,17 @@ def _next_watermark(value: str | None) -> str | None:
     return (parsed + timedelta(microseconds=1)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _max_iso_datetime_value(*values: str | None) -> str | None:
+    latest = None
+    result = None
+    for value in values:
+        candidate = _parse_iso_datetime(value)
+        if candidate and (latest is None or candidate > latest):
+            latest = candidate
+            result = candidate.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return result
+
+
 def _advisory_lock_key(name: str) -> int:
     return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "big", signed=True)
 
@@ -454,6 +466,7 @@ def _init_db() -> None:
                         last_started_at      TIMESTAMPTZ,
                         last_completed_at    TIMESTAMPTZ,
                         last_successful_sync TIMESTAMPTZ,
+                        cache_version        TEXT NOT NULL DEFAULT '',
                         status               TEXT NOT NULL DEFAULT 'idle',
                         error_message        TEXT NOT NULL DEFAULT ''
                     )
@@ -591,6 +604,7 @@ def _init_db() -> None:
                         last_started_at      TEXT,
                         last_completed_at    TEXT,
                         last_successful_sync TEXT,
+                        cache_version        TEXT NOT NULL DEFAULT '',
                         status               TEXT NOT NULL DEFAULT 'idle',
                         error_message        TEXT NOT NULL DEFAULT ''
                     )
@@ -782,6 +796,19 @@ def _init_db() -> None:
                     conn.execute(
                         "ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT ''"
                     )
+                sync_state_cache_version_column = next(
+                    (
+                        column
+                        for column in conn.execute("PRAGMA table_info(inventory_sync_state)").fetchall()
+                        if column["name"] == "cache_version"
+                    ),
+                    None,
+                )
+                if sync_state_cache_version_column is None:
+                    conn.execute(
+                        "ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT ''"
+                    )
+                if device_primary_ip_column is None:
                     _mark_nautobot_inventory_sync_pending(conn)
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
@@ -832,6 +859,14 @@ def _init_db() -> None:
                         ) THEN
                             ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT '';
                         END IF;
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'inventory_sync_state'
+                              AND column_name = 'cache_version'
+                        ) THEN
+                            ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT '';
+                        END IF;
                     END;
                     $$;
                     """
@@ -869,6 +904,7 @@ def _mark_nautobot_inventory_sync_pending(conn) -> None:
         SET last_started_at = NULL,
             last_completed_at = NULL,
             last_successful_sync = NULL,
+            cache_version = '',
             status = 'pending',
             error_message = ''
         WHERE source = {marker}
@@ -1506,19 +1542,21 @@ def _record_sync_state(
     last_started_at: str | None = None,
     last_completed_at: str | None = None,
     last_successful_sync: str | None = None,
+    cache_version: str = "",
     status: str = "idle",
     error_message: str = "",
 ) -> None:
-    p0, p1, p2, p3, p4, p5 = _sql_placeholders(6).split(",")
+    p0, p1, p2, p3, p4, p5, p6 = _sql_placeholders(7).split(",")
     conn.execute(
         f"""
         INSERT INTO inventory_sync_state
-            (source, last_started_at, last_completed_at, last_successful_sync, status, error_message)
-        VALUES ({p0}, {p1}, {p2}, {p3}, {p4}, {p5})
+            (source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message)
+        VALUES ({p0}, {p1}, {p2}, {p3}, {p4}, {p5}, {p6})
         ON CONFLICT(source) DO UPDATE SET
             last_started_at = excluded.last_started_at,
             last_completed_at = excluded.last_completed_at,
             last_successful_sync = excluded.last_successful_sync,
+            cache_version = excluded.cache_version,
             status = excluded.status,
             error_message = excluded.error_message
         """,
@@ -1527,6 +1565,7 @@ def _record_sync_state(
             last_started_at,
             last_completed_at,
             last_successful_sync,
+            cache_version,
             status,
             error_message,
         ),
@@ -1543,7 +1582,7 @@ def _get_sync_state(source: str, conn=None) -> dict:
         marker = _sql_placeholders(1)
         row = conn.execute(
             f"""
-            SELECT source, last_started_at, last_completed_at, last_successful_sync, status, error_message
+            SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message
             FROM inventory_sync_state
             WHERE source = {marker}
             """,
@@ -1574,6 +1613,10 @@ def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
     return (datetime.now(timezone.utc) - completed_at).total_seconds() >= max(
         0, interval_seconds
     )
+
+
+def _nautobot_inventory_cache_version_mismatch(state: dict | None) -> bool:
+    return (state or {}).get("cache_version") != _NAUTOBOT_INVENTORY_CACHE_VERSION
 
 
 def _nautobot_snapshot_initialized(conn=None) -> bool:
@@ -1721,12 +1764,14 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
     reconcile_source = "nautobot_inventory_reconcile"
     started_at = _iso_utc_now()
     last_successful_sync = None
+    source_state = {}
     try:
-        last_successful_sync = None if force else _get_sync_state(source, conn=conn).get(
-            "last_successful_sync"
-        )
+        source_state = {} if force else _get_sync_state(source, conn=conn)
+        last_successful_sync = None if force else source_state.get("last_successful_sync")
+        version_mismatch = _nautobot_inventory_cache_version_mismatch(source_state)
         full_reconcile = (
             force
+            or version_mismatch
             or not last_successful_sync
             or _sync_due(
                 reconcile_source,
@@ -1741,6 +1786,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                 last_started_at=started_at,
                 last_completed_at=None,
                 last_successful_sync=last_successful_sync,
+                cache_version=source_state.get("cache_version", ""),
                 status="running",
                 error_message="",
             )
@@ -1786,6 +1832,8 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         current_dt = _parse_iso_datetime(watermark)
         if observed_dt and (current_dt is None or observed_dt > current_dt):
             watermark = _next_watermark(observed_last_updated)
+        if full_reconcile:
+            watermark = _max_iso_datetime_value(watermark, started_at) or started_at
         with _db_transaction(conn):
             if full_reconcile:
                 conn.execute("DELETE FROM nautobot_device_cache")
@@ -1798,6 +1846,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                 last_started_at=started_at,
                 last_completed_at=completed_at,
                 last_successful_sync=watermark,
+                cache_version=_NAUTOBOT_INVENTORY_CACHE_VERSION,
                 status="idle",
                 error_message="",
             )
@@ -1807,7 +1856,8 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                     reconcile_source,
                     last_started_at=started_at,
                     last_completed_at=completed_at,
-                    last_successful_sync=completed_at,
+                    last_successful_sync=watermark,
+                    cache_version=_NAUTOBOT_INVENTORY_CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -1821,6 +1871,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                 last_started_at=started_at,
                 last_completed_at=_iso_utc_now(),
                 last_successful_sync=last_successful_sync,
+                cache_version=source_state.get("cache_version", ""),
                 status="error",
                 error_message=str(exc),
             )
@@ -1901,8 +1952,10 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
             conn = _get_db_conn()
             if conn is None:
                 return False
+            nautobot_state = _get_sync_state("nautobot_inventory", conn=conn)
             needs_nautobot = bool(NAUTOBOT_URL and NAUTOBOT_TOKEN) and (
                 force
+                or _nautobot_inventory_cache_version_mismatch(nautobot_state)
                 or _sync_due(
                     "nautobot_inventory",
                     INVENTORY_SYNC_INTERVAL_SECONDS,
@@ -1978,9 +2031,11 @@ def _device_has_primary_ip(device: dict) -> bool:
 
 
 def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
-    """Treat primary-IP backfill as pending until Nautobot has a successful watermark."""
+    """Treat primary-IP backfill as pending until Nautobot has synced the current cache version."""
     state = _get_sync_state("nautobot_inventory", conn=conn)
-    return not bool((state or {}).get("last_successful_sync"))
+    return _nautobot_inventory_cache_version_mismatch(state) or not bool(
+        (state or {}).get("last_successful_sync")
+    )
 
 
 def _location_is_excluded_from_alert_board(location: dict) -> bool:

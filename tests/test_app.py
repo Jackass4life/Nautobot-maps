@@ -2117,6 +2117,7 @@ class TestAlertLifecycleTracking:
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
                     last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -2554,6 +2555,94 @@ class TestAlertLifecycleTracking:
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
 
+    def test_init_db_postgres_migrates_legacy_sync_state_cache_version(self):
+        class _FakeResult:
+            def __init__(self, rows=None):
+                self._rows = rows or []
+
+            def fetchone(self):
+                return self._rows[0] if self._rows else None
+
+        class _FakeTransaction:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __enter__(self):
+                self.conn.transaction_entries += 1
+                return self.conn
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class _FakeConn:
+            def __init__(self):
+                self.queries = []
+                self.transaction_entries = 0
+                self.has_cache_version = False
+
+            def close(self):
+                return None
+
+            def transaction(self):
+                return _FakeTransaction(self)
+
+            def execute(self, query, params=()):
+                self.queries.append((query, params))
+                if "SELECT NOT EXISTS" in query and "column_name = 'primary_ip'" in query:
+                    return _FakeResult([{"missing": True}])
+                if "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query:
+                    self.has_cache_version = True
+                if "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message" in query:
+                    if not self.has_cache_version:
+                        raise RuntimeError("column inventory_sync_state.cache_version does not exist")
+                    return _FakeResult(
+                        [
+                            {
+                                "source": "nautobot_inventory",
+                                "last_started_at": None,
+                                "last_completed_at": None,
+                                "last_successful_sync": None,
+                                "cache_version": "",
+                                "status": "idle",
+                                "error_message": "",
+                            }
+                        ]
+                    )
+                if "INSERT INTO inventory_sync_state" in query and not self.has_cache_version:
+                    raise RuntimeError("column inventory_sync_state.cache_version does not exist")
+                return _FakeResult([])
+
+        fake_conn = _FakeConn()
+        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
+            flask_app, "_is_postgres", return_value=True
+        ):
+            flask_app._init_db()
+
+        assert any(
+            "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query
+            for query, _ in fake_conn.queries
+        )
+        reset_query, reset_params = next(
+            (query, params)
+            for query, params in fake_conn.queries
+            if "UPDATE inventory_sync_state" in query
+        )
+        assert "status = 'pending'" in reset_query
+        assert reset_params == ("nautobot_inventory",)
+        state = flask_app._get_sync_state("nautobot_inventory", conn=fake_conn)
+        assert state["cache_version"] == ""
+
+        flask_app._record_sync_state(
+            fake_conn,
+            "nautobot_inventory",
+            cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+        )
+        assert any(
+            params[4] == flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION
+            for query, params in fake_conn.queries
+            if "INSERT INTO inventory_sync_state" in query
+        )
+
     def test_init_db_sqlite_migrates_legacy_time_zone_not_null(self):
         import os
         import sqlite3
@@ -2734,10 +2823,14 @@ class TestAlertLifecycleTracking:
             conn = sqlite3.connect(tmp.name)
             conn.row_factory = sqlite3.Row
             columns = conn.execute("PRAGMA table_info(nautobot_device_cache)").fetchall()
+            sync_state_columns = conn.execute(
+                "PRAGMA table_info(inventory_sync_state)"
+            ).fetchall()
             assert any(col["name"] == "primary_ip" for col in columns)
+            assert any(col["name"] == "cache_version" for col in sync_state_columns)
             state = conn.execute(
                 """
-                SELECT last_completed_at, last_successful_sync, status
+                SELECT last_completed_at, last_successful_sync, cache_version, status
                 FROM inventory_sync_state
                 WHERE source = ?
                 """,
@@ -2745,6 +2838,7 @@ class TestAlertLifecycleTracking:
             ).fetchone()
             assert state["last_completed_at"] is None
             assert state["last_successful_sync"] is None
+            assert state["cache_version"] == ""
             assert state["status"] == "pending"
             conn.close()
         finally:
@@ -3090,6 +3184,7 @@ class TestInventoryCacheSync:
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:00:00Z",
                     last_successful_sync="2026-01-01T00:00:00Z",
+                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -3174,6 +3269,294 @@ class TestInventoryCacheSync:
         assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["depth"] == 1
+
+    def test_incremental_sync_keeps_existing_watermark_without_newer_last_updated(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    status="idle",
+                    error_message="",
+                )
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory_reconcile",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2099-01-01T00:00:00Z",
+                    last_successful_sync="2099-01-01T00:00:00Z",
+                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        def fake_fetch(endpoint, params=None):
+            if endpoint == "dcim/locations/":
+                return [
+                    {
+                        "id": "loc-1",
+                        "name": "Site One",
+                        "slug": "site-one",
+                        "status": {"label": "Active"},
+                        "location_type": {"name": "Data Center"},
+                        "parent": None,
+                        "latitude": "1.0",
+                        "longitude": "2.0",
+                        "description": "",
+                        "physical_address": "",
+                        "facility": "",
+                        "tenant": None,
+                        "asn": None,
+                        "time_zone": "",
+                        "tags": [],
+                        "url": "",
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            if endpoint == "dcim/devices/":
+                return [
+                    {
+                        "id": "dev-1",
+                        "name": "router01",
+                        "location": {"id": "loc-1"},
+                        "device_type": {"model": "ASR1001-X", "manufacturer": {"name": "Cisco"}},
+                        "role": {"name": "Core Router"},
+                        "status": {"label": "Active"},
+                        "platform": {"name": "IOS-XE"},
+                        "serial": "SN123",
+                        "tenant": None,
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            return []
+
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+            flask_app, "_read_cached_location_name_map", return_value={}
+        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+            flask_app._sync_nautobot_inventory()
+
+        state = flask_app._get_sync_state("nautobot_inventory")
+        assert state["last_successful_sync"] == "2026-01-01T00:05:00Z"
+
+    def test_sync_nautobot_inventory_full_reconciles_when_cache_version_changes(self):
+        calls = []
+
+        def fake_fetch(endpoint, params=None):
+            calls.append((endpoint, dict(params or {})))
+            if endpoint == "dcim/locations/":
+                return [
+                    {
+                        "id": "loc-1",
+                        "name": "Site One",
+                        "slug": "site-one",
+                        "status": {"label": "Active"},
+                        "location_type": {"name": "Data Center"},
+                        "parent": None,
+                        "latitude": "1.0",
+                        "longitude": "2.0",
+                        "description": "",
+                        "physical_address": "",
+                        "facility": "",
+                        "tenant": None,
+                        "asn": None,
+                        "time_zone": "",
+                        "tags": [],
+                        "url": "",
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            if endpoint == "dcim/devices/":
+                return [
+                    {
+                        "id": "dev-1",
+                        "name": "router01",
+                        "location": {"id": "loc-1"},
+                        "device_type": {"model": "ASR1001-X", "manufacturer": {"name": "Cisco"}},
+                        "role": {"name": "Core Router"},
+                        "status": {"label": "Active"},
+                        "platform": {"name": "IOS-XE"},
+                        "serial": "SN123",
+                        "tenant": None,
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            return []
+
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version="1",
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+            flask_app, "_read_cached_location_name_map", return_value={}
+        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}), patch.object(
+            flask_app, "_sync_due", return_value=False
+        ), patch.object(
+            flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]
+        ):
+            flask_app._sync_nautobot_inventory()
+
+        state = flask_app._get_sync_state("nautobot_inventory")
+        reconcile_state = flask_app._get_sync_state("nautobot_inventory_reconcile")
+        location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
+        device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
+
+        assert location_calls == [{}]
+        assert device_calls == [{"depth": 1}]
+        assert state["cache_version"] == flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION
+        assert reconcile_state["cache_version"] == flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION
+        assert state["last_successful_sync"] == "2026-01-02T00:00:00Z"
+        assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
+
+    def test_ensure_inventory_snapshot_runs_nautobot_sync_on_cache_version_mismatch(self):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version="1",
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(flask_app, "_sync_due", return_value=False), patch.object(
+            flask_app, "_sync_nautobot_inventory"
+        ) as sync_nautobot:
+            assert flask_app._ensure_inventory_snapshot(wait=True) is True
+
+        sync_nautobot.assert_called_once_with(force=False)
+
+    def test_sync_nautobot_inventory_full_reconcile_advances_watermark(self):
+        calls = []
+
+        def fake_fetch(endpoint, params=None):
+            calls.append((endpoint, dict(params or {})))
+            if endpoint == "dcim/locations/":
+                return [
+                    {
+                        "id": "loc-1",
+                        "name": "Site One",
+                        "slug": "site-one",
+                        "status": {"label": "Active"},
+                        "location_type": {"name": "Data Center"},
+                        "parent": None,
+                        "latitude": "1.0",
+                        "longitude": "2.0",
+                        "description": "",
+                        "physical_address": "",
+                        "facility": "",
+                        "tenant": None,
+                        "asn": None,
+                        "time_zone": "",
+                        "tags": [],
+                        "url": "",
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            if endpoint == "dcim/devices/":
+                return [
+                    {
+                        "id": "dev-1",
+                        "name": "router01",
+                        "location": {"id": "loc-1"},
+                        "device_type": {"model": "ASR1001-X", "manufacturer": {"name": "Cisco"}},
+                        "role": {"name": "Core Router"},
+                        "status": {"label": "Active"},
+                        "platform": {"name": "IOS-XE"},
+                        "serial": "SN123",
+                        "tenant": None,
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            return []
+
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
+            flask_app, "NAUTOBOT_TOKEN", "token"
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+            flask_app, "_read_cached_location_name_map", return_value={}
+        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}), patch.object(
+            flask_app, "_sync_due", return_value=True
+        ), patch.object(
+            flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]
+        ):
+            flask_app._sync_nautobot_inventory()
+
+        state = flask_app._get_sync_state("nautobot_inventory")
+        reconcile_state = flask_app._get_sync_state("nautobot_inventory_reconcile")
+        location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
+        device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
+
+        assert location_calls == [{}]
+        assert device_calls == [{"depth": 1}]
+        assert state["last_successful_sync"] == "2026-01-02T00:00:00Z"
+        assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
+
+    def test_primary_ip_backfill_pending_until_current_cache_version_sync(self):
+        with patch.object(
+            flask_app,
+            "_get_sync_state",
+            return_value={
+                "last_successful_sync": "2026-01-01T00:05:00Z",
+                "cache_version": "1",
+            },
+        ):
+            assert flask_app._nautobot_inventory_primary_ip_backfill_pending() is True
+
+        with patch.object(
+            flask_app,
+            "_get_sync_state",
+            return_value={
+                "last_successful_sync": "2026-01-01T00:05:00Z",
+                "cache_version": flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+            },
+        ):
+            assert flask_app._nautobot_inventory_primary_ip_backfill_pending() is False
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
         conn = flask_app._get_db_conn()
@@ -3313,6 +3696,7 @@ class TestInventoryCacheSync:
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
                     last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
