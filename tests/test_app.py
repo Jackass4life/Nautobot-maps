@@ -214,6 +214,23 @@ class TestFetchAllPages:
         assert calls == [("dcim/devices/", {"limit": 25, "depth": 2, "offset": 0})]
 
 
+class TestPrimaryIpExtraction:
+    def test_prefers_primary_ip4_host_before_address(self):
+        device = {
+            "primary_ip": None,
+            "primary_ip4": {"host": "10.11.12.13", "address": "10.11.12.13/25"},
+        }
+
+        assert flask_app._extract_primary_ip(device) == "10.11.12.13"
+
+    def test_falls_back_to_primary_ip6_then_legacy_primary_ip(self):
+        ipv6_device = {"primary_ip4": None, "primary_ip6": {"address": "2001:db8::1/64"}}
+        legacy_device = {"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": None}
+
+        assert flask_app._extract_primary_ip(ipv6_device) == "2001:db8::1/64"
+        assert flask_app._extract_primary_ip(legacy_device) == "192.0.2.9/32"
+
+
 # ---------------------------------------------------------------------------
 # Tests: /api/locations
 # ---------------------------------------------------------------------------
@@ -3026,9 +3043,10 @@ class TestInventoryCacheSync:
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
         assert location_calls[0] == {}
-        assert device_calls[0] == {}
+        assert device_calls[0] == {"depth": 1}
         assert location_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
         assert device_calls[1]["last_updated__gte"] == first_state["last_successful_sync"]
+        assert device_calls[1]["depth"] == 1
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
         conn = flask_app._get_db_conn()

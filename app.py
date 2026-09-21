@@ -1229,11 +1229,11 @@ def _normalize_locations(
 
 
 def _extract_primary_ip(device: dict) -> str:
-    for key in ("primary_ip", "primary_ip4", "primary_ip6"):
+    for key in ("primary_ip4", "primary_ip6", "primary_ip"):
         value = device.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-        extracted = _nested_str(value, "address", "display", "name")
+        extracted = _nested_str(value, "host", "address", "display", "name")
         if extracted:
             return extracted
     return ""
@@ -1709,7 +1709,9 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         if last_successful_sync and not full_reconcile:
             params["last_updated__gte"] = last_successful_sync
         raw_locations = fetch_all_pages("dcim/locations/", params or None)
-        raw_devices = fetch_all_pages("dcim/devices/", params or None)
+        device_params = dict(params)
+        device_params["depth"] = 1
+        raw_devices = fetch_all_pages("dcim/devices/", device_params or None)
         if full_reconcile:
             existing_counts = conn.execute(
                 """
