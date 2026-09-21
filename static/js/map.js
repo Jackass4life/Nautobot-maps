@@ -601,7 +601,7 @@ function openLocationById(locId, options = {}) {
   map.flyTo([loc.latitude, loc.longitude], Math.max(map.getZoom(), 13), { duration: 0.8 });
   openInspectorForLocation(locId, {
     groupIds: colocGroupByLocId[locId] || [locId],
-    focusElement: marker.getElement(),
+    focusElement: options.focusElement || marker.getElement(),
     focusInspector: options.focusInspector !== false,
   });
   return true;
@@ -863,20 +863,20 @@ inspectorContent.addEventListener("click", (event) => {
 });
 inspectorContent.addEventListener("input", (event) => {
   if (event.target.id !== "inspector-device-search") return;
+  const selectionStart = event.target.selectionStart;
+  const selectionEnd = event.target.selectionEnd;
   inspectorDeviceSearch = event.target.value || "";
   renderInspectorContent();
   const searchInput = document.getElementById("inspector-device-search");
   if (searchInput) {
     searchInput.focus();
-    searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+    const safeStart = Math.min(selectionStart ?? searchInput.value.length, searchInput.value.length);
+    const safeEnd = Math.min(selectionEnd ?? searchInput.value.length, searchInput.value.length);
+    searchInput.setSelectionRange(safeStart, safeEnd);
   }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isInspectorOpen()) {
-    if (inspectorPinned) {
-      setInspectorPinned(false);
-      return;
-    }
     closeInspector();
   }
 });
@@ -1080,7 +1080,7 @@ async function doSearch() {
           <div class="result-meta">${[loc.location_type, loc.tenant].filter(Boolean).map(escHtml).join(" · ") || "—"}</div>
           <span class="result-distance">${loc.distance_km} km</span>`;
         li.addEventListener("click", () => {
-          openLocationById(loc.id, { focusInspector: false });
+          openLocationById(loc.id, { focusInspector: false, focusElement: li });
         });
         searchResultsList.appendChild(li);
       }
