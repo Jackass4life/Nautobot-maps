@@ -3051,32 +3051,20 @@ def get_alert_board_data(
 
 def get_location_detail(location_id: str, location_type: str | None = None) -> dict:
     """Fetch detailed info (devices, prefixes, ASNs) for a single location."""
-    detail: dict = {}
-    try:
-        devices, alert = _get_location_devices_and_alert(location_id, location_type)
-        detail["devices"] = devices
-        detail["alert"] = alert
-    except Exception as exc:
-        logger.warning("Could not fetch devices for location %s: %s", location_id, exc)
-        detail["devices"] = []
-        detail["alert"] = {"level": "ok", "reason": ""}
-
-    # ASN(s) associated with this location via the ipam/asns endpoint
-    try:
-        asns_data = fetch_all_pages("ipam/asns/", {"location_id": location_id})
-        detail["asns"] = [
+    devices, alert = _get_location_devices_and_alert(location_id, location_type)
+    asns_data = fetch_all_pages("ipam/asns/", {"location_id": location_id})
+    return {
+        "devices": devices,
+        "alert": alert,
+        "asns": [
             {
                 "asn": a.get("asn"),
                 "description": a.get("description", ""),
                 "tenant": _nested_str(a.get("tenant"), "name", "display"),
             }
             for a in asns_data
-        ]
-    except Exception as exc:
-        logger.warning("Could not fetch ASNs for location %s: %s", location_id, exc)
-        detail["asns"] = []
-
-    return detail
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

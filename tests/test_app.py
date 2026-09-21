@@ -1181,6 +1181,28 @@ class TestApiLocationDetail:
             assert dev[field] is not None, f"device field '{field}' is None"
             assert isinstance(dev[field], str), f"device field '{field}' is not a string"
 
+    def test_device_lookup_failure_returns_503(self, client):
+        with patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
+            resp = client.get("/api/locations/loc-1/detail")
+
+        assert resp.status_code == 503
+        assert resp.get_json()["error"] == "Nautobot service unavailable"
+
+    def test_asn_lookup_http_error_returns_502(self, client):
+        http_err = flask_app.requests.HTTPError(
+            "upstream failed",
+            response=MagicMock(status_code=502),
+        )
+        with patch.object(
+            flask_app,
+            "_get_location_devices_and_alert",
+            return_value=([], {"level": "ok", "reason": ""}),
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=http_err):
+            resp = client.get("/api/locations/loc-1/detail")
+
+        assert resp.status_code == 502
+        assert resp.get_json()["error"] == "Failed to communicate with Nautobot API"
+
 
 # ---------------------------------------------------------------------------
 # Tests: /api/search
