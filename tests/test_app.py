@@ -753,6 +753,22 @@ class TestAlertBoard:
                 }
             )
 
+    def test_log_alert_board_exclusions_reports_resolved_sets(self):
+        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"staging", "decommissioning"}), \
+             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()), \
+             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}), \
+             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}), \
+             patch.object(flask_app.logger, "info") as info:
+            flask_app._log_alert_board_exclusions()
+
+        info.assert_called_once_with(
+            "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s",
+            "{decommissioning,staging}",
+            "{}",
+            "{warehouse}",
+            "{non-operational}",
+        )
+
     def test_parse_csv_set_normalizes_case_and_whitespace(self):
         assert flask_app._parse_csv_set(" Decommissioning ; Core Site, POP ") == {
             "decommissioning",
@@ -3885,6 +3901,12 @@ class TestAuthConfiguration:
     def test_non_header_auth_keeps_public_gunicorn_bind(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "disabled")
         assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
+
+    def test_gunicorn_when_ready_logs_alert_board_exclusions(self):
+        with patch("app._log_alert_board_exclusions") as log_exclusions:
+            self._reload_gunicorn_config().when_ready(None)
+
+        log_exclusions.assert_called_once_with()
 
     def test_default_gunicorn_timeout_is_120_seconds(self, monkeypatch):
         monkeypatch.delenv("GUNICORN_TIMEOUT", raising=False)
