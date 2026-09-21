@@ -10,6 +10,7 @@ Run with:
 """
 import os
 import pathlib
+import shutil
 import subprocess
 import threading
 import pytest
@@ -133,6 +134,8 @@ class TestMapUI:
 
     def test_js_runtime_helpers_cover_resize_and_keyboard_access(self):
         """Inspector helper runtime behavior should defer resize and wire keyboard activation."""
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the inspector runtime helper regression test")
         js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
         schedule_map_resize = _extract_js_function(js, "scheduleMapResize")
         wire_marker_accessibility = _extract_js_function(js, "wireMarkerAccessibility")
