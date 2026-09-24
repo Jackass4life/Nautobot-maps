@@ -524,3 +524,49 @@ class TestEndToEndScenario:
         nearby = search_resp.get_json()
         assert nearby["count"] >= 1
         assert any(l["name"] == "Copenhagen DC" for l in nearby["locations"])
+
+
+# ---------------------------------------------------------------------------
+# 6. Alert board backed by the persisted inventory snapshot
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def persisted_integration_client(integration_client, tmp_path, monkeypatch):
+    """Integration client with SQLite persistence and a synced inventory snapshot."""
+    monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+    monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+    monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
+    monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+    flask_app._init_db()
+    assert flask_app._ensure_inventory_snapshot(force=True, wait=True)
+    return integration_client
+
+
+class TestAlertBoardWithPersistence:
+    def _alerts_by_site(self, client):
+        resp = client.get("/api/alerts")
+        assert resp.status_code == 200
+        return {site["id"]: site for site in resp.get_json()["alerts"]}
+
+    def test_cached_devices_are_linked_to_their_location(self, persisted_integration_client):
+        devices = flask_app._read_cached_devices()
+        assert len(devices) == sum(len(devs) for devs in mock_nautobot.DEVICES.values())
+        assert all(device["location_id"] for device in devices)
+
+    def test_london_hq_alerts_on_offline_devices(self, persisted_integration_client):
+        london = self._alerts_by_site(persisted_integration_client)["loc-lon"]
+        assert london["alert_level"] != "ok"
+        assert london["down_device_count"] == 2
+        assert {d["device_name"] for d in london["down_devices"]} == {"lon-acc-sw01", "lon-acc-sw02"}
+
+    def test_devices_without_primary_ip_are_excluded(self, persisted_integration_client):
+        london = self._alerts_by_site(persisted_integration_client)["loc-lon"]
+        with_ip = [
+            d for d in mock_nautobot.DEVICES["loc-lon"]
+            if d["id"] not in mock_nautobot.DEVICES_WITHOUT_PRIMARY_IP
+        ]
+        assert london["device_count"] == len(with_ip)
+
+    def test_sites_with_devices_report_device_counts(self, persisted_integration_client):
+        alerts = self._alerts_by_site(persisted_integration_client)
+        for location_id in mock_nautobot.DEVICES:
+            assert alerts[location_id]["device_count"] > 0, location_id

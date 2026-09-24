@@ -19,7 +19,7 @@ open http://localhost:5000
 
 ## What's in the seed data?
 
-8 European locations with GPS coordinates are pre-loaded:
+9 European locations with GPS coordinates are pre-loaded:
 
 | Location | City | Status | Tenant | ASN(s) | Devices |
 |---|---|---|---|---|---|
@@ -30,12 +30,16 @@ open http://localhost:5000
 | Amsterdam IX | 🇳🇱 Amsterdam | Active | EuroIX | AS65020, AS65021 | 3 (Juniper PTX/QFX) |
 | Frankfurt DC | 🇩🇪 Frankfurt | Active | DataCenter GmbH | AS65030 | 2 (Nokia SR, Cisco Nexus) |
 | Paris PoP | 🇫🇷 Paris | Active | Acme Corp | AS65040 | 1 (Cisco ASR) |
-| London HQ | 🇬🇧 London | Active | Acme Corp | AS65050, AS65051 | 3 (Cisco ASR9006, Palo Alto, F5) |
+| London HQ | 🇬🇧 London | Active | Acme Corp | AS65050, AS65051 | 8 (Cisco ASR9006, Palo Alto, F5, …) – 2 access switches **Offline** |
+| London Colo | 🇬🇧 London | Active | Nordic Net | AS65052 | 1 (Juniper MX204) – same coordinates as London HQ |
+
+Every device has a primary IPv4 address except `lon-oob-sw01`, which is left
+without one to show that the alert board ignores devices without a primary IP.
 
 ## Demo scenarios to try
 
 ### Scenario 1 – Browse all locations
-All 8 locations appear as colour-coded pins:
+All 9 locations appear as colour-coded pins:
 - **Green** = Active
 - **Orange** = Planned
 
@@ -53,6 +57,12 @@ Type `55.6761, 12.5683` (Copenhagen DC) in the search box.
 ### Scenario 4 – Out-of-range search
 Type `Berlin` or `52.52, 13.40` (Berlin).
 > No Nautobot locations are within 5 km of Berlin; the sidebar shows a "no results" message.
+
+### Scenario 5 – Alert board
+Open the map first (this triggers the initial inventory sync), then go to
+http://localhost:5000/alerts.
+> London HQ is flagged with 2 down devices (`lon-acc-sw01`, `lon-acc-sw02`);
+> every other site is OK and shows its device count.
 
 ## Stopping the demo
 

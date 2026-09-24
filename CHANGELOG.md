@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 - Location detail returned 502 on Nautobot 3.x without the BGP Models plugin: a 404 from `ipam/asns/` now falls back to the location's own `asn` field, while other upstream errors still fail (#126)
+- Demo alert board showed every site as OK with 0 devices: mock Nautobot devices now include a `location` reference and a `primary_ip4`, and the demo stack enables SQLite persistence so the alert board has a snapshot to read (#119)
 
 ### Added
 - Initial public release
