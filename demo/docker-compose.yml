@@ -25,6 +25,9 @@ services:
       FLASK_SECRET_KEY: demo-secret-key
       FLASK_DEBUG: "false"
       CACHE_TTL: "60"
+      # The alert board reads from the persisted inventory snapshot, so the
+      # demo needs a (throwaway) SQLite database.
+      NAUTOBOT_MAPS_DB: /tmp/nautobot-maps-demo.db
     depends_on:
       mock-nautobot:
         condition: service_healthy
