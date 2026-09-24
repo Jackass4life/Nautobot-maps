@@ -1,3 +1,6 @@
+{% macro tier_info(label, key) -%}
+<span class="tier-info" tabindex="0" role="img" aria-label="{{ label }}: {{ tier_definitions[key] }}" data-tooltip="{{ tier_definitions[key] }}">i</span>
+{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,23 +26,23 @@
 
     <section class="summary-grid" aria-label="Alert summary">
       <article class="summary-card summary-critical">
-        <span class="summary-label">Critical</span>
+        <span class="summary-label">Critical</span> {{ tier_info("Critical", "critical") }}
         <strong id="summary-critical">0</strong>
       </article>
       <article class="summary-card summary-medium">
-        <span class="summary-label">Medium</span>
+        <span class="summary-label">Medium</span> {{ tier_info("Medium", "medium") }}
         <strong id="summary-medium">0</strong>
       </article>
       <article class="summary-card summary-unknown">
-        <span class="summary-label">Unknown</span>
+        <span class="summary-label">Unknown</span> {{ tier_info("Unknown", "unknown") }}
         <strong id="summary-unknown">0</strong>
       </article>
       <article class="summary-card summary-ok">
-        <span class="summary-label">OK</span>
+        <span class="summary-label">OK</span> {{ tier_info("OK", "ok") }}
         <strong id="summary-ok">0</strong>
       </article>
       <article class="summary-card">
-        <span class="summary-label">Total sites</span>
+        <span class="summary-label">Total sites</span> {{ tier_info("Total sites", "total") }}
         <strong id="summary-total">0</strong>
       </article>
     </section>
