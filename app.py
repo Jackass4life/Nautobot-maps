@@ -3049,22 +3049,52 @@ def get_alert_board_data(
     return _apply_alert_board_freshness(payload)
 
 
+def _location_field_asns(location_id: str) -> list:
+    """Return the ASN stored directly on a location as an ASN-list entry.
+
+    Nautobot 3.x core keeps a single integer ``asn`` field on each Location
+    instead of the ``ipam/asns/`` endpoint.  The cached inventory is preferred;
+    otherwise the location is looked up once.  Upstream errors propagate.
+    """
+    asn = None
+    cached = [
+        loc
+        for loc in _read_cached_locations(include_without_coordinates=True)
+        if loc.get("id") == location_id
+    ]
+    if cached:
+        asn = cached[0].get("asn")
+    else:
+        asn = nautobot_get(f"dcim/locations/{location_id}/").get("asn")
+    if asn in (None, ""):
+        return []
+    return [{"asn": asn, "description": "", "tenant": ""}]
+
+
 def get_location_detail(location_id: str, location_type: str | None = None) -> dict:
-    """Fetch detailed info (devices, prefixes, ASNs) for a single location."""
+    """Fetch detailed info (devices, prefixes, ASNs) for a single location.
+
+    Upstream failures raise so the caller can report them.  The one exception
+    is a 404 from ``ipam/asns/``: that endpoint does not exist on Nautobot 3.x
+    without the BGP Models plugin, so the location's own ``asn`` field is used.
+    """
     devices, alert = _get_location_devices_and_alert(location_id, location_type)
-    asns_data = fetch_all_pages("ipam/asns/", {"location_id": location_id})
-    return {
-        "devices": devices,
-        "alert": alert,
-        "asns": [
+    try:
+        asns_data = fetch_all_pages("ipam/asns/", {"location_id": location_id})
+    except requests.HTTPError as exc:
+        if exc.response is None or exc.response.status_code != 404:
+            raise
+        asns = _location_field_asns(location_id)
+    else:
+        asns = [
             {
                 "asn": a.get("asn"),
                 "description": a.get("description", ""),
                 "tenant": _nested_str(a.get("tenant"), "name", "display"),
             }
             for a in asns_data
-        ],
-    }
+        ]
+    return {"devices": devices, "alert": alert, "asns": asns}
 
 
 # ---------------------------------------------------------------------------

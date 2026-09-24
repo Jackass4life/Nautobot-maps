@@ -1203,6 +1203,55 @@ class TestApiLocationDetail:
         assert resp.status_code == 502
         assert resp.get_json()["error"] == "Failed to communicate with Nautobot API"
 
+    def _get_detail_with_asn_endpoint_missing(self, client, cached_locations, location_get):
+        """Request a detail while ``ipam/asns/`` returns 404 (Nautobot 3.x core)."""
+        not_found = flask_app.requests.HTTPError(
+            "404 Client Error: Not Found",
+            response=MagicMock(status_code=404),
+        )
+        with patch.object(
+            flask_app,
+            "_get_location_devices_and_alert",
+            return_value=([], {"level": "ok", "reason": ""}),
+        ), patch.object(flask_app, "fetch_all_pages", side_effect=not_found), patch.object(
+            flask_app, "_read_cached_locations", return_value=cached_locations
+        ), patch.object(flask_app, "nautobot_get", side_effect=location_get) as mock_get:
+            resp = client.get("/api/locations/loc-1/detail")
+        return resp, mock_get
+
+    def test_missing_asn_endpoint_falls_back_to_location_asn(self, client):
+        resp, mock_get = self._get_detail_with_asn_endpoint_missing(
+            client, [], lambda endpoint, params=None: {"id": "loc-1", "asn": 65001}
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
+        mock_get.assert_called_once_with("dcim/locations/loc-1/")
+
+    def test_missing_asn_endpoint_prefers_cached_location_asn(self, client):
+        resp, mock_get = self._get_detail_with_asn_endpoint_missing(
+            client,
+            [{"id": "loc-2", "asn": 65002}, {"id": "loc-1", "asn": 65001}],
+            AssertionError("should use the cached inventory"),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
+        mock_get.assert_not_called()
+
+    def test_missing_asn_endpoint_and_no_location_asn_returns_empty(self, client):
+        resp, _ = self._get_detail_with_asn_endpoint_missing(
+            client, [{"id": "loc-1", "asn": None}], AssertionError("should use the cached inventory")
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["asns"] == []
+
+    def test_missing_asn_endpoint_still_fails_when_location_lookup_fails(self, client):
+        upstream_err = flask_app.requests.HTTPError(
+            "500 Server Error",
+            response=MagicMock(status_code=500),
+        )
+        resp, _ = self._get_detail_with_asn_endpoint_missing(client, [], upstream_err)
+        assert resp.status_code == 502
+
 
 # ---------------------------------------------------------------------------
 # Tests: /api/search
