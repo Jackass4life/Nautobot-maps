@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from unittest.mock import patch, MagicMock
 from werkzeug.exceptions import GatewayTimeout
+from markupsafe import escape
 
 import app as flask_app
 
@@ -653,7 +654,7 @@ class TestAlertBoard:
             flask_app,
             "_get_location_devices_and_alert",
             return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline", "primary_ip": "10.0.0.1/32"}],
                 {"level": "critical", "reason": "Core device(s) offline: router01"},
             ),
         ):
@@ -670,6 +671,7 @@ class TestAlertBoard:
             {
                 "device_id": "dev-1",
                 "device_name": "router01",
+                "device_ip": "10.0.0.1",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": [],
@@ -2121,6 +2123,7 @@ class TestAlertLifecycleTracking:
             {
                 "device_id": "dev-1",
                 "device_name": "router01",
+                "device_ip": "",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": [],
@@ -2246,6 +2249,7 @@ class TestAlertLifecycleTracking:
             {
                 "device_id": "dev-1",
                 "device_name": "router01",
+                "device_ip": "",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": ["INC-1001"],
@@ -3802,6 +3806,7 @@ class TestInventoryCacheSync:
             {
                 "device_id": "dev-2",
                 "device_name": "router01",
+                "device_ip": "192.0.2.1",
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": [],
@@ -4471,3 +4476,67 @@ class TestAuthConfiguration:
             )
         assert resp.status_code == 403
         assert resp.get_json()["current_role"] == "viewer"
+
+
+# ---------------------------------------------------------------------------
+# Tests: alert-board tier definitions and per-device IP (#117)
+# ---------------------------------------------------------------------------
+class TestAlertBoardTierDefinitions:
+    def test_alerts_page_renders_info_glyph_per_tile(self, client):
+        resp = client.get("/alerts")
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        assert html.lstrip().startswith("<!DOCTYPE html>")
+        assert html.count('class="tier-info"') == len(flask_app.ALERT_STATUS_TIER_DEFINITIONS)
+        for label, key in [
+            ("Critical", "critical"),
+            ("Medium", "medium"),
+            ("Unknown", "unknown"),
+            ("OK", "ok"),
+            ("Total sites", "total"),
+        ]:
+            definition = escape(flask_app.ALERT_STATUS_TIER_DEFINITIONS[key])
+            assert f'aria-label="{label}: {definition}"' in html
+            assert f'data-tooltip="{definition}"' in html
+
+    def test_medium_definition_matches_scoring_threshold(self):
+        threshold = f"{flask_app._MEDIUM_DOWN_RATIO:.0%}"
+        assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["medium"]
+        assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["ok"]
+        devices = [
+            {"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "active"}
+            for i in range(4)
+        ]
+        devices[0]["status"] = "offline"  # exactly 25% down
+        assert flask_app.compute_alert_level(devices)["level"] == "ok"
+        devices[1]["status"] = "offline"  # 50% down
+        assert flask_app.compute_alert_level(devices)["level"] == "medium"
+
+
+class TestDeviceDisplayIp:
+    def test_prefers_primary_ip_without_prefix_length(self):
+        device = {"primary_ip": "192.0.2.10/32", "librenms_hostname": "198.51.100.1"}
+        assert flask_app._device_display_ip(device) == "192.0.2.10"
+
+    def test_keeps_ipv6_primary_ip(self):
+        assert flask_app._device_display_ip({"primary_ip": "2001:db8::1/128"}) == "2001:db8::1"
+
+    def test_falls_back_to_librenms_ip_hostname(self):
+        assert flask_app._device_display_ip({"primary_ip": "", "librenms_hostname": "198.51.100.1"}) == "198.51.100.1"
+
+    def test_ignores_non_ip_librenms_hostname(self):
+        assert flask_app._device_display_ip({"primary_ip": "", "librenms_hostname": "router01.example.net"}) == ""
+
+    def test_enrichment_records_matched_librenms_hostname(self):
+        orig_url, orig_token = flask_app.LIBRENMS_URL, flask_app.LIBRENMS_API_TOKEN
+        flask_app.LIBRENMS_URL, flask_app.LIBRENMS_API_TOKEN = "https://librenms.test", "tok"
+        try:
+            devices = [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}]
+            enriched = flask_app._enrich_with_librenms(
+                devices,
+                lnms_devices=[{"device_id": 7, "hostname": "router01", "status": 1}],
+                lnms_id_map={},
+            )
+        finally:
+            flask_app.LIBRENMS_URL, flask_app.LIBRENMS_API_TOKEN = orig_url, orig_token
+        assert enriched[0]["librenms_hostname"] == "router01"

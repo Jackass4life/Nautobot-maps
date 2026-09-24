@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Location detail returned 502 on Nautobot 3.x without the BGP Models plugin: a 404 from `ipam/asns/` now falls back to the location's own `asn` field, while other upstream errors still fail (#126)
 
 ### Added
+- Alert board summary tiles show an (i) glyph with the tier definition on hover and keyboard focus, sourced from one `ALERT_STATUS_TIER_DEFINITIONS` constant (#117)
+- Alert board device rows show each device's IP address (Nautobot primary IP, falling back to the LibreNMS hostname when LibreNMS polls by IP) (#117)
 - Initial public release
 - Interactive OpenStreetMap visualization of Nautobot locations
 - Color-coded markers by location status (Active, Planned, Other)

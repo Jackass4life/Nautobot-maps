@@ -210,7 +210,7 @@ function renderDownDeviceRows(item, isExpanded) {
   return downDevices.map((device) => `
     <tr class="down-device-row${isExpanded ? "" : " hidden"}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
-        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}</div>
+        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}</div>
         <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>

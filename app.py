@@ -2025,9 +2025,50 @@ def get_locations(
 # Device statuses that count as "down" for alert purposes
 _DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning"})
 
+# A site is "medium" when more than this share of its monitored devices is down.
+_MEDIUM_DOWN_RATIO = 0.25
+
+# Tier definitions shown in the alert-board summary tile (i) tooltips.  They
+# describe compute_alert_level() and must be kept in sync with it.
+ALERT_STATUS_TIER_DEFINITIONS = {
+    "critical": (
+        "At least one core device is down: its role matches a critical keyword, "
+        "or it is marked critical by an override."
+    ),
+    "medium": (
+        f"More than {_MEDIUM_DOWN_RATIO:.0%} of the site's monitored devices are down "
+        "and no core device is down."
+    ),
+    "unknown": "The alert state could not be computed for this site from the inventory snapshot.",
+    "ok": (
+        f"No core device is down and {_MEDIUM_DOWN_RATIO:.0%} or fewer of the site's "
+        "monitored devices are down. Sites without monitored devices count as OK."
+    ),
+    "total": (
+        "All sites on the board. Only devices with a Nautobot primary IP are monitored."
+    ),
+}
+
 
 def _device_has_primary_ip(device: dict) -> bool:
     return bool((device.get("primary_ip") or "").strip())
+
+
+def _device_display_ip(device: dict) -> str:
+    """Return the address to show for *device* on the alert board.
+
+    Prefers the Nautobot primary IP cached at sync (IPv4 before IPv6), without
+    its prefix length.  Falls back to the matched LibreNMS hostname when
+    LibreNMS polls the device by IP address.  Returns ``""`` when neither is
+    known.
+    """
+    primary_ip = (device.get("primary_ip") or "").strip()
+    if primary_ip:
+        return primary_ip.split("/", 1)[0]
+    librenms_hostname = (device.get("librenms_hostname") or "").strip()
+    if _is_ip_literal(librenms_hostname):
+        return _normalize_librenms_ip_key(librenms_hostname)
+    return ""
 
 
 def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
@@ -2198,7 +2239,7 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
 
     total = len(devices)
     down_count = len(down_names)
-    if total > 0 and down_count / total > 0.25:
+    if total > 0 and down_count / total > _MEDIUM_DOWN_RATIO:
         pct = round(down_count / total * 100)
         return {
             "level": "medium",
@@ -2341,6 +2382,7 @@ def _enrich_with_librenms(
                     lnms_record = lnms_by_ip.get(primary_ip)
 
         if lnms_record is not None:
+            device["librenms_hostname"] = lnms_record.get("hostname") or ""
             lnms_status = lnms_record.get("status")
             if lnms_status == 0:
                 # LibreNMS says down – mark as offline if not already a down status
@@ -2940,10 +2982,15 @@ def _build_alert_board_payload(
                         }
                 finally:
                     persistence_conn.close()
+        device_ip_by_key = {
+            (device.get("id") or device.get("name") or ""): _device_display_ip(device)
+            for device in devices
+        }
         current_down_devices = [
             {
                 "device_id": device.get("id") or "",
                 "device_name": device.get("name") or "Unknown",
+                "device_ip": _device_display_ip(device),
                 "status": device.get("status") or "",
                 "role": device.get("role") or "",
                 "case_numbers": [],
@@ -2967,6 +3014,7 @@ def _build_alert_board_payload(
                     "role": current_item.get("role", merged.get("role", "")),
                 }
             )
+            merged["device_ip"] = device_ip_by_key.get(item_key, "")
             merged.setdefault("status", "")
             merged.setdefault("role", "")
             merged.setdefault("case_numbers", [])
@@ -3198,7 +3246,11 @@ def index():
 
 @app.route("/alerts")
 def alert_board():
-    return render_template("alerts.html", nautobot_url=NAUTOBOT_URL)
+    return render_template(
+        "alerts.html",
+        nautobot_url=NAUTOBOT_URL,
+        tier_definitions=ALERT_STATUS_TIER_DEFINITIONS,
+    )
 
 
 @app.route("/api/locations")

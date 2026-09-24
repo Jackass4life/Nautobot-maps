@@ -140,6 +140,7 @@ html, body {
 }
 
 .summary-card {
+  position: relative;
   padding: 16px;
   border-radius: var(--radius);
   background: var(--color-surface);
@@ -554,4 +555,66 @@ tbody tr:hover {
   table {
     min-width: 1200px;
   }
+}
+
+/* Tier definition glyph on the summary tiles.  The tooltip is pure CSS so it
+   appears on keyboard focus as well as hover; aria-label carries the same
+   text for screen readers.  It is anchored to the tile (not the glyph) so it
+   never overflows the viewport. */
+.tier-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: 1px;
+  cursor: help;
+}
+
+.tier-info::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--color-text);
+  color: var(--color-surface);
+  box-shadow: var(--shadow);
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  display: none;
+  pointer-events: none;
+}
+
+.tier-info:hover::after,
+.tier-info:focus-visible::after {
+  display: block;
+}
+
+.tier-info:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.device-ip {
+  margin-left: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  user-select: all;
 }
