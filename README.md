@@ -127,8 +127,8 @@ docker compose -f demo/docker-compose.yml up --build
 # → Open http://localhost:5000
 ```
 
-The demo pre-loads **8 European locations** (two in Copenhagen, plus Stockholm,
-Oslo, Amsterdam, Frankfurt, Paris, and London) with devices, ASNs, and tenants so you
+The demo pre-loads **9 European locations** (two in Copenhagen, two in London, plus Stockholm,
+Oslo, Amsterdam, Frankfurt, and Paris) with devices, ASNs, and tenants so you
 can explore every feature immediately.  See [`demo/README.md`](demo/README.md)
 for a full description of the seed data and suggested demo scenarios.
 

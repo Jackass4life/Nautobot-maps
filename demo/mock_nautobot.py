@@ -414,6 +414,33 @@ DEVICES = {
     ],
 }
 
+# Real Nautobot device responses carry a location reference and a primary IP;
+# the inventory sync and alert board rely on both.  Attach them here so the
+# seed data above stays readable.  lon-oob-sw01 is deliberately left without a
+# primary IP to demonstrate that the alert board skips such devices.
+DEVICES_WITHOUT_PRIMARY_IP = {"dev-lon-7"}
+
+
+def _attach_location_and_primary_ip() -> None:
+    for loc_index, (location_id, devices) in enumerate(DEVICES.items(), start=1):
+        for dev_index, device in enumerate(devices, start=1):
+            device["location"] = {
+                "id": location_id,
+                "url": f"http://mock-nautobot:8080/api/dcim/locations/{location_id}/",
+            }
+            if device["id"] in DEVICES_WITHOUT_PRIMARY_IP:
+                device["primary_ip4"] = None
+                continue
+            host = f"10.0.{loc_index}.{dev_index}"
+            device["primary_ip4"] = {
+                "id": f"ip-{device['id']}",
+                "address": f"{host}/32",
+                "host": host,
+            }
+
+
+_attach_location_and_primary_ip()
+
 # ASNs keyed by location_id
 ASNS = {
     "loc-cph":  [{"asn": 65001, "description": "Acme Corp primary ASN", "tenant": TENANTS["ten-acme"]}],
