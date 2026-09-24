@@ -62,7 +62,7 @@ html, body {
 }
 
 .page-shell {
-  max-width: 1400px;
+  max-width: 1680px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -272,8 +272,10 @@ html, body {
   font-size: 0.9rem;
 }
 
+/* Never clip the table: on narrow screens it scrolls instead, so the
+   Action column (case form, History, map link) always stays reachable. */
 .table-shell {
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 table {
@@ -286,7 +288,7 @@ thead {
 }
 
 th, td {
-  padding: 12px 14px;
+  padding: 12px 10px;
   text-align: left;
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
@@ -330,6 +332,25 @@ tbody tr:hover {
 
 .down-device-row > td {
   background: rgba(13, 110, 253, 0.06);
+}
+
+/* Pin the Action column to the right edge while the table scrolls
+   horizontally; sticky cells need an opaque background. */
+thead th:last-child,
+tbody td:last-child:not(.empty-state) {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  box-shadow: -1px 0 0 var(--color-border);
+}
+
+thead th:last-child {
+  background: var(--color-surface-2);
+}
+
+.down-device-row > td:last-child {
+  background: linear-gradient(rgba(13, 110, 253, 0.06), rgba(13, 110, 253, 0.06)), var(--color-surface);
 }
 
 .down-device-cell {
@@ -389,12 +410,12 @@ tbody tr:hover {
 }
 
 .reason-cell {
-  min-width: 260px;
+  min-width: 180px;
   color: var(--color-text-muted);
 }
 
 .cases-cell {
-  min-width: 180px;
+  min-width: 110px;
 }
 
 .case-pill {
@@ -545,10 +566,6 @@ tbody tr:hover {
   .toolbar-grid,
   .summary-grid {
     grid-template-columns: 1fr;
-  }
-
-  .table-shell {
-    overflow-x: auto;
   }
 
   table {

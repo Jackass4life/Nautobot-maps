@@ -251,6 +251,34 @@ if (!prevented || activations !== 2) {{
         assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
+class TestAlertBoardUI:
+    def _css_rules(self, css, selector):
+        import re
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        pattern = re.compile(r"([^{}]+)\{([^}]*)\}")
+        return [
+            body
+            for selectors, body in pattern.findall(css)
+            if selector in [part.strip() for part in selectors.split(",")]
+        ]
+
+    def test_table_shell_never_clips_overflow(self, integration_client):
+        """The alert table must scroll, not clip, so the Action column stays reachable."""
+        css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
+        rules = self._css_rules(css, ".table-shell")
+        assert rules
+        assert any("overflow-x: auto" in body for body in rules)
+        assert not any("overflow: hidden" in body for body in rules)
+
+    def test_action_column_is_pinned(self, integration_client):
+        """The last (Action) column sticks to the right edge while the table scrolls."""
+        css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
+        rules = self._css_rules(css, "thead th:last-child")
+        assert any("position: sticky" in body and "right: 0" in body for body in rules)
+        page = integration_client.get("/alerts").get_data(as_text=True)
+        assert page.rstrip().count("<th>Action</th>") == 1
+
+
 # ---------------------------------------------------------------------------
 # 2. /api/locations – all locations with GPS coordinates
 # ---------------------------------------------------------------------------
