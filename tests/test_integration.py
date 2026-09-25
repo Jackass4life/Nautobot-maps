@@ -598,3 +598,42 @@ class TestAlertBoardWithPersistence:
         alerts = self._alerts_by_site(persisted_integration_client)
         for location_id in mock_nautobot.DEVICES:
             assert alerts[location_id]["device_count"] > 0, location_id
+
+
+# ---------------------------------------------------------------------------
+# 7. Alert board cold start and Refresh (#121)
+# ---------------------------------------------------------------------------
+class TestAlertBoardColdStart:
+    def test_first_request_starts_sync_and_board_fills_in(
+        self, integration_client, tmp_path, monkeypatch
+    ):
+        import time
+
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "cold.db"))
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        flask_app._init_db()
+
+        # Fresh database, and /alerts is the first page anyone opens.
+        first = integration_client.get("/api/alerts").get_json()
+        assert first["alerts"] == []
+        assert first["sync_pending"] is True
+
+        # The UI keeps polling while sync_pending is set; do the same here.
+        deadline = time.monotonic() + 15
+        data = first
+        while data["sync_pending"] and time.monotonic() < deadline:
+            time.sleep(0.2)
+            data = integration_client.get("/api/alerts").get_json()
+
+        assert data["sync_pending"] is False
+        assert len(data["alerts"]) == len(mock_nautobot.LOCATIONS)
+        london = next(site for site in data["alerts"] if site["id"] == "loc-lon")
+        assert london["down_device_count"] == 2
+
+    def test_refresh_button_sends_a_value_the_server_accepts(self, integration_client):
+        js = integration_client.get("/static/js/alerts.js").get_data(as_text=True)
+        assert 'params.set("refresh", "1")' in js
+        assert "Date.now()" not in js
+        assert "sync_pending" in js

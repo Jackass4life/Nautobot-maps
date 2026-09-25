@@ -2862,8 +2862,37 @@ def _get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dic
             conn.close()
 
 
-def _apply_alert_board_freshness(payload: dict) -> dict:
-    """Attach freshness metadata to an alert-board payload."""
+# A "running" sync state older than this is treated as abandoned (e.g. the
+# worker that started it was restarted) rather than still in progress.
+_SYNC_RUNNING_STALE_SECONDS = 900
+
+
+def _nautobot_sync_in_progress() -> bool:
+    """Return whether a Nautobot inventory sync is currently running.
+
+    Reads the shared ``inventory_sync_state`` row, so every worker process
+    sees syncs started by any other worker.
+    """
+    if not _current_persistence_dialect():
+        return False
+    state = _get_sync_state("nautobot_inventory")
+    if state.get("status") != "running":
+        return False
+    started_at = _parse_iso_datetime(state.get("last_started_at"))
+    if started_at is None:
+        return False
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+    return age_seconds < _SYNC_RUNNING_STALE_SECONDS
+
+
+def _apply_alert_board_freshness(payload: dict, sync_enqueued: bool = False) -> dict:
+    """Attach freshness and sync-progress metadata to an alert-board payload.
+
+    ``sync_pending`` is true while an inventory sync is running (or was just
+    enqueued by this request); the UI polls until it clears.
+    """
     checked_at = payload.get("checked_at")
     age_seconds = 0
     if checked_at:
@@ -2878,6 +2907,7 @@ def _apply_alert_board_freshness(payload: dict) -> dict:
     stale_after_seconds = int(result.get("stale_after_seconds", CACHE_TTL))
     result["age_seconds"] = age_seconds
     result["stale"] = age_seconds > stale_after_seconds
+    result["sync_pending"] = bool(sync_enqueued) or _nautobot_sync_in_progress()
     return result
 
 
@@ -3081,11 +3111,22 @@ def get_alert_board_data(
     cache_key = "alert-board-data:v3"
     if include_non_operational:
         cache_key = f"{cache_key}:include-non-operational"
+    sync_enqueued = False
     if force_refresh:
-        _ensure_inventory_snapshot(force=True, wait=False)
+        sync_enqueued = _ensure_inventory_snapshot(force=True, wait=False)
     cached = _cache_get(cache_key)
     if cached is not None:
-        return _apply_alert_board_freshness(cached)
+        return _apply_alert_board_freshness(cached, sync_enqueued=sync_enqueued)
+
+    if (
+        not sync_enqueued
+        and _current_persistence_dialect()
+        and not _nautobot_snapshot_initialized()
+    ):
+        # Cold start: nothing has been synced yet.  Start the first sync in
+        # the background instead of waiting for another route to trigger it;
+        # this request still makes no upstream calls itself.
+        sync_enqueued = _ensure_inventory_snapshot(wait=False)
 
     payload = _build_alert_board_payload(
         snapshot_only=True,
@@ -3094,7 +3135,7 @@ def get_alert_board_data(
     should_cache = bool(payload.get("alerts")) or _nautobot_snapshot_initialized()
     if should_cache:
         _cache_set(cache_key, payload, timeout=CACHE_TTL)
-    return _apply_alert_board_freshness(payload)
+    return _apply_alert_board_freshness(payload, sync_enqueued=sync_enqueued)
 
 
 def _location_field_asns(location_id: str) -> list:
@@ -3657,6 +3698,8 @@ def api_add_alert_case():
                 """,
                 (instance_id, case_number, created_by),
             )
+        # The board payload embeds case numbers; drop it so the new case shows.
+        _invalidate_alert_board_cache()
         return jsonify(
             {
                 "status": "ok",
