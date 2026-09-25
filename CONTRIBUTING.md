@@ -37,6 +37,23 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 See the [README](README.md) for detailed setup instructions, including Docker-based development with a local Nautobot instance.
 
+#### Dev container (optional)
+
+The repository ships a [dev container](https://containers.dev/) in `.devcontainer/`. Open the
+folder in VS Code and choose **Reopen in Container** (requires Docker and the Dev Containers
+extension), or start it in GitHub Codespaces. It provides:
+
+- Python 3.11 (the oldest version CI tests) with `requirements-dev.txt` installed, so
+  `pytest` and `ruff check .` work straight away
+- Node, used by the JavaScript runtime checks in the test suite
+- GitHub CLI (`gh`) and Claude Code
+- The Python and Ruff VS Code extensions
+- Port 5000 forwarded for `python app.py`. If 5000 is already taken on your machine, VS Code
+  picks another local port; check the **Ports** view.
+
+You still need a `.env` (see the README) to point the app at a Nautobot instance. Feature
+versions are pinned in `.devcontainer/devcontainer-lock.json`.
+
 ### Code Style
 
 - Python code must pass `ruff check .` (configured in `pyproject.toml`; CI runs it on every PR).

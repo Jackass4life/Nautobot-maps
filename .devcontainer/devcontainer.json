@@ -1,0 +1,25 @@
+{
+  "name": "Nautobot Maps",
+  // Python 3.11 matches the oldest version CI tests (the Docker image uses 3.12).
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    // Node runs the JavaScript runtime checks in the test suite.
+    "ghcr.io/devcontainers/features/node:1": {},
+    // GitHub CLI for issues, PRs and CI status.
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  // Runtime + dev tools (pytest, ruff), same pins as CI.
+  "postCreateCommand": "pip install -r requirements-dev.txt",
+  // The app's default port. If 5000 is already taken on your machine, VS Code
+  // forwards it to a free local port instead; see the Ports view.
+  "forwardPorts": [5000],
+  "portsAttributes": {
+    "5000": { "label": "Nautobot Maps" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "charliermarsh.ruff"]
+    }
+  }
+}
