@@ -165,6 +165,12 @@ ALERT_BOARD_EXCLUDED_LOCATION_NAMES = _parse_csv_set(
 
 
 def _log_alert_board_exclusions() -> None:
+    """Log the alert-board configuration once at startup."""
+    if not _current_persistence_dialect():
+        logger.warning(
+            "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL / "
+            "NAUTOBOT_MAPS_DB): the alert board will stay empty; the map still works."
+        )
     logger.info(
         "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s",
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES),
@@ -2908,6 +2914,9 @@ def _apply_alert_board_freshness(payload: dict, sync_enqueued: bool = False) -> 
     result["age_seconds"] = age_seconds
     result["stale"] = age_seconds > stale_after_seconds
     result["sync_pending"] = bool(sync_enqueued) or _nautobot_sync_in_progress()
+    # The board reads only the persisted snapshot, so without a database it is
+    # always empty; the UI uses this flag to say why (#136).
+    result["persistence_configured"] = bool(_current_persistence_dialect())
     return result
 
 

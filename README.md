@@ -141,7 +141,7 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/` | Map web UI |
 | `GET` | `/alerts` | Alert board web UI |
 | `GET` | `/healthz` | Liveness probe: `200 {"status": "ok"}`, or `503` when the configured persistence database is unreachable. Never calls Nautobot/LibreNMS |
-| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues background sync, `?include_non_operational=1` includes excluded locations). `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears |
+| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues background sync, `?include_non_operational=1` includes excluded locations). `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears. `persistence_configured: false` means no database is set, so the board is always empty |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
 | `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
 | `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |
@@ -204,6 +204,8 @@ For best durability and concurrency, use PostgreSQL via `NAUTOBOT_MAPS_DATABASE_
 Non-operational locations are hidden server-side by default when their location type matches `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` (default: `graveyard,warehouse`). You can also exclude by location status, tag, or fallback name list with the related `ALERT_BOARD_EXCLUDED_LOCATION_*` settings. The UI keeps those locations hidden by default but can request the full dataset with the `include_non_operational=1` query parameter.
 
 ## Inventory-backed reads
+
+**The alert board requires a persistence database** (`NAUTOBOT_MAPS_DATABASE_URL` or `NAUTOBOT_MAPS_DB`); without one it stays empty, shows a message saying so, and a warning is logged at startup. The map works either way.
 
 When persistence is configured, Nautobot Maps keeps cached Nautobot locations/devices and LibreNMS device status in the database and prefers those tables as the primary read source for `/api/locations`, `/api/locations/<id>/detail`, and `/api/alerts`. A background sync refreshes Nautobot incrementally with `last_updated__gte=<last_successful_sync>` (device pages are requested with `depth=1` so `primary_ip4`/`primary_ip6` include inline address data), automatically falls back to a full reconcile when the cached extraction/schema version changes, advances the Nautobot watermark only when an incremental pull observes newer upstream `last_updated` values, and uses the sync start time as the fallback watermark only for full reconciles. LibreNMS status refreshes on its own interval, while request handlers continue serving the last persisted snapshot. On `/api/alerts`, `refresh=1|true|yes|refresh` only signals a background sync and never performs live upstream Nautobot/LibreNMS fetches inline. On a fresh database, the first `/api/alerts` request starts the initial sync in the background and reports `sync_pending: true`, so the alert board fills in on its own without first opening the map.
 
