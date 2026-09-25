@@ -26,6 +26,13 @@ let historyTriggerBtn = null;
 let expandedSiteIds = new Set();
 let allSitesExpanded = false;
 
+// While the server reports an inventory sync in progress, re-poll the board
+// quietly so fresh data appears without the operator clicking Refresh.
+const SYNC_POLL_INTERVAL_MS = 5000;
+const SYNC_POLL_MAX_ATTEMPTS = 36; // ~3 minutes
+let syncPollTimer = null;
+let syncPollAttempts = 0;
+
 function escHtml(str) {
   if (str == null) return "";
   return String(str)
@@ -182,7 +189,8 @@ function formatBoardStatus(payload, visibleCount) {
     ? checkedAt.toLocaleString()
     : "unknown";
   const staleText = payload.stale ? "stale" : "fresh";
-  boardStatus.textContent = `${visibleCount} site${visibleCount !== 1 ? "s" : ""} shown · last checked ${timestamp} · ${staleText}`;
+  const syncText = payload.sync_pending ? " · inventory sync in progress…" : "";
+  boardStatus.textContent = `${visibleCount} site${visibleCount !== 1 ? "s" : ""} shown · last checked ${timestamp} · ${staleText}${syncText}`;
 }
 
 function alertBadge(level) {
@@ -229,7 +237,10 @@ function renderDownDeviceRows(item, isExpanded) {
 
 function renderTableRows(alerts, payload) {
   if (!alerts.length) {
-    alertsTableBody.innerHTML = '<tr><td colspan="11" class="empty-state">No sites match the current filters.</td></tr>';
+    const emptyText = payload.sync_pending && !allAlerts.length
+      ? "Inventory sync in progress – the board will update automatically."
+      : "No sites match the current filters.";
+    alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">${emptyText}</td></tr>`;
     formatBoardStatus(payload, 0);
     return;
   }
@@ -328,18 +339,36 @@ function syncQuickSeverityButtons() {
   });
 }
 
-async function loadAlertBoard(forceRefresh = false) {
-  boardStatus.textContent = "Loading alert board…";
-  refreshBtn.disabled = true;
-  if (toggleNonOperational) toggleNonOperational.disabled = true;
-  if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = true;
-  if (expandAllSitesBtn) expandAllSitesBtn.disabled = true;
+function stopSyncPolling() {
+  if (syncPollTimer) clearTimeout(syncPollTimer);
+  syncPollTimer = null;
+}
+
+function scheduleSyncPoll(payload) {
+  stopSyncPolling();
+  if (!payload.sync_pending || syncPollAttempts >= SYNC_POLL_MAX_ATTEMPTS) return;
+  syncPollAttempts += 1;
+  syncPollTimer = setTimeout(() => loadAlertBoard(false, { background: true }), SYNC_POLL_INTERVAL_MS);
+}
+
+async function loadAlertBoard(forceRefresh = false, { background = false } = {}) {
+  if (!background) {
+    // A user-initiated load restarts the polling budget.
+    stopSyncPolling();
+    syncPollAttempts = 0;
+    boardStatus.textContent = "Loading alert board…";
+    refreshBtn.disabled = true;
+    if (toggleNonOperational) toggleNonOperational.disabled = true;
+    if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = true;
+    if (expandAllSitesBtn) expandAllSitesBtn.disabled = true;
+  }
   try {
     const params = new URLSearchParams();
-    if (forceRefresh) params.set("refresh", String(Date.now()));
+    // The server only accepts 1/true/yes/refresh; a timestamp was silently ignored (#121).
+    if (forceRefresh) params.set("refresh", "1");
     if (toggleNonOperational?.checked) params.set("include_non_operational", "1");
     const query = params.toString();
-    const resp = await fetch(`/api/alerts${query ? `?${query}` : ""}`);
+    const resp = await fetch(`/api/alerts${query ? `?${query}` : ""}`, { cache: "no-store" });
     const payload = await readJsonResponse(resp);
     if (!resp.ok || payload.error) {
       throw new Error(payload.error || resp.statusText || `HTTP ${resp.status}`);
@@ -349,7 +378,9 @@ async function loadAlertBoard(forceRefresh = false) {
     populateFilters(allAlerts);
     renderSummary(payload.summary || {});
     applyFilters(payload);
+    scheduleSyncPoll(payload);
   } catch (err) {
+    stopSyncPolling();
     alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
     boardStatus.textContent = "Alert board unavailable";
     showError(`Failed to load alert board: ${err.message}`);
@@ -501,7 +532,9 @@ alertsTableBody.addEventListener("click", async (event) => {
       const payload = await resp.json();
       if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
       if (caseInput) caseInput.value = "";
-      await loadAlertBoard(true);
+      // The server drops its cached board when a case is added; a plain reload
+      // is enough and must not trigger a full inventory sync.
+      await loadAlertBoard(false);
     } catch (err) {
       showError(`Failed to add case: ${err.message}`);
     } finally {

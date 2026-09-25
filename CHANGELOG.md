@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Fixed
+- Alert board Refresh button never triggered a sync (it sent `refresh=<timestamp>`), and a fresh database showed an empty board until the map page was opened: the first `/api/alerts` request now starts the initial sync in the background, responses report `sync_pending`, and the board re-polls until the sync finishes. Adding a case now shows it immediately and no longer triggers a full sync (#121)
 - Location detail returned 502 on Nautobot 3.x without the BGP Models plugin: a 404 from `ipam/asns/` now falls back to the location's own `asn` field, while other upstream errors still fail (#126)
 - Demo alert board showed every site as OK with 0 devices: mock Nautobot devices now include a `location` reference and a `primary_ip4`, and the demo stack enables SQLite persistence so the alert board has a snapshot to read (#119)
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)

@@ -4540,3 +4540,118 @@ class TestDeviceDisplayIp:
         finally:
             flask_app.LIBRENMS_URL, flask_app.LIBRENMS_API_TOKEN = orig_url, orig_token
         assert enriched[0]["librenms_hostname"] == "router01"
+
+
+# ---------------------------------------------------------------------------
+# Tests: alert-board refresh, cold start and sync progress (#121)
+# ---------------------------------------------------------------------------
+class TestAlertBoardSyncProgress:
+    @pytest.fixture(autouse=True)
+    def _sqlite_persistence(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        flask_app._init_db()
+        flask_app.cache.clear()
+        yield
+        flask_app.cache.clear()
+
+    def _set_nautobot_sync_state(self, status, started_at, completed_at=None):
+        conn = flask_app._get_db_conn()
+        try:
+            with conn:
+                flask_app._record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at=started_at,
+                    last_completed_at=completed_at,
+                    last_successful_sync=completed_at,
+                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    status=status,
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+    def _board(self, alerts=None):
+        return {
+            "checked_at": flask_app._iso_utc_now(),
+            "stale_after_seconds": 300,
+            "summary": {"total": len(alerts or [])},
+            "alerts": alerts or [],
+        }
+
+    def test_refresh_1_enqueues_forced_background_sync(self, client):
+        now = flask_app._iso_utc_now()
+        self._set_nautobot_sync_state("idle", now, now)
+        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure, patch.object(
+            flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+        ):
+            resp = client.get("/api/alerts?refresh=1")
+        assert resp.status_code == 200
+        ensure.assert_called_once_with(force=True, wait=False)
+        assert resp.get_json()["sync_pending"] is True
+
+    def test_timestamp_refresh_value_does_not_trigger_sync(self, client):
+        """The old UI sent refresh=<Date.now()>; the server contract is 1/true/yes/refresh."""
+        now = flask_app._iso_utc_now()
+        self._set_nautobot_sync_state("idle", now, now)
+        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure, patch.object(
+            flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+        ):
+            resp = client.get("/api/alerts?refresh=1727000000000")
+        ensure.assert_not_called()
+        assert resp.get_json()["sync_pending"] is False
+
+    def test_cold_start_enqueues_first_sync_without_waiting(self, client):
+        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure, patch.object(
+            flask_app, "_build_alert_board_payload", return_value=self._board()
+        ):
+            resp = client.get("/api/alerts")
+        assert resp.status_code == 200
+        ensure.assert_called_once_with(wait=False)
+        data = resp.get_json()
+        assert data["alerts"] == []
+        assert data["sync_pending"] is True
+        # The empty cold-start board must not be cached, or the synced data
+        # would stay hidden until the cache expires.
+        assert flask_app.cache.get("alert-board-data:v3") is None
+
+    def test_initialized_snapshot_does_not_start_sync_and_is_not_pending(self, client):
+        now = flask_app._iso_utc_now()
+        self._set_nautobot_sync_state("idle", now, now)
+        with patch.object(flask_app, "_ensure_inventory_snapshot") as ensure, patch.object(
+            flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+        ):
+            resp = client.get("/api/alerts")
+        ensure.assert_not_called()
+        assert resp.get_json()["sync_pending"] is False
+
+    def test_running_sync_is_reported_as_pending(self, client):
+        self._set_nautobot_sync_state("running", flask_app._iso_utc_now())
+        assert flask_app._nautobot_sync_in_progress() is True
+
+    def test_abandoned_running_sync_is_not_pending(self):
+        started = datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        self._set_nautobot_sync_state("running", started)
+        assert flask_app._nautobot_sync_in_progress() is False
+
+    def test_no_sync_pending_without_persistence(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        assert flask_app._nautobot_sync_in_progress() is False
+
+    def test_adding_case_invalidates_cached_board(self, client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            flask_app._iso_utc_now(),
+        )
+        flask_app.cache.set("alert-board-data:v3", self._board([{"id": "loc-1"}]))
+        resp = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-2001"},
+        )
+        assert resp.status_code == 200
+        assert flask_app.cache.get("alert-board-data:v3") is None
