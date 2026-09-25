@@ -36,7 +36,13 @@ jobs:
       - name: Start mock Nautobot server
         run: |
           python demo/mock_nautobot.py &
-          sleep 2
+          # Wait until it answers instead of sleeping a fixed time.
+          for attempt in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/api/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Mock Nautobot did not become ready within 30s" >&2
+          exit 1
         env:
           FLASK_RUN_PORT: "8080"
 
@@ -90,3 +96,51 @@ jobs:
         if: failure()
         working-directory: development
         run: docker compose logs nautobot --tail=200
+
+  # -----------------------------------------------------------------------
+  # Docker smoke test: build the image and run the demo stack for real
+  # -----------------------------------------------------------------------
+  docker-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the demo stack
+        # --wait blocks until every container is running and healthy
+        # (the app via the image HEALTHCHECK, the mock via its compose one).
+        run: docker compose -f demo/docker-compose.yml up -d --build --wait --wait-timeout 180
+
+      - name: App container runs as a non-root user
+        run: |
+          uid=$(docker compose -f demo/docker-compose.yml exec -T nautobot-maps id -u)
+          echo "uid=$uid"
+          test "$uid" != "0"
+
+      - name: Health endpoint and alert board work end to end
+        run: |
+          python3 - <<'PY'
+          import json, time, urllib.request
+
+          def get(path):
+              with urllib.request.urlopen("http://127.0.0.1:5000" + path, timeout=10) as resp:
+                  return json.load(resp)
+
+          health = get("/healthz")
+          print("healthz:", health)
+          assert health["status"] == "ok", health
+
+          # Fresh database: the first request starts the sync; poll like the UI.
+          deadline = time.monotonic() + 90
+          board = get("/api/alerts")
+          while (board.get("sync_pending") or not board["alerts"]) and time.monotonic() < deadline:
+              time.sleep(2)
+              board = get("/api/alerts")
+          london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
+          print("London HQ:", london["alert_level"], "down:", london["down_device_count"])
+          assert london["down_device_count"] == 2, london
+          PY
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose -f demo/docker-compose.yml logs --tail=200
