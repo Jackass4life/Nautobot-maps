@@ -78,6 +78,7 @@ python app.py
 | `ALERT_BOARD_EXCLUDED_LOCATION_STATUSES` | ❌ | — | Optional comma/semicolon-separated location statuses hidden from the alert board; `null` matches an empty status |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | ❌ | — | Optional comma/semicolon-separated Nautobot tag names hidden from the alert board |
 | `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | ❌ | — | Optional fallback comma/semicolon-separated location names hidden from the alert board |
+| `ALERT_BOARD_SITE_LOCATION_TYPE` | ❌ | — | Location type that gets the alert-board rows (e.g. `Site`); devices in its child locations roll up into it, and levels above it get no rows. Empty: one row per location |
 | `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | ❌ | — | Optional comma/semicolon-separated device statuses ignored on the alert board (not counted, not listed); `null` matches an empty status |
 | `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
 | `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |
@@ -229,6 +230,16 @@ When persistence is configured, `/api/alerts` now includes per-site downtime/cas
 `/api/alerts` and `/alerts` only count devices that have a Nautobot primary IP (`primary_ip`, `primary_ip4`, or `primary_ip6`). This keeps access points and other non-alerted devices off the board without removing them from the cached inventory used elsewhere.
 
 Non-operational locations are hidden server-side by default when their location type matches `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` (default: `graveyard,warehouse`). You can also exclude by location status, tag, or fallback name list with the related `ALERT_BOARD_EXCLUDED_LOCATION_*` settings. The UI keeps those locations hidden by default but can request the full dataset with the `include_non_operational=1` query parameter.
+
+### One row per Site
+
+With a location hierarchy such as Region › Country › Site › Building › Floor, set the level the board should show:
+
+```bash
+ALERT_BOARD_SITE_LOCATION_TYPE=Site
+```
+
+Only locations of that type (case-insensitive) get a row. Levels above it (Region, Country) are hidden, and the row shows them as a path, e.g. `EMEA › DNK`. Devices in child locations count towards their Site (device count, severity, downtime), and a down device's row says where it is, e.g. `Bygning A › Etage 2`. Devices below an excluded location (e.g. a Decommissioning building) are left out. A location with devices but no Site above it keeps its own row and is logged once. Changing the setting moves open alerts from building/floor rows to their Site, which restarts their downtime once.
 
 ## Automatic updates
 

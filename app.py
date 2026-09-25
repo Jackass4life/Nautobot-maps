@@ -58,7 +58,9 @@ CACHE_TTL = int(os.getenv("CACHE_TTL", "").strip() or 300)
 INVENTORY_SYNC_INTERVAL_SECONDS = int(os.getenv("INVENTORY_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)
 LIBRENMS_SYNC_INTERVAL_SECONDS = int(os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)
 _FULL_RECONCILE_INTERVAL_SECONDS = 86400
-_NAUTOBOT_INVENTORY_CACHE_VERSION = "2"
+# Bumped when cached fields change, forcing one full Nautobot resync
+# (3: locations store parent_id, #158).
+_NAUTOBOT_INVENTORY_CACHE_VERSION = "3"
 
 # LibreNMS optional integration
 LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
@@ -97,6 +99,9 @@ ALERT_BOARD_EXCLUDED_DEVICE_STATUSES_RAW = os.getenv(
     "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES",
     "",
 )
+# Location type whose locations are the alert-board rows (e.g. "Site"); devices
+# in descendant locations roll up into them (#158).  Empty: one row per location.
+ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()
 
 # Flask-Caching configuration.
 # Defaults to SimpleCache (in-process) for development / single-worker setups.
@@ -177,12 +182,13 @@ def _log_alert_board_exclusions() -> None:
             "the alert board will stay empty; the map still works."
         )
     logger.info(
-        "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s",
+        "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s; rows=%s",
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES),
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_NAMES),
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TYPES),
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TAGS),
         _format_set_for_log(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES),
+        ALERT_BOARD_SITE_LOCATION_TYPE or "every location",
     )
 
 
@@ -473,6 +479,7 @@ def _init_db() -> None:
                     status            TEXT NOT NULL DEFAULT '',
                     location_type     TEXT NOT NULL DEFAULT '',
                     parent            TEXT NOT NULL DEFAULT '',
+                    parent_id         TEXT NOT NULL DEFAULT '',
                     latitude          DOUBLE PRECISION,
                     longitude         DOUBLE PRECISION,
                     description       TEXT NOT NULL DEFAULT '',
@@ -622,6 +629,16 @@ def _init_db() -> None:
                           AND column_name = 'ip'
                     ) THEN
                         ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT '';
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'nautobot_location_cache'
+                          AND column_name = 'parent_id'
+                    ) THEN
+                        -- Filled by the full resync the cache-version bump triggers (#158).
+                        ALTER TABLE nautobot_location_cache ADD COLUMN parent_id TEXT NOT NULL DEFAULT '';
                     END IF;
                 END;
                 $$;
@@ -977,6 +994,7 @@ def _normalize_locations(
                 "status": status_name,
                 "location_type": location_type_name,
                 "parent": parent_name,
+                "parent_id": parent_id,
                 "latitude": lat,
                 "longitude": lon,
                 "description": loc.get("description", ""),
@@ -1113,7 +1131,7 @@ def _read_cached_locations(include_without_coordinates: bool = False, conn=None)
     try:
         rows = conn.execute(
             """
-            SELECT location_id, name, slug, status, location_type, parent, latitude, longitude,
+            SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                    description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
                    time_zone, tags_json, url
             FROM nautobot_location_cache
@@ -1136,6 +1154,7 @@ def _read_cached_locations(include_without_coordinates: bool = False, conn=None)
                     "status": data.get("status", ""),
                     "location_type": data.get("location_type", ""),
                     "parent": data.get("parent", ""),
+                    "parent_id": data.get("parent_id", ""),
                     "latitude": lat,
                     "longitude": lon,
                     "description": data.get("description", ""),
@@ -1327,12 +1346,12 @@ def _coalesce_cache_text(value):
 
 
 def _write_cached_locations(conn, locations: list) -> None:
-    placeholders = _sql_placeholders(19).split(",")
+    placeholders = _sql_placeholders(20).split(",")
     for loc in locations:
         conn.execute(
             f"""
             INSERT INTO nautobot_location_cache
-                (location_id, name, slug, status, location_type, parent, latitude, longitude,
+                (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
                  time_zone, tags_json, url, last_updated, synced_at)
             VALUES ({", ".join(placeholders)}, {_sql_now()})
@@ -1342,6 +1361,7 @@ def _write_cached_locations(conn, locations: list) -> None:
                 status = excluded.status,
                 location_type = excluded.location_type,
                 parent = excluded.parent,
+                parent_id = excluded.parent_id,
                 latitude = excluded.latitude,
                 longitude = excluded.longitude,
                 description = excluded.description,
@@ -1364,6 +1384,7 @@ def _write_cached_locations(conn, locations: list) -> None:
                 _coalesce_cache_text(loc.get("status", "")),
                 _coalesce_cache_text(loc.get("location_type", "")),
                 _coalesce_cache_text(loc.get("parent", "")),
+                _coalesce_cache_text(loc.get("parent_id", "")),
                 loc.get("latitude"),
                 loc.get("longitude"),
                 _coalesce_cache_text(loc.get("description", "")),
@@ -2200,6 +2221,7 @@ def _get_location_devices_and_alert(
                 "platform": d.get("platform", ""),
                 "serial": d.get("serial", ""),
                 "tenant": d.get("tenant", ""),
+                "location_path": d.get("location_path", ""),
             }
             for d in devices_data
         ]
@@ -2708,6 +2730,82 @@ def _apply_alert_board_freshness(
     return result
 
 
+_PATH_SEPARATOR = " › "
+_logged_rollup_orphans: set[str] = set()
+
+
+def _roll_up_to_site_locations(
+    locations: list[dict],
+    devices_by_location: dict[str, list[dict]],
+    site_type: str,
+    include_non_operational: bool = False,
+) -> tuple[list[dict], dict[str, list[dict]]]:
+    """Group the board by locations of *site_type*, rolling up descendants (#158).
+
+    Returns ``(rows, devices_by_row)``.  Rows are the locations of
+    *site_type* (with ``ancestor_path``, e.g. ``"EMEA › DNK"``), plus any other
+    location that holds devices but has no ancestor of that type.  Each
+    device is assigned to its nearest such ancestor, with ``location_path``
+    naming where below the site it sits (``"Bygning A › Etage 2"``).  Unless
+    *include_non_operational*, excluded sites are dropped, and so are devices
+    below an excluded location.
+    """
+    by_id = {loc.get("id"): loc for loc in locations if loc.get("id")}
+
+    def is_site(loc: dict) -> bool:
+        return (loc.get("location_type") or "").strip().lower() == site_type
+
+    def is_excluded(loc: dict) -> bool:
+        return not include_non_operational and _location_is_excluded_from_alert_board(loc)
+
+    def chain_up(location_id: str) -> list[dict]:
+        """*location_id* and its ancestors, nearest first (stops at unknown ids and cycles)."""
+        chain, seen = [], set()
+        while location_id and location_id in by_id and location_id not in seen:
+            seen.add(location_id)
+            chain.append(by_id[location_id])
+            location_id = by_id[location_id].get("parent_id") or ""
+        return chain
+
+    rows = []
+    row_ids = set()
+    for loc in locations:
+        if is_site(loc) and not is_excluded(loc):
+            ancestors = chain_up(loc.get("parent_id") or "")
+            rows.append({**loc, "ancestor_path": _PATH_SEPARATOR.join(a.get("name", "") for a in reversed(ancestors))})
+            row_ids.add(loc["id"])
+
+    devices_by_row: dict[str, list[dict]] = {}
+    for location_id, devices in devices_by_location.items():
+        chain = chain_up(location_id)
+        site_index = next((i for i, loc in enumerate(chain) if is_site(loc)), None)
+        if site_index is None:
+            # No site above it: the location keeps its own row.
+            owner = chain[0] if chain else None
+            if owner is None or is_excluded(owner):
+                continue
+            if owner["id"] not in row_ids:
+                rows.append({**owner, "ancestor_path": ""})
+                row_ids.add(owner["id"])
+                if owner["id"] not in _logged_rollup_orphans:
+                    _logged_rollup_orphans.add(owner["id"])
+                    logger.info(
+                        "Alert board: location %r has devices but no %r above it; it keeps its own row",
+                        owner.get("name"),
+                        site_type,
+                    )
+            below_site = []
+            row_id = owner["id"]
+        else:
+            below_site = chain[:site_index]
+            row_id = chain[site_index]["id"]
+            if row_id not in row_ids or any(is_excluded(loc) for loc in below_site):
+                continue
+        location_path = _PATH_SEPARATOR.join(loc.get("name", "") for loc in reversed(below_site))
+        devices_by_row.setdefault(row_id, []).extend({**device, "location_path": location_path} for device in devices)
+    return rows, devices_by_row
+
+
 def _read_alert_board_data(conn) -> dict:
     """Read what an alert-board build needs for every site, in a few queries (#149).
 
@@ -2778,6 +2876,7 @@ def _build_alert_board_payload(
         include_without_coordinates=True,
         snapshot_only=snapshot_only,
     )
+    all_locations = locations
     if not include_non_operational:
         locations = [loc for loc in locations if not _location_is_excluded_from_alert_board(loc)]
     alerts = []
@@ -2816,6 +2915,22 @@ def _build_alert_board_payload(
         finally:
             read_conn.close()
 
+    # One row per site, with the devices of its whole subtree (#158).
+    devices_by_row = None
+    if ALERT_BOARD_SITE_LOCATION_TYPE:
+        if board_data is not None:
+            devices_by_location = board_data["devices_by_location"]
+        else:
+            devices_by_location = {}
+            for device in _read_cached_devices():
+                devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
+        locations, devices_by_row = _roll_up_to_site_locations(
+            all_locations,
+            devices_by_location,
+            ALERT_BOARD_SITE_LOCATION_TYPE,
+            include_non_operational=include_non_operational,
+        )
+
     # Writes share one connection, opened on first use.  After a failure it is
     # closed and the next site opens a fresh one, so a broken connection
     # cannot fail every later site (#88).
@@ -2832,6 +2947,9 @@ def _build_alert_board_payload(
                     "devices_already_normalized": True,
                     "override_map": board_data["override_map"],
                 }
+            if devices_by_row is not None:
+                bulk_kwargs["devices_data"] = devices_by_row.get(site_id, [])
+                bulk_kwargs["devices_already_normalized"] = True
             try:
                 devices, alert = _get_location_devices_and_alert(
                     loc["id"],
@@ -2925,6 +3043,8 @@ def _build_alert_board_payload(
                     "status": device.get("status") or "",
                     "role": device.get("role") or "",
                     "case_numbers": [],
+                    # Only with ALERT_BOARD_SITE_LOCATION_TYPE, for devices below the site (#158).
+                    **({"location_path": device["location_path"]} if device.get("location_path") else {}),
                 }
                 for device in down_devices
             ]
@@ -2943,6 +3063,8 @@ def _build_alert_board_payload(
                         "role": current_item.get("role", merged.get("role", "")),
                     }
                 )
+                if current_item.get("location_path"):
+                    merged["location_path"] = current_item["location_path"]
                 merged["device_ip"] = device_ip_by_key.get(item_key, "")
                 merged.setdefault("status", "")
                 merged.setdefault("role", "")
