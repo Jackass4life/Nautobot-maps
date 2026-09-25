@@ -2123,7 +2123,26 @@ def _get_critical_keywords(location_type: str | None = None) -> tuple:
     return _ENV_CORE_ROLE_KEYWORDS
 
 
-def compute_alert_level(devices: list, location_type: str | None = None) -> dict:
+def _read_criticality_overrides(conn, device_ids: list | None = None) -> dict:
+    """Return ``{device_id: is_critical}`` for *device_ids*, or for every device when ``None``."""
+    query = "SELECT nautobot_device_id, is_critical FROM device_criticality_override"
+    params: list = []
+    if device_ids is not None:
+        query += f" WHERE nautobot_device_id IN ({_sql_placeholders(len(device_ids))})"
+        params = list(device_ids)
+    overrides = {}
+    for row in conn.execute(query, params).fetchall():
+        data = _row_to_dict(row)
+        if data.get("nautobot_device_id"):
+            overrides[data["nautobot_device_id"]] = bool(data.get("is_critical"))
+    return overrides
+
+
+def compute_alert_level(
+    devices: list,
+    location_type: str | None = None,
+    override_map: dict | None = None,
+) -> dict:
     """Return the NOC alert level for a location based on its device list.
 
     Returns a dict::
@@ -2141,34 +2160,28 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
     The optional *location_type* parameter selects the matching keyword set
     when location-type-scoped rules are configured (e.g. "datacenter" vs
     "office").
+
+    *override_map* (``{device_id: is_critical}``) skips the database read of
+    the per-device overrides; the alert board passes one it loaded for all
+    sites at once (#149).
     """
     if not devices:
         return {"level": "ok", "reason": ""}
 
     core_keywords = _get_critical_keywords(location_type)
 
-    # Load per-device overrides from SQLite (if DB is configured)
-    override_map: dict = {}
-    conn = _get_db_conn()
-    if conn is not None:
-        try:
-            ids = [d.get("id") for d in devices if d.get("id")]
-            if ids:
-                placeholders = _sql_placeholders(len(ids))
-                rows = conn.execute(
-                    f"SELECT nautobot_device_id, is_critical FROM device_criticality_override "
-                    f"WHERE nautobot_device_id IN ({placeholders})",
-                    ids,
-                ).fetchall()
-                override_map = {
-                    _row_to_dict(r).get("nautobot_device_id"): bool(_row_to_dict(r).get("is_critical"))
-                    for r in rows
-                    if _row_to_dict(r).get("nautobot_device_id")
-                }
-        except Exception as exc:
-            logger.debug("Could not read criticality overrides: %s", exc)
-        finally:
-            conn.close()
+    if override_map is None:
+        override_map = {}
+        conn = _get_db_conn()
+        if conn is not None:
+            try:
+                ids = [d.get("id") for d in devices if d.get("id")]
+                if ids:
+                    override_map = _read_criticality_overrides(conn, ids)
+            except Exception as exc:
+                logger.debug("Could not read criticality overrides: %s", exc)
+            finally:
+                conn.close()
 
     down_names: list = []
     core_down_names: list = []
@@ -2405,6 +2418,7 @@ def _get_location_devices_and_alert(
     lnms_id_map: dict | None = None,
     snapshot_only: bool = False,
     require_primary_ip: bool = False,
+    override_map: dict | None = None,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location."""
     use_normalized_devices = devices_already_normalized
@@ -2450,7 +2464,7 @@ def _get_location_devices_and_alert(
         lnms_id_map=lnms_id_map,
         snapshot_only=snapshot_only,
     )
-    return enriched, compute_alert_level(enriched, location_type)
+    return enriched, compute_alert_level(enriched, location_type, override_map=override_map)
 
 
 def _iso_utc_now() -> str:
@@ -2557,16 +2571,21 @@ def _upsert_alert_lifecycle_for_site(
     alert: dict,
     checked_at: str,
     conn=None,
-) -> None:
+) -> bool:
+    """Record the site's down devices as alert instances and resolve recovered ones.
+
+    Returns ``False`` when the write failed (the caller should not reuse *conn*).
+    """
     owns_conn = conn is None
     if conn is None:
         conn = _get_db_conn()
     if conn is None:
-        return
+        return False
     site_id = (site.get("id") or "").strip()
     if not site_id:
-        conn.close()
-        return
+        if owns_conn:
+            conn.close()
+        return True
     open_alert_keys: set[str] = set()
     try:
         with _db_transaction(conn):
@@ -2690,8 +2709,10 @@ def _upsert_alert_lifecycle_for_site(
                         },
                     )
             _resolve_open_alert_instances_for_site(conn, site_id, open_alert_keys, checked_at)
+        return True
     except Exception as exc:
         logger.warning("Could not persist alert lifecycle for site %s: %s", site_id, exc)
+        return False
     finally:
         if owns_conn:
             conn.close()
@@ -2738,76 +2759,94 @@ def _get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, 
     return case_numbers_by_instance
 
 
+def _empty_alert_context() -> dict:
+    return {
+        "active_alert_instance_count": 0,
+        "historical_downtime_seconds": 0,
+        "current_downtime_seconds": 0,
+        "active_cases": [],
+        "down_devices": [],
+    }
+
+
+def _summarize_alert_context(
+    historical_downtime_seconds: int,
+    open_rows: list[dict],
+    case_numbers_by_instance: dict[int, list[str]],
+    checked_at: str,
+) -> dict:
+    """Build a site's alert context from its alert-instance data.
+
+    *historical_downtime_seconds* is the sum of ``total_downtime_seconds``
+    over all the site's instances; *open_rows* are its open instances, newest
+    first.  Open instances add the time they have been down so far.
+    """
+    now_dt = _parse_iso_datetime(checked_at) or datetime.now(UTC)
+    historical_seconds = historical_downtime_seconds
+    active_cases: set[str] = set()
+    down_devices = []
+    current_downtime_seconds = 0
+    for data in open_rows:
+        started = _parse_iso_datetime(data.get("down_started_at"))
+        if started is not None:
+            elapsed = max(0, int((now_dt - started).total_seconds()))
+            historical_seconds += elapsed
+            current_downtime_seconds = max(current_downtime_seconds, elapsed)
+        case_numbers = case_numbers_by_instance.get(int(data["id"]), [])
+        active_cases.update(case_numbers)
+        down_devices.append(
+            {
+                "device_id": data.get("device_id") or "",
+                "device_name": data.get("device_name") or "",
+                "case_numbers": case_numbers,
+            }
+        )
+    return {
+        "active_alert_instance_count": len(down_devices),
+        "historical_downtime_seconds": historical_seconds,
+        "current_downtime_seconds": current_downtime_seconds,
+        "active_cases": sorted(active_cases),
+        "down_devices": down_devices,
+    }
+
+
+def _read_alert_context(conn, site_id: str, checked_at: str) -> dict:
+    """Query one site's alert context on *conn*; raises on database errors."""
+    site_marker = _sql_placeholders(1)
+    rows = conn.execute(
+        f"""
+        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds
+        FROM alert_instances
+        WHERE site_id = {site_marker}
+        ORDER BY id DESC
+        """,
+        (site_id,),
+    ).fetchall()
+    historical_seconds = 0
+    open_rows = []
+    for row in rows:
+        data = _row_to_dict(row)
+        historical_seconds += int(data.get("total_downtime_seconds") or 0)
+        if data.get("status") == "open":
+            open_rows.append(data)
+    case_numbers_by_instance = _get_case_numbers_for_instances(
+        conn,
+        [int(data["id"]) for data in open_rows if data.get("id") is not None],
+    )
+    return _summarize_alert_context(historical_seconds, open_rows, case_numbers_by_instance, checked_at)
+
+
 def _get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dict:
     owns_conn = conn is None
     if conn is None:
         conn = _get_db_conn()
     if conn is None:
-        return {
-            "active_alert_instance_count": 0,
-            "historical_downtime_seconds": 0,
-            "current_downtime_seconds": 0,
-            "active_cases": [],
-            "down_devices": [],
-        }
-    now_dt = _parse_iso_datetime(checked_at) or datetime.now(UTC)
+        return _empty_alert_context()
     try:
-        site_marker = _sql_placeholders(1)
-        rows = conn.execute(
-            f"""
-            SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds
-            FROM alert_instances
-            WHERE site_id = {site_marker}
-            ORDER BY id DESC
-            """,
-            (site_id,),
-        ).fetchall()
-        historical_seconds = 0
-        active_cases: set[str] = set()
-        down_devices = []
-        current_downtime_seconds = 0
-        open_rows = []
-        for row in rows:
-            data = _row_to_dict(row)
-            historical_seconds += int(data.get("total_downtime_seconds") or 0)
-            if data.get("status") != "open":
-                continue
-            open_rows.append(data)
-        case_numbers_by_instance = _get_case_numbers_for_instances(
-            conn,
-            [int(data["id"]) for data in open_rows if data.get("id") is not None],
-        )
-        for data in open_rows:
-            started = _parse_iso_datetime(data.get("down_started_at"))
-            if started is not None:
-                elapsed = max(0, int((now_dt - started).total_seconds()))
-                historical_seconds += elapsed
-                current_downtime_seconds = max(current_downtime_seconds, elapsed)
-            case_numbers = case_numbers_by_instance.get(int(data["id"]), [])
-            active_cases.update(case_numbers)
-            down_devices.append(
-                {
-                    "device_id": data.get("device_id") or "",
-                    "device_name": data.get("device_name") or "",
-                    "case_numbers": case_numbers,
-                }
-            )
-        return {
-            "active_alert_instance_count": len(down_devices),
-            "historical_downtime_seconds": historical_seconds,
-            "current_downtime_seconds": current_downtime_seconds,
-            "active_cases": sorted(active_cases),
-            "down_devices": down_devices,
-        }
+        return _read_alert_context(conn, site_id, checked_at)
     except Exception as exc:
         logger.debug("Could not load alert context for site %s: %s", site_id, exc)
-        return {
-            "active_alert_instance_count": 0,
-            "historical_downtime_seconds": 0,
-            "current_downtime_seconds": 0,
-            "active_cases": [],
-            "down_devices": [],
-        }
+        return _empty_alert_context()
     finally:
         if owns_conn:
             conn.close()
@@ -2863,6 +2902,67 @@ def _apply_alert_board_freshness(payload: dict, sync_enqueued: bool = False) -> 
     return result
 
 
+def _read_alert_board_data(conn) -> dict:
+    """Read what an alert-board build needs for every site, in a few queries (#149).
+
+    Replaces per-site reads of cached devices, criticality overrides, the
+    primary-IP backfill state and the alert context.  Raises on database
+    errors; the caller then falls back to reading per site.
+    """
+    devices_by_location: dict[str, list] = {}
+    for device in _read_cached_devices(conn=conn):
+        devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
+
+    # Closed instances are summed in SQL: the table grows with every outage.
+    historical_downtime_by_site = {}
+    for row in conn.execute(
+        """
+        SELECT site_id, SUM(total_downtime_seconds) AS total
+        FROM alert_instances
+        GROUP BY site_id
+        """
+    ).fetchall():
+        data = _row_to_dict(row)
+        historical_downtime_by_site[data.get("site_id") or ""] = int(data.get("total") or 0)
+
+    open_rows_by_site: dict[str, list[dict]] = {}
+    for row in conn.execute(
+        """
+        SELECT id, site_id, device_id, device_name, down_started_at
+        FROM alert_instances
+        WHERE status = 'open'
+        ORDER BY id DESC
+        """
+    ).fetchall():
+        data = _row_to_dict(row)
+        open_rows_by_site.setdefault(data.get("site_id") or "", []).append(data)
+
+    case_numbers_by_instance: dict[int, list[str]] = {}
+    for row in conn.execute(
+        """
+        SELECT ac.alert_instance_id, ac.case_number
+        FROM alert_cases ac
+        JOIN alert_instances ai ON ai.id = ac.alert_instance_id
+        WHERE ai.status = 'open'
+        ORDER BY ac.created_at DESC, ac.id DESC
+        """
+    ).fetchall():
+        data = _row_to_dict(row)
+        instance_id = int(data.get("alert_instance_id") or 0)
+        case_number = (data.get("case_number") or "").strip()
+        if instance_id and case_number:
+            case_numbers_by_instance.setdefault(instance_id, []).append(case_number)
+
+    return {
+        "devices_by_location": devices_by_location,
+        "override_map": _read_criticality_overrides(conn),
+        "primary_ip_backfill_pending": _nautobot_inventory_primary_ip_backfill_pending(conn=conn),
+        "historical_downtime_by_site": historical_downtime_by_site,
+        "open_rows_by_site": open_rows_by_site,
+        "case_numbers_by_instance": case_numbers_by_instance,
+    }
+
+
 def _build_alert_board_payload(
     snapshot_only: bool = False,
     include_non_operational: bool = False,
@@ -2876,13 +2976,6 @@ def _build_alert_board_payload(
         locations = [loc for loc in locations if not _location_is_excluded_from_alert_board(loc)]
     alerts = []
     summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
-    default_alert_context = {
-        "active_alert_instance_count": 0,
-        "historical_downtime_seconds": 0,
-        "current_downtime_seconds": 0,
-        "active_cases": [],
-        "down_devices": [],
-    }
     lnms_devices = None
     lnms_id_map = None
     if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
@@ -2897,129 +2990,188 @@ def _build_alert_board_payload(
             lnms_devices = []
             lnms_id_map = {}
 
+    # Read everything that can be read for all sites at once (#149).  A
+    # failed connect disables persistence for this build; a failed bulk read
+    # falls back to reading per site.
     persistence_unavailable = False
-    for loc in locations:
-        observation_succeeded = True
+    board_data = None
+    read_conn = None
+    try:
+        read_conn = _get_db_conn()
+    except Exception as exc:
+        logger.warning("Could not connect to persistence DB for alert board: %s", exc)
+    if read_conn is None:
+        persistence_unavailable = True
+    else:
         try:
-            devices, alert = _get_location_devices_and_alert(
-                loc["id"],
-                loc.get("location_type") or None,
-                lnms_devices=lnms_devices,
-                lnms_id_map=lnms_id_map,
-                snapshot_only=snapshot_only,
-                require_primary_ip=True,
-            )
+            board_data = _read_alert_board_data(read_conn)
         except Exception as exc:
-            logger.warning(
-                "Could not compute alert summary for location %s: %s",
-                loc.get("id"),
-                exc,
-            )
-            observation_succeeded = False
-            devices = []
-            alert = {"level": "unknown", "reason": "Could not compute alert state"}
+            logger.warning("Could not bulk-read alert board data; reading per site instead: %s", exc)
+        finally:
+            read_conn.close()
 
-        down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES]
-        checked_at = _iso_utc_now()
-        alert_context = default_alert_context
-        if not persistence_unavailable:
-            persistence_conn = None
+    # Writes share one connection, opened on first use.  After a failure it is
+    # closed and the next site opens a fresh one, so a broken connection
+    # cannot fail every later site (#88).
+    write_conn = None
+    try:
+        for loc in locations:
+            site_id = loc.get("id") or ""
+            observation_succeeded = True
+            bulk_kwargs = {}
+            if board_data is not None:
+                bulk_kwargs = {
+                    # A site missing from the snapshot has no cached devices.
+                    "devices_data": board_data["devices_by_location"].get(site_id, [] if snapshot_only else None),
+                    "devices_already_normalized": True,
+                    "override_map": board_data["override_map"],
+                }
             try:
-                persistence_conn = _get_db_conn()
+                devices, alert = _get_location_devices_and_alert(
+                    loc["id"],
+                    loc.get("location_type") or None,
+                    lnms_devices=lnms_devices,
+                    lnms_id_map=lnms_id_map,
+                    snapshot_only=snapshot_only,
+                    require_primary_ip=True,
+                    **bulk_kwargs,
+                )
             except Exception as exc:
-                logger.warning("Could not connect to persistence DB for alert board: %s", exc)
-                persistence_unavailable = True
-            if persistence_conn is None:
-                persistence_unavailable = True
+                logger.warning(
+                    "Could not compute alert summary for location %s: %s",
+                    loc.get("id"),
+                    exc,
+                )
+                observation_succeeded = False
+                devices = []
+                alert = {"level": "unknown", "reason": "Could not compute alert state"}
+
+            down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES]
+            checked_at = _iso_utc_now()
+            alert_context = _empty_alert_context()
+            if board_data is not None:
+                primary_ip_backfill_pending = board_data["primary_ip_backfill_pending"]
+                # Otherwise the lifecycle step has nothing to open, update or resolve.
+                needs_write = (
+                    observation_succeeded
+                    and not primary_ip_backfill_pending
+                    and (bool(down_devices) or site_id in board_data["open_rows_by_site"])
+                )
             else:
-                primary_ip_backfill_pending = False
-                try:
-                    primary_ip_backfill_pending = _nautobot_inventory_primary_ip_backfill_pending(conn=persistence_conn)
-                    if observation_succeeded and not primary_ip_backfill_pending:
-                        _upsert_alert_lifecycle_for_site(
-                            loc,
-                            devices,
-                            alert,
-                            checked_at,
-                            conn=persistence_conn,
+                primary_ip_backfill_pending = None  # read per site below
+                needs_write = True
+
+            wrote = False
+            if needs_write and not persistence_unavailable:
+                if write_conn is None:
+                    try:
+                        write_conn = _get_db_conn()
+                    except Exception as exc:
+                        logger.warning("Could not connect to persistence DB for alert board: %s", exc)
+                    if write_conn is None:
+                        persistence_unavailable = True
+                if write_conn is not None:
+                    try:
+                        if primary_ip_backfill_pending is None:
+                            primary_ip_backfill_pending = _nautobot_inventory_primary_ip_backfill_pending(
+                                conn=write_conn
+                            )
+                        if observation_succeeded and not primary_ip_backfill_pending:
+                            if (
+                                _upsert_alert_lifecycle_for_site(loc, devices, alert, checked_at, conn=write_conn)
+                                is False
+                            ):
+                                raise RuntimeError("alert lifecycle write failed")
+                        alert_context = _read_alert_context(write_conn, site_id, checked_at)
+                        wrote = True
+                    except Exception as exc:
+                        logger.warning(
+                            "Alert board persistence failed for site %s; the next site reconnects: %s",
+                            site_id,
+                            exc,
                         )
-                    alert_context = _get_alert_context_for_site(
-                        loc.get("id", ""),
-                        checked_at,
-                        conn=persistence_conn,
-                    )
-                    if primary_ip_backfill_pending:
-                        alert_context = {
-                            **alert_context,
-                            "active_alert_instance_count": 0,
-                            "current_downtime_seconds": 0,
-                            "active_cases": [],
-                            "down_devices": [],
-                        }
-                finally:
-                    persistence_conn.close()
-        device_ip_by_key = {
-            (device.get("id") or device.get("name") or ""): _device_display_ip(device) for device in devices
-        }
-        current_down_devices = [
-            {
-                "device_id": device.get("id") or "",
-                "device_name": device.get("name") or "Unknown",
-                "device_ip": _device_display_ip(device),
-                "status": device.get("status") or "",
-                "role": device.get("role") or "",
-                "case_numbers": [],
+                        write_conn.close()
+                        write_conn = None
+            if not wrote and board_data is not None:
+                alert_context = _summarize_alert_context(
+                    board_data["historical_downtime_by_site"].get(site_id, 0),
+                    board_data["open_rows_by_site"].get(site_id, []),
+                    board_data["case_numbers_by_instance"],
+                    checked_at,
+                )
+            if primary_ip_backfill_pending:
+                alert_context = {
+                    **alert_context,
+                    "active_alert_instance_count": 0,
+                    "current_downtime_seconds": 0,
+                    "active_cases": [],
+                    "down_devices": [],
+                }
+            device_ip_by_key = {
+                (device.get("id") or device.get("name") or ""): _device_display_ip(device) for device in devices
             }
-            for device in down_devices
-        ]
-        current_down_device_map = {item["device_id"] or item["device_name"]: item for item in current_down_devices}
-        merged_down_devices = []
-        seen_down_device_keys: set[str] = set()
-        for item in alert_context["down_devices"]:
-            item_key = item.get("device_id") or item.get("device_name") or ""
-            merged = dict(item)
-            current_item = current_down_device_map.get(item_key, {})
-            merged.update(
+            current_down_devices = [
                 {
-                    "device_id": current_item.get("device_id", merged.get("device_id", "")),
-                    "device_name": current_item.get("device_name", merged.get("device_name", "")),
-                    "status": current_item.get("status", merged.get("status", "")),
-                    "role": current_item.get("role", merged.get("role", "")),
+                    "device_id": device.get("id") or "",
+                    "device_name": device.get("name") or "Unknown",
+                    "device_ip": _device_display_ip(device),
+                    "status": device.get("status") or "",
+                    "role": device.get("role") or "",
+                    "case_numbers": [],
+                }
+                for device in down_devices
+            ]
+            current_down_device_map = {item["device_id"] or item["device_name"]: item for item in current_down_devices}
+            merged_down_devices = []
+            seen_down_device_keys: set[str] = set()
+            for item in alert_context["down_devices"]:
+                item_key = item.get("device_id") or item.get("device_name") or ""
+                merged = dict(item)
+                current_item = current_down_device_map.get(item_key, {})
+                merged.update(
+                    {
+                        "device_id": current_item.get("device_id", merged.get("device_id", "")),
+                        "device_name": current_item.get("device_name", merged.get("device_name", "")),
+                        "status": current_item.get("status", merged.get("status", "")),
+                        "role": current_item.get("role", merged.get("role", "")),
+                    }
+                )
+                merged["device_ip"] = device_ip_by_key.get(item_key, "")
+                merged.setdefault("status", "")
+                merged.setdefault("role", "")
+                merged.setdefault("case_numbers", [])
+                merged_down_devices.append(merged)
+                if item_key:
+                    seen_down_device_keys.add(item_key)
+            for item in current_down_devices:
+                item_key = item["device_id"] or item["device_name"]
+                if item_key in seen_down_device_keys:
+                    continue
+                merged_down_devices.append(item)
+                if item_key:
+                    seen_down_device_keys.add(item_key)
+            level = (alert.get("level") or "ok").lower()
+            summary[level] = summary.get(level, 0) + 1
+            alerts.append(
+                {
+                    **loc,
+                    "alert_level": level,
+                    "alert_reason": alert.get("reason", ""),
+                    "device_count": len(devices),
+                    "down_device_count": len(down_devices),
+                    "current_downtime_seconds": alert_context["current_downtime_seconds"],
+                    "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
+                    "active_alert_instance_count": max(
+                        int(alert_context["active_alert_instance_count"]),
+                        len(merged_down_devices),
+                    ),
+                    "active_cases": alert_context["active_cases"],
+                    "down_devices": merged_down_devices,
                 }
             )
-            merged["device_ip"] = device_ip_by_key.get(item_key, "")
-            merged.setdefault("status", "")
-            merged.setdefault("role", "")
-            merged.setdefault("case_numbers", [])
-            merged_down_devices.append(merged)
-            if item_key:
-                seen_down_device_keys.add(item_key)
-        for item in current_down_devices:
-            item_key = item["device_id"] or item["device_name"]
-            if item_key in seen_down_device_keys:
-                continue
-            merged_down_devices.append(item)
-            if item_key:
-                seen_down_device_keys.add(item_key)
-        level = (alert.get("level") or "ok").lower()
-        summary[level] = summary.get(level, 0) + 1
-        alerts.append(
-            {
-                **loc,
-                "alert_level": level,
-                "alert_reason": alert.get("reason", ""),
-                "device_count": len(devices),
-                "down_device_count": len(down_devices),
-                "current_downtime_seconds": alert_context["current_downtime_seconds"],
-                "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
-                "active_alert_instance_count": max(
-                    int(alert_context["active_alert_instance_count"]),
-                    len(merged_down_devices),
-                ),
-                "active_cases": alert_context["active_cases"],
-                "down_devices": merged_down_devices,
-            }
-        )
+    finally:
+        if write_conn is not None:
+            write_conn.close()
 
     alerts.sort(
         key=lambda item: (

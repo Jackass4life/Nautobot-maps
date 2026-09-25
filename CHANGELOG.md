@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Changed
+- Alert board builds read devices, criticality overrides and alert history for all sites in a few queries, and share one write connection (replaced after a failure). With 2,000 sites a build opens 5 database connections instead of about 6,000; the board output is unchanged (#149)
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
