@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- Dev container (`.devcontainer/`) with Python 3.11, Node, GitHub CLI and the dev tools preinstalled; documented in `CONTRIBUTING.md` (#145)
 - `ruff` linting in CI (`lint` job), `pyproject.toml` configuration, pinned dev tools in `requirements-dev.txt`, and an optional pre-commit hook; fixed all existing findings (#143)
 - README documents `docker-compose.override.yml` for local Docker settings; the file is git-ignored and excluded from the image (#141)
 - The LibreNMS cache stores each device's polled IP (`overwrite_ip`, else `ip`), so the alert board's device-IP fallback also works for devices added to LibreNMS by hostname; existing databases gain the column automatically (#137)
