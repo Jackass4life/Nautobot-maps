@@ -4657,6 +4657,7 @@ class TestAlertBoardSyncProgress:
 
     def test_next_update_unknown_without_persistence(self, monkeypatch):
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
         assert flask_app._inventory_update_schedule() == (False, None)
 
     def test_empty_sync_interval_env_uses_default(self):

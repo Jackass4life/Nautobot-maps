@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
+- `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)
 - `ALERT_BOARD_EXCLUDED_*` settings in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them to the container (#151)
 - `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)
 - Alert board without a persistence database showed an unexplained empty table: `/api/alerts` now reports `persistence_configured`, the board explains which setting is missing, and a warning is logged at startup (#136)
@@ -27,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- Alert board updates itself: a normal `/api/alerts` request starts an inventory sync once one is due, and the board shows "Next update in m:ss" and reloads in the background at zero (`next_update_in_seconds` in the API) (#152)
 - `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` ignores devices by status on the alert board (not counted as monitored or down, not listed), and `null` in the location/device status settings matches an empty status (#151)
 - Alert board updates itself: a normal `/api/alerts` request starts an inventory sync once one is due, and the board shows "Next update in m:ss" and reloads in the background at zero (`next_update_in_seconds` in the API) (#152)
 - `ruff format` applied repo-wide (layout only) and checked in CI and the pre-commit hook; the formatting commit is listed in `.git-blame-ignore-revs` (#144)
