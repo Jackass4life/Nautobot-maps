@@ -5346,3 +5346,114 @@ class TestSiteRollup:
             )
         }
         assert "parent_id" in columns
+
+
+# ---------------------------------------------------------------------------
+# Tests: background scheduler records history with nobody viewing (#154)
+# ---------------------------------------------------------------------------
+class TestBackgroundScheduler:
+    @pytest.fixture(autouse=True)
+    def _database(self, pg_database, monkeypatch):
+        self.db = pg_database
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        self.db.execute(
+            "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
+            "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
+        )
+        self.db.execute(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
+            "VALUES ('dev-1', 'loc-1', 'router01', 'router', 'Offline', '10.0.0.1/32')"
+        )
+        conn = flask_app._get_db_conn()
+        with conn:
+            flask_app._record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_started_at="2026-09-25T11:00:00+00:00",
+                last_completed_at="2026-09-25T11:00:00+00:00",
+                last_successful_sync="2026-09-25T11:00:00+00:00",
+                cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                status="idle",
+            )
+        conn.close()
+
+    def test_tick_after_a_sync_records_alert_history_without_any_request(self):
+        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure:
+            assert flask_app._scheduler_tick() is True
+        ensure.assert_called_once_with(wait=True)
+        rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
+        assert rows == [{"site_id": "loc-1", "device_id": "dev-1", "status": "open"}]
+        # The rebuilt board is cached, so the next page load is instant.
+        assert flask_app.cache.get("alert-board-data:v3")["summary"]["critical"] == 1
+
+    def test_tick_without_a_due_sync_does_nothing(self):
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=False),
+            patch.object(flask_app, "_build_alert_board_payload") as build,
+        ):
+            assert flask_app._scheduler_tick() is False
+        build.assert_not_called()
+
+    def test_only_one_process_ticks_at_a_time(self):
+        """Another worker holding the lock makes this tick skip."""
+        release = flask_app._acquire_db_inventory_lock("background_scheduler")
+        assert callable(release)
+        try:
+            other = flask_app._acquire_db_inventory_lock("background_scheduler")
+            assert other is False  # a second connection cannot take it
+            with patch.object(flask_app, "_ensure_inventory_snapshot") as ensure:
+                assert flask_app._scheduler_tick() is False
+            ensure.assert_not_called()
+        finally:
+            release()
+
+    def test_loop_survives_a_failing_tick(self, monkeypatch):
+        calls = []
+
+        def failing_tick():
+            calls.append(1)
+            if len(calls) == 2:
+                flask_app._scheduler_stop.set()
+            raise RuntimeError("nautobot down")
+
+        monkeypatch.setattr(flask_app, "_scheduler_tick", failing_tick)
+        monkeypatch.setattr(flask_app, "_scheduler_tick_seconds", lambda: 0)
+        flask_app._scheduler_stop.clear()
+        try:
+            flask_app._scheduler_loop()
+        finally:
+            flask_app._scheduler_stop.clear()
+        assert len(calls) == 2
+
+    def test_start_is_idempotent_and_respects_the_setting(self, monkeypatch):
+        started = []
+        monkeypatch.setattr(flask_app, "_scheduler_started", False)
+        monkeypatch.setattr(flask_app.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock())
+        monkeypatch.setattr(flask_app, "BACKGROUND_SYNC_ENABLED", False)
+        assert flask_app.start_background_scheduler() is False
+        monkeypatch.setattr(flask_app, "BACKGROUND_SYNC_ENABLED", True)
+        assert flask_app.start_background_scheduler() is True
+        assert flask_app.start_background_scheduler() is True
+        assert len(started) == 1
+        assert started[0]["daemon"] is True
+
+    def test_not_started_without_database(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "_scheduler_started", False)
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        assert flask_app.start_background_scheduler() is False
+
+    def test_tick_seconds_follow_the_sooner_interval(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        assert flask_app._scheduler_tick_seconds() == 30
+        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 10)
+        assert flask_app._scheduler_tick_seconds() == 10
+
+    def test_gunicorn_starts_the_scheduler_in_each_worker(self):
+        import gunicorn_config
+
+        with patch.object(flask_app, "start_background_scheduler") as start:
+            gunicorn_config.post_worker_init(worker=None)
+        start.assert_called_once_with()
