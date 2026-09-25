@@ -4776,3 +4776,113 @@ class TestHealthz:
         with patch.object(flask_app.requests, "get", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/healthz")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Tests: LibreNMS polled IP is cached and used as a display fallback (#137)
+# ---------------------------------------------------------------------------
+class TestLibreNMSPolledIp:
+    @pytest.mark.parametrize(
+        "record, expected",
+        [
+            ({"overwrite_ip": "198.51.100.9", "ip": "192.0.2.7"}, "198.51.100.9"),
+            ({"overwrite_ip": None, "ip": "192.0.2.7"}, "192.0.2.7"),
+            ({"overwrite_ip": "", "ip": "2001:db8::7"}, "2001:db8::7"),
+            ({"overwrite_ip": "not-an-ip", "ip": "router01.example.net"}, ""),
+            ({}, ""),
+        ],
+        ids=["override-wins", "ip", "ipv6", "non-ip-ignored", "missing"],
+    )
+    def test_polled_ip_selection(self, record, expected):
+        assert flask_app._librenms_polled_ip(record) == expected
+
+    def test_sync_caches_polled_ip(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.test")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "tok")
+        flask_app._init_db()
+        with patch.object(flask_app, "_fetch_librenms_inventory", return_value=[
+            {"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "overwrite_ip": None, "status": 1},
+        ]):
+            flask_app._sync_librenms_inventory(force=True)
+        cached = flask_app._read_cached_librenms_inventory()
+        assert cached == [{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}]
+
+    def test_device_added_by_hostname_shows_librenms_ip(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.test")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "tok")
+        enriched = flask_app._enrich_with_librenms(
+            [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}],
+            lnms_devices=[{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}],
+            lnms_id_map={},
+        )
+        assert flask_app._device_display_ip(enriched[0]) == "192.0.2.7"
+
+    def test_nautobot_primary_ip_still_preferred(self):
+        device = {"primary_ip": "10.0.0.1/32", "librenms_ip": "192.0.2.7"}
+        assert flask_app._device_display_ip(device) == "10.0.0.1"
+
+    def test_sqlite_migration_adds_ip_column_to_existing_table(self, monkeypatch, tmp_path):
+        import sqlite3
+
+        db = tmp_path / "legacy.db"
+        with sqlite3.connect(db) as legacy:
+            legacy.execute(
+                """
+                CREATE TABLE librenms_device_status (
+                    device_id INTEGER PRIMARY KEY, hostname TEXT NOT NULL DEFAULT '',
+                    status INTEGER, status_raw TEXT NOT NULL DEFAULT '',
+                    status_reason TEXT NOT NULL DEFAULT '',
+                    synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+            legacy.execute("INSERT INTO librenms_device_status (device_id, hostname, status) VALUES (7, 'router01', 1)")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(db))
+        flask_app._init_db()
+        assert flask_app._read_cached_librenms_inventory() == [
+            {"device_id": 7, "hostname": "router01", "ip": "", "status": 1}
+        ]
+
+    def test_postgres_migration_adds_ip_column(self):
+        class _Result:
+            def fetchone(self):
+                return None
+
+            def fetchall(self):
+                return []
+
+        class _Conn:
+            def __init__(self):
+                self.queries = []
+
+            def transaction(self):
+                conn = self
+
+                class _Tx:
+                    def __enter__(self):
+                        return conn
+
+                    def __exit__(self, *exc):
+                        return False
+
+                return _Tx()
+
+            def execute(self, query, params=()):
+                self.queries.append(query)
+                return _Result()
+
+            def close(self):
+                return None
+
+        conn = _Conn()
+        with patch.object(flask_app, "_get_db_conn", return_value=conn), patch.object(
+            flask_app, "_is_postgres", return_value=True
+        ):
+            flask_app._init_db()
+        sql = "\n".join(conn.queries)
+        assert "ip             TEXT NOT NULL DEFAULT ''" in sql  # fresh CREATE TABLE
+        assert "table_name = 'librenms_device_status'" in sql
+        assert "ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT ''" in sql

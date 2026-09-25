@@ -522,6 +522,7 @@ def _init_db() -> None:
                     CREATE TABLE IF NOT EXISTS librenms_device_status (
                         device_id      INTEGER PRIMARY KEY,
                         hostname       TEXT NOT NULL DEFAULT '',
+                        ip             TEXT NOT NULL DEFAULT '',
                         status         INTEGER,
                         status_raw     TEXT NOT NULL DEFAULT '',
                         status_reason  TEXT NOT NULL DEFAULT '',
@@ -660,6 +661,7 @@ def _init_db() -> None:
                     CREATE TABLE IF NOT EXISTS librenms_device_status (
                         device_id      INTEGER PRIMARY KEY,
                         hostname       TEXT NOT NULL DEFAULT '',
+                        ip             TEXT NOT NULL DEFAULT '',
                         status         INTEGER,
                         status_raw     TEXT NOT NULL DEFAULT '',
                         status_reason  TEXT NOT NULL DEFAULT '',
@@ -808,6 +810,19 @@ def _init_db() -> None:
                     conn.execute(
                         "ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT ''"
                     )
+                librenms_ip_column = next(
+                    (
+                        column
+                        for column in conn.execute("PRAGMA table_info(librenms_device_status)").fetchall()
+                        if column["name"] == "ip"
+                    ),
+                    None,
+                )
+                if librenms_ip_column is None:
+                    # Filled on the next LibreNMS sync, which rewrites the whole table.
+                    conn.execute(
+                        "ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT ''"
+                    )
                 if device_primary_ip_column is None:
                     _mark_nautobot_inventory_sync_pending(conn)
                 conn.execute(
@@ -866,6 +881,14 @@ def _init_db() -> None:
                               AND column_name = 'cache_version'
                         ) THEN
                             ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT '';
+                        END IF;
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = 'librenms_device_status'
+                              AND column_name = 'ip'
+                        ) THEN
+                            ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT '';
                         END IF;
                     END;
                     $$;
@@ -1517,12 +1540,13 @@ def _read_cached_librenms_inventory(conn=None) -> list:
         return []
     try:
         rows = conn.execute(
-            "SELECT device_id, hostname, status FROM librenms_device_status ORDER BY hostname ASC"
+            "SELECT device_id, hostname, ip, status FROM librenms_device_status ORDER BY hostname ASC"
         ).fetchall()
         return [
             {
                 "device_id": data.get("device_id"),
                 "hostname": data.get("hostname", ""),
+                "ip": data.get("ip", ""),
                 "status": data.get("status"),
             }
             for data in (_row_to_dict(row) for row in rows)
@@ -1729,16 +1753,31 @@ def _write_cached_devices(conn, devices: list) -> None:
         )
 
 
+def _librenms_polled_ip(device: dict) -> str:
+    """Return the address LibreNMS polls *device* on, or ``""``.
+
+    LibreNMS ``list_devices`` returns ``overwrite_ip`` (an operator-set
+    polling address) and ``ip`` (the device's resolved IP); the override wins.
+    Only valid IP literals are returned.
+    """
+    for key in ("overwrite_ip", "ip"):
+        value = device.get(key)
+        if isinstance(value, str) and _is_ip_literal(value):
+            return _normalize_librenms_ip_key(value)
+    return ""
+
+
 def _write_cached_librenms_devices(conn, devices: list) -> None:
-    placeholders = _sql_placeholders(5).split(",")
+    placeholders = _sql_placeholders(6).split(",")
     for device in devices:
         conn.execute(
             f"""
             INSERT INTO librenms_device_status
-                (device_id, hostname, status, status_raw, status_reason, synced_at)
+                (device_id, hostname, ip, status, status_raw, status_reason, synced_at)
             VALUES ({", ".join(placeholders)}, {_sql_now()})
             ON CONFLICT(device_id) DO UPDATE SET
                 hostname = excluded.hostname,
+                ip = excluded.ip,
                 status = excluded.status,
                 status_raw = excluded.status_raw,
                 status_reason = excluded.status_reason,
@@ -1747,6 +1786,7 @@ def _write_cached_librenms_devices(conn, devices: list) -> None:
             (
                 device.get("device_id"),
                 device.get("hostname", ""),
+                _librenms_polled_ip(device),
                 device.get("status"),
                 str(device.get("status", "")),
                 device.get("status_reason", "") or "",
@@ -2058,13 +2098,16 @@ def _device_display_ip(device: dict) -> str:
     """Return the address to show for *device* on the alert board.
 
     Prefers the Nautobot primary IP cached at sync (IPv4 before IPv6), without
-    its prefix length.  Falls back to the matched LibreNMS hostname when
-    LibreNMS polls the device by IP address.  Returns ``""`` when neither is
-    known.
+    its prefix length.  Falls back to the address LibreNMS polls (its
+    ``overwrite_ip`` or ``ip``), then to the matched LibreNMS hostname when that
+    is itself an IP address.  Returns ``""`` when none is known.
     """
     primary_ip = (device.get("primary_ip") or "").strip()
     if primary_ip:
         return primary_ip.split("/", 1)[0]
+    librenms_ip = (device.get("librenms_ip") or "").strip()
+    if librenms_ip:
+        return librenms_ip
     librenms_hostname = (device.get("librenms_hostname") or "").strip()
     if _is_ip_literal(librenms_hostname):
         return _normalize_librenms_ip_key(librenms_hostname)
@@ -2383,6 +2426,7 @@ def _enrich_with_librenms(
 
         if lnms_record is not None:
             device["librenms_hostname"] = lnms_record.get("hostname") or ""
+            device["librenms_ip"] = _librenms_polled_ip(lnms_record)
             lnms_status = lnms_record.get("status")
             if lnms_status == 0:
                 # LibreNMS says down – mark as offline if not already a down status
