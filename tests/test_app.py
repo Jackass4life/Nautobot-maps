@@ -806,17 +806,62 @@ class TestAlertBoard:
             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()),
             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}),
             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}),
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned", "null"}),
             patch.object(flask_app.logger, "info") as info,
         ):
             flask_app._log_alert_board_exclusions()
 
         info.assert_called_once_with(
-            "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s",
+            "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s",
             "{decommissioning,staging}",
             "{}",
             "{warehouse}",
             "{non-operational}",
+            "{null,planned}",
         )
+
+    def test_status_exclusion_null_keyword_matches_missing_status(self):
+        excluded = flask_app._parse_csv_set("null, Decommissioning")
+        assert flask_app._status_is_excluded(None, excluded)
+        assert flask_app._status_is_excluded("", excluded)
+        assert flask_app._status_is_excluded("  ", excluded)
+        assert flask_app._status_is_excluded("DECOMMISSIONING", excluded)
+        assert not flask_app._status_is_excluded("Active", excluded)
+        # Without the keyword an empty status is never excluded.
+        assert not flask_app._status_is_excluded("", {"decommissioning"})
+
+    def test_location_exclusion_null_status(self):
+        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"null"}):
+            assert flask_app._location_is_excluded_from_alert_board({"name": "Site", "status": ""})
+            assert flask_app._location_is_excluded_from_alert_board({"name": "Site"})
+            assert not flask_app._location_is_excluded_from_alert_board({"name": "Site", "status": "Active"})
+
+    def test_excluded_device_statuses_are_not_scored(self):
+        devices = [
+            {"id": "d1", "name": "router01", "role": "Router", "status": "Decommissioning", "primary_ip": "10.0.0.1"},
+            {"id": "d2", "name": "sw01", "role": "Switch", "status": "", "primary_ip": "10.0.0.2"},
+            {"id": "d3", "name": "sw02", "role": "Switch", "status": "Active", "primary_ip": "10.0.0.3"},
+        ]
+        with patch.object(flask_app, "_get_db_conn", return_value=None):
+            scored, alert = flask_app._get_location_devices_and_alert(
+                "loc-1",
+                devices_data=devices,
+                devices_already_normalized=True,
+                require_primary_ip=True,
+                excluded_device_statuses={"decommissioning", "null"},
+            )
+            unfiltered, unfiltered_alert = flask_app._get_location_devices_and_alert(
+                "loc-1",
+                devices_data=devices,
+                devices_already_normalized=True,
+                require_primary_ip=True,
+            )
+
+        assert [device["name"] for device in scored] == ["sw02"]
+        assert alert["level"] == "ok"
+        # Without the setting, Decommissioning still counts as a down core device.
+        assert len(unfiltered) == 3
+        assert unfiltered_alert["level"] == "critical"
 
     def test_parse_csv_set_normalizes_case_and_whitespace(self):
         assert flask_app._parse_csv_set(" Decommissioning ; Core Site, POP ") == {
@@ -5248,6 +5293,24 @@ class TestAlertBoardBulkReads:
         assert by_site["loc-3"]["active_cases"] == ["INC-1", "INC-2"]
         assert by_site["loc-3"]["current_downtime_seconds"] == 3600
         assert by_site["loc-3"]["historical_downtime_seconds"] == 120 + 3600
+
+    def test_excluded_device_status_resolves_its_open_alert(self):
+        self._seed(3, down_every=2)  # loc-0 and loc-2: router down (status Offline)
+        self._execute("UPDATE nautobot_device_cache SET status = 'Decommissioning' WHERE device_id = 'dev-0-0'", [()])
+        self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T11:00:00+00:00")
+
+        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"}):
+            data = flask_app.get_alert_board_data()
+
+        by_site = {entry["id"]: entry for entry in data["alerts"]}
+        assert by_site["loc-0"]["alert_level"] == "ok"
+        assert by_site["loc-0"]["device_count"] == 2
+        assert by_site["loc-0"]["active_alert_instance_count"] == 0
+        assert by_site["loc-2"]["alert_level"] == "critical"  # Offline is still down
+        conn = flask_app._get_db_conn()
+        status = conn.execute("SELECT status FROM alert_instances WHERE device_id = 'dev-0-0'").fetchone()[0]
+        conn.close()
+        assert status == "resolved"
 
     def test_backfill_pending_skips_writes_and_hides_open_alerts(self):
         self._seed(4, down_every=2, backfill_done=False)
