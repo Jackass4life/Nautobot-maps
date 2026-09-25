@@ -282,8 +282,8 @@ function renderTableRows(alerts, payload) {
   if (!alerts.length) {
     let emptyText = "No sites match the current filters.";
     if (payload.persistence_configured === false) {
-      emptyText = "The alert board needs a persistence database. Set NAUTOBOT_MAPS_DATABASE_URL (PostgreSQL) "
-        + "or NAUTOBOT_MAPS_DB (SQLite) and restart the app. The map works without it.";
+      emptyText = "The alert board needs a PostgreSQL database. Set NAUTOBOT_MAPS_DATABASE_URL "
+        + "and restart the app. The map works without it.";
     } else if (payload.sync_pending && !allAlerts.length) {
       emptyText = "Inventory sync in progress – the board will update automatically.";
     }

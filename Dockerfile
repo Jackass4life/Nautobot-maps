@@ -11,11 +11,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Run as an unprivileged user.  The code stays root-owned (read-only for the
-# app); /app/data is the one writable path, for an optional SQLite database
-# (NAUTOBOT_MAPS_DB=/app/data/nautobot_maps.db, backed by a volume).
-RUN useradd --create-home --uid 10001 app \
-    && mkdir -p /app/data \
-    && chown app:app /app/data
+# app); all state lives in PostgreSQL.
+RUN useradd --create-home --uid 10001 app
 
 COPY . .
 

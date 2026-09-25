@@ -1,7 +1,10 @@
 {
   "name": "Nautobot Maps",
-  // Python 3.11 matches the oldest version CI tests (the Docker image uses 3.12).
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  // Python 3.11 (the oldest version CI tests; the Docker image uses 3.12) plus
+  // PostgreSQL, defined in docker-compose.yml next to this file.
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "features": {
     // Node runs the JavaScript runtime checks in the test suite.
     "ghcr.io/devcontainers/features/node:1": {},

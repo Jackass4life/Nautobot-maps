@@ -47,7 +47,9 @@ pip install -r requirements.txt
 
 # 4. Configure environment variables
 cp .env.example .env
-# Edit .env and set NAUTOBOT_URL and NAUTOBOT_TOKEN
+# Edit .env and set NAUTOBOT_URL and NAUTOBOT_TOKEN.
+# The alert board also needs PostgreSQL: set NAUTOBOT_MAPS_DATABASE_URL
+# (the Docker setup below includes a database).
 
 # 5. Run the development server
 python app.py
@@ -66,8 +68,7 @@ python app.py
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `CACHE_TYPE` | ❌ | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with multiple workers |
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
-| `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | Preferred persistence DB URL (`postgresql://...`) for overrides, alert downtime history, and case tracking |
-| `NAUTOBOT_MAPS_DB` | ❌ | — | SQLite fallback path when PostgreSQL URL is not configured |
+| `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | PostgreSQL URL (`postgresql://...`) for the inventory snapshot, overrides, alert downtime history and case tracking. Required for the alert board. `docker-compose.yml` sets it to its bundled PostgreSQL |
 | `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs into the persistence database. Syncs run in the background, started by page requests once due |
 | `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between LibreNMS status refreshes, started the same way. The alert board counts down to the sooner of the two |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` | ❌ | `graveyard,warehouse` | Comma/semicolon-separated location types hidden from `/api/alerts` and the alert board by default |
@@ -119,7 +120,7 @@ docker compose logs -f
 docker compose down
 ```
 
-The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy. If you use the SQLite fallback instead of PostgreSQL, set `NAUTOBOT_MAPS_DB=/app/data/nautobot_maps.db` (the only writable path in the container) and mount a volume at `/app/data`.
+The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
 
 ### Local overrides (ports, volumes, …)
 
@@ -219,7 +220,6 @@ Recommended deployment patterns:
 ## Alert lifecycle history and case tracking
 
 When persistence is configured, `/api/alerts` now includes per-site downtime/case context (`current_downtime_seconds`, `historical_downtime_seconds`, `active_cases`, `down_devices`).  
-For best durability and concurrency, use PostgreSQL via `NAUTOBOT_MAPS_DATABASE_URL`.
 
 ## Alert board filtering
 
@@ -241,15 +241,17 @@ ALERT_BOARD_EXCLUDED_DEVICE_STATUSES=null,decommissioning,planned
 
 ## Inventory-backed reads
 
-**The alert board requires a persistence database** (`NAUTOBOT_MAPS_DATABASE_URL` or `NAUTOBOT_MAPS_DB`); without one it stays empty, shows a message saying so, and a warning is logged at startup. The map works either way.
+**The alert board requires PostgreSQL** (`NAUTOBOT_MAPS_DATABASE_URL`); without it the board stays empty, shows a message saying so, and a warning is logged at startup. The map works either way. SQLite is no longer supported: a leftover `NAUTOBOT_MAPS_DB` setting is ignored and logged as an error.
 
-When persistence is configured, Nautobot Maps keeps cached Nautobot locations/devices and LibreNMS device status in the database and prefers those tables as the primary read source for `/api/locations`, `/api/locations/<id>/detail`, and `/api/alerts`. A background sync refreshes Nautobot incrementally with `last_updated__gte=<last_successful_sync>` (device pages are requested with `depth=1` so `primary_ip4`/`primary_ip6` include inline address data), automatically falls back to a full reconcile when the cached extraction/schema version changes, advances the Nautobot watermark only when an incremental pull observes newer upstream `last_updated` values, and uses the sync start time as the fallback watermark only for full reconciles. LibreNMS status refreshes on its own interval, while request handlers continue serving the last persisted snapshot. On `/api/alerts`, `refresh=1|true|yes|refresh` only signals a background sync and never performs live upstream Nautobot/LibreNMS fetches inline. On a fresh database, the first `/api/alerts` request starts the initial sync in the background and reports `sync_pending: true`, so the alert board fills in on its own without first opening the map.
 When persistence is configured, Nautobot Maps keeps cached Nautobot locations/devices and LibreNMS device status in the database and prefers those tables as the primary read source for `/api/locations`, `/api/locations/<id>/detail`, and `/api/alerts`. A background sync refreshes Nautobot incrementally with `last_updated__gte=<last_successful_sync>` (device pages are requested with `depth=1` so `primary_ip4`/`primary_ip6` include inline address data), automatically falls back to a full reconcile when the cached extraction/schema version changes, advances the Nautobot watermark only when an incremental pull observes newer upstream `last_updated` values, and uses the sync start time as the fallback watermark only for full reconciles. LibreNMS status refreshes on its own interval, while request handlers continue serving the last persisted snapshot. On `/api/alerts`, `refresh=1|true|yes|refresh` only signals a background sync and never performs live upstream Nautobot/LibreNMS fetches inline. That sync is incremental (only objects changed since the last sync); deleted objects are removed by the scheduled daily full reconcile. On a fresh database, the first `/api/alerts` request starts the initial sync in the background and reports `sync_pending: true`, so the alert board fills in on its own without first opening the map.
 
 ## Running Tests
 
 ```bash
 pip install -r requirements-dev.txt
+# Database tests need a PostgreSQL the tests may create schemas in
+# (preset in the dev container; skipped without it):
+export TEST_DATABASE_URL=postgresql://nautobot_maps:nautobot_maps@localhost:5432/nautobot_maps_test
 python -m pytest tests/ -v
 ruff check .        # lint (same as CI)
 ruff format --check . # formatting (same as CI); `ruff format .` fixes it
@@ -257,7 +259,8 @@ ruff format --check . # formatting (same as CI); `ruff format .` fixes it
 
 The test suite includes:
 
-- **Unit tests** (`tests/test_app.py`) — mock-based, run offline.
+- **Unit tests** (`tests/test_app.py`) — mock-based, run offline; persistence tests
+  run against PostgreSQL (`TEST_DATABASE_URL`).
 - **Mock-integration tests** (`tests/test_integration.py`) — start a local
   mock Nautobot server and exercise the full HTTP stack.
 - **Live integration tests** (`tests/test_nautobot_live.py`) — skipped by

@@ -1,4 +1,16 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nautobot_maps
+      POSTGRES_USER: nautobot_maps
+      POSTGRES_PASSWORD: nautobot_maps
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nautobot_maps -d nautobot_maps"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   mock-nautobot:
     build:
       context: ..
@@ -29,8 +41,10 @@ services:
       FLASK_DEBUG: "false"
       CACHE_TTL: "60"
       # The alert board reads from the persisted inventory snapshot, so the
-      # demo needs a (throwaway) SQLite database.
-      NAUTOBOT_MAPS_DB: /tmp/nautobot-maps-demo.db
+      # demo needs a database (throwaway: no volume).
+      NAUTOBOT_MAPS_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@postgres:5432/nautobot_maps
     depends_on:
+      postgres:
+        condition: service_healthy
       mock-nautobot:
         condition: service_healthy

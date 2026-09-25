@@ -559,13 +559,10 @@ class TestEndToEndScenario:
 # 6. Alert board backed by the persisted inventory snapshot
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def persisted_integration_client(integration_client, tmp_path, monkeypatch):
-    """Integration client with SQLite persistence and a synced inventory snapshot."""
-    monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-    monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+def persisted_integration_client(integration_client, pg_database, monkeypatch):
+    """Integration client with PostgreSQL persistence and a synced inventory snapshot."""
     monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
     monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
-    flask_app._init_db()
     assert flask_app._ensure_inventory_snapshot(force=True, wait=True)
     return integration_client
 
@@ -604,14 +601,11 @@ class TestAlertBoardWithPersistence:
 # 7. Alert board cold start and Refresh (#121)
 # ---------------------------------------------------------------------------
 class TestAlertBoardColdStart:
-    def test_first_request_starts_sync_and_board_fills_in(self, integration_client, tmp_path, monkeypatch):
+    def test_first_request_starts_sync_and_board_fills_in(self, integration_client, pg_database, monkeypatch):
         import time
 
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "cold.db"))
         monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
         monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
-        flask_app._init_db()
 
         # Fresh database, and /alerts is the first page anyone opens.
         first = integration_client.get("/api/alerts").get_json()
