@@ -949,7 +949,7 @@ class TestAlertBoard:
         assert data["summary"]["ok"] == 2
         assert data["summary"]["non_ok"] == 0
         assert [item["alert_level"] for item in data["alerts"]] == ["ok", "ok"]
-        ensure_snapshot.assert_called_once_with(force=True, wait=False)
+        ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
         flask_app.cache.clear()
@@ -2376,7 +2376,7 @@ class TestAlertLifecycleTracking:
         assert cache_set.call_count == 1
         assert ensure_snapshot.call_count == 2
         assert all(
-            call.args == () and call.kwargs == {"force": True, "wait": False}
+            call.args == () and call.kwargs == {"force": True, "full": False, "wait": False}
             for call in ensure_snapshot.call_args_list
         )
         assert all(
@@ -2402,7 +2402,7 @@ class TestAlertLifecycleTracking:
             snapshot_only=True,
             include_non_operational=False,
         )
-        ensure_snapshot.assert_called_once_with(force=True, wait=False)
+        ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
 
     def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
         flask_app.cache.clear()
@@ -4592,7 +4592,7 @@ class TestAlertBoardSyncProgress:
         ):
             resp = client.get("/api/alerts?refresh=1")
         assert resp.status_code == 200
-        ensure.assert_called_once_with(force=True, wait=False)
+        ensure.assert_called_once_with(force=True, full=False, wait=False)
         assert resp.get_json()["sync_pending"] is True
 
     def test_timestamp_refresh_value_does_not_trigger_sync(self, client):
@@ -4776,3 +4776,43 @@ class TestHealthz:
         with patch.object(flask_app.requests, "get", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/healthz")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Tests: Refresh runs an incremental "sync now", not a full reconcile (#135)
+# ---------------------------------------------------------------------------
+class TestRefreshIsIncremental:
+    @pytest.fixture(autouse=True)
+    def _sqlite_and_nautobot(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        flask_app._init_db()
+
+    def _location_queries(self, **ensure_kwargs):
+        """Run a synchronous sync and return the params sent to dcim/locations/."""
+        calls = []
+
+        def fake_fetch(endpoint, params=None):
+            calls.append((endpoint, dict(params or {})))
+            return []
+
+        with patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
+            flask_app, "_read_cached_location_name_map", return_value={}
+        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+            flask_app._ensure_inventory_snapshot(wait=True, **ensure_kwargs)
+        return [params for endpoint, params in calls if endpoint == "dcim/locations/"]
+
+    def test_sync_now_only_fetches_changes_since_last_sync(self):
+        self._location_queries(force=True)  # first sync: full, sets the watermark
+        watermark = flask_app._get_sync_state("nautobot_inventory")["last_successful_sync"]
+        queries = self._location_queries(force=True, full=False)
+        assert queries == [{"last_updated__gte": watermark}]
+
+    def test_force_alone_still_means_full_reconcile(self):
+        self._location_queries(force=True)
+        queries = self._location_queries(force=True)
+        assert queries == [{}]
