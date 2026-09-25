@@ -31,6 +31,12 @@ jobs:
         # github format turns findings into annotations on the PR diff.
         run: ruff check --output-format=github .
 
+      - name: Ruff format
+        # Also runs when lint fails, so one CI run reports both.
+        if: success() || failure()
+        # Fails if any file is not formatted; run `ruff format .` locally to fix.
+        run: ruff format --check --diff .
+
   # -----------------------------------------------------------------------
   # Unit + mock-integration tests (fast, Python matrix)
   # -----------------------------------------------------------------------

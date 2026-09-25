@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- `ruff format` applied repo-wide (layout only) and checked in CI and the pre-commit hook; the formatting commit is listed in `.git-blame-ignore-revs` (#144)
 - Dev container (`.devcontainer/`) with Python 3.11, Node, GitHub CLI and the dev tools preinstalled; documented in `CONTRIBUTING.md` (#145)
 - `ruff` linting in CI (`lint` job), `pyproject.toml` configuration, pinned dev tools in `requirements-dev.txt`, and an optional pre-commit hook; fixed all existing findings (#143)
 - README documents `docker-compose.override.yml` for local Docker settings; the file is git-ignored and excluded from the image (#141)
