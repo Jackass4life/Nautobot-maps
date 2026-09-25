@@ -271,9 +271,13 @@ function renderDownDeviceRows(item, isExpanded) {
 
 function renderTableRows(alerts, payload) {
   if (!alerts.length) {
-    const emptyText = payload.sync_pending && !allAlerts.length
-      ? "Inventory sync in progress – the board will update automatically."
-      : "No sites match the current filters.";
+    let emptyText = "No sites match the current filters.";
+    if (payload.persistence_configured === false) {
+      emptyText = "The alert board needs a persistence database. Set NAUTOBOT_MAPS_DATABASE_URL (PostgreSQL) "
+        + "or NAUTOBOT_MAPS_DB (SQLite) and restart the app. The map works without it.";
+    } else if (payload.sync_pending && !allAlerts.length) {
+      emptyText = "Inventory sync in progress – the board will update automatically.";
+    }
     alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">${emptyText}</td></tr>`;
     formatBoardStatus(payload, 0);
     return;

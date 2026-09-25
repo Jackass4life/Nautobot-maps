@@ -635,6 +635,7 @@ class TestAlertBoardColdStart:
     def test_refresh_button_sends_a_value_the_server_accepts(self, integration_client):
         js = integration_client.get("/static/js/alerts.js").get_data(as_text=True)
         assert 'params.set("refresh", "1")' in js
+        assert "persistence_configured === false" in js
         assert "Date.now()" not in js
         assert "sync_pending" in js
 

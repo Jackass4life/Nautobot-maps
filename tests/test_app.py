@@ -4779,6 +4779,45 @@ class TestHealthz:
 
 
 # ---------------------------------------------------------------------------
+# Tests: alert board explains a missing persistence database (#136)
+# ---------------------------------------------------------------------------
+class TestAlertBoardWithoutPersistence:
+    def test_payload_reports_missing_database(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        flask_app.cache.clear()
+        with patch.object(flask_app, "_build_alert_board_payload", return_value={
+            "checked_at": flask_app._iso_utc_now(), "summary": {}, "alerts": [],
+        }):
+            data = client.get("/api/alerts").get_json()
+        assert data["persistence_configured"] is False
+        assert data["sync_pending"] is False
+
+    def test_payload_reports_configured_database(self, client, monkeypatch, tmp_path):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        flask_app._init_db()
+        flask_app.cache.clear()
+        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=False), patch.object(
+            flask_app, "_build_alert_board_payload",
+            return_value={"checked_at": flask_app._iso_utc_now(), "summary": {}, "alerts": []},
+        ):
+            data = client.get("/api/alerts").get_json()
+        assert data["persistence_configured"] is True
+
+    def test_startup_log_warns_without_database(self, monkeypatch, caplog):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        with caplog.at_level("WARNING", logger="app"):
+            flask_app._log_alert_board_exclusions()
+        assert "No persistence database configured" in caplog.text
+
+    def test_startup_log_quiet_with_database(self, monkeypatch, caplog, tmp_path):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        with caplog.at_level("WARNING", logger="app"):
+            flask_app._log_alert_board_exclusions()
+        assert "No persistence database configured" not in caplog.text
 # Tests: Refresh runs an incremental "sync now", not a full reconcile (#135)
 # ---------------------------------------------------------------------------
 class TestRefreshIsIncremental:
