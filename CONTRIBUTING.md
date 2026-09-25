@@ -58,6 +58,9 @@ versions are pinned in `.devcontainer/devcontainer-lock.json`.
 
 - Python code must pass `ruff check .` (configured in `pyproject.toml`; CI runs it on every PR).
   Many findings can be fixed automatically with `ruff check --fix .`.
+- Python code must be formatted with `ruff format .` (CI runs `ruff format --check .`).
+  The repo-wide formatting commit is listed in `.git-blame-ignore-revs`; run
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so local `git blame` skips it.
 - Keep JavaScript consistent with the existing style in `static/js/`.
 - Write clear commit messages describing what changed and why.
 

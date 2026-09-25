@@ -55,12 +55,8 @@ NAUTOBOT_URL = _validate_nautobot_url(os.getenv("NAUTOBOT_URL", ""))
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
 NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
-INVENTORY_SYNC_INTERVAL_SECONDS = int(
-    os.getenv("INVENTORY_SYNC_INTERVAL_SECONDS", str(CACHE_TTL))
-)
-LIBRENMS_SYNC_INTERVAL_SECONDS = int(
-    os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", str(CACHE_TTL))
-)
+INVENTORY_SYNC_INTERVAL_SECONDS = int(os.getenv("INVENTORY_SYNC_INTERVAL_SECONDS", str(CACHE_TTL)))
+LIBRENMS_SYNC_INTERVAL_SECONDS = int(os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", str(CACHE_TTL)))
 _FULL_RECONCILE_INTERVAL_SECONDS = 86400
 _NAUTOBOT_INVENTORY_CACHE_VERSION = "2"
 
@@ -136,11 +132,7 @@ _SUPPORTED_AUTH_MODES = {"disabled", "header"}
 
 def _parse_csv_set(value: str) -> set[str]:
     """Return a lower-cased set from a comma/semicolon-separated string."""
-    return {
-        item.strip().lower()
-        for item in re.split(r"[;,]", value or "")
-        if item.strip()
-    }
+    return {item.strip().lower() for item in re.split(r"[;,]", value or "") if item.strip()}
 
 
 def _format_set_for_log(values: set[str]) -> str:
@@ -150,18 +142,10 @@ def _format_set_for_log(values: set[str]) -> str:
 AUTH_VIEWER_GROUPS = _parse_csv_set(os.getenv("AUTH_VIEWER_GROUPS", ""))
 AUTH_OPERATOR_GROUPS = _parse_csv_set(os.getenv("AUTH_OPERATOR_GROUPS", ""))
 AUTH_ADMIN_GROUPS = _parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
-ALERT_BOARD_EXCLUDED_LOCATION_TYPES = _parse_csv_set(
-    ALERT_BOARD_EXCLUDED_LOCATION_TYPES_RAW
-)
-ALERT_BOARD_EXCLUDED_LOCATION_STATUSES = _parse_csv_set(
-    ALERT_BOARD_EXCLUDED_LOCATION_STATUSES_RAW
-)
-ALERT_BOARD_EXCLUDED_LOCATION_TAGS = _parse_csv_set(
-    ALERT_BOARD_EXCLUDED_LOCATION_TAGS_RAW
-)
-ALERT_BOARD_EXCLUDED_LOCATION_NAMES = _parse_csv_set(
-    ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW
-)
+ALERT_BOARD_EXCLUDED_LOCATION_TYPES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_TYPES_RAW)
+ALERT_BOARD_EXCLUDED_LOCATION_STATUSES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES_RAW)
+ALERT_BOARD_EXCLUDED_LOCATION_TAGS = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_TAGS_RAW)
+ALERT_BOARD_EXCLUDED_LOCATION_NAMES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW)
 
 
 def _log_alert_board_exclusions() -> None:
@@ -277,6 +261,7 @@ def require_role(required_role: str):
 # ---------------------------------------------------------------------------
 # Persistence (PostgreSQL preferred; SQLite fallback)
 # ---------------------------------------------------------------------------
+
 
 def _current_persistence_dialect() -> str:
     db_url = (NAUTOBOT_MAPS_DATABASE_URL or "").strip()
@@ -801,9 +786,7 @@ def _init_db() -> None:
                     None,
                 )
                 if device_primary_ip_column is None:
-                    conn.execute(
-                        "ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT ''"
-                    )
+                    conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT ''")
                 sync_state_cache_version_column = next(
                     (
                         column
@@ -813,9 +796,7 @@ def _init_db() -> None:
                     None,
                 )
                 if sync_state_cache_version_column is None:
-                    conn.execute(
-                        "ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT ''"
-                    )
+                    conn.execute("ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT ''")
                 librenms_ip_column = next(
                     (
                         column
@@ -826,14 +807,10 @@ def _init_db() -> None:
                 )
                 if librenms_ip_column is None:
                     # Filled on the next LibreNMS sync, which rewrites the whole table.
-                    conn.execute(
-                        "ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT ''"
-                    )
+                    conn.execute("ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT ''")
                 if device_primary_ip_column is None:
                     _mark_nautobot_inventory_sync_pending(conn)
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
-                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)")
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_nautobot_device_cache_location ON nautobot_device_cache(location_id)"
                 )
@@ -902,9 +879,7 @@ def _init_db() -> None:
                 )
                 if primary_ip_column_missing:
                     _mark_nautobot_inventory_sync_pending(conn)
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)"
-                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)")
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_nautobot_device_cache_location ON nautobot_device_cache(location_id)"
                 )
@@ -1027,10 +1002,7 @@ def _build_device_type_maps() -> tuple:
             # manufacturer name
             mfr_obj = item.get("manufacturer") or {}
             mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
-            mfr_name = (
-                _nested_str(mfr_obj, "name", "display")
-                or mfr_map.get(mfr_id, "")
-            )
+            mfr_name = _nested_str(mfr_obj, "name", "display") or mfr_map.get(mfr_id, "")
             if mfr_name:
                 dt_mfr[uid] = mfr_name
         return dt_mfr, dt_model
@@ -1058,10 +1030,7 @@ def _build_tenant_group_map() -> dict:
                 continue
             tg_obj = tenant.get("tenant_group") or {}
             tg_id = tg_obj.get("id", "") if isinstance(tg_obj, dict) else ""
-            tg_name = (
-                _nested_str(tg_obj, "name", "display")
-                or tg_name_map.get(tg_id, "")
-            )
+            tg_name = _nested_str(tg_obj, "name", "display") or tg_name_map.get(tg_id, "")
             if tg_name:
                 tenant_group_map[tid] = tg_name
         return tenant_group_map
@@ -1070,13 +1039,10 @@ def _build_tenant_group_map() -> dict:
         return {}
 
 
-
 def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
     """Perform a GET request against the Nautobot REST API."""
     if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
-        raise RuntimeError(
-            "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables."
-        )
+        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     cache_key = f"{endpoint}:{params}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1091,9 +1057,7 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
         "Accept": accept,
     }
     url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.get(
-        url, headers=headers, params=params, timeout=(5, 30), verify=NAUTOBOT_VERIFY_SSL
-    )
+    response = requests.get(url, headers=headers, params=params, timeout=(5, 30), verify=NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
     data = response.json()
     _cache_set(cache_key, data)
@@ -1103,9 +1067,7 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
 def nautobot_post(endpoint: str, payload: dict) -> dict:
     """Perform a POST request against the Nautobot REST API."""
     if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
-        raise RuntimeError(
-            "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables."
-        )
+        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     accept = "application/json"
     if NAUTOBOT_API_VERSION:
         accept += f"; version={NAUTOBOT_API_VERSION}"
@@ -1115,9 +1077,7 @@ def nautobot_post(endpoint: str, payload: dict) -> dict:
         "Accept": accept,
     }
     url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.post(
-        url, headers=headers, json=payload, timeout=15, verify=NAUTOBOT_VERIFY_SSL
-    )
+    response = requests.post(url, headers=headers, json=payload, timeout=15, verify=NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
     return response.json()
 
@@ -1125,9 +1085,7 @@ def nautobot_post(endpoint: str, payload: dict) -> dict:
 def nautobot_delete(endpoint: str) -> None:
     """Perform a DELETE request against the Nautobot REST API."""
     if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
-        raise RuntimeError(
-            "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables."
-        )
+        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     accept = "application/json"
     if NAUTOBOT_API_VERSION:
         accept += f"; version={NAUTOBOT_API_VERSION}"
@@ -1137,9 +1095,7 @@ def nautobot_delete(endpoint: str) -> None:
         "Accept": accept,
     }
     url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.delete(
-        url, headers=headers, timeout=15, verify=NAUTOBOT_VERIFY_SSL
-    )
+    response = requests.delete(url, headers=headers, timeout=15, verify=NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
 
 
@@ -1237,31 +1193,19 @@ def _normalize_locations(
 
         tenant_obj = loc.get("tenant") or {}
         tenant_id = tenant_obj.get("id", "") if isinstance(tenant_obj, dict) else ""
-        tenant_name = (
-            _nested_str(tenant_obj, "name", "display")
-            or tenant_map.get(tenant_id, "")
-        )
+        tenant_name = _nested_str(tenant_obj, "name", "display") or tenant_map.get(tenant_id, "")
 
         status_obj = loc.get("status") or {}
         status_id = status_obj.get("id", "") if isinstance(status_obj, dict) else ""
-        status_name = (
-            _nested_str(status_obj, "label", "name", "display")
-            or status_map.get(status_id, "")
-        )
+        status_name = _nested_str(status_obj, "label", "name", "display") or status_map.get(status_id, "")
 
         lt_obj = loc.get("location_type") or {}
         lt_id = lt_obj.get("id", "") if isinstance(lt_obj, dict) else ""
-        location_type_name = (
-            _nested_str(lt_obj, "name", "display")
-            or lt_map.get(lt_id, "")
-        )
+        location_type_name = _nested_str(lt_obj, "name", "display") or lt_map.get(lt_id, "")
 
         parent_obj = loc.get("parent") or {}
         parent_id = parent_obj.get("id", "") if isinstance(parent_obj, dict) else ""
-        parent_name = (
-            _nested_str(parent_obj, "name", "display")
-            or loc_name_map.get(parent_id, "")
-        )
+        parent_name = _nested_str(parent_obj, "name", "display") or loc_name_map.get(parent_id, "")
 
         tenant_group_name = tenant_group_map.get(tenant_id, "")
         raw_tags = loc.get("tags") or []
@@ -1269,10 +1213,7 @@ def _normalize_locations(
         for t in raw_tags:
             if isinstance(t, dict):
                 tag_id = t.get("id", "")
-                tag_name = (
-                    _nested_str(t, "name", "display")
-                    or tag_map.get(tag_id, "")
-                )
+                tag_name = _nested_str(t, "name", "display") or tag_map.get(tag_id, "")
             else:
                 tag_name = ""
             if tag_name:
@@ -1360,41 +1301,26 @@ def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> l
         dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
         mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
         mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
-        mfr_name = (
-            _nested_str(mfr_obj, "name", "display")
-            or mfr_map.get(mfr_id, "")
-            or dt_mfr_map.get(dt_id, "")
-        )
+        mfr_name = _nested_str(mfr_obj, "name", "display") or mfr_map.get(mfr_id, "") or dt_mfr_map.get(dt_id, "")
 
         ten_obj = d.get("tenant") or {}
         ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
-        ten_name = (
-            _nested_str(ten_obj, "name", "display")
-            or tenant_map.get(ten_id, "")
-        )
+        ten_name = _nested_str(ten_obj, "name", "display") or tenant_map.get(ten_id, "")
 
         st_obj = d.get("status") or {}
         st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
-        st_name = (
-            _nested_str(st_obj, "label", "name", "display")
-            or status_map.get(st_id, "")
-        )
+        st_name = _nested_str(st_obj, "label", "name", "display") or status_map.get(st_id, "")
 
         devices.append(
             {
                 "id": d.get("id") or "",
                 "name": d.get("name") or "Unknown",
-                "device_type": (
-                    _nested_str(d.get("device_type"), "model", "display")
-                    or dt_model_map.get(dt_id, "")
-                ),
+                "device_type": (_nested_str(d.get("device_type"), "model", "display") or dt_model_map.get(dt_id, "")),
                 "manufacturer": mfr_name,
                 "role": (
                     _nested_str(d.get("role"), "name", "display")
                     or role_map.get(
-                        d.get("role", {}).get("id", "")
-                        if isinstance(d.get("role"), dict)
-                        else "",
+                        d.get("role", {}).get("id", "") if isinstance(d.get("role"), dict) else "",
                         "",
                     )
                 ),
@@ -1404,11 +1330,7 @@ def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> l
                 "serial": d.get("serial") or "",
                 "tenant": ten_name,
                 "last_updated": d.get("last_updated") or "",
-                "location_id": (
-                    d.get("location", {}).get("id", "")
-                    if isinstance(d.get("location"), dict)
-                    else ""
-                ),
+                "location_id": (d.get("location", {}).get("id", "") if isinstance(d.get("location"), dict) else ""),
             }
         )
     return devices
@@ -1421,9 +1343,7 @@ def _read_cached_location_name_map(conn=None) -> dict:
     if conn is None:
         return {}
     try:
-        rows = conn.execute(
-            "SELECT location_id, name FROM nautobot_location_cache"
-        ).fetchall()
+        rows = conn.execute("SELECT location_id, name FROM nautobot_location_cache").fetchall()
         return {
             _row_to_dict(row).get("location_id", ""): _row_to_dict(row).get("name", "")
             for row in rows
@@ -1640,9 +1560,7 @@ def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
     completed_at = _parse_iso_datetime(state.get("last_completed_at"))
     if completed_at is None:
         return True
-    return (datetime.now(UTC) - completed_at).total_seconds() >= max(
-        0, interval_seconds
-    )
+    return (datetime.now(UTC) - completed_at).total_seconds() >= max(0, interval_seconds)
 
 
 def _nautobot_inventory_cache_version_mismatch(state: dict | None) -> bool:
@@ -1654,10 +1572,7 @@ def _nautobot_snapshot_initialized(conn=None) -> bool:
     state = _get_sync_state("nautobot_inventory", conn=conn)
     if not state:
         return False
-    return bool(
-        state.get("status") == "idle"
-        and state.get("last_completed_at")
-    )
+    return bool(state.get("status") == "idle" and state.get("last_completed_at"))
 
 
 def _coalesce_cache_text(value):
@@ -1935,9 +1850,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
     started_at = _iso_utc_now()
     last_successful_sync = None
     try:
-        last_successful_sync = None if force else _get_sync_state(source, conn=conn).get(
-            "last_successful_sync"
-        )
+        last_successful_sync = None if force else _get_sync_state(source, conn=conn).get("last_successful_sync")
         with _db_transaction(conn):
             _record_sync_state(
                 conn,
@@ -1949,14 +1862,10 @@ def _sync_librenms_inventory(force: bool = False) -> None:
                 error_message="",
             )
         devices = _fetch_librenms_inventory()
-        existing_count = conn.execute(
-            "SELECT COUNT(*) AS device_count FROM librenms_device_status"
-        ).fetchone()
+        existing_count = conn.execute("SELECT COUNT(*) AS device_count FROM librenms_device_status").fetchone()
         existing_count = int(_row_to_dict(existing_count).get("device_count") or 0)
         if existing_count > 0 and not devices:
-            raise RuntimeError(
-                "LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot"
-            )
+            raise RuntimeError("LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot")
         with _db_transaction(conn):
             completed_at = _iso_utc_now()
             conn.execute("DELETE FROM librenms_device_status")
@@ -1987,9 +1896,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
         conn.close()
 
 
-def _ensure_inventory_snapshot(
-    force: bool = False, wait: bool = False, full: bool | None = None
-) -> bool:
+def _ensure_inventory_snapshot(force: bool = False, wait: bool = False, full: bool | None = None) -> bool:
     """Run the inventory syncs that are due, in the background unless *wait*.
 
     ``force`` runs them now even if their interval has not passed.  ``full``
@@ -2052,10 +1959,7 @@ def _ensure_inventory_snapshot(
     return True
 
 
-
-def get_locations(
-    include_without_coordinates: bool = False, snapshot_only: bool = False
-) -> list:
+def get_locations(include_without_coordinates: bool = False, snapshot_only: bool = False) -> list:
     """Fetch locations from Nautobot.
 
     By default, only locations with valid GPS coordinates are returned.
@@ -2095,17 +1999,14 @@ ALERT_STATUS_TIER_DEFINITIONS = {
         "or it is marked critical by an override."
     ),
     "medium": (
-        f"More than {_MEDIUM_DOWN_RATIO:.0%} of the site's monitored devices are down "
-        "and no core device is down."
+        f"More than {_MEDIUM_DOWN_RATIO:.0%} of the site's monitored devices are down and no core device is down."
     ),
     "unknown": "The alert state could not be computed for this site from the inventory snapshot.",
     "ok": (
         f"No core device is down and {_MEDIUM_DOWN_RATIO:.0%} or fewer of the site's "
         "monitored devices are down. Sites without monitored devices count as OK."
     ),
-    "total": (
-        "All sites on the board. Only devices with a Nautobot primary IP are monitored."
-    ),
+    "total": ("All sites on the board. Only devices with a Nautobot primary IP are monitored."),
 }
 
 
@@ -2136,9 +2037,7 @@ def _device_display_ip(device: dict) -> str:
 def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
     """Treat primary-IP backfill as pending until Nautobot has synced the current cache version."""
     state = _get_sync_state("nautobot_inventory", conn=conn)
-    return _nautobot_inventory_cache_version_mismatch(state) or not bool(
-        (state or {}).get("last_successful_sync")
-    )
+    return _nautobot_inventory_cache_version_mismatch(state) or not bool((state or {}).get("last_successful_sync"))
 
 
 def _location_is_excluded_from_alert_board(location: dict) -> bool:
@@ -2146,7 +2045,7 @@ def _location_is_excluded_from_alert_board(location: dict) -> bool:
     status = (location.get("status") or "").strip().lower()
     location_type = (location.get("location_type") or "").strip().lower()
     tags = set()
-    for tag in (location.get("tags") or []):
+    for tag in location.get("tags") or []:
         if isinstance(tag, dict):
             tag_name = _nested_str(tag, "name", "display", "label", "value")
         else:
@@ -2164,6 +2063,7 @@ def _location_is_excluded_from_alert_board(location: dict) -> bool:
 def _invalidate_alert_board_cache() -> None:
     cache.delete("alert-board-data:v3")
     cache.delete("alert-board-data:v3:include-non-operational")
+
 
 # ---------------------------------------------------------------------------
 # Configurable critical-role keyword system
@@ -2189,9 +2089,7 @@ if CRITICALITY_RULES_FILE:
             _loaded = json.load(_f)
         if isinstance(_loaded, dict):
             _CRITICALITY_RULES = {
-                k.lower(): [kw.lower() for kw in v]
-                for k, v in _loaded.items()
-                if isinstance(v, list)
+                k.lower(): [kw.lower() for kw in v] for k, v in _loaded.items() if isinstance(v, list)
             }
             logger.info(
                 "Loaded criticality rules from %s: %s",
@@ -2311,7 +2209,6 @@ def compute_alert_level(devices: list, location_type: str | None = None) -> dict
     return {"level": "ok", "reason": ""}
 
 
-
 def _librenms_get(path: str, params: dict | None = None) -> dict:
     """Perform a GET request against the LibreNMS REST API."""
     base_url = (LIBRENMS_URL or "").strip().rstrip("/")
@@ -2324,13 +2221,9 @@ def _librenms_get(path: str, params: dict | None = None) -> dict:
     if LIBRENMS_VERIFY_SSL is False:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", InsecureRequestWarning)
-            response = requests.get(
-                url, headers=headers, params=params, timeout=15, verify=False
-            )
+            response = requests.get(url, headers=headers, params=params, timeout=15, verify=False)
     else:
-        response = requests.get(
-            url, headers=headers, params=params, timeout=15, verify=LIBRENMS_VERIFY_SSL
-        )
+        response = requests.get(url, headers=headers, params=params, timeout=15, verify=LIBRENMS_VERIFY_SSL)
     response.raise_for_status()
     return response.json()
 
@@ -2350,8 +2243,7 @@ def _load_librenms_id_map() -> dict:
     if conn is not None:
         try:
             rows = conn.execute(
-                "SELECT nautobot_device_id, librenms_device_id, librenms_hostname "
-                "FROM librenms_device_map"
+                "SELECT nautobot_device_id, librenms_device_id, librenms_hostname FROM librenms_device_map"
             ).fetchall()
             lnms_id_map = {
                 r["nautobot_device_id"]: {
@@ -2564,10 +2456,9 @@ def _get_location_devices_and_alert(
 def _iso_utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
+
 def _alert_sort_key(level: str) -> int:
-    return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get(
-        (level or "").lower(), 4
-    )
+    return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get((level or "").lower(), 4)
 
 
 def _build_alert_key(site_id: str, device_id: str, alert_level: str) -> str:
@@ -2704,11 +2595,7 @@ def _upsert_alert_lifecycle_for_site(
                 if latest_row is None:
                     now_sql = _sql_now()
                     p = _sql_placeholders(10).split(",")
-                    conflict_sql = (
-                        "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
-                        if _is_postgres()
-                        else ""
-                    )
+                    conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING" if _is_postgres() else ""
                     inserted = conn.execute(
                         f"""
                         INSERT INTO alert_instances
@@ -2821,7 +2708,11 @@ def _get_case_numbers_for_instance(conn, instance_id: int) -> list[str]:
         """,
         (instance_id,),
     ).fetchall()
-    return [(_row_to_dict(row).get("case_number") or "").strip() for row in rows if (_row_to_dict(row).get("case_number") or "").strip()]
+    return [
+        (_row_to_dict(row).get("case_number") or "").strip()
+        for row in rows
+        if (_row_to_dict(row).get("case_number") or "").strip()
+    ]
 
 
 def _get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, list[str]]:
@@ -2958,9 +2849,7 @@ def _apply_alert_board_freshness(payload: dict, sync_enqueued: bool = False) -> 
     if checked_at:
         try:
             parsed = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
-            age_seconds = max(
-                0, int((datetime.now(UTC) - parsed).total_seconds())
-            )
+            age_seconds = max(0, int((datetime.now(UTC) - parsed).total_seconds()))
         except ValueError:
             age_seconds = 0
     result = dict(payload)
@@ -2984,9 +2873,7 @@ def _build_alert_board_payload(
         snapshot_only=snapshot_only,
     )
     if not include_non_operational:
-        locations = [
-            loc for loc in locations if not _location_is_excluded_from_alert_board(loc)
-        ]
+        locations = [loc for loc in locations if not _location_is_excluded_from_alert_board(loc)]
     alerts = []
     summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
     default_alert_context = {
@@ -3032,9 +2919,7 @@ def _build_alert_board_payload(
             devices = []
             alert = {"level": "unknown", "reason": "Could not compute alert state"}
 
-        down_devices = [
-            d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES
-        ]
+        down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES]
         checked_at = _iso_utc_now()
         alert_context = default_alert_context
         if not persistence_unavailable:
@@ -3049,9 +2934,7 @@ def _build_alert_board_payload(
             else:
                 primary_ip_backfill_pending = False
                 try:
-                    primary_ip_backfill_pending = _nautobot_inventory_primary_ip_backfill_pending(
-                        conn=persistence_conn
-                    )
+                    primary_ip_backfill_pending = _nautobot_inventory_primary_ip_backfill_pending(conn=persistence_conn)
                     if observation_succeeded and not primary_ip_backfill_pending:
                         _upsert_alert_lifecycle_for_site(
                             loc,
@@ -3076,8 +2959,7 @@ def _build_alert_board_payload(
                 finally:
                     persistence_conn.close()
         device_ip_by_key = {
-            (device.get("id") or device.get("name") or ""): _device_display_ip(device)
-            for device in devices
+            (device.get("id") or device.get("name") or ""): _device_display_ip(device) for device in devices
         }
         current_down_devices = [
             {
@@ -3090,9 +2972,7 @@ def _build_alert_board_payload(
             }
             for device in down_devices
         ]
-        current_down_device_map = {
-            item["device_id"] or item["device_name"]: item for item in current_down_devices
-        }
+        current_down_device_map = {item["device_id"] or item["device_name"]: item for item in current_down_devices}
         merged_down_devices = []
         seen_down_device_keys: set[str] = set()
         for item in alert_context["down_devices"]:
@@ -3158,9 +3038,7 @@ def _build_alert_board_payload(
             "medium": summary.get("medium", 0),
             "unknown": summary.get("unknown", 0),
             "ok": summary.get("ok", 0),
-            "non_ok": summary.get("critical", 0)
-            + summary.get("medium", 0)
-            + summary.get("unknown", 0),
+            "non_ok": summary.get("critical", 0) + summary.get("medium", 0) + summary.get("unknown", 0),
         },
         "alerts": alerts,
     }
@@ -3183,11 +3061,7 @@ def get_alert_board_data(
     if cached is not None:
         return _apply_alert_board_freshness(cached, sync_enqueued=sync_enqueued)
 
-    if (
-        not sync_enqueued
-        and _current_persistence_dialect()
-        and not _nautobot_snapshot_initialized()
-    ):
+    if not sync_enqueued and _current_persistence_dialect() and not _nautobot_snapshot_initialized():
         # Cold start: nothing has been synced yet.  Start the first sync in
         # the background instead of waiting for another route to trigger it;
         # this request still makes no upstream calls itself.
@@ -3211,11 +3085,7 @@ def _location_field_asns(location_id: str) -> list:
     otherwise the location is looked up once.  Upstream errors propagate.
     """
     asn = None
-    cached = [
-        loc
-        for loc in _read_cached_locations(include_without_coordinates=True)
-        if loc.get("id") == location_id
-    ]
+    cached = [loc for loc in _read_cached_locations(include_without_coordinates=True) if loc.get("id") == location_id]
     if cached:
         asn = cached[0].get("asn")
     else:
@@ -3260,8 +3130,7 @@ def _wants_json():
     """Return True when the client prefers a JSON response."""
     return (
         request.path.startswith("/api/")
-        or request.accept_mimetypes.best_match(["application/json", "text/html"])
-        == "application/json"
+        or request.accept_mimetypes.best_match(["application/json", "text/html"]) == "application/json"
     )
 
 
@@ -3274,8 +3143,7 @@ def page_not_found(exc):
             "error.html",
             error_code=404,
             error_title="Page Not Found",
-            error_message="The page you are looking for does not exist. "
-            "Check the URL or head back to the map.",
+            error_message="The page you are looking for does not exist. Check the URL or head back to the map.",
         ),
         404,
     )
@@ -3538,6 +3406,7 @@ def api_search():
 # Criticality override REST endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.route("/api/criticality-overrides", methods=["GET"])
 @require_role("operator")
 def api_list_criticality_overrides():
@@ -3553,9 +3422,7 @@ def api_list_criticality_overrides():
             "SELECT nautobot_device_id, is_critical, reason, updated_by, updated_at "
             "FROM device_criticality_override ORDER BY updated_at DESC"
         ).fetchall()
-        return jsonify(
-            {"overrides": [_row_to_dict(r) for r in rows]}
-        )
+        return jsonify({"overrides": [_row_to_dict(r) for r in rows]})
     except Exception as exc:
         logger.error("Could not list criticality overrides: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
@@ -3649,6 +3516,7 @@ def api_delete_criticality_override(device_id: str):
 # Alert lifecycle / case tracking endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.route("/api/alert-history", methods=["GET"])
 @require_role("operator")
 def api_alert_history():
@@ -3704,12 +3572,8 @@ def api_alert_history():
         ).fetchall()
         instances = [_row_to_dict(row) for row in rows]
         instance_ids = [row["id"] for row in instances if row.get("id") is not None]
-        events_by_instance: dict[str, list[dict]] = {
-            str(instance_id): [] for instance_id in instance_ids
-        }
-        cases_by_instance: dict[str, list[dict]] = {
-            str(instance_id): [] for instance_id in instance_ids
-        }
+        events_by_instance: dict[str, list[dict]] = {str(instance_id): [] for instance_id in instance_ids}
+        cases_by_instance: dict[str, list[dict]] = {str(instance_id): [] for instance_id in instance_ids}
         if instance_ids:
             markers = _sql_placeholders(len(instance_ids))
             ev_rows = conn.execute(
@@ -3771,9 +3635,7 @@ def api_add_alert_case():
     """
     body = request.get_json(silent=True) or {}
     site_id = (body.get("site_id") or "").strip() if isinstance(body.get("site_id"), str) else ""
-    case_number = (
-        (body.get("case_number") or "").strip() if isinstance(body.get("case_number"), str) else ""
-    )
+    case_number = (body.get("case_number") or "").strip() if isinstance(body.get("case_number"), str) else ""
     raw_ids = body.get("device_ids")
     if raw_ids is None:
         raw_ids = [body.get("device_id")] if body.get("device_id") else []
@@ -3835,8 +3697,7 @@ def api_add_alert_case():
             "site_id": site_id,
             "case_number": case_number,
             "linked": [
-                {"device_id": device_id, "alert_instance_id": instance_ids[device_id]}
-                for device_id in device_ids
+                {"device_id": device_id, "alert_instance_id": instance_ids[device_id]} for device_id in device_ids
             ],
         }
         if len(device_ids) == 1:
@@ -3854,6 +3715,7 @@ def api_add_alert_case():
 # ---------------------------------------------------------------------------
 # Roles proxy endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.route("/api/roles", methods=["GET"])
 def api_list_roles():
@@ -3924,6 +3786,7 @@ def api_delete_role(role_id: str):
 # ---------------------------------------------------------------------------
 # Location-type proxy endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.route("/api/location-types", methods=["GET"])
 def api_list_location_types():

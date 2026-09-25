@@ -240,6 +240,7 @@ When persistence is configured, Nautobot Maps keeps cached Nautobot locations/de
 pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ruff check .        # lint (same as CI)
+ruff format --check . # formatting (same as CI); `ruff format .` fixes it
 ```
 
 The test suite includes:

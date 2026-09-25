@@ -174,12 +174,14 @@ def mock_nautobot_get(endpoint, params=None):
         return SAMPLE_ASNS_PAGE
     if "tenancy/tenant-groups" in endpoint:
         return {
-            "count": 1, "next": None,
+            "count": 1,
+            "next": None,
             "results": [{"id": "tg-1", "name": "Corporate"}],
         }
     if "tenancy/tenants" in endpoint:
         return {
-            "count": 1, "next": None,
+            "count": 1,
+            "next": None,
             "results": [
                 {"id": "ten-1", "name": "Acme Corp", "tenant_group": {"id": "tg-1", "name": "Corporate"}},
             ],
@@ -228,8 +230,18 @@ class TestPrimaryIpExtraction:
 
     def test_falls_back_to_primary_ip6_then_legacy_primary_ip(self):
         for device, expected in (
-            ({"primary_ip": "192.0.2.9/32", "primary_ip4": {"host": "10.11.12.13"}, "primary_ip6": {"address": "2001:db8::1/64"}}, "10.11.12.13"),
-            ({"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": {"address": "2001:db8::1/64"}}, "2001:db8::1/64"),
+            (
+                {
+                    "primary_ip": "192.0.2.9/32",
+                    "primary_ip4": {"host": "10.11.12.13"},
+                    "primary_ip6": {"address": "2001:db8::1/64"},
+                },
+                "10.11.12.13",
+            ),
+            (
+                {"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": {"address": "2001:db8::1/64"}},
+                "2001:db8::1/64",
+            ),
             ({"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": None}, "192.0.2.9/32"),
         ):
             assert flask_app._extract_primary_ip(device) == expected
@@ -613,9 +625,11 @@ class TestAlertBoard:
                 {"level": "ok", "reason": ""},
             )
 
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=mock_devices):
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=mock_devices),
+        ):
             data = flask_app.get_alert_board_data()
 
         assert data["summary"] == {
@@ -633,31 +647,49 @@ class TestAlertBoard:
 
     def test_api_alerts_returns_board_data(self, client):
         flask_app.cache.clear()
-        with patch.object(flask_app, "get_locations", return_value=[{
-            "id": "loc-1",
-            "name": "Copenhagen DC",
-            "status": "Active",
-            "location_type": "Data Center",
-            "parent": "Denmark",
-            "latitude": 55.6761,
-            "longitude": 12.5683,
-            "description": "",
-            "physical_address": "Vermlandsgade 51, 2300 Copenhagen",
-            "country": "Denmark",
-            "facility": "CPH-1",
-            "tenant": "Acme Corp",
-            "tenant_id": "ten-1",
-            "tenant_group": "Corporate",
-            "asn": 65001,
-            "time_zone": "Europe/Copenhagen",
-            "tags": ["critical"],
-            "url": "",
-        }]), patch.object(flask_app, "fetch_all_pages", return_value=[]), patch.object(
-            flask_app,
-            "_get_location_devices_and_alert",
-            return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline", "primary_ip": "10.0.0.1/32"}],
-                {"level": "critical", "reason": "Core device(s) offline: router01"},
+        with (
+            patch.object(
+                flask_app,
+                "get_locations",
+                return_value=[
+                    {
+                        "id": "loc-1",
+                        "name": "Copenhagen DC",
+                        "status": "Active",
+                        "location_type": "Data Center",
+                        "parent": "Denmark",
+                        "latitude": 55.6761,
+                        "longitude": 12.5683,
+                        "description": "",
+                        "physical_address": "Vermlandsgade 51, 2300 Copenhagen",
+                        "country": "Denmark",
+                        "facility": "CPH-1",
+                        "tenant": "Acme Corp",
+                        "tenant_id": "ten-1",
+                        "tenant_group": "Corporate",
+                        "asn": 65001,
+                        "time_zone": "Europe/Copenhagen",
+                        "tags": ["critical"],
+                        "url": "",
+                    }
+                ],
+            ),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=(
+                    [
+                        {
+                            "id": "dev-1",
+                            "name": "router01",
+                            "role": "Core Router",
+                            "status": "offline",
+                            "primary_ip": "10.0.0.1/32",
+                        }
+                    ],
+                    {"level": "critical", "reason": "Core device(s) offline: router01"},
+                ),
             ),
         ):
             resp = client.get("/api/alerts")
@@ -723,14 +755,25 @@ class TestAlertBoard:
             },
         ]
 
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), patch.object(
-            flask_app,
-            "_get_location_devices_and_alert",
-            return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "active", "primary_ip": "192.0.2.1/32"}],
-                {"level": "ok", "reason": ""},
-            ),
-        ) as get_alert:
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=(
+                    [
+                        {
+                            "id": "dev-1",
+                            "name": "router01",
+                            "role": "Core Router",
+                            "status": "active",
+                            "primary_ip": "192.0.2.1/32",
+                        }
+                    ],
+                    {"level": "ok", "reason": ""},
+                ),
+            ) as get_alert,
+        ):
             resp = client.get("/api/alerts")
             assert resp.status_code == 200
             assert resp.get_json()["summary"]["total"] == 1
@@ -758,11 +801,13 @@ class TestAlertBoard:
             )
 
     def test_log_alert_board_exclusions_reports_resolved_sets(self):
-        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"staging", "decommissioning"}), \
-             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()), \
-             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}), \
-             patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}), \
-             patch.object(flask_app.logger, "info") as info:
+        with (
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"staging", "decommissioning"}),
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()),
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}),
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}),
+            patch.object(flask_app.logger, "info") as info,
+        ):
             flask_app._log_alert_board_exclusions()
 
         info.assert_called_once_with(
@@ -781,16 +826,15 @@ class TestAlertBoard:
         }
 
     def test_location_exclusion_matches_mixed_case_configured_values(self):
-        with patch.object(
-            flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", flask_app._parse_csv_set("Warehouse")
-        ), patch.object(
-            flask_app,
-            "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES",
-            flask_app._parse_csv_set("Decommissioning"),
-        ), patch.object(
-            flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", flask_app._parse_csv_set("Branch Office")
-        ), patch.object(
-            flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", flask_app._parse_csv_set("Non-Operational")
+        with (
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", flask_app._parse_csv_set("Warehouse")),
+            patch.object(
+                flask_app,
+                "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES",
+                flask_app._parse_csv_set("Decommissioning"),
+            ),
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", flask_app._parse_csv_set("Branch Office")),
+            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", flask_app._parse_csv_set("Non-Operational")),
         ):
             assert flask_app._location_is_excluded_from_alert_board(
                 {
@@ -829,9 +873,11 @@ class TestAlertBoard:
         flask_app.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
 
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
+        ):
             data = flask_app.get_alert_board_data()
 
         assert data["summary"]["unknown"] == 1
@@ -840,10 +886,10 @@ class TestAlertBoard:
         assert data["alerts"][0]["alert_reason"] == "Could not compute alert state"
 
     def test_location_alert_uses_cached_snapshot_only_on_device_cache_miss(self):
-        with patch.object(flask_app, "_read_cached_devices", return_value=[]), patch.object(
-            flask_app, "_ensure_inventory_snapshot"
-        ) as ensure_snapshot, patch.object(
-            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
+        with (
+            patch.object(flask_app, "_read_cached_devices", return_value=[]),
+            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
+            patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
             devices, alert = flask_app._get_location_devices_and_alert(
                 "loc-1",
@@ -921,9 +967,11 @@ class TestAlertBoard:
                 raise bad_request
             return live_device_page
 
-        with patch.object(flask_app, "_read_cached_devices", side_effect=[[], []]), patch.object(
-            flask_app, "_ensure_inventory_snapshot"
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=_mock_fetch):
+        with (
+            patch.object(flask_app, "_read_cached_devices", side_effect=[[], []]),
+            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(flask_app, "fetch_all_pages", side_effect=_mock_fetch),
+        ):
             devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
 
         assert len(devices) == 1
@@ -940,10 +988,11 @@ class TestAlertBoard:
             {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
         ]
 
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), patch.object(
-            flask_app, "_read_cached_devices", return_value=[]
-        ), patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot, patch.object(
-            flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "_read_cached_devices", return_value=[]),
+            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
+            patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
@@ -959,19 +1008,21 @@ class TestAlertBoard:
             {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
         ]
 
-        with patch.object(flask_app, "LIBRENMS_URL", "https://librenms.example.com"), \
-             patch.object(flask_app, "LIBRENMS_API_TOKEN", "token"), \
-             patch.object(flask_app, "_fetch_librenms_inventory", side_effect=RuntimeError("down")), \
-             patch.object(flask_app, "get_locations", return_value=sample_locations), \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(
-                 flask_app,
-                 "_get_location_devices_and_alert",
-                 side_effect=[
-                     ([{"id": "d1", "status": "offline"}], {"level": "critical", "reason": "Core down"}),
-                     ([{"id": "d2", "status": "active"}], {"level": "ok", "reason": ""}),
-                 ],
-             ) as get_alert:
+        with (
+            patch.object(flask_app, "LIBRENMS_URL", "https://librenms.example.com"),
+            patch.object(flask_app, "LIBRENMS_API_TOKEN", "token"),
+            patch.object(flask_app, "_fetch_librenms_inventory", side_effect=RuntimeError("down")),
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                side_effect=[
+                    ([{"id": "d1", "status": "offline"}], {"level": "critical", "reason": "Core down"}),
+                    ([{"id": "d2", "status": "active"}], {"level": "ok", "reason": ""}),
+                ],
+            ) as get_alert,
+        ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
         assert get_alert.call_count == 2
@@ -1015,18 +1066,20 @@ class TestAlertBoard:
                 "down_devices": [],
             }
 
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(flask_app, "_ensure_inventory_snapshot"), \
-             patch.object(
-                 flask_app,
-                 "_get_location_devices_and_alert",
-                 return_value=([], {"level": "ok", "reason": ""}),
-             ), \
-             patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=False), \
-             patch.object(flask_app, "_get_db_conn", side_effect=fake_get_db_conn), \
-             patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert), \
-             patch.object(flask_app, "_get_alert_context_for_site", side_effect=fake_context):
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=([], {"level": "ok", "reason": ""}),
+            ),
+            patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=False),
+            patch.object(flask_app, "_get_db_conn", side_effect=fake_get_db_conn),
+            patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert),
+            patch.object(flask_app, "_get_alert_context_for_site", side_effect=fake_context),
+        ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["total"] == 2
@@ -1043,17 +1096,19 @@ class TestAlertBoard:
             {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
         ]
 
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(flask_app, "_ensure_inventory_snapshot"), \
-             patch.object(
-                 flask_app,
-                 "_get_location_devices_and_alert",
-                 return_value=([], {"level": "ok", "reason": ""}),
-             ), \
-             patch.object(flask_app, "_get_db_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn, \
-             patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert, \
-             patch.object(flask_app, "_get_alert_context_for_site") as get_context:
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=([], {"level": "ok", "reason": ""}),
+            ),
+            patch.object(flask_app, "_get_db_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn,
+            patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert,
+            patch.object(flask_app, "_get_alert_context_for_site") as get_context,
+        ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["total"] == 2
@@ -1066,39 +1121,42 @@ class TestAlertBoard:
         sample_locations = [
             {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
         ]
+
         class _FakeConn:
             def close(self):
                 return None
 
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(flask_app, "_ensure_inventory_snapshot"), \
-             patch.object(
-                 flask_app,
-                 "_get_location_devices_and_alert",
-                 return_value=([], {"level": "ok", "reason": ""}),
-             ), \
-             patch.object(flask_app, "_get_db_conn", return_value=_FakeConn()), \
-             patch.object(
-                 flask_app,
-                 "_get_sync_state",
-                 return_value={
-                     "status": "error",
-                     "last_successful_sync": None,
-                 },
-             ), \
-             patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert, \
-             patch.object(
-                 flask_app,
-                 "_get_alert_context_for_site",
-                 return_value={
-                     "active_alert_instance_count": 1,
-                     "historical_downtime_seconds": 3600,
-                     "current_downtime_seconds": 1800,
-                     "active_cases": ["INC-1001"],
-                     "down_devices": [{"device_id": "dev-legacy", "device_name": "legacy01"}],
-                 },
-             ) as get_context:
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=([], {"level": "ok", "reason": ""}),
+            ),
+            patch.object(flask_app, "_get_db_conn", return_value=_FakeConn()),
+            patch.object(
+                flask_app,
+                "_get_sync_state",
+                return_value={
+                    "status": "error",
+                    "last_successful_sync": None,
+                },
+            ),
+            patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert,
+            patch.object(
+                flask_app,
+                "_get_alert_context_for_site",
+                return_value={
+                    "active_alert_instance_count": 1,
+                    "historical_downtime_seconds": 3600,
+                    "current_downtime_seconds": 1800,
+                    "active_cases": ["INC-1001"],
+                    "down_devices": [{"device_id": "dev-legacy", "device_name": "legacy01"}],
+                },
+            ) as get_context,
+        ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["total"] == 1
@@ -1180,8 +1238,7 @@ class TestApiLocationDetail:
         dev = resp.get_json()["devices"][0]
         # Every field must be a string (not None/null) so the JS escHtml()
         # function never receives null.
-        for field in ("id", "name", "device_type", "manufacturer", "role",
-                      "status", "platform", "serial", "tenant"):
+        for field in ("id", "name", "device_type", "manufacturer", "role", "status", "platform", "serial", "tenant"):
             assert dev[field] is not None, f"device field '{field}' is None"
             assert isinstance(dev[field], str), f"device field '{field}' is not a string"
 
@@ -1197,11 +1254,14 @@ class TestApiLocationDetail:
             "upstream failed",
             response=MagicMock(status_code=502),
         )
-        with patch.object(
-            flask_app,
-            "_get_location_devices_and_alert",
-            return_value=([], {"level": "ok", "reason": ""}),
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=http_err):
+        with (
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=([], {"level": "ok", "reason": ""}),
+            ),
+            patch.object(flask_app, "fetch_all_pages", side_effect=http_err),
+        ):
             resp = client.get("/api/locations/loc-1/detail")
 
         assert resp.status_code == 502
@@ -1213,13 +1273,16 @@ class TestApiLocationDetail:
             "404 Client Error: Not Found",
             response=MagicMock(status_code=404),
         )
-        with patch.object(
-            flask_app,
-            "_get_location_devices_and_alert",
-            return_value=([], {"level": "ok", "reason": ""}),
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=not_found), patch.object(
-            flask_app, "_read_cached_locations", return_value=cached_locations
-        ), patch.object(flask_app, "nautobot_get", side_effect=location_get) as mock_get:
+        with (
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=([], {"level": "ok", "reason": ""}),
+            ),
+            patch.object(flask_app, "fetch_all_pages", side_effect=not_found),
+            patch.object(flask_app, "_read_cached_locations", return_value=cached_locations),
+            patch.object(flask_app, "nautobot_get", side_effect=location_get) as mock_get,
+        ):
             resp = client.get("/api/locations/loc-1/detail")
         return resp, mock_get
 
@@ -1442,7 +1505,6 @@ class TestIndex:
             flask_app.NAUTOBOT_URL = saved
 
 
-
 # ---------------------------------------------------------------------------
 # Tests: caching
 # ---------------------------------------------------------------------------
@@ -1482,6 +1544,7 @@ class TestCaching:
         # Store with a very short timeout and verify it expires
         flask_app.cache.set("expiring-key", "value", timeout=1)
         import time
+
         time.sleep(1.1)
         result = flask_app._cache_get("expiring-key")
         assert result is None
@@ -1726,9 +1789,7 @@ class TestErrorHandlers:
         assert data["error"] == "Not found"
 
     def test_404_json_when_accept_json(self, client):
-        resp = client.get(
-            "/nonexistent-page", headers={"Accept": "application/json"}
-        )
+        resp = client.get("/nonexistent-page", headers={"Accept": "application/json"})
         assert resp.status_code == 404
         data = resp.get_json()
         assert data["error"] == "Not found"
@@ -1818,8 +1879,10 @@ class TestConfigurableCriticalKeywords:
         assert result["level"] == "critical"
 
         # Same device in an office (only "router" is critical there) → medium (if >25%) or ok
-        office_devices = [{"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"},
-                          {"id": "d2", "name": "sw01", "role": "Switch", "status": "active"}]
+        office_devices = [
+            {"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"},
+            {"id": "d2", "name": "sw01", "role": "Switch", "status": "active"},
+        ]
         result = flask_app.compute_alert_level(office_devices, location_type="office")
         assert result["level"] != "critical"
 
@@ -1867,6 +1930,7 @@ class TestLocationDetailWithLocationType:
     def test_location_type_influences_alert(self, client):
         """When location_type maps to rules, compute_alert_level uses correct keywords."""
         import app as flask_app_local
+
         orig_rules = dict(flask_app_local._CRITICALITY_RULES)
         orig_env = flask_app_local._ENV_CORE_ROLE_KEYWORDS
         flask_app_local._CRITICALITY_RULES = {"datacenter": ["firewall"]}
@@ -1913,6 +1977,7 @@ class TestCriticalityOverrideEndpoints:
     def setup_method(self):
         """Configure a temp-file SQLite DB for each test."""
         import tempfile
+
         self._orig_db = flask_app.NAUTOBOT_MAPS_DB
         self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self._db_tmp.close()
@@ -1922,6 +1987,7 @@ class TestCriticalityOverrideEndpoints:
     def teardown_method(self):
         flask_app.NAUTOBOT_MAPS_DB = self._orig_db
         import os
+
         try:
             os.unlink(self._db_tmp.name)
         except Exception:
@@ -1935,8 +2001,12 @@ class TestCriticalityOverrideEndpoints:
     def test_create_override(self, client):
         resp = client.post(
             "/api/criticality-overrides",
-            json={"nautobot_device_id": "dev-abc", "is_critical": False,
-                  "reason": "Local firewall", "updated_by": "admin"},
+            json={
+                "nautobot_device_id": "dev-abc",
+                "is_critical": False,
+                "reason": "Local firewall",
+                "updated_by": "admin",
+            },
             content_type="application/json",
         )
         assert resp.status_code == 200
@@ -1947,8 +2017,7 @@ class TestCriticalityOverrideEndpoints:
     def test_list_after_create(self, client):
         client.post(
             "/api/criticality-overrides",
-            json={"nautobot_device_id": "dev-abc", "is_critical": True,
-                  "reason": "Core router", "updated_by": "admin"},
+            json={"nautobot_device_id": "dev-abc", "is_critical": True, "reason": "Core router", "updated_by": "admin"},
             content_type="application/json",
         )
         resp = client.get("/api/criticality-overrides")
@@ -1958,22 +2027,27 @@ class TestCriticalityOverrideEndpoints:
 
     def test_update_override(self, client):
         """Posting the same device_id a second time updates in-place."""
-        client.post("/api/criticality-overrides",
-                    json={"nautobot_device_id": "dev-x", "is_critical": True},
-                    content_type="application/json")
-        client.post("/api/criticality-overrides",
-                    json={"nautobot_device_id": "dev-x", "is_critical": False,
-                          "reason": "Changed"},
-                    content_type="application/json")
+        client.post(
+            "/api/criticality-overrides",
+            json={"nautobot_device_id": "dev-x", "is_critical": True},
+            content_type="application/json",
+        )
+        client.post(
+            "/api/criticality-overrides",
+            json={"nautobot_device_id": "dev-x", "is_critical": False, "reason": "Changed"},
+            content_type="application/json",
+        )
         resp = client.get("/api/criticality-overrides")
         overrides = resp.get_json()["overrides"]
         assert len(overrides) == 1
         assert overrides[0]["is_critical"] == 0  # stored as int
 
     def test_delete_override(self, client):
-        client.post("/api/criticality-overrides",
-                    json={"nautobot_device_id": "dev-del", "is_critical": True},
-                    content_type="application/json")
+        client.post(
+            "/api/criticality-overrides",
+            json={"nautobot_device_id": "dev-del", "is_critical": True},
+            content_type="application/json",
+        )
         resp = client.delete("/api/criticality-overrides/dev-del")
         assert resp.status_code == 200
         assert resp.get_json()["status"] == "deleted"
@@ -1986,9 +2060,7 @@ class TestCriticalityOverrideEndpoints:
         assert resp.status_code == 404
 
     def test_create_missing_device_id_returns_400(self, client):
-        resp = client.post("/api/criticality-overrides",
-                           json={"is_critical": True},
-                           content_type="application/json")
+        resp = client.post("/api/criticality-overrides", json={"is_critical": True}, content_type="application/json")
         assert resp.status_code == 400
 
     def test_override_affects_compute_alert_level(self):
@@ -2019,9 +2091,9 @@ class TestCriticalityOverrideEndpoints:
         try:
             resp = client.get("/api/criticality-overrides")
             assert resp.status_code == 503
-            resp2 = client.post("/api/criticality-overrides",
-                                json={"nautobot_device_id": "x"},
-                                content_type="application/json")
+            resp2 = client.post(
+                "/api/criticality-overrides", json={"nautobot_device_id": "x"}, content_type="application/json"
+            )
             assert resp2.status_code == 503
             resp3 = client.delete("/api/criticality-overrides/x")
             assert resp3.status_code == 503
@@ -2072,6 +2144,7 @@ class TestCriticalityOverrideEndpoints:
 class TestAlertLifecycleTracking:
     def setup_method(self):
         import tempfile
+
         self._orig_db = flask_app.NAUTOBOT_MAPS_DB
         self._orig_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
         self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -2085,36 +2158,47 @@ class TestAlertLifecycleTracking:
         flask_app.NAUTOBOT_MAPS_DB = self._orig_db
         flask_app.NAUTOBOT_MAPS_DATABASE_URL = self._orig_db_url
         import os
+
         try:
             os.unlink(self._db_tmp.name)
         except Exception:
             pass
 
     def test_api_alerts_contains_lifecycle_fields(self, client):
-        with patch.object(flask_app, "get_locations", return_value=[{
-            "id": "loc-1",
-            "name": "Site One",
-            "status": "Active",
-            "location_type": "Data Center",
-            "parent": "",
-            "latitude": 1.0,
-            "longitude": 2.0,
-            "description": "",
-            "physical_address": "",
-            "facility": "",
-            "tenant": "",
-            "tenant_id": "",
-            "tenant_group": "",
-            "asn": None,
-            "time_zone": "",
-            "tags": [],
-            "url": "",
-        }]), patch.object(flask_app, "fetch_all_pages", return_value=[]), patch.object(
-            flask_app,
-            "_get_location_devices_and_alert",
-            return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
-                {"level": "critical", "reason": "Core device(s) offline: router01"},
+        with (
+            patch.object(
+                flask_app,
+                "get_locations",
+                return_value=[
+                    {
+                        "id": "loc-1",
+                        "name": "Site One",
+                        "status": "Active",
+                        "location_type": "Data Center",
+                        "parent": "",
+                        "latitude": 1.0,
+                        "longitude": 2.0,
+                        "description": "",
+                        "physical_address": "",
+                        "facility": "",
+                        "tenant": "",
+                        "tenant_id": "",
+                        "tenant_group": "",
+                        "asn": None,
+                        "time_zone": "",
+                        "tags": [],
+                        "url": "",
+                    }
+                ],
+            ),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=(
+                    [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                    {"level": "critical", "reason": "Core device(s) offline: router01"},
+                ),
             ),
         ):
             resp = client.get("/api/alerts")
@@ -2219,30 +2303,40 @@ class TestAlertLifecycleTracking:
         finally:
             conn.close()
 
-        with patch.object(flask_app, "get_locations", return_value=[{
-            "id": "loc-1",
-            "name": "Site One",
-            "status": "Active",
-            "location_type": "Data Center",
-            "parent": "",
-            "latitude": 1.0,
-            "longitude": 2.0,
-            "description": "",
-            "physical_address": "",
-            "facility": "",
-            "tenant": "",
-            "tenant_id": "",
-            "tenant_group": "",
-            "asn": None,
-            "time_zone": "",
-            "tags": [],
-            "url": "",
-        }]), patch.object(flask_app, "fetch_all_pages", return_value=[]), patch.object(
-            flask_app,
-            "_get_location_devices_and_alert",
-            return_value=(
-                [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
-                {"level": "critical", "reason": "Core device(s) offline: router01"},
+        with (
+            patch.object(
+                flask_app,
+                "get_locations",
+                return_value=[
+                    {
+                        "id": "loc-1",
+                        "name": "Site One",
+                        "status": "Active",
+                        "location_type": "Data Center",
+                        "parent": "",
+                        "latitude": 1.0,
+                        "longitude": 2.0,
+                        "description": "",
+                        "physical_address": "",
+                        "facility": "",
+                        "tenant": "",
+                        "tenant_id": "",
+                        "tenant_group": "",
+                        "asn": None,
+                        "time_zone": "",
+                        "tags": [],
+                        "url": "",
+                    }
+                ],
+            ),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(
+                flask_app,
+                "_get_location_devices_and_alert",
+                return_value=(
+                    [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
+                    {"level": "critical", "reason": "Core device(s) offline: router01"},
+                ),
             ),
         ):
             resp = client.get("/api/alerts")
@@ -2310,9 +2404,11 @@ class TestAlertLifecycleTracking:
             t0,
         )
         sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
-        with patch.object(flask_app, "get_locations", return_value=sample_locations), \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
+        ):
             data = flask_app.get_alert_board_data(force_refresh=True)
         assert data["alerts"][0]["alert_level"] == "unknown"
         history = flask_app._get_alert_context_for_site("loc-1", flask_app._iso_utc_now())
@@ -2333,9 +2429,11 @@ class TestAlertLifecycleTracking:
             [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
             {"level": "critical", "reason": "Core device(s) offline: router01"},
         )
-        with patch.object(flask_app, "get_locations", return_value=sample_locations) as get_locations, \
-             patch.object(flask_app, "fetch_all_pages", return_value=[]), \
-             patch.object(flask_app, "_get_location_devices_and_alert", return_value=devices_return) as get_alert:
+        with (
+            patch.object(flask_app, "get_locations", return_value=sample_locations) as get_locations,
+            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(flask_app, "_get_location_devices_and_alert", return_value=devices_return) as get_alert,
+        ):
             first = flask_app.get_alert_board_data(force_refresh=True)
             second = flask_app.get_alert_board_data()
         assert first["alerts"] == second["alerts"]
@@ -2356,17 +2454,22 @@ class TestAlertLifecycleTracking:
             "alerts": [],
         }
         flask_app.cache.clear()
-        with patch.object(
-            flask_app,
-            "_build_alert_board_payload",
-            side_effect=[first_payload, second_payload],
-        ) as build_payload, patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set, patch.object(
-            flask_app,
-            "_ensure_inventory_snapshot",
-        ) as ensure_snapshot, patch.object(
-            flask_app,
-            "_nautobot_snapshot_initialized",
-            return_value=True,
+        with (
+            patch.object(
+                flask_app,
+                "_build_alert_board_payload",
+                side_effect=[first_payload, second_payload],
+            ) as build_payload,
+            patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set,
+            patch.object(
+                flask_app,
+                "_ensure_inventory_snapshot",
+            ) as ensure_snapshot,
+            patch.object(
+                flask_app,
+                "_nautobot_snapshot_initialized",
+                return_value=True,
+            ),
         ):
             first = flask_app.get_alert_board_data(force_refresh=True)
             second = flask_app.get_alert_board_data()
@@ -2380,10 +2483,7 @@ class TestAlertLifecycleTracking:
             call.args == () and call.kwargs == {"force": True, "full": False, "wait": False}
             for call in ensure_snapshot.call_args_list
         )
-        assert all(
-            call.kwargs.get("timeout") == flask_app.CACHE_TTL
-            for call in cache_set.call_args_list
-        )
+        assert all(call.kwargs.get("timeout") == flask_app.CACHE_TTL for call in cache_set.call_args_list)
 
     def test_get_alert_board_data_builds_snapshot_only_payload(self):
         flask_app.cache.clear()
@@ -2393,9 +2493,10 @@ class TestAlertLifecycleTracking:
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
-        with patch.object(
-            flask_app, "_build_alert_board_payload", return_value=payload
-        ) as build_payload, patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot:
+        with (
+            patch.object(flask_app, "_build_alert_board_payload", return_value=payload) as build_payload,
+            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
+        ):
             result = flask_app.get_alert_board_data(force_refresh=True)
 
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
@@ -2413,19 +2514,24 @@ class TestAlertLifecycleTracking:
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
-        with patch.object(
-            flask_app,
-            "_build_alert_board_payload",
-            return_value=payload,
-        ) as build_payload, patch.object(
-            flask_app,
-            "_cache_set",
-            wraps=flask_app._cache_set,
-        ) as cache_set, patch.object(
-            flask_app,
-            "_nautobot_snapshot_initialized",
-            return_value=False,
-        ), patch.object(flask_app, "_ensure_inventory_snapshot"):
+        with (
+            patch.object(
+                flask_app,
+                "_build_alert_board_payload",
+                return_value=payload,
+            ) as build_payload,
+            patch.object(
+                flask_app,
+                "_cache_set",
+                wraps=flask_app._cache_set,
+            ) as cache_set,
+            patch.object(
+                flask_app,
+                "_nautobot_snapshot_initialized",
+                return_value=False,
+            ),
+            patch.object(flask_app, "_ensure_inventory_snapshot"),
+        ):
             first = flask_app.get_alert_board_data(force_refresh=True)
             second = flask_app.get_alert_board_data()
 
@@ -2489,15 +2595,19 @@ class TestAlertLifecycleTracking:
                 if "INSERT INTO alert_events" in query:
                     return _FakeResult([])
                 if "SELECT id, alert_key, site_id, site_name, device_id, device_name, down_started_at" in query:
-                    return _FakeResult([{
-                        "id": 101,
-                        "alert_key": "k",
-                        "site_id": "loc-1",
-                        "site_name": "Site One",
-                        "device_id": "dev-1",
-                        "device_name": "router01",
-                        "down_started_at": "2026-01-01T00:00:00Z",
-                    }])
+                    return _FakeResult(
+                        [
+                            {
+                                "id": 101,
+                                "alert_key": "k",
+                                "site_id": "loc-1",
+                                "site_name": "Site One",
+                                "device_id": "dev-1",
+                                "device_name": "router01",
+                                "down_started_at": "2026-01-01T00:00:00Z",
+                            }
+                        ]
+                    )
                 if "UPDATE alert_instances" in query:
                     return _FakeResult([], rowcount=1)
                 return _FakeResult([])
@@ -2579,8 +2689,9 @@ class TestAlertLifecycleTracking:
                 return _FakeTransaction(self)
 
         fake_conn = _FakeConn()
-        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
-            flask_app, "_is_postgres", return_value=True
+        with (
+            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
+            patch.object(flask_app, "_is_postgres", return_value=True),
         ):
             flask_app._init_db()
 
@@ -2638,15 +2749,14 @@ class TestAlertLifecycleTracking:
                 return _FakeResult([])
 
         fake_conn = _FakeConn()
-        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
-            flask_app, "_is_postgres", return_value=True
+        with (
+            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
+            patch.object(flask_app, "_is_postgres", return_value=True),
         ):
             flask_app._init_db()
 
         reset_query, reset_params = next(
-            (query, params)
-            for query, params in fake_conn.queries
-            if "UPDATE inventory_sync_state" in query
+            (query, params) for query, params in fake_conn.queries if "UPDATE inventory_sync_state" in query
         )
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
@@ -2688,7 +2798,10 @@ class TestAlertLifecycleTracking:
                     return _FakeResult([{"missing": True}])
                 if "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query:
                     self.has_cache_version = True
-                if "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message" in query:
+                if (
+                    "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message"
+                    in query
+                ):
                     if not self.has_cache_version:
                         raise RuntimeError("column inventory_sync_state.cache_version does not exist")
                     return _FakeResult(
@@ -2709,19 +2822,17 @@ class TestAlertLifecycleTracking:
                 return _FakeResult([])
 
         fake_conn = _FakeConn()
-        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
-            flask_app, "_is_postgres", return_value=True
+        with (
+            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
+            patch.object(flask_app, "_is_postgres", return_value=True),
         ):
             flask_app._init_db()
 
         assert any(
-            "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query
-            for query, _ in fake_conn.queries
+            "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query for query, _ in fake_conn.queries
         )
         reset_query, reset_params = next(
-            (query, params)
-            for query, params in fake_conn.queries
-            if "UPDATE inventory_sync_state" in query
+            (query, params) for query, params in fake_conn.queries if "UPDATE inventory_sync_state" in query
         )
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
@@ -2784,9 +2895,7 @@ class TestAlertLifecycleTracking:
                 """,
                 ("loc-legacy", "UTC"),
             )
-            conn.execute(
-                "CREATE INDEX idx_legacy_location_cache_name ON nautobot_location_cache(name)"
-            )
+            conn.execute("CREATE INDEX idx_legacy_location_cache_name ON nautobot_location_cache(name)")
             conn.execute(
                 """
                 CREATE TRIGGER trg_legacy_location_cache_insert
@@ -2919,9 +3028,7 @@ class TestAlertLifecycleTracking:
             conn = sqlite3.connect(tmp.name)
             conn.row_factory = sqlite3.Row
             columns = conn.execute("PRAGMA table_info(nautobot_device_cache)").fetchall()
-            sync_state_columns = conn.execute(
-                "PRAGMA table_info(inventory_sync_state)"
-            ).fetchall()
+            sync_state_columns = conn.execute("PRAGMA table_info(inventory_sync_state)").fetchall()
             assert any(col["name"] == "primary_ip" for col in columns)
             assert any(col["name"] == "cache_version" for col in sync_state_columns)
             state = conn.execute(
@@ -2948,12 +3055,11 @@ class TestAlertLifecycleTracking:
     def test_get_db_conn_postgres_enables_autocommit(self):
         sentinel_conn = object()
         sentinel_row_factory = object()
-        with patch.object(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"), patch.object(
-            flask_app, "NAUTOBOT_MAPS_DB", ""
-        ), patch.object(
-            flask_app, "psycopg"
-        ) as psycopg_module, patch.object(
-            flask_app, "dict_row", sentinel_row_factory
+        with (
+            patch.object(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"),
+            patch.object(flask_app, "NAUTOBOT_MAPS_DB", ""),
+            patch.object(flask_app, "psycopg") as psycopg_module,
+            patch.object(flask_app, "dict_row", sentinel_row_factory),
         ):
             psycopg_module.connect.return_value = sentinel_conn
 
@@ -3292,12 +3398,11 @@ class TestInventoryCacheSync:
         def fake_sync(force=False):
             refresh_called.set()
 
-        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
-            flask_app, "NAUTOBOT_TOKEN", "token"
-        ), patch.object(
-            flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 0
-        ), patch.object(
-            flask_app, "_sync_nautobot_inventory", side_effect=fake_sync
+        with (
+            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 0),
+            patch.object(flask_app, "_sync_nautobot_inventory", side_effect=fake_sync),
         ):
             locations = flask_app.get_locations()
             assert refresh_called.wait(1), "expected cached read to trigger a background refresh"
@@ -3348,11 +3453,13 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
-            flask_app, "NAUTOBOT_TOKEN", "token"
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
-            flask_app, "_read_cached_location_name_map", return_value={}
-        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+        with (
+            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+        ):
             flask_app._sync_nautobot_inventory(force=True)
             first_state = flask_app._get_sync_state("nautobot_inventory")
             flask_app._sync_nautobot_inventory()
@@ -3433,11 +3540,13 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
-            flask_app, "NAUTOBOT_TOKEN", "token"
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
-            flask_app, "_read_cached_location_name_map", return_value={}
-        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+        with (
+            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+        ):
             flask_app._sync_nautobot_inventory()
 
         state = flask_app._get_sync_state("nautobot_inventory")
@@ -3503,14 +3612,14 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
-            flask_app, "NAUTOBOT_TOKEN", "token"
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
-            flask_app, "_read_cached_location_name_map", return_value={}
-        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}), patch.object(
-            flask_app, "_sync_due", return_value=False
-        ), patch.object(
-            flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]
+        with (
+            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(flask_app, "_sync_due", return_value=False),
+            patch.object(flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
         ):
             flask_app._sync_nautobot_inventory()
 
@@ -3543,11 +3652,12 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
-            flask_app, "NAUTOBOT_TOKEN", "token"
-        ), patch.object(flask_app, "_sync_due", return_value=False), patch.object(
-            flask_app, "_sync_nautobot_inventory"
-        ) as sync_nautobot:
+        with (
+            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(flask_app, "_sync_due", return_value=False),
+            patch.object(flask_app, "_sync_nautobot_inventory") as sync_nautobot,
+        ):
             assert flask_app._ensure_inventory_snapshot(wait=True) is True
 
         sync_nautobot.assert_called_once_with(force=False)
@@ -3612,14 +3722,14 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
-            flask_app, "NAUTOBOT_TOKEN", "token"
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
-            flask_app, "_read_cached_location_name_map", return_value={}
-        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}), patch.object(
-            flask_app, "_sync_due", return_value=True
-        ), patch.object(
-            flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]
+        with (
+            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(flask_app, "_sync_due", return_value=True),
+            patch.object(flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
         ):
             flask_app._sync_nautobot_inventory()
 
@@ -3879,24 +3989,25 @@ class TestInventoryCacheSync:
                 self.closed = True
 
         fake_conn = _FakeConn(autocommit=True)
-        with patch.object(flask_app, "_get_db_conn", return_value=fake_conn), patch.object(
-            flask_app, "LIBRENMS_URL", "https://librenms.example.com"
-        ), patch.object(
-            flask_app, "LIBRENMS_API_TOKEN", "token"
-        ), patch.object(
-            flask_app, "_get_sync_state", return_value={"last_successful_sync": None}
-        ), patch.object(
-            flask_app, "_fetch_librenms_inventory",
-            return_value=[{"device_id": 1, "hostname": "router01", "status": 1, "status_reason": ""}],
-        ), patch.object(flask_app.cache, "delete") as cache_delete:
+        with (
+            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
+            patch.object(flask_app, "LIBRENMS_URL", "https://librenms.example.com"),
+            patch.object(flask_app, "LIBRENMS_API_TOKEN", "token"),
+            patch.object(flask_app, "_get_sync_state", return_value={"last_successful_sync": None}),
+            patch.object(
+                flask_app,
+                "_fetch_librenms_inventory",
+                return_value=[{"device_id": 1, "hostname": "router01", "status": 1, "status_reason": ""}],
+            ),
+            patch.object(flask_app.cache, "delete") as cache_delete,
+        ):
             flask_app._sync_librenms_inventory()
 
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 2
         assert fake_conn.commits == 2
         assert any(
-            "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query
-            for query, _ in fake_conn.queries
+            "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query for query, _ in fake_conn.queries
         )
         assert any("DELETE FROM librenms_device_status" in query for query, _ in fake_conn.queries)
         cache_delete.assert_any_call("alert-board-data:v3")
@@ -3995,11 +4106,13 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        with patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"), patch.object(
-            flask_app, "NAUTOBOT_TOKEN", "token"
-        ), patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
-            flask_app, "_read_cached_location_name_map", return_value={}
-        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+        with (
+            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+        ):
             flask_app._sync_nautobot_inventory(force=True)
 
         assert [item["id"] for item in flask_app._read_cached_locations(include_without_coordinates=True)] == ["loc-1"]
@@ -4024,9 +4137,7 @@ class TestCriticalityRulesFile:
             with open(str(rules_file)) as f:
                 loaded = json.load(f)
             flask_app._CRITICALITY_RULES = {
-                k.lower(): [kw.lower() for kw in v]
-                for k, v in loaded.items()
-                if isinstance(v, list)
+                k.lower(): [kw.lower() for kw in v] for k, v in loaded.items() if isinstance(v, list)
             }
             assert flask_app._get_critical_keywords("datacenter") == ("core", "firewall")
             assert flask_app._get_critical_keywords("office") == ("router",)
@@ -4102,8 +4213,10 @@ class TestLibreNMSEnrichment:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
-        with patch.object(flask_app.requests, "get", return_value=mock_resp), \
-                patch.object(flask_app.warnings, "catch_warnings") as mock_catch:
+        with (
+            patch.object(flask_app.requests, "get", return_value=mock_resp),
+            patch.object(flask_app.warnings, "catch_warnings") as mock_catch,
+        ):
             flask_app._librenms_get("devices", {"type": "all"})
         mock_catch.assert_called_once()
 
@@ -4125,9 +4238,7 @@ class TestLibreNMSEnrichment:
         """A device up in LibreNMS stays active."""
         flask_app.LIBRENMS_URL = "http://librenms.test"
         flask_app.LIBRENMS_API_TOKEN = "tok"
-        lnms_response = {
-            "devices": [{"device_id": 1, "hostname": "router01", "status": 1}]
-        }
+        lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 1}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
@@ -4137,9 +4248,7 @@ class TestLibreNMSEnrichment:
         """A device already offline in Nautobot stays offline (no double-counting)."""
         flask_app.LIBRENMS_URL = "http://librenms.test"
         flask_app.LIBRENMS_API_TOKEN = "tok"
-        lnms_response = {
-            "devices": [{"device_id": 1, "hostname": "router01", "status": 0}]
-        }
+        lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "offline"}]
             result = flask_app._enrich_with_librenms(devices)
@@ -4158,9 +4267,7 @@ class TestLibreNMSEnrichment:
         """Devices not present in LibreNMS are left unchanged."""
         flask_app.LIBRENMS_URL = "http://librenms.test"
         flask_app.LIBRENMS_API_TOKEN = "tok"
-        lnms_response = {
-            "devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]
-        }
+        lnms_response = {"devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
@@ -4170,9 +4277,7 @@ class TestLibreNMSEnrichment:
         """Name-valued LibreNMS hostnames match Nautobot short device names."""
         flask_app.LIBRENMS_URL = "http://librenms.test"
         flask_app.LIBRENMS_API_TOKEN = "tok"
-        lnms_response = {
-            "devices": [{"device_id": 1, "hostname": "router01.example.com", "status": 0}]
-        }
+        lnms_response = {"devices": [{"device_id": 1, "hostname": "router01.example.com", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
@@ -4182,13 +4287,9 @@ class TestLibreNMSEnrichment:
         """IP-valued LibreNMS hostnames match Nautobot primary_ip without mask bits."""
         flask_app.LIBRENMS_URL = "http://librenms.test"
         flask_app.LIBRENMS_API_TOKEN = "tok"
-        lnms_response = {
-            "devices": [{"device_id": 1, "hostname": "192.0.2.1", "status": 0}]
-        }
+        lnms_response = {"devices": [{"device_id": 1, "hostname": "192.0.2.1", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
-            devices = [
-                {"id": "d1", "name": "router01", "primary_ip": "192.0.2.1/32", "status": "active"}
-            ]
+            devices = [{"id": "d1", "name": "router01", "primary_ip": "192.0.2.1/32", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
 
@@ -4196,13 +4297,9 @@ class TestLibreNMSEnrichment:
         """IPv6-valued LibreNMS hostnames match Nautobot primary_ip regardless of hex casing."""
         flask_app.LIBRENMS_URL = "http://librenms.test"
         flask_app.LIBRENMS_API_TOKEN = "tok"
-        lnms_response = {
-            "devices": [{"device_id": 1, "hostname": "2001:DB8::1", "status": 0}]
-        }
+        lnms_response = {"devices": [{"device_id": 1, "hostname": "2001:DB8::1", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
-            devices = [
-                {"id": "d1", "name": "router01", "primary_ip": "2001:db8::1/128", "status": "active"}
-            ]
+            devices = [{"id": "d1", "name": "router01", "primary_ip": "2001:db8::1/128", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
 
@@ -4210,9 +4307,7 @@ class TestLibreNMSEnrichment:
         """IP-valued LibreNMS hostnames must not be short-name normalized."""
         flask_app.LIBRENMS_URL = "http://librenms.test"
         flask_app.LIBRENMS_API_TOKEN = "tok"
-        lnms_response = {
-            "devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]
-        }
+        lnms_response = {"devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "10", "primary_ip": "192.0.2.5/32", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
@@ -4246,8 +4341,9 @@ class TestApiRoles:
 
     def test_list_roles_nautobot_unconfigured_returns_503(self, client):
         """GET /api/roles returns 503 when Nautobot is not configured."""
-        with patch.object(flask_app, "nautobot_get",
-                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+        with patch.object(
+            flask_app, "nautobot_get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
+        ):
             resp = client.get("/api/roles")
         assert resp.status_code == 503
 
@@ -4255,27 +4351,24 @@ class TestApiRoles:
         """POST /api/roles proxies to Nautobot and returns 201 on success."""
         created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
         with patch.object(flask_app, "nautobot_post", return_value=created):
-            resp = client.post("/api/roles",
-                               json={"name": "Edge Router", "color": "2196f3"},
-                               content_type="application/json")
+            resp = client.post(
+                "/api/roles", json={"name": "Edge Router", "color": "2196f3"}, content_type="application/json"
+            )
         assert resp.status_code == 201
         assert resp.get_json()["name"] == "Edge Router"
 
     def test_create_role_missing_name_returns_400(self, client):
         """POST /api/roles without a name returns 400."""
-        resp = client.post("/api/roles",
-                           json={"color": "2196f3"},
-                           content_type="application/json")
+        resp = client.post("/api/roles", json={"color": "2196f3"}, content_type="application/json")
         assert resp.status_code == 400
         assert "name is required" in resp.get_json()["error"]
 
     def test_create_role_nautobot_unconfigured_returns_503(self, client):
         """POST /api/roles returns 503 when Nautobot is not configured."""
-        with patch.object(flask_app, "nautobot_post",
-                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.post("/api/roles",
-                               json={"name": "Test Role"},
-                               content_type="application/json")
+        with patch.object(
+            flask_app, "nautobot_post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
+        ):
+            resp = client.post("/api/roles", json={"name": "Test Role"}, content_type="application/json")
         assert resp.status_code == 503
 
     def test_create_role_requires_admin_when_auth_enabled(self, client):
@@ -4321,8 +4414,9 @@ class TestApiRoles:
 
     def test_delete_role_nautobot_unconfigured_returns_503(self, client):
         """DELETE /api/roles/<id> returns 503 when Nautobot is not configured."""
-        with patch.object(flask_app, "nautobot_delete",
-                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+        with patch.object(
+            flask_app, "nautobot_delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
+        ):
             resp = client.delete("/api/roles/role-1")
         assert resp.status_code == 503
 
@@ -4354,8 +4448,9 @@ class TestApiLocationTypes:
 
     def test_list_location_types_nautobot_unconfigured_returns_503(self, client):
         """GET /api/location-types returns 503 when Nautobot is not configured."""
-        with patch.object(flask_app, "nautobot_get",
-                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+        with patch.object(
+            flask_app, "nautobot_get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
+        ):
             resp = client.get("/api/location-types")
         assert resp.status_code == 503
 
@@ -4363,27 +4458,24 @@ class TestApiLocationTypes:
         """POST /api/location-types proxies to Nautobot and returns 201 on success."""
         created = {"id": "lt-new", "name": "Office", "slug": "office"}
         with patch.object(flask_app, "nautobot_post", return_value=created):
-            resp = client.post("/api/location-types",
-                               json={"name": "Office", "slug": "office"},
-                               content_type="application/json")
+            resp = client.post(
+                "/api/location-types", json={"name": "Office", "slug": "office"}, content_type="application/json"
+            )
         assert resp.status_code == 201
         assert resp.get_json()["name"] == "Office"
 
     def test_create_location_type_missing_name_returns_400(self, client):
         """POST /api/location-types without a name returns 400."""
-        resp = client.post("/api/location-types",
-                           json={"slug": "office"},
-                           content_type="application/json")
+        resp = client.post("/api/location-types", json={"slug": "office"}, content_type="application/json")
         assert resp.status_code == 400
         assert "name is required" in resp.get_json()["error"]
 
     def test_create_location_type_nautobot_unconfigured_returns_503(self, client):
         """POST /api/location-types returns 503 when Nautobot is not configured."""
-        with patch.object(flask_app, "nautobot_post",
-                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.post("/api/location-types",
-                               json={"name": "Test Type"},
-                               content_type="application/json")
+        with patch.object(
+            flask_app, "nautobot_post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
+        ):
+            resp = client.post("/api/location-types", json={"name": "Test Type"}, content_type="application/json")
         assert resp.status_code == 503
 
     def test_delete_location_type_success(self, client):
@@ -4406,8 +4498,9 @@ class TestApiLocationTypes:
 
     def test_delete_location_type_nautobot_unconfigured_returns_503(self, client):
         """DELETE /api/location-types/<id> returns 503 when Nautobot is not configured."""
-        with patch.object(flask_app, "nautobot_delete",
-                          side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
+        with patch.object(
+            flask_app, "nautobot_delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
+        ):
             resp = client.delete("/api/location-types/lt-dc")
         assert resp.status_code == 503
 
@@ -4508,10 +4601,7 @@ class TestAlertBoardTierDefinitions:
         threshold = f"{flask_app._MEDIUM_DOWN_RATIO:.0%}"
         assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["medium"]
         assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["ok"]
-        devices = [
-            {"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "active"}
-            for i in range(4)
-        ]
+        devices = [{"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "active"} for i in range(4)]
         devices[0]["status"] = "offline"  # exactly 25% down
         assert flask_app.compute_alert_level(devices)["level"] == "ok"
         devices[1]["status"] = "offline"  # 50% down
@@ -4588,8 +4678,9 @@ class TestAlertBoardSyncProgress:
     def test_refresh_1_enqueues_forced_background_sync(self, client):
         now = flask_app._iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
-        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure, patch.object(
-            flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts?refresh=1")
         assert resp.status_code == 200
@@ -4600,16 +4691,18 @@ class TestAlertBoardSyncProgress:
         """The old UI sent refresh=<Date.now()>; the server contract is 1/true/yes/refresh."""
         now = flask_app._iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
-        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure, patch.object(
-            flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts?refresh=1727000000000")
         ensure.assert_not_called()
         assert resp.get_json()["sync_pending"] is False
 
     def test_cold_start_enqueues_first_sync_without_waiting(self, client):
-        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure, patch.object(
-            flask_app, "_build_alert_board_payload", return_value=self._board()
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board()),
         ):
             resp = client.get("/api/alerts")
         assert resp.status_code == 200
@@ -4624,8 +4717,9 @@ class TestAlertBoardSyncProgress:
     def test_initialized_snapshot_does_not_start_sync_and_is_not_pending(self, client):
         now = flask_app._iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
-        with patch.object(flask_app, "_ensure_inventory_snapshot") as ensure, patch.object(
-            flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure,
+            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts")
         ensure.assert_not_called()
@@ -4743,6 +4837,8 @@ class TestMultiDeviceCases:
         )
         assert resp.status_code == 400
         assert self._cases_for(client, "dev-1") == []
+
+
 # Tests: /healthz (#131)
 # ---------------------------------------------------------------------------
 class TestHealthz:
@@ -4803,9 +4899,19 @@ class TestLibreNMSPolledIp:
         monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.test")
         monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "tok")
         flask_app._init_db()
-        with patch.object(flask_app, "_fetch_librenms_inventory", return_value=[
-            {"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "overwrite_ip": None, "status": 1},
-        ]):
+        with patch.object(
+            flask_app,
+            "_fetch_librenms_inventory",
+            return_value=[
+                {
+                    "device_id": 7,
+                    "hostname": "router01.example.net",
+                    "ip": "192.0.2.7",
+                    "overwrite_ip": None,
+                    "status": 1,
+                },
+            ],
+        ):
             flask_app._sync_librenms_inventory(force=True)
         cached = flask_app._read_cached_librenms_inventory()
         assert cached == [{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}]
@@ -4879,14 +4985,17 @@ class TestLibreNMSPolledIp:
                 return None
 
         conn = _Conn()
-        with patch.object(flask_app, "_get_db_conn", return_value=conn), patch.object(
-            flask_app, "_is_postgres", return_value=True
+        with (
+            patch.object(flask_app, "_get_db_conn", return_value=conn),
+            patch.object(flask_app, "_is_postgres", return_value=True),
         ):
             flask_app._init_db()
         sql = "\n".join(conn.queries)
         assert "ip             TEXT NOT NULL DEFAULT ''" in sql  # fresh CREATE TABLE
         assert "table_name = 'librenms_device_status'" in sql
         assert "ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT ''" in sql
+
+
 # Tests: alert board explains a missing persistence database (#136)
 # ---------------------------------------------------------------------------
 class TestAlertBoardWithoutPersistence:
@@ -4894,9 +5003,15 @@ class TestAlertBoardWithoutPersistence:
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
         flask_app.cache.clear()
-        with patch.object(flask_app, "_build_alert_board_payload", return_value={
-            "checked_at": flask_app._iso_utc_now(), "summary": {}, "alerts": [],
-        }):
+        with patch.object(
+            flask_app,
+            "_build_alert_board_payload",
+            return_value={
+                "checked_at": flask_app._iso_utc_now(),
+                "summary": {},
+                "alerts": [],
+            },
+        ):
             data = client.get("/api/alerts").get_json()
         assert data["persistence_configured"] is False
         assert data["sync_pending"] is False
@@ -4906,9 +5021,13 @@ class TestAlertBoardWithoutPersistence:
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
         flask_app._init_db()
         flask_app.cache.clear()
-        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=False), patch.object(
-            flask_app, "_build_alert_board_payload",
-            return_value={"checked_at": flask_app._iso_utc_now(), "summary": {}, "alerts": []},
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=False),
+            patch.object(
+                flask_app,
+                "_build_alert_board_payload",
+                return_value={"checked_at": flask_app._iso_utc_now(), "summary": {}, "alerts": []},
+            ),
         ):
             data = client.get("/api/alerts").get_json()
         assert data["persistence_configured"] is True
@@ -4926,6 +5045,8 @@ class TestAlertBoardWithoutPersistence:
         with caplog.at_level("WARNING", logger="app"):
             flask_app._log_alert_board_exclusions()
         assert "No persistence database configured" not in caplog.text
+
+
 # Tests: Refresh runs an incremental "sync now", not a full reconcile (#135)
 # ---------------------------------------------------------------------------
 class TestRefreshIsIncremental:
@@ -4947,9 +5068,11 @@ class TestRefreshIsIncremental:
             calls.append((endpoint, dict(params or {})))
             return []
 
-        with patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch), patch.object(
-            flask_app, "_read_cached_location_name_map", return_value={}
-        ), patch.object(flask_app, "_build_device_lookup_maps", return_value={}):
+        with (
+            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+        ):
             flask_app._ensure_inventory_snapshot(wait=True, **ensure_kwargs)
         return [params for endpoint, params in calls if endpoint == "dcim/locations/"]
 
