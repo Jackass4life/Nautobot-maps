@@ -149,7 +149,7 @@ for a full description of the seed data and suggested demo scenarios.
 | `POST` | `/api/criticality-overrides` | Create/update a device criticality override *(operator when auth enabled)* |
 | `DELETE` | `/api/criticality-overrides/<device_id>` | Delete a device criticality override *(operator when auth enabled)* |
 | `GET` | `/api/alert-history` | Historical alert incidents/events/cases (filter by `site_id`, `device_id`, `start_at`, `end_at`) *(operator when auth enabled)* |
-| `POST` | `/api/alert-cases` | Attach a case number to an active site/device alert *(operator when auth enabled)* |
+| `POST` | `/api/alert-cases` | Attach a case number to the active alerts of one or more devices at a site: `{"site_id", "case_number", "device_ids": [...]}` (single `device_id` also accepted). All-or-nothing: 404 with `missing_device_ids` if any device has no open alert *(operator when auth enabled)* |
 | `GET` | `/api/roles` | List Nautobot roles |
 | `POST` | `/api/roles` | Create a Nautobot role *(admin when auth enabled)* |
 | `DELETE` | `/api/roles/<role_id>` | Delete a Nautobot role *(admin when auth enabled)* |

@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- Alert board: attach one case number to several down devices at once (checkbox list, all selected by default); `POST /api/alert-cases` accepts `device_ids` and is all-or-nothing (#133)
 - `GET /healthz` liveness endpoint and Docker `HEALTHCHECK`; the container now runs as a non-root user; new `docker-smoke` CI job builds the image and runs the demo stack (#131)
 - Alert board summary tiles show an (i) glyph with the tier definition on hover and keyboard focus, sourced from one `ALERT_STATUS_TIER_DEFINITIONS` constant (#117)
 - Alert board device rows show each device's IP address (Nautobot primary IP, falling back to the LibreNMS hostname when LibreNMS polls by IP) (#117)

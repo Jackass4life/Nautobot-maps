@@ -3689,58 +3689,96 @@ def api_alert_history():
         conn.close()
 
 
+# Upper bound on devices linked to one case in a single request.
+_MAX_CASE_DEVICES = 200
+
+
 @app.route("/api/alert-cases", methods=["POST"])
 @require_role("operator")
 def api_add_alert_case():
-    """Attach a case number to the latest open alert instance for site/device."""
+    """Attach a case number to the open alert of one or more devices at a site.
+
+    JSON body: ``site_id``, ``case_number`` and either ``device_ids`` (list)
+    or the single ``device_id``.  All-or-nothing: if any device has no open
+    alert, nothing is written and the response is 404 with
+    ``missing_device_ids``, so a case is never applied to only part of the
+    selection.
+    """
+    body = request.get_json(silent=True) or {}
+    site_id = (body.get("site_id") or "").strip() if isinstance(body.get("site_id"), str) else ""
+    case_number = (
+        (body.get("case_number") or "").strip() if isinstance(body.get("case_number"), str) else ""
+    )
+    raw_ids = body.get("device_ids")
+    if raw_ids is None:
+        raw_ids = [body.get("device_id")] if body.get("device_id") else []
+    if not isinstance(raw_ids, list) or not all(isinstance(value, str) for value in raw_ids):
+        return jsonify({"error": "device_ids must be a list of device ID strings"}), 400
+    # De-duplicate while keeping the operator's order.
+    device_ids = list(dict.fromkeys(value.strip() for value in raw_ids if value.strip()))
+    if not site_id or not device_ids or not case_number:
+        return jsonify({"error": "site_id, device_ids and case_number are required"}), 400
+    if len(device_ids) > _MAX_CASE_DEVICES:
+        return jsonify({"error": f"At most {_MAX_CASE_DEVICES} devices per request"}), 400
+
     conn = _get_db_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
-    body = request.get_json(silent=True) or {}
-    site_id = (body.get("site_id") or "").strip()
-    device_id = (body.get("device_id") or "").strip()
-    case_number = (body.get("case_number") or "").strip()
-    if not site_id or not device_id or not case_number:
-        conn.close()
-        return jsonify({"error": "site_id, device_id and case_number are required"}), 400
     created_by = (_get_current_user().get("username") or "").strip()
     try:
         with _db_transaction(conn):
-            p0, p1 = _sql_placeholders(2).split(",")
-            row = conn.execute(
-                f"""
-                SELECT id
-                FROM alert_instances
-                WHERE site_id = {p0} AND device_id = {p1} AND status = 'open'
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (site_id, device_id),
-            ).fetchone()
-            if row is None:
-                return jsonify({"error": "No active alert found for site/device"}), 404
-            instance_id = _row_to_dict(row)["id"]
-            p0, p1, p2 = _sql_placeholders(3).split(",")
-            now_sql = _sql_now()
-            conn.execute(
-                f"""
-                INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at)
-                VALUES ({p0}, {p1}, {p2}, {now_sql})
-                ON CONFLICT(alert_instance_id, case_number) DO NOTHING
-                """,
-                (instance_id, case_number, created_by),
-            )
+            instance_ids: dict[str, int] = {}
+            for device_id in device_ids:
+                p0, p1 = _sql_placeholders(2).split(",")
+                row = conn.execute(
+                    f"""
+                    SELECT id
+                    FROM alert_instances
+                    WHERE site_id = {p0} AND device_id = {p1} AND status = 'open'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (site_id, device_id),
+                ).fetchone()
+                if row is not None:
+                    instance_ids[device_id] = _row_to_dict(row)["id"]
+            missing = [device_id for device_id in device_ids if device_id not in instance_ids]
+            if missing:
+                return (
+                    jsonify(
+                        {
+                            "error": "No active alert found for some devices; nothing was changed",
+                            "missing_device_ids": missing,
+                        }
+                    ),
+                    404,
+                )
+            for device_id in device_ids:
+                p0, p1, p2 = _sql_placeholders(3).split(",")
+                conn.execute(
+                    f"""
+                    INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at)
+                    VALUES ({p0}, {p1}, {p2}, {_sql_now()})
+                    ON CONFLICT(alert_instance_id, case_number) DO NOTHING
+                    """,
+                    (instance_ids[device_id], case_number, created_by),
+                )
         # The board payload embeds case numbers; drop it so the new case shows.
         _invalidate_alert_board_cache()
-        return jsonify(
-            {
-                "status": "ok",
-                "alert_instance_id": instance_id,
-                "site_id": site_id,
-                "device_id": device_id,
-                "case_number": case_number,
-            }
-        )
+        result = {
+            "status": "ok",
+            "site_id": site_id,
+            "case_number": case_number,
+            "linked": [
+                {"device_id": device_id, "alert_instance_id": instance_ids[device_id]}
+                for device_id in device_ids
+            ],
+        }
+        if len(device_ids) == 1:
+            # Fields of the original single-device response, kept for API clients.
+            result["device_id"] = device_ids[0]
+            result["alert_instance_id"] = instance_ids[device_ids[0]]
+        return jsonify(result)
     except Exception as exc:
         logger.error("Could not add alert case: %s", exc)
         return jsonify({"error": "Internal server error"}), 500

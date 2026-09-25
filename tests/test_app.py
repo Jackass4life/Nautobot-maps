@@ -4662,6 +4662,86 @@ class TestAlertBoardSyncProgress:
 
 
 # ---------------------------------------------------------------------------
+# Tests: one case number on multiple devices (#133)
+# ---------------------------------------------------------------------------
+class TestMultiDeviceCases:
+    @pytest.fixture(autouse=True)
+    def _sqlite_with_open_alerts(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        flask_app._init_db()
+        flask_app.cache.clear()
+        flask_app._upsert_alert_lifecycle_for_site(
+            {"id": "loc-1", "name": "Site One"},
+            [
+                {"id": "dev-1", "name": "sw01", "status": "offline"},
+                {"id": "dev-2", "name": "sw02", "status": "offline"},
+                {"id": "dev-3", "name": "sw03", "status": "offline"},
+            ],
+            {"level": "medium", "reason": "3/4 devices offline (75%)"},
+            flask_app._iso_utc_now(),
+        )
+        yield
+        flask_app.cache.clear()
+
+    def _cases_for(self, client, device_id):
+        history = client.get(f"/api/alert-history?site_id=loc-1&device_id={device_id}").get_json()
+        return [case["case_number"] for case in history["instances"][0]["cases"]]
+
+    def test_links_one_case_to_every_selected_device(self, client):
+        resp = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_ids": ["dev-1", "dev-2"], "case_number": "INC-42"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert [item["device_id"] for item in data["linked"]] == ["dev-1", "dev-2"]
+        assert "device_id" not in data  # single-device fields only for one device
+        assert self._cases_for(client, "dev-1") == ["INC-42"]
+        assert self._cases_for(client, "dev-2") == ["INC-42"]
+        assert self._cases_for(client, "dev-3") == []
+
+    def test_is_all_or_nothing_when_a_device_has_no_open_alert(self, client):
+        resp = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_ids": ["dev-1", "dev-9"], "case_number": "INC-43"},
+        )
+        assert resp.status_code == 404
+        assert resp.get_json()["missing_device_ids"] == ["dev-9"]
+        assert self._cases_for(client, "dev-1") == []
+
+    def test_duplicate_ids_are_linked_once(self, client):
+        resp = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_ids": ["dev-1", " dev-1 "], "case_number": "INC-44"},
+        )
+        assert resp.status_code == 200
+        assert len(resp.get_json()["linked"]) == 1
+        assert self._cases_for(client, "dev-1") == ["INC-44"]
+
+    def test_single_device_id_keeps_original_response_fields(self, client):
+        resp = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-3", "case_number": "INC-45"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["device_id"] == "dev-3"
+        assert isinstance(data["alert_instance_id"], int)
+        assert self._cases_for(client, "dev-3") == ["INC-45"]
+
+    @pytest.mark.parametrize(
+        "device_ids",
+        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(flask_app._MAX_CASE_DEVICES + 1)]],
+        ids=["string-not-list", "empty", "non-string-id", "too-many"],
+    )
+    def test_rejects_invalid_device_ids(self, client, device_ids):
+        resp = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-1", "device_ids": device_ids, "case_number": "INC-46"},
+        )
+        assert resp.status_code == 400
+        assert self._cases_for(client, "dev-1") == []
 # Tests: /healthz (#131)
 # ---------------------------------------------------------------------------
 class TestHealthz:
