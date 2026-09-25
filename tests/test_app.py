@@ -3,11 +3,12 @@ import json
 import re
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from werkzeug.exceptions import GatewayTimeout
 from markupsafe import escape
+from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
 
@@ -1275,7 +1276,7 @@ class TestApiSearch:
         assert data["search_lon"] == pytest.approx(12.5683)
         assert data["radius_km"] == 5
         # loc-1 is at the exact point
-        names = [l["name"] for l in data["locations"]]
+        names = [loc["name"] for loc in data["locations"]]
         assert "Copenhagen DC" in names
 
     def test_gps_no_results_far_away(self, client):
@@ -1292,7 +1293,7 @@ class TestApiSearch:
             # Point very close to loc-1 (within 5 km)
             resp = client.get("/api/search?q=55.678,12.571")
         data = resp.get_json()
-        distances = [l["distance_km"] for l in data["locations"]]
+        distances = [loc["distance_km"] for loc in data["locations"]]
         assert distances == sorted(distances)
 
     def test_address_geocoding(self, client):
@@ -2137,8 +2138,8 @@ class TestAlertLifecycleTracking:
     def test_alert_history_tracks_open_and_resolve(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
-        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
-        t1 = datetime(2026, 1, 1, 0, 5, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+        t1 = datetime(2026, 1, 1, 0, 5, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         flask_app._upsert_alert_lifecycle_for_site(
             site,
             devices_down,
@@ -2168,7 +2169,7 @@ class TestAlertLifecycleTracking:
     def test_add_case_number_to_active_alert(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
-        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         flask_app._upsert_alert_lifecycle_for_site(
             site,
             devices_down,
@@ -2189,7 +2190,7 @@ class TestAlertLifecycleTracking:
     def test_api_alerts_preserves_case_numbers_on_current_down_devices(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
-        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         flask_app._upsert_alert_lifecycle_for_site(
             site,
             devices_down,
@@ -2263,7 +2264,7 @@ class TestAlertLifecycleTracking:
     def test_add_case_uses_authenticated_user_for_created_by(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
-        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         flask_app._upsert_alert_lifecycle_for_site(
             site,
             devices_down,
@@ -2301,7 +2302,7 @@ class TestAlertLifecycleTracking:
 
     def test_failed_alert_observation_does_not_resolve_open_incident(self):
         site = {"id": "loc-1", "name": "Site One"}
-        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         flask_app._upsert_alert_lifecycle_for_site(
             site,
             [{"id": "dev-1", "name": "router01", "status": "offline"}],
@@ -4635,7 +4636,7 @@ class TestAlertBoardSyncProgress:
         assert flask_app._nautobot_sync_in_progress() is True
 
     def test_abandoned_running_sync_is_not_pending(self):
-        started = datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        started = datetime(2020, 1, 1, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         self._set_nautobot_sync_state("running", started)
         assert flask_app._nautobot_sync_in_progress() is False
 

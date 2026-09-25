@@ -1,0 +1,15 @@
+# Developer-tool configuration only; the app itself is not packaged.
+
+[tool.ruff]
+target-version = "py311"
+# Matches how the code is already written (least churn for `ruff format`).
+line-length = 120
+extend-exclude = ["static/vendor"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes (unused/undefined names), B: bugbear (likely
+# bugs), I: import sorting, UP: modern Python syntax for the target version.
+select = ["E", "W", "F", "B", "I", "UP"]
+# Line length is the formatter's job; the few lines it cannot wrap (long
+# strings, URLs) are fine as they are.
+ignore = ["E501"]

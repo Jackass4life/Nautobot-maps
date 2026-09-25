@@ -1,0 +1,8 @@
+# Optional: run the same checks as CI before each commit.
+#   pip install pre-commit && pre-commit install
+# Keep `rev` in sync with the ruff pin in requirements-dev.txt.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
