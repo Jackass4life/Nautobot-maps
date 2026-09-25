@@ -116,6 +116,8 @@ docker compose logs -f
 docker compose down
 ```
 
+The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy. If you use the SQLite fallback instead of PostgreSQL, set `NAUTOBOT_MAPS_DB=/app/data/nautobot_maps.db` (the only writable path in the container) and mount a volume at `/app/data`.
+
 ## Demo (Mock Nautobot)
 
 No Nautobot instance? Spin up a fully self-contained demo using the mock
@@ -138,6 +140,7 @@ for a full description of the seed data and suggested demo scenarios.
 |---|---|---|
 | `GET` | `/` | Map web UI |
 | `GET` | `/alerts` | Alert board web UI |
+| `GET` | `/healthz` | Liveness probe: `200 {"status": "ok"}`, or `503` when the configured persistence database is unreachable. Never calls Nautobot/LibreNMS |
 | `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues background sync, `?include_non_operational=1` includes excluded locations). `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
 | `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
