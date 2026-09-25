@@ -94,6 +94,8 @@ Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to enable optional LibreNMS enr
 explicitly accept the TLS trust tradeoff (for example, an internal CA not in the trust
 store). Prefer using a trusted CA bundle (for example via `REQUESTS_CA_BUNDLE`) when possible.
 
+Each LibreNMS sync also caches the address LibreNMS polls for every device (`overwrite_ip` if set, otherwise `ip`). The alert board shows it as the device IP when Nautobot has no primary IP for that device.
+
 ## Docker
 
 > **Important:** Always use `docker compose up` — **not** `docker compose build && docker compose start`.
