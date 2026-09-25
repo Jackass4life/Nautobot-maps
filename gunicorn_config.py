@@ -21,3 +21,12 @@ def when_ready(server) -> None:
     import app as flask_app
 
     flask_app._log_alert_board_exclusions()
+
+
+def post_worker_init(worker) -> None:
+    # One scheduler thread per worker; a database lock lets only one of them
+    # work at a time (#154).  Started here, not on import, so tests and
+    # one-off imports never start background threads.
+    import app as flask_app
+
+    flask_app.start_background_scheduler()

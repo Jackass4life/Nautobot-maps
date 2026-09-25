@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- Background scheduler: due syncs run and the alert board is rebuilt with no page open, so alert history is recorded around the clock. One thread per app process, a PostgreSQL lock lets only one work at a time; `BACKGROUND_SYNC_ENABLED=false` turns it off (#154)
 - `ALERT_BOARD_SITE_LOCATION_TYPE` (e.g. `Site`): one alert-board row per location of that type, with devices from child locations (buildings, floors) rolled up into it; the row shows its path (`EMEA › DNK`) and down devices show where they are (`Bygning A › Etage 2`). The location cache stores `parent_id` (one automatic full resync after upgrading) (#158)
 - Alert board updates itself: a normal `/api/alerts` request starts an inventory sync once one is due, and the board shows "Next update in m:ss" and reloads in the background at zero (`next_update_in_seconds` in the API) (#152)
 - `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` ignores devices by status on the alert board (not counted as monitored or down, not listed), and `null` in the location/device status settings matches an empty status (#151)

@@ -99,6 +99,9 @@ ALERT_BOARD_EXCLUDED_DEVICE_STATUSES_RAW = os.getenv(
     "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES",
     "",
 )
+# Background scheduler (#154): sync and record alert history with nobody
+# viewing the board.  On by default; "false"/"0"/"no" turns it off.
+BACKGROUND_SYNC_ENABLED = os.getenv("BACKGROUND_SYNC_ENABLED", "").strip().lower() not in ("0", "false", "no")
 # Location type whose locations are the alert-board rows (e.g. "Site"); devices
 # in descendant locations roll up into them (#158).  Empty: one row per location.
 ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()
@@ -3162,6 +3165,69 @@ def get_alert_board_data(
     )
 
 
+# ---------------------------------------------------------------------------
+# Background scheduler (#154)
+# ---------------------------------------------------------------------------
+# Every app process runs one scheduler thread; a PostgreSQL advisory lock
+# makes sure only one of them (across all workers and containers) works per
+# tick.  It runs the syncs that are due and, when one ran, rebuilds the alert
+# board, which records alert history.  Without it, syncs and history only
+# happened while someone had a page open.
+_SCHEDULER_MAX_TICK_SECONDS = 30
+_scheduler_started = False
+_scheduler_start_lock = threading.Lock()
+_scheduler_stop = threading.Event()
+
+
+def _scheduler_tick_seconds() -> int:
+    """Seconds between ticks: often enough to catch a due sync promptly."""
+    intervals = [INVENTORY_SYNC_INTERVAL_SECONDS]
+    if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
+        intervals.append(LIBRENMS_SYNC_INTERVAL_SECONDS)
+    return max(1, min(_SCHEDULER_MAX_TICK_SECONDS, *intervals))
+
+
+def _scheduler_tick() -> bool:
+    """Run the due syncs and rebuild the board if one ran.  Returns whether it did work."""
+    release = _acquire_db_inventory_lock("background_scheduler")
+    if not callable(release):
+        return False  # no database, or another process holds the tick
+    try:
+        if not _ensure_inventory_snapshot(wait=True):
+            return False
+        # The syncs invalidated the cached board; rebuild it now so alert
+        # history is recorded even if nobody opens the board.
+        payload = _build_alert_board_payload(snapshot_only=True)
+        _cache_set("alert-board-data:v3", payload, timeout=CACHE_TTL)
+        return True
+    finally:
+        release()
+
+
+def _scheduler_loop() -> None:
+    while not _scheduler_stop.is_set():
+        try:
+            _scheduler_tick()
+        except Exception as exc:
+            logger.warning("Background scheduler tick failed: %s", exc)
+        _scheduler_stop.wait(_scheduler_tick_seconds())
+
+
+def start_background_scheduler() -> bool:
+    """Start this process's scheduler thread once.  Returns whether it runs."""
+    global _scheduler_started
+    if not BACKGROUND_SYNC_ENABLED or not _current_persistence_dialect() or not (NAUTOBOT_URL and NAUTOBOT_TOKEN):
+        return False
+    with _scheduler_start_lock:
+        if _scheduler_started:
+            return True
+        _scheduler_started = True
+        _scheduler_stop.clear()
+        threading.Thread(target=_scheduler_loop, name="background-scheduler", daemon=True).start()
+    logger.info("Background scheduler started (tick every %ss)", _scheduler_tick_seconds())
+    return True
+
+
 def _location_field_asns(location_id: str) -> list:
     """Return the ASN stored directly on a location as an ASN-list entry.
 
@@ -3946,4 +4012,5 @@ if __name__ == "__main__":
     except (ValueError, TypeError):
         port = 5000
     _log_alert_board_exclusions()
+    start_background_scheduler()
     app.run(host=_get_flask_run_host(), port=port, debug=debug)

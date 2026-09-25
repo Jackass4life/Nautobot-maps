@@ -51,7 +51,8 @@ services:
       - GUNICORN_WORKERS=${GUNICORN_WORKERS:-}
       - GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-}
       - GUNICORN_BIND=${GUNICORN_BIND:-}
-      # Sync intervals (optional; default to CACHE_TTL)
+      # Background syncs and sync intervals (optional; default to CACHE_TTL)
+      - BACKGROUND_SYNC_ENABLED=${BACKGROUND_SYNC_ENABLED:-}
       - INVENTORY_SYNC_INTERVAL_SECONDS=${INVENTORY_SYNC_INTERVAL_SECONDS:-}
       - LIBRENMS_SYNC_INTERVAL_SECONDS=${LIBRENMS_SYNC_INTERVAL_SECONDS:-}
       # Criticality configuration (all optional)
