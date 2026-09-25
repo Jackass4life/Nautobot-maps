@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+- Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
+
 ### Fixed
+- Alert board without a persistence database showed an unexplained empty table: `/api/alerts` now reports `persistence_configured`, the board explains which setting is missing, and a warning is logged at startup (#136)
 - Docker demo could not start: `.dockerignore` excluded `demo/`, so the mock server was missing from the image; it is now mounted into the mock container (#131)
 - `NAUTOBOT_MAPS_DB` was defined twice in `docker-compose.yml` (#131)
 - CI no longer relies on a fixed `sleep 2` for the mock server to start (#131)
