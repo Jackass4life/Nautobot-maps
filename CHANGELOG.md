@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
+- `NAUTOBOT_API_VERSION` and `GUNICORN_WORKERS` / `GUNICORN_TIMEOUT` / `GUNICORN_BIND` in `.env` had no effect with `docker compose`; an empty `CACHE_TTL` or `GUNICORN_*` value now means the default instead of crashing at startup. A test now fails when a setting is missing from `docker-compose.yml` (#159)
 - `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)
 - `ALERT_BOARD_EXCLUDED_*` settings in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them to the container (#151)
 - Alert board without a persistence database showed an unexplained empty table: `/api/alerts` now reports `persistence_configured`, the board explains which setting is missing, and a warning is logged at startup (#136)

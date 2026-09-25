@@ -66,6 +66,9 @@ python app.py
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
 | `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
+| `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
+| `GUNICORN_TIMEOUT` | ❌ | `120` | Gunicorn worker timeout in seconds; values below 120 are raised to 120 |
+| `GUNICORN_BIND` | ❌ | `0.0.0.0:5000` | Gunicorn listen address; `127.0.0.1:5000` when `AUTH_MODE=header` |
 | `CACHE_TYPE` | ❌ | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with multiple workers |
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
 | `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | PostgreSQL URL (`postgresql://...`) for the inventory snapshot, overrides, alert downtime history and case tracking. Required for the alert board. `docker-compose.yml` sets it to its bundled PostgreSQL |
