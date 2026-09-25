@@ -1947,7 +1947,20 @@ def _sync_librenms_inventory(force: bool = False) -> None:
         conn.close()
 
 
-def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
+def _ensure_inventory_snapshot(
+    force: bool = False, wait: bool = False, full: bool | None = None
+) -> bool:
+    """Run the inventory syncs that are due, in the background unless *wait*.
+
+    ``force`` runs them now even if their interval has not passed.  ``full``
+    makes the Nautobot sync a full reconcile (re-fetch everything, ignoring
+    the watermark); it defaults to ``force``.  Pass ``force=True, full=False``
+    for a cheap "sync now" that only pulls changes since the last sync.
+    Returns whether a sync was started (or, with *wait*, performed).
+    """
+    if full is None:
+        full = force
+
     def _run_with_lock() -> bool:
         conn = None
         release_db_lock = None
@@ -1979,9 +1992,9 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False) -> bool:
             if not needs_nautobot and not needs_librenms:
                 return False
             if needs_nautobot:
-                _sync_nautobot_inventory(force=force)
+                _sync_nautobot_inventory(force=full)
             if needs_librenms:
-                _sync_librenms_inventory(force=force)
+                _sync_librenms_inventory(force=full)
             return True
         finally:
             if conn is not None:
@@ -3122,7 +3135,9 @@ def get_alert_board_data(
         cache_key = f"{cache_key}:include-non-operational"
     sync_enqueued = False
     if force_refresh:
-        sync_enqueued = _ensure_inventory_snapshot(force=True, wait=False)
+        # "Sync now": incremental, not a full reconcile (#135).  Deletions are
+        # still caught by the scheduled full reconcile.
+        sync_enqueued = _ensure_inventory_snapshot(force=True, full=False, wait=False)
     cached = _cache_get(cache_key)
     if cached is not None:
         return _apply_alert_board_freshness(cached, sync_enqueued=sync_enqueued)
