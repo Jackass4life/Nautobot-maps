@@ -43,6 +43,12 @@ LOCATION_TYPES = {
     "lt-pop": {"id": "lt-pop", "name": "PoP"},
     "lt-office": {"id": "lt-office", "name": "Office"},
     "lt-ix": {"id": "lt-ix", "name": "Internet Exchange"},
+    # Hierarchy used with ALERT_BOARD_SITE_LOCATION_TYPE=Site (#158).
+    "lt-region": {"id": "lt-region", "name": "Region"},
+    "lt-country": {"id": "lt-country", "name": "Country"},
+    "lt-site": {"id": "lt-site", "name": "Site"},
+    "lt-building": {"id": "lt-building", "name": "Bygning"},
+    "lt-floor": {"id": "lt-floor", "name": "Etage"},
 }
 
 STATUSES = {
@@ -197,6 +203,36 @@ LOCATIONS = [
         "time_zone": "Europe/London",
         "url": "http://mock-nautobot:8080/api/dcim/locations/loc-lon2/",
     },
+]
+
+
+def _hierarchy_location(location_id: str, name: str, location_type: str, parent: tuple[str, str] | None) -> dict:
+    """A location without coordinates, so the map and proximity search are unaffected."""
+    return {
+        "id": location_id,
+        "name": name,
+        "slug": location_id,
+        "status": {"label": "Active", "value": "active"},
+        "location_type": LOCATION_TYPES[location_type],
+        "parent": {"id": parent[0], "name": parent[1]} if parent else None,
+        "latitude": None,
+        "longitude": None,
+        "description": "",
+        "physical_address": "",
+        "tenant": TENANTS["ten-acme"],
+        "asn": None,
+        "time_zone": "Europe/Copenhagen",
+        "url": f"http://mock-nautobot:8080/api/dcim/locations/{location_id}/",
+    }
+
+
+# EMEA › DNK › Aarhus Campus (Site) › Bygning A › Etage 2 (#158).
+LOCATIONS += [
+    _hierarchy_location("loc-emea", "EMEA", "lt-region", None),
+    _hierarchy_location("loc-dnk", "DNK", "lt-country", ("loc-emea", "EMEA")),
+    _hierarchy_location("loc-aar", "Aarhus Campus", "lt-site", ("loc-dnk", "DNK")),
+    _hierarchy_location("loc-aar-bld-a", "Bygning A", "lt-building", ("loc-aar", "Aarhus Campus")),
+    _hierarchy_location("loc-aar-bld-a-f2", "Etage 2", "lt-floor", ("loc-aar-bld-a", "Bygning A")),
 ]
 
 # Devices keyed by location_id
@@ -423,6 +459,32 @@ DEVICES = {
 # the inventory sync and alert board rely on both.  Attach them here so the
 # seed data above stays readable.  lon-oob-sw01 is deliberately left without a
 # primary IP to demonstrate that the alert board skips such devices.
+# Aarhus Campus: one device on the site itself, one on a floor two levels down (down).
+DEVICES["loc-aar"] = [
+    {
+        "id": "dev-aar-1",
+        "name": "aar-core-rt01",
+        "device_type": {"model": "ASR1001-X", "manufacturer": {"name": "Cisco"}},
+        "role": {"name": "Core Router"},
+        "status": {"label": "Active"},
+        "platform": {"name": "IOS-XE"},
+        "serial": "FCZ2227AAR1",
+        "tenant": TENANTS["ten-acme"],
+    }
+]
+DEVICES["loc-aar-bld-a-f2"] = [
+    {
+        "id": "dev-aar-2",
+        "name": "aar-acc-sw01",
+        "device_type": {"model": "Catalyst 9200", "manufacturer": {"name": "Cisco"}},
+        "role": {"name": "Access Switch"},
+        "status": {"label": "Offline"},
+        "platform": {"name": "IOS-XE"},
+        "serial": "JAE2227AAR2",
+        "tenant": TENANTS["ten-acme"],
+    }
+]
+
 DEVICES_WITHOUT_PRIMARY_IP = {"dev-lon-7"}
 
 

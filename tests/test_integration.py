@@ -591,6 +591,22 @@ class TestAlertBoardWithPersistence:
         ]
         assert london["device_count"] == len(with_ip)
 
+    def test_site_rollup_through_a_real_sync(self, persisted_integration_client, monkeypatch):
+        """Parents come from the Nautobot API, are cached, and the board rolls up to Sites (#158)."""
+        monkeypatch.setattr(flask_app, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        flask_app.cache.clear()
+        alerts = self._alerts_by_site(persisted_integration_client)
+        for hidden in ("loc-emea", "loc-dnk", "loc-aar-bld-a", "loc-aar-bld-a-f2"):
+            assert hidden not in alerts
+        aarhus = alerts["loc-aar"]
+        assert aarhus["ancestor_path"] == "EMEA › DNK"
+        assert aarhus["device_count"] == 2
+        assert [(d["device_name"], d["location_path"]) for d in aarhus["down_devices"]] == [
+            ("aar-acc-sw01", "Bygning A › Etage 2")
+        ]
+        # Locations without a Site above them keep their own rows.
+        assert alerts["loc-lon"]["down_device_count"] == 2
+
     def test_sites_with_devices_report_device_counts(self, persisted_integration_client):
         alerts = self._alerts_by_site(persisted_integration_client)
         for location_id in mock_nautobot.DEVICES:

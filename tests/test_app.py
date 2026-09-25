@@ -812,12 +812,13 @@ class TestAlertBoard:
             flask_app._log_alert_board_exclusions()
 
         info.assert_called_once_with(
-            "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s",
+            "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s; rows=%s",
             "{decommissioning,staging}",
             "{}",
             "{warehouse}",
             "{non-operational}",
             "{null,planned}",
+            "every location",
         )
 
     def test_status_exclusion_null_keyword_matches_missing_status(self):
@@ -3028,6 +3029,7 @@ class TestInventoryCacheSync:
                 "status": "Active",
                 "location_type": "Data Center",
                 "parent": "",
+                "parent_id": "",
                 "latitude": 1.0,
                 "longitude": 2.0,
                 "description": "",
@@ -5210,3 +5212,137 @@ class TestAlertBoardBulkReads:
         assert loc1["active_alert_instance_count"] == 0
         assert loc1["current_downtime_seconds"] == 0
         assert loc1["historical_downtime_seconds"] == 300 + 3600
+
+
+# ---------------------------------------------------------------------------
+# Tests: one board row per Site, devices rolled up from child locations (#158)
+# ---------------------------------------------------------------------------
+class TestSiteRollup:
+    """EMEA (Region) › DNK (Country) › Aarhus (Site) › Bygning A (Bygning) › Etage 2 (Etage)."""
+
+    LOCATIONS = [
+        ("reg-emea", "EMEA", "Region", "", "Active"),
+        ("cty-dnk", "DNK", "Country", "reg-emea", "Active"),
+        ("site-aar", "Aarhus", "Site", "cty-dnk", "Active"),
+        ("bld-a", "Bygning A", "Bygning", "site-aar", "Active"),
+        ("flr-2", "Etage 2", "Etage", "bld-a", "Active"),
+        ("bld-old", "Bygning Old", "Bygning", "site-aar", "Decommissioning"),
+        # A site straight under the region (no country level).
+        ("site-osl", "Oslo", "Site", "reg-emea", "Active"),
+        # A building with no site above it.
+        ("bld-orphan", "Loose Building", "Bygning", "cty-dnk", "Active"),
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _database(self, pg_database, monkeypatch):
+        self.db = pg_database
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(flask_app, "_ensure_inventory_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"decommissioning"})
+        monkeypatch.setattr(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", set())
+        names = {location_id: name for location_id, name, *_ in self.LOCATIONS}
+        self.db.executemany(
+            "INSERT INTO nautobot_location_cache (location_id, name, location_type, parent_id, parent, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            [
+                (location_id, name, location_type, parent_id, names.get(parent_id, ""), status)
+                for location_id, name, location_type, parent_id, status in self.LOCATIONS
+            ],
+        )
+        self.db.executemany(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            [
+                ("d-site", "site-aar", "aar-core01", "core", "Active", "10.1.0.1/32"),
+                ("d-bld", "bld-a", "aar-dist01", "distribution", "Active", "10.1.0.2/32"),
+                ("d-flr", "flr-2", "aar-acc01", "access", "Offline", "10.1.0.3/32"),
+                ("d-old", "bld-old", "aar-old01", "access", "Offline", "10.1.0.4/32"),
+                ("d-osl", "site-osl", "osl-core01", "core", "Active", "10.2.0.1/32"),
+                ("d-orphan", "bld-orphan", "loose01", "access", "Active", "10.3.0.1/32"),
+            ],
+        )
+        conn = flask_app._get_db_conn()
+        with conn:
+            flask_app._record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_started_at="2026-09-25T11:00:00+00:00",
+                last_completed_at="2026-09-25T11:00:00+00:00",
+                last_successful_sync="2026-09-25T11:00:00+00:00",
+                cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                status="idle",
+            )
+        conn.close()
+
+    def _board(self, monkeypatch, site_type="site"):
+        monkeypatch.setattr(flask_app, "ALERT_BOARD_SITE_LOCATION_TYPE", site_type)
+        flask_app.cache.clear()
+        return {row["id"]: row for row in flask_app.get_alert_board_data()["alerts"]}
+
+    def test_only_sites_are_rows_and_regions_are_hidden(self, monkeypatch):
+        rows = self._board(monkeypatch)
+        # The orphan building keeps its own row; Region, Country, Bygning and Etage do not.
+        assert set(rows) == {"site-aar", "site-osl", "bld-orphan"}
+        assert rows["site-aar"]["ancestor_path"] == "EMEA › DNK"
+        assert rows["site-osl"]["ancestor_path"] == "EMEA"
+
+    def test_devices_below_the_site_roll_up(self, monkeypatch):
+        aarhus = self._board(monkeypatch)["site-aar"]
+        # Site, Bygning A and Etage 2 devices; not the one in the excluded (Decommissioning) building.
+        assert aarhus["device_count"] == 3
+        assert aarhus["down_device_count"] == 1
+        assert aarhus["alert_level"] == "medium"  # 1 of 3 down, an access switch
+        assert aarhus["down_devices"] == [
+            {
+                "device_id": "d-flr",
+                "device_name": "aar-acc01",
+                "device_ip": "10.1.0.3",
+                "status": "Offline",
+                "role": "access",
+                "case_numbers": [],
+                "location_path": "Bygning A › Etage 2",
+            }
+        ]
+
+    def test_alerts_are_recorded_on_the_site(self, monkeypatch):
+        self._board(monkeypatch)
+        rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
+        assert rows == [{"site_id": "site-aar", "device_id": "d-flr", "status": "open"}]
+
+    def test_setting_is_case_insensitive_and_unset_keeps_one_row_per_location(self, monkeypatch):
+        assert "site-aar" in self._board(monkeypatch, site_type="site")
+        rows = self._board(monkeypatch, site_type="")
+        assert {"reg-emea", "cty-dnk", "bld-a", "flr-2"} <= set(rows)
+        assert rows["flr-2"]["down_device_count"] == 1
+        assert "ancestor_path" not in rows["site-aar"]
+
+    def test_orphan_location_is_logged_once(self, monkeypatch, caplog):
+        flask_app._logged_rollup_orphans.clear()
+        with caplog.at_level("INFO", logger="app"):
+            self._board(monkeypatch)
+            self._board(monkeypatch)
+        assert caplog.text.count("'Loose Building' has devices but no 'site' above it") == 1
+
+    def test_parent_cycle_does_not_hang(self):
+        locations = [
+            {"id": "a", "name": "A", "location_type": "Bygning", "parent_id": "b"},
+            {"id": "b", "name": "B", "location_type": "Bygning", "parent_id": "a"},
+        ]
+        rows, devices = flask_app._roll_up_to_site_locations(locations, {"a": [{"id": "d1"}]}, "site")
+        assert [row["id"] for row in rows] == ["a"]
+        assert devices == {"a": [{"id": "d1", "location_path": ""}]}
+
+    def test_migration_adds_parent_id_column(self):
+        self.db.execute("ALTER TABLE nautobot_location_cache DROP COLUMN parent_id")
+        flask_app._init_db()
+        columns = {
+            row["column_name"]
+            for row in self.db.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = 'nautobot_location_cache'"
+            )
+        }
+        assert "parent_id" in columns

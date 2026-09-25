@@ -262,7 +262,7 @@ function renderDownDeviceRows(item, isExpanded) {
     <tr class="down-device-row${isExpanded ? "" : " hidden"}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
         <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}</div>
-        <div class="site-meta">${[device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+        <div class="site-meta">${[device.location_path, device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
       <td>${escHtml(device.status || item.status || "—")}</td>
@@ -301,7 +301,8 @@ function renderTableRows(alerts, payload) {
       : '<span class="site-toggle-spacer" aria-hidden="true"></span>';
     const siteMeta = [
       item.country && address && address.toLowerCase().endsWith(item.country.toLowerCase()) ? "" : item.country,
-      item.parent,
+      // With ALERT_BOARD_SITE_LOCATION_TYPE the full path above the site (#158).
+      item.ancestor_path || item.parent,
       item.tenant_group,
     ].filter(Boolean).map(escHtml).join(" · ");
 
