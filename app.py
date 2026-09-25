@@ -94,6 +94,10 @@ ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW = os.getenv(
     "ALERT_BOARD_EXCLUDED_LOCATION_NAMES",
     "",
 )
+ALERT_BOARD_EXCLUDED_DEVICE_STATUSES_RAW = os.getenv(
+    "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES",
+    "",
+)
 
 # Flask-Caching configuration.
 # Defaults to SimpleCache (in-process) for development / single-worker setups.
@@ -147,6 +151,18 @@ ALERT_BOARD_EXCLUDED_LOCATION_TYPES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATI
 ALERT_BOARD_EXCLUDED_LOCATION_STATUSES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES_RAW)
 ALERT_BOARD_EXCLUDED_LOCATION_TAGS = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_TAGS_RAW)
 ALERT_BOARD_EXCLUDED_LOCATION_NAMES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW)
+ALERT_BOARD_EXCLUDED_DEVICE_STATUSES = _parse_csv_set(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES_RAW)
+
+# In a status exclusion list, this keyword matches a missing or empty status.
+_NULL_STATUS_KEYWORD = "null"
+
+
+def _status_is_excluded(status: str | None, excluded: set[str]) -> bool:
+    """Return whether *status* is in *excluded* (lower-cased; ``null`` matches no status)."""
+    normalized = (status or "").strip().lower()
+    if not normalized:
+        return _NULL_STATUS_KEYWORD in excluded
+    return normalized in excluded
 
 
 def _log_alert_board_exclusions() -> None:
@@ -157,11 +173,12 @@ def _log_alert_board_exclusions() -> None:
             "NAUTOBOT_MAPS_DB): the alert board will stay empty; the map still works."
         )
     logger.info(
-        "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s",
+        "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s",
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES),
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_NAMES),
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TYPES),
         _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TAGS),
+        _format_set_for_log(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES),
     )
 
 
@@ -2043,7 +2060,6 @@ def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
 
 def _location_is_excluded_from_alert_board(location: dict) -> bool:
     name = (location.get("name") or "").strip().lower()
-    status = (location.get("status") or "").strip().lower()
     location_type = (location.get("location_type") or "").strip().lower()
     tags = set()
     for tag in location.get("tags") or []:
@@ -2055,7 +2071,7 @@ def _location_is_excluded_from_alert_board(location: dict) -> bool:
             tags.add(tag_name.strip().lower())
     return bool(
         (name and name in ALERT_BOARD_EXCLUDED_LOCATION_NAMES)
-        or (status and status in ALERT_BOARD_EXCLUDED_LOCATION_STATUSES)
+        or _status_is_excluded(location.get("status"), ALERT_BOARD_EXCLUDED_LOCATION_STATUSES)
         or (location_type and location_type in ALERT_BOARD_EXCLUDED_LOCATION_TYPES)
         or (tags & ALERT_BOARD_EXCLUDED_LOCATION_TAGS)
     )
@@ -2420,8 +2436,13 @@ def _get_location_devices_and_alert(
     snapshot_only: bool = False,
     require_primary_ip: bool = False,
     override_map: dict | None = None,
+    excluded_device_statuses: set[str] | None = None,
 ) -> tuple[list, dict]:
-    """Return ``(devices, alert)`` for a location."""
+    """Return ``(devices, alert)`` for a location.
+
+    Devices whose Nautobot status is in *excluded_device_statuses* are dropped
+    before scoring and before the LibreNMS merge (#151).
+    """
     use_normalized_devices = devices_already_normalized
     if devices_data is None:
         devices_data = _read_cached_devices(location_id)
@@ -2458,6 +2479,10 @@ def _get_location_devices_and_alert(
     )
     if require_primary_ip:
         devices = [device for device in devices if _device_has_primary_ip(device)]
+    if excluded_device_statuses:
+        devices = [
+            device for device in devices if not _status_is_excluded(device.get("status"), excluded_device_statuses)
+        ]
 
     enriched = _enrich_with_librenms(
         devices,
@@ -3086,6 +3111,7 @@ def _build_alert_board_payload(
                     lnms_id_map=lnms_id_map,
                     snapshot_only=snapshot_only,
                     require_primary_ip=True,
+                    excluded_device_statuses=ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
                     **bulk_kwargs,
                 )
             except Exception as exc:

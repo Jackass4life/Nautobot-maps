@@ -71,9 +71,10 @@ python app.py
 | `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs into the persistence database. Syncs run in the background, started by page requests once due |
 | `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between LibreNMS status refreshes, started the same way. The alert board counts down to the sooner of the two |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` | ❌ | `graveyard,warehouse` | Comma/semicolon-separated location types hidden from `/api/alerts` and the alert board by default |
-| `ALERT_BOARD_EXCLUDED_LOCATION_STATUSES` | ❌ | — | Optional comma/semicolon-separated location statuses hidden from the alert board |
+| `ALERT_BOARD_EXCLUDED_LOCATION_STATUSES` | ❌ | — | Optional comma/semicolon-separated location statuses hidden from the alert board; `null` matches an empty status |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | ❌ | — | Optional comma/semicolon-separated Nautobot tag names hidden from the alert board |
 | `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | ❌ | — | Optional fallback comma/semicolon-separated location names hidden from the alert board |
+| `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | ❌ | — | Optional comma/semicolon-separated device statuses ignored on the alert board (not counted, not listed); `null` matches an empty status |
 | `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
 | `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |
 | `AUTH_HEADER_GROUPS` | ❌ | `X-Forwarded-Groups` | Header-mode group header supplied by a trusted reverse proxy |
@@ -231,6 +232,12 @@ Non-operational locations are hidden server-side by default when their location 
 An open alert board keeps itself up to date. Next to the Refresh button it shows **"Next update in m:ss"**, the time until the next inventory sync is due (the sooner of `INVENTORY_SYNC_INTERVAL_SECONDS` and `LIBRENMS_SYNC_INTERVAL_SECONDS`). At zero the board reloads in the background, which starts the sync, and the new data appears when it finishes ("Updating…" meanwhile). Refresh syncs immediately and restarts the countdown.
 
 Syncs are started by requests, not by a scheduler: with no page open, nothing syncs and no alert history is recorded (#154).
+Devices can be ignored by status with `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES`: they are not counted as monitored or down and are not listed, so for example a Decommissioning device no longer makes its site Critical. This applies whether or not non-operational locations are shown. In both status settings, `null` matches a missing or empty status:
+
+```bash
+ALERT_BOARD_EXCLUDED_LOCATION_STATUSES=null,decommissioning,planned
+ALERT_BOARD_EXCLUDED_DEVICE_STATUSES=null,decommissioning,planned
+```
 
 ## Inventory-backed reads
 
