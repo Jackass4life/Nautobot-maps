@@ -45,14 +45,19 @@ extension), or start it in GitHub Codespaces. It provides:
 
 - Python 3.11 (the oldest version CI tests) with `requirements-dev.txt` installed, so
   `pytest` and `ruff check .` work straight away
+- PostgreSQL 16 on `localhost:5432` (user and password `nautobot_maps`), with a
+  `nautobot_maps` database for the app and a `nautobot_maps_test` database for pytest
+  (`TEST_DATABASE_URL` is preset). Data is kept in a Docker volume across rebuilds.
 - Node, used by the JavaScript runtime checks in the test suite
 - GitHub CLI (`gh`) and Claude Code
 - The Python and Ruff VS Code extensions
 - Port 5000 forwarded for `python app.py`. If 5000 is already taken on your machine, VS Code
   picks another local port; check the **Ports** view.
 
-You still need a `.env` (see the README) to point the app at a Nautobot instance. Feature
-versions are pinned in `.devcontainer/devcontainer-lock.json`.
+You still need a `.env` (see the README) to point the app at a Nautobot instance; for the
+alert board add `NAUTOBOT_MAPS_DATABASE_URL=postgresql://nautobot_maps:nautobot_maps@localhost:5432/nautobot_maps`.
+Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After changes to
+`.devcontainer/`, run **Dev Containers: Rebuild Container**.
 
 ### Code Style
 
@@ -68,6 +73,9 @@ versions are pinned in `.devcontainer/devcontainer-lock.json`.
 
 - Add tests for new functionality.
 - Ensure all existing tests pass before submitting a pull request.
+- Tests that need the database use the `pg_database` fixture (`tests/conftest.py`): each gets
+  its own empty PostgreSQL schema in `TEST_DATABASE_URL`, dropped afterwards. Without
+  `TEST_DATABASE_URL` those tests are skipped locally; in CI they fail instead.
 - Both unit tests (mocked) and integration tests are welcome.
 
 ## Code of Conduct

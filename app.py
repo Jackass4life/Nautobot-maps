@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import threading
 import warnings
 from contextlib import contextmanager
@@ -66,8 +65,8 @@ LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
 LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 LIBRENMS_VERIFY_SSL = os.getenv("LIBRENMS_VERIFY_SSL", "true").strip().lower() not in ("0", "false", "no")
 
-# SQLite database path (leave empty to disable persistence features)
-NAUTOBOT_MAPS_DB = os.getenv("NAUTOBOT_MAPS_DB", "")
+# Removed in #153 (SQLite support); only read to warn when it is still set.
+_LEGACY_SQLITE_DB = os.getenv("NAUTOBOT_MAPS_DB", "").strip()
 NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
 
 # Optional authentication / RBAC configuration
@@ -167,10 +166,15 @@ def _status_is_excluded(status: str | None, excluded: set[str]) -> bool:
 
 def _log_alert_board_exclusions() -> None:
     """Log the alert-board configuration once at startup."""
+    if _LEGACY_SQLITE_DB:
+        logger.error(
+            "NAUTOBOT_MAPS_DB is set, but SQLite support was removed: the alert board "
+            "needs PostgreSQL. Set NAUTOBOT_MAPS_DATABASE_URL=postgresql://... and remove NAUTOBOT_MAPS_DB."
+        )
     if not _current_persistence_dialect():
         logger.warning(
-            "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL / "
-            "NAUTOBOT_MAPS_DB): the alert board will stay empty; the map still works."
+            "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "
+            "the alert board will stay empty; the map still works."
         )
     logger.info(
         "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s",
@@ -277,31 +281,21 @@ def require_role(required_role: str):
 
 
 # ---------------------------------------------------------------------------
-# Persistence (PostgreSQL preferred; SQLite fallback)
+# Persistence (PostgreSQL)
 # ---------------------------------------------------------------------------
 
 
 def _current_persistence_dialect() -> str:
+    """Return ``"postgres"`` when a PostgreSQL URL is configured, else ``""``."""
     db_url = (NAUTOBOT_MAPS_DATABASE_URL or "").strip()
     if db_url.lower().startswith(("postgres://", "postgresql://")):
         return "postgres"
-    if NAUTOBOT_MAPS_DB:
-        return "sqlite"
     return ""
-
-
-def _is_postgres() -> bool:
-    return _current_persistence_dialect() == "postgres"
 
 
 @contextmanager
 def _db_transaction(conn):
-    transaction = getattr(conn, "transaction", None)
-    if callable(transaction):
-        with transaction():
-            yield conn
-        return
-    with conn:
+    with conn.transaction():
         yield conn
 
 
@@ -316,8 +310,6 @@ def _row_to_dict(row) -> dict:
         return {}
     if isinstance(row, dict):
         return {k: _serialize_value(v) for k, v in row.items()}
-    if isinstance(row, sqlite3.Row):
-        return {k: _serialize_value(v) for k, v in dict(row).items()}
     try:
         data = dict(row)
         return {k: _serialize_value(v) for k, v in data.items()}
@@ -326,12 +318,11 @@ def _row_to_dict(row) -> dict:
 
 
 def _sql_placeholders(count: int) -> str:
-    token = "%s" if _is_postgres() else "?"
-    return ",".join(token for _ in range(count))
+    return ",".join("%s" for _ in range(count))
 
 
 def _sql_now() -> str:
-    return "CURRENT_TIMESTAMP" if _is_postgres() else "datetime('now')"
+    return "CURRENT_TIMESTAMP"
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -389,30 +380,23 @@ def _advisory_lock_key(name: str) -> int:
 
 
 def _get_db_conn():
-    """Return a persistence connection, or ``None`` when persistence is disabled."""
-    dialect = _current_persistence_dialect()
-    if dialect == "postgres":
-        if psycopg is None:
-            logger.error(
-                "NAUTOBOT_MAPS_DATABASE_URL is set but psycopg is unavailable; "
-                "install psycopg to enable PostgreSQL persistence"
-            )
-            return None
-        return psycopg.connect(
-            NAUTOBOT_MAPS_DATABASE_URL,
-            row_factory=dict_row,
-            autocommit=True,
+    """Return a PostgreSQL connection, or ``None`` when persistence is disabled."""
+    if not _current_persistence_dialect():
+        return None
+    if psycopg is None:
+        logger.error(
+            "NAUTOBOT_MAPS_DATABASE_URL is set but psycopg is unavailable; "
+            "install psycopg to enable PostgreSQL persistence"
         )
-    if dialect == "sqlite":
-        conn = sqlite3.connect(NAUTOBOT_MAPS_DB)
-        conn.row_factory = sqlite3.Row
-        return conn
-    return None
+        return None
+    return psycopg.connect(
+        NAUTOBOT_MAPS_DATABASE_URL,
+        row_factory=dict_row,
+        autocommit=True,
+    )
 
 
 def _acquire_db_inventory_lock(name: str):
-    if not _is_postgres():
-        return None
     conn = _get_db_conn()
     if conn is None:
         return None
@@ -446,476 +430,221 @@ def _init_db() -> None:
         return
     try:
         with _db_transaction(conn):
-            if _is_postgres():
-                conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
+            conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS device_criticality_override (
+                    nautobot_device_id TEXT PRIMARY KEY,
+                    is_critical        INTEGER NOT NULL DEFAULT 1,
+                    reason             TEXT    NOT NULL DEFAULT '',
+                    updated_by         TEXT    NOT NULL DEFAULT '',
+                    updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS librenms_device_map (
+                    nautobot_device_id  TEXT PRIMARY KEY,
+                    librenms_device_id  INTEGER NOT NULL,
+                    librenms_hostname   TEXT    NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inventory_sync_state (
+                    source               TEXT PRIMARY KEY,
+                    last_started_at      TIMESTAMPTZ,
+                    last_completed_at    TIMESTAMPTZ,
+                    last_successful_sync TIMESTAMPTZ,
+                    cache_version        TEXT NOT NULL DEFAULT '',
+                    status               TEXT NOT NULL DEFAULT 'idle',
+                    error_message        TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS nautobot_location_cache (
+                    location_id       TEXT PRIMARY KEY,
+                    name              TEXT NOT NULL DEFAULT '',
+                    slug              TEXT NOT NULL DEFAULT '',
+                    status            TEXT NOT NULL DEFAULT '',
+                    location_type     TEXT NOT NULL DEFAULT '',
+                    parent            TEXT NOT NULL DEFAULT '',
+                    latitude          DOUBLE PRECISION,
+                    longitude         DOUBLE PRECISION,
+                    description       TEXT NOT NULL DEFAULT '',
+                    physical_address  TEXT NOT NULL DEFAULT '',
+                    facility          TEXT NOT NULL DEFAULT '',
+                    tenant            TEXT NOT NULL DEFAULT '',
+                    tenant_id         TEXT NOT NULL DEFAULT '',
+                    tenant_group      TEXT NOT NULL DEFAULT '',
+                    asn               BIGINT,
+                    time_zone         TEXT,
+                    tags_json         TEXT NOT NULL DEFAULT '[]',
+                    url               TEXT NOT NULL DEFAULT '',
+                    last_updated      TIMESTAMPTZ,
+                    synced_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS nautobot_device_cache (
+                    device_id      TEXT PRIMARY KEY,
+                    location_id    TEXT NOT NULL DEFAULT '',
+                    name           TEXT NOT NULL DEFAULT '',
+                    device_type    TEXT NOT NULL DEFAULT '',
+                    manufacturer   TEXT NOT NULL DEFAULT '',
+                    role           TEXT NOT NULL DEFAULT '',
+                    status         TEXT NOT NULL DEFAULT '',
+                    primary_ip     TEXT NOT NULL DEFAULT '',
+                    platform       TEXT NOT NULL DEFAULT '',
+                    serial         TEXT NOT NULL DEFAULT '',
+                    tenant         TEXT NOT NULL DEFAULT '',
+                    last_updated   TIMESTAMPTZ,
+                    synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS librenms_device_status (
+                    device_id      INTEGER PRIMARY KEY,
+                    hostname       TEXT NOT NULL DEFAULT '',
+                    ip             TEXT NOT NULL DEFAULT '',
+                    status         INTEGER,
+                    status_raw     TEXT NOT NULL DEFAULT '',
+                    status_reason  TEXT NOT NULL DEFAULT '',
+                    synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_instances (
+                    id                     BIGSERIAL PRIMARY KEY,
+                    alert_key              TEXT NOT NULL,
+                    site_id                TEXT NOT NULL,
+                    site_name              TEXT NOT NULL DEFAULT '',
+                    device_id              TEXT NOT NULL,
+                    device_name            TEXT NOT NULL DEFAULT '',
+                    alert_level            TEXT NOT NULL DEFAULT 'unknown',
+                    alert_reason           TEXT NOT NULL DEFAULT '',
+                    status                 TEXT NOT NULL DEFAULT 'open',
+                    down_started_at        TIMESTAMPTZ NOT NULL,
+                    last_seen_down_at      TIMESTAMPTZ NOT NULL,
+                    resolved_at            TIMESTAMPTZ,
+                    total_downtime_seconds BIGINT NOT NULL DEFAULT 0,
+                    created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_events (
+                    id                BIGSERIAL PRIMARY KEY,
+                    alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
+                    event_type        TEXT NOT NULL,
+                    event_at          TIMESTAMPTZ NOT NULL,
+                    alert_level       TEXT NOT NULL DEFAULT 'unknown',
+                    alert_reason      TEXT NOT NULL DEFAULT '',
+                    snapshot_json     TEXT NOT NULL DEFAULT '{}',
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_cases (
+                    id                BIGSERIAL PRIMARY KEY,
+                    alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
+                    case_number       TEXT NOT NULL,
+                    created_by        TEXT NOT NULL DEFAULT '',
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(alert_instance_id, case_number)
+                )
+                """
+            )
+            primary_ip_column_missing = _row_to_dict(
                 conn.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS device_criticality_override (
-                        nautobot_device_id TEXT PRIMARY KEY,
-                        is_critical        INTEGER NOT NULL DEFAULT 1,
-                        reason             TEXT    NOT NULL DEFAULT '',
-                        updated_by         TEXT    NOT NULL DEFAULT '',
-                        updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
+                    SELECT NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'nautobot_device_cache'
+                          AND column_name = 'primary_ip'
+                    ) AS missing
                     """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS librenms_device_map (
-                        nautobot_device_id  TEXT PRIMARY KEY,
-                        librenms_device_id  INTEGER NOT NULL,
-                        librenms_hostname   TEXT    NOT NULL DEFAULT ''
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS inventory_sync_state (
-                        source               TEXT PRIMARY KEY,
-                        last_started_at      TIMESTAMPTZ,
-                        last_completed_at    TIMESTAMPTZ,
-                        last_successful_sync TIMESTAMPTZ,
-                        cache_version        TEXT NOT NULL DEFAULT '',
-                        status               TEXT NOT NULL DEFAULT 'idle',
-                        error_message        TEXT NOT NULL DEFAULT ''
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS nautobot_location_cache (
-                        location_id       TEXT PRIMARY KEY,
-                        name              TEXT NOT NULL DEFAULT '',
-                        slug              TEXT NOT NULL DEFAULT '',
-                        status            TEXT NOT NULL DEFAULT '',
-                        location_type     TEXT NOT NULL DEFAULT '',
-                        parent            TEXT NOT NULL DEFAULT '',
-                        latitude          DOUBLE PRECISION,
-                        longitude         DOUBLE PRECISION,
-                        description       TEXT NOT NULL DEFAULT '',
-                        physical_address  TEXT NOT NULL DEFAULT '',
-                        facility          TEXT NOT NULL DEFAULT '',
-                        tenant            TEXT NOT NULL DEFAULT '',
-                        tenant_id         TEXT NOT NULL DEFAULT '',
-                        tenant_group      TEXT NOT NULL DEFAULT '',
-                        asn               BIGINT,
-                        time_zone         TEXT,
-                        tags_json         TEXT NOT NULL DEFAULT '[]',
-                        url               TEXT NOT NULL DEFAULT '',
-                        last_updated      TIMESTAMPTZ,
-                        synced_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS nautobot_device_cache (
-                        device_id      TEXT PRIMARY KEY,
-                        location_id    TEXT NOT NULL DEFAULT '',
-                        name           TEXT NOT NULL DEFAULT '',
-                        device_type    TEXT NOT NULL DEFAULT '',
-                        manufacturer   TEXT NOT NULL DEFAULT '',
-                        role           TEXT NOT NULL DEFAULT '',
-                        status         TEXT NOT NULL DEFAULT '',
-                        primary_ip     TEXT NOT NULL DEFAULT '',
-                        platform       TEXT NOT NULL DEFAULT '',
-                        serial         TEXT NOT NULL DEFAULT '',
-                        tenant         TEXT NOT NULL DEFAULT '',
-                        last_updated   TIMESTAMPTZ,
-                        synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS librenms_device_status (
-                        device_id      INTEGER PRIMARY KEY,
-                        hostname       TEXT NOT NULL DEFAULT '',
-                        ip             TEXT NOT NULL DEFAULT '',
-                        status         INTEGER,
-                        status_raw     TEXT NOT NULL DEFAULT '',
-                        status_reason  TEXT NOT NULL DEFAULT '',
-                        synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS alert_instances (
-                        id                     BIGSERIAL PRIMARY KEY,
-                        alert_key              TEXT NOT NULL,
-                        site_id                TEXT NOT NULL,
-                        site_name              TEXT NOT NULL DEFAULT '',
-                        device_id              TEXT NOT NULL,
-                        device_name            TEXT NOT NULL DEFAULT '',
-                        alert_level            TEXT NOT NULL DEFAULT 'unknown',
-                        alert_reason           TEXT NOT NULL DEFAULT '',
-                        status                 TEXT NOT NULL DEFAULT 'open',
-                        down_started_at        TIMESTAMPTZ NOT NULL,
-                        last_seen_down_at      TIMESTAMPTZ NOT NULL,
-                        resolved_at            TIMESTAMPTZ,
-                        total_downtime_seconds BIGINT NOT NULL DEFAULT 0,
-                        created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS alert_events (
-                        id                BIGSERIAL PRIMARY KEY,
-                        alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
-                        event_type        TEXT NOT NULL,
-                        event_at          TIMESTAMPTZ NOT NULL,
-                        alert_level       TEXT NOT NULL DEFAULT 'unknown',
-                        alert_reason      TEXT NOT NULL DEFAULT '',
-                        snapshot_json     TEXT NOT NULL DEFAULT '{}',
-                        created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS alert_cases (
-                        id                BIGSERIAL PRIMARY KEY,
-                        alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
-                        case_number       TEXT NOT NULL,
-                        created_by        TEXT NOT NULL DEFAULT '',
-                        created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(alert_instance_id, case_number)
-                    )
-                    """
-                )
-            else:
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS device_criticality_override (
-                        nautobot_device_id TEXT PRIMARY KEY,
-                        is_critical        INTEGER NOT NULL DEFAULT 1,
-                        reason             TEXT    NOT NULL DEFAULT '',
-                        updated_by         TEXT    NOT NULL DEFAULT '',
-                        updated_at         TEXT    NOT NULL DEFAULT (datetime('now'))
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS librenms_device_map (
-                        nautobot_device_id  TEXT PRIMARY KEY,
-                        librenms_device_id  INTEGER NOT NULL,
-                        librenms_hostname   TEXT    NOT NULL DEFAULT ''
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS inventory_sync_state (
-                        source               TEXT PRIMARY KEY,
-                        last_started_at      TEXT,
-                        last_completed_at    TEXT,
-                        last_successful_sync TEXT,
-                        cache_version        TEXT NOT NULL DEFAULT '',
-                        status               TEXT NOT NULL DEFAULT 'idle',
-                        error_message        TEXT NOT NULL DEFAULT ''
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS nautobot_location_cache (
-                        location_id       TEXT PRIMARY KEY,
-                        name              TEXT NOT NULL DEFAULT '',
-                        slug              TEXT NOT NULL DEFAULT '',
-                        status            TEXT NOT NULL DEFAULT '',
-                        location_type     TEXT NOT NULL DEFAULT '',
-                        parent            TEXT NOT NULL DEFAULT '',
-                        latitude          REAL,
-                        longitude         REAL,
-                        description       TEXT NOT NULL DEFAULT '',
-                        physical_address  TEXT NOT NULL DEFAULT '',
-                        facility          TEXT NOT NULL DEFAULT '',
-                        tenant            TEXT NOT NULL DEFAULT '',
-                        tenant_id         TEXT NOT NULL DEFAULT '',
-                        tenant_group      TEXT NOT NULL DEFAULT '',
-                        asn               INTEGER,
-                        time_zone         TEXT,
-                        tags_json         TEXT NOT NULL DEFAULT '[]',
-                        url               TEXT NOT NULL DEFAULT '',
-                        last_updated      TEXT,
-                        synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS nautobot_device_cache (
-                        device_id      TEXT PRIMARY KEY,
-                        location_id    TEXT NOT NULL DEFAULT '',
-                        name           TEXT NOT NULL DEFAULT '',
-                        device_type    TEXT NOT NULL DEFAULT '',
-                        manufacturer   TEXT NOT NULL DEFAULT '',
-                        role           TEXT NOT NULL DEFAULT '',
-                        status         TEXT NOT NULL DEFAULT '',
-                        primary_ip     TEXT NOT NULL DEFAULT '',
-                        platform       TEXT NOT NULL DEFAULT '',
-                        serial         TEXT NOT NULL DEFAULT '',
-                        tenant         TEXT NOT NULL DEFAULT '',
-                        last_updated   TEXT,
-                        synced_at      TEXT NOT NULL DEFAULT (datetime('now'))
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS librenms_device_status (
-                        device_id      INTEGER PRIMARY KEY,
-                        hostname       TEXT NOT NULL DEFAULT '',
-                        ip             TEXT NOT NULL DEFAULT '',
-                        status         INTEGER,
-                        status_raw     TEXT NOT NULL DEFAULT '',
-                        status_reason  TEXT NOT NULL DEFAULT '',
-                        synced_at      TEXT NOT NULL DEFAULT (datetime('now'))
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS alert_instances (
-                        id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-                        alert_key              TEXT NOT NULL,
-                        site_id                TEXT NOT NULL,
-                        site_name              TEXT NOT NULL DEFAULT '',
-                        device_id              TEXT NOT NULL,
-                        device_name            TEXT NOT NULL DEFAULT '',
-                        alert_level            TEXT NOT NULL DEFAULT 'unknown',
-                        alert_reason           TEXT NOT NULL DEFAULT '',
-                        status                 TEXT NOT NULL DEFAULT 'open',
-                        down_started_at        TEXT NOT NULL,
-                        last_seen_down_at      TEXT NOT NULL,
-                        resolved_at            TEXT,
-                        total_downtime_seconds INTEGER NOT NULL DEFAULT 0,
-                        created_at             TEXT NOT NULL DEFAULT (datetime('now')),
-                        updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS alert_events (
-                        id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                        alert_instance_id INTEGER NOT NULL,
-                        event_type        TEXT NOT NULL,
-                        event_at          TEXT NOT NULL,
-                        alert_level       TEXT NOT NULL DEFAULT 'unknown',
-                        alert_reason      TEXT NOT NULL DEFAULT '',
-                        snapshot_json     TEXT NOT NULL DEFAULT '{}',
-                        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-                        FOREIGN KEY(alert_instance_id) REFERENCES alert_instances(id) ON DELETE CASCADE
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS alert_cases (
-                        id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                        alert_instance_id INTEGER NOT NULL,
-                        case_number       TEXT NOT NULL,
-                        created_by        TEXT NOT NULL DEFAULT '',
-                        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-                        UNIQUE(alert_instance_id, case_number),
-                        FOREIGN KEY(alert_instance_id) REFERENCES alert_instances(id) ON DELETE CASCADE
-                    )
-                    """
-                )
-                time_zone_column = next(
-                    (
-                        column
-                        for column in conn.execute("PRAGMA table_info(nautobot_location_cache)").fetchall()
-                        if column["name"] == "time_zone"
-                    ),
-                    None,
-                )
-                if time_zone_column and time_zone_column["notnull"]:
-                    legacy_schema_objects = conn.execute(
-                        """
-                        SELECT type, name, sql
-                        FROM sqlite_master
-                        WHERE tbl_name = 'nautobot_location_cache'
-                          AND type IN ('index', 'trigger')
-                          AND sql IS NOT NULL
-                        """
-                    ).fetchall()
-                    conn.execute("ALTER TABLE nautobot_location_cache RENAME TO nautobot_location_cache_legacy")
-                    conn.execute(
-                        """
-                        CREATE TABLE nautobot_location_cache (
-                            location_id       TEXT PRIMARY KEY,
-                            name              TEXT NOT NULL DEFAULT '',
-                            slug              TEXT NOT NULL DEFAULT '',
-                            status            TEXT NOT NULL DEFAULT '',
-                            location_type     TEXT NOT NULL DEFAULT '',
-                            parent            TEXT NOT NULL DEFAULT '',
-                            latitude          REAL,
-                            longitude         REAL,
-                            description       TEXT NOT NULL DEFAULT '',
-                            physical_address  TEXT NOT NULL DEFAULT '',
-                            facility          TEXT NOT NULL DEFAULT '',
-                            tenant            TEXT NOT NULL DEFAULT '',
-                            tenant_id         TEXT NOT NULL DEFAULT '',
-                            tenant_group      TEXT NOT NULL DEFAULT '',
-                            asn               INTEGER,
-                            time_zone         TEXT,
-                            tags_json         TEXT NOT NULL DEFAULT '[]',
-                            url               TEXT NOT NULL DEFAULT '',
-                            last_updated      TEXT,
-                            synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
-                        )
-                        """
-                    )
-                    conn.execute(
-                        """
-                        INSERT INTO nautobot_location_cache (
-                            location_id, name, slug, status, location_type, parent, latitude, longitude,
-                            description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                            time_zone, tags_json, url, last_updated, synced_at
-                        )
-                        SELECT
-                            location_id, name, slug, status, location_type, parent, latitude, longitude,
-                            description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                            time_zone, tags_json, url, last_updated, synced_at
-                        FROM nautobot_location_cache_legacy
-                        """
-                    )
-                    conn.execute("DROP TABLE nautobot_location_cache_legacy")
-                    for schema_object in legacy_schema_objects:
-                        object_type = schema_object["type"].upper()
-                        conn.execute(f"DROP {object_type} IF EXISTS {schema_object['name']}")
-                        schema_sql = schema_object["sql"].replace(
-                            "nautobot_location_cache_legacy",
-                            "nautobot_location_cache",
-                        )
-                        conn.execute(schema_sql)
-                device_primary_ip_column = next(
-                    (
-                        column
-                        for column in conn.execute("PRAGMA table_info(nautobot_device_cache)").fetchall()
-                        if column["name"] == "primary_ip"
-                    ),
-                    None,
-                )
-                if device_primary_ip_column is None:
-                    conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT ''")
-                sync_state_cache_version_column = next(
-                    (
-                        column
-                        for column in conn.execute("PRAGMA table_info(inventory_sync_state)").fetchall()
-                        if column["name"] == "cache_version"
-                    ),
-                    None,
-                )
-                if sync_state_cache_version_column is None:
-                    conn.execute("ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT ''")
-                librenms_ip_column = next(
-                    (
-                        column
-                        for column in conn.execute("PRAGMA table_info(librenms_device_status)").fetchall()
-                        if column["name"] == "ip"
-                    ),
-                    None,
-                )
-                if librenms_ip_column is None:
-                    # Filled on the next LibreNMS sync, which rewrites the whole table.
-                    conn.execute("ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT ''")
-                if device_primary_ip_column is None:
-                    _mark_nautobot_inventory_sync_pending(conn)
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)")
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_nautobot_device_cache_location ON nautobot_device_cache(location_id)"
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_site_status ON alert_instances(site_id, status)"
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
-                )
-                conn.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
-                )
-            if _is_postgres():
-                primary_ip_column_missing = _row_to_dict(
-                    conn.execute(
-                        """
-                        SELECT NOT EXISTS (
-                            SELECT 1
-                            FROM information_schema.columns
-                            WHERE table_name = 'nautobot_device_cache'
-                              AND column_name = 'primary_ip'
-                        ) AS missing
-                        """
-                    ).fetchone()
-                ).get("missing")
-                conn.execute(
-                    """
-                    DO $$
-                    BEGIN
-                        IF EXISTS (
-                            SELECT 1
-                            FROM information_schema.columns
-                            WHERE table_name = 'nautobot_location_cache'
-                              AND column_name = 'time_zone'
-                              AND is_nullable = 'NO'
-                        ) THEN
-                            ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL;
-                        END IF;
-                        IF NOT EXISTS (
-                            SELECT 1
-                            FROM information_schema.columns
-                            WHERE table_name = 'nautobot_device_cache'
-                              AND column_name = 'primary_ip'
-                        ) THEN
-                            ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT '';
-                        END IF;
-                        IF NOT EXISTS (
-                            SELECT 1
-                            FROM information_schema.columns
-                            WHERE table_name = 'inventory_sync_state'
-                              AND column_name = 'cache_version'
-                        ) THEN
-                            ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT '';
-                        END IF;
-                        IF NOT EXISTS (
-                            SELECT 1
-                            FROM information_schema.columns
-                            WHERE table_name = 'librenms_device_status'
-                              AND column_name = 'ip'
-                        ) THEN
-                            ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT '';
-                        END IF;
-                    END;
-                    $$;
-                    """
-                )
-                if primary_ip_column_missing:
-                    _mark_nautobot_inventory_sync_pending(conn)
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)")
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_nautobot_device_cache_location ON nautobot_device_cache(location_id)"
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_alert_instances_site_status ON alert_instances(site_id, status)"
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
-                )
-                conn.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
-                )
+                ).fetchone()
+            ).get("missing")
+            conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'nautobot_location_cache'
+                          AND column_name = 'time_zone'
+                          AND is_nullable = 'NO'
+                    ) THEN
+                        ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'nautobot_device_cache'
+                          AND column_name = 'primary_ip'
+                    ) THEN
+                        ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT '';
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'inventory_sync_state'
+                          AND column_name = 'cache_version'
+                    ) THEN
+                        ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT '';
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'librenms_device_status'
+                          AND column_name = 'ip'
+                    ) THEN
+                        ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT '';
+                    END IF;
+                END;
+                $$;
+                """
+            )
+            if primary_ip_column_missing:
+                _mark_nautobot_inventory_sync_pending(conn)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_nautobot_device_cache_location ON nautobot_device_cache(location_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_alert_instances_site_status ON alert_instances(site_id, status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
+            )
     finally:
         conn.close()
-    logger.info(
-        "Nautobot Maps persistence initialised (%s)",
-        "postgres" if _is_postgres() else ("sqlite" if _current_persistence_dialect() == "sqlite" else "disabled"),
-    )
+    logger.info("Nautobot Maps persistence initialised (postgres)")
 
 
 def _mark_nautobot_inventory_sync_pending(conn) -> None:
@@ -2170,7 +1899,7 @@ def compute_alert_level(
     * **critical** – at least one device whose role contains a core-network
       keyword has a down status.  The keyword set is resolved from
       ``CRITICAL_ROLE_KEYWORDS`` / ``CRITICALITY_RULES_FILE`` / the
-      per-device ``is_critical`` override stored in the SQLite DB.
+      per-device ``is_critical`` override stored in the database.
     * **medium**   – more than 25 % of all devices have a down status.
     * **ok**       – neither condition above is met (or no devices present).
 
@@ -2299,7 +2028,7 @@ def _enrich_with_librenms(
 
     For each device, LibreNMS is queried by hostname.  The mapping between
     Nautobot device IDs and LibreNMS device IDs is persisted in the
-    ``librenms_device_map`` SQLite table when the DB is configured.
+    ``librenms_device_map`` table when the DB is configured.
 
     LibreNMS ``status`` field: ``1`` = up, ``0`` = down.  When LibreNMS
     reports a device as down but Nautobot has it as active, the status is
@@ -2390,7 +2119,7 @@ def _enrich_with_librenms(
 
 
 def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, librenms_hostname: str) -> None:
-    """Upsert a Nautobot ↔ LibreNMS device mapping into the SQLite DB."""
+    """Upsert a Nautobot ↔ LibreNMS device mapping into the database."""
     conn = _get_db_conn()
     if conn is None:
         return
@@ -2640,7 +2369,7 @@ def _upsert_alert_lifecycle_for_site(
                 if latest_row is None:
                     now_sql = _sql_now()
                     p = _sql_placeholders(10).split(",")
-                    conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING" if _is_postgres() else ""
+                    conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
                     inserted = conn.execute(
                         f"""
                         INSERT INTO alert_instances

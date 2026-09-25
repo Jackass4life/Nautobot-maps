@@ -2014,26 +2014,11 @@ class TestLocationDetailWithLocationType:
 # Tests: criticality override REST endpoints
 # ---------------------------------------------------------------------------
 class TestCriticalityOverrideEndpoints:
-    """Tests for /api/criticality-overrides (requires NAUTOBOT_MAPS_DB)."""
+    """Tests for /api/criticality-overrides (requires the persistence database)."""
 
-    def setup_method(self):
-        """Configure a temp-file SQLite DB for each test."""
-        import tempfile
-
-        self._orig_db = flask_app.NAUTOBOT_MAPS_DB
-        self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self._db_tmp.close()
-        flask_app.NAUTOBOT_MAPS_DB = self._db_tmp.name
-        flask_app._init_db()
-
-    def teardown_method(self):
-        flask_app.NAUTOBOT_MAPS_DB = self._orig_db
-        import os
-
-        try:
-            os.unlink(self._db_tmp.name)
-        except Exception:
-            pass
+    @pytest.fixture(autouse=True)
+    def _database(self, pg_database):
+        self.db = pg_database
 
     def test_list_empty(self, client):
         resp = client.get("/api/criticality-overrides")
@@ -2107,16 +2092,12 @@ class TestCriticalityOverrideEndpoints:
 
     def test_override_affects_compute_alert_level(self):
         """A device marked is_critical=False must not trigger a critical alert."""
-        # Insert the override directly via SQLite so we share the same connection
-        conn = flask_app._get_db_conn()
-        with conn:
-            conn.execute(
-                "INSERT INTO device_criticality_override "
-                "(nautobot_device_id, is_critical, reason, updated_by) "
-                "VALUES (?, ?, ?, ?)",
-                ("dev-fw", 0, "Local firewall – not critical", "test"),
-            )
-        conn.close()
+        self.db.execute(
+            "INSERT INTO device_criticality_override "
+            "(nautobot_device_id, is_critical, reason, updated_by) "
+            "VALUES (%s, %s, %s, %s)",
+            ("dev-fw", 0, "Local firewall – not critical", "test"),
+        )
 
         devices = [
             {"id": "dev-fw", "name": "fw-local", "role": "Core Router", "status": "offline"},
@@ -2127,9 +2108,9 @@ class TestCriticalityOverrideEndpoints:
         assert result["level"] != "critical"
 
     def test_no_db_returns_503(self, client):
-        """When NAUTOBOT_MAPS_DB is empty, override endpoints return 503."""
-        saved = flask_app.NAUTOBOT_MAPS_DB
-        flask_app.NAUTOBOT_MAPS_DB = ""
+        """Without a database URL, override endpoints return 503."""
+        saved = flask_app.NAUTOBOT_MAPS_DATABASE_URL
+        flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
         try:
             resp = client.get("/api/criticality-overrides")
             assert resp.status_code == 503
@@ -2140,7 +2121,7 @@ class TestCriticalityOverrideEndpoints:
             resp3 = client.delete("/api/criticality-overrides/x")
             assert resp3.status_code == 503
         finally:
-            flask_app.NAUTOBOT_MAPS_DB = saved
+            flask_app.NAUTOBOT_MAPS_DATABASE_URL = saved
 
     def test_requires_operator_role_when_auth_enabled(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
@@ -2184,27 +2165,9 @@ class TestCriticalityOverrideEndpoints:
 # Tests: alert lifecycle history and cases
 # ---------------------------------------------------------------------------
 class TestAlertLifecycleTracking:
-    def setup_method(self):
-        import tempfile
-
-        self._orig_db = flask_app.NAUTOBOT_MAPS_DB
-        self._orig_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
-        self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self._db_tmp.close()
-        flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
-        flask_app.NAUTOBOT_MAPS_DB = self._db_tmp.name
-        flask_app._init_db()
-        flask_app.cache.clear()
-
-    def teardown_method(self):
-        flask_app.NAUTOBOT_MAPS_DB = self._orig_db
-        flask_app.NAUTOBOT_MAPS_DATABASE_URL = self._orig_db_url
-        import os
-
-        try:
-            os.unlink(self._db_tmp.name)
-        except Exception:
-            pass
+    @pytest.fixture(autouse=True)
+    def _database(self, pg_database):
+        self.db = pg_database
 
     def test_api_alerts_contains_lifecycle_fields(self, client):
         with (
@@ -2458,7 +2421,7 @@ class TestAlertLifecycleTracking:
         conn = flask_app._get_db_conn()
         try:
             rows = conn.execute(
-                "SELECT status FROM alert_instances WHERE site_id = ? ORDER BY id DESC",
+                "SELECT status FROM alert_instances WHERE site_id = %s ORDER BY id DESC",
                 ("loc-1",),
             ).fetchall()
         finally:
@@ -2656,7 +2619,7 @@ class TestAlertLifecycleTracking:
 
         fake_conn = _FakeConn()
         checked_at = "2026-01-01T00:00:00Z"
-        with patch.object(flask_app, "_is_postgres", return_value=True):
+        with patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"):
             flask_app._upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
                 [{"id": "dev-1", "name": "router01", "status": "offline"}],
@@ -2733,7 +2696,7 @@ class TestAlertLifecycleTracking:
         fake_conn = _FakeConn()
         with (
             patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
-            patch.object(flask_app, "_is_postgres", return_value=True),
+            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
         ):
             flask_app._init_db()
 
@@ -2793,7 +2756,7 @@ class TestAlertLifecycleTracking:
         fake_conn = _FakeConn()
         with (
             patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
-            patch.object(flask_app, "_is_postgres", return_value=True),
+            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
         ):
             flask_app._init_db()
 
@@ -2866,7 +2829,7 @@ class TestAlertLifecycleTracking:
         fake_conn = _FakeConn()
         with (
             patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
-            patch.object(flask_app, "_is_postgres", return_value=True),
+            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
         ):
             flask_app._init_db()
 
@@ -2892,214 +2855,111 @@ class TestAlertLifecycleTracking:
             if "INSERT INTO inventory_sync_state" in query
         )
 
-    def test_init_db_sqlite_migrates_legacy_time_zone_not_null(self):
-        import os
-        import sqlite3
-        import tempfile
-
-        original_db = flask_app.NAUTOBOT_MAPS_DB
-        original_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
-        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        tmp.close()
-
-        try:
-            conn = sqlite3.connect(tmp.name)
-            conn.execute(
-                """
-                CREATE TABLE nautobot_location_cache (
-                    location_id       TEXT PRIMARY KEY,
-                    name              TEXT NOT NULL DEFAULT '',
-                    slug              TEXT NOT NULL DEFAULT '',
-                    status            TEXT NOT NULL DEFAULT '',
-                    location_type     TEXT NOT NULL DEFAULT '',
-                    parent            TEXT NOT NULL DEFAULT '',
-                    latitude          REAL,
-                    longitude         REAL,
-                    description       TEXT NOT NULL DEFAULT '',
-                    physical_address  TEXT NOT NULL DEFAULT '',
-                    facility          TEXT NOT NULL DEFAULT '',
-                    tenant            TEXT NOT NULL DEFAULT '',
-                    tenant_id         TEXT NOT NULL DEFAULT '',
-                    tenant_group      TEXT NOT NULL DEFAULT '',
-                    asn               INTEGER,
-                    time_zone         TEXT NOT NULL DEFAULT '',
-                    tags_json         TEXT NOT NULL DEFAULT '[]',
-                    url               TEXT NOT NULL DEFAULT '',
-                    last_updated      TEXT,
-                    synced_at         TEXT NOT NULL DEFAULT (datetime('now'))
-                )
-                """
+    def test_init_db_migrates_legacy_time_zone_not_null(self):
+        """Old databases had time_zone NOT NULL; _init_db relaxes it and keeps the rows."""
+        self.db.execute("DROP TABLE nautobot_location_cache")
+        self.db.execute(
+            """
+            CREATE TABLE nautobot_location_cache (
+                location_id  TEXT PRIMARY KEY,
+                name         TEXT NOT NULL DEFAULT '',
+                slug         TEXT NOT NULL DEFAULT '',
+                status       TEXT NOT NULL DEFAULT '',
+                location_type TEXT NOT NULL DEFAULT '',
+                parent       TEXT NOT NULL DEFAULT '',
+                latitude     DOUBLE PRECISION,
+                longitude    DOUBLE PRECISION,
+                description  TEXT NOT NULL DEFAULT '',
+                physical_address TEXT NOT NULL DEFAULT '',
+                facility     TEXT NOT NULL DEFAULT '',
+                tenant       TEXT NOT NULL DEFAULT '',
+                tenant_id    TEXT NOT NULL DEFAULT '',
+                tenant_group TEXT NOT NULL DEFAULT '',
+                asn          BIGINT,
+                time_zone    TEXT NOT NULL DEFAULT '',
+                tags_json    TEXT NOT NULL DEFAULT '[]',
+                url          TEXT NOT NULL DEFAULT '',
+                last_updated TIMESTAMPTZ,
+                synced_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
-            conn.execute(
-                """
-                INSERT INTO nautobot_location_cache (location_id, time_zone)
-                VALUES (?, ?)
-                """,
-                ("loc-legacy", "UTC"),
+            """
+        )
+        self.db.execute(
+            "INSERT INTO nautobot_location_cache (location_id, time_zone) VALUES (%s, %s)",
+            ("loc-legacy", "UTC"),
+        )
+
+        flask_app._init_db()
+
+        column = self.db.execute(
+            """
+            SELECT is_nullable FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'nautobot_location_cache'
+              AND column_name = 'time_zone'
+            """
+        )
+        assert column == [{"is_nullable": "YES"}]
+        self.db.execute(
+            "INSERT INTO nautobot_location_cache (location_id, time_zone) VALUES (%s, %s)",
+            ("loc-null", None),
+        )
+        rows = self.db.execute("SELECT location_id, time_zone FROM nautobot_location_cache ORDER BY location_id")
+        assert rows == [
+            {"location_id": "loc-legacy", "time_zone": "UTC"},
+            {"location_id": "loc-null", "time_zone": None},
+        ]
+
+    def test_init_db_marks_primary_ip_migration_pending(self):
+        """Adding the primary_ip column forces a fresh Nautobot sync to fill it."""
+        self.db.execute("ALTER TABLE nautobot_device_cache DROP COLUMN primary_ip")
+        self.db.execute("ALTER TABLE inventory_sync_state DROP COLUMN cache_version")
+        self.db.execute(
+            """
+            INSERT INTO inventory_sync_state
+                (source, last_started_at, last_completed_at, last_successful_sync, status, error_message)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                "nautobot_inventory",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:05:00Z",
+                "2026-01-01T00:05:00Z",
+                "idle",
+                "",
+            ),
+        )
+
+        flask_app._init_db()
+
+        columns = {
+            row["table_name"] + "." + row["column_name"]
+            for row in self.db.execute(
+                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()"
             )
-            conn.execute("CREATE INDEX idx_legacy_location_cache_name ON nautobot_location_cache(name)")
-            conn.execute(
-                """
-                CREATE TRIGGER trg_legacy_location_cache_insert
-                AFTER INSERT ON nautobot_location_cache
-                BEGIN
-                    UPDATE nautobot_location_cache
-                    SET url = NEW.url
-                    WHERE location_id = NEW.location_id;
-                END
-                """
-            )
-            conn.commit()
-            conn.close()
-
-            flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
-            flask_app.NAUTOBOT_MAPS_DB = tmp.name
-            flask_app._init_db()
-
-            conn = sqlite3.connect(tmp.name)
-            conn.row_factory = sqlite3.Row
-            columns = conn.execute("PRAGMA table_info(nautobot_location_cache)").fetchall()
-            time_zone_column = next(col for col in columns if col["name"] == "time_zone")
-            assert time_zone_column["notnull"] == 0
-            indexes = conn.execute("PRAGMA index_list(nautobot_location_cache)").fetchall()
-            assert any(idx["name"] == "idx_legacy_location_cache_name" for idx in indexes)
-            trigger = conn.execute(
-                """
-                SELECT sql
-                FROM sqlite_master
-                WHERE type = 'trigger'
-                  AND name = 'trg_legacy_location_cache_insert'
-                """
-            ).fetchone()
-            assert trigger is not None
-            assert "ON nautobot_location_cache" in trigger["sql"]
-            assert "nautobot_location_cache_legacy" not in trigger["sql"]
-
-            conn.execute(
-                """
-                INSERT INTO nautobot_location_cache (location_id, time_zone)
-                VALUES (?, ?)
-                """,
-                ("loc-null", None),
-            )
-            conn.commit()
-            inserted = conn.execute(
-                "SELECT time_zone FROM nautobot_location_cache WHERE location_id = ?",
-                ("loc-null",),
-            ).fetchone()
-            assert inserted["time_zone"] is None
-            conn.close()
-        finally:
-            flask_app.NAUTOBOT_MAPS_DB = original_db
-            flask_app.NAUTOBOT_MAPS_DATABASE_URL = original_db_url
-            try:
-                os.unlink(tmp.name)
-            except Exception:
-                pass
-
-    def test_init_db_sqlite_marks_primary_ip_migration_pending(self):
-        import os
-        import sqlite3
-        import tempfile
-
-        original_db = flask_app.NAUTOBOT_MAPS_DB
-        original_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
-        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        tmp.close()
-
-        try:
-            conn = sqlite3.connect(tmp.name)
-            conn.execute(
-                """
-                CREATE TABLE inventory_sync_state (
-                    source               TEXT PRIMARY KEY,
-                    last_started_at      TEXT,
-                    last_completed_at    TEXT,
-                    last_successful_sync TEXT,
-                    status               TEXT NOT NULL DEFAULT 'idle',
-                    error_message        TEXT NOT NULL DEFAULT ''
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE nautobot_device_cache (
-                    device_id      TEXT PRIMARY KEY,
-                    location_id    TEXT NOT NULL DEFAULT '',
-                    name           TEXT NOT NULL DEFAULT '',
-                    device_type    TEXT NOT NULL DEFAULT '',
-                    manufacturer   TEXT NOT NULL DEFAULT '',
-                    role           TEXT NOT NULL DEFAULT '',
-                    status         TEXT NOT NULL DEFAULT '',
-                    platform       TEXT NOT NULL DEFAULT '',
-                    serial         TEXT NOT NULL DEFAULT '',
-                    tenant         TEXT NOT NULL DEFAULT '',
-                    last_updated   TEXT,
-                    synced_at      TEXT NOT NULL DEFAULT (datetime('now'))
-                )
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO inventory_sync_state (
-                    source,
-                    last_started_at,
-                    last_completed_at,
-                    last_successful_sync,
-                    status,
-                    error_message
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "nautobot_inventory",
-                    "2026-01-01T00:00:00Z",
-                    "2026-01-01T00:05:00Z",
-                    "2026-01-01T00:05:00Z",
-                    "idle",
-                    "",
-                ),
-            )
-            conn.commit()
-            conn.close()
-
-            flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
-            flask_app.NAUTOBOT_MAPS_DB = tmp.name
-            flask_app._init_db()
-
-            conn = sqlite3.connect(tmp.name)
-            conn.row_factory = sqlite3.Row
-            columns = conn.execute("PRAGMA table_info(nautobot_device_cache)").fetchall()
-            sync_state_columns = conn.execute("PRAGMA table_info(inventory_sync_state)").fetchall()
-            assert any(col["name"] == "primary_ip" for col in columns)
-            assert any(col["name"] == "cache_version" for col in sync_state_columns)
-            state = conn.execute(
-                """
-                SELECT last_completed_at, last_successful_sync, cache_version, status
-                FROM inventory_sync_state
-                WHERE source = ?
-                """,
-                ("nautobot_inventory",),
-            ).fetchone()
-            assert state["last_completed_at"] is None
-            assert state["last_successful_sync"] is None
-            assert state["cache_version"] == ""
-            assert state["status"] == "pending"
-            conn.close()
-        finally:
-            flask_app.NAUTOBOT_MAPS_DB = original_db
-            flask_app.NAUTOBOT_MAPS_DATABASE_URL = original_db_url
-            try:
-                os.unlink(tmp.name)
-            except Exception:
-                pass
+        }
+        assert "nautobot_device_cache.primary_ip" in columns
+        assert "inventory_sync_state.cache_version" in columns
+        state = self.db.execute(
+            """
+            SELECT last_completed_at, last_successful_sync, cache_version, status
+            FROM inventory_sync_state
+            WHERE source = %s
+            """,
+            ("nautobot_inventory",),
+        )[0]
+        assert state == {
+            "last_completed_at": None,
+            "last_successful_sync": None,
+            "cache_version": "",
+            "status": "pending",
+        }
 
     def test_get_db_conn_postgres_enables_autocommit(self):
         sentinel_conn = object()
         sentinel_row_factory = object()
         with (
             patch.object(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"),
-            patch.object(flask_app, "NAUTOBOT_MAPS_DB", ""),
             patch.object(flask_app, "psycopg") as psycopg_module,
             patch.object(flask_app, "dict_row", sentinel_row_factory),
         ):
@@ -3116,39 +2976,13 @@ class TestAlertLifecycleTracking:
 
 
 class TestInventoryCacheSync:
-    def setup_method(self):
-        import tempfile
-
-        self._orig_db = flask_app.NAUTOBOT_MAPS_DB
-        self._orig_db_url = flask_app.NAUTOBOT_MAPS_DATABASE_URL
-        self._orig_nautobot_url = flask_app.NAUTOBOT_URL
-        self._orig_nautobot_token = flask_app.NAUTOBOT_TOKEN
-        self._orig_librenms_url = flask_app.LIBRENMS_URL
-        self._orig_librenms_token = flask_app.LIBRENMS_API_TOKEN
-        self._db_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self._db_tmp.close()
-        flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
-        flask_app.NAUTOBOT_MAPS_DB = self._db_tmp.name
-        flask_app.NAUTOBOT_URL = ""
-        flask_app.NAUTOBOT_TOKEN = ""
-        flask_app.LIBRENMS_URL = ""
-        flask_app.LIBRENMS_API_TOKEN = ""
-        flask_app._init_db()
-        flask_app.cache.clear()
-
-    def teardown_method(self):
-        flask_app.NAUTOBOT_MAPS_DB = self._orig_db
-        flask_app.NAUTOBOT_MAPS_DATABASE_URL = self._orig_db_url
-        flask_app.NAUTOBOT_URL = self._orig_nautobot_url
-        flask_app.NAUTOBOT_TOKEN = self._orig_nautobot_token
-        flask_app.LIBRENMS_URL = self._orig_librenms_url
-        flask_app.LIBRENMS_API_TOKEN = self._orig_librenms_token
-        import os
-
-        try:
-            os.unlink(self._db_tmp.name)
-        except Exception:
-            pass
+    @pytest.fixture(autouse=True)
+    def _database(self, pg_database, monkeypatch):
+        self.db = pg_database
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "")
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
         conn = flask_app._get_db_conn()
@@ -4684,10 +4518,7 @@ class TestDeviceDisplayIp:
 # ---------------------------------------------------------------------------
 class TestAlertBoardSyncProgress:
     @pytest.fixture(autouse=True)
-    def _sqlite_persistence(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
-        flask_app._init_db()
+    def _persistence(self, pg_database):
         flask_app.cache.clear()
         yield
         flask_app.cache.clear()
@@ -4825,7 +4656,7 @@ class TestAlertBoardSyncProgress:
         assert flask_app._inventory_update_schedule() == (False, None)
 
     def test_next_update_unknown_without_persistence(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
         assert flask_app._inventory_update_schedule() == (False, None)
 
     def test_empty_sync_interval_env_uses_default(self):
@@ -4865,7 +4696,7 @@ class TestAlertBoardSyncProgress:
         assert flask_app._nautobot_sync_in_progress() is False
 
     def test_no_sync_pending_without_persistence(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
         assert flask_app._nautobot_sync_in_progress() is False
 
     def test_adding_case_invalidates_cached_board(self, client):
@@ -4891,11 +4722,7 @@ class TestAlertBoardSyncProgress:
 # ---------------------------------------------------------------------------
 class TestMultiDeviceCases:
     @pytest.fixture(autouse=True)
-    def _sqlite_with_open_alerts(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
-        flask_app._init_db()
-        flask_app.cache.clear()
+    def _database_with_open_alerts(self, pg_database):
         flask_app._upsert_alert_lifecycle_for_site(
             {"id": "loc-1", "name": "Site One"},
             [
@@ -4974,21 +4801,18 @@ class TestMultiDeviceCases:
 class TestHealthz:
     def test_ok_without_persistence(self, client, monkeypatch):
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
         resp = client.get("/healthz")
         assert resp.status_code == 200
         assert resp.get_json() == {"status": "ok", "checks": {"app": "ok"}}
 
-    def test_ok_with_reachable_database(self, client, monkeypatch, tmp_path):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+    def test_ok_with_reachable_database(self, client, monkeypatch, pg_database):
         resp = client.get("/healthz")
         assert resp.status_code == 200
         assert resp.get_json()["checks"] == {"app": "ok", "database": "ok"}
 
     def test_unavailable_database_returns_503_without_details(self, client, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "/nonexistent-dir/maps.db")
+        # Nothing listens on port 1: connecting fails like a database outage.
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://nobody@127.0.0.1:1/none")
         resp = client.get("/healthz")
         assert resp.status_code == 503
         assert resp.get_json() == {
@@ -4998,7 +4822,6 @@ class TestHealthz:
 
     def test_makes_no_upstream_calls(self, client, monkeypatch):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
         with patch.object(flask_app.requests, "get", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/healthz")
@@ -5023,9 +4846,7 @@ class TestLibreNMSPolledIp:
     def test_polled_ip_selection(self, record, expected):
         assert flask_app._librenms_polled_ip(record) == expected
 
-    def test_sync_caches_polled_ip(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+    def test_sync_caches_polled_ip(self, monkeypatch, pg_database):
         monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.test")
         monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "tok")
         flask_app._init_db()
@@ -5060,24 +4881,11 @@ class TestLibreNMSPolledIp:
         device = {"primary_ip": "10.0.0.1/32", "librenms_ip": "192.0.2.7"}
         assert flask_app._device_display_ip(device) == "10.0.0.1"
 
-    def test_sqlite_migration_adds_ip_column_to_existing_table(self, monkeypatch, tmp_path):
-        import sqlite3
-
-        db = tmp_path / "legacy.db"
-        with sqlite3.connect(db) as legacy:
-            legacy.execute(
-                """
-                CREATE TABLE librenms_device_status (
-                    device_id INTEGER PRIMARY KEY, hostname TEXT NOT NULL DEFAULT '',
-                    status INTEGER, status_raw TEXT NOT NULL DEFAULT '',
-                    status_reason TEXT NOT NULL DEFAULT '',
-                    synced_at TEXT NOT NULL DEFAULT (datetime('now'))
-                )
-                """
-            )
-            legacy.execute("INSERT INTO librenms_device_status (device_id, hostname, status) VALUES (7, 'router01', 1)")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(db))
+    def test_migration_adds_ip_column_to_existing_table(self, pg_database):
+        pg_database.execute("ALTER TABLE librenms_device_status DROP COLUMN ip")
+        pg_database.execute(
+            "INSERT INTO librenms_device_status (device_id, hostname, status) VALUES (7, 'router01', 1)"
+        )
         flask_app._init_db()
         assert flask_app._read_cached_librenms_inventory() == [
             {"device_id": 7, "hostname": "router01", "ip": "", "status": 1}
@@ -5117,7 +4925,7 @@ class TestLibreNMSPolledIp:
         conn = _Conn()
         with (
             patch.object(flask_app, "_get_db_conn", return_value=conn),
-            patch.object(flask_app, "_is_postgres", return_value=True),
+            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
         ):
             flask_app._init_db()
         sql = "\n".join(conn.queries)
@@ -5131,7 +4939,6 @@ class TestLibreNMSPolledIp:
 class TestAlertBoardWithoutPersistence:
     def test_payload_reports_missing_database(self, client, monkeypatch):
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
         flask_app.cache.clear()
         with patch.object(
             flask_app,
@@ -5146,9 +4953,7 @@ class TestAlertBoardWithoutPersistence:
         assert data["persistence_configured"] is False
         assert data["sync_pending"] is False
 
-    def test_payload_reports_configured_database(self, client, monkeypatch, tmp_path):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+    def test_payload_reports_configured_database(self, client, monkeypatch, pg_database):
         flask_app._init_db()
         flask_app.cache.clear()
         with (
@@ -5164,14 +4969,18 @@ class TestAlertBoardWithoutPersistence:
 
     def test_startup_log_warns_without_database(self, monkeypatch, caplog):
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
         with caplog.at_level("WARNING", logger="app"):
             flask_app._log_alert_board_exclusions()
         assert "No persistence database configured" in caplog.text
 
-    def test_startup_log_quiet_with_database(self, monkeypatch, caplog, tmp_path):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+    def test_startup_log_errors_on_leftover_sqlite_setting(self, monkeypatch, caplog):
+        monkeypatch.setattr(flask_app, "_LEGACY_SQLITE_DB", "/app/data/nautobot_maps.db")
+        with caplog.at_level("ERROR", logger="app"):
+            flask_app._log_alert_board_exclusions()
+        assert "SQLite support was removed" in caplog.text
+        assert "NAUTOBOT_MAPS_DATABASE_URL" in caplog.text
+
+    def test_startup_log_quiet_with_database(self, monkeypatch, caplog, pg_database):
         with caplog.at_level("WARNING", logger="app"):
             flask_app._log_alert_board_exclusions()
         assert "No persistence database configured" not in caplog.text
@@ -5181,9 +4990,7 @@ class TestAlertBoardWithoutPersistence:
 # ---------------------------------------------------------------------------
 class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
-    def _sqlite_and_nautobot(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+    def _database_and_nautobot(self, pg_database, monkeypatch):
         monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
@@ -5225,9 +5032,8 @@ class TestAlertBoardBulkReads:
     CHECKED_AT = "2026-09-25T12:00:00+00:00"
 
     @pytest.fixture(autouse=True)
-    def _sqlite(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+    def _database(self, pg_database, monkeypatch):
+        self.db = pg_database
         monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
@@ -5240,21 +5046,18 @@ class TestAlertBoardBulkReads:
         flask_app.cache.clear()
 
     def _execute(self, sql, rows):
-        conn = flask_app._get_db_conn()
-        with conn:
-            conn.executemany(sql, rows)
-        conn.close()
+        self.db.executemany(sql, rows)
 
     def _seed(self, site_count, down_every=10, backfill_done=True):
         """Seed *site_count* sites with 3 devices; every *down_every*-th site has its router down."""
         self._execute(
             "INSERT INTO nautobot_location_cache (location_id, name, status, location_type, latitude, longitude) "
-            "VALUES (?, ?, 'Active', 'Office', 1.0, 2.0)",
+            "VALUES (%s, %s, 'Active', 'Office', 1.0, 2.0)",
             [(f"loc-{i}", f"Site {i}") for i in range(site_count)],
         )
         self._execute(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s)",
             [
                 (
                     f"dev-{i}-{j}",
@@ -5282,28 +5085,24 @@ class TestAlertBoardBulkReads:
         conn.close()
 
     def _add_alert(self, site_id, device_id, status, down_started_at, total_downtime_seconds=0):
-        conn = flask_app._get_db_conn()
-        with conn:
-            instance_id = conn.execute(
-                "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
-                "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
-                "VALUES (?, ?, '', ?, ?, 'critical', '', ?, ?, ?, ?) RETURNING id",
-                (
-                    # Open alerts use the real key so the build recognises them as still open.
-                    flask_app._build_alert_key(site_id, device_id, "critical")
-                    if status == "open"
-                    else f"{site_id}-{device_id}-{down_started_at}",
-                    site_id,
-                    device_id,
-                    device_id,
-                    status,
-                    down_started_at,
-                    down_started_at,
-                    total_downtime_seconds,
-                ),
-            ).fetchone()[0]
-        conn.close()
-        return instance_id
+        return self.db.execute(
+            "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
+            "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
+            "VALUES (%s, %s, '', %s, %s, 'critical', '', %s, %s, %s, %s) RETURNING id",
+            (
+                # Open alerts use the real key so the build recognises them as still open.
+                flask_app._build_alert_key(site_id, device_id, "critical")
+                if status == "open"
+                else f"{site_id}-{device_id}-{down_started_at}",
+                site_id,
+                device_id,
+                device_id,
+                status,
+                down_started_at,
+                down_started_at,
+                total_downtime_seconds,
+            ),
+        )[0]["id"]
 
     def _build_counting_connections(self):
         opened = []
@@ -5334,12 +5133,12 @@ class TestAlertBoardBulkReads:
     def _seed_more(self, start, stop):
         self._execute(
             "INSERT INTO nautobot_location_cache (location_id, name, status, location_type, latitude, longitude) "
-            "VALUES (?, ?, 'Active', 'Office', 1.0, 2.0)",
+            "VALUES (%s, %s, 'Active', 'Office', 1.0, 2.0)",
             [(f"loc-{i}", f"Site {i}") for i in range(start, stop)],
         )
         self._execute(
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s)",
             [
                 (
                     f"dev-{i}-{j}",
@@ -5364,7 +5163,7 @@ class TestAlertBoardBulkReads:
         open_id = self._add_alert("loc-3", "dev-3-0", "open", "2026-09-25T11:00:00+00:00")
         self._add_alert("loc-3", "dev-3-0", "resolved", "2026-09-20T10:00:00+00:00", total_downtime_seconds=120)
         self._execute(
-            "INSERT INTO alert_cases (alert_instance_id, case_number, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO alert_cases (alert_instance_id, case_number, created_at) VALUES (%s, %s, %s)",
             [(open_id, "INC-1", "2026-09-25T11:05:00"), (open_id, "INC-2", "2026-09-25T11:10:00")],
         )
 
@@ -5384,7 +5183,7 @@ class TestAlertBoardBulkReads:
 
     def test_excluded_device_status_resolves_its_open_alert(self):
         self._seed(3, down_every=2)  # loc-0 and loc-2: router down (status Offline)
-        self._execute("UPDATE nautobot_device_cache SET status = 'Decommissioning' WHERE device_id = 'dev-0-0'", [()])
+        self.db.execute("UPDATE nautobot_device_cache SET status = 'Decommissioning' WHERE device_id = 'dev-0-0'")
         self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T11:00:00+00:00")
 
         with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"}):
@@ -5395,10 +5194,8 @@ class TestAlertBoardBulkReads:
         assert by_site["loc-0"]["device_count"] == 2
         assert by_site["loc-0"]["active_alert_instance_count"] == 0
         assert by_site["loc-2"]["alert_level"] == "critical"  # Offline is still down
-        conn = flask_app._get_db_conn()
-        status = conn.execute("SELECT status FROM alert_instances WHERE device_id = 'dev-0-0'").fetchone()[0]
-        conn.close()
-        assert status == "resolved"
+        rows = self.db.execute("SELECT status FROM alert_instances WHERE device_id = 'dev-0-0'")
+        assert [row["status"] for row in rows] == ["resolved"]
 
     def test_backfill_pending_skips_writes_and_hides_open_alerts(self):
         self._seed(4, down_every=2, backfill_done=False)

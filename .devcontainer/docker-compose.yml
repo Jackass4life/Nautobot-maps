@@ -1,0 +1,32 @@
+# Dev container: the Python workspace plus a PostgreSQL for the app and tests.
+# The workspace shares the database container's network, so PostgreSQL is on
+# localhost:5432 inside the dev container (as in CI).
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/python:3.11
+    volumes:
+      - ../..:/workspaces:cached
+    # Keep the container running; VS Code attaches to it.
+    command: sleep infinity
+    network_mode: service:postgres
+    environment:
+      # pytest creates a throwaway schema per test in this database.
+      TEST_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@localhost:5432/nautobot_maps_test
+    depends_on:
+      - postgres
+
+  postgres:
+    # Same major version as docker-compose.yml and CI.
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nautobot_maps
+      POSTGRES_USER: nautobot_maps
+      POSTGRES_PASSWORD: nautobot_maps
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Runs once, when the data volume is first created.
+      - ./init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+
+volumes:
+  postgres-data:
