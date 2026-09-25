@@ -8,6 +8,7 @@ end-to-end – no mocking of app internals.
 Run with:
     python -m pytest tests/test_integration.py -v
 """
+
 import pathlib
 import shutil
 import subprocess
@@ -34,13 +35,14 @@ def _extract_js_function(source, name):
         elif char == "}":
             depth -= 1
             if depth == 0:
-                return source[start:idx + 1]
+                return source[start : idx + 1]
     raise ValueError(f"Could not extract function {name}")
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def mock_nautobot_server():
@@ -253,6 +255,7 @@ if (!prevented || activations !== 2) {{
 class TestAlertBoardUI:
     def _css_rules(self, css, selector):
         import re
+
         css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         pattern = re.compile(r"([^{}]+)\{([^}]*)\}")
         return [
@@ -544,9 +547,7 @@ class TestEndToEndScenario:
         assert detail["asns"]
 
         # Step 4: Search near Copenhagen
-        search_resp = integration_client.get(
-            f"/api/search?q={cph['latitude']},{cph['longitude']}"
-        )
+        search_resp = integration_client.get(f"/api/search?q={cph['latitude']},{cph['longitude']}")
         assert search_resp.status_code == 200
         nearby = search_resp.get_json()
         assert nearby["count"] >= 1
@@ -588,8 +589,7 @@ class TestAlertBoardWithPersistence:
     def test_devices_without_primary_ip_are_excluded(self, persisted_integration_client):
         london = self._alerts_by_site(persisted_integration_client)["loc-lon"]
         with_ip = [
-            d for d in mock_nautobot.DEVICES["loc-lon"]
-            if d["id"] not in mock_nautobot.DEVICES_WITHOUT_PRIMARY_IP
+            d for d in mock_nautobot.DEVICES["loc-lon"] if d["id"] not in mock_nautobot.DEVICES_WITHOUT_PRIMARY_IP
         ]
         assert london["device_count"] == len(with_ip)
 
@@ -603,9 +603,7 @@ class TestAlertBoardWithPersistence:
 # 7. Alert board cold start and Refresh (#121)
 # ---------------------------------------------------------------------------
 class TestAlertBoardColdStart:
-    def test_first_request_starts_sync_and_board_fills_in(
-        self, integration_client, tmp_path, monkeypatch
-    ):
+    def test_first_request_starts_sync_and_board_fills_in(self, integration_client, tmp_path, monkeypatch):
         import time
 
         monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")

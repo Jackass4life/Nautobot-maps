@@ -22,26 +22,31 @@ app = Flask(__name__)
 # ---------------------------------------------------------------------------
 
 TENANT_GROUPS = {
-    "tg-corp":    {"id": "tg-corp",    "name": "Corporate",   "slug": "corporate"},
-    "tg-infra":   {"id": "tg-infra",   "name": "Infrastructure", "slug": "infrastructure"},
+    "tg-corp": {"id": "tg-corp", "name": "Corporate", "slug": "corporate"},
+    "tg-infra": {"id": "tg-infra", "name": "Infrastructure", "slug": "infrastructure"},
 }
 
 TENANTS = {
-    "ten-acme":    {"id": "ten-acme",    "name": "Acme Corp",       "slug": "acme-corp",       "tenant_group": TENANT_GROUPS["tg-corp"]},
-    "ten-nordnet": {"id": "ten-nordnet", "name": "Nordic Net",      "slug": "nordic-net",      "tenant_group": TENANT_GROUPS["tg-infra"]},
-    "ten-euroix":  {"id": "ten-euroix",  "name": "EuroIX",          "slug": "euroix",          "tenant_group": TENANT_GROUPS["tg-infra"]},
-    "ten-dcgmbh":  {"id": "ten-dcgmbh",  "name": "DataCenter GmbH", "slug": "datacenter-gmbh", "tenant_group": None},
+    "ten-acme": {"id": "ten-acme", "name": "Acme Corp", "slug": "acme-corp", "tenant_group": TENANT_GROUPS["tg-corp"]},
+    "ten-nordnet": {
+        "id": "ten-nordnet",
+        "name": "Nordic Net",
+        "slug": "nordic-net",
+        "tenant_group": TENANT_GROUPS["tg-infra"],
+    },
+    "ten-euroix": {"id": "ten-euroix", "name": "EuroIX", "slug": "euroix", "tenant_group": TENANT_GROUPS["tg-infra"]},
+    "ten-dcgmbh": {"id": "ten-dcgmbh", "name": "DataCenter GmbH", "slug": "datacenter-gmbh", "tenant_group": None},
 }
 
 LOCATION_TYPES = {
-    "lt-dc":     {"id": "lt-dc",     "name": "Data Center"},
-    "lt-pop":    {"id": "lt-pop",    "name": "PoP"},
+    "lt-dc": {"id": "lt-dc", "name": "Data Center"},
+    "lt-pop": {"id": "lt-pop", "name": "PoP"},
     "lt-office": {"id": "lt-office", "name": "Office"},
-    "lt-ix":     {"id": "lt-ix",     "name": "Internet Exchange"},
+    "lt-ix": {"id": "lt-ix", "name": "Internet Exchange"},
 }
 
 STATUSES = {
-    "status-active":  {"id": "status-active",  "name": "Active",  "label": "Active"},
+    "status-active": {"id": "status-active", "name": "Active", "label": "Active"},
     "status-planned": {"id": "status-planned", "name": "Planned", "label": "Planned"},
 }
 
@@ -443,18 +448,18 @@ _attach_location_and_primary_ip()
 
 # ASNs keyed by location_id
 ASNS = {
-    "loc-cph":  [{"asn": 65001, "description": "Acme Corp primary ASN", "tenant": TENANTS["ten-acme"]}],
+    "loc-cph": [{"asn": 65001, "description": "Acme Corp primary ASN", "tenant": TENANTS["ten-acme"]}],
     "loc-cph2": [{"asn": 65002, "description": "Nordic Net Denmark ASN", "tenant": TENANTS["ten-nordnet"]}],
-    "loc-sto":  [{"asn": 65010, "description": "Acme Corp Sweden ASN", "tenant": TENANTS["ten-acme"]}],
-    "loc-ams":  [
+    "loc-sto": [{"asn": 65010, "description": "Acme Corp Sweden ASN", "tenant": TENANTS["ten-acme"]}],
+    "loc-ams": [
         {"asn": 65020, "description": "EuroIX AMS-IX ASN", "tenant": TENANTS["ten-euroix"]},
         {"asn": 65021, "description": "EuroIX transit ASN", "tenant": TENANTS["ten-euroix"]},
     ],
-    "loc-fra":  [{"asn": 65030, "description": "DataCenter GmbH primary ASN", "tenant": TENANTS["ten-dcgmbh"]}],
-    "loc-par":  [{"asn": 65040, "description": "Acme Corp France ASN", "tenant": TENANTS["ten-acme"]}],
-    "loc-lon":  [
+    "loc-fra": [{"asn": 65030, "description": "DataCenter GmbH primary ASN", "tenant": TENANTS["ten-dcgmbh"]}],
+    "loc-par": [{"asn": 65040, "description": "Acme Corp France ASN", "tenant": TENANTS["ten-acme"]}],
+    "loc-lon": [
         {"asn": 65050, "description": "Acme Corp UK primary ASN", "tenant": TENANTS["ten-acme"]},
-        {"asn": 65051, "description": "Acme Corp UK backup ASN",  "tenant": TENANTS["ten-acme"]},
+        {"asn": 65051, "description": "Acme Corp UK backup ASN", "tenant": TENANTS["ten-acme"]},
     ],
     "loc-lon2": [{"asn": 65052, "description": "Nordic Net UK ASN", "tenant": TENANTS["ten-nordnet"]}],
 }
@@ -477,7 +482,7 @@ def _paginate(items: list) -> dict:
 
     limit = int(request.args.get("limit", 200))
     offset = int(request.args.get("offset", 0))
-    page = items[offset: offset + limit]
+    page = items[offset : offset + limit]
     next_url = None
     if offset + limit < len(items):
         parsed = urlparse(request.url)
@@ -495,6 +500,7 @@ def _paginate(items: list) -> dict:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @app.route("/api/dcim/locations/")
 def locations():

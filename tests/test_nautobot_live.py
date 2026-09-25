@@ -170,7 +170,6 @@ class TestLiveLocations:
         assert oslo["tags"] == []
 
 
-
 # ---------------------------------------------------------------------------
 # 3. /api/locations/<id>/detail – devices + ASNs
 # ---------------------------------------------------------------------------
@@ -290,9 +289,7 @@ class TestLiveEndToEnd:
         assert len(detail["devices"]) == 3
 
         # 4. Proximity search near Copenhagen
-        search_resp = live_client.get(
-            f"/api/search?q={cph['latitude']},{cph['longitude']}"
-        )
+        search_resp = live_client.get(f"/api/search?q={cph['latitude']},{cph['longitude']}")
         assert search_resp.status_code == 200
         nearby = search_resp.get_json()
         assert nearby["count"] >= 1

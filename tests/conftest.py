@@ -4,6 +4,7 @@ Adds the `demo/` directory to sys.path so that `mock_nautobot` can be imported
 by the integration tests without any sys.path manipulation inside the test
 modules themselves.
 """
+
 import os
 import sys
 

@@ -355,7 +355,15 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     device_defs = [
         # Copenhagen DC
         ("cph-core-rt01", "ASR1001-X", "Core Router", "Copenhagen DC", "Acme Corp", "IOS-XE", "FCZ2227B0M1"),
-        ("cph-dist-sw01", "Catalyst 9300", "Distribution Switch", "Copenhagen DC", "Acme Corp", "IOS-XE", "FCW2101L01D"),
+        (
+            "cph-dist-sw01",
+            "Catalyst 9300",
+            "Distribution Switch",
+            "Copenhagen DC",
+            "Acme Corp",
+            "IOS-XE",
+            "FCW2101L01D",
+        ),
         ("cph-fw01", "PA-3260", "Firewall", "Copenhagen DC", "Acme Corp", "PAN-OS", "013201006938"),
         # Copenhagen Colocation
         ("cph2-edge-rt01", "MX204", "Edge Router", "Copenhagen Colocation", "Nordic Net", "Junos", "BT0217480120"),
@@ -364,7 +372,15 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
         # Amsterdam Internet Exchange
         ("ams-rt01", "PTX5000", "Core Router", "Amsterdam Internet Exchange", "EuroIX", "Junos", "BUILTIN"),
         ("ams-rt02", "PTX5000", "Core Router", "Amsterdam Internet Exchange", "EuroIX", "Junos", "BUILTIN2"),
-        ("ams-sw01", "QFX10002-72Q", "Peering Switch", "Amsterdam Internet Exchange", "EuroIX", "Junos", "VN2022000099"),
+        (
+            "ams-sw01",
+            "QFX10002-72Q",
+            "Peering Switch",
+            "Amsterdam Internet Exchange",
+            "EuroIX",
+            "Junos",
+            "VN2022000099",
+        ),
         # Frankfurt DC
         ("fra-core-rt01", "7750 SR-12", "Core Router", "Frankfurt DC", "DataCenter GmbH", "SR OS", "NS1234567890"),
         ("fra-sw01", "Nexus 9336C-FX2", "ToR Switch", "Frankfurt DC", "DataCenter GmbH", "NX-OS", "FDO2220000X"),
@@ -380,9 +396,7 @@ def seed() -> None:  # noqa: C901 – sequential-but-simple setup script
     platforms = {}
     for _, _, _, _, _, platform_name, _ in device_defs:
         if platform_name and platform_name not in platforms:
-            platforms[platform_name] = get_or_create(
-                "dcim/platforms/", {"name": platform_name}
-            )
+            platforms[platform_name] = get_or_create("dcim/platforms/", {"name": platform_name})
 
     for dev_name, dt_model, role_name, loc_name, tenant_name, platform_name, serial in device_defs:
         dev_data: dict = {
