@@ -12,3 +12,6 @@ build/
 htmlcov/
 .coverage
 *.log
+
+# Local, machine-specific Docker Compose settings (ports, volumes, ...)
+docker-compose.override.yml

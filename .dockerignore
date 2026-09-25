@@ -18,3 +18,4 @@ demo/
 agents/
 *.md
 LICENSE
+docker-compose.override.yml
