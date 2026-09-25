@@ -86,6 +86,24 @@ function renderSummary(summary) {
   document.getElementById("summary-total").textContent = summary.total || 0;
 }
 
+function caseButtonLabel(selectedCount) {
+  if (selectedCount === 0) return "Select devices";
+  return `Add case to ${selectedCount} device${selectedCount === 1 ? "" : "s"}`;
+}
+
+function syncCaseSelection(form) {
+  const boxes = Array.from(form.querySelectorAll(".case-device-checkbox"));
+  const selected = boxes.filter((box) => box.checked).length;
+  const selectAll = form.querySelector(".case-select-all");
+  if (selectAll) {
+    selectAll.checked = selected === boxes.length;
+    selectAll.indeterminate = selected > 0 && selected < boxes.length;
+  }
+  const button = form.querySelector(".case-save-btn");
+  button.textContent = caseButtonLabel(selected);
+  button.disabled = selected === 0;
+}
+
 function mapActionCell(item) {
   const hasCoordinates = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
   const mapLink = hasCoordinates
@@ -93,14 +111,30 @@ function mapActionCell(item) {
     : '<span class="map-link-disabled">No coordinates</span>';
   const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
   const siteLabel = escHtml(item.name || item.id || "site");
-  const options = downDevices
-    .map((d) => `<option value="${escHtml(d.device_id || "")}">${escHtml(d.device_name || d.device_id || "Unknown")}</option>`)
+  // One case often covers several devices (e.g. a whole site down), so every
+  // down device gets a checkbox; all start selected.
+  const deviceChoices = downDevices
+    .filter((d) => d.device_id)
+    .map((d) => `
+        <label class="case-device-option">
+          <input type="checkbox" class="case-device-checkbox" value="${escHtml(d.device_id)}" checked />
+          <span>${escHtml(d.device_name || d.device_id)}</span>
+        </label>`)
     .join("");
-  const caseForm = downDevices.length ? `
+  const selectAll = downDevices.length > 1 ? `
+        <label class="case-device-option case-select-all-option">
+          <input type="checkbox" class="case-select-all" checked />
+          <span>All down devices (${downDevices.length})</span>
+        </label>` : "";
+  const caseForm = deviceChoices ? `
       <div class="case-form">
-        <select class="case-device-select" data-site-id="${escHtml(item.id)}" aria-label="Select down device for ${siteLabel}">${options}</select>
+        <fieldset class="case-devices">
+          <legend>Devices for this case<span class="visually-hidden"> at ${siteLabel}</span></legend>
+          ${selectAll}
+          <div class="case-device-list">${deviceChoices}</div>
+        </fieldset>
         <input class="case-input" data-site-id="${escHtml(item.id)}" type="text" placeholder="Case #" aria-label="Case number for ${siteLabel}" />
-        <button class="case-save-btn" type="button" data-site-id="${escHtml(item.id)}">Add case</button>
+        <button class="case-save-btn" type="button" data-site-id="${escHtml(item.id)}">${caseButtonLabel(downDevices.filter((d) => d.device_id).length)}</button>
       </div>
     ` : "";
   return `
@@ -490,6 +524,17 @@ if (historyCloseBtn && historyPanel) {
   });
 }
 
+alertsTableBody.addEventListener("change", (event) => {
+  const form = event.target.closest(".case-form");
+  if (!form) return;
+  if (event.target.classList.contains("case-select-all")) {
+    form.querySelectorAll(".case-device-checkbox").forEach((box) => {
+      box.checked = event.target.checked;
+    });
+  }
+  if (event.target.matches(".case-select-all, .case-device-checkbox")) syncCaseSelection(form);
+});
+
 alertsTableBody.addEventListener("click", async (event) => {
   const toggleBtn = event.target.closest(".site-toggle-btn");
   if (toggleBtn) {
@@ -514,12 +559,14 @@ alertsTableBody.addEventListener("click", async (event) => {
   if (caseBtn) {
     const siteId = caseBtn.dataset.siteId;
     const row = caseBtn.closest(".action-stack");
-    const deviceSelect = row.querySelector(".case-device-select");
     const caseInput = row.querySelector(".case-input");
-    const deviceId = deviceSelect?.value || "";
+    const deviceIds = Array.from(row.querySelectorAll(".case-device-checkbox:checked")).map((box) => box.value);
+    const deviceNameById = Object.fromEntries(
+      Array.from(row.querySelectorAll(".case-device-checkbox")).map((box) => [box.value, box.nextElementSibling.textContent]),
+    );
     const caseNumber = (caseInput?.value || "").trim();
-    if (!siteId || !deviceId || !caseNumber) {
-      showError("Select a device and enter a case number first.");
+    if (!siteId || !deviceIds.length || !caseNumber) {
+      showError("Select at least one device and enter a case number first.");
       return;
     }
     caseBtn.disabled = true;
@@ -527,10 +574,15 @@ alertsTableBody.addEventListener("click", async (event) => {
       const resp = await fetch("/api/alert-cases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId, device_id: deviceId, case_number: caseNumber }),
+        body: JSON.stringify({ site_id: siteId, device_ids: deviceIds, case_number: caseNumber }),
       });
       const payload = await resp.json();
-      if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+      if (!resp.ok || payload.error) {
+        const missing = Array.isArray(payload.missing_device_ids) && payload.missing_device_ids.length
+          ? ` (no longer down: ${payload.missing_device_ids.map((id) => deviceNameById[id] || id).join(", ")} – untick and try again)`
+          : "";
+        throw new Error(`${payload.error || `HTTP ${resp.status}`}${missing}`);
+      }
       if (caseInput) caseInput.value = "";
       // The server drops its cached board when a case is added; a plain reload
       // is enough and must not trigger a full inventory sync.

@@ -637,3 +637,26 @@ class TestAlertBoardColdStart:
         assert 'params.set("refresh", "1")' in js
         assert "Date.now()" not in js
         assert "sync_pending" in js
+
+
+# ---------------------------------------------------------------------------
+# 8. One case number across several down devices (#133)
+# ---------------------------------------------------------------------------
+class TestMultiDeviceCaseFlow:
+    def test_case_added_to_all_down_devices_at_london_hq(self, persisted_integration_client):
+        client = persisted_integration_client
+        board = client.get("/api/alerts").get_json()
+        london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
+        device_ids = [device["device_id"] for device in london["down_devices"]]
+        assert len(device_ids) == 2
+
+        resp = client.post(
+            "/api/alert-cases",
+            json={"site_id": "loc-lon", "device_ids": device_ids, "case_number": "INC-7001"},
+        )
+        assert resp.status_code == 200
+
+        board = client.get("/api/alerts").get_json()
+        london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
+        assert london["active_cases"] == ["INC-7001"]
+        assert all(device["case_numbers"] == ["INC-7001"] for device in london["down_devices"])

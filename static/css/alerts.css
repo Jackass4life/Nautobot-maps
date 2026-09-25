@@ -450,8 +450,7 @@ thead th:last-child {
   gap: 6px;
 }
 
-.case-form select,
-.case-form input,
+.case-form input[type="text"],
 .case-form button,
 .history-btn {
   border: 1px solid var(--color-border);
@@ -634,4 +633,51 @@ thead th:last-child {
   font-weight: 400;
   color: var(--color-text-muted);
   user-select: all;
+}
+
+/* Down-device checklist for attaching one case to several devices. */
+.case-devices {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.case-devices legend {
+  padding: 0 4px;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.case-device-list {
+  max-height: 9.5rem;
+  overflow-y: auto;
+}
+
+.case-device-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 0.78rem;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.case-device-option input {
+  flex: none;
+  margin: 0;
+}
+
+.case-select-all-option {
+  margin-bottom: 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+}
+
+.case-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
