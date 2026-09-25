@@ -17,7 +17,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Fixed
 - `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)
 - `ALERT_BOARD_EXCLUDED_*` settings in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them to the container (#151)
-- `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)
 - Alert board without a persistence database showed an unexplained empty table: `/api/alerts` now reports `persistence_configured`, the board explains which setting is missing, and a warning is logged at startup (#136)
 - Docker demo could not start: `.dockerignore` excluded `demo/`, so the mock server was missing from the image; it is now mounted into the mock container (#131)
 - `NAUTOBOT_MAPS_DB` was defined twice in `docker-compose.yml` (#131)
@@ -30,7 +29,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Added
 - Alert board updates itself: a normal `/api/alerts` request starts an inventory sync once one is due, and the board shows "Next update in m:ss" and reloads in the background at zero (`next_update_in_seconds` in the API) (#152)
 - `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` ignores devices by status on the alert board (not counted as monitored or down, not listed), and `null` in the location/device status settings matches an empty status (#151)
-- Alert board updates itself: a normal `/api/alerts` request starts an inventory sync once one is due, and the board shows "Next update in m:ss" and reloads in the background at zero (`next_update_in_seconds` in the API) (#152)
 - `ruff format` applied repo-wide (layout only) and checked in CI and the pre-commit hook; the formatting commit is listed in `.git-blame-ignore-revs` (#144)
 - Dev container (`.devcontainer/`) with Python 3.11, Node, GitHub CLI and the dev tools preinstalled; documented in `CONTRIBUTING.md` (#145)
 - `ruff` linting in CI (`lint` job), `pyproject.toml` configuration, pinned dev tools in `requirements-dev.txt`, and an optional pre-commit hook; fixed all existing findings (#143)

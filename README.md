@@ -69,8 +69,6 @@ python app.py
 | `CACHE_TYPE` | ❌ | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with multiple workers |
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
 | `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | PostgreSQL URL (`postgresql://...`) for the inventory snapshot, overrides, alert downtime history and case tracking. Required for the alert board. `docker-compose.yml` sets it to its bundled PostgreSQL |
-| `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | Preferred persistence DB URL (`postgresql://...`) for overrides, alert downtime history, and case tracking |
-| `NAUTOBOT_MAPS_DB` | ❌ | — | SQLite fallback path when PostgreSQL URL is not configured |
 | `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs into the persistence database. Syncs run in the background, started by page requests once due |
 | `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between LibreNMS status refreshes, started the same way. The alert board counts down to the sooner of the two |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` | ❌ | `graveyard,warehouse` | Comma/semicolon-separated location types hidden from `/api/alerts` and the alert board by default |
@@ -240,12 +238,6 @@ Devices can be ignored by status with `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES`: th
 ALERT_BOARD_EXCLUDED_LOCATION_STATUSES=null,decommissioning,planned
 ALERT_BOARD_EXCLUDED_DEVICE_STATUSES=null,decommissioning,planned
 ```
-
-## Automatic updates
-
-An open alert board keeps itself up to date. Next to the Refresh button it shows **"Next update in m:ss"**, the time until the next inventory sync is due (the sooner of `INVENTORY_SYNC_INTERVAL_SECONDS` and `LIBRENMS_SYNC_INTERVAL_SECONDS`). At zero the board reloads in the background, which starts the sync, and the new data appears when it finishes ("Updating…" meanwhile). Refresh syncs immediately and restarts the countdown.
-
-Syncs are started by requests, not by a scheduler: with no page open, nothing syncs and no alert history is recorded (#154).
 
 ## Inventory-backed reads
 
