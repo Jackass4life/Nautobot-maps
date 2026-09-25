@@ -46,6 +46,9 @@ services:
       - CACHE_TTL=${CACHE_TTL:-300}
       - CACHE_TYPE=${CACHE_TYPE:-RedisCache}
       - CACHE_REDIS_URL=${CACHE_REDIS_URL:-redis://redis:6379/0}
+      # Sync intervals (optional; default to CACHE_TTL)
+      - INVENTORY_SYNC_INTERVAL_SECONDS=${INVENTORY_SYNC_INTERVAL_SECONDS:-}
+      - LIBRENMS_SYNC_INTERVAL_SECONDS=${LIBRENMS_SYNC_INTERVAL_SECONDS:-}
       # Criticality configuration (all optional)
       - CRITICAL_ROLE_KEYWORDS=${CRITICAL_ROLE_KEYWORDS:-}
       - CRITICALITY_RULES_FILE=${CRITICALITY_RULES_FILE:-}

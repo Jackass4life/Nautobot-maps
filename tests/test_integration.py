@@ -10,6 +10,7 @@ Run with:
 """
 
 import pathlib
+import re
 import shutil
 import subprocess
 import threading
@@ -633,7 +634,9 @@ class TestAlertBoardColdStart:
         js = integration_client.get("/static/js/alerts.js").get_data(as_text=True)
         assert 'params.set("refresh", "1")' in js
         assert "persistence_configured === false" in js
-        assert "Date.now()" not in js
+        # #121: a timestamp as the refresh value was silently ignored.  Date.now()
+        # itself is fine elsewhere (the next-update countdown uses it).
+        assert not re.search(r"refresh[\"'`]?\s*[,=:]\s*[\"'`]?\$?\{?\s*Date\.now", js)
         assert "sync_pending" in js
 
 
@@ -658,3 +661,77 @@ class TestMultiDeviceCaseFlow:
         london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
         assert london["active_cases"] == ["INC-7001"]
         assert all(device["case_numbers"] == ["INC-7001"] for device in london["down_devices"])
+
+
+class TestAlertBoardCountdown:
+    """Runtime checks of the next-update countdown in alerts.js (#152)."""
+
+    def test_countdown_formats_and_triggers_one_background_update(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the countdown runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        functions = "\n".join(
+            _extract_js_function(js, name) for name in ("formatCountdown", "setNextUpdate", "renderNextUpdate")
+        )
+        script = f"""
+const AUTO_UPDATE_MIN_GAP_MS = 30000;
+let nextUpdateDueAt = null;
+let lastAutoUpdateAt = 0;
+let syncPollTimer = null;
+let latestPayload = {{ sync_pending: false }};
+const refreshBtn = {{ disabled: false }};
+const nextUpdateEl = {{ textContent: "", hidden: true }};
+const loads = [];
+function loadAlertBoard(force, options) {{ loads.push([force, options]); }}
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{functions}
+
+check(formatCountdown(0) === "0:00", formatCountdown(0));
+check(formatCountdown(59.2) === "1:00", formatCountdown(59.2));
+check(formatCountdown(222) === "3:42", formatCountdown(222));
+check(formatCountdown(3725) === "1:02:05", formatCountdown(3725));
+check(formatCountdown(-5) === "0:00", formatCountdown(-5));
+
+// Counting down.
+setNextUpdate({{ next_update_in_seconds: 222 }}, 1000000);
+check(!nextUpdateEl.hidden && nextUpdateEl.textContent === "Next update in 3:42", nextUpdateEl.textContent);
+renderNextUpdate(1000000 + 22000);
+check(nextUpdateEl.textContent === "Next update in 3:20", nextUpdateEl.textContent);
+check(loads.length === 0, "no update before zero");
+
+// At zero: exactly one background reload, then none until the gap has passed.
+renderNextUpdate(1000000 + 222000);
+check(nextUpdateEl.textContent === "Updating…", nextUpdateEl.textContent);
+check(loads.length === 1 && loads[0][0] === false && loads[0][1].background === true, JSON.stringify(loads));
+renderNextUpdate(1000000 + 223000);
+renderNextUpdate(1000000 + 240000);
+check(loads.length === 1, "reloaded again inside the gap");
+renderNextUpdate(1000000 + 252001);
+check(loads.length === 2, "should retry after the gap");
+
+// Not while sync polling is already running.
+syncPollTimer = 1;
+renderNextUpdate(1000000 + 400000);
+check(loads.length === 2, "must not reload while sync polling runs");
+syncPollTimer = null;
+
+// A running sync shows Updating…; an unknown schedule hides the countdown.
+latestPayload = {{ sync_pending: true }};
+setNextUpdate({{ next_update_in_seconds: null }}, 2000000);
+check(!nextUpdateEl.hidden && nextUpdateEl.textContent === "Updating…", "sync pending");
+latestPayload = {{ sync_pending: false }};
+renderNextUpdate(2000000);
+check(nextUpdateEl.hidden, "hidden when unknown");
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_board_template_has_countdown_element(self, integration_client):
+        html = integration_client.get("/alerts").data.decode()
+        assert 'id="next-update"' in html

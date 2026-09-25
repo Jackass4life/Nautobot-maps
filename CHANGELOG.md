@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
+- `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)
 - Alert board without a persistence database showed an unexplained empty table: `/api/alerts` now reports `persistence_configured`, the board explains which setting is missing, and a warning is logged at startup (#136)
 - Docker demo could not start: `.dockerignore` excluded `demo/`, so the mock server was missing from the image; it is now mounted into the mock container (#131)
 - `NAUTOBOT_MAPS_DB` was defined twice in `docker-compose.yml` (#131)
@@ -21,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- Alert board updates itself: a normal `/api/alerts` request starts an inventory sync once one is due, and the board shows "Next update in m:ss" and reloads in the background at zero (`next_update_in_seconds` in the API) (#152)
 - `ruff format` applied repo-wide (layout only) and checked in CI and the pre-commit hook; the formatting commit is listed in `.git-blame-ignore-revs` (#144)
 - Dev container (`.devcontainer/`) with Python 3.11, Node, GitHub CLI and the dev tools preinstalled; documented in `CONTRIBUTING.md` (#145)
 - `ruff` linting in CI (`lint` job), `pyproject.toml` configuration, pinned dev tools in `requirements-dev.txt`, and an optional pre-commit hook; fixed all existing findings (#143)

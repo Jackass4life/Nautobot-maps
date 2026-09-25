@@ -19,6 +19,7 @@ const historyPanel = document.getElementById("history-panel");
 const historyTitle = document.getElementById("history-title");
 const historyContent = document.getElementById("history-content");
 const historyCloseBtn = document.getElementById("history-close");
+const nextUpdateEl = document.getElementById("next-update");
 
 let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
@@ -32,6 +33,14 @@ const SYNC_POLL_INTERVAL_MS = 5000;
 const SYNC_POLL_MAX_ATTEMPTS = 36; // ~3 minutes
 let syncPollTimer = null;
 let syncPollAttempts = 0;
+
+// Countdown to the next automatic update (#152).  The server sends seconds
+// remaining (not a clock time), so a skewed browser clock does not matter.
+// When it reaches zero the board reloads in the background, which starts the
+// due sync; the sync polling above then shows the new data.
+const AUTO_UPDATE_MIN_GAP_MS = 30000;
+let nextUpdateDueAt = null;
+let lastAutoUpdateAt = 0;
 
 function escHtml(str) {
   if (str == null) return "";
@@ -389,6 +398,45 @@ function scheduleSyncPoll(payload) {
   syncPollTimer = setTimeout(() => loadAlertBoard(false, { background: true }), SYNC_POLL_INTERVAL_MS);
 }
 
+function formatCountdown(totalSeconds) {
+  const seconds = Math.max(0, Math.ceil(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = String(seconds % 60).padStart(2, "0");
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}` : `${minutes}:${secs}`;
+}
+
+function setNextUpdate(payload, now = Date.now()) {
+  const seconds = payload.next_update_in_seconds;
+  nextUpdateDueAt = typeof seconds === "number" && seconds >= 0 ? now + seconds * 1000 : null;
+  renderNextUpdate(now);
+}
+
+function renderNextUpdate(now = Date.now()) {
+  if (!nextUpdateEl) return;
+  if (latestPayload.sync_pending) {
+    nextUpdateEl.textContent = "Updating…";
+    nextUpdateEl.hidden = false;
+    return;
+  }
+  if (nextUpdateDueAt === null) {
+    nextUpdateEl.hidden = true;
+    return;
+  }
+  nextUpdateEl.hidden = false;
+  const remainingMs = nextUpdateDueAt - now;
+  if (remainingMs > 0) {
+    nextUpdateEl.textContent = `Next update in ${formatCountdown(remainingMs / 1000)}`;
+    return;
+  }
+  nextUpdateEl.textContent = "Updating…";
+  // At most one automatic reload per gap, so a sync that keeps failing does
+  // not turn into a request loop.
+  if (refreshBtn.disabled || syncPollTimer || now - lastAutoUpdateAt < AUTO_UPDATE_MIN_GAP_MS) return;
+  lastAutoUpdateAt = now;
+  loadAlertBoard(false, { background: true });
+}
+
 async function loadAlertBoard(forceRefresh = false, { background = false } = {}) {
   if (!background) {
     // A user-initiated load restarts the polling budget.
@@ -417,6 +465,7 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     renderSummary(payload.summary || {});
     applyFilters(payload);
     scheduleSyncPoll(payload);
+    setNextUpdate(payload);
   } catch (err) {
     stopSyncPolling();
     alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
@@ -518,6 +567,11 @@ function initTheme() {
 }
 
 refreshBtn.addEventListener("click", () => loadAlertBoard(true));
+setInterval(() => renderNextUpdate(), 1000);
+// Browsers slow timers in background tabs; catch up as soon as the tab is visible.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) renderNextUpdate();
+});
 if (historyCloseBtn && historyPanel) {
   historyCloseBtn.addEventListener("click", () => {
     historyPanel.classList.add("hidden");
