@@ -53,7 +53,7 @@ def _validate_nautobot_url(value: str) -> str:
 NAUTOBOT_URL = _validate_nautobot_url(os.getenv("NAUTOBOT_URL", ""))
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
 NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
-CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
+CACHE_TTL = int(os.getenv("CACHE_TTL", "").strip() or 300)
 # An empty value (docker-compose passes unset variables as "") means the default.
 INVENTORY_SYNC_INTERVAL_SECONDS = int(os.getenv("INVENTORY_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)
 LIBRENMS_SYNC_INTERVAL_SECONDS = int(os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)

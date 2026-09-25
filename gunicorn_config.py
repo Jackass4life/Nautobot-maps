@@ -7,9 +7,14 @@ def _get_bind() -> str:
     return "0.0.0.0:5000"
 
 
-bind = os.getenv("GUNICORN_BIND", _get_bind())
-workers = int(os.getenv("GUNICORN_WORKERS", "4"))
-timeout = max(120, int(os.getenv("GUNICORN_TIMEOUT", "120")))
+def _env_int(name: str, default: int) -> int:
+    # docker-compose passes unset variables as ""; that means the default.
+    return int(os.getenv(name, "").strip() or default)
+
+
+bind = os.getenv("GUNICORN_BIND", "").strip() or _get_bind()
+workers = _env_int("GUNICORN_WORKERS", 4)
+timeout = max(120, _env_int("GUNICORN_TIMEOUT", 120))
 
 
 def when_ready(server) -> None:
