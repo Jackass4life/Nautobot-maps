@@ -20,7 +20,11 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    ```bash
    python -m venv venv
    source venv/bin/activate
-   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
+   ```
+   Optionally, run the linter automatically on every commit:
+   ```bash
+   pip install pre-commit && pre-commit install
    ```
 3. **Make** your changes in small, focused commits.
 4. **Test** your changes:
@@ -35,7 +39,8 @@ See the [README](README.md) for detailed setup instructions, including Docker-ba
 
 ### Code Style
 
-- Follow [PEP 8](https://peps.python.org/pep-0008/) for Python code.
+- Python code must pass `ruff check .` (configured in `pyproject.toml`; CI runs it on every PR).
+  Many findings can be fixed automatically with `ruff check --fix .`.
 - Keep JavaScript consistent with the existing style in `static/js/`.
 - Write clear commit messages describing what changed and why.
 

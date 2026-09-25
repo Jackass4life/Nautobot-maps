@@ -181,7 +181,7 @@ class TestLiveLocationDetail:
         """Look up a location ID by name."""
         data = client.get("/api/locations").get_json()
         loc = next(
-            (l for l in data["locations"] if l["name"] == name),
+            (loc for loc in data["locations"] if loc["name"] == name),
             None,
         )
         assert loc is not None, f"Location '{name}' not found"
@@ -283,7 +283,7 @@ class TestLiveEndToEnd:
         assert len(locations) >= 8
 
         # 3. Fetch details for Copenhagen DC
-        cph = next(l for l in locations if l["name"] == "Copenhagen DC")
+        cph = next(loc for loc in locations if loc["name"] == "Copenhagen DC")
         detail_resp = live_client.get(f"/api/locations/{cph['id']}/detail")
         assert detail_resp.status_code == 200
         detail = detail_resp.get_json()
@@ -296,4 +296,4 @@ class TestLiveEndToEnd:
         assert search_resp.status_code == 200
         nearby = search_resp.get_json()
         assert nearby["count"] >= 1
-        assert any(l["name"] == "Copenhagen DC" for l in nearby["locations"])
+        assert any(loc["name"] == "Copenhagen DC" for loc in nearby["locations"])

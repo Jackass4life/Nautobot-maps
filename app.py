@@ -1,26 +1,26 @@
-import json
-import os
-import sqlite3
-import logging
-import re
 import hashlib
 import ipaddress
+import json
+import logging
+import os
+import re
+import sqlite3
 import threading
 import warnings
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from urllib.parse import urlsplit
 
 import requests
 import urllib3
-from flask import Flask, render_template, jsonify, request, g
-from flask_caching import Cache
 from dotenv import load_dotenv
+from flask import Flask, g, jsonify, render_template, request
+from flask_caching import Cache
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
-from werkzeug.exceptions import HTTPException
 from urllib3.exceptions import InsecureRequestWarning
+from werkzeug.exceptions import HTTPException
 
 try:
     import psycopg
@@ -304,7 +304,7 @@ def _db_transaction(conn):
 
 def _serialize_value(value):
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return value
 
 
@@ -359,7 +359,7 @@ def _max_last_updated(items: list, fallback: str | None = None) -> str | None:
         candidate = _parse_iso_datetime((item or {}).get("last_updated"))
         if candidate and (latest is None or candidate > latest):
             latest = candidate
-            result = candidate.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            result = candidate.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return result
 
 
@@ -367,7 +367,7 @@ def _next_watermark(value: str | None) -> str | None:
     parsed = _parse_iso_datetime(value)
     if parsed is None:
         return value
-    return (parsed + timedelta(microseconds=1)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return (parsed + timedelta(microseconds=1)).astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _max_iso_datetime_value(*values: str | None) -> str | None:
@@ -377,7 +377,7 @@ def _max_iso_datetime_value(*values: str | None) -> str | None:
         candidate = _parse_iso_datetime(value)
         if candidate and (latest is None or candidate > latest):
             latest = candidate
-            result = candidate.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            result = candidate.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return result
 
 
@@ -1636,11 +1636,11 @@ def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
         if started_at is None:
             return True
         stale_after = max(900, interval_seconds * 2)
-        return (datetime.now(timezone.utc) - started_at).total_seconds() >= stale_after
+        return (datetime.now(UTC) - started_at).total_seconds() >= stale_after
     completed_at = _parse_iso_datetime(state.get("last_completed_at"))
     if completed_at is None:
         return True
-    return (datetime.now(timezone.utc) - completed_at).total_seconds() >= max(
+    return (datetime.now(UTC) - completed_at).total_seconds() >= max(
         0, interval_seconds
     )
 
@@ -2476,13 +2476,13 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
         with _db_transaction(conn):
             p0, p1, p2 = _sql_placeholders(3).split(",")
             conn.execute(
-                """
+                f"""
                 INSERT INTO librenms_device_map (nautobot_device_id, librenms_device_id, librenms_hostname)
                 VALUES ({p0}, {p1}, {p2})
                 ON CONFLICT(nautobot_device_id) DO UPDATE SET
                     librenms_device_id = excluded.librenms_device_id,
                     librenms_hostname   = excluded.librenms_hostname
-                """.format(p0=p0, p1=p1, p2=p2),
+                """,
                 (nautobot_device_id, librenms_device_id, librenms_hostname),
             )
     except Exception as exc:
@@ -2515,13 +2515,11 @@ def _get_location_devices_and_alert(
     require_primary_ip: bool = False,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location."""
-    loaded_from_cache = False
     use_normalized_devices = devices_already_normalized
     if devices_data is None:
         devices_data = _read_cached_devices(location_id)
         if devices_data:
             use_normalized_devices = True
-            loaded_from_cache = True
             if not snapshot_only:
                 _ensure_inventory_snapshot()
         elif not snapshot_only:
@@ -2529,7 +2527,6 @@ def _get_location_devices_and_alert(
             devices_data = _read_cached_devices(location_id)
             if devices_data:
                 use_normalized_devices = True
-                loaded_from_cache = True
             else:
                 devices_data = _fetch_live_location_devices(location_id)
 
@@ -2565,7 +2562,7 @@ def _get_location_devices_and_alert(
 
 
 def _iso_utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 def _alert_sort_key(level: str) -> int:
     return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get(
@@ -2862,7 +2859,7 @@ def _get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dic
             "active_cases": [],
             "down_devices": [],
         }
-    now_dt = _parse_iso_datetime(checked_at) or datetime.now(timezone.utc)
+    now_dt = _parse_iso_datetime(checked_at) or datetime.now(UTC)
     try:
         site_marker = _sql_placeholders(1)
         rows = conn.execute(
@@ -2945,8 +2942,8 @@ def _nautobot_sync_in_progress() -> bool:
     if started_at is None:
         return False
     if started_at.tzinfo is None:
-        started_at = started_at.replace(tzinfo=timezone.utc)
-    age_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+        started_at = started_at.replace(tzinfo=UTC)
+    age_seconds = (datetime.now(UTC) - started_at).total_seconds()
     return age_seconds < _SYNC_RUNNING_STALE_SECONDS
 
 
@@ -2962,7 +2959,7 @@ def _apply_alert_board_freshness(payload: dict, sync_enqueued: bool = False) -> 
         try:
             parsed = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
             age_seconds = max(
-                0, int((datetime.now(timezone.utc) - parsed).total_seconds())
+                0, int((datetime.now(UTC) - parsed).total_seconds())
             )
         except ValueError:
             age_seconds = 0
@@ -3669,15 +3666,15 @@ def api_alert_history():
             if parsed_start_at is None:
                 return jsonify({"error": "start_at must be an ISO-8601 timestamp"}), 400
             if parsed_start_at.tzinfo is None:
-                parsed_start_at = parsed_start_at.replace(tzinfo=timezone.utc)
-            start_at = parsed_start_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                parsed_start_at = parsed_start_at.replace(tzinfo=UTC)
+            start_at = parsed_start_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         if end_at:
             parsed_end_at = _parse_iso_datetime(end_at)
             if parsed_end_at is None:
                 return jsonify({"error": "end_at must be an ISO-8601 timestamp"}), 400
             if parsed_end_at.tzinfo is None:
-                parsed_end_at = parsed_end_at.replace(tzinfo=timezone.utc)
-            end_at = parsed_end_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                parsed_end_at = parsed_end_at.replace(tzinfo=UTC)
+            end_at = parsed_end_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         conditions = []
         params = []
         if site_id:

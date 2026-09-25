@@ -13,7 +13,7 @@ Endpoints implemented:
 Token auth: any request must carry  Authorization: Token <any non-empty value>
 """
 
-from flask import Flask, jsonify, request, abort
+from flask import Flask, abort, jsonify, request
 
 app = Flask(__name__)
 
@@ -473,7 +473,7 @@ def _check_auth():
 # Paginate helper
 # ---------------------------------------------------------------------------
 def _paginate(items: list) -> dict:
-    from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
+    from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
     limit = int(request.args.get("limit", 200))
     offset = int(request.args.get("offset", 0))

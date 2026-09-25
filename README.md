@@ -237,8 +237,9 @@ When persistence is configured, Nautobot Maps keeps cached Nautobot locations/de
 ## Running Tests
 
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt
 python -m pytest tests/ -v
+ruff check .        # lint (same as CI)
 ```
 
 The test suite includes:
