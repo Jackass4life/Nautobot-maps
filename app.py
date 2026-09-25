@@ -55,8 +55,9 @@ NAUTOBOT_URL = _validate_nautobot_url(os.getenv("NAUTOBOT_URL", ""))
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
 NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
 CACHE_TTL = int(os.getenv("CACHE_TTL", "300"))
-INVENTORY_SYNC_INTERVAL_SECONDS = int(os.getenv("INVENTORY_SYNC_INTERVAL_SECONDS", str(CACHE_TTL)))
-LIBRENMS_SYNC_INTERVAL_SECONDS = int(os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", str(CACHE_TTL)))
+# An empty value (docker-compose passes unset variables as "") means the default.
+INVENTORY_SYNC_INTERVAL_SECONDS = int(os.getenv("INVENTORY_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)
+LIBRENMS_SYNC_INTERVAL_SECONDS = int(os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)
 _FULL_RECONCILE_INTERVAL_SECONDS = 86400
 _NAUTOBOT_INVENTORY_CACHE_VERSION = "2"
 
@@ -2902,11 +2903,61 @@ def _nautobot_sync_in_progress() -> bool:
     return age_seconds < _SYNC_RUNNING_STALE_SECONDS
 
 
-def _apply_alert_board_freshness(payload: dict, sync_enqueued: bool = False) -> dict:
+def _inventory_update_schedule() -> tuple[bool, int | None]:
+    """Return ``(due, next_update_in_seconds)`` for the configured inventory syncs.
+
+    *due* is true when a sync should start now (by the same rules as
+    ``_ensure_inventory_snapshot``).  *next_update_in_seconds* is how long
+    until the next sync is due: ``0`` when one is due, ``None`` when unknown
+    (no persistence, no sources configured, or a sync is running).  The
+    board counts down to it (#152).
+    """
+    sources = []
+    if NAUTOBOT_URL and NAUTOBOT_TOKEN:
+        sources.append(("nautobot_inventory", INVENTORY_SYNC_INTERVAL_SECONDS))
+    if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
+        sources.append(("librenms_inventory", LIBRENMS_SYNC_INTERVAL_SECONDS))
+    if not sources or not _current_persistence_dialect():
+        return False, None
+    conn = _get_db_conn()
+    if conn is None:
+        return False, None
+    try:
+        now = datetime.now(UTC)
+        due = False
+        remaining = []
+        for source, interval_seconds in sources:
+            state = _get_sync_state(source, conn=conn)
+            if _sync_due(source, interval_seconds, conn=conn) or (
+                source == "nautobot_inventory" and _nautobot_inventory_cache_version_mismatch(state)
+            ):
+                due = True
+                continue
+            completed_at = _parse_iso_datetime(state.get("last_completed_at"))
+            if completed_at is None:
+                continue  # running
+            if completed_at.tzinfo is None:
+                completed_at = completed_at.replace(tzinfo=UTC)
+            elapsed = (now - completed_at).total_seconds()
+            remaining.append(max(0, int(interval_seconds - elapsed)))
+        if due:
+            return True, 0
+        return False, (min(remaining) if remaining else None)
+    finally:
+        conn.close()
+
+
+def _apply_alert_board_freshness(
+    payload: dict,
+    sync_enqueued: bool = False,
+    next_update_in_seconds: int | None = None,
+) -> dict:
     """Attach freshness and sync-progress metadata to an alert-board payload.
 
     ``sync_pending`` is true while an inventory sync is running (or was just
     enqueued by this request); the UI polls until it clears.
+    ``next_update_in_seconds`` is relative so a skewed browser clock does not
+    shift the board's countdown.
     """
     checked_at = payload.get("checked_at")
     age_seconds = 0
@@ -2924,6 +2975,7 @@ def _apply_alert_board_freshness(payload: dict, sync_enqueued: bool = False) -> 
     # The board reads only the persisted snapshot, so without a database it is
     # always empty; the UI uses this flag to say why (#136).
     result["persistence_configured"] = bool(_current_persistence_dialect())
+    result["next_update_in_seconds"] = next_update_in_seconds
     return result
 
 
@@ -3235,15 +3287,17 @@ def get_alert_board_data(
         # "Sync now": incremental, not a full reconcile (#135).  Deletions are
         # still caught by the scheduled full reconcile.
         sync_enqueued = _ensure_inventory_snapshot(force=True, full=False, wait=False)
+    sync_due, next_update_in_seconds = _inventory_update_schedule()
+    if not sync_enqueued and sync_due:
+        # A sync is due (or none has run yet): start it in the background, so
+        # an open board keeps itself up to date (#152).  This request still
+        # makes no upstream calls itself.
+        sync_enqueued = _ensure_inventory_snapshot(wait=False)
     cached = _cache_get(cache_key)
     if cached is not None:
-        return _apply_alert_board_freshness(cached, sync_enqueued=sync_enqueued)
-
-    if not sync_enqueued and _current_persistence_dialect() and not _nautobot_snapshot_initialized():
-        # Cold start: nothing has been synced yet.  Start the first sync in
-        # the background instead of waiting for another route to trigger it;
-        # this request still makes no upstream calls itself.
-        sync_enqueued = _ensure_inventory_snapshot(wait=False)
+        return _apply_alert_board_freshness(
+            cached, sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
+        )
 
     payload = _build_alert_board_payload(
         snapshot_only=True,
@@ -3252,7 +3306,9 @@ def get_alert_board_data(
     should_cache = bool(payload.get("alerts")) or _nautobot_snapshot_initialized()
     if should_cache:
         _cache_set(cache_key, payload, timeout=CACHE_TTL)
-    return _apply_alert_board_freshness(payload, sync_enqueued=sync_enqueued)
+    return _apply_alert_board_freshness(
+        payload, sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
+    )
 
 
 def _location_field_asns(location_id: str) -> list:

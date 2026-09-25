@@ -273,6 +273,14 @@ html, body {
   font-size: 0.9rem;
 }
 
+/* Countdown to the next automatic update, next to the Refresh button.
+   Tabular digits keep the text from shifting every second. */
+.next-update {
+  margin-left: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Never clip the table: on narrow screens it scrolls instead, so the
    Action column (case form, History, map link) always stays reachable. */
 .table-shell {
@@ -561,6 +569,10 @@ thead th:last-child {
   .page-header,
   .toolbar-meta {
     flex-direction: column;
+  }
+
+  .next-update {
+    margin-left: 0;
   }
 
   .toolbar-grid,

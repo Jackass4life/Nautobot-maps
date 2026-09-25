@@ -68,8 +68,8 @@ python app.py
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
 | `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | Preferred persistence DB URL (`postgresql://...`) for overrides, alert downtime history, and case tracking |
 | `NAUTOBOT_MAPS_DB` | ❌ | — | SQLite fallback path when PostgreSQL URL is not configured |
-| `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Interval for background Nautobot inventory sync into the persistence database |
-| `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Interval for background LibreNMS status refresh into the persistence database |
+| `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs into the persistence database. Syncs run in the background, started by page requests once due |
+| `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between LibreNMS status refreshes, started the same way. The alert board counts down to the sooner of the two |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` | ❌ | `graveyard,warehouse` | Comma/semicolon-separated location types hidden from `/api/alerts` and the alert board by default |
 | `ALERT_BOARD_EXCLUDED_LOCATION_STATUSES` | ❌ | — | Optional comma/semicolon-separated location statuses hidden from the alert board; `null` matches an empty status |
 | `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | ❌ | — | Optional comma/semicolon-separated Nautobot tag names hidden from the alert board |
@@ -165,8 +165,7 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/` | Map web UI |
 | `GET` | `/alerts` | Alert board web UI |
 | `GET` | `/healthz` | Liveness probe: `200 {"status": "ok"}`, or `503` when the configured persistence database is unreachable. Never calls Nautobot/LibreNMS |
-| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues background sync, `?include_non_operational=1` includes excluded locations). `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears. `persistence_configured: false` means no database is set, so the board is always empty |
-| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues an incremental background sync of changes since the last sync, `?include_non_operational=1` includes excluded locations). `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears |
+| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues an incremental background sync of changes since the last sync, `?include_non_operational=1` includes excluded locations). A normal request also starts a sync when one is due. `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears. `next_update_in_seconds` is the time until the next sync is due (`0` = due now, `null` = unknown or running). `persistence_configured: false` means no database is set, so the board is always empty |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
 | `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
 | `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |
@@ -234,6 +233,12 @@ Devices can be ignored by status with `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES`: th
 ALERT_BOARD_EXCLUDED_LOCATION_STATUSES=null,decommissioning,planned
 ALERT_BOARD_EXCLUDED_DEVICE_STATUSES=null,decommissioning,planned
 ```
+
+## Automatic updates
+
+An open alert board keeps itself up to date. Next to the Refresh button it shows **"Next update in m:ss"**, the time until the next inventory sync is due (the sooner of `INVENTORY_SYNC_INTERVAL_SECONDS` and `LIBRENMS_SYNC_INTERVAL_SECONDS`). At zero the board reloads in the background, which starts the sync, and the new data appears when it finishes ("Updating…" meanwhile). Refresh syncs immediately and restarts the countdown.
+
+Syncs are started by requests, not by a scheduler: with no page open, nothing syncs and no alert history is recorded (#154).
 
 ## Inventory-backed reads
 

@@ -3,7 +3,7 @@ import json
 import re
 import threading
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -4741,7 +4741,9 @@ class TestAlertBoardSyncProgress:
         ensure.assert_not_called()
         assert resp.get_json()["sync_pending"] is False
 
-    def test_cold_start_enqueues_first_sync_without_waiting(self, client):
+    def test_cold_start_enqueues_first_sync_without_waiting(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
         with (
             patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board()),
@@ -4766,6 +4768,92 @@ class TestAlertBoardSyncProgress:
             resp = client.get("/api/alerts")
         ensure.assert_not_called()
         assert resp.get_json()["sync_pending"] is False
+
+    def test_due_sync_is_started_by_a_normal_board_load(self, client, monkeypatch):
+        """An open board keeps itself up to date: a normal load starts a sync once one is due (#152)."""
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        old = (datetime.now(UTC) - timedelta(seconds=301)).isoformat()
+        self._set_nautobot_sync_state("idle", old, old)
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
+        ):
+            data = client.get("/api/alerts").get_json()
+        ensure.assert_called_once_with(wait=False)
+        assert data["sync_pending"] is True
+        assert data["next_update_in_seconds"] == 0
+
+    def test_next_update_counts_down_from_last_completed_sync(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        completed = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
+        self._set_nautobot_sync_state("idle", completed, completed)
+        with (
+            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure,
+            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
+        ):
+            data = client.get("/api/alerts").get_json()
+        ensure.assert_not_called()
+        assert 195 <= data["next_update_in_seconds"] <= 200
+
+    def test_next_update_uses_the_sooner_source(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.example.com")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 3600)
+        monkeypatch.setattr(flask_app, "LIBRENMS_SYNC_INTERVAL_SECONDS", 120)
+        now = datetime.now(UTC).isoformat()
+        self._set_nautobot_sync_state("idle", now, now)
+        conn = flask_app._get_db_conn()
+        with conn:
+            flask_app._record_sync_state(
+                conn, "librenms_inventory", last_started_at=now, last_completed_at=now, status="idle"
+            )
+        conn.close()
+        due, next_in = flask_app._inventory_update_schedule()
+        assert due is False
+        assert 115 <= next_in <= 120
+
+    def test_next_update_unknown_while_sync_runs(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        self._set_nautobot_sync_state("running", flask_app._iso_utc_now())
+        assert flask_app._inventory_update_schedule() == (False, None)
+
+    def test_next_update_unknown_without_persistence(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        assert flask_app._inventory_update_schedule() == (False, None)
+
+    def test_empty_sync_interval_env_uses_default(self):
+        """docker-compose passes unset variables as ""; that must not crash startup (#152)."""
+        import os
+        import subprocess
+        import sys
+
+        env = {
+            **os.environ,
+            "CACHE_TTL": "120",
+            "INVENTORY_SYNC_INTERVAL_SECONDS": "",
+            "LIBRENMS_SYNC_INTERVAL_SECONDS": "45",
+        }
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import app; print(app.INVENTORY_SYNC_INTERVAL_SECONDS, app.LIBRENMS_SYNC_INTERVAL_SECONDS)",
+            ],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert completed.stdout.strip().splitlines()[-1] == "120 45"
 
     def test_running_sync_is_reported_as_pending(self, client):
         self._set_nautobot_sync_state("running", flask_app._iso_utc_now())
