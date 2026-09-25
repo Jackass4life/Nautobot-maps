@@ -49,8 +49,6 @@ services:
       # Criticality configuration (all optional)
       - CRITICAL_ROLE_KEYWORDS=${CRITICAL_ROLE_KEYWORDS:-}
       - CRITICALITY_RULES_FILE=${CRITICALITY_RULES_FILE:-}
-      # SQLite persistence (optional – leave empty to disable)
-      - NAUTOBOT_MAPS_DB=${NAUTOBOT_MAPS_DB:-}
       # Optional authentication / RBAC
       - AUTH_MODE=${AUTH_MODE:-disabled}
       - AUTH_HEADER_USER=${AUTH_HEADER_USER:-X-Forwarded-User}
@@ -65,6 +63,9 @@ services:
       - LIBRENMS_VERIFY_SSL=${LIBRENMS_VERIFY_SSL:-true}
       # PostgreSQL persistence (preferred). Leave empty to use SQLite fallback.
       - NAUTOBOT_MAPS_DATABASE_URL=${NAUTOBOT_MAPS_DATABASE_URL-postgresql://${POSTGRES_USER:-nautobot_maps}:${POSTGRES_PASSWORD:-nautobot_maps}@postgres:5432/${POSTGRES_DB:-nautobot_maps}}
+      # SQLite fallback, only used when NAUTOBOT_MAPS_DATABASE_URL is empty.
+      # The container runs as a non-root user; put the file under /app/data
+      # (e.g. /app/data/nautobot_maps.db) and mount a volume there to keep it.
       - NAUTOBOT_MAPS_DB=${NAUTOBOT_MAPS_DB:-}
     depends_on:
       redis:

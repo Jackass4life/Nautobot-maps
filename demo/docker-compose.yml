@@ -4,6 +4,9 @@ services:
       context: ..
       dockerfile: Dockerfile
     command: python demo/mock_nautobot.py
+    volumes:
+      # demo/ is excluded from the image by .dockerignore; mount the mock in.
+      - ./mock_nautobot.py:/app/demo/mock_nautobot.py:ro
     ports:
       - "8080:8080"
     healthcheck:

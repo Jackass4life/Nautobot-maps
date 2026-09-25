@@ -4742,3 +4742,37 @@ class TestMultiDeviceCases:
         )
         assert resp.status_code == 400
         assert self._cases_for(client, "dev-1") == []
+# Tests: /healthz (#131)
+# ---------------------------------------------------------------------------
+class TestHealthz:
+    def test_ok_without_persistence(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.get_json() == {"status": "ok", "checks": {"app": "ok"}}
+
+    def test_ok_with_reachable_database(self, client, monkeypatch, tmp_path):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.get_json()["checks"] == {"app": "ok", "database": "ok"}
+
+    def test_unavailable_database_returns_503_without_details(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "/nonexistent-dir/maps.db")
+        resp = client.get("/healthz")
+        assert resp.status_code == 503
+        assert resp.get_json() == {
+            "status": "unavailable",
+            "checks": {"app": "ok", "database": "unavailable"},
+        }
+
+    def test_makes_no_upstream_calls(self, client, monkeypatch):
+        """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        with patch.object(flask_app.requests, "get", side_effect=AssertionError("no upstream calls")):
+            resp = client.get("/healthz")
+        assert resp.status_code == 200

@@ -3285,6 +3285,38 @@ def index():
     return render_template("index.html", nautobot_url=NAUTOBOT_URL)
 
 
+@app.route("/healthz")
+def healthz():
+    """Liveness probe for Docker, load balancers and monitoring.
+
+    Makes no Nautobot or LibreNMS calls: an upstream outage must not mark this
+    app unhealthy, because restarting it cannot fix the upstream.  When
+    persistence is configured the database must answer ``SELECT 1``, since the
+    alert board cannot be served without it.
+
+    Returns 200 ``{"status": "ok", "checks": {...}}`` or 503 with
+    ``"status": "unavailable"``.  Error details are logged, never returned.
+    """
+    checks = {"app": "ok"}
+    if _current_persistence_dialect():
+        conn = None
+        try:
+            conn = _get_db_conn()
+            conn.execute("SELECT 1").fetchone()
+            checks["database"] = "ok"
+        except Exception as exc:
+            logger.warning("Health check: database unavailable: %s", exc)
+            checks["database"] = "unavailable"
+        finally:
+            if conn is not None:
+                conn.close()
+    healthy = all(value == "ok" for value in checks.values())
+    return (
+        jsonify({"status": "ok" if healthy else "unavailable", "checks": checks}),
+        200 if healthy else 503,
+    )
+
+
 @app.route("/alerts")
 def alert_board():
     return render_template(
