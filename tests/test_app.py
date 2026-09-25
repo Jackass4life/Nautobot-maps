@@ -1030,11 +1030,12 @@ class TestAlertBoard:
         assert data["summary"]["ok"] == 1
         assert data["summary"]["unknown"] == 0
 
-    def test_get_alert_board_data_uses_fresh_persistence_connection_per_location(self):
+    def test_get_alert_board_data_replaces_write_connection_after_failure(self):
+        """Sites share one write connection; a failed write gets the next site a fresh one (#88, #149)."""
         flask_app.cache.clear()
         sample_locations = [
-            {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
-            {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
+            {"id": f"loc-{i}", "name": f"Site {i}", "location_type": "Office", "latitude": 1.0, "longitude": 2.0}
+            for i in (1, 2, 3)
         ]
         opened_conns = []
         upsert_conns = []
@@ -1055,16 +1056,11 @@ class TestAlertBoard:
 
         def fake_upsert(site, devices, alert, checked_at, conn=None):
             upsert_conns.append(conn)
+            return site["id"] != "loc-2"  # the write for loc-2 fails
 
-        def fake_context(site_id, checked_at, conn=None):
+        def fake_context(conn, site_id, checked_at):
             context_conns.append(conn)
-            return {
-                "active_alert_instance_count": 0,
-                "historical_downtime_seconds": 0,
-                "current_downtime_seconds": 0,
-                "active_cases": [],
-                "down_devices": [],
-            }
+            return flask_app._empty_alert_context()
 
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations),
@@ -1078,16 +1074,17 @@ class TestAlertBoard:
             patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=False),
             patch.object(flask_app, "_get_db_conn", side_effect=fake_get_db_conn),
             patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert),
-            patch.object(flask_app, "_get_alert_context_for_site", side_effect=fake_context),
+            patch.object(flask_app, "_read_alert_context", side_effect=fake_context),
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
-        assert data["summary"]["total"] == 2
-        assert len(opened_conns) == 2
-        assert upsert_conns == opened_conns
-        assert context_conns == opened_conns
-        assert opened_conns[0] is not opened_conns[1]
+        assert data["summary"]["total"] == 3
+        # conn-1 is the bulk read (it fails on the fake, so every site takes the per-site path).
+        read_conn, first_write, second_write = opened_conns
+        assert upsert_conns == [first_write, first_write, second_write]
+        assert context_conns == [first_write, second_write]
         assert all(conn.closed for conn in opened_conns)
+        assert read_conn not in upsert_conns
 
     def test_get_alert_board_data_disables_persistence_after_connect_failure(self):
         flask_app.cache.clear()
@@ -1107,7 +1104,7 @@ class TestAlertBoard:
             ),
             patch.object(flask_app, "_get_db_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn,
             patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert,
-            patch.object(flask_app, "_get_alert_context_for_site") as get_context,
+            patch.object(flask_app, "_read_alert_context") as get_context,
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
@@ -1147,7 +1144,7 @@ class TestAlertBoard:
             patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert,
             patch.object(
                 flask_app,
-                "_get_alert_context_for_site",
+                "_read_alert_context",
                 return_value={
                     "active_alert_instance_count": 1,
                     "historical_downtime_seconds": 3600,
@@ -5086,3 +5083,182 @@ class TestRefreshIsIncremental:
         self._location_queries(force=True)
         queries = self._location_queries(force=True)
         assert queries == [{}]
+
+
+# ---------------------------------------------------------------------------
+# Tests: alert board reads in bulk, not per site (#149)
+# ---------------------------------------------------------------------------
+class TestAlertBoardBulkReads:
+    CHECKED_AT = "2026-09-25T12:00:00+00:00"
+
+    @pytest.fixture(autouse=True)
+    def _sqlite(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DB", str(tmp_path / "maps.db"))
+        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
+        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(flask_app, "_ensure_inventory_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(flask_app, "_iso_utc_now", lambda: self.CHECKED_AT)
+        flask_app._init_db()
+        flask_app.cache.clear()
+        yield
+        flask_app.cache.clear()
+
+    def _execute(self, sql, rows):
+        conn = flask_app._get_db_conn()
+        with conn:
+            conn.executemany(sql, rows)
+        conn.close()
+
+    def _seed(self, site_count, down_every=10, backfill_done=True):
+        """Seed *site_count* sites with 3 devices; every *down_every*-th site has its router down."""
+        self._execute(
+            "INSERT INTO nautobot_location_cache (location_id, name, status, location_type, latitude, longitude) "
+            "VALUES (?, ?, 'Active', 'Office', 1.0, 2.0)",
+            [(f"loc-{i}", f"Site {i}") for i in range(site_count)],
+        )
+        self._execute(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    f"dev-{i}-{j}",
+                    f"loc-{i}",
+                    f"dev{i}-{j}",
+                    "router" if j == 0 else "access",
+                    "Offline" if (j == 0 and i % down_every == 0) else "Active",
+                    f"10.0.{i % 250}.{j}/32",
+                )
+                for i in range(site_count)
+                for j in range(3)
+            ],
+        )
+        conn = flask_app._get_db_conn()
+        with conn:
+            flask_app._record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_started_at="2026-09-25T11:00:00+00:00",
+                last_completed_at="2026-09-25T11:00:00+00:00",
+                last_successful_sync="2026-09-25T11:00:00+00:00" if backfill_done else None,
+                cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                status="idle",
+            )
+        conn.close()
+
+    def _add_alert(self, site_id, device_id, status, down_started_at, total_downtime_seconds=0):
+        conn = flask_app._get_db_conn()
+        with conn:
+            instance_id = conn.execute(
+                "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
+                "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
+                "VALUES (?, ?, '', ?, ?, 'critical', '', ?, ?, ?, ?) RETURNING id",
+                (
+                    # Open alerts use the real key so the build recognises them as still open.
+                    flask_app._build_alert_key(site_id, device_id, "critical")
+                    if status == "open"
+                    else f"{site_id}-{device_id}-{down_started_at}",
+                    site_id,
+                    device_id,
+                    device_id,
+                    status,
+                    down_started_at,
+                    down_started_at,
+                    total_downtime_seconds,
+                ),
+            ).fetchone()[0]
+        conn.close()
+        return instance_id
+
+    def _build_counting_connections(self):
+        opened = []
+        real_get_db_conn = flask_app._get_db_conn
+
+        def counting_get_db_conn():
+            opened.append(1)
+            return real_get_db_conn()
+
+        with patch.object(flask_app, "_get_db_conn", side_effect=counting_get_db_conn):
+            data = flask_app.get_alert_board_data()
+        return data, len(opened)
+
+    def test_connection_count_does_not_grow_with_site_count(self):
+        self._seed(20)
+        small, small_conns = self._build_counting_connections()
+        flask_app.cache.clear()
+        self._seed_more(20, 2000)
+        large, large_conns = self._build_counting_connections()
+
+        assert small["summary"]["total"] == 20
+        assert large["summary"]["total"] == 2000
+        assert large["summary"]["critical"] == 200
+        # Before #149 a build opened 3 connections per site: 6,000 for 2,000 sites.
+        assert large_conns == small_conns
+        assert large_conns <= 6
+
+    def _seed_more(self, start, stop):
+        self._execute(
+            "INSERT INTO nautobot_location_cache (location_id, name, status, location_type, latitude, longitude) "
+            "VALUES (?, ?, 'Active', 'Office', 1.0, 2.0)",
+            [(f"loc-{i}", f"Site {i}") for i in range(start, stop)],
+        )
+        self._execute(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    f"dev-{i}-{j}",
+                    f"loc-{i}",
+                    f"dev{i}-{j}",
+                    "router" if j == 0 else "access",
+                    "Offline" if (j == 0 and i % 10 == 0) else "Active",
+                    f"10.0.{i % 250}.{j}/32",
+                )
+                for i in range(start, stop)
+                for j in range(3)
+            ],
+        )
+
+    def test_bulk_context_matches_per_site_context(self):
+        self._seed(6, down_every=3)  # loc-0 and loc-3 have a router down
+        # loc-1: healthy now, only closed history -> context comes from the bulk read.
+        self._add_alert("loc-1", "dev-1-1", "resolved", "2026-09-24T10:00:00+00:00", total_downtime_seconds=900)
+        # loc-2: healthy now, but an open alert -> it is resolved by the write path.
+        self._add_alert("loc-2", "dev-2-2", "open", "2026-09-25T11:30:00+00:00")
+        # loc-3: down router with an open alert, a case and closed history.
+        open_id = self._add_alert("loc-3", "dev-3-0", "open", "2026-09-25T11:00:00+00:00")
+        self._add_alert("loc-3", "dev-3-0", "resolved", "2026-09-20T10:00:00+00:00", total_downtime_seconds=120)
+        self._execute(
+            "INSERT INTO alert_cases (alert_instance_id, case_number, created_at) VALUES (?, ?, ?)",
+            [(open_id, "INC-1", "2026-09-25T11:05:00"), (open_id, "INC-2", "2026-09-25T11:10:00")],
+        )
+
+        data = flask_app.get_alert_board_data()
+
+        by_site = {entry["id"]: entry for entry in data["alerts"]}
+        for site_id, entry in by_site.items():
+            expected = flask_app._get_alert_context_for_site(site_id, self.CHECKED_AT)
+            assert entry["historical_downtime_seconds"] == expected["historical_downtime_seconds"], site_id
+            assert entry["current_downtime_seconds"] == expected["current_downtime_seconds"], site_id
+            assert entry["active_cases"] == expected["active_cases"], site_id
+        assert by_site["loc-1"]["historical_downtime_seconds"] == 900
+        assert by_site["loc-2"]["active_alert_instance_count"] == 0  # resolved during the build
+        assert by_site["loc-3"]["active_cases"] == ["INC-1", "INC-2"]
+        assert by_site["loc-3"]["current_downtime_seconds"] == 3600
+        assert by_site["loc-3"]["historical_downtime_seconds"] == 120 + 3600
+
+    def test_backfill_pending_skips_writes_and_hides_open_alerts(self):
+        self._seed(4, down_every=2, backfill_done=False)
+        self._add_alert("loc-1", "dev-1-0", "resolved", "2026-09-24T10:00:00+00:00", total_downtime_seconds=300)
+        self._add_alert("loc-1", "dev-1-2", "open", "2026-09-25T11:00:00+00:00")
+
+        with patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert:
+            data = flask_app.get_alert_board_data()
+
+        upsert.assert_not_called()
+        loc1 = next(entry for entry in data["alerts"] if entry["id"] == "loc-1")
+        assert loc1["active_alert_instance_count"] == 0
+        assert loc1["current_downtime_seconds"] == 0
+        assert loc1["historical_downtime_seconds"] == 300 + 3600
