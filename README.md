@@ -120,6 +120,27 @@ docker compose down
 
 The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy. If you use the SQLite fallback instead of PostgreSQL, set `NAUTOBOT_MAPS_DB=/app/data/nautobot_maps.db` (the only writable path in the container) and mount a volume at `/app/data`.
 
+### Local overrides (ports, volumes, …)
+
+Don't edit `docker-compose.yml` for machine-specific settings: `git pull` will then
+refuse to update it ("Your local changes … would be overwritten by merge"). Put them
+in `docker-compose.override.yml` next to it instead. Docker Compose merges that file
+automatically, and it is git-ignored.
+
+```yaml
+# docker-compose.override.yml
+services:
+  nautobot-maps:
+    # Port 5000 is already taken on this machine: publish the app on 9000 instead.
+    ports: !override
+      - "127.0.0.1:9000:5000"
+```
+
+- `!override` replaces the port list instead of adding to it (Docker Compose v2.24.4 or
+  newer; check with `docker compose version`).
+- Ports are `host:container`: the app inside the container keeps listening on 5000.
+- Check the merged result with `docker compose config`.
+
 ## Demo (Mock Nautobot)
 
 No Nautobot instance? Spin up a fully self-contained demo using the mock
