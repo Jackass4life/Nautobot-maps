@@ -1,5 +1,6 @@
 import importlib
 import json
+import re
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -1421,8 +1422,11 @@ class TestIndex:
         flask_app.NAUTOBOT_URL = "https://nautobot.example.com"
         try:
             resp = client.get("/")
-            assert b"window.NAUTOBOT_URL" in resp.data
-            assert b"https://nautobot.example.com" in resp.data
+            # Read the value handed to the frontend and compare it exactly,
+            # rather than substring-matching a URL anywhere in the page.
+            match = re.search(rb"window\.NAUTOBOT_URL = (.*?);</script>", resp.data)
+            assert match is not None
+            assert json.loads(match.group(1)) == "https://nautobot.example.com"
         finally:
             flask_app.NAUTOBOT_URL = saved
 
