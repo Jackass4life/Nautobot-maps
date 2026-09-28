@@ -1,4 +1,3 @@
-/* global L */
 "use strict";
 
 // ---------------------------------------------------------------------------
@@ -349,7 +348,7 @@ function renderInspectorContent() {
   inspectorState.classList.add("hidden");
   inspectorContent.classList.remove("hidden");
 
-  let equipmentBody = "";
+  let equipmentBody;
   if (inspectorLoading) {
     equipmentBody = `<div class="inspector-empty">Loading equipment and health details…</div>`;
   } else if (inspectorError) {
@@ -407,7 +406,7 @@ function renderInspectorContent() {
       : `<div class="inspector-empty">No equipment matches the current filter.</div>`}`;
   }
 
-  let asnBody = "";
+  let asnBody;
   if (inspectorLoading) {
     asnBody = `<div class="inspector-empty">Loading ASN details…</div>`;
   } else if (inspectorError) {

@@ -1,0 +1,13 @@
+{
+  "name": "nautobot-maps-dev-tools",
+  "private": true,
+  "description": "Development tools only (linting of static/js); the app itself is Python.",
+  "scripts": {
+    "lint:js": "eslint static/js"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.11.0",
+    "globals": "17.12.0"
+  }
+}
