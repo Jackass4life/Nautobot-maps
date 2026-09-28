@@ -5658,3 +5658,107 @@ class TestSeverityTiers:
             "non_ok": 3,  # No data is not an alert
         }
         assert "unknown" not in summary
+
+
+# ---------------------------------------------------------------------------
+# Tests: alerts start when Nautobot's status changed, not when first seen (#166)
+# ---------------------------------------------------------------------------
+class TestRealStartTimes:
+    CHECKED_AT = "2026-09-28T12:00:00+00:00"
+
+    def test_down_since(self):
+        now = self.CHECKED_AT
+        # Nautobot status changed three days earlier -> that is when it went down.
+        assert alerts.down_since({"last_updated": "2026-09-25T12:00:00Z"}, now) == "2026-09-25T12:00:00+00:00"
+        # A later edit (clock skew, or an edit after we saw it) never moves the start later.
+        assert alerts.down_since({"last_updated": "2026-09-28T13:00:00Z"}, now) == now
+        # Unknown last change -> when we saw it.
+        assert alerts.down_since({"last_updated": ""}, now) == now
+        assert alerts.down_since({}, now) == now
+        # Only LibreNMS says down: Nautobot's last_updated says nothing about this outage.
+        assert alerts.down_since({"last_updated": "2026-09-25T12:00:00Z", "down_source": "librenms"}, now) == now
+
+    def test_librenms_only_down_is_marked(self, monkeypatch):
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.example.com")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "token")
+        enriched = alerts.enrich_with_librenms(
+            [
+                {"id": "d1", "name": "sw01", "status": "active", "last_updated": "2026-01-01T00:00:00Z"},
+                {"id": "d2", "name": "sw02", "status": "offline", "last_updated": "2026-01-01T00:00:00Z"},
+            ],
+            lnms_devices=[
+                {"device_id": 1, "hostname": "sw01", "status": 0},
+                {"device_id": 2, "hostname": "sw02", "status": 0},
+            ],
+            lnms_id_map={1: {}, 2: {}},
+            snapshot_only=True,
+        )
+        assert enriched[0]["status"] == "offline" and enriched[0]["down_source"] == "librenms"
+        # Already down in Nautobot: Nautobot is the source.
+        assert "down_source" not in enriched[1]
+
+    @pytest.fixture
+    def board(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
+        pg_database.execute(
+            "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
+            "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
+        )
+        pg_database.executemany(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip, last_updated) "
+            "VALUES (%s, 'loc-1', %s, 'access', %s, %s, %s)",
+            [
+                ("d-old", "sw-old", "Offline", "10.0.0.1/32", "2026-09-25T12:00:00Z"),
+                ("d-up", "sw-up", "Active", "10.0.0.2/32", "2026-09-01T00:00:00Z"),
+                ("d-up2", "sw-up2", "Active", "10.0.0.3/32", "2026-09-01T00:00:00Z"),
+                ("d-up3", "sw-up3", "Active", "10.0.0.4/32", "2026-09-01T00:00:00Z"),
+            ],
+        )
+        conn = db.get_conn()
+        with conn:
+            inventory.record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_started_at="2026-09-28T11:00:00+00:00",
+                last_completed_at="2026-09-28T11:00:00+00:00",
+                last_successful_sync="2026-09-28T11:00:00+00:00",
+                cache_version=inventory.CACHE_VERSION,
+                status="idle",
+            )
+        conn.close()
+
+        def build():
+            caching.cache.clear()
+            return {row["id"]: row for row in alerts.get_alert_board_data()["alerts"]}
+
+        return build
+
+    def _start(self, pg_database):
+        rows = pg_database.execute("SELECT down_started_at FROM alert_instances WHERE device_id = 'd-old'")
+        return [db.serialize_value(row["down_started_at"]) for row in rows]
+
+    def test_new_alert_starts_when_nautobot_status_changed(self, board, pg_database):
+        site = board()["loc-1"]
+        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        assert site["current_downtime_seconds"] == 3 * 24 * 3600
+
+    def test_open_alert_is_moved_earlier_once_and_never_later(self, board, pg_database):
+        # An alert opened before #166: started when the app first saw it.
+        pg_database.execute(
+            "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
+            "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
+            "VALUES (%s, 'loc-1', 'Site One', 'd-old', 'sw-old', 'low', '', 'open', "
+            "'2026-09-27T08:00:00Z', '2026-09-27T08:00:00Z', 0)",
+            (db.build_alert_key("loc-1", "d-old"),),
+        )
+        board()
+        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+        # A later edit in Nautobot must not move it back.
+        pg_database.execute("UPDATE nautobot_device_cache SET last_updated = '2026-09-28T11:30:00Z'")
+        board()
+        assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
