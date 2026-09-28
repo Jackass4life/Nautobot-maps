@@ -20,7 +20,7 @@ NOT_PASSED_BY_COMPOSE = {
 
 def _settings_read_by_code() -> set[str]:
     names = set()
-    for name in ("app.py", "gunicorn_config.py"):
+    for name in ("app.py", "gunicorn_config.py", "nautobot_maps/settings.py"):
         source = (REPO_ROOT / name).read_text(encoding="utf-8")
         names |= set(re.findall(r'os\.(?:getenv|environ\.get)\(\s*"([A-Z0-9_]+)"', source))
     return names
@@ -43,8 +43,8 @@ def test_empty_settings_mean_defaults():
         [
             sys.executable,
             "-c",
-            "import app, gunicorn_config as g; "
-            "print(app.CACHE_TTL, g.workers, g.timeout, g.bind, repr(app.NAUTOBOT_API_VERSION))",
+            "import app, gunicorn_config as g; from nautobot_maps import settings as s; "
+            "print(s.CACHE_TTL, g.workers, g.timeout, g.bind, repr(s.NAUTOBOT_API_VERSION))",
         ],
         cwd=REPO_ROOT,
         env=env,
@@ -54,3 +54,9 @@ def test_empty_settings_mean_defaults():
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip().splitlines()[-1] == "300 4 120 0.0.0.0:5000 ''"
+
+
+def test_only_the_settings_module_reads_the_environment():
+    """app.py reads settings via nautobot_maps.settings, never os.getenv (#165)."""
+    source = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
+    assert not re.search(r"os\.(getenv|environ)", source)

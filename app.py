@@ -2,18 +2,15 @@ import hashlib
 import ipaddress
 import json
 import logging
-import os
 import re
 import threading
 import warnings
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from functools import wraps
-from urllib.parse import urlsplit
 
 import requests
 import urllib3
-from dotenv import load_dotenv
 from flask import Flask, g, jsonify, render_template, request
 from flask_caching import Cache
 from geopy.distance import geodesic
@@ -28,110 +25,33 @@ except Exception:  # pragma: no cover - optional dependency
     psycopg = None
     dict_row = None
 
-load_dotenv()
+from nautobot_maps import settings
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-me-to-a-random-string")
+app.secret_key = settings.FLASK_SECRET_KEY
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-def _validate_nautobot_url(value: str) -> str:
-    normalized = (value or "").strip().rstrip("/")
-    if not normalized:
-        return normalized
-    parsed = urlsplit(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RuntimeError(
-            "Invalid NAUTOBOT_URL configuration: expected an absolute http(s) URL with a host, "
-            "for example https://nautobot.example.com"
-        )
-    return normalized
-
-
-NAUTOBOT_URL = _validate_nautobot_url(os.getenv("NAUTOBOT_URL", ""))
-NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")
-NAUTOBOT_API_VERSION = os.getenv("NAUTOBOT_API_VERSION", "").strip()
-CACHE_TTL = int(os.getenv("CACHE_TTL", "").strip() or 300)
-# An empty value (docker-compose passes unset variables as "") means the default.
-INVENTORY_SYNC_INTERVAL_SECONDS = int(os.getenv("INVENTORY_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)
-LIBRENMS_SYNC_INTERVAL_SECONDS = int(os.getenv("LIBRENMS_SYNC_INTERVAL_SECONDS", "").strip() or CACHE_TTL)
 _FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
 # (3: locations store parent_id, #158).
 _NAUTOBOT_INVENTORY_CACHE_VERSION = "3"
 
-# LibreNMS optional integration
-LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
-LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
-LIBRENMS_VERIFY_SSL = os.getenv("LIBRENMS_VERIFY_SSL", "true").strip().lower() not in ("0", "false", "no")
-
-# Removed in #153 (SQLite support); only read to warn when it is still set.
-_LEGACY_SQLITE_DB = os.getenv("NAUTOBOT_MAPS_DB", "").strip()
-NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
-
-# Optional authentication / RBAC configuration
-AUTH_MODE = os.getenv("AUTH_MODE", "disabled").strip().lower() or "disabled"
-AUTH_HEADER_USER = os.getenv("AUTH_HEADER_USER", "X-Forwarded-User").strip() or "X-Forwarded-User"
-AUTH_HEADER_GROUPS = os.getenv("AUTH_HEADER_GROUPS", "X-Forwarded-Groups").strip() or "X-Forwarded-Groups"
-AUTH_DEFAULT_ROLE = os.getenv("AUTH_DEFAULT_ROLE", "").strip().lower()
-
-# Path to a JSON file with per-location-type criticality keyword rules
-CRITICALITY_RULES_FILE = os.getenv("CRITICALITY_RULES_FILE", "")
-ALERT_BOARD_EXCLUDED_LOCATION_TYPES_RAW = os.getenv(
-    "ALERT_BOARD_EXCLUDED_LOCATION_TYPES",
-    "graveyard,warehouse",
-)
-ALERT_BOARD_EXCLUDED_LOCATION_STATUSES_RAW = os.getenv(
-    "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES",
-    "",
-)
-ALERT_BOARD_EXCLUDED_LOCATION_TAGS_RAW = os.getenv(
-    "ALERT_BOARD_EXCLUDED_LOCATION_TAGS",
-    "",
-)
-ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW = os.getenv(
-    "ALERT_BOARD_EXCLUDED_LOCATION_NAMES",
-    "",
-)
-ALERT_BOARD_EXCLUDED_DEVICE_STATUSES_RAW = os.getenv(
-    "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES",
-    "",
-)
-# Background scheduler (#154): sync and record alert history with nobody
-# viewing the board.  On by default; "false"/"0"/"no" turns it off.
-BACKGROUND_SYNC_ENABLED = os.getenv("BACKGROUND_SYNC_ENABLED", "").strip().lower() not in ("0", "false", "no")
-# Location type whose locations are the alert-board rows (e.g. "Site"); devices
-# in descendant locations roll up into them (#158).  Empty: one row per location.
-ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()
-
 # Flask-Caching configuration.
 # Defaults to SimpleCache (in-process) for development / single-worker setups.
 # Set CACHE_TYPE=RedisCache and CACHE_REDIS_URL=redis://redis:6379/0 in
 # production to share cache across multiple Gunicorn workers.
-app.config["CACHE_TYPE"] = os.getenv("CACHE_TYPE", "SimpleCache")
-app.config["CACHE_DEFAULT_TIMEOUT"] = CACHE_TTL
-_redis_url = os.getenv("CACHE_REDIS_URL", "")
-if _redis_url:
-    app.config["CACHE_REDIS_URL"] = _redis_url
+app.config["CACHE_TYPE"] = settings.CACHE_TYPE
+app.config["CACHE_DEFAULT_TIMEOUT"] = settings.CACHE_TTL
+if settings.CACHE_REDIS_URL:
+    app.config["CACHE_REDIS_URL"] = settings.CACHE_REDIS_URL
 cache = Cache(app)
 _inventory_sync_lock = threading.Lock()
 
-# SSL verification: "true" (default) = verify, "false" = skip verification,
-# or a file path to a custom CA bundle.
-_ssl_env = os.getenv("NAUTOBOT_VERIFY_SSL", "true").strip()
-if _ssl_env.lower() == "false":
-    NAUTOBOT_VERIFY_SSL: bool | str = False
-elif _ssl_env.lower() == "true":
-    NAUTOBOT_VERIFY_SSL = True
-else:
-    # Treat the value as a path to a CA bundle / certificate file
-    NAUTOBOT_VERIFY_SSL = _ssl_env
-
 
 def _configure_nautobot_ssl_warnings() -> None:
-    if NAUTOBOT_VERIFY_SSL is False:
+    if settings.NAUTOBOT_VERIFY_SSL is False:
         urllib3.disable_warnings(InsecureRequestWarning)
 
 
@@ -142,23 +62,9 @@ _AUTH_ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}
 _SUPPORTED_AUTH_MODES = {"disabled", "header"}
 
 
-def _parse_csv_set(value: str) -> set[str]:
-    """Return a lower-cased set from a comma/semicolon-separated string."""
-    return {item.strip().lower() for item in re.split(r"[;,]", value or "") if item.strip()}
-
-
 def _format_set_for_log(values: set[str]) -> str:
     return "{" + ",".join(sorted(values)) + "}"
 
-
-AUTH_VIEWER_GROUPS = _parse_csv_set(os.getenv("AUTH_VIEWER_GROUPS", ""))
-AUTH_OPERATOR_GROUPS = _parse_csv_set(os.getenv("AUTH_OPERATOR_GROUPS", ""))
-AUTH_ADMIN_GROUPS = _parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
-ALERT_BOARD_EXCLUDED_LOCATION_TYPES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_TYPES_RAW)
-ALERT_BOARD_EXCLUDED_LOCATION_STATUSES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES_RAW)
-ALERT_BOARD_EXCLUDED_LOCATION_TAGS = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_TAGS_RAW)
-ALERT_BOARD_EXCLUDED_LOCATION_NAMES = _parse_csv_set(ALERT_BOARD_EXCLUDED_LOCATION_NAMES_RAW)
-ALERT_BOARD_EXCLUDED_DEVICE_STATUSES = _parse_csv_set(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES_RAW)
 
 # In a status exclusion list, this keyword matches a missing or empty status.
 _NULL_STATUS_KEYWORD = "null"
@@ -174,7 +80,7 @@ def _status_is_excluded(status: str | None, excluded: set[str]) -> bool:
 
 def _log_alert_board_exclusions() -> None:
     """Log the alert-board configuration once at startup."""
-    if _LEGACY_SQLITE_DB:
+    if settings.LEGACY_SQLITE_DB:
         logger.error(
             "NAUTOBOT_MAPS_DB is set, but SQLite support was removed: the alert board "
             "needs PostgreSQL. Set NAUTOBOT_MAPS_DATABASE_URL=postgresql://... and remove NAUTOBOT_MAPS_DB."
@@ -186,12 +92,12 @@ def _log_alert_board_exclusions() -> None:
         )
     logger.info(
         "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s; rows=%s",
-        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_STATUSES),
-        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_NAMES),
-        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TYPES),
-        _format_set_for_log(ALERT_BOARD_EXCLUDED_LOCATION_TAGS),
-        _format_set_for_log(ALERT_BOARD_EXCLUDED_DEVICE_STATUSES),
-        ALERT_BOARD_SITE_LOCATION_TYPE or "every location",
+        _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_LOCATION_STATUSES),
+        _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_LOCATION_NAMES),
+        _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_LOCATION_TYPES),
+        _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_LOCATION_TAGS),
+        _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES),
+        settings.ALERT_BOARD_SITE_LOCATION_TYPE or "every location",
     )
 
 
@@ -200,15 +106,12 @@ def _normalize_auth_role(role: str) -> str:
     return role if role in _AUTH_ROLE_LEVELS else ""
 
 
-AUTH_DEFAULT_ROLE = _normalize_auth_role(AUTH_DEFAULT_ROLE)
-
-
 def _is_auth_config_valid() -> bool:
-    return AUTH_MODE in _SUPPORTED_AUTH_MODES
+    return settings.AUTH_MODE in _SUPPORTED_AUTH_MODES
 
 
 def _get_flask_run_host() -> str:
-    return "127.0.0.1" if AUTH_MODE == "header" else "0.0.0.0"
+    return "127.0.0.1" if settings.AUTH_MODE == "header" else "0.0.0.0"
 
 
 def _auth_role_level(role: str) -> int:
@@ -217,13 +120,13 @@ def _auth_role_level(role: str) -> int:
 
 def _resolve_role_from_groups(groups: list[str]) -> str:
     normalized_groups = {group.strip().lower() for group in groups if group.strip()}
-    if normalized_groups & AUTH_ADMIN_GROUPS:
+    if normalized_groups & settings.AUTH_ADMIN_GROUPS:
         return "admin"
-    if normalized_groups & AUTH_OPERATOR_GROUPS:
+    if normalized_groups & settings.AUTH_OPERATOR_GROUPS:
         return "operator"
-    if normalized_groups & AUTH_VIEWER_GROUPS:
+    if normalized_groups & settings.AUTH_VIEWER_GROUPS:
         return "viewer"
-    return AUTH_DEFAULT_ROLE
+    return settings.AUTH_DEFAULT_ROLE
 
 
 def _get_current_user() -> dict:
@@ -237,22 +140,22 @@ def _get_current_user() -> dict:
         "username": "",
         "groups": [],
         "role": "",
-        "auth_mode": AUTH_MODE,
+        "auth_mode": settings.AUTH_MODE,
     }
-    if AUTH_MODE == "disabled":
+    if settings.AUTH_MODE == "disabled":
         g._current_user = current
         return current
 
-    if AUTH_MODE == "header":
-        username = request.headers.get(AUTH_HEADER_USER, "").strip()
-        groups_header = request.headers.get(AUTH_HEADER_GROUPS, "")
+    if settings.AUTH_MODE == "header":
+        username = request.headers.get(settings.AUTH_HEADER_USER, "").strip()
+        groups_header = request.headers.get(settings.AUTH_HEADER_GROUPS, "")
         groups = [item.strip() for item in re.split(r"[;,]", groups_header) if item.strip()]
         current = {
             "is_authenticated": bool(username),
             "username": username,
             "groups": groups,
             "role": _resolve_role_from_groups(groups),
-            "auth_mode": AUTH_MODE,
+            "auth_mode": settings.AUTH_MODE,
         }
 
     g._current_user = current
@@ -266,7 +169,7 @@ def require_role(required_role: str):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            if AUTH_MODE == "disabled":
+            if settings.AUTH_MODE == "disabled":
                 return func(*args, **kwargs)
             if not _is_auth_config_valid():
                 return jsonify({"error": "Unsupported AUTH_MODE configuration"}), 503
@@ -296,7 +199,7 @@ def require_role(required_role: str):
 
 def _current_persistence_dialect() -> str:
     """Return ``"postgres"`` when a PostgreSQL URL is configured, else ``""``."""
-    db_url = (NAUTOBOT_MAPS_DATABASE_URL or "").strip()
+    db_url = (settings.NAUTOBOT_MAPS_DATABASE_URL or "").strip()
     if db_url.lower().startswith(("postgres://", "postgresql://")):
         return "postgres"
     return ""
@@ -411,7 +314,7 @@ def _get_db_conn():
         )
         return None
     return psycopg.connect(
-        NAUTOBOT_MAPS_DATABASE_URL,
+        settings.NAUTOBOT_MAPS_DATABASE_URL,
         row_factory=dict_row,
         autocommit=True,
     )
@@ -857,7 +760,7 @@ def _build_tenant_group_map() -> dict:
 
 def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
     """Perform a GET request against the Nautobot REST API."""
-    if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
+    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     cache_key = f"{endpoint}:{params}"
     cached = _cache_get(cache_key)
@@ -865,15 +768,15 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
         return cached
 
     accept = "application/json"
-    if NAUTOBOT_API_VERSION:
-        accept += f"; version={NAUTOBOT_API_VERSION}"
+    if settings.NAUTOBOT_API_VERSION:
+        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
     headers = {
-        "Authorization": f"Token {NAUTOBOT_TOKEN}",
+        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
         "Content-Type": "application/json",
         "Accept": accept,
     }
-    url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.get(url, headers=headers, params=params, timeout=(5, 30), verify=NAUTOBOT_VERIFY_SSL)
+    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
+    response = requests.get(url, headers=headers, params=params, timeout=(5, 30), verify=settings.NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
     data = response.json()
     _cache_set(cache_key, data)
@@ -882,36 +785,36 @@ def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
 
 def nautobot_post(endpoint: str, payload: dict) -> dict:
     """Perform a POST request against the Nautobot REST API."""
-    if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
+    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     accept = "application/json"
-    if NAUTOBOT_API_VERSION:
-        accept += f"; version={NAUTOBOT_API_VERSION}"
+    if settings.NAUTOBOT_API_VERSION:
+        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
     headers = {
-        "Authorization": f"Token {NAUTOBOT_TOKEN}",
+        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
         "Content-Type": "application/json",
         "Accept": accept,
     }
-    url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.post(url, headers=headers, json=payload, timeout=15, verify=NAUTOBOT_VERIFY_SSL)
+    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
+    response = requests.post(url, headers=headers, json=payload, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
     return response.json()
 
 
 def nautobot_delete(endpoint: str) -> None:
     """Perform a DELETE request against the Nautobot REST API."""
-    if not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
+    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     accept = "application/json"
-    if NAUTOBOT_API_VERSION:
-        accept += f"; version={NAUTOBOT_API_VERSION}"
+    if settings.NAUTOBOT_API_VERSION:
+        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
     headers = {
-        "Authorization": f"Token {NAUTOBOT_TOKEN}",
+        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
         "Content-Type": "application/json",
         "Accept": accept,
     }
-    url = f"{NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.delete(url, headers=headers, timeout=15, verify=NAUTOBOT_VERIFY_SSL)
+    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
+    response = requests.delete(url, headers=headers, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
 
 
@@ -1537,7 +1440,7 @@ def _write_cached_librenms_devices(conn, devices: list) -> None:
 
 def _sync_nautobot_inventory(force: bool = False) -> None:
     conn = _get_db_conn()
-    if conn is None or not NAUTOBOT_URL or not NAUTOBOT_TOKEN:
+    if conn is None or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         if conn is not None:
             conn.close()
         return
@@ -1662,7 +1565,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
 
 def _sync_librenms_inventory(force: bool = False) -> None:
     conn = _get_db_conn()
-    if conn is None or not (LIBRENMS_URL or "").strip() or not (LIBRENMS_API_TOKEN or "").strip():
+    if conn is None or not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         if conn is not None:
             conn.close()
         return
@@ -1739,20 +1642,22 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False, full: bo
             if conn is None:
                 return False
             nautobot_state = _get_sync_state("nautobot_inventory", conn=conn)
-            needs_nautobot = bool(NAUTOBOT_URL and NAUTOBOT_TOKEN) and (
+            needs_nautobot = bool(settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN) and (
                 force
                 or _nautobot_inventory_cache_version_mismatch(nautobot_state)
                 or _sync_due(
                     "nautobot_inventory",
-                    INVENTORY_SYNC_INTERVAL_SECONDS,
+                    settings.INVENTORY_SYNC_INTERVAL_SECONDS,
                     conn=conn,
                 )
             )
-            needs_librenms = bool((LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip()) and (
+            needs_librenms = bool(
+                (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip()
+            ) and (
                 force
                 or _sync_due(
                     "librenms_inventory",
-                    LIBRENMS_SYNC_INTERVAL_SECONDS,
+                    settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
                     conn=conn,
                 )
             )
@@ -1875,10 +1780,10 @@ def _location_is_excluded_from_alert_board(location: dict) -> bool:
         if tag_name:
             tags.add(tag_name.strip().lower())
     return bool(
-        (name and name in ALERT_BOARD_EXCLUDED_LOCATION_NAMES)
-        or _status_is_excluded(location.get("status"), ALERT_BOARD_EXCLUDED_LOCATION_STATUSES)
-        or (location_type and location_type in ALERT_BOARD_EXCLUDED_LOCATION_TYPES)
-        or (tags & ALERT_BOARD_EXCLUDED_LOCATION_TAGS)
+        (name and name in settings.ALERT_BOARD_EXCLUDED_LOCATION_NAMES)
+        or _status_is_excluded(location.get("status"), settings.ALERT_BOARD_EXCLUDED_LOCATION_STATUSES)
+        or (location_type and location_type in settings.ALERT_BOARD_EXCLUDED_LOCATION_TYPES)
+        or (tags & settings.ALERT_BOARD_EXCLUDED_LOCATION_TAGS)
     )
 
 
@@ -1895,7 +1800,7 @@ _DEFAULT_CORE_ROLE_KEYWORDS: tuple = ("core", "spine", "distribution", "router",
 
 # CRITICAL_ROLE_KEYWORDS env var (comma-separated) replaces the built-in
 # defaults for every location type that has no specific rule in the JSON file.
-_env_keywords_raw = os.getenv("CRITICAL_ROLE_KEYWORDS", "").strip()
+_env_keywords_raw = settings.CRITICAL_ROLE_KEYWORDS
 _ENV_CORE_ROLE_KEYWORDS: tuple = (
     tuple(kw.strip().lower() for kw in _env_keywords_raw.split(",") if kw.strip())
     if _env_keywords_raw
@@ -1905,9 +1810,9 @@ _ENV_CORE_ROLE_KEYWORDS: tuple = (
 # Per-location-type rules loaded from the JSON file (if configured).
 # Schema: {"<location_type_lower>": ["kw1", "kw2", ...], "default": [...]}
 _CRITICALITY_RULES: dict = {}
-if CRITICALITY_RULES_FILE:
+if settings.CRITICALITY_RULES_FILE:
     try:
-        with open(CRITICALITY_RULES_FILE, encoding="utf-8") as _f:
+        with open(settings.CRITICALITY_RULES_FILE, encoding="utf-8") as _f:
             _loaded = json.load(_f)
         if isinstance(_loaded, dict):
             _CRITICALITY_RULES = {
@@ -1915,16 +1820,16 @@ if CRITICALITY_RULES_FILE:
             }
             logger.info(
                 "Loaded criticality rules from %s: %s",
-                CRITICALITY_RULES_FILE,
+                settings.CRITICALITY_RULES_FILE,
                 list(_CRITICALITY_RULES.keys()),
             )
         else:
             logger.warning(
                 "Criticality rules file %s must contain a JSON object; ignoring.",
-                CRITICALITY_RULES_FILE,
+                settings.CRITICALITY_RULES_FILE,
             )
     except Exception as exc:
-        logger.warning("Could not load criticality rules from %s: %s", CRITICALITY_RULES_FILE, exc)
+        logger.warning("Could not load criticality rules from %s: %s", settings.CRITICALITY_RULES_FILE, exc)
 
 
 def _get_critical_keywords(location_type: str | None = None) -> tuple:
@@ -2058,26 +1963,26 @@ def compute_alert_level(
 
 def _librenms_get(path: str, params: dict | None = None) -> dict:
     """Perform a GET request against the LibreNMS REST API."""
-    base_url = (LIBRENMS_URL or "").strip().rstrip("/")
-    api_token = (LIBRENMS_API_TOKEN or "").strip()
+    base_url = (settings.LIBRENMS_URL or "").strip().rstrip("/")
+    api_token = (settings.LIBRENMS_API_TOKEN or "").strip()
     if not base_url or not api_token:
         return {}
 
     headers = {"X-Auth-Token": api_token}
     url = f"{base_url}/api/v0/{path.lstrip('/')}"
-    if LIBRENMS_VERIFY_SSL is False:
+    if settings.LIBRENMS_VERIFY_SSL is False:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", InsecureRequestWarning)
             response = requests.get(url, headers=headers, params=params, timeout=15, verify=False)
     else:
-        response = requests.get(url, headers=headers, params=params, timeout=15, verify=LIBRENMS_VERIFY_SSL)
+        response = requests.get(url, headers=headers, params=params, timeout=15, verify=settings.LIBRENMS_VERIFY_SSL)
     response.raise_for_status()
     return response.json()
 
 
 def _fetch_librenms_inventory() -> list:
     """Fetch full LibreNMS inventory once."""
-    if not (LIBRENMS_URL or "").strip() or not (LIBRENMS_API_TOKEN or "").strip():
+    if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         return []
     data = _librenms_get("devices", {"type": "all"})
     return data.get("devices", [])
@@ -2125,7 +2030,7 @@ def _enrich_with_librenms(
     The enrichment is *additive*: Nautobot status is never upgraded (a device
     already offline in Nautobot stays offline regardless of LibreNMS).
     """
-    if not (LIBRENMS_URL or "").strip() or not (LIBRENMS_API_TOKEN or "").strip():
+    if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         return devices
 
     if lnms_devices is None:
@@ -2727,10 +2632,10 @@ def _inventory_update_schedule() -> tuple[bool, int | None]:
     board counts down to it (#152).
     """
     sources = []
-    if NAUTOBOT_URL and NAUTOBOT_TOKEN:
-        sources.append(("nautobot_inventory", INVENTORY_SYNC_INTERVAL_SECONDS))
-    if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
-        sources.append(("librenms_inventory", LIBRENMS_SYNC_INTERVAL_SECONDS))
+    if settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN:
+        sources.append(("nautobot_inventory", settings.INVENTORY_SYNC_INTERVAL_SECONDS))
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
+        sources.append(("librenms_inventory", settings.LIBRENMS_SYNC_INTERVAL_SECONDS))
     if not sources or not _current_persistence_dialect():
         return False, None
     conn = _get_db_conn()
@@ -2782,7 +2687,7 @@ def _apply_alert_board_freshness(
         except ValueError:
             age_seconds = 0
     result = dict(payload)
-    stale_after_seconds = int(result.get("stale_after_seconds", CACHE_TTL))
+    stale_after_seconds = int(result.get("stale_after_seconds", settings.CACHE_TTL))
     result["age_seconds"] = age_seconds
     result["stale"] = age_seconds > stale_after_seconds
     result["sync_pending"] = bool(sync_enqueued) or _nautobot_sync_in_progress()
@@ -2946,7 +2851,7 @@ def _build_alert_board_payload(
     summary = dict.fromkeys(ALERT_LEVEL_ORDER, 0)
     lnms_devices = None
     lnms_id_map = None
-    if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         try:
             lnms_devices = _read_cached_librenms_inventory()
             if not lnms_devices and not snapshot_only:
@@ -2980,7 +2885,7 @@ def _build_alert_board_payload(
 
     # One row per site, with the devices of its whole subtree (#158).
     devices_by_row = None
-    if ALERT_BOARD_SITE_LOCATION_TYPE:
+    if settings.ALERT_BOARD_SITE_LOCATION_TYPE:
         if board_data is not None:
             devices_by_location = board_data["devices_by_location"]
         else:
@@ -2990,7 +2895,7 @@ def _build_alert_board_payload(
         locations, devices_by_row = _roll_up_to_site_locations(
             all_locations,
             devices_by_location,
-            ALERT_BOARD_SITE_LOCATION_TYPE,
+            settings.ALERT_BOARD_SITE_LOCATION_TYPE,
             include_non_operational=include_non_operational,
         )
 
@@ -3021,7 +2926,7 @@ def _build_alert_board_payload(
                     lnms_id_map=lnms_id_map,
                     snapshot_only=snapshot_only,
                     require_primary_ip=True,
-                    excluded_device_statuses=ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
+                    excluded_device_statuses=settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
                     **bulk_kwargs,
                 )
             except Exception as exc:
@@ -3175,7 +3080,7 @@ def _build_alert_board_payload(
 
     return {
         "checked_at": _iso_utc_now(),
-        "stale_after_seconds": CACHE_TTL,
+        "stale_after_seconds": settings.CACHE_TTL,
         "summary": {
             "total": len(alerts),
             **{level: summary.get(level, 0) for level in ALERT_LEVEL_ORDER},
@@ -3217,7 +3122,7 @@ def get_alert_board_data(
     )
     should_cache = bool(payload.get("alerts")) or _nautobot_snapshot_initialized()
     if should_cache:
-        _cache_set(cache_key, payload, timeout=CACHE_TTL)
+        _cache_set(cache_key, payload, timeout=settings.CACHE_TTL)
     return _apply_alert_board_freshness(
         payload, sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
     )
@@ -3239,9 +3144,9 @@ _scheduler_stop = threading.Event()
 
 def _scheduler_tick_seconds() -> int:
     """Seconds between ticks: often enough to catch a due sync promptly."""
-    intervals = [INVENTORY_SYNC_INTERVAL_SECONDS]
-    if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
-        intervals.append(LIBRENMS_SYNC_INTERVAL_SECONDS)
+    intervals = [settings.INVENTORY_SYNC_INTERVAL_SECONDS]
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
+        intervals.append(settings.LIBRENMS_SYNC_INTERVAL_SECONDS)
     return max(1, min(_SCHEDULER_MAX_TICK_SECONDS, *intervals))
 
 
@@ -3256,7 +3161,7 @@ def _scheduler_tick() -> bool:
         # The syncs invalidated the cached board; rebuild it now so alert
         # history is recorded even if nobody opens the board.
         payload = _build_alert_board_payload(snapshot_only=True)
-        _cache_set("alert-board-data:v3", payload, timeout=CACHE_TTL)
+        _cache_set("alert-board-data:v3", payload, timeout=settings.CACHE_TTL)
         return True
     finally:
         release()
@@ -3274,7 +3179,11 @@ def _scheduler_loop() -> None:
 def start_background_scheduler() -> bool:
     """Start this process's scheduler thread once.  Returns whether it runs."""
     global _scheduler_started
-    if not BACKGROUND_SYNC_ENABLED or not _current_persistence_dialect() or not (NAUTOBOT_URL and NAUTOBOT_TOKEN):
+    if (
+        not settings.BACKGROUND_SYNC_ENABLED
+        or not _current_persistence_dialect()
+        or not (settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN)
+    ):
         return False
     with _scheduler_start_lock:
         if _scheduler_started:
@@ -3424,7 +3333,7 @@ def _nautobot_service_unavailable(context: str, exc: Exception):
 
 @app.route("/")
 def index():
-    return render_template("index.html", nautobot_url=NAUTOBOT_URL)
+    return render_template("index.html", nautobot_url=settings.NAUTOBOT_URL)
 
 
 @app.route("/healthz")
@@ -3463,7 +3372,7 @@ def healthz():
 def alert_board():
     return render_template(
         "alerts.html",
-        nautobot_url=NAUTOBOT_URL,
+        nautobot_url=settings.NAUTOBOT_URL,
         tier_definitions=ALERT_STATUS_TIER_DEFINITIONS,
     )
 
@@ -4064,9 +3973,9 @@ def api_delete_location_type(lt_id: str):
 
 
 if __name__ == "__main__":
-    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    debug = settings.FLASK_DEBUG
     try:
-        port = int(os.getenv("FLASK_RUN_PORT", 5000))
+        port = int(settings.FLASK_RUN_PORT or 5000)
     except (ValueError, TypeError):
         port = 5000
     _log_alert_board_exclusions()

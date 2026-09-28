@@ -20,6 +20,7 @@ import pytest
 from werkzeug.serving import make_server
 
 import app as flask_app
+from nautobot_maps import settings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -66,8 +67,8 @@ def integration_client(mock_nautobot_server):
     real mock-Nautobot server started in the fixture above.
     """
     # Patch the module-level config variables so all calls go to the mock server
-    flask_app.NAUTOBOT_URL = mock_nautobot_server
-    flask_app.NAUTOBOT_TOKEN = "demo-token"
+    settings.NAUTOBOT_URL = mock_nautobot_server
+    settings.NAUTOBOT_TOKEN = "demo-token"
     flask_app.cache.clear()
 
     flask_app.app.config["TESTING"] = True
@@ -77,8 +78,8 @@ def integration_client(mock_nautobot_server):
         yield client
 
     # Restore to blank so other test modules don't accidentally hit the server
-    flask_app.NAUTOBOT_URL = ""
-    flask_app.NAUTOBOT_TOKEN = ""
+    settings.NAUTOBOT_URL = ""
+    settings.NAUTOBOT_TOKEN = ""
 
 
 # ---------------------------------------------------------------------------
@@ -561,8 +562,8 @@ class TestEndToEndScenario:
 @pytest.fixture
 def persisted_integration_client(integration_client, pg_database, monkeypatch):
     """Integration client with PostgreSQL persistence and a synced inventory snapshot."""
-    monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
-    monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
     assert flask_app._ensure_inventory_snapshot(force=True, wait=True)
     return integration_client
 
@@ -593,7 +594,7 @@ class TestAlertBoardWithPersistence:
 
     def test_site_rollup_through_a_real_sync(self, persisted_integration_client, monkeypatch):
         """Parents come from the Nautobot API, are cached, and the board rolls up to Sites (#158)."""
-        monkeypatch.setattr(flask_app, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
         flask_app.cache.clear()
         alerts = self._alerts_by_site(persisted_integration_client)
         for hidden in ("loc-emea", "loc-dnk", "loc-aar-bld-a", "loc-aar-bld-a-f2"):
@@ -620,8 +621,8 @@ class TestAlertBoardColdStart:
     def test_first_request_starts_sync_and_board_fills_in(self, integration_client, pg_database, monkeypatch):
         import time
 
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
         # Fresh database, and /alerts is the first page anyone opens.
         first = integration_client.get("/api/alerts").get_json()

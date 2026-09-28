@@ -11,6 +11,7 @@ from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
+from nautobot_maps import settings
 
 
 @contextmanager
@@ -24,31 +25,31 @@ def auth_config(
     default_role="",
 ):
     saved = {
-        "AUTH_MODE": flask_app.AUTH_MODE,
-        "AUTH_HEADER_USER": flask_app.AUTH_HEADER_USER,
-        "AUTH_HEADER_GROUPS": flask_app.AUTH_HEADER_GROUPS,
-        "AUTH_VIEWER_GROUPS": set(flask_app.AUTH_VIEWER_GROUPS),
-        "AUTH_OPERATOR_GROUPS": set(flask_app.AUTH_OPERATOR_GROUPS),
-        "AUTH_ADMIN_GROUPS": set(flask_app.AUTH_ADMIN_GROUPS),
-        "AUTH_DEFAULT_ROLE": flask_app.AUTH_DEFAULT_ROLE,
+        "AUTH_MODE": settings.AUTH_MODE,
+        "AUTH_HEADER_USER": settings.AUTH_HEADER_USER,
+        "AUTH_HEADER_GROUPS": settings.AUTH_HEADER_GROUPS,
+        "AUTH_VIEWER_GROUPS": set(settings.AUTH_VIEWER_GROUPS),
+        "AUTH_OPERATOR_GROUPS": set(settings.AUTH_OPERATOR_GROUPS),
+        "AUTH_ADMIN_GROUPS": set(settings.AUTH_ADMIN_GROUPS),
+        "AUTH_DEFAULT_ROLE": settings.AUTH_DEFAULT_ROLE,
     }
-    flask_app.AUTH_MODE = mode
-    flask_app.AUTH_HEADER_USER = user_header
-    flask_app.AUTH_HEADER_GROUPS = groups_header
-    flask_app.AUTH_VIEWER_GROUPS = set(viewer_groups or set())
-    flask_app.AUTH_OPERATOR_GROUPS = set(operator_groups or set())
-    flask_app.AUTH_ADMIN_GROUPS = set(admin_groups or set())
-    flask_app.AUTH_DEFAULT_ROLE = flask_app._normalize_auth_role(default_role)
+    settings.AUTH_MODE = mode
+    settings.AUTH_HEADER_USER = user_header
+    settings.AUTH_HEADER_GROUPS = groups_header
+    settings.AUTH_VIEWER_GROUPS = set(viewer_groups or set())
+    settings.AUTH_OPERATOR_GROUPS = set(operator_groups or set())
+    settings.AUTH_ADMIN_GROUPS = set(admin_groups or set())
+    settings.AUTH_DEFAULT_ROLE = flask_app._normalize_auth_role(default_role)
     try:
         yield
     finally:
-        flask_app.AUTH_MODE = saved["AUTH_MODE"]
-        flask_app.AUTH_HEADER_USER = saved["AUTH_HEADER_USER"]
-        flask_app.AUTH_HEADER_GROUPS = saved["AUTH_HEADER_GROUPS"]
-        flask_app.AUTH_VIEWER_GROUPS = saved["AUTH_VIEWER_GROUPS"]
-        flask_app.AUTH_OPERATOR_GROUPS = saved["AUTH_OPERATOR_GROUPS"]
-        flask_app.AUTH_ADMIN_GROUPS = saved["AUTH_ADMIN_GROUPS"]
-        flask_app.AUTH_DEFAULT_ROLE = saved["AUTH_DEFAULT_ROLE"]
+        settings.AUTH_MODE = saved["AUTH_MODE"]
+        settings.AUTH_HEADER_USER = saved["AUTH_HEADER_USER"]
+        settings.AUTH_HEADER_GROUPS = saved["AUTH_HEADER_GROUPS"]
+        settings.AUTH_VIEWER_GROUPS = saved["AUTH_VIEWER_GROUPS"]
+        settings.AUTH_OPERATOR_GROUPS = saved["AUTH_OPERATOR_GROUPS"]
+        settings.AUTH_ADMIN_GROUPS = saved["AUTH_ADMIN_GROUPS"]
+        settings.AUTH_DEFAULT_ROLE = saved["AUTH_DEFAULT_ROLE"]
 
 
 @pytest.fixture
@@ -508,17 +509,17 @@ class TestApiLocations:
         assert locs[0]["parent"] == "Denmark"
 
     def test_missing_env_vars_returns_503(self, client):
-        original_url = flask_app.NAUTOBOT_URL
-        original_token = flask_app.NAUTOBOT_TOKEN
-        flask_app.NAUTOBOT_URL = ""
-        flask_app.NAUTOBOT_TOKEN = ""
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        settings.NAUTOBOT_URL = ""
+        settings.NAUTOBOT_TOKEN = ""
         try:
             resp = client.get("/api/locations")
             assert resp.status_code == 503
             assert resp.get_json()["error"] == "Nautobot service unavailable"
         finally:
-            flask_app.NAUTOBOT_URL = original_url
-            flask_app.NAUTOBOT_TOKEN = original_token
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
 
     def test_nautobot_http_error_returns_502(self, client):
         import requests as req_lib
@@ -791,7 +792,7 @@ class TestAlertBoard:
         assert get_alert.call_count == 2
 
     def test_location_exclusion_supports_object_tags(self):
-        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}):
+        with patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}):
             assert flask_app._location_is_excluded_from_alert_board(
                 {
                     "name": "Warehouse",
@@ -803,11 +804,11 @@ class TestAlertBoard:
 
     def test_log_alert_board_exclusions_reports_resolved_sets(self):
         with (
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"staging", "decommissioning"}),
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()),
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}),
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}),
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned", "null"}),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"staging", "decommissioning"}),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", set()),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", {"warehouse"}),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned", "null"}),
             patch.object(flask_app.logger, "info") as info,
         ):
             flask_app._log_alert_board_exclusions()
@@ -823,7 +824,7 @@ class TestAlertBoard:
         )
 
     def test_status_exclusion_null_keyword_matches_missing_status(self):
-        excluded = flask_app._parse_csv_set("null, Decommissioning")
+        excluded = settings.parse_csv_set("null, Decommissioning")
         assert flask_app._status_is_excluded(None, excluded)
         assert flask_app._status_is_excluded("", excluded)
         assert flask_app._status_is_excluded("  ", excluded)
@@ -833,7 +834,7 @@ class TestAlertBoard:
         assert not flask_app._status_is_excluded("", {"decommissioning"})
 
     def test_location_exclusion_null_status(self):
-        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"null"}):
+        with patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"null"}):
             assert flask_app._location_is_excluded_from_alert_board({"name": "Site", "status": ""})
             assert flask_app._location_is_excluded_from_alert_board({"name": "Site"})
             assert not flask_app._location_is_excluded_from_alert_board({"name": "Site", "status": "Active"})
@@ -866,7 +867,7 @@ class TestAlertBoard:
         assert unfiltered_alert["level"] == "critical"
 
     def test_parse_csv_set_normalizes_case_and_whitespace(self):
-        assert flask_app._parse_csv_set(" Decommissioning ; Core Site, POP ") == {
+        assert settings.parse_csv_set(" Decommissioning ; Core Site, POP ") == {
             "decommissioning",
             "core site",
             "pop",
@@ -874,14 +875,14 @@ class TestAlertBoard:
 
     def test_location_exclusion_matches_mixed_case_configured_values(self):
         with (
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", flask_app._parse_csv_set("Warehouse")),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", settings.parse_csv_set("Warehouse")),
             patch.object(
-                flask_app,
+                settings,
                 "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES",
-                flask_app._parse_csv_set("Decommissioning"),
+                settings.parse_csv_set("Decommissioning"),
             ),
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", flask_app._parse_csv_set("Branch Office")),
-            patch.object(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", flask_app._parse_csv_set("Non-Operational")),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", settings.parse_csv_set("Branch Office")),
+            patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", settings.parse_csv_set("Non-Operational")),
         ):
             assert flask_app._location_is_excluded_from_alert_board(
                 {
@@ -1057,8 +1058,8 @@ class TestAlertBoard:
         ]
 
         with (
-            patch.object(flask_app, "LIBRENMS_URL", "https://librenms.example.com"),
-            patch.object(flask_app, "LIBRENMS_API_TOKEN", "token"),
+            patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
+            patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
             patch.object(flask_app, "_fetch_librenms_inventory", side_effect=RuntimeError("down")),
             patch.object(flask_app, "get_locations", return_value=sample_locations),
             patch.object(flask_app, "fetch_all_pages", return_value=[]),
@@ -1527,8 +1528,8 @@ class TestIndex:
         assert b'aria-label="Close location inspector"' in resp.data
 
     def test_index_contains_nautobot_url(self, client):
-        saved = flask_app.NAUTOBOT_URL
-        flask_app.NAUTOBOT_URL = "https://nautobot.example.com"
+        saved = settings.NAUTOBOT_URL
+        settings.NAUTOBOT_URL = "https://nautobot.example.com"
         try:
             resp = client.get("/")
             # Read the value handed to the frontend and compare it exactly,
@@ -1537,17 +1538,17 @@ class TestIndex:
             assert match is not None
             assert json.loads(match.group(1)) == "https://nautobot.example.com"
         finally:
-            flask_app.NAUTOBOT_URL = saved
+            settings.NAUTOBOT_URL = saved
 
     def test_index_nautobot_url_empty_when_unset(self, client):
-        saved = flask_app.NAUTOBOT_URL
-        flask_app.NAUTOBOT_URL = ""
+        saved = settings.NAUTOBOT_URL
+        settings.NAUTOBOT_URL = ""
         try:
             resp = client.get("/")
             assert b"window.NAUTOBOT_URL" in resp.data
             assert b'window.NAUTOBOT_URL = ""' in resp.data
         finally:
-            flask_app.NAUTOBOT_URL = saved
+            settings.NAUTOBOT_URL = saved
 
 
 # ---------------------------------------------------------------------------
@@ -1565,14 +1566,14 @@ class TestCaching:
         flask_app.cache.clear()
         with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
             # Patch env vars so nautobot_get doesn't raise RuntimeError
-            flask_app.NAUTOBOT_URL = "http://nautobot.test"
-            flask_app.NAUTOBOT_TOKEN = "test-token"
+            settings.NAUTOBOT_URL = "http://nautobot.test"
+            settings.NAUTOBOT_TOKEN = "test-token"
             try:
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
             finally:
-                flask_app.NAUTOBOT_URL = ""
-                flask_app.NAUTOBOT_TOKEN = ""
+                settings.NAUTOBOT_URL = ""
+                settings.NAUTOBOT_TOKEN = ""
 
         # Second call should have been served from cache – only 1 HTTP request made
         assert mock_get.call_count == 1
@@ -1596,7 +1597,7 @@ class TestCaching:
 
     def test_cache_default_timeout_matches_cache_ttl(self):
         """Flask-Caching default timeout should match the CACHE_TTL env var."""
-        assert flask_app.app.config["CACHE_DEFAULT_TIMEOUT"] == flask_app.CACHE_TTL
+        assert flask_app.app.config["CACHE_DEFAULT_TIMEOUT"] == settings.CACHE_TTL
 
 
 # ---------------------------------------------------------------------------
@@ -1604,15 +1605,15 @@ class TestCaching:
 # ---------------------------------------------------------------------------
 class TestNautobotURLValidation:
     def test_validate_nautobot_url_accepts_https_url(self):
-        assert flask_app._validate_nautobot_url("https://nautobot.example.com") == "https://nautobot.example.com"
+        assert settings._validate_nautobot_url("https://nautobot.example.com") == "https://nautobot.example.com"
 
     def test_validate_nautobot_url_rejects_missing_scheme(self):
         with pytest.raises(RuntimeError, match="Invalid NAUTOBOT_URL configuration"):
-            flask_app._validate_nautobot_url("nautobot.example.com")
+            settings._validate_nautobot_url("nautobot.example.com")
 
     def test_validate_nautobot_url_rejects_invalid_prefix(self):
         with pytest.raises(RuntimeError, match="Invalid NAUTOBOT_URL configuration"):
-            flask_app._validate_nautobot_url("NAUTOBOT_URL=https://nautobot.example.com")
+            settings._validate_nautobot_url("NAUTOBOT_URL=https://nautobot.example.com")
 
 
 # ---------------------------------------------------------------------------
@@ -1623,7 +1624,7 @@ class TestSSLVerification:
         """When NAUTOBOT_VERIFY_SSL is not set, verify should default to True."""
         # The module-level NAUTOBOT_VERIFY_SSL is parsed at import time from
         # the env var (default "true"), so it should be True.
-        assert flask_app.NAUTOBOT_VERIFY_SSL is True
+        assert settings.NAUTOBOT_VERIFY_SSL is True
 
     def test_verify_ssl_false_disables_verification(self):
         """Setting NAUTOBOT_VERIFY_SSL=false should pass verify=False to requests."""
@@ -1634,12 +1635,12 @@ class TestSSLVerification:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         flask_app.cache.clear()
-        original_url = flask_app.NAUTOBOT_URL
-        original_token = flask_app.NAUTOBOT_TOKEN
-        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
-        flask_app.NAUTOBOT_URL = "https://nautobot.test"
-        flask_app.NAUTOBOT_TOKEN = "test-token"
-        flask_app.NAUTOBOT_VERIFY_SSL = False
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        original_verify = settings.NAUTOBOT_VERIFY_SSL
+        settings.NAUTOBOT_URL = "https://nautobot.test"
+        settings.NAUTOBOT_TOKEN = "test-token"
+        settings.NAUTOBOT_VERIFY_SSL = False
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
@@ -1647,9 +1648,9 @@ class TestSSLVerification:
             _, kwargs = mock_get.call_args
             assert kwargs["verify"] is False
         finally:
-            flask_app.NAUTOBOT_URL = original_url
-            flask_app.NAUTOBOT_TOKEN = original_token
-            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
+            settings.NAUTOBOT_VERIFY_SSL = original_verify
 
     def test_verify_ssl_true_enables_verification(self):
         """Setting NAUTOBOT_VERIFY_SSL=true should pass verify=True to requests."""
@@ -1660,12 +1661,12 @@ class TestSSLVerification:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         flask_app.cache.clear()
-        original_url = flask_app.NAUTOBOT_URL
-        original_token = flask_app.NAUTOBOT_TOKEN
-        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
-        flask_app.NAUTOBOT_URL = "https://nautobot.test"
-        flask_app.NAUTOBOT_TOKEN = "test-token"
-        flask_app.NAUTOBOT_VERIFY_SSL = True
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        original_verify = settings.NAUTOBOT_VERIFY_SSL
+        settings.NAUTOBOT_URL = "https://nautobot.test"
+        settings.NAUTOBOT_TOKEN = "test-token"
+        settings.NAUTOBOT_VERIFY_SSL = True
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
@@ -1673,9 +1674,9 @@ class TestSSLVerification:
             _, kwargs = mock_get.call_args
             assert kwargs["verify"] is True
         finally:
-            flask_app.NAUTOBOT_URL = original_url
-            flask_app.NAUTOBOT_TOKEN = original_token
-            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
+            settings.NAUTOBOT_VERIFY_SSL = original_verify
 
     def test_verify_ssl_custom_ca_bundle_path(self):
         """Setting NAUTOBOT_VERIFY_SSL to a path should pass that path to requests."""
@@ -1686,12 +1687,12 @@ class TestSSLVerification:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         flask_app.cache.clear()
-        original_url = flask_app.NAUTOBOT_URL
-        original_token = flask_app.NAUTOBOT_TOKEN
-        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
-        flask_app.NAUTOBOT_URL = "https://nautobot.test"
-        flask_app.NAUTOBOT_TOKEN = "test-token"
-        flask_app.NAUTOBOT_VERIFY_SSL = "/etc/ssl/certs/custom-ca.pem"
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        original_verify = settings.NAUTOBOT_VERIFY_SSL
+        settings.NAUTOBOT_URL = "https://nautobot.test"
+        settings.NAUTOBOT_TOKEN = "test-token"
+        settings.NAUTOBOT_VERIFY_SSL = "/etc/ssl/certs/custom-ca.pem"
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
@@ -1699,9 +1700,9 @@ class TestSSLVerification:
             _, kwargs = mock_get.call_args
             assert kwargs["verify"] == "/etc/ssl/certs/custom-ca.pem"
         finally:
-            flask_app.NAUTOBOT_URL = original_url
-            flask_app.NAUTOBOT_TOKEN = original_token
-            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
+            settings.NAUTOBOT_VERIFY_SSL = original_verify
 
     def test_get_requests_use_connect_and_read_timeouts(self):
         """Nautobot GETs should set separate connect/read timeouts."""
@@ -1712,10 +1713,10 @@ class TestSSLVerification:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         flask_app.cache.clear()
-        original_url = flask_app.NAUTOBOT_URL
-        original_token = flask_app.NAUTOBOT_TOKEN
-        flask_app.NAUTOBOT_URL = "https://nautobot.test"
-        flask_app.NAUTOBOT_TOKEN = "test-token"
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        settings.NAUTOBOT_URL = "https://nautobot.test"
+        settings.NAUTOBOT_TOKEN = "test-token"
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
@@ -1723,41 +1724,41 @@ class TestSSLVerification:
             _, kwargs = mock_get.call_args
             assert kwargs["timeout"] == (5, 30)
         finally:
-            flask_app.NAUTOBOT_URL = original_url
-            flask_app.NAUTOBOT_TOKEN = original_token
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
 
     def test_insecure_request_warning_suppressed_when_verify_disabled(self):
-        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
-        flask_app.NAUTOBOT_VERIFY_SSL = False
+        original_verify = settings.NAUTOBOT_VERIFY_SSL
+        settings.NAUTOBOT_VERIFY_SSL = False
         try:
             with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
                 flask_app._configure_nautobot_ssl_warnings()
             mock_disable.assert_called_once_with(flask_app.InsecureRequestWarning)
         finally:
-            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+            settings.NAUTOBOT_VERIFY_SSL = original_verify
 
     def test_insecure_request_warning_not_suppressed_when_verify_enabled(self):
-        original_verify = flask_app.NAUTOBOT_VERIFY_SSL
-        flask_app.NAUTOBOT_VERIFY_SSL = True
+        original_verify = settings.NAUTOBOT_VERIFY_SSL
+        settings.NAUTOBOT_VERIFY_SSL = True
         try:
             with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
                 flask_app._configure_nautobot_ssl_warnings()
             mock_disable.assert_not_called()
         finally:
-            flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+            settings.NAUTOBOT_VERIFY_SSL = original_verify
 
     def test_insecure_request_warning_not_suppressed_by_librenms_verify_setting(self):
-        original_nautobot_verify = flask_app.NAUTOBOT_VERIFY_SSL
-        original_librenms_verify = flask_app.LIBRENMS_VERIFY_SSL
-        flask_app.NAUTOBOT_VERIFY_SSL = True
-        flask_app.LIBRENMS_VERIFY_SSL = False
+        original_nautobot_verify = settings.NAUTOBOT_VERIFY_SSL
+        original_librenms_verify = settings.LIBRENMS_VERIFY_SSL
+        settings.NAUTOBOT_VERIFY_SSL = True
+        settings.LIBRENMS_VERIFY_SSL = False
         try:
             with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
                 flask_app._configure_nautobot_ssl_warnings()
             mock_disable.assert_not_called()
         finally:
-            flask_app.NAUTOBOT_VERIFY_SSL = original_nautobot_verify
-            flask_app.LIBRENMS_VERIFY_SSL = original_librenms_verify
+            settings.NAUTOBOT_VERIFY_SSL = original_nautobot_verify
+            settings.LIBRENMS_VERIFY_SSL = original_librenms_verify
 
 
 # ---------------------------------------------------------------------------
@@ -1773,12 +1774,12 @@ class TestApiVersionHeader:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         flask_app.cache.clear()
-        original_url = flask_app.NAUTOBOT_URL
-        original_token = flask_app.NAUTOBOT_TOKEN
-        original_version = flask_app.NAUTOBOT_API_VERSION
-        flask_app.NAUTOBOT_URL = "https://nautobot.test"
-        flask_app.NAUTOBOT_TOKEN = "test-token"
-        flask_app.NAUTOBOT_API_VERSION = ""
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        original_version = settings.NAUTOBOT_API_VERSION
+        settings.NAUTOBOT_URL = "https://nautobot.test"
+        settings.NAUTOBOT_TOKEN = "test-token"
+        settings.NAUTOBOT_API_VERSION = ""
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
@@ -1786,9 +1787,9 @@ class TestApiVersionHeader:
             _, kwargs = mock_get.call_args
             assert kwargs["headers"]["Accept"] == "application/json"
         finally:
-            flask_app.NAUTOBOT_URL = original_url
-            flask_app.NAUTOBOT_TOKEN = original_token
-            flask_app.NAUTOBOT_API_VERSION = original_version
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
+            settings.NAUTOBOT_API_VERSION = original_version
 
     def test_accept_header_includes_version_when_set(self):
         """When NAUTOBOT_API_VERSION is set, Accept should include the version."""
@@ -1799,12 +1800,12 @@ class TestApiVersionHeader:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         flask_app.cache.clear()
-        original_url = flask_app.NAUTOBOT_URL
-        original_token = flask_app.NAUTOBOT_TOKEN
-        original_version = flask_app.NAUTOBOT_API_VERSION
-        flask_app.NAUTOBOT_URL = "https://nautobot.test"
-        flask_app.NAUTOBOT_TOKEN = "test-token"
-        flask_app.NAUTOBOT_API_VERSION = "3.0"
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        original_version = settings.NAUTOBOT_API_VERSION
+        settings.NAUTOBOT_URL = "https://nautobot.test"
+        settings.NAUTOBOT_TOKEN = "test-token"
+        settings.NAUTOBOT_API_VERSION = "3.0"
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
                 flask_app.nautobot_get("dcim/locations/", {"limit": 1})
@@ -1812,9 +1813,9 @@ class TestApiVersionHeader:
             _, kwargs = mock_get.call_args
             assert kwargs["headers"]["Accept"] == "application/json; version=3.0"
         finally:
-            flask_app.NAUTOBOT_URL = original_url
-            flask_app.NAUTOBOT_TOKEN = original_token
-            flask_app.NAUTOBOT_API_VERSION = original_version
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
+            settings.NAUTOBOT_API_VERSION = original_version
 
 
 # ---------------------------------------------------------------------------
@@ -2114,8 +2115,8 @@ class TestCriticalityOverrideEndpoints:
 
     def test_no_db_returns_503(self, client):
         """Without a database URL, override endpoints return 503."""
-        saved = flask_app.NAUTOBOT_MAPS_DATABASE_URL
-        flask_app.NAUTOBOT_MAPS_DATABASE_URL = ""
+        saved = settings.NAUTOBOT_MAPS_DATABASE_URL
+        settings.NAUTOBOT_MAPS_DATABASE_URL = ""
         try:
             resp = client.get("/api/criticality-overrides")
             assert resp.status_code == 503
@@ -2126,7 +2127,7 @@ class TestCriticalityOverrideEndpoints:
             resp3 = client.delete("/api/criticality-overrides/x")
             assert resp3.status_code == 503
         finally:
-            flask_app.NAUTOBOT_MAPS_DATABASE_URL = saved
+            settings.NAUTOBOT_MAPS_DATABASE_URL = saved
 
     def test_requires_operator_role_when_auth_enabled(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
@@ -2580,13 +2581,13 @@ class TestAlertLifecycleTracking:
     def test_get_alert_board_data_sets_ttl_and_enqueues_sync_on_force_refresh(self):
         first_payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": flask_app.CACHE_TTL,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
         second_payload = {
             "checked_at": "2026-01-01T00:05:00Z",
-            "stale_after_seconds": flask_app.CACHE_TTL,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -2620,13 +2621,13 @@ class TestAlertLifecycleTracking:
             call.args == () and call.kwargs == {"force": True, "full": False, "wait": False}
             for call in ensure_snapshot.call_args_list
         )
-        assert all(call.kwargs.get("timeout") == flask_app.CACHE_TTL for call in cache_set.call_args_list)
+        assert all(call.kwargs.get("timeout") == settings.CACHE_TTL for call in cache_set.call_args_list)
 
     def test_get_alert_board_data_builds_snapshot_only_payload(self):
         flask_app.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": flask_app.CACHE_TTL,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -2647,7 +2648,7 @@ class TestAlertLifecycleTracking:
         flask_app.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
-            "stale_after_seconds": flask_app.CACHE_TTL,
+            "stale_after_seconds": settings.CACHE_TTL,
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
@@ -3100,7 +3101,7 @@ class TestAlertLifecycleTracking:
         sentinel_conn = object()
         sentinel_row_factory = object()
         with (
-            patch.object(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"),
+            patch.object(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"),
             patch.object(flask_app, "psycopg") as psycopg_module,
             patch.object(flask_app, "dict_row", sentinel_row_factory),
         ):
@@ -3120,10 +3121,10 @@ class TestInventoryCacheSync:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database, monkeypatch):
         self.db = pg_database
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "")
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
         conn = flask_app._get_db_conn()
@@ -3417,9 +3418,9 @@ class TestInventoryCacheSync:
             refresh_called.set()
 
         with (
-            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
-            patch.object(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 0),
+            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
+            patch.object(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 0),
             patch.object(flask_app, "_sync_nautobot_inventory", side_effect=fake_sync),
         ):
             locations = flask_app.get_locations()
@@ -3472,8 +3473,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
             patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
@@ -3559,8 +3560,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
             patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
@@ -3631,8 +3632,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
             patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
@@ -3671,8 +3672,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(flask_app, "_sync_due", return_value=False),
             patch.object(flask_app, "_sync_nautobot_inventory") as sync_nautobot,
         ):
@@ -3741,8 +3742,8 @@ class TestInventoryCacheSync:
             conn.close()
 
         with (
-            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
             patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
@@ -4009,8 +4010,8 @@ class TestInventoryCacheSync:
         fake_conn = _FakeConn(autocommit=True)
         with (
             patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
-            patch.object(flask_app, "LIBRENMS_URL", "https://librenms.example.com"),
-            patch.object(flask_app, "LIBRENMS_API_TOKEN", "token"),
+            patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
+            patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
             patch.object(flask_app, "_get_sync_state", return_value={"last_successful_sync": None}),
             patch.object(
                 flask_app,
@@ -4125,8 +4126,8 @@ class TestInventoryCacheSync:
             return []
 
         with (
-            patch.object(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com"),
-            patch.object(flask_app, "NAUTOBOT_TOKEN", "token"),
+            patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
+            patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
             patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
@@ -4148,9 +4149,9 @@ class TestCriticalityRulesFile:
         rules_file.write_text(json.dumps(rules))
 
         orig = dict(flask_app._CRITICALITY_RULES)
-        orig_file = flask_app.CRITICALITY_RULES_FILE
+        orig_file = settings.CRITICALITY_RULES_FILE
         try:
-            flask_app.CRITICALITY_RULES_FILE = str(rules_file)
+            settings.CRITICALITY_RULES_FILE = str(rules_file)
             # Re-run the loading logic
             with open(str(rules_file)) as f:
                 loaded = json.load(f)
@@ -4161,7 +4162,7 @@ class TestCriticalityRulesFile:
             assert flask_app._get_critical_keywords("office") == ("router",)
         finally:
             flask_app._CRITICALITY_RULES = orig
-            flask_app.CRITICALITY_RULES_FILE = orig_file
+            settings.CRITICALITY_RULES_FILE = orig_file
 
     def test_rules_file_bad_format_ignored(self, tmp_path):
         """A rules file with a non-dict top level is ignored gracefully."""
@@ -4186,36 +4187,36 @@ class TestCriticalityRulesFile:
 # ---------------------------------------------------------------------------
 class TestLibreNMSEnrichment:
     def setup_method(self):
-        self._orig_url = flask_app.LIBRENMS_URL
-        self._orig_token = flask_app.LIBRENMS_API_TOKEN
-        self._orig_verify = flask_app.LIBRENMS_VERIFY_SSL
+        self._orig_url = settings.LIBRENMS_URL
+        self._orig_token = settings.LIBRENMS_API_TOKEN
+        self._orig_verify = settings.LIBRENMS_VERIFY_SSL
 
     def teardown_method(self):
-        flask_app.LIBRENMS_URL = self._orig_url
-        flask_app.LIBRENMS_API_TOKEN = self._orig_token
-        flask_app.LIBRENMS_VERIFY_SSL = self._orig_verify
+        settings.LIBRENMS_URL = self._orig_url
+        settings.LIBRENMS_API_TOKEN = self._orig_token
+        settings.LIBRENMS_VERIFY_SSL = self._orig_verify
 
     def test_no_enrichment_when_unconfigured(self):
         """_enrich_with_librenms is a no-op when LIBRENMS_URL is empty."""
-        flask_app.LIBRENMS_URL = ""
-        flask_app.LIBRENMS_API_TOKEN = ""
+        settings.LIBRENMS_URL = ""
+        settings.LIBRENMS_API_TOKEN = ""
         devices = [{"id": "d1", "name": "router01", "status": "active"}]
         result = flask_app._enrich_with_librenms(devices)
         assert result == devices
 
     def test_fetch_inventory_skips_when_config_is_blank(self):
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
-        flask_app.LIBRENMS_URL = "   "
-        flask_app.LIBRENMS_API_TOKEN = "   "
+        settings.LIBRENMS_URL = "   "
+        settings.LIBRENMS_API_TOKEN = "   "
         with patch.object(flask_app.requests, "get") as mock_get:
             result = flask_app._fetch_librenms_inventory()
         assert result == []
         mock_get.assert_not_called()
 
     def test_librenms_get_uses_verify_setting(self):
-        flask_app.LIBRENMS_URL = "https://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
-        flask_app.LIBRENMS_VERIFY_SSL = False
+        settings.LIBRENMS_URL = "https://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_VERIFY_SSL = False
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
@@ -4225,9 +4226,9 @@ class TestLibreNMSEnrichment:
         assert kwargs["verify"] is False
 
     def test_librenms_get_suppresses_warning_locally_when_verify_disabled(self):
-        flask_app.LIBRENMS_URL = "https://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
-        flask_app.LIBRENMS_VERIFY_SSL = False
+        settings.LIBRENMS_URL = "https://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_VERIFY_SSL = False
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
@@ -4240,8 +4241,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_overrides_active_status(self):
         """A device active in Nautobot but down in LibreNMS is set to offline."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {
             "devices": [
                 {"device_id": 1, "hostname": "router01", "status": 0},
@@ -4254,8 +4255,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_up_does_not_change_active_status(self):
         """A device up in LibreNMS stays active."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 1}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
@@ -4264,8 +4265,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_does_not_upgrade_already_offline(self):
         """A device already offline in Nautobot stays offline (no double-counting)."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "offline"}]
@@ -4274,8 +4275,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_api_failure_returns_original_devices(self):
         """If LibreNMS API call fails, original device list is returned unchanged."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         with patch.object(flask_app, "_librenms_get", side_effect=Exception("timeout")):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
@@ -4283,8 +4284,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_unmatched_device_not_affected(self):
         """Devices not present in LibreNMS are left unchanged."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
@@ -4293,8 +4294,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_matches_short_hostname(self):
         """Name-valued LibreNMS hostnames match Nautobot short device names."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01.example.com", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
@@ -4303,8 +4304,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_matches_primary_ip_when_hostname_is_ip(self):
         """IP-valued LibreNMS hostnames match Nautobot primary_ip without mask bits."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "192.0.2.1", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "primary_ip": "192.0.2.1/32", "status": "active"}]
@@ -4313,8 +4314,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_down_matches_primary_ipv6_when_hostname_case_differs(self):
         """IPv6-valued LibreNMS hostnames match Nautobot primary_ip regardless of hex casing."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "2001:DB8::1", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "primary_ip": "2001:db8::1/128", "status": "active"}]
@@ -4323,8 +4324,8 @@ class TestLibreNMSEnrichment:
 
     def test_librenms_ip_hostnames_do_not_collide_with_short_name_keys(self):
         """IP-valued LibreNMS hostnames must not be short-name normalized."""
-        flask_app.LIBRENMS_URL = "http://librenms.test"
-        flask_app.LIBRENMS_API_TOKEN = "tok"
+        settings.LIBRENMS_URL = "http://librenms.test"
+        settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]}
         with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "10", "primary_ip": "192.0.2.5/32", "status": "active"}]
@@ -4643,8 +4644,8 @@ class TestDeviceDisplayIp:
         assert flask_app._device_display_ip({"primary_ip": "", "librenms_hostname": "router01.example.net"}) == ""
 
     def test_enrichment_records_matched_librenms_hostname(self):
-        orig_url, orig_token = flask_app.LIBRENMS_URL, flask_app.LIBRENMS_API_TOKEN
-        flask_app.LIBRENMS_URL, flask_app.LIBRENMS_API_TOKEN = "https://librenms.test", "tok"
+        orig_url, orig_token = settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN
+        settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN = "https://librenms.test", "tok"
         try:
             devices = [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}]
             enriched = flask_app._enrich_with_librenms(
@@ -4653,7 +4654,7 @@ class TestDeviceDisplayIp:
                 lnms_id_map={},
             )
         finally:
-            flask_app.LIBRENMS_URL, flask_app.LIBRENMS_API_TOKEN = orig_url, orig_token
+            settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN = orig_url, orig_token
         assert enriched[0]["librenms_hostname"] == "router01"
 
 
@@ -4717,8 +4718,8 @@ class TestAlertBoardSyncProgress:
         assert resp.get_json()["sync_pending"] is False
 
     def test_cold_start_enqueues_first_sync_without_waiting(self, client, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         with (
             patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board()),
@@ -4746,9 +4747,9 @@ class TestAlertBoardSyncProgress:
 
     def test_due_sync_is_started_by_a_normal_board_load(self, client, monkeypatch):
         """An open board keeps itself up to date: a normal load starts a sync once one is due (#152)."""
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
         old = (datetime.now(UTC) - timedelta(seconds=301)).isoformat()
         self._set_nautobot_sync_state("idle", old, old)
         with (
@@ -4761,9 +4762,9 @@ class TestAlertBoardSyncProgress:
         assert data["next_update_in_seconds"] == 0
 
     def test_next_update_counts_down_from_last_completed_sync(self, client, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
         completed = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
         self._set_nautobot_sync_state("idle", completed, completed)
         with (
@@ -4775,12 +4776,12 @@ class TestAlertBoardSyncProgress:
         assert 195 <= data["next_update_in_seconds"] <= 200
 
     def test_next_update_uses_the_sooner_source(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.example.com")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 3600)
-        monkeypatch.setattr(flask_app, "LIBRENMS_SYNC_INTERVAL_SECONDS", 120)
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.example.com")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "token")
+        monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 3600)
+        monkeypatch.setattr(settings, "LIBRENMS_SYNC_INTERVAL_SECONDS", 120)
         now = datetime.now(UTC).isoformat()
         self._set_nautobot_sync_state("idle", now, now)
         conn = flask_app._get_db_conn()
@@ -4794,13 +4795,13 @@ class TestAlertBoardSyncProgress:
         assert 115 <= next_in <= 120
 
     def test_next_update_unknown_while_sync_runs(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         self._set_nautobot_sync_state("running", flask_app._iso_utc_now())
         assert flask_app._inventory_update_schedule() == (False, None)
 
     def test_next_update_unknown_without_persistence(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         assert flask_app._inventory_update_schedule() == (False, None)
 
     def test_empty_sync_interval_env_uses_default(self):
@@ -4819,7 +4820,8 @@ class TestAlertBoardSyncProgress:
             [
                 sys.executable,
                 "-c",
-                "import app; print(app.INVENTORY_SYNC_INTERVAL_SECONDS, app.LIBRENMS_SYNC_INTERVAL_SECONDS)",
+                "import app; from nautobot_maps import settings as s; "
+                "print(s.INVENTORY_SYNC_INTERVAL_SECONDS, s.LIBRENMS_SYNC_INTERVAL_SECONDS)",
             ],
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             env=env,
@@ -4840,7 +4842,7 @@ class TestAlertBoardSyncProgress:
         assert flask_app._nautobot_sync_in_progress() is False
 
     def test_no_sync_pending_without_persistence(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         assert flask_app._nautobot_sync_in_progress() is False
 
     def test_adding_case_invalidates_cached_board(self, client):
@@ -4944,7 +4946,7 @@ class TestMultiDeviceCases:
 # ---------------------------------------------------------------------------
 class TestHealthz:
     def test_ok_without_persistence(self, client, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         resp = client.get("/healthz")
         assert resp.status_code == 200
         assert resp.get_json() == {"status": "ok", "checks": {"app": "ok"}}
@@ -4956,7 +4958,7 @@ class TestHealthz:
 
     def test_unavailable_database_returns_503_without_details(self, client, monkeypatch):
         # Nothing listens on port 1: connecting fails like a database outage.
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://nobody@127.0.0.1:1/none")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://nobody@127.0.0.1:1/none")
         resp = client.get("/healthz")
         assert resp.status_code == 503
         assert resp.get_json() == {
@@ -4966,7 +4968,7 @@ class TestHealthz:
 
     def test_makes_no_upstream_calls(self, client, monkeypatch):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         with patch.object(flask_app.requests, "get", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/healthz")
         assert resp.status_code == 200
@@ -4991,8 +4993,8 @@ class TestLibreNMSPolledIp:
         assert flask_app._librenms_polled_ip(record) == expected
 
     def test_sync_caches_polled_ip(self, monkeypatch, pg_database):
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.test")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "tok")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
         flask_app._init_db()
         with patch.object(
             flask_app,
@@ -5012,8 +5014,8 @@ class TestLibreNMSPolledIp:
         assert cached == [{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}]
 
     def test_device_added_by_hostname_shows_librenms_ip(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "https://librenms.test")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "tok")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
         enriched = flask_app._enrich_with_librenms(
             [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}],
             lnms_devices=[{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}],
@@ -5082,7 +5084,7 @@ class TestLibreNMSPolledIp:
 # ---------------------------------------------------------------------------
 class TestAlertBoardWithoutPersistence:
     def test_payload_reports_missing_database(self, client, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         flask_app.cache.clear()
         with patch.object(
             flask_app,
@@ -5112,13 +5114,13 @@ class TestAlertBoardWithoutPersistence:
         assert data["persistence_configured"] is True
 
     def test_startup_log_warns_without_database(self, monkeypatch, caplog):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         with caplog.at_level("WARNING", logger="app"):
             flask_app._log_alert_board_exclusions()
         assert "No persistence database configured" in caplog.text
 
     def test_startup_log_errors_on_leftover_sqlite_setting(self, monkeypatch, caplog):
-        monkeypatch.setattr(flask_app, "_LEGACY_SQLITE_DB", "/app/data/nautobot_maps.db")
+        monkeypatch.setattr(settings, "LEGACY_SQLITE_DB", "/app/data/nautobot_maps.db")
         with caplog.at_level("ERROR", logger="app"):
             flask_app._log_alert_board_exclusions()
         assert "SQLite support was removed" in caplog.text
@@ -5135,10 +5137,10 @@ class TestAlertBoardWithoutPersistence:
 class TestRefreshIsIncremental:
     @pytest.fixture(autouse=True)
     def _database_and_nautobot(self, pg_database, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
         flask_app._init_db()
 
     def _location_queries(self, **ensure_kwargs):
@@ -5178,10 +5180,10 @@ class TestAlertBoardBulkReads:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database, monkeypatch):
         self.db = pg_database
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
         monkeypatch.setattr(flask_app, "_ensure_inventory_snapshot", lambda *a, **k: False)
         monkeypatch.setattr(flask_app, "_iso_utc_now", lambda: self.CHECKED_AT)
         flask_app._init_db()
@@ -5330,7 +5332,7 @@ class TestAlertBoardBulkReads:
         self.db.execute("UPDATE nautobot_device_cache SET status = 'Decommissioning' WHERE device_id = 'dev-0-0'")
         self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T11:00:00+00:00")
 
-        with patch.object(flask_app, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"}):
+        with patch.object(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"}):
             data = flask_app.get_alert_board_data()
 
         by_site = {entry["id"]: entry for entry in data["alerts"]}
@@ -5378,13 +5380,13 @@ class TestSiteRollup:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database, monkeypatch):
         self.db = pg_database
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
         monkeypatch.setattr(flask_app, "_ensure_inventory_snapshot", lambda *a, **k: False)
-        monkeypatch.setattr(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"decommissioning"})
-        monkeypatch.setattr(flask_app, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", set())
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"decommissioning"})
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", set())
         names = {location_id: name for location_id, name, *_ in self.LOCATIONS}
         self.db.executemany(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, parent_id, parent, status) "
@@ -5420,7 +5422,7 @@ class TestSiteRollup:
         conn.close()
 
     def _board(self, monkeypatch, site_type="site"):
-        monkeypatch.setattr(flask_app, "ALERT_BOARD_SITE_LOCATION_TYPE", site_type)
+        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", site_type)
         flask_app.cache.clear()
         return {row["id"]: row for row in flask_app.get_alert_board_data()["alerts"]}
 
@@ -5497,10 +5499,10 @@ class TestBackgroundScheduler:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database, monkeypatch):
         self.db = pg_database
-        monkeypatch.setattr(flask_app, "NAUTOBOT_URL", "https://nautobot.example.com")
-        monkeypatch.setattr(flask_app, "NAUTOBOT_TOKEN", "token")
-        monkeypatch.setattr(flask_app, "LIBRENMS_URL", "")
-        monkeypatch.setattr(flask_app, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
         self.db.execute(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
             "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
@@ -5574,9 +5576,9 @@ class TestBackgroundScheduler:
         started = []
         monkeypatch.setattr(flask_app, "_scheduler_started", False)
         monkeypatch.setattr(flask_app.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock())
-        monkeypatch.setattr(flask_app, "BACKGROUND_SYNC_ENABLED", False)
+        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
         assert flask_app.start_background_scheduler() is False
-        monkeypatch.setattr(flask_app, "BACKGROUND_SYNC_ENABLED", True)
+        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
         assert flask_app.start_background_scheduler() is True
         assert flask_app.start_background_scheduler() is True
         assert len(started) == 1
@@ -5584,13 +5586,13 @@ class TestBackgroundScheduler:
 
     def test_not_started_without_database(self, monkeypatch):
         monkeypatch.setattr(flask_app, "_scheduler_started", False)
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         assert flask_app.start_background_scheduler() is False
 
     def test_tick_seconds_follow_the_sooner_interval(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
         assert flask_app._scheduler_tick_seconds() == 30
-        monkeypatch.setattr(flask_app, "INVENTORY_SYNC_INTERVAL_SECONDS", 10)
+        monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 10)
         assert flask_app._scheduler_tick_seconds() == 10
 
     def test_gunicorn_starts_the_scheduler_in_each_worker(self):
@@ -5614,7 +5616,7 @@ class TestSeverityTiers:
 
     @pytest.fixture(autouse=True)
     def _no_database(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
 
     @pytest.mark.parametrize(
         ("total", "down", "level", "reason"),
