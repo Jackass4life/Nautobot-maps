@@ -1,9 +1,8 @@
-import ipaddress
 import json
 import logging
 import re
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from functools import wraps
 
 import requests
@@ -12,7 +11,7 @@ from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import caching, db, librenms, nautobot, settings
+from nautobot_maps import caching, db, inventory, librenms, nautobot, settings, timeutil
 from nautobot_maps.caching import cache
 
 app = Flask(__name__)
@@ -21,14 +20,12 @@ app.secret_key = settings.FLASK_SECRET_KEY
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-_FULL_RECONCILE_INTERVAL_SECONDS = 86400
-# Bumped when cached fields change, forcing one full Nautobot resync
-# (3: locations store parent_id, #158).
-_NAUTOBOT_INVENTORY_CACHE_VERSION = "3"
-
 caching.init_app(app)
 nautobot.configure_ssl_warnings()
-_inventory_sync_lock = threading.Lock()
+# Create/migrate the database (no-op without persistence).  Called here, after
+# logging is configured, so its startup messages are shown; modules never
+# touch the database when they are imported.
+db.init_db()
 
 
 _AUTH_ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}
@@ -170,923 +167,6 @@ def require_role(required_role: str):
 # ---------------------------------------------------------------------------
 
 
-def _parse_iso_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except Exception:
-        return None
-
-
-def _json_load_list(value) -> list:
-    if isinstance(value, list):
-        return value
-    if not value:
-        return []
-    try:
-        parsed = json.loads(value)
-        return parsed if isinstance(parsed, list) else []
-    except Exception:
-        return []
-
-
-def _max_last_updated(items: list, fallback: str | None = None) -> str | None:
-    latest = _parse_iso_datetime(fallback)
-    result = fallback
-    for item in items:
-        candidate = _parse_iso_datetime((item or {}).get("last_updated"))
-        if candidate and (latest is None or candidate > latest):
-            latest = candidate
-            result = candidate.astimezone(UTC).isoformat().replace("+00:00", "Z")
-    return result
-
-
-def _next_watermark(value: str | None) -> str | None:
-    parsed = _parse_iso_datetime(value)
-    if parsed is None:
-        return value
-    return (parsed + timedelta(microseconds=1)).astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
-def _max_iso_datetime_value(*values: str | None) -> str | None:
-    latest = None
-    result = None
-    for value in values:
-        candidate = _parse_iso_datetime(value)
-        if candidate and (latest is None or candidate > latest):
-            latest = candidate
-            result = candidate.astimezone(UTC).isoformat().replace("+00:00", "Z")
-    return result
-
-
-# Initialise the DB at startup (no-op when persistence is not configured).
-db.init_db()
-
-
-def _normalize_locations(
-    raw: list,
-    include_without_coordinates: bool = False,
-    existing_location_name_map: dict | None = None,
-) -> list:
-    tenant_map = nautobot.id_name_map("tenancy/tenants/")
-    status_map = nautobot.id_name_map("extras/statuses/")
-    lt_map = nautobot.id_name_map("dcim/location-types/")
-    tag_map = nautobot.id_name_map("extras/tags/")
-    tenant_group_map = nautobot.tenant_group_map()
-
-    loc_name_map = dict(existing_location_name_map or {})
-    for loc in raw:
-        uid = loc.get("id")
-        if uid:
-            name = nautobot.nested_str(loc, "name", "display")
-            if name:
-                loc_name_map[uid] = name
-
-    if raw:
-        logger.debug(
-            "Nautobot location sample – tenant=%r  status=%r",
-            raw[0].get("tenant"),
-            raw[0].get("status"),
-        )
-
-    def _extract_location_country(location: dict, physical_address: str) -> str:
-        country_obj = location.get("country")
-        if isinstance(country_obj, dict):
-            country_name = nautobot.nested_str(country_obj, "name", "display", "label")
-            if country_name:
-                return country_name
-        elif isinstance(country_obj, str) and country_obj.strip():
-            return country_obj.strip()
-
-        raw_country = location.get("country_name")
-        if isinstance(raw_country, str) and raw_country.strip():
-            return raw_country.strip()
-
-        if physical_address:
-            parts = [part.strip() for part in physical_address.split(",") if part.strip()]
-            if parts:
-                return parts[-1]
-        return ""
-
-    locations = []
-    for loc in raw:
-        lat = None
-        lon = None
-        raw_lat = loc.get("latitude")
-        raw_lon = loc.get("longitude")
-        has_coordinates = raw_lat is not None and raw_lon is not None
-        if has_coordinates:
-            try:
-                lat = float(raw_lat)
-                lon = float(raw_lon)
-            except (TypeError, ValueError):
-                has_coordinates = False
-                lat = None
-                lon = None
-        if not has_coordinates and not include_without_coordinates:
-            continue
-
-        tenant_obj = loc.get("tenant") or {}
-        tenant_id = tenant_obj.get("id", "") if isinstance(tenant_obj, dict) else ""
-        tenant_name = nautobot.nested_str(tenant_obj, "name", "display") or tenant_map.get(tenant_id, "")
-
-        status_obj = loc.get("status") or {}
-        status_id = status_obj.get("id", "") if isinstance(status_obj, dict) else ""
-        status_name = nautobot.nested_str(status_obj, "label", "name", "display") or status_map.get(status_id, "")
-
-        lt_obj = loc.get("location_type") or {}
-        lt_id = lt_obj.get("id", "") if isinstance(lt_obj, dict) else ""
-        location_type_name = nautobot.nested_str(lt_obj, "name", "display") or lt_map.get(lt_id, "")
-
-        parent_obj = loc.get("parent") or {}
-        parent_id = parent_obj.get("id", "") if isinstance(parent_obj, dict) else ""
-        parent_name = nautobot.nested_str(parent_obj, "name", "display") or loc_name_map.get(parent_id, "")
-
-        tenant_group_name = tenant_group_map.get(tenant_id, "")
-        raw_tags = loc.get("tags") or []
-        tag_names = []
-        for t in raw_tags:
-            if isinstance(t, dict):
-                tag_id = t.get("id", "")
-                tag_name = nautobot.nested_str(t, "name", "display") or tag_map.get(tag_id, "")
-            else:
-                tag_name = ""
-            if tag_name:
-                tag_names.append(tag_name)
-
-        physical_address = (loc.get("physical_address") or "").strip()
-        country = _extract_location_country(loc, physical_address)
-
-        locations.append(
-            {
-                "id": loc.get("id", ""),
-                "name": loc.get("name", "Unknown"),
-                "slug": loc.get("slug", ""),
-                "status": status_name,
-                "location_type": location_type_name,
-                "parent": parent_name,
-                "parent_id": parent_id,
-                "latitude": lat,
-                "longitude": lon,
-                "description": loc.get("description", ""),
-                "physical_address": physical_address,
-                "country": country,
-                "facility": loc.get("facility", ""),
-                "tenant": tenant_name,
-                "tenant_id": tenant_id,
-                "tenant_group": tenant_group_name,
-                "asn": loc.get("asn"),
-                "time_zone": loc.get("time_zone", ""),
-                "tags": tag_names,
-                "url": loc.get("url", ""),
-                "last_updated": loc.get("last_updated") or "",
-            }
-        )
-    return locations
-
-
-def _extract_primary_ip(device: dict) -> str:
-    for key in ("primary_ip4", "primary_ip6", "primary_ip"):
-        value = device.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        extracted = nautobot.nested_str(value, "host", "address", "display", "name")
-        if extracted:
-            return extracted
-    return ""
-
-
-def _normalize_librenms_host_key(value: str) -> str:
-    return (value or "").strip().lower().split(".", 1)[0]
-
-
-def _normalize_librenms_ip_key(value: str) -> str:
-    candidate = (value or "").strip().split("/", 1)[0]
-    if not candidate:
-        return ""
-    try:
-        return str(ipaddress.ip_address(candidate))
-    except ValueError:
-        return candidate
-
-
-def _is_ip_literal(value: str) -> bool:
-    candidate = _normalize_librenms_ip_key(value)
-    if not candidate:
-        return False
-    try:
-        ipaddress.ip_address(candidate)
-    except ValueError:
-        return False
-    return True
-
-
-def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> list:
-    if lookup_maps is None:
-        lookup_maps = nautobot.device_lookup_maps()
-    dt_mfr_map = lookup_maps.get("dt_mfr_map", {})
-    dt_model_map = lookup_maps.get("dt_model_map", {})
-    mfr_map = lookup_maps.get("mfr_map", {})
-    role_map = lookup_maps.get("role_map", {})
-    tenant_map = lookup_maps.get("tenant_map", {})
-    status_map = lookup_maps.get("status_map", {})
-
-    devices = []
-    for d in devices_data:
-        dt = d.get("device_type") or {}
-        dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
-        mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
-        mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
-        mfr_name = (
-            nautobot.nested_str(mfr_obj, "name", "display") or mfr_map.get(mfr_id, "") or dt_mfr_map.get(dt_id, "")
-        )
-
-        ten_obj = d.get("tenant") or {}
-        ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
-        ten_name = nautobot.nested_str(ten_obj, "name", "display") or tenant_map.get(ten_id, "")
-
-        st_obj = d.get("status") or {}
-        st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
-        st_name = nautobot.nested_str(st_obj, "label", "name", "display") or status_map.get(st_id, "")
-
-        devices.append(
-            {
-                "id": d.get("id") or "",
-                "name": d.get("name") or "Unknown",
-                "device_type": (
-                    nautobot.nested_str(d.get("device_type"), "model", "display") or dt_model_map.get(dt_id, "")
-                ),
-                "manufacturer": mfr_name,
-                "role": (
-                    nautobot.nested_str(d.get("role"), "name", "display")
-                    or role_map.get(
-                        d.get("role", {}).get("id", "") if isinstance(d.get("role"), dict) else "",
-                        "",
-                    )
-                ),
-                "status": st_name,
-                "primary_ip": _extract_primary_ip(d),
-                "platform": nautobot.nested_str(d.get("platform"), "name", "display"),
-                "serial": d.get("serial") or "",
-                "tenant": ten_name,
-                "last_updated": d.get("last_updated") or "",
-                "location_id": (d.get("location", {}).get("id", "") if isinstance(d.get("location"), dict) else ""),
-            }
-        )
-    return devices
-
-
-def _read_cached_location_name_map(conn=None) -> dict:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return {}
-    try:
-        rows = conn.execute("SELECT location_id, name FROM nautobot_location_cache").fetchall()
-        return {
-            db.row_to_dict(row).get("location_id", ""): db.row_to_dict(row).get("name", "")
-            for row in rows
-            if db.row_to_dict(row).get("location_id")
-        }
-    except Exception as exc:
-        logger.debug("Could not read cached location names: %s", exc)
-        return {}
-    finally:
-        if owns_conn:
-            conn.close()
-
-
-def _read_cached_locations(include_without_coordinates: bool = False, conn=None) -> list:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return []
-    try:
-        rows = conn.execute(
-            """
-            SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
-                   description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                   time_zone, tags_json, url
-            FROM nautobot_location_cache
-            ORDER BY name ASC
-            """
-        ).fetchall()
-        locations = []
-        for row in rows:
-            data = db.row_to_dict(row)
-            lat = data.get("latitude")
-            lon = data.get("longitude")
-            has_coordinates = lat is not None and lon is not None
-            if not has_coordinates and not include_without_coordinates:
-                continue
-            locations.append(
-                {
-                    "id": data.get("location_id", ""),
-                    "name": data.get("name", ""),
-                    "slug": data.get("slug", ""),
-                    "status": data.get("status", ""),
-                    "location_type": data.get("location_type", ""),
-                    "parent": data.get("parent", ""),
-                    "parent_id": data.get("parent_id", ""),
-                    "latitude": lat,
-                    "longitude": lon,
-                    "description": data.get("description", ""),
-                    "physical_address": data.get("physical_address", ""),
-                    "facility": data.get("facility", ""),
-                    "tenant": data.get("tenant", ""),
-                    "tenant_id": data.get("tenant_id", ""),
-                    "tenant_group": data.get("tenant_group", ""),
-                    "asn": data.get("asn"),
-                    "time_zone": data.get("time_zone", ""),
-                    "tags": _json_load_list(data.get("tags_json")),
-                    "url": data.get("url", ""),
-                }
-            )
-        return locations
-    except Exception as exc:
-        logger.debug("Could not read cached locations: %s", exc)
-        return []
-    finally:
-        if owns_conn:
-            conn.close()
-
-
-def _read_cached_devices(location_id: str | None = None, conn=None) -> list:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return []
-    try:
-        params = ()
-        if location_id:
-            marker = db.placeholders(1)
-            query = (
-                "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant FROM nautobot_device_cache "
-                f"WHERE location_id = {marker} ORDER BY name ASC"
-            )
-            params = (location_id,)
-        else:
-            query = (
-                "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant FROM nautobot_device_cache ORDER BY location_id, name ASC"
-            )
-        rows = conn.execute(query, params).fetchall()
-        return [
-            {
-                "id": data.get("device_id", ""),
-                "location_id": data.get("location_id", ""),
-                "name": data.get("name", ""),
-                "device_type": data.get("device_type", ""),
-                "manufacturer": data.get("manufacturer", ""),
-                "role": data.get("role", ""),
-                "status": data.get("status", ""),
-                "primary_ip": data.get("primary_ip", ""),
-                "platform": data.get("platform", ""),
-                "serial": data.get("serial", ""),
-                "tenant": data.get("tenant", ""),
-            }
-            for data in (db.row_to_dict(row) for row in rows)
-        ]
-    except Exception as exc:
-        logger.debug("Could not read cached devices: %s", exc)
-        return []
-    finally:
-        if owns_conn:
-            conn.close()
-
-
-def _read_cached_librenms_inventory(conn=None) -> list:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return []
-    try:
-        rows = conn.execute(
-            "SELECT device_id, hostname, ip, status FROM librenms_device_status ORDER BY hostname ASC"
-        ).fetchall()
-        return [
-            {
-                "device_id": data.get("device_id"),
-                "hostname": data.get("hostname", ""),
-                "ip": data.get("ip", ""),
-                "status": data.get("status"),
-            }
-            for data in (db.row_to_dict(row) for row in rows)
-        ]
-    except Exception as exc:
-        logger.debug("Could not read cached LibreNMS inventory: %s", exc)
-        return []
-    finally:
-        if owns_conn:
-            conn.close()
-
-
-def _record_sync_state(
-    conn,
-    source: str,
-    *,
-    last_started_at: str | None = None,
-    last_completed_at: str | None = None,
-    last_successful_sync: str | None = None,
-    cache_version: str = "",
-    status: str = "idle",
-    error_message: str = "",
-) -> None:
-    p0, p1, p2, p3, p4, p5, p6 = db.placeholders(7).split(",")
-    conn.execute(
-        f"""
-        INSERT INTO inventory_sync_state
-            (source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message)
-        VALUES ({p0}, {p1}, {p2}, {p3}, {p4}, {p5}, {p6})
-        ON CONFLICT(source) DO UPDATE SET
-            last_started_at = excluded.last_started_at,
-            last_completed_at = excluded.last_completed_at,
-            last_successful_sync = excluded.last_successful_sync,
-            cache_version = excluded.cache_version,
-            status = excluded.status,
-            error_message = excluded.error_message
-        """,
-        (
-            source,
-            last_started_at,
-            last_completed_at,
-            last_successful_sync,
-            cache_version,
-            status,
-            error_message,
-        ),
-    )
-
-
-def _get_sync_state(source: str, conn=None) -> dict:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return {}
-    try:
-        marker = db.placeholders(1)
-        row = conn.execute(
-            f"""
-            SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message
-            FROM inventory_sync_state
-            WHERE source = {marker}
-            """,
-            (source,),
-        ).fetchone()
-        return db.row_to_dict(row)
-    except Exception as exc:
-        logger.debug("Could not read sync state for %s: %s", source, exc)
-        return {}
-    finally:
-        if owns_conn:
-            conn.close()
-
-
-def _sync_due(source: str, interval_seconds: int, conn=None) -> bool:
-    state = _get_sync_state(source, conn=conn)
-    if not state:
-        return True
-    if state.get("status") == "running":
-        started_at = _parse_iso_datetime(state.get("last_started_at"))
-        if started_at is None:
-            return True
-        stale_after = max(900, interval_seconds * 2)
-        return (datetime.now(UTC) - started_at).total_seconds() >= stale_after
-    completed_at = _parse_iso_datetime(state.get("last_completed_at"))
-    if completed_at is None:
-        return True
-    return (datetime.now(UTC) - completed_at).total_seconds() >= max(0, interval_seconds)
-
-
-def _nautobot_inventory_cache_version_mismatch(state: dict | None) -> bool:
-    return (state or {}).get("cache_version") != _NAUTOBOT_INVENTORY_CACHE_VERSION
-
-
-def _nautobot_snapshot_initialized(conn=None) -> bool:
-    """Return whether Nautobot inventory snapshot has completed at least once."""
-    state = _get_sync_state("nautobot_inventory", conn=conn)
-    if not state:
-        return False
-    return bool(state.get("status") == "idle" and state.get("last_completed_at"))
-
-
-def _coalesce_cache_text(value):
-    return "" if value is None else value
-
-
-def _write_cached_locations(conn, locations: list) -> None:
-    placeholders = db.placeholders(20).split(",")
-    for loc in locations:
-        conn.execute(
-            f"""
-            INSERT INTO nautobot_location_cache
-                (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
-                 description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                 time_zone, tags_json, url, last_updated, synced_at)
-            VALUES ({", ".join(placeholders)}, {db.sql_now()})
-            ON CONFLICT(location_id) DO UPDATE SET
-                name = excluded.name,
-                slug = excluded.slug,
-                status = excluded.status,
-                location_type = excluded.location_type,
-                parent = excluded.parent,
-                parent_id = excluded.parent_id,
-                latitude = excluded.latitude,
-                longitude = excluded.longitude,
-                description = excluded.description,
-                physical_address = excluded.physical_address,
-                facility = excluded.facility,
-                tenant = excluded.tenant,
-                tenant_id = excluded.tenant_id,
-                tenant_group = excluded.tenant_group,
-                asn = excluded.asn,
-                time_zone = excluded.time_zone,
-                tags_json = excluded.tags_json,
-                url = excluded.url,
-                last_updated = excluded.last_updated,
-                synced_at = excluded.synced_at
-            """,
-            (
-                _coalesce_cache_text(loc.get("id", "")),
-                _coalesce_cache_text(loc.get("name", "")),
-                _coalesce_cache_text(loc.get("slug", "")),
-                _coalesce_cache_text(loc.get("status", "")),
-                _coalesce_cache_text(loc.get("location_type", "")),
-                _coalesce_cache_text(loc.get("parent", "")),
-                _coalesce_cache_text(loc.get("parent_id", "")),
-                loc.get("latitude"),
-                loc.get("longitude"),
-                _coalesce_cache_text(loc.get("description", "")),
-                _coalesce_cache_text(loc.get("physical_address", "")),
-                _coalesce_cache_text(loc.get("facility", "")),
-                _coalesce_cache_text(loc.get("tenant", "")),
-                _coalesce_cache_text(loc.get("tenant_id", "")),
-                _coalesce_cache_text(loc.get("tenant_group", "")),
-                loc.get("asn"),
-                loc.get("time_zone"),
-                json.dumps(loc.get("tags", []), separators=(",", ":"), sort_keys=True),
-                _coalesce_cache_text(loc.get("url", "")),
-                loc.get("last_updated") or None,
-            ),
-        )
-
-
-def _write_cached_devices(conn, devices: list) -> None:
-    placeholders = db.placeholders(12).split(",")
-    for device in devices:
-        conn.execute(
-            f"""
-            INSERT INTO nautobot_device_cache
-                (device_id, location_id, name, device_type, manufacturer, role, status,
-                 primary_ip, platform, serial, tenant, last_updated, synced_at)
-            VALUES ({", ".join(placeholders)}, {db.sql_now()})
-            ON CONFLICT(device_id) DO UPDATE SET
-                location_id = excluded.location_id,
-                name = excluded.name,
-                device_type = excluded.device_type,
-                manufacturer = excluded.manufacturer,
-                role = excluded.role,
-                status = excluded.status,
-                primary_ip = excluded.primary_ip,
-                platform = excluded.platform,
-                serial = excluded.serial,
-                tenant = excluded.tenant,
-                last_updated = excluded.last_updated,
-                synced_at = excluded.synced_at
-            """,
-            (
-                _coalesce_cache_text(device.get("id", "")),
-                _coalesce_cache_text(device.get("location_id", "")),
-                _coalesce_cache_text(device.get("name", "")),
-                _coalesce_cache_text(device.get("device_type", "")),
-                _coalesce_cache_text(device.get("manufacturer", "")),
-                _coalesce_cache_text(device.get("role", "")),
-                _coalesce_cache_text(device.get("status", "")),
-                _coalesce_cache_text(device.get("primary_ip", "")),
-                _coalesce_cache_text(device.get("platform", "")),
-                _coalesce_cache_text(device.get("serial", "")),
-                _coalesce_cache_text(device.get("tenant", "")),
-                device.get("last_updated") or None,
-            ),
-        )
-
-
-def _librenms_polled_ip(device: dict) -> str:
-    """Return the address LibreNMS polls *device* on, or ``""``.
-
-    LibreNMS ``list_devices`` returns ``overwrite_ip`` (an operator-set
-    polling address) and ``ip`` (the device's resolved IP); the override wins.
-    Only valid IP literals are returned.
-    """
-    for key in ("overwrite_ip", "ip"):
-        value = device.get(key)
-        if isinstance(value, str) and _is_ip_literal(value):
-            return _normalize_librenms_ip_key(value)
-    return ""
-
-
-def _write_cached_librenms_devices(conn, devices: list) -> None:
-    placeholders = db.placeholders(6).split(",")
-    for device in devices:
-        conn.execute(
-            f"""
-            INSERT INTO librenms_device_status
-                (device_id, hostname, ip, status, status_raw, status_reason, synced_at)
-            VALUES ({", ".join(placeholders)}, {db.sql_now()})
-            ON CONFLICT(device_id) DO UPDATE SET
-                hostname = excluded.hostname,
-                ip = excluded.ip,
-                status = excluded.status,
-                status_raw = excluded.status_raw,
-                status_reason = excluded.status_reason,
-                synced_at = excluded.synced_at
-            """,
-            (
-                device.get("device_id"),
-                device.get("hostname", ""),
-                _librenms_polled_ip(device),
-                device.get("status"),
-                str(device.get("status", "")),
-                device.get("status_reason", "") or "",
-            ),
-        )
-
-
-def _sync_nautobot_inventory(force: bool = False) -> None:
-    conn = db.get_conn()
-    if conn is None or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        if conn is not None:
-            conn.close()
-        return
-    source = "nautobot_inventory"
-    reconcile_source = "nautobot_inventory_reconcile"
-    started_at = _iso_utc_now()
-    last_successful_sync = None
-    source_state = {}
-    try:
-        source_state = {} if force else _get_sync_state(source, conn=conn)
-        last_successful_sync = None if force else source_state.get("last_successful_sync")
-        version_mismatch = _nautobot_inventory_cache_version_mismatch(source_state)
-        full_reconcile = (
-            force
-            or version_mismatch
-            or not last_successful_sync
-            or _sync_due(
-                reconcile_source,
-                _FULL_RECONCILE_INTERVAL_SECONDS,
-                conn=conn,
-            )
-        )
-        with db.transaction(conn):
-            _record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=None,
-                last_successful_sync=last_successful_sync,
-                cache_version=source_state.get("cache_version", ""),
-                status="running",
-                error_message="",
-            )
-
-        params = {}
-        if last_successful_sync and not full_reconcile:
-            params["last_updated__gte"] = last_successful_sync
-        raw_locations = nautobot.fetch_all_pages("dcim/locations/", params or None)
-        device_params = dict(params)
-        device_params["depth"] = 1
-        raw_devices = nautobot.fetch_all_pages("dcim/devices/", device_params or None)
-        if full_reconcile:
-            existing_counts = conn.execute(
-                """
-                SELECT
-                    (SELECT COUNT(*) FROM nautobot_location_cache) AS location_count,
-                    (SELECT COUNT(*) FROM nautobot_device_cache) AS device_count
-                """
-            ).fetchone()
-            existing_counts = db.row_to_dict(existing_counts)
-            if (
-                (
-                    int(existing_counts.get("location_count") or 0) > 0
-                    or int(existing_counts.get("device_count") or 0) > 0
-                )
-                and not raw_locations
-                and not raw_devices
-            ):
-                raise RuntimeError(
-                    "Full inventory reconcile returned an empty dataset; keeping the existing cached snapshot"
-                )
-        existing_location_name_map = _read_cached_location_name_map(conn=conn)
-        locations = _normalize_locations(
-            raw_locations,
-            include_without_coordinates=True,
-            existing_location_name_map=existing_location_name_map,
-        )
-        devices = _normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
-        completed_at = _iso_utc_now()
-        watermark = last_successful_sync
-        observed_last_updated = _max_last_updated(raw_locations + raw_devices)
-        observed_dt = _parse_iso_datetime(observed_last_updated)
-        current_dt = _parse_iso_datetime(watermark)
-        if observed_dt and (current_dt is None or observed_dt > current_dt):
-            watermark = _next_watermark(observed_last_updated)
-        if full_reconcile:
-            watermark = _max_iso_datetime_value(watermark, started_at) or started_at
-        with db.transaction(conn):
-            if full_reconcile:
-                conn.execute("DELETE FROM nautobot_device_cache")
-                conn.execute("DELETE FROM nautobot_location_cache")
-            _write_cached_locations(conn, locations)
-            _write_cached_devices(conn, devices)
-            _record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=completed_at,
-                last_successful_sync=watermark,
-                cache_version=_NAUTOBOT_INVENTORY_CACHE_VERSION,
-                status="idle",
-                error_message="",
-            )
-            if full_reconcile:
-                _record_sync_state(
-                    conn,
-                    reconcile_source,
-                    last_started_at=started_at,
-                    last_completed_at=completed_at,
-                    last_successful_sync=watermark,
-                    cache_version=_NAUTOBOT_INVENTORY_CACHE_VERSION,
-                    status="idle",
-                    error_message="",
-                )
-        _invalidate_alert_board_cache()
-    except Exception as exc:
-        logger.warning("Could not sync Nautobot inventory into persistence DB: %s", exc)
-        with db.transaction(conn):
-            _record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=_iso_utc_now(),
-                last_successful_sync=last_successful_sync,
-                cache_version=source_state.get("cache_version", ""),
-                status="error",
-                error_message=str(exc),
-            )
-    finally:
-        conn.close()
-
-
-def _sync_librenms_inventory(force: bool = False) -> None:
-    conn = db.get_conn()
-    if conn is None or not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
-        if conn is not None:
-            conn.close()
-        return
-    source = "librenms_inventory"
-    started_at = _iso_utc_now()
-    last_successful_sync = None
-    try:
-        last_successful_sync = None if force else _get_sync_state(source, conn=conn).get("last_successful_sync")
-        with db.transaction(conn):
-            _record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=None,
-                last_successful_sync=last_successful_sync,
-                status="running",
-                error_message="",
-            )
-        devices = librenms.fetch_inventory()
-        existing_count = conn.execute("SELECT COUNT(*) AS device_count FROM librenms_device_status").fetchone()
-        existing_count = int(db.row_to_dict(existing_count).get("device_count") or 0)
-        if existing_count > 0 and not devices:
-            raise RuntimeError("LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot")
-        with db.transaction(conn):
-            completed_at = _iso_utc_now()
-            conn.execute("DELETE FROM librenms_device_status")
-            _write_cached_librenms_devices(conn, devices)
-            _record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=completed_at,
-                last_successful_sync=completed_at,
-                status="idle",
-                error_message="",
-            )
-        _invalidate_alert_board_cache()
-    except Exception as exc:
-        logger.warning("Could not sync LibreNMS inventory into persistence DB: %s", exc)
-        with db.transaction(conn):
-            _record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=_iso_utc_now(),
-                last_successful_sync=None if force else last_successful_sync,
-                status="error",
-                error_message=str(exc),
-            )
-    finally:
-        conn.close()
-
-
-def _ensure_inventory_snapshot(force: bool = False, wait: bool = False, full: bool | None = None) -> bool:
-    """Run the inventory syncs that are due, in the background unless *wait*.
-
-    ``force`` runs them now even if their interval has not passed.  ``full``
-    makes the Nautobot sync a full reconcile (re-fetch everything, ignoring
-    the watermark); it defaults to ``force``.  Pass ``force=True, full=False``
-    for a cheap "sync now" that only pulls changes since the last sync.
-    Returns whether a sync was started (or, with *wait*, performed).
-    """
-    if full is None:
-        full = force
-
-    def _run_with_lock() -> bool:
-        conn = None
-        release_db_lock = None
-        try:
-            release_db_lock = db.try_advisory_lock("inventory_snapshot_sync")
-            if release_db_lock is False:
-                return False
-            conn = db.get_conn()
-            if conn is None:
-                return False
-            nautobot_state = _get_sync_state("nautobot_inventory", conn=conn)
-            needs_nautobot = bool(settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN) and (
-                force
-                or _nautobot_inventory_cache_version_mismatch(nautobot_state)
-                or _sync_due(
-                    "nautobot_inventory",
-                    settings.INVENTORY_SYNC_INTERVAL_SECONDS,
-                    conn=conn,
-                )
-            )
-            needs_librenms = bool(
-                (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip()
-            ) and (
-                force
-                or _sync_due(
-                    "librenms_inventory",
-                    settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
-                    conn=conn,
-                )
-            )
-            if not needs_nautobot and not needs_librenms:
-                return False
-            if needs_nautobot:
-                _sync_nautobot_inventory(force=full)
-            if needs_librenms:
-                _sync_librenms_inventory(force=full)
-            return True
-        finally:
-            if conn is not None:
-                conn.close()
-            if callable(release_db_lock):
-                release_db_lock()
-            _inventory_sync_lock.release()
-
-    if wait:
-        _inventory_sync_lock.acquire()
-        return _run_with_lock()
-    if not _inventory_sync_lock.acquire(blocking=False):
-        return False
-    threading.Thread(target=_run_with_lock, daemon=True).start()
-    return True
-
-
-def get_locations(include_without_coordinates: bool = False, snapshot_only: bool = False) -> list:
-    """Fetch locations from Nautobot.
-
-    By default, only locations with valid GPS coordinates are returned.
-    Set ``include_without_coordinates=True`` to include all locations and
-    keep missing/invalid coordinates as ``None``.
-    """
-    cached = _read_cached_locations(include_without_coordinates=include_without_coordinates)
-    if cached:
-        if not snapshot_only:
-            _ensure_inventory_snapshot()
-        return cached
-    if snapshot_only:
-        return []
-    _ensure_inventory_snapshot(force=True, wait=True)
-    cached = _read_cached_locations(include_without_coordinates=include_without_coordinates)
-    if cached:
-        return cached
-    raw = nautobot.fetch_all_pages("dcim/locations/")
-    return _normalize_locations(raw, include_without_coordinates=include_without_coordinates)
-
-
 # ---------------------------------------------------------------------------
 # NOC alert helpers
 # ---------------------------------------------------------------------------
@@ -1138,15 +218,15 @@ def _device_display_ip(device: dict) -> str:
     if librenms_ip:
         return librenms_ip
     librenms_hostname = (device.get("librenms_hostname") or "").strip()
-    if _is_ip_literal(librenms_hostname):
-        return _normalize_librenms_ip_key(librenms_hostname)
+    if inventory.is_ip_literal(librenms_hostname):
+        return inventory.librenms_ip_key(librenms_hostname)
     return ""
 
 
 def _nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
     """Treat primary-IP backfill as pending until Nautobot has synced the current cache version."""
-    state = _get_sync_state("nautobot_inventory", conn=conn)
-    return _nautobot_inventory_cache_version_mismatch(state) or not bool((state or {}).get("last_successful_sync"))
+    state = inventory.get_sync_state("nautobot_inventory", conn=conn)
+    return inventory.cache_version_mismatch(state) or not bool((state or {}).get("last_successful_sync"))
 
 
 def _location_is_excluded_from_alert_board(location: dict) -> bool:
@@ -1166,11 +246,6 @@ def _location_is_excluded_from_alert_board(location: dict) -> bool:
         or (location_type and location_type in settings.ALERT_BOARD_EXCLUDED_LOCATION_TYPES)
         or (tags & settings.ALERT_BOARD_EXCLUDED_LOCATION_TAGS)
     )
-
-
-def _invalidate_alert_board_cache() -> None:
-    cache.delete("alert-board-data:v3")
-    cache.delete("alert-board-data:v3:include-non-operational")
 
 
 # ---------------------------------------------------------------------------
@@ -1388,10 +463,10 @@ def _enrich_with_librenms(
         return devices
 
     if lnms_devices is None:
-        lnms_devices = _read_cached_librenms_inventory()
+        lnms_devices = inventory.read_librenms_devices()
     if not lnms_devices and not snapshot_only:
-        _ensure_inventory_snapshot()
-        lnms_devices = _read_cached_librenms_inventory()
+        inventory.ensure_snapshot()
+        lnms_devices = inventory.read_librenms_devices()
     if not lnms_devices and not snapshot_only:
         try:
             lnms_devices = librenms.fetch_inventory()
@@ -1408,10 +483,10 @@ def _enrich_with_librenms(
     for ld in lnms_devices:
         hostname = (ld.get("hostname") or "").strip()
         if hostname:
-            if _is_ip_literal(hostname):
-                lnms_by_ip[_normalize_librenms_ip_key(hostname)] = ld
+            if inventory.is_ip_literal(hostname):
+                lnms_by_ip[inventory.librenms_ip_key(hostname)] = ld
             else:
-                lnms_by_hostname[_normalize_librenms_host_key(hostname)] = ld
+                lnms_by_hostname[inventory.librenms_host_key(hostname)] = ld
 
     # Load Nautobot UUID → LibreNMS device ID overrides from DB
     if lnms_id_map is None:
@@ -1434,16 +509,16 @@ def _enrich_with_librenms(
 
         # 2. Fall back to hostname matching
         if lnms_record is None:
-            device_name = _normalize_librenms_host_key(device.get("name") or "")
+            device_name = inventory.librenms_host_key(device.get("name") or "")
             lnms_record = lnms_by_hostname.get(device_name)
             if lnms_record is None:
-                primary_ip = _normalize_librenms_ip_key(device.get("primary_ip") or "")
+                primary_ip = inventory.librenms_ip_key(device.get("primary_ip") or "")
                 if primary_ip:
                     lnms_record = lnms_by_ip.get(primary_ip)
 
         if lnms_record is not None:
             device["librenms_hostname"] = lnms_record.get("hostname") or ""
-            device["librenms_ip"] = _librenms_polled_ip(lnms_record)
+            device["librenms_ip"] = inventory.librenms_polled_ip(lnms_record)
             lnms_status = lnms_record.get("status")
             if lnms_status == 0:
                 # LibreNMS says down – mark as offline if not already a down status
@@ -1521,14 +596,14 @@ def _get_location_devices_and_alert(
     """
     use_normalized_devices = devices_already_normalized
     if devices_data is None:
-        devices_data = _read_cached_devices(location_id)
+        devices_data = inventory.read_devices(location_id)
         if devices_data:
             use_normalized_devices = True
             if not snapshot_only:
-                _ensure_inventory_snapshot()
+                inventory.ensure_snapshot()
         elif not snapshot_only:
-            _ensure_inventory_snapshot()
-            devices_data = _read_cached_devices(location_id)
+            inventory.ensure_snapshot()
+            devices_data = inventory.read_devices(location_id)
             if devices_data:
                 use_normalized_devices = True
             else:
@@ -1552,7 +627,7 @@ def _get_location_devices_and_alert(
             for d in devices_data
         ]
         if use_normalized_devices
-        else _normalize_devices(devices_data, lookup_maps=lookup_maps)
+        else inventory.normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
     if require_primary_ip:
         devices = [device for device in devices if _device_has_primary_ip(device)]
@@ -1568,10 +643,6 @@ def _get_location_devices_and_alert(
         snapshot_only=snapshot_only,
     )
     return enriched, compute_alert_level(enriched, location_type, override_map=override_map)
-
-
-def _iso_utc_now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _alert_sort_key(level: str) -> int:
@@ -1627,8 +698,8 @@ def _resolve_open_alert_instances_for_site(
         alert_key = row_data.get("alert_key", "")
         if alert_key in open_alert_keys:
             continue
-        started = _parse_iso_datetime(row_data.get("down_started_at"))
-        resolved = _parse_iso_datetime(checked_at)
+        started = timeutil.parse_iso_datetime(row_data.get("down_started_at"))
+        resolved = timeutil.parse_iso_datetime(checked_at)
         elapsed = 0
         if started and resolved:
             elapsed = max(0, int((resolved - started).total_seconds()))
@@ -1880,13 +951,13 @@ def _summarize_alert_context(
     over all the site's instances; *open_rows* are its open instances, newest
     first.  Open instances add the time they have been down so far.
     """
-    now_dt = _parse_iso_datetime(checked_at) or datetime.now(UTC)
+    now_dt = timeutil.parse_iso_datetime(checked_at) or datetime.now(UTC)
     historical_seconds = historical_downtime_seconds
     active_cases: set[str] = set()
     down_devices = []
     current_downtime_seconds = 0
     for data in open_rows:
-        started = _parse_iso_datetime(data.get("down_started_at"))
+        started = timeutil.parse_iso_datetime(data.get("down_started_at"))
         if started is not None:
             elapsed = max(0, int((now_dt - started).total_seconds()))
             historical_seconds += elapsed
@@ -1964,10 +1035,10 @@ def _nautobot_sync_in_progress() -> bool:
     """
     if not db.dialect():
         return False
-    state = _get_sync_state("nautobot_inventory")
+    state = inventory.get_sync_state("nautobot_inventory")
     if state.get("status") != "running":
         return False
-    started_at = _parse_iso_datetime(state.get("last_started_at"))
+    started_at = timeutil.parse_iso_datetime(state.get("last_started_at"))
     if started_at is None:
         return False
     if started_at.tzinfo is None:
@@ -1980,7 +1051,7 @@ def _inventory_update_schedule() -> tuple[bool, int | None]:
     """Return ``(due, next_update_in_seconds)`` for the configured inventory syncs.
 
     *due* is true when a sync should start now (by the same rules as
-    ``_ensure_inventory_snapshot``).  *next_update_in_seconds* is how long
+    ``inventory.ensure_snapshot``).  *next_update_in_seconds* is how long
     until the next sync is due: ``0`` when one is due, ``None`` when unknown
     (no persistence, no sources configured, or a sync is running).  The
     board counts down to it (#152).
@@ -2000,13 +1071,13 @@ def _inventory_update_schedule() -> tuple[bool, int | None]:
         due = False
         remaining = []
         for source, interval_seconds in sources:
-            state = _get_sync_state(source, conn=conn)
-            if _sync_due(source, interval_seconds, conn=conn) or (
-                source == "nautobot_inventory" and _nautobot_inventory_cache_version_mismatch(state)
+            state = inventory.get_sync_state(source, conn=conn)
+            if inventory.sync_due(source, interval_seconds, conn=conn) or (
+                source == "nautobot_inventory" and inventory.cache_version_mismatch(state)
             ):
                 due = True
                 continue
-            completed_at = _parse_iso_datetime(state.get("last_completed_at"))
+            completed_at = timeutil.parse_iso_datetime(state.get("last_completed_at"))
             if completed_at is None:
                 continue  # running
             if completed_at.tzinfo is None:
@@ -2136,7 +1207,7 @@ def _read_alert_board_data(conn) -> dict:
     errors; the caller then falls back to reading per site.
     """
     devices_by_location: dict[str, list] = {}
-    for device in _read_cached_devices(conn=conn):
+    for device in inventory.read_devices(conn=conn):
         devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
 
     # Closed instances are summed in SQL: the table grows with every outage.
@@ -2194,7 +1265,7 @@ def _build_alert_board_payload(
     include_non_operational: bool = False,
 ) -> dict:
     """Build and return a fresh alert-board payload."""
-    locations = get_locations(
+    locations = inventory.get_locations(
         include_without_coordinates=True,
         snapshot_only=snapshot_only,
     )
@@ -2207,10 +1278,10 @@ def _build_alert_board_payload(
     lnms_id_map = None
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         try:
-            lnms_devices = _read_cached_librenms_inventory()
+            lnms_devices = inventory.read_librenms_devices()
             if not lnms_devices and not snapshot_only:
-                _ensure_inventory_snapshot(force=True, wait=True)
-                lnms_devices = _read_cached_librenms_inventory()
+                inventory.ensure_snapshot(force=True, wait=True)
+                lnms_devices = inventory.read_librenms_devices()
             lnms_id_map = _load_librenms_id_map()
         except Exception as exc:
             logger.warning("Could not refresh LibreNMS inventory for alert board: %s", exc)
@@ -2244,7 +1315,7 @@ def _build_alert_board_payload(
             devices_by_location = board_data["devices_by_location"]
         else:
             devices_by_location = {}
-            for device in _read_cached_devices():
+            for device in inventory.read_devices():
                 devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
         locations, devices_by_row = _roll_up_to_site_locations(
             all_locations,
@@ -2294,7 +1365,7 @@ def _build_alert_board_payload(
                 alert = {"level": "no_data", "reason": "Could not compute alert state"}
 
             down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES]
-            checked_at = _iso_utc_now()
+            checked_at = timeutil.iso_utc_now()
             alert_context = _empty_alert_context()
             if board_data is not None:
                 primary_ip_backfill_pending = board_data["primary_ip_backfill_pending"]
@@ -2433,7 +1504,7 @@ def _build_alert_board_payload(
     )
 
     return {
-        "checked_at": _iso_utc_now(),
+        "checked_at": timeutil.iso_utc_now(),
         "stale_after_seconds": settings.CACHE_TTL,
         "summary": {
             "total": len(alerts),
@@ -2457,13 +1528,13 @@ def get_alert_board_data(
     if force_refresh:
         # "Sync now": incremental, not a full reconcile (#135).  Deletions are
         # still caught by the scheduled full reconcile.
-        sync_enqueued = _ensure_inventory_snapshot(force=True, full=False, wait=False)
+        sync_enqueued = inventory.ensure_snapshot(force=True, full=False, wait=False)
     sync_due, next_update_in_seconds = _inventory_update_schedule()
     if not sync_enqueued and sync_due:
         # A sync is due (or none has run yet): start it in the background, so
         # an open board keeps itself up to date (#152).  This request still
         # makes no upstream calls itself.
-        sync_enqueued = _ensure_inventory_snapshot(wait=False)
+        sync_enqueued = inventory.ensure_snapshot(wait=False)
     cached = caching.get(cache_key)
     if cached is not None:
         return _apply_alert_board_freshness(
@@ -2474,7 +1545,7 @@ def get_alert_board_data(
         snapshot_only=True,
         include_non_operational=include_non_operational,
     )
-    should_cache = bool(payload.get("alerts")) or _nautobot_snapshot_initialized()
+    should_cache = bool(payload.get("alerts")) or inventory.snapshot_initialized()
     if should_cache:
         caching.set(cache_key, payload, timeout=settings.CACHE_TTL)
     return _apply_alert_board_freshness(
@@ -2510,7 +1581,7 @@ def _scheduler_tick() -> bool:
     if not callable(release):
         return False  # no database, or another process holds the tick
     try:
-        if not _ensure_inventory_snapshot(wait=True):
+        if not inventory.ensure_snapshot(wait=True):
             return False
         # The syncs invalidated the cached board; rebuild it now so alert
         # history is recorded even if nobody opens the board.
@@ -2557,7 +1628,7 @@ def _location_field_asns(location_id: str) -> list:
     otherwise the location is looked up once.  Upstream errors propagate.
     """
     asn = None
-    cached = [loc for loc in _read_cached_locations(include_without_coordinates=True) if loc.get("id") == location_id]
+    cached = [loc for loc in inventory.read_locations(include_without_coordinates=True) if loc.get("id") == location_id]
     if cached:
         asn = cached[0].get("asn")
     else:
@@ -2735,7 +1806,7 @@ def alert_board():
 def api_locations():
     """Return all Nautobot locations that have GPS coordinates."""
     try:
-        locations = get_locations()
+        locations = inventory.get_locations()
         return jsonify({"locations": locations})
     except RuntimeError as exc:
         return _nautobot_service_unavailable("Locations endpoint unavailable", exc)
@@ -2846,7 +1917,7 @@ def api_search():
 
     # Find locations within 5 km
     try:
-        all_locations = get_locations()
+        all_locations = inventory.get_locations()
     except RuntimeError as exc:
         return _nautobot_service_unavailable("Location search unavailable", exc)
     except Exception as exc:
@@ -3002,14 +2073,14 @@ def api_alert_history():
     end_at = (request.args.get("end_at") or "").strip()
     try:
         if start_at:
-            parsed_start_at = _parse_iso_datetime(start_at)
+            parsed_start_at = timeutil.parse_iso_datetime(start_at)
             if parsed_start_at is None:
                 return jsonify({"error": "start_at must be an ISO-8601 timestamp"}), 400
             if parsed_start_at.tzinfo is None:
                 parsed_start_at = parsed_start_at.replace(tzinfo=UTC)
             start_at = parsed_start_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         if end_at:
-            parsed_end_at = _parse_iso_datetime(end_at)
+            parsed_end_at = timeutil.parse_iso_datetime(end_at)
             if parsed_end_at is None:
                 return jsonify({"error": "end_at must be an ISO-8601 timestamp"}), 400
             if parsed_end_at.tzinfo is None:
@@ -3163,7 +2234,7 @@ def api_add_alert_case():
                     (instance_ids[device_id], case_number, created_by),
                 )
         # The board payload embeds case numbers; drop it so the new case shows.
-        _invalidate_alert_board_cache()
+        caching.invalidate_alert_board()
         result = {
             "status": "ok",
             "site_id": site_id,
