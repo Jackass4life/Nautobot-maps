@@ -59,6 +59,19 @@ alert board add `NAUTOBOT_MAPS_DATABASE_URL=postgresql://nautobot_maps:nautobot_
 Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After changes to
 `.devcontainer/`, run **Dev Containers: Rebuild Container**.
 
+### Project layout
+
+`app.py` is the Flask entry point (`app:app` for gunicorn). It is being split into modules
+under `nautobot_maps/` (#165):
+
+- `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new
+  settings here, pass them in `docker-compose.yml` (a test checks this), and read them as
+  `settings.NAME` at call time; in tests change them with
+  `monkeypatch.setattr(settings, "NAME", value)`.
+
+Modules call each other as `module.function()`, not `from module import function`, so a test
+can replace a function where it is defined.
+
 ### Code Style
 
 - Python code must pass `ruff check .` (configured in `pyproject.toml`; CI runs it on every PR).

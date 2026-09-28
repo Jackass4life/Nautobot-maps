@@ -19,6 +19,7 @@ import os
 import pytest
 
 import app as flask_app
+from nautobot_maps import settings
 
 # ---------------------------------------------------------------------------
 # Skip entire module when no live Nautobot is available
@@ -44,13 +45,13 @@ def live_client():
     Return a Flask test client configured to talk to the real Nautobot
     instance described by NAUTOBOT_LIVE_URL / NAUTOBOT_LIVE_TOKEN.
     """
-    original_url = flask_app.NAUTOBOT_URL
-    original_token = flask_app.NAUTOBOT_TOKEN
-    original_verify = flask_app.NAUTOBOT_VERIFY_SSL
+    original_url = settings.NAUTOBOT_URL
+    original_token = settings.NAUTOBOT_TOKEN
+    original_verify = settings.NAUTOBOT_VERIFY_SSL
 
-    flask_app.NAUTOBOT_URL = NAUTOBOT_LIVE_URL
-    flask_app.NAUTOBOT_TOKEN = NAUTOBOT_LIVE_TOKEN
-    flask_app.NAUTOBOT_VERIFY_SSL = False
+    settings.NAUTOBOT_URL = NAUTOBOT_LIVE_URL
+    settings.NAUTOBOT_TOKEN = NAUTOBOT_LIVE_TOKEN
+    settings.NAUTOBOT_VERIFY_SSL = False
     flask_app.cache.clear()
 
     flask_app.app.config["TESTING"] = True
@@ -59,9 +60,9 @@ def live_client():
     with flask_app.app.test_client() as client:
         yield client
 
-    flask_app.NAUTOBOT_URL = original_url
-    flask_app.NAUTOBOT_TOKEN = original_token
-    flask_app.NAUTOBOT_VERIFY_SSL = original_verify
+    settings.NAUTOBOT_URL = original_url
+    settings.NAUTOBOT_TOKEN = original_token
+    settings.NAUTOBOT_VERIFY_SSL = original_verify
 
 
 @pytest.fixture(autouse=True)

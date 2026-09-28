@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Breaking:** SQLite support. PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`) is the only persistence database; `NAUTOBOT_MAPS_DB` is ignored and logged as an error at startup. There is no data migration: move to PostgreSQL before upgrading (the bundled `docker-compose.yml` already uses it) (#153)
 
 ### Changed
+- Settings read from the environment moved from `app.py` to `nautobot_maps/settings.py` (first step of splitting `app.py`); no behaviour change. A test guard fails any test that still sets a setting on `app` (#165)
 - Alert levels: **Low** (at least one device down, 25% or fewer), **No data** (no monitored devices, or the level could not be computed; replaces Unknown and is not counted in `non_ok`), and every monitored device down is now **Critical**. Sites with no monitored devices or a single down access switch no longer show as OK. The board and map show the new levels; `/api/alerts` `summary` has `low` and `no_data` instead of `unknown` (#124)
 - Tests run against PostgreSQL (one throwaway schema per test, `TEST_DATABASE_URL`); CI's `test` job and the demo stack use a PostgreSQL 16 service, and the dev container includes one. `_init_db` migrations only look at the current schema (#153)
 - Alert board builds read devices, criticality overrides and alert history for all sites in a few queries, and share one write connection (replaced after a failure). With 2,000 sites a build opens 5 database connections instead of about 6,000; the board output is unchanged (#149)
