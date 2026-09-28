@@ -66,7 +66,8 @@ Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After cha
 - Python code must be formatted with `ruff format .` (CI runs `ruff format --check .`).
   The repo-wide formatting commit is listed in `.git-blame-ignore-revs`; run
   `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so local `git blame` skips it.
-- Keep JavaScript consistent with the existing style in `static/js/`.
+- JavaScript in `static/js/` must pass ESLint (`eslint.config.mjs`; CI runs it on every PR):
+  `npm ci` once, then `npm run lint:js`. Keep it consistent with the existing style.
 - Write clear commit messages describing what changed and why.
 
 ### Tests

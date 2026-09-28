@@ -13,7 +13,7 @@
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
   },
   // Runtime + dev tools (pytest, ruff), same pins as CI.
-  "postCreateCommand": "pip install -r requirements-dev.txt",
+  "postCreateCommand": "pip install -r requirements-dev.txt && npm ci --no-audit --no-fund",
   // The app's default port. If 5000 is already taken on your machine, VS Code
   // forwards it to a free local port instead; see the Ports view.
   "forwardPorts": [5000],

@@ -21,3 +21,4 @@ LICENSE
 docker-compose.override.yml
 requirements-dev.txt
 .pre-commit-config.yaml
+node_modules

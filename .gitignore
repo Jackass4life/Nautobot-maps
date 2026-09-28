@@ -15,3 +15,6 @@ htmlcov/
 
 # Local, machine-specific Docker Compose settings (ports, volumes, ...)
 docker-compose.override.yml
+
+# JavaScript dev tools (npm ci)
+node_modules/

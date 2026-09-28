@@ -7,3 +7,11 @@ repos:
     hooks:
       - id: ruff-check
       - id: ruff-format
+  # ESLint from package-lock.json (run `npm ci` once first).
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        entry: npx --no-install eslint
+        language: system
+        files: ^static/js/.*\.js$

@@ -284,6 +284,7 @@ export TEST_DATABASE_URL=postgresql://nautobot_maps:nautobot_maps@localhost:5432
 python -m pytest tests/ -v
 ruff check .        # lint (same as CI)
 ruff format --check . # formatting (same as CI); `ruff format .` fixes it
+npm ci && npm run lint:js   # JavaScript lint (same as CI)
 ```
 
 The test suite includes:

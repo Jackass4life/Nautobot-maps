@@ -12,6 +12,7 @@ permissions:
 jobs:
   # -----------------------------------------------------------------------
   # Lint: ruff (config in pyproject.toml, version pinned in requirements-dev.txt)
+  # and ESLint for static/js (eslint.config.mjs, versions in package-lock.json)
   # -----------------------------------------------------------------------
   lint:
     runs-on: ubuntu-latest
@@ -36,6 +37,20 @@ jobs:
         if: success() || failure()
         # Fails if any file is not formatted; run `ruff format .` locally to fix.
         run: ruff format --check --diff .
+
+      - name: Set up Node
+        if: success() || failure()
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: ESLint
+        # Also runs when ruff fails, so one CI run reports everything.
+        if: success() || failure()
+        run: |
+          npm ci --no-audit --no-fund
+          npx eslint static/js
 
   # -----------------------------------------------------------------------
   # Unit + mock-integration tests (fast, Python matrix)
