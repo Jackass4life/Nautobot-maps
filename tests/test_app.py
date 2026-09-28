@@ -636,7 +636,8 @@ class TestAlertBoard:
             "total": 3,
             "critical": 1,
             "medium": 1,
-            "unknown": 0,
+            "low": 0,
+            "no_data": 0,
             "ok": 1,
             "non_ok": 2,
         }
@@ -915,7 +916,7 @@ class TestAlertBoard:
                 }
             )
 
-    def test_get_alert_board_data_marks_location_unknown_on_error(self):
+    def test_get_alert_board_data_marks_location_no_data_on_error(self):
         flask_app.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
 
@@ -926,9 +927,9 @@ class TestAlertBoard:
         ):
             data = flask_app.get_alert_board_data()
 
-        assert data["summary"]["unknown"] == 1
+        assert data["summary"]["no_data"] == 1
         assert data["summary"]["ok"] == 0
-        assert data["alerts"][0]["alert_level"] == "unknown"
+        assert data["alerts"][0]["alert_level"] == "no_data"
         assert data["alerts"][0]["alert_reason"] == "Could not compute alert state"
 
     def test_location_alert_uses_cached_snapshot_only_on_device_cache_miss(self):
@@ -944,7 +945,7 @@ class TestAlertBoard:
             )
 
         assert devices == []
-        assert alert == {"level": "ok", "reason": ""}
+        assert alert == {"level": "no_data", "reason": "No monitored devices"}
         ensure_snapshot.assert_not_called()
 
     def test_location_alert_filters_devices_without_primary_ip(self):
@@ -1042,9 +1043,10 @@ class TestAlertBoard:
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
-        assert data["summary"]["ok"] == 2
+        # Sites without cached devices have nothing to judge (#124).
+        assert data["summary"]["no_data"] == 2
         assert data["summary"]["non_ok"] == 0
-        assert [item["alert_level"] for item in data["alerts"]] == ["ok", "ok"]
+        assert [item["alert_level"] for item in data["alerts"]] == ["no_data", "no_data"]
         ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
@@ -1074,7 +1076,7 @@ class TestAlertBoard:
         assert get_alert.call_count == 2
         assert data["summary"]["critical"] == 1
         assert data["summary"]["ok"] == 1
-        assert data["summary"]["unknown"] == 0
+        assert data["summary"]["no_data"] == 0
 
     def test_get_alert_board_data_replaces_write_connection_after_failure(self):
         """Sites share one write connection; a failed write gets the next site a fresh one (#88, #149)."""
@@ -1930,7 +1932,7 @@ class TestConfigurableCriticalKeywords:
         assert result["level"] != "critical"
 
     def test_compute_alert_level_no_devices(self):
-        assert flask_app.compute_alert_level([]) == {"level": "ok", "reason": ""}
+        assert flask_app.compute_alert_level([]) == {"level": "no_data", "reason": "No monitored devices"}
 
     def test_compute_alert_level_medium_threshold(self):
         """More than 25% of devices down → medium alert."""
@@ -1943,7 +1945,7 @@ class TestConfigurableCriticalKeywords:
         result = flask_app.compute_alert_level(devices)
         assert result["level"] == "medium"
 
-    def test_compute_alert_level_ok_when_below_threshold(self):
+    def test_compute_alert_level_low_when_below_threshold(self):
         """Under 25% down and no core device down → ok."""
         devices = [
             {"id": "d1", "name": "sw01", "role": "Switch", "status": "offline"},
@@ -1954,7 +1956,7 @@ class TestConfigurableCriticalKeywords:
         ]
         # 1/5 = 20% ≤ 25% → ok
         result = flask_app.compute_alert_level(devices)
-        assert result["level"] == "ok"
+        assert result == {"level": "low", "reason": "1/5 devices offline (20%)"}
 
 
 # ---------------------------------------------------------------------------
@@ -2102,6 +2104,8 @@ class TestCriticalityOverrideEndpoints:
 
         devices = [
             {"id": "dev-fw", "name": "fw-local", "role": "Core Router", "status": "offline"},
+            # A healthy second device, so "every device down" (also Critical) does not apply.
+            {"id": "dev-sw", "name": "sw-local", "role": "Switch", "status": "active"},
         ]
         # The override says is_critical=False, so even a "Core Router" that's
         # offline should not produce a critical alert.
@@ -2513,7 +2517,7 @@ class TestAlertLifecycleTracking:
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
-        assert data["alerts"][0]["alert_level"] == "unknown"
+        assert data["alerts"][0]["alert_level"] == "no_data"
         history = flask_app._get_alert_context_for_site("loc-1", flask_app._iso_utc_now())
         assert history["active_alert_instance_count"] == 1
         conn = flask_app._get_db_conn()
@@ -3813,7 +3817,7 @@ class TestInventoryCacheSync:
         with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
-        assert data["summary"]["ok"] == 1
+        assert data["summary"]["no_data"] == 1  # no monitored devices yet
         assert data["alerts"][0]["device_count"] == 0
         assert data["alerts"][0]["down_device_count"] == 0
 
@@ -4573,7 +4577,8 @@ class TestAlertBoardTierDefinitions:
         for label, key in [
             ("Critical", "critical"),
             ("Medium", "medium"),
-            ("Unknown", "unknown"),
+            ("Low", "low"),
+            ("No data", "no_data"),
             ("OK", "ok"),
             ("Total sites", "total"),
         ]:
@@ -4584,10 +4589,11 @@ class TestAlertBoardTierDefinitions:
     def test_medium_definition_matches_scoring_threshold(self):
         threshold = f"{flask_app._MEDIUM_DOWN_RATIO:.0%}"
         assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["medium"]
-        assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["ok"]
+        assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["low"]
         devices = [{"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "active"} for i in range(4)]
-        devices[0]["status"] = "offline"  # exactly 25% down
         assert flask_app.compute_alert_level(devices)["level"] == "ok"
+        devices[0]["status"] = "offline"  # exactly 25% down
+        assert flask_app.compute_alert_level(devices)["level"] == "low"
         devices[1]["status"] = "offline"  # 50% down
         assert flask_app.compute_alert_level(devices)["level"] == "medium"
 
@@ -5563,3 +5569,70 @@ class TestBackgroundScheduler:
         with patch.object(flask_app, "start_background_scheduler") as start:
             gunicorn_config.post_worker_init(worker=None)
         start.assert_called_once_with()
+
+
+# ---------------------------------------------------------------------------
+# Tests: Low and No data levels, all devices down = Critical (#124)
+# ---------------------------------------------------------------------------
+class TestSeverityTiers:
+    @staticmethod
+    def _switches(total, down):
+        return [
+            {"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "offline" if i < down else "active"}
+            for i in range(total)
+        ]
+
+    @pytest.fixture(autouse=True)
+    def _no_database(self, monkeypatch):
+        monkeypatch.setattr(flask_app, "NAUTOBOT_MAPS_DATABASE_URL", "")
+
+    @pytest.mark.parametrize(
+        ("total", "down", "level", "reason"),
+        [
+            (20, 0, "ok", ""),
+            (20, 1, "low", "1/20 devices offline (5%)"),
+            (4, 1, "low", "1/4 devices offline (25%)"),
+            (4, 2, "medium", "2/4 devices offline (50%)"),
+            (4, 4, "critical", "All 4 monitored devices offline"),
+            (1, 1, "critical", "All 1 monitored device offline"),
+            (0, 0, "no_data", "No monitored devices"),
+        ],
+    )
+    def test_levels(self, total, down, level, reason):
+        assert flask_app.compute_alert_level(self._switches(total, down)) == {"level": level, "reason": reason}
+
+    def test_core_device_still_wins(self):
+        devices = self._switches(20, 1)
+        devices[0]["role"] = "Core Router"
+        assert flask_app.compute_alert_level(devices)["level"] == "critical"
+
+    def test_board_order_and_counts(self):
+        assert sorted(["ok", "no_data", "low", "critical", "medium"], key=flask_app._alert_sort_key) == [
+            "critical",
+            "medium",
+            "low",
+            "no_data",
+            "ok",
+        ]
+        levels = ["critical", "low", "low", "no_data", "ok"]
+        locations = [{"id": f"loc-{i}", "name": f"Site {i}"} for i in range(len(levels))]
+
+        def fake_alert(location_id, *args, **kwargs):
+            return [], {"level": levels[int(location_id.split("-")[1])], "reason": ""}
+
+        flask_app.cache.clear()
+        with (
+            patch.object(flask_app, "get_locations", return_value=locations),
+            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=fake_alert),
+        ):
+            summary = flask_app.get_alert_board_data()["summary"]
+        assert summary == {
+            "total": 5,
+            "critical": 1,
+            "medium": 0,
+            "low": 2,
+            "no_data": 1,
+            "ok": 1,
+            "non_ok": 3,  # No data is not an alert
+        }
+        assert "unknown" not in summary

@@ -226,6 +226,20 @@ Recommended deployment patterns:
 
 When persistence is configured, `/api/alerts` now includes per-site downtime/case context (`current_downtime_seconds`, `historical_downtime_seconds`, `active_cases`, `down_devices`).  
 
+## Alert severity levels
+
+Each site on the alert board gets one level, from its monitored devices (devices with a Nautobot primary IP, after exclusions):
+
+| Level | When |
+|---|---|
+| **Critical** | A core device is down (role matches a critical keyword, or marked critical by an override), or every monitored device is down |
+| **Medium** | More than 25% of the monitored devices are down |
+| **Low** | At least one monitored device is down, 25% or fewer |
+| **No data** | No monitored devices, or the level could not be computed. Not counted as an alert |
+| **OK** | Monitored devices present, none down |
+
+`/api/alerts` returns a count per level in `summary` (`critical`, `medium`, `low`, `no_data`, `ok`, plus `total`), and `non_ok` = Critical + Medium + Low.
+
 ## Alert board filtering
 
 `/api/alerts` and `/alerts` only count devices that have a Nautobot primary IP (`primary_ip`, `primary_ip4`, or `primary_ip6`). This keeps access points and other non-alerted devices off the board without removing them from the cached inventory used elsewhere.

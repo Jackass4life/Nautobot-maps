@@ -14,6 +14,7 @@
   --color-border: #d6dce8;
   --color-danger: #dc2626;
   --color-warning: #d97706;
+  --color-low: #a16207;
   --color-success: #16a34a;
   --radius: 10px;
   --shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
@@ -29,6 +30,7 @@
   --color-border: #2a3a59;
   --color-danger: #ef4444;
   --color-warning: #f59e0b;
+  --color-low: #facc15;
   --color-success: #22c55e;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
@@ -134,7 +136,7 @@ html, body {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -163,7 +165,8 @@ html, body {
 
 .summary-critical { border-color: rgba(231, 76, 60, 0.45); }
 .summary-medium { border-color: rgba(240, 165, 0, 0.45); }
-.summary-unknown { border-color: rgba(142, 148, 166, 0.55); }
+.summary-low { border-color: rgba(234, 179, 8, 0.5); }
+.summary-no-data { border-color: rgba(142, 148, 166, 0.55); }
 .summary-ok { border-color: rgba(46, 204, 113, 0.45); }
 
 .toolbar,
@@ -411,6 +414,16 @@ thead th:last-child {
 .alert-medium {
   background: rgba(240, 165, 0, 0.18);
   color: var(--color-warning);
+}
+
+.alert-low {
+  background: rgba(234, 179, 8, 0.18);
+  color: var(--color-low);
+}
+
+.alert-no_data {
+  background: rgba(142, 148, 166, 0.18);
+  color: var(--color-text-muted);
 }
 
 .alert-ok {

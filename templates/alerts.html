@@ -33,9 +33,13 @@
         <span class="summary-label">Medium</span> {{ tier_info("Medium", "medium") }}
         <strong id="summary-medium">0</strong>
       </article>
-      <article class="summary-card summary-unknown">
-        <span class="summary-label">Unknown</span> {{ tier_info("Unknown", "unknown") }}
-        <strong id="summary-unknown">0</strong>
+      <article class="summary-card summary-low">
+        <span class="summary-label">Low</span> {{ tier_info("Low", "low") }}
+        <strong id="summary-low">0</strong>
+      </article>
+      <article class="summary-card summary-no-data">
+        <span class="summary-label">No data</span> {{ tier_info("No data", "no_data") }}
+        <strong id="summary-no_data">0</strong>
       </article>
       <article class="summary-card summary-ok">
         <span class="summary-label">OK</span> {{ tier_info("OK", "ok") }}
@@ -52,6 +56,8 @@
         <button class="quick-filter-btn active" type="button" data-quick-severity="" aria-pressed="true">All</button>
         <button class="quick-filter-btn" type="button" data-quick-severity="critical" aria-pressed="false">Critical</button>
         <button class="quick-filter-btn" type="button" data-quick-severity="medium" aria-pressed="false">Medium</button>
+        <button class="quick-filter-btn" type="button" data-quick-severity="low" aria-pressed="false">Low</button>
+        <button class="quick-filter-btn" type="button" data-quick-severity="no_data" aria-pressed="false">No data</button>
         <button class="secondary-filter-btn" type="button" id="clear-alert-filters">Reset</button>
       </div>
       <div class="tree-controls" role="group" aria-label="Alert tree controls">
@@ -68,7 +74,8 @@
           <option value="">All severities</option>
           <option value="critical">Critical</option>
           <option value="medium">Medium</option>
-          <option value="unknown">Unknown</option>
+          <option value="low">Low</option>
+          <option value="no_data">No data</option>
           <option value="ok">OK</option>
         </select>
         <select id="filter-status" aria-label="Status">

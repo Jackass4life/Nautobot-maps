@@ -330,6 +330,11 @@ body.inspector-open #map {
   color: var(--color-warning);
 }
 
+.inspector-alert-pill.is-low {
+  background: rgba(234, 179, 8, 0.16);
+  color: #a16207;
+}
+
 .inspector-alert-pill.is-critical {
   background: rgba(231, 76, 60, 0.16);
   color: var(--color-danger);
@@ -1126,6 +1131,11 @@ body.inspector-open #loading-overlay {
   border: 1px solid rgba(255, 140, 0, 0.5);
 }
 
+.alert-banner.alert-low {
+  background: rgba(234, 179, 8, 0.16);
+  border: 1px solid rgba(234, 179, 8, 0.5);
+}
+
 .alert-banner-icon {
   font-size: 1rem;
   flex-shrink: 0;
@@ -1140,6 +1150,7 @@ body.inspector-open #loading-overlay {
 
 .alert-critical .alert-banner-level { color: var(--color-danger); }
 .alert-medium   .alert-banner-level { color: #ff8c00; }
+.alert-low      .alert-banner-level { color: #a16207; }
 
 .alert-banner-reason {
   font-size: 0.76rem;
