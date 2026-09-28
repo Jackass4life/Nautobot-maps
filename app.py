@@ -384,6 +384,18 @@ def _max_iso_datetime_value(*values: str | None) -> str | None:
     return result
 
 
+# Defined before _init_db(): it runs at import and its migration uses this (#169).
+def _build_alert_key(site_id: str, device_id: str) -> str:
+    """Identify a device's alert on a site.
+
+    The severity is deliberately not part of it: a Medium → Critical change
+    updates the open alert instead of resolving it and opening a new one,
+    which restarted its downtime (#163).
+    """
+    raw = f"{site_id.strip()}::{device_id.strip()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def _advisory_lock_key(name: str) -> int:
     return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "big", signed=True)
 
@@ -2306,17 +2318,6 @@ def _iso_utc_now() -> str:
 def _alert_sort_key(level: str) -> int:
     level = (level or "").lower()
     return ALERT_LEVEL_ORDER.index(level) if level in ALERT_LEVEL_ORDER else len(ALERT_LEVEL_ORDER)
-
-
-def _build_alert_key(site_id: str, device_id: str) -> str:
-    """Identify a device's alert on a site.
-
-    The severity is deliberately not part of it: a Medium → Critical change
-    updates the open alert instead of resolving it and opening a new one,
-    which restarted its downtime (#163).
-    """
-    raw = f"{site_id.strip()}::{device_id.strip()}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _insert_alert_event(
