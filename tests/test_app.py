@@ -11,7 +11,7 @@ from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
-from nautobot_maps import caching, db, inventory, librenms, nautobot, settings, timeutil
+from nautobot_maps import alerts, caching, db, inventory, librenms, nautobot, scheduler, settings, timeutil
 
 
 @contextmanager
@@ -629,9 +629,9 @@ class TestAlertBoard:
         with (
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
-            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=mock_devices),
+            patch.object(alerts, "get_location_devices_and_alert", side_effect=mock_devices),
         ):
-            data = flask_app.get_alert_board_data()
+            data = alerts.get_alert_board_data()
 
         assert data["summary"] == {
             "total": 3,
@@ -678,8 +678,8 @@ class TestAlertBoard:
             ),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=(
                     [
                         {
@@ -760,8 +760,8 @@ class TestAlertBoard:
         with (
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=(
                     [
                         {
@@ -793,7 +793,7 @@ class TestAlertBoard:
 
     def test_location_exclusion_supports_object_tags(self):
         with patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}):
-            assert flask_app._location_is_excluded_from_alert_board(
+            assert alerts.location_is_excluded_from_alert_board(
                 {
                     "name": "Warehouse",
                     "status": "Active",
@@ -825,19 +825,19 @@ class TestAlertBoard:
 
     def test_status_exclusion_null_keyword_matches_missing_status(self):
         excluded = settings.parse_csv_set("null, Decommissioning")
-        assert flask_app._status_is_excluded(None, excluded)
-        assert flask_app._status_is_excluded("", excluded)
-        assert flask_app._status_is_excluded("  ", excluded)
-        assert flask_app._status_is_excluded("DECOMMISSIONING", excluded)
-        assert not flask_app._status_is_excluded("Active", excluded)
+        assert alerts.status_is_excluded(None, excluded)
+        assert alerts.status_is_excluded("", excluded)
+        assert alerts.status_is_excluded("  ", excluded)
+        assert alerts.status_is_excluded("DECOMMISSIONING", excluded)
+        assert not alerts.status_is_excluded("Active", excluded)
         # Without the keyword an empty status is never excluded.
-        assert not flask_app._status_is_excluded("", {"decommissioning"})
+        assert not alerts.status_is_excluded("", {"decommissioning"})
 
     def test_location_exclusion_null_status(self):
         with patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"null"}):
-            assert flask_app._location_is_excluded_from_alert_board({"name": "Site", "status": ""})
-            assert flask_app._location_is_excluded_from_alert_board({"name": "Site"})
-            assert not flask_app._location_is_excluded_from_alert_board({"name": "Site", "status": "Active"})
+            assert alerts.location_is_excluded_from_alert_board({"name": "Site", "status": ""})
+            assert alerts.location_is_excluded_from_alert_board({"name": "Site"})
+            assert not alerts.location_is_excluded_from_alert_board({"name": "Site", "status": "Active"})
 
     def test_excluded_device_statuses_are_not_scored(self):
         devices = [
@@ -846,14 +846,14 @@ class TestAlertBoard:
             {"id": "d3", "name": "sw02", "role": "Switch", "status": "Active", "primary_ip": "10.0.0.3"},
         ]
         with patch.object(db, "get_conn", return_value=None):
-            scored, alert = flask_app._get_location_devices_and_alert(
+            scored, alert = alerts.get_location_devices_and_alert(
                 "loc-1",
                 devices_data=devices,
                 devices_already_normalized=True,
                 require_primary_ip=True,
                 excluded_device_statuses={"decommissioning", "null"},
             )
-            unfiltered, unfiltered_alert = flask_app._get_location_devices_and_alert(
+            unfiltered, unfiltered_alert = alerts.get_location_devices_and_alert(
                 "loc-1",
                 devices_data=devices,
                 devices_already_normalized=True,
@@ -884,7 +884,7 @@ class TestAlertBoard:
             patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", settings.parse_csv_set("Branch Office")),
             patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", settings.parse_csv_set("Non-Operational")),
         ):
-            assert flask_app._location_is_excluded_from_alert_board(
+            assert alerts.location_is_excluded_from_alert_board(
                 {
                     "name": "warehouse",
                     "status": "Active",
@@ -892,7 +892,7 @@ class TestAlertBoard:
                     "tags": [],
                 }
             )
-            assert flask_app._location_is_excluded_from_alert_board(
+            assert alerts.location_is_excluded_from_alert_board(
                 {
                     "name": "Site A",
                     "status": "decommissioning",
@@ -900,7 +900,7 @@ class TestAlertBoard:
                     "tags": [],
                 }
             )
-            assert flask_app._location_is_excluded_from_alert_board(
+            assert alerts.location_is_excluded_from_alert_board(
                 {
                     "name": "Site B",
                     "status": "Active",
@@ -908,7 +908,7 @@ class TestAlertBoard:
                     "tags": [],
                 }
             )
-            assert flask_app._location_is_excluded_from_alert_board(
+            assert alerts.location_is_excluded_from_alert_board(
                 {
                     "name": "Site C",
                     "status": "Active",
@@ -924,9 +924,9 @@ class TestAlertBoard:
         with (
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
-            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
+            patch.object(alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
-            data = flask_app.get_alert_board_data()
+            data = alerts.get_alert_board_data()
 
         assert data["summary"]["no_data"] == 1
         assert data["summary"]["ok"] == 0
@@ -939,7 +939,7 @@ class TestAlertBoard:
             patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
             patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
-            devices, alert = flask_app._get_location_devices_and_alert(
+            devices, alert = alerts.get_location_devices_and_alert(
                 "loc-1",
                 "Data Center",
                 snapshot_only=True,
@@ -950,7 +950,7 @@ class TestAlertBoard:
         ensure_snapshot.assert_not_called()
 
     def test_location_alert_filters_devices_without_primary_ip(self):
-        devices, alert = flask_app._get_location_devices_and_alert(
+        devices, alert = alerts.get_location_devices_and_alert(
             "loc-1",
             "Data Center",
             devices_data=[
@@ -1020,7 +1020,7 @@ class TestAlertBoard:
             patch.object(inventory, "ensure_snapshot"),
             patch.object(nautobot, "fetch_all_pages", side_effect=_mock_fetch),
         ):
-            devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
+            devices, alert = alerts.get_location_devices_and_alert("loc-1", "Data Center")
 
         assert len(devices) == 1
         assert alert["level"] == "ok"
@@ -1042,7 +1042,7 @@ class TestAlertBoard:
             patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
             patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
 
         # Sites without cached devices have nothing to judge (#124).
         assert data["summary"]["no_data"] == 2
@@ -1064,15 +1064,15 @@ class TestAlertBoard:
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 side_effect=[
                     ([{"id": "d1", "status": "offline"}], {"level": "critical", "reason": "Core down"}),
                     ([{"id": "d2", "status": "active"}], {"level": "ok", "reason": ""}),
                 ],
             ) as get_alert,
         ):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
 
         assert get_alert.call_count == 2
         assert data["summary"]["critical"] == 1
@@ -1109,23 +1109,23 @@ class TestAlertBoard:
 
         def fake_context(conn, site_id, checked_at):
             context_conns.append(conn)
-            return flask_app._empty_alert_context()
+            return alerts.empty_alert_context()
 
         with (
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
-            patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=False),
+            patch.object(alerts, "nautobot_inventory_primary_ip_backfill_pending", return_value=False),
             patch.object(db, "get_conn", side_effect=fake_get_db_conn),
-            patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert),
-            patch.object(flask_app, "_read_alert_context", side_effect=fake_context),
+            patch.object(alerts, "upsert_alert_lifecycle_for_site", side_effect=fake_upsert),
+            patch.object(alerts, "read_alert_context", side_effect=fake_context),
         ):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["total"] == 3
         # conn-1 is the bulk read (it fails on the fake, so every site takes the per-site path).
@@ -1147,15 +1147,15 @@ class TestAlertBoard:
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(db, "get_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn,
-            patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert,
-            patch.object(flask_app, "_read_alert_context") as get_context,
+            patch.object(alerts, "upsert_alert_lifecycle_for_site") as upsert,
+            patch.object(alerts, "read_alert_context") as get_context,
         ):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["total"] == 2
         assert get_db_conn.call_count == 1
@@ -1177,8 +1177,8 @@ class TestAlertBoard:
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(db, "get_conn", return_value=_FakeConn()),
@@ -1190,10 +1190,10 @@ class TestAlertBoard:
                     "last_successful_sync": None,
                 },
             ),
-            patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert,
+            patch.object(alerts, "upsert_alert_lifecycle_for_site") as upsert,
             patch.object(
-                flask_app,
-                "_read_alert_context",
+                alerts,
+                "read_alert_context",
                 return_value={
                     "active_alert_instance_count": 1,
                     "historical_downtime_seconds": 3600,
@@ -1203,7 +1203,7 @@ class TestAlertBoard:
                 },
             ) as get_context,
         ):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["total"] == 1
         upsert.assert_not_called()
@@ -1289,7 +1289,7 @@ class TestApiLocationDetail:
             assert isinstance(dev[field], str), f"device field '{field}' is not a string"
 
     def test_device_lookup_failure_returns_503(self, client):
-        with patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
+        with patch.object(alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")):
             resp = client.get("/api/locations/loc-1/detail")
 
         assert resp.status_code == 503
@@ -1302,8 +1302,8 @@ class TestApiLocationDetail:
         )
         with (
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(nautobot, "fetch_all_pages", side_effect=http_err),
@@ -1321,8 +1321,8 @@ class TestApiLocationDetail:
         )
         with (
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(nautobot, "fetch_all_pages", side_effect=not_found),
@@ -1441,7 +1441,7 @@ class TestNautobotRuntimeErrors:
         secret = "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"
         cases = [
             ("get", "/api/locations", (inventory, "get_locations"), {}),
-            ("get", "/api/locations/loc-1/detail", (flask_app, "get_location_detail"), {}),
+            ("get", "/api/locations/loc-1/detail", (alerts, "get_location_detail"), {}),
             ("get", "/api/search?q=55.6761,12.5683", (inventory, "get_locations"), {}),
             ("get", "/api/roles", (nautobot, "fetch_all_pages"), {}),
             (
@@ -1866,62 +1866,62 @@ class TestConfigurableCriticalKeywords:
 
     def setup_method(self):
         """Reset module-level keyword state before each test."""
-        self._orig_env_kw = flask_app._ENV_CORE_ROLE_KEYWORDS
-        self._orig_rules = dict(flask_app._CRITICALITY_RULES)
+        self._orig_env_kw = alerts.ENV_CORE_ROLE_KEYWORDS
+        self._orig_rules = dict(alerts.CRITICALITY_RULES)
 
     def teardown_method(self):
-        flask_app._ENV_CORE_ROLE_KEYWORDS = self._orig_env_kw
-        flask_app._CRITICALITY_RULES = self._orig_rules
+        alerts.ENV_CORE_ROLE_KEYWORDS = self._orig_env_kw
+        alerts.CRITICALITY_RULES = self._orig_rules
 
     def test_default_keywords_applied(self):
         """Without any configuration the built-in defaults are used."""
-        flask_app._ENV_CORE_ROLE_KEYWORDS = flask_app._DEFAULT_CORE_ROLE_KEYWORDS
-        flask_app._CRITICALITY_RULES = {}
-        kw = flask_app._get_critical_keywords()
+        alerts.ENV_CORE_ROLE_KEYWORDS = alerts.DEFAULT_CORE_ROLE_KEYWORDS
+        alerts.CRITICALITY_RULES = {}
+        kw = alerts.get_critical_keywords()
         assert "core" in kw
         assert "router" in kw
 
     def test_env_override_replaces_defaults(self):
         """_ENV_CORE_ROLE_KEYWORDS env override replaces defaults when no JSON rules."""
-        flask_app._ENV_CORE_ROLE_KEYWORDS = ("firewall", "border")
-        flask_app._CRITICALITY_RULES = {}
-        kw = flask_app._get_critical_keywords()
+        alerts.ENV_CORE_ROLE_KEYWORDS = ("firewall", "border")
+        alerts.CRITICALITY_RULES = {}
+        kw = alerts.get_critical_keywords()
         assert kw == ("firewall", "border")
 
     def test_env_override_used_as_fallback_for_unknown_type(self):
         """When rules have no matching type and no 'default' key, env override is used."""
-        flask_app._ENV_CORE_ROLE_KEYWORDS = ("firewall",)
-        flask_app._CRITICALITY_RULES = {"datacenter": ["core", "spine"]}
-        kw = flask_app._get_critical_keywords("office")
+        alerts.ENV_CORE_ROLE_KEYWORDS = ("firewall",)
+        alerts.CRITICALITY_RULES = {"datacenter": ["core", "spine"]}
+        kw = alerts.get_critical_keywords("office")
         assert kw == ("firewall",)
 
     def test_location_type_rule_matched(self):
         """The exact location_type key is returned when present in rules."""
-        flask_app._CRITICALITY_RULES = {
+        alerts.CRITICALITY_RULES = {
             "datacenter": ["core", "firewall"],
             "office": ["router"],
         }
-        kw = flask_app._get_critical_keywords("Datacenter")
+        kw = alerts.get_critical_keywords("Datacenter")
         assert "firewall" in kw
 
     def test_rules_default_key_used_for_unknown_type(self):
         """The 'default' key in rules is the fallback for unknown location types."""
-        flask_app._CRITICALITY_RULES = {
+        alerts.CRITICALITY_RULES = {
             "default": ["core", "spine"],
             "office": ["router"],
         }
-        kw = flask_app._get_critical_keywords("warehouse")
+        kw = alerts.get_critical_keywords("warehouse")
         assert kw == ("core", "spine")
 
     def test_compute_alert_level_respects_location_type(self):
         """compute_alert_level uses the correct keyword set for the given location type."""
-        flask_app._CRITICALITY_RULES = {
+        alerts.CRITICALITY_RULES = {
             "office": ["router"],
             "datacenter": ["core", "firewall"],
         }
         # A "firewall" device offline in a datacenter → critical
         dc_devices = [{"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"}]
-        result = flask_app.compute_alert_level(dc_devices, location_type="datacenter")
+        result = alerts.compute_alert_level(dc_devices, location_type="datacenter")
         assert result["level"] == "critical"
 
         # Same device in an office (only "router" is critical there) → medium (if >25%) or ok
@@ -1929,11 +1929,11 @@ class TestConfigurableCriticalKeywords:
             {"id": "d1", "name": "fw01", "role": "Firewall", "status": "offline"},
             {"id": "d2", "name": "sw01", "role": "Switch", "status": "active"},
         ]
-        result = flask_app.compute_alert_level(office_devices, location_type="office")
+        result = alerts.compute_alert_level(office_devices, location_type="office")
         assert result["level"] != "critical"
 
     def test_compute_alert_level_no_devices(self):
-        assert flask_app.compute_alert_level([]) == {"level": "no_data", "reason": "No monitored devices"}
+        assert alerts.compute_alert_level([]) == {"level": "no_data", "reason": "No monitored devices"}
 
     def test_compute_alert_level_medium_threshold(self):
         """More than 25% of devices down → medium alert."""
@@ -1943,7 +1943,7 @@ class TestConfigurableCriticalKeywords:
             {"id": "d3", "name": "sw03", "role": "Switch", "status": "active"},
         ]
         # 1/3 ≈ 33% > 25% → medium
-        result = flask_app.compute_alert_level(devices)
+        result = alerts.compute_alert_level(devices)
         assert result["level"] == "medium"
 
     def test_compute_alert_level_low_when_below_threshold(self):
@@ -1956,7 +1956,7 @@ class TestConfigurableCriticalKeywords:
             {"id": "d5", "name": "sw05", "role": "Switch", "status": "active"},
         ]
         # 1/5 = 20% ≤ 25% → ok
-        result = flask_app.compute_alert_level(devices)
+        result = alerts.compute_alert_level(devices)
         assert result == {"level": "low", "reason": "1/5 devices offline (20%)"}
 
 
@@ -1975,12 +1975,11 @@ class TestLocationDetailWithLocationType:
 
     def test_location_type_influences_alert(self, client):
         """When location_type maps to rules, compute_alert_level uses correct keywords."""
-        import app as flask_app_local
 
-        orig_rules = dict(flask_app_local._CRITICALITY_RULES)
-        orig_env = flask_app_local._ENV_CORE_ROLE_KEYWORDS
-        flask_app_local._CRITICALITY_RULES = {"datacenter": ["firewall"]}
-        flask_app_local._ENV_CORE_ROLE_KEYWORDS = ()
+        orig_rules = dict(alerts.CRITICALITY_RULES)
+        orig_env = alerts.ENV_CORE_ROLE_KEYWORDS
+        alerts.CRITICALITY_RULES = {"datacenter": ["firewall"]}
+        alerts.ENV_CORE_ROLE_KEYWORDS = ()
 
         firewall_devices_page = {
             "count": 1,
@@ -2010,8 +2009,8 @@ class TestLocationDetailWithLocationType:
             data = resp.get_json()
             assert data["alert"]["level"] == "critical"
         finally:
-            flask_app_local._CRITICALITY_RULES = orig_rules
-            flask_app_local._ENV_CORE_ROLE_KEYWORDS = orig_env
+            alerts.CRITICALITY_RULES = orig_rules
+            alerts.ENV_CORE_ROLE_KEYWORDS = orig_env
 
 
 # ---------------------------------------------------------------------------
@@ -2110,7 +2109,7 @@ class TestCriticalityOverrideEndpoints:
         ]
         # The override says is_critical=False, so even a "Core Router" that's
         # offline should not produce a critical alert.
-        result = flask_app.compute_alert_level(devices)
+        result = alerts.compute_alert_level(devices)
         assert result["level"] != "critical"
 
     def test_no_db_returns_503(self, client):
@@ -2204,8 +2203,8 @@ class TestAlertLifecycleTracking:
             ),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=(
                     [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
                     {"level": "critical", "reason": "Core device(s) offline: router01"},
@@ -2235,13 +2234,13 @@ class TestAlertLifecycleTracking:
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         t1 = datetime(2026, 1, 1, 0, 5, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             devices_down,
             {"level": "critical", "reason": "Core device(s) offline: router01"},
             t0,
         )
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             [{"id": "dev-1", "name": "router01", "status": "active"}],
             {"level": "ok", "reason": ""},
@@ -2266,13 +2265,13 @@ class TestAlertLifecycleTracking:
         site = {"id": "loc-1", "name": "Site One"}
         t0 = "2026-01-01T00:00:00Z"
         t1 = "2026-01-01T01:00:00Z"
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             [{"id": "dev-1", "name": "sw01", "status": "offline"}],
             {"level": "medium", "reason": "1/3 devices offline (33%)"},
             t0,
         )
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             [
                 {"id": "dev-1", "name": "sw01", "status": "offline"},
@@ -2298,7 +2297,7 @@ class TestAlertLifecycleTracking:
             {"event_type": "opened", "alert_level": "medium"},
             {"event_type": "updated", "alert_level": "critical"},
         ]
-        context = flask_app._get_alert_context_for_site("loc-1", t1)
+        context = alerts.get_alert_context_for_site("loc-1", t1)
         assert context["current_downtime_seconds"] == 3600
 
     def test_init_db_rekeys_open_alerts_without_severity(self):
@@ -2341,7 +2340,7 @@ class TestAlertLifecycleTracking:
         assert result[3]["alert_key"] == old_key("loc-1", "dev-3", "medium")  # history untouched
         assert all(r["total_downtime_seconds"] == 0 for r in result)
         # The build finds the migrated alert and keeps its start time.
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             {"id": "loc-1", "name": "Site One"},
             [
                 {"id": "dev-1", "name": "dev-1", "status": "offline"},
@@ -2396,7 +2395,7 @@ class TestAlertLifecycleTracking:
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             devices_down,
             {"level": "critical", "reason": "Core device(s) offline: router01"},
@@ -2417,7 +2416,7 @@ class TestAlertLifecycleTracking:
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             devices_down,
             {"level": "critical", "reason": "Core device(s) offline: router01"},
@@ -2473,8 +2472,8 @@ class TestAlertLifecycleTracking:
             ),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
-                flask_app,
-                "_get_location_devices_and_alert",
+                alerts,
+                "get_location_devices_and_alert",
                 return_value=(
                     [{"id": "dev-1", "name": "router01", "role": "Core Router", "status": "offline"}],
                     {"level": "critical", "reason": "Core device(s) offline: router01"},
@@ -2501,7 +2500,7 @@ class TestAlertLifecycleTracking:
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             devices_down,
             {"level": "critical", "reason": "Core device(s) offline: router01"},
@@ -2539,7 +2538,7 @@ class TestAlertLifecycleTracking:
     def test_failed_alert_observation_does_not_resolve_open_incident(self):
         site = {"id": "loc-1", "name": "Site One"}
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             [{"id": "dev-1", "name": "router01", "status": "offline"}],
             {"level": "critical", "reason": "Core device(s) offline: router01"},
@@ -2549,11 +2548,11 @@ class TestAlertLifecycleTracking:
         with (
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
-            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
+            patch.object(alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
         assert data["alerts"][0]["alert_level"] == "no_data"
-        history = flask_app._get_alert_context_for_site("loc-1", timeutil.iso_utc_now())
+        history = alerts.get_alert_context_for_site("loc-1", timeutil.iso_utc_now())
         assert history["active_alert_instance_count"] == 1
         conn = db.get_conn()
         try:
@@ -2574,10 +2573,10 @@ class TestAlertLifecycleTracking:
         with (
             patch.object(inventory, "get_locations", return_value=sample_locations) as get_locations,
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
-            patch.object(flask_app, "_get_location_devices_and_alert", return_value=devices_return) as get_alert,
+            patch.object(alerts, "get_location_devices_and_alert", return_value=devices_return) as get_alert,
         ):
-            first = flask_app.get_alert_board_data(force_refresh=True)
-            second = flask_app.get_alert_board_data()
+            first = alerts.get_alert_board_data(force_refresh=True)
+            second = alerts.get_alert_board_data()
         assert first["alerts"] == second["alerts"]
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
@@ -2598,8 +2597,8 @@ class TestAlertLifecycleTracking:
         flask_app.cache.clear()
         with (
             patch.object(
-                flask_app,
-                "_build_alert_board_payload",
+                alerts,
+                "build_alert_board_payload",
                 side_effect=[first_payload, second_payload],
             ) as build_payload,
             patch.object(caching, "set", wraps=caching.set) as cache_set,
@@ -2613,9 +2612,9 @@ class TestAlertLifecycleTracking:
                 return_value=True,
             ),
         ):
-            first = flask_app.get_alert_board_data(force_refresh=True)
-            second = flask_app.get_alert_board_data()
-            refreshed = flask_app.get_alert_board_data(force_refresh=True)
+            first = alerts.get_alert_board_data(force_refresh=True)
+            second = alerts.get_alert_board_data()
+            refreshed = alerts.get_alert_board_data(force_refresh=True)
         assert first["checked_at"] == second["checked_at"] == "2026-01-01T00:00:00Z"
         assert refreshed["checked_at"] == "2026-01-01T00:00:00Z"
         assert build_payload.call_count == 1
@@ -2636,10 +2635,10 @@ class TestAlertLifecycleTracking:
             "alerts": [],
         }
         with (
-            patch.object(flask_app, "_build_alert_board_payload", return_value=payload) as build_payload,
+            patch.object(alerts, "build_alert_board_payload", return_value=payload) as build_payload,
             patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
         ):
-            result = flask_app.get_alert_board_data(force_refresh=True)
+            result = alerts.get_alert_board_data(force_refresh=True)
 
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
         build_payload.assert_called_once_with(
@@ -2658,8 +2657,8 @@ class TestAlertLifecycleTracking:
         }
         with (
             patch.object(
-                flask_app,
-                "_build_alert_board_payload",
+                alerts,
+                "build_alert_board_payload",
                 return_value=payload,
             ) as build_payload,
             patch.object(
@@ -2674,8 +2673,8 @@ class TestAlertLifecycleTracking:
             ),
             patch.object(inventory, "ensure_snapshot"),
         ):
-            first = flask_app.get_alert_board_data(force_refresh=True)
-            second = flask_app.get_alert_board_data()
+            first = alerts.get_alert_board_data(force_refresh=True)
+            second = alerts.get_alert_board_data()
 
         assert first["alerts"] == []
         assert second["alerts"] == []
@@ -2757,14 +2756,14 @@ class TestAlertLifecycleTracking:
         fake_conn = _FakeConn()
         checked_at = "2026-01-01T00:00:00Z"
         with patch.object(db, "dialect", return_value="postgres"):
-            flask_app._upsert_alert_lifecycle_for_site(
+            alerts.upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
                 [{"id": "dev-1", "name": "router01", "status": "offline"}],
                 {"level": "critical", "reason": "offline"},
                 checked_at,
                 conn=fake_conn,
             )
-            flask_app._resolve_open_alert_instances_for_site(
+            alerts.resolve_open_alert_instances_for_site(
                 fake_conn,
                 "loc-1",
                 set(),
@@ -3366,7 +3365,7 @@ class TestInventoryCacheSync:
 
         flask_app.cache.clear()
         with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["critical"] == 1
         assert data["alerts"][0]["id"] == "loc-1"
@@ -3775,7 +3774,7 @@ class TestInventoryCacheSync:
                 "cache_version": "1",
             },
         ):
-            assert flask_app._nautobot_inventory_primary_ip_backfill_pending() is True
+            assert alerts.nautobot_inventory_primary_ip_backfill_pending() is True
 
         with patch.object(
             inventory,
@@ -3785,7 +3784,7 @@ class TestInventoryCacheSync:
                 "cache_version": inventory.CACHE_VERSION,
             },
         ):
-            assert flask_app._nautobot_inventory_primary_ip_backfill_pending() is False
+            assert alerts.nautobot_inventory_primary_ip_backfill_pending() is False
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
         conn = db.get_conn()
@@ -3850,7 +3849,7 @@ class TestInventoryCacheSync:
 
         flask_app.cache.clear()
         with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
-            data = flask_app.get_alert_board_data(force_refresh=True)
+            data = alerts.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["no_data"] == 1  # no monitored devices yet
         assert data["alerts"][0]["device_count"] == 0
@@ -4152,20 +4151,20 @@ class TestCriticalityRulesFile:
         rules_file = tmp_path / "rules.json"
         rules_file.write_text(json.dumps(rules))
 
-        orig = dict(flask_app._CRITICALITY_RULES)
+        orig = dict(alerts.CRITICALITY_RULES)
         orig_file = settings.CRITICALITY_RULES_FILE
         try:
             settings.CRITICALITY_RULES_FILE = str(rules_file)
             # Re-run the loading logic
             with open(str(rules_file)) as f:
                 loaded = json.load(f)
-            flask_app._CRITICALITY_RULES = {
+            alerts.CRITICALITY_RULES = {
                 k.lower(): [kw.lower() for kw in v] for k, v in loaded.items() if isinstance(v, list)
             }
-            assert flask_app._get_critical_keywords("datacenter") == ("core", "firewall")
-            assert flask_app._get_critical_keywords("office") == ("router",)
+            assert alerts.get_critical_keywords("datacenter") == ("core", "firewall")
+            assert alerts.get_critical_keywords("office") == ("router",)
         finally:
-            flask_app._CRITICALITY_RULES = orig
+            alerts.CRITICALITY_RULES = orig
             settings.CRITICALITY_RULES_FILE = orig_file
 
     def test_rules_file_bad_format_ignored(self, tmp_path):
@@ -4173,7 +4172,7 @@ class TestCriticalityRulesFile:
         bad_file = tmp_path / "bad.json"
         bad_file.write_text(json.dumps(["not", "a", "dict"]))
 
-        orig = dict(flask_app._CRITICALITY_RULES)
+        orig = dict(alerts.CRITICALITY_RULES)
         try:
             # Simulate what the loading code does
             with open(str(bad_file)) as f:
@@ -4181,9 +4180,9 @@ class TestCriticalityRulesFile:
             if not isinstance(loaded, dict):
                 pass  # Would be ignored in real code
             # _CRITICALITY_RULES should remain unchanged
-            assert flask_app._CRITICALITY_RULES == orig
+            assert alerts.CRITICALITY_RULES == orig
         finally:
-            flask_app._CRITICALITY_RULES = orig
+            alerts.CRITICALITY_RULES = orig
 
 
 # ---------------------------------------------------------------------------
@@ -4205,7 +4204,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = ""
         settings.LIBRENMS_API_TOKEN = ""
         devices = [{"id": "d1", "name": "router01", "status": "active"}]
-        result = flask_app._enrich_with_librenms(devices)
+        result = alerts.enrich_with_librenms(devices)
         assert result == devices
 
     def test_fetch_inventory_skips_when_config_is_blank(self):
@@ -4254,7 +4253,7 @@ class TestLibreNMSEnrichment:
         }
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
 
     def test_librenms_up_does_not_change_active_status(self):
@@ -4264,7 +4263,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 1}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
 
     def test_librenms_down_does_not_upgrade_already_offline(self):
@@ -4274,7 +4273,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "offline"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
 
     def test_librenms_api_failure_returns_original_devices(self):
@@ -4283,7 +4282,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_API_TOKEN = "tok"
         with patch.object(librenms, "get", side_effect=Exception("timeout")):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result == devices
 
     def test_librenms_unmatched_device_not_affected(self):
@@ -4293,7 +4292,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
 
     def test_librenms_down_matches_short_hostname(self):
@@ -4303,7 +4302,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01.example.com", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
 
     def test_librenms_down_matches_primary_ip_when_hostname_is_ip(self):
@@ -4313,7 +4312,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "192.0.2.1", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "primary_ip": "192.0.2.1/32", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
 
     def test_librenms_down_matches_primary_ipv6_when_hostname_case_differs(self):
@@ -4323,7 +4322,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "2001:DB8::1", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "primary_ip": "2001:db8::1/128", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
 
     def test_librenms_ip_hostnames_do_not_collide_with_short_name_keys(self):
@@ -4333,7 +4332,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "10", "primary_ip": "192.0.2.5/32", "status": "active"}]
-            result = flask_app._enrich_with_librenms(devices)
+            result = alerts.enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
 
 
@@ -4596,7 +4595,7 @@ class TestAlertBoardTierDefinitions:
         assert resp.status_code == 200
         html = resp.get_data(as_text=True)
         assert html.lstrip().startswith("<!DOCTYPE html>")
-        assert html.count('class="tier-info"') == len(flask_app.ALERT_STATUS_TIER_DEFINITIONS)
+        assert html.count('class="tier-info"') == len(alerts.ALERT_STATUS_TIER_DEFINITIONS)
         for label, key in [
             ("Critical", "critical"),
             ("Medium", "medium"),
@@ -4605,42 +4604,42 @@ class TestAlertBoardTierDefinitions:
             ("OK", "ok"),
             ("Total sites", "total"),
         ]:
-            definition = escape(flask_app.ALERT_STATUS_TIER_DEFINITIONS[key])
+            definition = escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])
             assert f'aria-label="{label}: {definition}"' in html
             assert f'data-tooltip="{definition}"' in html
 
     def test_medium_definition_matches_scoring_threshold(self):
-        threshold = f"{flask_app._MEDIUM_DOWN_RATIO:.0%}"
-        assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["medium"]
-        assert threshold in flask_app.ALERT_STATUS_TIER_DEFINITIONS["low"]
+        threshold = f"{alerts.MEDIUM_DOWN_RATIO:.0%}"
+        assert threshold in alerts.ALERT_STATUS_TIER_DEFINITIONS["medium"]
+        assert threshold in alerts.ALERT_STATUS_TIER_DEFINITIONS["low"]
         devices = [{"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "active"} for i in range(4)]
-        assert flask_app.compute_alert_level(devices)["level"] == "ok"
+        assert alerts.compute_alert_level(devices)["level"] == "ok"
         devices[0]["status"] = "offline"  # exactly 25% down
-        assert flask_app.compute_alert_level(devices)["level"] == "low"
+        assert alerts.compute_alert_level(devices)["level"] == "low"
         devices[1]["status"] = "offline"  # 50% down
-        assert flask_app.compute_alert_level(devices)["level"] == "medium"
+        assert alerts.compute_alert_level(devices)["level"] == "medium"
 
 
 class TestDeviceDisplayIp:
     def test_prefers_primary_ip_without_prefix_length(self):
         device = {"primary_ip": "192.0.2.10/32", "librenms_hostname": "198.51.100.1"}
-        assert flask_app._device_display_ip(device) == "192.0.2.10"
+        assert alerts.device_display_ip(device) == "192.0.2.10"
 
     def test_keeps_ipv6_primary_ip(self):
-        assert flask_app._device_display_ip({"primary_ip": "2001:db8::1/128"}) == "2001:db8::1"
+        assert alerts.device_display_ip({"primary_ip": "2001:db8::1/128"}) == "2001:db8::1"
 
     def test_falls_back_to_librenms_ip_hostname(self):
-        assert flask_app._device_display_ip({"primary_ip": "", "librenms_hostname": "198.51.100.1"}) == "198.51.100.1"
+        assert alerts.device_display_ip({"primary_ip": "", "librenms_hostname": "198.51.100.1"}) == "198.51.100.1"
 
     def test_ignores_non_ip_librenms_hostname(self):
-        assert flask_app._device_display_ip({"primary_ip": "", "librenms_hostname": "router01.example.net"}) == ""
+        assert alerts.device_display_ip({"primary_ip": "", "librenms_hostname": "router01.example.net"}) == ""
 
     def test_enrichment_records_matched_librenms_hostname(self):
         orig_url, orig_token = settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN
         settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN = "https://librenms.test", "tok"
         try:
             devices = [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}]
-            enriched = flask_app._enrich_with_librenms(
+            enriched = alerts.enrich_with_librenms(
                 devices,
                 lnms_devices=[{"device_id": 7, "hostname": "router01", "status": 1}],
                 lnms_id_map={},
@@ -4690,7 +4689,7 @@ class TestAlertBoardSyncProgress:
         self._set_nautobot_sync_state("idle", now, now)
         with (
             patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
-            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
+            patch.object(alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts?refresh=1")
         assert resp.status_code == 200
@@ -4703,7 +4702,7 @@ class TestAlertBoardSyncProgress:
         self._set_nautobot_sync_state("idle", now, now)
         with (
             patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
-            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
+            patch.object(alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts?refresh=1727000000000")
         ensure.assert_not_called()
@@ -4714,7 +4713,7 @@ class TestAlertBoardSyncProgress:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         with (
             patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
-            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board()),
+            patch.object(alerts, "build_alert_board_payload", return_value=self._board()),
         ):
             resp = client.get("/api/alerts")
         assert resp.status_code == 200
@@ -4731,7 +4730,7 @@ class TestAlertBoardSyncProgress:
         self._set_nautobot_sync_state("idle", now, now)
         with (
             patch.object(inventory, "ensure_snapshot") as ensure,
-            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
+            patch.object(alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts")
         ensure.assert_not_called()
@@ -4746,7 +4745,7 @@ class TestAlertBoardSyncProgress:
         self._set_nautobot_sync_state("idle", old, old)
         with (
             patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
-            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
+            patch.object(alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             data = client.get("/api/alerts").get_json()
         ensure.assert_called_once_with(wait=False)
@@ -4761,7 +4760,7 @@ class TestAlertBoardSyncProgress:
         self._set_nautobot_sync_state("idle", completed, completed)
         with (
             patch.object(inventory, "ensure_snapshot") as ensure,
-            patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
+            patch.object(alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             data = client.get("/api/alerts").get_json()
         ensure.assert_not_called()
@@ -4782,7 +4781,7 @@ class TestAlertBoardSyncProgress:
                 conn, "librenms_inventory", last_started_at=now, last_completed_at=now, status="idle"
             )
         conn.close()
-        due, next_in = flask_app._inventory_update_schedule()
+        due, next_in = alerts.inventory_update_schedule()
         assert due is False
         assert 115 <= next_in <= 120
 
@@ -4790,11 +4789,11 @@ class TestAlertBoardSyncProgress:
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
-        assert flask_app._inventory_update_schedule() == (False, None)
+        assert alerts.inventory_update_schedule() == (False, None)
 
     def test_next_update_unknown_without_persistence(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        assert flask_app._inventory_update_schedule() == (False, None)
+        assert alerts.inventory_update_schedule() == (False, None)
 
     def test_empty_sync_interval_env_uses_default(self):
         """docker-compose passes unset variables as ""; that must not crash startup (#152)."""
@@ -4826,21 +4825,21 @@ class TestAlertBoardSyncProgress:
 
     def test_running_sync_is_reported_as_pending(self, client):
         self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
-        assert flask_app._nautobot_sync_in_progress() is True
+        assert alerts.nautobot_sync_in_progress() is True
 
     def test_abandoned_running_sync_is_not_pending(self):
         started = datetime(2020, 1, 1, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         self._set_nautobot_sync_state("running", started)
-        assert flask_app._nautobot_sync_in_progress() is False
+        assert alerts.nautobot_sync_in_progress() is False
 
     def test_no_sync_pending_without_persistence(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        assert flask_app._nautobot_sync_in_progress() is False
+        assert alerts.nautobot_sync_in_progress() is False
 
     def test_adding_case_invalidates_cached_board(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             site,
             devices_down,
             {"level": "critical", "reason": "Core device(s) offline: router01"},
@@ -4861,7 +4860,7 @@ class TestAlertBoardSyncProgress:
 class TestMultiDeviceCases:
     @pytest.fixture(autouse=True)
     def _database_with_open_alerts(self, pg_database):
-        flask_app._upsert_alert_lifecycle_for_site(
+        alerts.upsert_alert_lifecycle_for_site(
             {"id": "loc-1", "name": "Site One"},
             [
                 {"id": "dev-1", "name": "sw01", "status": "offline"},
@@ -5008,16 +5007,16 @@ class TestLibreNMSPolledIp:
     def test_device_added_by_hostname_shows_librenms_ip(self, monkeypatch):
         monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
-        enriched = flask_app._enrich_with_librenms(
+        enriched = alerts.enrich_with_librenms(
             [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}],
             lnms_devices=[{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}],
             lnms_id_map={},
         )
-        assert flask_app._device_display_ip(enriched[0]) == "192.0.2.7"
+        assert alerts.device_display_ip(enriched[0]) == "192.0.2.7"
 
     def test_nautobot_primary_ip_still_preferred(self):
         device = {"primary_ip": "10.0.0.1/32", "librenms_ip": "192.0.2.7"}
-        assert flask_app._device_display_ip(device) == "10.0.0.1"
+        assert alerts.device_display_ip(device) == "10.0.0.1"
 
     def test_migration_adds_ip_column_to_existing_table(self, pg_database):
         pg_database.execute("ALTER TABLE librenms_device_status DROP COLUMN ip")
@@ -5077,8 +5076,8 @@ class TestAlertBoardWithoutPersistence:
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         flask_app.cache.clear()
         with patch.object(
-            flask_app,
-            "_build_alert_board_payload",
+            alerts,
+            "build_alert_board_payload",
             return_value={
                 "checked_at": timeutil.iso_utc_now(),
                 "summary": {},
@@ -5095,8 +5094,8 @@ class TestAlertBoardWithoutPersistence:
         with (
             patch.object(inventory, "ensure_snapshot", return_value=False),
             patch.object(
-                flask_app,
-                "_build_alert_board_payload",
+                alerts,
+                "build_alert_board_payload",
                 return_value={"checked_at": timeutil.iso_utc_now(), "summary": {}, "alerts": []},
             ),
         ):
@@ -5249,7 +5248,7 @@ class TestAlertBoardBulkReads:
             return real_get_db_conn()
 
         with patch.object(db, "get_conn", side_effect=counting_get_db_conn):
-            data = flask_app.get_alert_board_data()
+            data = alerts.get_alert_board_data()
         return data, len(opened)
 
     def test_connection_count_does_not_grow_with_site_count(self):
@@ -5303,11 +5302,11 @@ class TestAlertBoardBulkReads:
             [(open_id, "INC-1", "2026-09-25T11:05:00"), (open_id, "INC-2", "2026-09-25T11:10:00")],
         )
 
-        data = flask_app.get_alert_board_data()
+        data = alerts.get_alert_board_data()
 
         by_site = {entry["id"]: entry for entry in data["alerts"]}
         for site_id, entry in by_site.items():
-            expected = flask_app._get_alert_context_for_site(site_id, self.CHECKED_AT)
+            expected = alerts.get_alert_context_for_site(site_id, self.CHECKED_AT)
             assert entry["historical_downtime_seconds"] == expected["historical_downtime_seconds"], site_id
             assert entry["current_downtime_seconds"] == expected["current_downtime_seconds"], site_id
             assert entry["active_cases"] == expected["active_cases"], site_id
@@ -5323,7 +5322,7 @@ class TestAlertBoardBulkReads:
         self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T11:00:00+00:00")
 
         with patch.object(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"}):
-            data = flask_app.get_alert_board_data()
+            data = alerts.get_alert_board_data()
 
         by_site = {entry["id"]: entry for entry in data["alerts"]}
         assert by_site["loc-0"]["alert_level"] == "ok"
@@ -5338,8 +5337,8 @@ class TestAlertBoardBulkReads:
         self._add_alert("loc-1", "dev-1-0", "resolved", "2026-09-24T10:00:00+00:00", total_downtime_seconds=300)
         self._add_alert("loc-1", "dev-1-2", "open", "2026-09-25T11:00:00+00:00")
 
-        with patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert:
-            data = flask_app.get_alert_board_data()
+        with patch.object(alerts, "upsert_alert_lifecycle_for_site") as upsert:
+            data = alerts.get_alert_board_data()
 
         upsert.assert_not_called()
         loc1 = next(entry for entry in data["alerts"] if entry["id"] == "loc-1")
@@ -5414,7 +5413,7 @@ class TestSiteRollup:
     def _board(self, monkeypatch, site_type="site"):
         monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", site_type)
         flask_app.cache.clear()
-        return {row["id"]: row for row in flask_app.get_alert_board_data()["alerts"]}
+        return {row["id"]: row for row in alerts.get_alert_board_data()["alerts"]}
 
     def test_only_sites_are_rows_and_regions_are_hidden(self, monkeypatch):
         rows = self._board(monkeypatch)
@@ -5454,8 +5453,8 @@ class TestSiteRollup:
         assert "ancestor_path" not in rows["site-aar"]
 
     def test_orphan_location_is_logged_once(self, monkeypatch, caplog):
-        flask_app._logged_rollup_orphans.clear()
-        with caplog.at_level("INFO", logger="app"):
+        alerts.logged_rollup_orphans.clear()
+        with caplog.at_level("INFO", logger="nautobot_maps.alerts"):
             self._board(monkeypatch)
             self._board(monkeypatch)
         assert caplog.text.count("'Loose Building' has devices but no 'site' above it") == 1
@@ -5465,7 +5464,7 @@ class TestSiteRollup:
             {"id": "a", "name": "A", "location_type": "Bygning", "parent_id": "b"},
             {"id": "b", "name": "B", "location_type": "Bygning", "parent_id": "a"},
         ]
-        rows, devices = flask_app._roll_up_to_site_locations(locations, {"a": [{"id": "d1"}]}, "site")
+        rows, devices = alerts.roll_up_to_site_locations(locations, {"a": [{"id": "d1"}]}, "site")
         assert [row["id"] for row in rows] == ["a"]
         assert devices == {"a": [{"id": "d1", "location_path": ""}]}
 
@@ -5516,7 +5515,7 @@ class TestBackgroundScheduler:
 
     def test_tick_after_a_sync_records_alert_history_without_any_request(self):
         with patch.object(inventory, "ensure_snapshot", return_value=True) as ensure:
-            assert flask_app._scheduler_tick() is True
+            assert scheduler.tick() is True
         ensure.assert_called_once_with(wait=True)
         rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
         assert rows == [{"site_id": "loc-1", "device_id": "dev-1", "status": "open"}]
@@ -5526,9 +5525,9 @@ class TestBackgroundScheduler:
     def test_tick_without_a_due_sync_does_nothing(self):
         with (
             patch.object(inventory, "ensure_snapshot", return_value=False),
-            patch.object(flask_app, "_build_alert_board_payload") as build,
+            patch.object(alerts, "build_alert_board_payload") as build,
         ):
-            assert flask_app._scheduler_tick() is False
+            assert scheduler.tick() is False
         build.assert_not_called()
 
     def test_only_one_process_ticks_at_a_time(self):
@@ -5539,7 +5538,7 @@ class TestBackgroundScheduler:
             other = db.try_advisory_lock("background_scheduler")
             assert other is False  # a second connection cannot take it
             with patch.object(inventory, "ensure_snapshot") as ensure:
-                assert flask_app._scheduler_tick() is False
+                assert scheduler.tick() is False
             ensure.assert_not_called()
         finally:
             release()
@@ -5550,45 +5549,45 @@ class TestBackgroundScheduler:
         def failing_tick():
             calls.append(1)
             if len(calls) == 2:
-                flask_app._scheduler_stop.set()
+                scheduler._stop.set()
             raise RuntimeError("nautobot down")
 
-        monkeypatch.setattr(flask_app, "_scheduler_tick", failing_tick)
-        monkeypatch.setattr(flask_app, "_scheduler_tick_seconds", lambda: 0)
-        flask_app._scheduler_stop.clear()
+        monkeypatch.setattr(scheduler, "tick", failing_tick)
+        monkeypatch.setattr(scheduler, "tick_seconds", lambda: 0)
+        scheduler._stop.clear()
         try:
-            flask_app._scheduler_loop()
+            scheduler.loop()
         finally:
-            flask_app._scheduler_stop.clear()
+            scheduler._stop.clear()
         assert len(calls) == 2
 
     def test_start_is_idempotent_and_respects_the_setting(self, monkeypatch):
         started = []
-        monkeypatch.setattr(flask_app, "_scheduler_started", False)
-        monkeypatch.setattr(flask_app.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock())
+        monkeypatch.setattr(scheduler, "_started", False)
+        monkeypatch.setattr(scheduler.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock())
         monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
-        assert flask_app.start_background_scheduler() is False
+        assert scheduler.start() is False
         monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
-        assert flask_app.start_background_scheduler() is True
-        assert flask_app.start_background_scheduler() is True
+        assert scheduler.start() is True
+        assert scheduler.start() is True
         assert len(started) == 1
         assert started[0]["daemon"] is True
 
     def test_not_started_without_database(self, monkeypatch):
-        monkeypatch.setattr(flask_app, "_scheduler_started", False)
+        monkeypatch.setattr(scheduler, "_started", False)
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        assert flask_app.start_background_scheduler() is False
+        assert scheduler.start() is False
 
     def test_tick_seconds_follow_the_sooner_interval(self, monkeypatch):
         monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
-        assert flask_app._scheduler_tick_seconds() == 30
+        assert scheduler.tick_seconds() == 30
         monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 10)
-        assert flask_app._scheduler_tick_seconds() == 10
+        assert scheduler.tick_seconds() == 10
 
     def test_gunicorn_starts_the_scheduler_in_each_worker(self):
         import gunicorn_config
 
-        with patch.object(flask_app, "start_background_scheduler") as start:
+        with patch.object(scheduler, "start") as start:
             gunicorn_config.post_worker_init(worker=None)
         start.assert_called_once_with()
 
@@ -5621,15 +5620,15 @@ class TestSeverityTiers:
         ],
     )
     def test_levels(self, total, down, level, reason):
-        assert flask_app.compute_alert_level(self._switches(total, down)) == {"level": level, "reason": reason}
+        assert alerts.compute_alert_level(self._switches(total, down)) == {"level": level, "reason": reason}
 
     def test_core_device_still_wins(self):
         devices = self._switches(20, 1)
         devices[0]["role"] = "Core Router"
-        assert flask_app.compute_alert_level(devices)["level"] == "critical"
+        assert alerts.compute_alert_level(devices)["level"] == "critical"
 
     def test_board_order_and_counts(self):
-        assert sorted(["ok", "no_data", "low", "critical", "medium"], key=flask_app._alert_sort_key) == [
+        assert sorted(["ok", "no_data", "low", "critical", "medium"], key=alerts.alert_sort_key) == [
             "critical",
             "medium",
             "low",
@@ -5645,9 +5644,9 @@ class TestSeverityTiers:
         flask_app.cache.clear()
         with (
             patch.object(inventory, "get_locations", return_value=locations),
-            patch.object(flask_app, "_get_location_devices_and_alert", side_effect=fake_alert),
+            patch.object(alerts, "get_location_devices_and_alert", side_effect=fake_alert),
         ):
-            summary = flask_app.get_alert_board_data()["summary"]
+            summary = alerts.get_alert_board_data()["summary"]
         assert summary == {
             "total": 5,
             "critical": 1,

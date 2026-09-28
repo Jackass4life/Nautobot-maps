@@ -27,6 +27,7 @@ def post_worker_init(worker) -> None:
     # One scheduler thread per worker; a database lock lets only one of them
     # work at a time (#154).  Started here, not on import, so tests and
     # one-off imports never start background threads.
-    import app as flask_app
+    import app  # noqa: F401 - sets up the app (logging, database) first
+    from nautobot_maps import scheduler
 
-    flask_app.start_background_scheduler()
+    scheduler.start()
