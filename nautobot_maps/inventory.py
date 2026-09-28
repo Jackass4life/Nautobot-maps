@@ -336,14 +336,15 @@ def read_devices(location_id: str | None = None, conn=None) -> list:
             marker = db.placeholders(1)
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant FROM nautobot_device_cache "
+                "primary_ip, platform, serial, tenant, last_updated FROM nautobot_device_cache "
                 f"WHERE location_id = {marker} ORDER BY name ASC"
             )
             params = (location_id,)
         else:
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant FROM nautobot_device_cache ORDER BY location_id, name ASC"
+                "primary_ip, platform, serial, tenant, last_updated FROM nautobot_device_cache "
+                "ORDER BY location_id, name ASC"
             )
         rows = conn.execute(query, params).fetchall()
         return [
@@ -359,6 +360,8 @@ def read_devices(location_id: str | None = None, conn=None) -> list:
                 "platform": data.get("platform", ""),
                 "serial": data.get("serial", ""),
                 "tenant": data.get("tenant", ""),
+                # When Nautobot last changed the device, e.g. its status (#166).
+                "last_updated": data.get("last_updated") or "",
             }
             for data in (db.row_to_dict(row) for row in rows)
         ]

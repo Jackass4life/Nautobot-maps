@@ -383,6 +383,8 @@ def enrich_with_librenms(
                 current = (device.get("status") or "").lower()
                 if current not in DOWN_STATUSES:
                     device["status"] = "offline"
+                    # Nautobot still says up, so its last_updated is not when this outage began (#166).
+                    device["down_source"] = "librenms"
                     logger.debug(
                         "LibreNMS enrichment: device %s marked offline (LibreNMS status=0)",
                         device.get("name"),
@@ -481,6 +483,7 @@ def get_location_devices_and_alert(
                 "serial": d.get("serial", ""),
                 "tenant": d.get("tenant", ""),
                 "location_path": d.get("location_path", ""),
+                "last_updated": d.get("last_updated", ""),
             }
             for d in devices_data
         ]
@@ -593,6 +596,30 @@ def resolve_open_alert_instances_for_site(
         )
 
 
+def down_since(device: dict, checked_at: str) -> str:
+    """When *device* went down, as far as we can tell (#166).
+
+    If Nautobot's status makes it down, that status was set at or before the
+    device's ``last_updated``; use it when it is earlier than *checked_at*
+    (when this build saw the outage).  ``last_updated`` moves on any edit, so
+    the earlier of the two is the safe choice.  Devices only LibreNMS reports
+    down keep *checked_at*.
+    """
+    if device.get("down_source") == "librenms":
+        return checked_at
+    changed = timeutil.parse_iso_datetime(device.get("last_updated"))
+    observed = timeutil.parse_iso_datetime(checked_at)
+    if changed is None or observed is None:
+        return checked_at
+    if changed.tzinfo is None:
+        changed = changed.replace(tzinfo=UTC)
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=UTC)
+    if changed < observed:
+        return changed.astimezone(UTC).isoformat()
+    return checked_at
+
+
 def upsert_alert_lifecycle_for_site(
     site: dict,
     devices: list[dict],
@@ -663,7 +690,7 @@ def upsert_alert_lifecycle_for_site(
                             level,
                             reason,
                             "open",
-                            checked_at,
+                            down_since(device, checked_at),
                             checked_at,
                         ),
                     ).fetchone()
@@ -699,7 +726,9 @@ def upsert_alert_lifecycle_for_site(
                         continue
                 current = db.row_to_dict(latest_row)
                 now_sql = db.sql_now()
-                p = db.placeholders(6).split(",")
+                p = db.placeholders(7).split(",")
+                # down_started_at only ever moves earlier: this also corrects
+                # alerts opened before #166 on their next build.
                 conn.execute(
                     f"""
                     UPDATE alert_instances
@@ -708,8 +737,9 @@ def upsert_alert_lifecycle_for_site(
                         alert_level = {p[2]},
                         alert_reason = {p[3]},
                         last_seen_down_at = {p[4]},
+                        down_started_at = LEAST(down_started_at, {p[5]}::timestamptz),
                         updated_at = {now_sql}
-                    WHERE id = {p[5]}
+                    WHERE id = {p[6]}
                     """,
                     (
                         site.get("name") or "",
@@ -717,6 +747,7 @@ def upsert_alert_lifecycle_for_site(
                         level,
                         reason,
                         checked_at,
+                        down_since(device, checked_at),
                         current["id"],
                     ),
                 )
