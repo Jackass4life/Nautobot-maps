@@ -745,3 +745,53 @@ check(nextUpdateEl.hidden, "hidden when unknown");
     def test_board_template_has_countdown_element(self, integration_client):
         html = integration_client.get("/alerts").data.decode()
         assert 'id="next-update"' in html
+
+
+class TestSeverityTiersInTheBrowser:
+    """Low and No data on the board and the map (#124)."""
+
+    def test_board_and_map_render_the_new_levels(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        board = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        map_js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        rank = re.search(r"const ALERT_RANK = \{[^}]*\};", map_js).group(0)
+        order = re.search(r"const SEVERITY_ORDER = \[[^\]]*\];", board).group(0)
+        functions = "\n".join(
+            [
+                _extract_js_function(board, "escHtml"),
+                _extract_js_function(board, "severityWeight"),
+                _extract_js_function(board, "alertBadge"),
+                _extract_js_function(map_js, "buildAlertBanner"),
+            ]
+        )
+        script = f"""
+{rank}
+{order}
+{functions}
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const sorted = ["ok", "no_data", "low", "medium", "critical"].sort((a, b) => severityWeight(a) - severityWeight(b));
+check(sorted.join() === "critical,medium,low,no_data,ok", sorted.join());
+check(alertBadge("no_data").includes(">NO DATA<") && alertBadge("no_data").includes("alert-no_data"), alertBadge("no_data"));
+check(alertBadge("low").includes(">LOW<"), alertBadge("low"));
+check(alertBadge(undefined).includes("NO DATA"), "missing level shows as No data");
+check(buildAlertBanner({{ level: "no_data", reason: "No monitored devices" }}) === "", "no banner for No data");
+check(buildAlertBanner({{ level: "ok" }}) === "", "no banner for OK");
+const low = buildAlertBanner({{ level: "low", reason: "1/20 devices offline (5%)" }});
+check(low.includes("alert-low") && low.includes("LOW") && low.includes("1/20"), low);
+check(buildAlertBanner({{ level: "medium" }}).includes("alert-medium"), "medium banner");
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_board_page_has_low_and_no_data_tiles_and_filters(self, integration_client):
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        for needle in (
+            'id="summary-low"',
+            'id="summary-no_data"',
+            'data-quick-severity="low"',
+            'data-quick-severity="no_data"',
+            '<option value="no_data">No data</option>',
+        ):
+            assert needle in html
+        assert 'id="summary-unknown"' not in html

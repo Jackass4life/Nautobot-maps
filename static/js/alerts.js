@@ -51,12 +51,12 @@ function escHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+// Most severe first; the server sorts the same way (ALERT_LEVEL_ORDER, #124).
+const SEVERITY_ORDER = ["critical", "medium", "low", "no_data", "ok"];
+
 function severityWeight(level) {
-  if (level === "critical") return 0;
-  if (level === "medium") return 1;
-  if (level === "unknown") return 2;
-  if (level === "ok") return 3;
-  return 4;
+  const index = SEVERITY_ORDER.indexOf(level);
+  return index === -1 ? SEVERITY_ORDER.length : index;
 }
 
 function populateSelect(selectEl, values, label) {
@@ -90,7 +90,8 @@ function populateFilters(alerts) {
 function renderSummary(summary) {
   document.getElementById("summary-critical").textContent = summary.critical || 0;
   document.getElementById("summary-medium").textContent = summary.medium || 0;
-  document.getElementById("summary-unknown").textContent = summary.unknown || 0;
+  document.getElementById("summary-low").textContent = summary.low || 0;
+  document.getElementById("summary-no_data").textContent = summary.no_data || 0;
   document.getElementById("summary-ok").textContent = summary.ok || 0;
   document.getElementById("summary-total").textContent = summary.total || 0;
 }
@@ -237,8 +238,9 @@ function formatBoardStatus(payload, visibleCount) {
 }
 
 function alertBadge(level) {
-  const label = level ? level.toUpperCase() : "UNKNOWN";
-  return `<span class="alert-badge alert-${escHtml(level || "unknown")}">${escHtml(label)}</span>`;
+  const value = level || "no_data";
+  const label = value === "no_data" ? "NO DATA" : value.toUpperCase();
+  return `<span class="alert-badge alert-${escHtml(value)}">${escHtml(label)}</span>`;
 }
 
 function formatLocationAddress(item) {

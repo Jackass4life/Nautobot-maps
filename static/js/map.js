@@ -40,9 +40,14 @@ const ICONS = {
   planned:  makeIcon("#f0a500"),
   other:    makeIcon("#888888"),
   search:   makeIcon("#e74c3c"),
+  low:      makeIcon("#eab308"),
   medium:   makeIcon("#ff8c00"),
   critical: makeIcon("#e74c3c", true),
 };
+
+// Alert levels that change a marker or show a banner, least to most severe.
+// "ok" and "no_data" are not alerts (#124).
+const ALERT_RANK = { low: 1, medium: 2, critical: 3 };
 
 function iconForStatus(status) {
   const s = (status || "").toLowerCase();
@@ -98,9 +103,9 @@ function buildNautobotLink(loc) {
 }
 
 function buildAlertBanner(alert) {
-  if (!alert || alert.level === "ok") return "";
-  const lvl = alert.level === "critical" ? "critical" : "medium";
-  const icon = lvl === "critical" ? "🔴" : "🟠";
+  if (!alert || !ALERT_RANK[alert.level]) return "";
+  const lvl = alert.level;
+  const icon = { critical: "🔴", medium: "🟠", low: "🟡" }[lvl];
   return `<div class="alert-banner alert-${escHtml(lvl)}">
     <span class="alert-banner-icon">${icon}</span>
     <div>
@@ -157,6 +162,7 @@ function groupByCoords(locations) {
 function makeStackedIcon(count, alertLevel) {
   const color = alertLevel === "critical" ? "#e74c3c"
               : alertLevel === "medium"   ? "#ff8c00"
+              : alertLevel === "low"      ? "#eab308"
               : "#3388ff";
   const pulse = alertLevel === "critical";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36">
@@ -329,8 +335,10 @@ function renderInspectorContent() {
     alertPill = `<span class="inspector-pill">${escHtml("Loading alert status…")}</span>`;
   } else if (inspectorError) {
     alertPill = `<span class="inspector-pill">${escHtml("Alert status unavailable")}</span>`;
-  } else if (alert && alert.level !== "ok") {
-    alertPill = `<span class="inspector-pill inspector-alert-pill${alert.level === "critical" ? " is-critical" : ""}">${escHtml(alert.level.toUpperCase())}</span>`;
+  } else if (alert && ALERT_RANK[alert.level]) {
+    alertPill = `<span class="inspector-pill inspector-alert-pill is-${escHtml(alert.level)}">${escHtml(alert.level.toUpperCase())}</span>`;
+  } else if (alert && alert.level === "no_data") {
+    alertPill = `<span class="inspector-pill">${escHtml("No monitored devices")}</span>`;
   }
 
   inspectorTitle.textContent = loc.name || "Location inspector";
@@ -664,16 +672,13 @@ function updateMarkerForAlert(locId, alertLevel) {
   if (groupIds) {
     const groupLevel = groupIds.reduce((highest, id) => {
       const level = locationAlerts[id] || "ok";
-      if (level === "critical") return "critical";
-      if (level === "medium" && highest !== "critical") return "medium";
-      return highest;
+      return (ALERT_RANK[level] || 0) > (ALERT_RANK[highest] || 0) ? level : highest;
     }, "ok");
-    if (groupLevel !== "ok") marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
+    if (ALERT_RANK[groupLevel]) marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
     return;
   }
 
-  if (alertLevel === "critical") marker.setIcon(ICONS.critical);
-  else if (alertLevel === "medium") marker.setIcon(ICONS.medium);
+  if (ALERT_RANK[alertLevel]) marker.setIcon(ICONS[alertLevel]);
 }
 
 async function loadLocationDetail(locId) {

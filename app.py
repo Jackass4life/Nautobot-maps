@@ -1803,19 +1803,22 @@ _MEDIUM_DOWN_RATIO = 0.25
 # describe compute_alert_level() and must be kept in sync with it.
 ALERT_STATUS_TIER_DEFINITIONS = {
     "critical": (
-        "At least one core device is down: its role matches a critical keyword, "
-        "or it is marked critical by an override."
+        "At least one core device is down (its role matches a critical keyword, "
+        "or it is marked critical by an override), or every monitored device is down."
     ),
     "medium": (
         f"More than {_MEDIUM_DOWN_RATIO:.0%} of the site's monitored devices are down and no core device is down."
     ),
-    "unknown": "The alert state could not be computed for this site from the inventory snapshot.",
-    "ok": (
-        f"No core device is down and {_MEDIUM_DOWN_RATIO:.0%} or fewer of the site's "
-        "monitored devices are down. Sites without monitored devices count as OK."
-    ),
+    "low": (f"At least one monitored device is down, but {_MEDIUM_DOWN_RATIO:.0%} or fewer and no core device."),
+    "no_data": ("The site has no monitored devices, or its state could not be computed. Not counted as an alert."),
+    "ok": "The site has monitored devices and none of them is down.",
     "total": ("All sites on the board. Only devices with a Nautobot primary IP are monitored."),
 }
+
+# Board order, most severe first (#124).
+ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
+# Levels that count as an active alert in summary["non_ok"].
+ALERT_LEVELS_NON_OK = ("critical", "medium", "low")
 
 
 def _device_has_primary_ip(device: dict) -> bool:
@@ -1954,15 +1957,17 @@ def compute_alert_level(
 
     Returns a dict::
 
-        {"level": "critical" | "medium" | "ok", "reason": "<human-readable text>"}
+        {"level": "critical" | "medium" | "low" | "no_data" | "ok", "reason": "<human-readable text>"}
 
-    Rules:
+    Rules (#124):
     * **critical** – at least one device whose role contains a core-network
-      keyword has a down status.  The keyword set is resolved from
-      ``CRITICAL_ROLE_KEYWORDS`` / ``CRITICALITY_RULES_FILE`` / the
-      per-device ``is_critical`` override stored in the database.
+      keyword has a down status, or every device is down.  The keyword set is
+      resolved from ``CRITICAL_ROLE_KEYWORDS`` / ``CRITICALITY_RULES_FILE`` /
+      the per-device ``is_critical`` override stored in the database.
     * **medium**   – more than 25 % of all devices have a down status.
-    * **ok**       – neither condition above is met (or no devices present).
+    * **low**      – at least one device is down, 25 % or fewer.
+    * **no_data**  – there are no devices to judge.
+    * **ok**       – devices present, none down.
 
     The optional *location_type* parameter selects the matching keyword set
     when location-type-scoped rules are configured (e.g. "datacenter" vs
@@ -1973,7 +1978,7 @@ def compute_alert_level(
     sites at once (#149).
     """
     if not devices:
-        return {"level": "ok", "reason": ""}
+        return {"level": "no_data", "reason": "No monitored devices"}
 
     core_keywords = _get_critical_keywords(location_type)
 
@@ -2019,10 +2024,20 @@ def compute_alert_level(
 
     total = len(devices)
     down_count = len(down_names)
-    if total > 0 and down_count / total > _MEDIUM_DOWN_RATIO:
-        pct = round(down_count / total * 100)
+    if down_count == total:
+        return {
+            "level": "critical",
+            "reason": f"All {total} monitored device{'s' if total != 1 else ''} offline",
+        }
+    pct = round(down_count / total * 100)
+    if down_count / total > _MEDIUM_DOWN_RATIO:
         return {
             "level": "medium",
+            "reason": f"{down_count}/{total} devices offline ({pct}%)",
+        }
+    if down_count:
+        return {
+            "level": "low",
             "reason": f"{down_count}/{total} devices offline ({pct}%)",
         }
 
@@ -2289,7 +2304,8 @@ def _iso_utc_now() -> str:
 
 
 def _alert_sort_key(level: str) -> int:
-    return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get((level or "").lower(), 4)
+    level = (level or "").lower()
+    return ALERT_LEVEL_ORDER.index(level) if level in ALERT_LEVEL_ORDER else len(ALERT_LEVEL_ORDER)
 
 
 def _build_alert_key(site_id: str, device_id: str) -> str:
@@ -2419,7 +2435,7 @@ def _upsert_alert_lifecycle_for_site(
                 device_id = (device.get("id") or "").strip()
                 if not device_id:
                     continue
-                level = (alert.get("level") or "unknown").lower()
+                level = (alert.get("level") or "no_data").lower()
                 reason = alert.get("reason") or ""
                 alert_key = _build_alert_key(site_id, device_id)
                 open_alert_keys.add(alert_key)
@@ -2926,7 +2942,7 @@ def _build_alert_board_payload(
     if not include_non_operational:
         locations = [loc for loc in locations if not _location_is_excluded_from_alert_board(loc)]
     alerts = []
-    summary = {"critical": 0, "medium": 0, "unknown": 0, "ok": 0}
+    summary = dict.fromkeys(ALERT_LEVEL_ORDER, 0)
     lnms_devices = None
     lnms_id_map = None
     if (LIBRENMS_URL or "").strip() and (LIBRENMS_API_TOKEN or "").strip():
@@ -3015,7 +3031,7 @@ def _build_alert_board_payload(
                 )
                 observation_succeeded = False
                 devices = []
-                alert = {"level": "unknown", "reason": "Could not compute alert state"}
+                alert = {"level": "no_data", "reason": "Could not compute alert state"}
 
             down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in _DOWN_STATUSES]
             checked_at = _iso_utc_now()
@@ -3161,11 +3177,9 @@ def _build_alert_board_payload(
         "stale_after_seconds": CACHE_TTL,
         "summary": {
             "total": len(alerts),
-            "critical": summary.get("critical", 0),
-            "medium": summary.get("medium", 0),
-            "unknown": summary.get("unknown", 0),
-            "ok": summary.get("ok", 0),
-            "non_ok": summary.get("critical", 0) + summary.get("medium", 0) + summary.get("unknown", 0),
+            **{level: summary.get(level, 0) for level in ALERT_LEVEL_ORDER},
+            # No data is not an alert (#124).
+            "non_ok": sum(summary.get(level, 0) for level in ALERT_LEVELS_NON_OK),
         },
         "alerts": alerts,
     }
