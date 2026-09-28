@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
+- App crashed at startup (`NameError: _build_alert_key`) when open alerts had to be migrated to the new alert key (#163): the migration runs while `app.py` is still loading and used a helper defined further down. The data was not changed (the migration's transaction was rolled back) (#169)
 - Alert downtime restarted when a site's severity changed (e.g. Medium → Critical): alerts are now identified by site + device, so a severity change updates the open alert (recorded as an `updated` event) and its downtime keeps running. Open alerts are migrated once at startup (#163)
 - `NAUTOBOT_API_VERSION` and `GUNICORN_WORKERS` / `GUNICORN_TIMEOUT` / `GUNICORN_BIND` in `.env` had no effect with `docker compose`; an empty `CACHE_TTL` or `GUNICORN_*` value now means the default instead of crashing at startup. A test now fails when a setting is missing from `docker-compose.yml` (#159)
 - `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)

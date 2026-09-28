@@ -2357,6 +2357,36 @@ class TestAlertLifecycleTracking:
             ("dev-2", "2026-01-01T01:00:00Z"),
         ]
 
+    def test_app_starts_with_open_alerts_to_migrate(self):
+        """Startup runs _init_db() while app.py is still loading; the migration must work there.
+
+        Production crashed with NameError: the migration called a helper
+        defined further down the file.  Import the app in a fresh process
+        against a database with an open old-style alert, like a real start.
+        """
+        import os
+        import subprocess
+        import sys
+
+        self.db.execute(
+            "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
+            "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
+            "VALUES ('old-style-key', 'loc-1', 'Site One', 'dev-1', 'dev-1', 'medium', '', 'open', "
+            "'2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0)"
+        )
+        env = {**os.environ, "NAUTOBOT_MAPS_DATABASE_URL": self.db.url}
+        completed = subprocess.run(
+            [sys.executable, "-c", "import app"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr[-2000:]
+        rows = self.db.execute("SELECT alert_key FROM alert_instances")
+        assert rows == [{"alert_key": flask_app._build_alert_key("loc-1", "dev-1")}]
+
     def test_add_case_number_to_active_alert(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
