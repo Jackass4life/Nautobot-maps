@@ -450,45 +450,71 @@ thead th:last-child {
   font-size: 0.75rem;
 }
 
-.map-link {
-  color: var(--color-primary);
-  text-decoration: none;
-}
-
-.map-link-disabled {
-  color: var(--color-text-muted);
-}
-
-.action-stack {
+/* One line of small buttons per row (#179). */
+.action-row {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.action-btn {
+  display: inline-block;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 3px 7px;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action-btn:hover {
+  border-color: var(--color-primary);
+}
+
+.case-open-btn {
+  background: rgba(13, 110, 253, 0.2);
+  color: var(--color-primary);
+}
+
+.action-btn-disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.action-btn-disabled:hover {
+  border-color: var(--color-border);
 }
 
 .case-form {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+}
+
+.case-input-label {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
 }
 
 .case-form input[type="text"],
-.case-form button,
-.history-btn {
+.case-form button {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-surface-2);
   color: var(--color-text);
   padding: 6px 8px;
-  font-size: 0.78rem;
-}
-
-.case-form button,
-.history-btn {
-  cursor: pointer;
+  font-size: 0.85rem;
 }
 
 .case-form button {
   background: rgba(13, 110, 253, 0.2);
+  cursor: pointer;
 }
 
 .empty-state {
@@ -537,7 +563,15 @@ thead th:last-child {
   font-size: 1.05rem;
 }
 
-#history-close {
+.case-panel {
+  width: min(420px, calc(100vw - 48px));
+}
+
+.case-panel .case-device-list {
+  max-height: 50vh;
+}
+
+.panel-close-btn {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-surface-2);

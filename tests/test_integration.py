@@ -777,6 +777,122 @@ check(siteMeta({{ tenant: "Acme" }}) === "", "empty without a path");
         assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
+class TestCompactActionsInTheBrowser:
+    """One line of small buttons per row; the case form is in a side panel (#179)."""
+
+    FUNCTIONS = (
+        "escHtml",
+        "caseButtonLabel",
+        "caseDevices",
+        "actionCell",
+        "renderCaseForm",
+        "hideSidePanel",
+        "openSidePanel",
+        "restorePanelFocus",
+        "closeSidePanel",
+    )
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        functions = "\n".join(_extract_js_function(js, name) for name in self.FUNCTIONS)
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const focused = [];
+function fakeElement(name) {{
+  const classes = new Set(["hidden"]);
+  return {{
+    name,
+    attrs: {{}},
+    classList: {{
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    }},
+    setAttribute(key, value) {{ this.attrs[key] = value; }},
+    focus() {{ focused.push(name); }},
+  }};
+}}
+const buttons = {{}};
+const document = {{ querySelector: (selector) => buttons[selector] || null }};
+const historyPanel = fakeElement("history-panel");
+const casePanel = fakeElement("case-panel");
+const sidePanels = [historyPanel, casePanel];
+let panelTriggerSelector = null;
+{functions}
+{body}
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_action_cell_is_one_line_of_buttons(self):
+        self._run("""
+const site = { id: "s1", name: "Aarhus <HQ>", latitude: 56.1, longitude: 10.2,
+  down_devices: [{ device_id: "d1", device_name: "sw01" }, { device_id: "", device_name: "ghost" }] };
+let html = actionCell(site);
+check(html.includes('class="action-btn case-open-btn"') && html.includes("+ Case"), html);
+check(html.includes('class="action-btn history-btn"') && html.includes('href="/?location_id=s1"'), html);
+check(html.includes("for Aarhus &lt;HQ&gt;"), "screen readers hear the site: " + html);
+// The whole case form is gone from the row.
+check(!html.includes("case-form") && !html.includes("checkbox") && !html.includes("<input"), html);
+
+// No down devices with an id: no + Case.  No coordinates: Map is disabled.
+html = actionCell({ id: "s2", name: "Oslo", down_devices: [{ device_id: "", device_name: "ghost" }] });
+check(!html.includes("case-open-btn"), html);
+check(html.includes("action-btn-disabled") && html.includes("no coordinates") && !html.includes("href"), html);
+""")
+
+    def test_case_form_lists_down_devices(self):
+        self._run("""
+let html = renderCaseForm({ id: "s1", down_devices: [
+  { device_id: "d1", device_name: "sw<1>" }, { device_id: "d2", device_name: "sw2" }, { device_id: "" }] });
+check(html.includes('<form class="case-form" data-site-id="s1">'), html);
+check((html.match(/case-device-checkbox/g) || []).length === 2, "one checkbox per device with an id");
+check(html.includes("All down devices (2)") && html.includes("sw&lt;1&gt;"), html);
+check(html.includes('type="submit"') && html.includes("Add case to 2 devices"), html);
+check(html.includes('<label class="case-input-label" for="case-input">'), "the case field has a label");
+
+html = renderCaseForm({ id: "s1", down_devices: [{ device_id: "d1", device_name: "sw1" }] });
+check(!html.includes("All down devices"), "no select-all for one device");
+""")
+
+    def test_one_panel_at_a_time_and_focus_returns_to_the_row(self):
+        self._run("""
+buttons['.history-btn[data-site-id="s1"]'] = fakeElement("history s1");
+buttons['.case-open-btn[data-site-id="s1"]'] = fakeElement("case s1");
+
+openSidePanel(historyPanel, '.history-btn[data-site-id="s1"]', fakeElement("history close"));
+check(!historyPanel.classList.contains("hidden") && historyPanel.attrs["aria-hidden"] === "false", "history open");
+check(focused.at(-1) === "history close", "focus moves into the panel");
+
+// Opening the case panel closes History.
+openSidePanel(casePanel, '.case-open-btn[data-site-id="s1"]', fakeElement("case input"));
+check(historyPanel.classList.contains("hidden") && historyPanel.attrs["aria-hidden"] === "true", "history closed");
+check(focused.at(-1) === "case input", "focus in the case field");
+
+// Closing (Close button or Escape) returns focus to the + Case button,
+// looked up again because the board may have re-rendered meanwhile.
+buttons['.case-open-btn[data-site-id="s1"]'] = fakeElement("case s1 (re-rendered)");
+closeSidePanel(casePanel);
+check(casePanel.classList.contains("hidden"), "case panel closed");
+check(focused.at(-1) === "case s1 (re-rendered)", focused.join());
+closeSidePanel(casePanel);
+check(focused.length === 3, "closing a closed panel does nothing");
+
+// The row is gone (e.g. the site recovered): focus is not moved.
+openSidePanel(historyPanel, '.history-btn[data-site-id="gone"]');
+check(focused.at(-1) === "history-panel", "without a target the panel itself gets focus");
+closeSidePanel(historyPanel);
+check(focused.at(-1) === "history-panel", "no focus without the row");
+""")
+
+    def test_board_page_has_the_case_panel(self, integration_client):
+        html = integration_client.get("/alerts").data.decode()
+        assert 'id="case-panel"' in html and 'role="dialog"' in html
+        assert 'id="case-close"' in html
+
+
 class TestSeverityTiersInTheBrowser:
     """Low and No data on the board and the map (#124)."""
 

@@ -19,11 +19,18 @@ const historyPanel = document.getElementById("history-panel");
 const historyTitle = document.getElementById("history-title");
 const historyContent = document.getElementById("history-content");
 const historyCloseBtn = document.getElementById("history-close");
+const casePanel = document.getElementById("case-panel");
+const caseTitle = document.getElementById("case-title");
+const caseContent = document.getElementById("case-content");
+const caseCloseBtn = document.getElementById("case-close");
+const sidePanels = [historyPanel, casePanel].filter(Boolean);
 const nextUpdateEl = document.getElementById("next-update");
 
 let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
-let historyTriggerBtn = null;
+// Selector of the button that opened the side panel.  Rows are re-rendered
+// on every board update, so the button itself may be gone when it closes.
+let panelTriggerSelector = null;
 let expandedSiteIds = new Set();
 let allSitesExpanded = false;
 
@@ -114,46 +121,91 @@ function syncCaseSelection(form) {
   button.disabled = selected === 0;
 }
 
-function mapActionCell(item) {
+function caseDevices(item) {
+  return (Array.isArray(item.down_devices) ? item.down_devices : []).filter((d) => d.device_id);
+}
+
+// One line of small buttons per row; the case form opens in a side panel (#179).
+function actionCell(item) {
+  const siteId = escHtml(item.id || "");
+  const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
   const hasCoordinates = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
+  const caseButton = caseDevices(item).length
+    ? `<button class="action-btn case-open-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">+ Case${siteLabel}</button>`
+    : "";
   const mapLink = hasCoordinates
-    ? `<a class="map-link" href="/?location_id=${encodeURIComponent(item.id)}">Open map</a>`
-    : '<span class="map-link-disabled">No coordinates</span>';
-  const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
-  const siteLabel = escHtml(item.name || item.id || "site");
+    ? `<a class="action-btn map-link" href="/?location_id=${encodeURIComponent(item.id)}">Map${siteLabel}</a>`
+    : `<span class="action-btn action-btn-disabled" title="No coordinates">Map<span class="visually-hidden"> unavailable: no coordinates</span></span>`;
+  return `
+    <div class="action-row">
+      ${caseButton}
+      <button class="action-btn history-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">History${siteLabel}</button>
+      ${mapLink}
+    </div>
+  `;
+}
+
+function renderCaseForm(item) {
+  const devices = caseDevices(item);
   // One case often covers several devices (e.g. a whole site down), so every
   // down device gets a checkbox; all start selected.
-  const deviceChoices = downDevices
-    .filter((d) => d.device_id)
-    .map((d) => `
+  const deviceChoices = devices.map((d) => `
         <label class="case-device-option">
           <input type="checkbox" class="case-device-checkbox" value="${escHtml(d.device_id)}" checked />
           <span>${escHtml(d.device_name || d.device_id)}</span>
-        </label>`)
-    .join("");
-  const selectAll = downDevices.length > 1 ? `
+        </label>`).join("");
+  const selectAll = devices.length > 1 ? `
         <label class="case-device-option case-select-all-option">
           <input type="checkbox" class="case-select-all" checked />
-          <span>All down devices (${downDevices.length})</span>
+          <span>All down devices (${devices.length})</span>
         </label>` : "";
-  const caseForm = deviceChoices ? `
-      <div class="case-form">
-        <fieldset class="case-devices">
-          <legend>Devices for this case<span class="visually-hidden"> at ${siteLabel}</span></legend>
-          ${selectAll}
-          <div class="case-device-list">${deviceChoices}</div>
-        </fieldset>
-        <input class="case-input" data-site-id="${escHtml(item.id)}" type="text" placeholder="Case #" aria-label="Case number for ${siteLabel}" />
-        <button class="case-save-btn" type="button" data-site-id="${escHtml(item.id)}">${caseButtonLabel(downDevices.filter((d) => d.device_id).length)}</button>
-      </div>
-    ` : "";
   return `
-    <div class="action-stack">
-      ${mapLink}
-      ${caseForm}
-      <button class="history-btn" type="button" data-site-id="${escHtml(item.id)}">History</button>
-    </div>
+    <form class="case-form" data-site-id="${escHtml(item.id || "")}">
+      <fieldset class="case-devices">
+        <legend>Devices for this case</legend>
+        ${selectAll}
+        <div class="case-device-list">${deviceChoices}</div>
+      </fieldset>
+      <label class="case-input-label" for="case-input">Case number</label>
+      <input id="case-input" class="case-input" type="text" autocomplete="off" placeholder="Case #" />
+      <button class="case-save-btn" type="submit"${devices.length ? "" : " disabled"}>${caseButtonLabel(devices.length)}</button>
+    </form>
   `;
+}
+
+function hideSidePanel(panel) {
+  panel.classList.add("hidden");
+  panel.setAttribute("aria-hidden", "true");
+}
+
+function openSidePanel(panel, triggerSelector, focusTarget) {
+  sidePanels.forEach((other) => {
+    if (other !== panel) hideSidePanel(other);
+  });
+  panel.classList.remove("hidden");
+  panel.setAttribute("aria-hidden", "false");
+  panelTriggerSelector = triggerSelector;
+  (focusTarget || panel).focus();
+}
+
+function restorePanelFocus() {
+  const trigger = panelTriggerSelector && document.querySelector(panelTriggerSelector);
+  panelTriggerSelector = null;
+  if (trigger) trigger.focus();
+}
+
+function closeSidePanel(panel) {
+  if (!panel || panel.classList.contains("hidden")) return;
+  hideSidePanel(panel);
+  restorePanelFocus();
+}
+
+function openCasePanel(siteId) {
+  const item = allAlerts.find((alert) => String(alert.id) === siteId);
+  if (!casePanel || !item) return;
+  caseTitle.textContent = `Add case · ${item.name || siteId}`;
+  caseContent.innerHTML = renderCaseForm(item);
+  openSidePanel(casePanel, `.case-open-btn[data-site-id="${CSS.escape(siteId)}"]`, caseContent.querySelector(".case-input"));
 }
 
 function formatDuration(seconds) {
@@ -193,11 +245,6 @@ function renderAlertHistory(siteId, instances) {
         </article>
       `;
     }).join("");
-  }
-  historyPanel.classList.remove("hidden");
-  historyPanel.setAttribute("aria-hidden", "false");
-  if (historyCloseBtn) {
-    historyCloseBtn.focus();
   }
 }
 
@@ -331,7 +378,7 @@ function renderTableRows(alerts, payload) {
       <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
       <td class="cases-cell">${renderCases(item)}</td>
       <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
-      <td>${mapActionCell(item)}</td>
+      <td>${actionCell(item)}</td>
     </tr>
     ${renderDownDeviceRows(item, isExpanded)}
   `;
@@ -577,16 +624,20 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) renderNextUpdate();
 });
 if (historyCloseBtn && historyPanel) {
-  historyCloseBtn.addEventListener("click", () => {
-    historyPanel.classList.add("hidden");
-    historyPanel.setAttribute("aria-hidden", "true");
-    if (historyTriggerBtn) {
-      historyTriggerBtn.focus();
-    }
-  });
+  historyCloseBtn.addEventListener("click", () => closeSidePanel(historyPanel));
 }
+if (caseCloseBtn && casePanel) {
+  caseCloseBtn.addEventListener("click", () => closeSidePanel(casePanel));
+}
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const openPanel = sidePanels.find((panel) => !panel.classList.contains("hidden"));
+  if (!openPanel) return;
+  event.preventDefault();
+  closeSidePanel(openPanel);
+});
 
-alertsTableBody.addEventListener("change", (event) => {
+casePanel?.addEventListener("change", (event) => {
   const form = event.target.closest(".case-form");
   if (!form) return;
   if (event.target.classList.contains("case-select-all")) {
@@ -617,43 +668,9 @@ alertsTableBody.addEventListener("click", async (event) => {
     return;
   }
 
-  const caseBtn = event.target.closest(".case-save-btn");
-  if (caseBtn) {
-    const siteId = caseBtn.dataset.siteId;
-    const row = caseBtn.closest(".action-stack");
-    const caseInput = row.querySelector(".case-input");
-    const deviceIds = Array.from(row.querySelectorAll(".case-device-checkbox:checked")).map((box) => box.value);
-    const deviceNameById = Object.fromEntries(
-      Array.from(row.querySelectorAll(".case-device-checkbox")).map((box) => [box.value, box.nextElementSibling.textContent]),
-    );
-    const caseNumber = (caseInput?.value || "").trim();
-    if (!siteId || !deviceIds.length || !caseNumber) {
-      showError("Select at least one device and enter a case number first.");
-      return;
-    }
-    caseBtn.disabled = true;
-    try {
-      const resp = await fetch("/api/alert-cases", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId, device_ids: deviceIds, case_number: caseNumber }),
-      });
-      const payload = await resp.json();
-      if (!resp.ok || payload.error) {
-        const missing = Array.isArray(payload.missing_device_ids) && payload.missing_device_ids.length
-          ? ` (no longer down: ${payload.missing_device_ids.map((id) => deviceNameById[id] || id).join(", ")} – untick and try again)`
-          : "";
-        throw new Error(`${payload.error || `HTTP ${resp.status}`}${missing}`);
-      }
-      if (caseInput) caseInput.value = "";
-      // The server drops its cached board when a case is added; a plain reload
-      // is enough and must not trigger a full inventory sync.
-      await loadAlertBoard(false);
-    } catch (err) {
-      showError(`Failed to add case: ${err.message}`);
-    } finally {
-      caseBtn.disabled = false;
-    }
+  const caseOpenBtn = event.target.closest(".case-open-btn");
+  if (caseOpenBtn) {
+    openCasePanel(String(caseOpenBtn.dataset.siteId || ""));
     return;
   }
 
@@ -662,17 +679,60 @@ alertsTableBody.addEventListener("click", async (event) => {
     const siteId = historyBtn.dataset.siteId;
     if (!siteId) return;
     historyBtn.disabled = true;
-    historyTriggerBtn = historyBtn;
     try {
       const resp = await fetch(`/api/alert-history?site_id=${encodeURIComponent(siteId)}`);
       const payload = await readJsonResponse(resp);
       if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
       renderAlertHistory(siteId, Array.isArray(payload.instances) ? payload.instances : []);
+      openSidePanel(historyPanel, `.history-btn[data-site-id="${CSS.escape(siteId)}"]`, historyCloseBtn);
     } catch (err) {
       showError(`Failed to load history: ${err.message}`);
     } finally {
       historyBtn.disabled = false;
     }
+  }
+});
+
+casePanel?.addEventListener("submit", async (event) => {
+  const form = event.target.closest(".case-form");
+  if (!form) return;
+  event.preventDefault();
+  const siteId = form.dataset.siteId;
+  const caseBtn = form.querySelector(".case-save-btn");
+  const caseInput = form.querySelector(".case-input");
+  const deviceIds = Array.from(form.querySelectorAll(".case-device-checkbox:checked")).map((box) => box.value);
+  const deviceNameById = Object.fromEntries(
+    Array.from(form.querySelectorAll(".case-device-checkbox")).map((box) => [box.value, box.nextElementSibling.textContent]),
+  );
+  const caseNumber = (caseInput?.value || "").trim();
+  if (!siteId || !deviceIds.length || !caseNumber) {
+    showError("Select at least one device and enter a case number first.");
+    return;
+  }
+  caseBtn.disabled = true;
+  try {
+    const resp = await fetch("/api/alert-cases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site_id: siteId, device_ids: deviceIds, case_number: caseNumber }),
+    });
+    const payload = await resp.json();
+    if (!resp.ok || payload.error) {
+      const missing = Array.isArray(payload.missing_device_ids) && payload.missing_device_ids.length
+        ? ` (no longer down: ${payload.missing_device_ids.map((id) => deviceNameById[id] || id).join(", ")} – untick and try again)`
+        : "";
+      throw new Error(`${payload.error || `HTTP ${resp.status}`}${missing}`);
+    }
+    // Saved: close the panel.  The server drops its cached board when a case
+    // is added; a plain reload is enough and must not trigger a full
+    // inventory sync.  Focus returns to the row's (re-rendered) + Case button.
+    hideSidePanel(casePanel);
+    await loadAlertBoard(false);
+    restorePanelFocus();
+  } catch (err) {
+    showError(`Failed to add case: ${err.message}`);
+  } finally {
+    caseBtn.disabled = false;
   }
 });
 
