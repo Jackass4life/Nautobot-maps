@@ -68,6 +68,8 @@ under `nautobot_maps/` (#165):
   settings here, pass them in `docker-compose.yml` (a test checks this), and read them as
   `settings.NAME` at call time; in tests change them with
   `monkeypatch.setattr(settings, "NAME", value)`.
+- `nautobot_maps/db.py`: PostgreSQL connections (`db.get_conn()`, `db.transaction()`), the
+  schema and its migrations (`db.init_db()`), and small SQL helpers.
 
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.

@@ -1,11 +1,9 @@
-import hashlib
 import ipaddress
 import json
 import logging
 import re
 import threading
 import warnings
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 
@@ -18,14 +16,7 @@ from geopy.geocoders import Nominatim
 from urllib3.exceptions import InsecureRequestWarning
 from werkzeug.exceptions import HTTPException
 
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except Exception:  # pragma: no cover - optional dependency
-    psycopg = None
-    dict_row = None
-
-from nautobot_maps import settings
+from nautobot_maps import db, settings
 
 app = Flask(__name__)
 app.secret_key = settings.FLASK_SECRET_KEY
@@ -85,7 +76,7 @@ def _log_alert_board_exclusions() -> None:
             "NAUTOBOT_MAPS_DB is set, but SQLite support was removed: the alert board "
             "needs PostgreSQL. Set NAUTOBOT_MAPS_DATABASE_URL=postgresql://... and remove NAUTOBOT_MAPS_DB."
         )
-    if not _current_persistence_dialect():
+    if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "
             "the alert board will stay empty; the map still works."
@@ -197,46 +188,6 @@ def require_role(required_role: str):
 # ---------------------------------------------------------------------------
 
 
-def _current_persistence_dialect() -> str:
-    """Return ``"postgres"`` when a PostgreSQL URL is configured, else ``""``."""
-    db_url = (settings.NAUTOBOT_MAPS_DATABASE_URL or "").strip()
-    if db_url.lower().startswith(("postgres://", "postgresql://")):
-        return "postgres"
-    return ""
-
-
-@contextmanager
-def _db_transaction(conn):
-    with conn.transaction():
-        yield conn
-
-
-def _serialize_value(value):
-    if isinstance(value, datetime):
-        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
-    return value
-
-
-def _row_to_dict(row) -> dict:
-    if row is None:
-        return {}
-    if isinstance(row, dict):
-        return {k: _serialize_value(v) for k, v in row.items()}
-    try:
-        data = dict(row)
-        return {k: _serialize_value(v) for k, v in data.items()}
-    except Exception:
-        return {}
-
-
-def _sql_placeholders(count: int) -> str:
-    return ",".join("%s" for _ in range(count))
-
-
-def _sql_now() -> str:
-    return "CURRENT_TIMESTAMP"
-
-
 def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -287,357 +238,8 @@ def _max_iso_datetime_value(*values: str | None) -> str | None:
     return result
 
 
-# Defined before _init_db(): it runs at import and its migration uses this (#169).
-def _build_alert_key(site_id: str, device_id: str) -> str:
-    """Identify a device's alert on a site.
-
-    The severity is deliberately not part of it: a Medium → Critical change
-    updates the open alert instead of resolving it and opening a new one,
-    which restarted its downtime (#163).
-    """
-    raw = f"{site_id.strip()}::{device_id.strip()}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _advisory_lock_key(name: str) -> int:
-    return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "big", signed=True)
-
-
-def _get_db_conn():
-    """Return a PostgreSQL connection, or ``None`` when persistence is disabled."""
-    if not _current_persistence_dialect():
-        return None
-    if psycopg is None:
-        logger.error(
-            "NAUTOBOT_MAPS_DATABASE_URL is set but psycopg is unavailable; "
-            "install psycopg to enable PostgreSQL persistence"
-        )
-        return None
-    return psycopg.connect(
-        settings.NAUTOBOT_MAPS_DATABASE_URL,
-        row_factory=dict_row,
-        autocommit=True,
-    )
-
-
-def _acquire_db_inventory_lock(name: str):
-    conn = _get_db_conn()
-    if conn is None:
-        return None
-    try:
-        key = _advisory_lock_key(name)
-        row = conn.execute(
-            "SELECT pg_try_advisory_lock(%s) AS acquired",
-            (key,),
-        ).fetchone()
-        acquired = _row_to_dict(row).get("acquired")
-        if not acquired:
-            conn.close()
-            return False
-
-        def _release() -> None:
-            try:
-                conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
-            finally:
-                conn.close()
-
-        return _release
-    except Exception:
-        conn.close()
-        raise
-
-
-def _init_db() -> None:
-    """Create persistence tables if they don't exist."""
-    conn = _get_db_conn()
-    if conn is None:
-        return
-    try:
-        with _db_transaction(conn):
-            conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS device_criticality_override (
-                    nautobot_device_id TEXT PRIMARY KEY,
-                    is_critical        INTEGER NOT NULL DEFAULT 1,
-                    reason             TEXT    NOT NULL DEFAULT '',
-                    updated_by         TEXT    NOT NULL DEFAULT '',
-                    updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS librenms_device_map (
-                    nautobot_device_id  TEXT PRIMARY KEY,
-                    librenms_device_id  INTEGER NOT NULL,
-                    librenms_hostname   TEXT    NOT NULL DEFAULT ''
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS inventory_sync_state (
-                    source               TEXT PRIMARY KEY,
-                    last_started_at      TIMESTAMPTZ,
-                    last_completed_at    TIMESTAMPTZ,
-                    last_successful_sync TIMESTAMPTZ,
-                    cache_version        TEXT NOT NULL DEFAULT '',
-                    status               TEXT NOT NULL DEFAULT 'idle',
-                    error_message        TEXT NOT NULL DEFAULT ''
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS nautobot_location_cache (
-                    location_id       TEXT PRIMARY KEY,
-                    name              TEXT NOT NULL DEFAULT '',
-                    slug              TEXT NOT NULL DEFAULT '',
-                    status            TEXT NOT NULL DEFAULT '',
-                    location_type     TEXT NOT NULL DEFAULT '',
-                    parent            TEXT NOT NULL DEFAULT '',
-                    parent_id         TEXT NOT NULL DEFAULT '',
-                    latitude          DOUBLE PRECISION,
-                    longitude         DOUBLE PRECISION,
-                    description       TEXT NOT NULL DEFAULT '',
-                    physical_address  TEXT NOT NULL DEFAULT '',
-                    facility          TEXT NOT NULL DEFAULT '',
-                    tenant            TEXT NOT NULL DEFAULT '',
-                    tenant_id         TEXT NOT NULL DEFAULT '',
-                    tenant_group      TEXT NOT NULL DEFAULT '',
-                    asn               BIGINT,
-                    time_zone         TEXT,
-                    tags_json         TEXT NOT NULL DEFAULT '[]',
-                    url               TEXT NOT NULL DEFAULT '',
-                    last_updated      TIMESTAMPTZ,
-                    synced_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS nautobot_device_cache (
-                    device_id      TEXT PRIMARY KEY,
-                    location_id    TEXT NOT NULL DEFAULT '',
-                    name           TEXT NOT NULL DEFAULT '',
-                    device_type    TEXT NOT NULL DEFAULT '',
-                    manufacturer   TEXT NOT NULL DEFAULT '',
-                    role           TEXT NOT NULL DEFAULT '',
-                    status         TEXT NOT NULL DEFAULT '',
-                    primary_ip     TEXT NOT NULL DEFAULT '',
-                    platform       TEXT NOT NULL DEFAULT '',
-                    serial         TEXT NOT NULL DEFAULT '',
-                    tenant         TEXT NOT NULL DEFAULT '',
-                    last_updated   TIMESTAMPTZ,
-                    synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS librenms_device_status (
-                    device_id      INTEGER PRIMARY KEY,
-                    hostname       TEXT NOT NULL DEFAULT '',
-                    ip             TEXT NOT NULL DEFAULT '',
-                    status         INTEGER,
-                    status_raw     TEXT NOT NULL DEFAULT '',
-                    status_reason  TEXT NOT NULL DEFAULT '',
-                    synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS alert_instances (
-                    id                     BIGSERIAL PRIMARY KEY,
-                    alert_key              TEXT NOT NULL,
-                    site_id                TEXT NOT NULL,
-                    site_name              TEXT NOT NULL DEFAULT '',
-                    device_id              TEXT NOT NULL,
-                    device_name            TEXT NOT NULL DEFAULT '',
-                    alert_level            TEXT NOT NULL DEFAULT 'unknown',
-                    alert_reason           TEXT NOT NULL DEFAULT '',
-                    status                 TEXT NOT NULL DEFAULT 'open',
-                    down_started_at        TIMESTAMPTZ NOT NULL,
-                    last_seen_down_at      TIMESTAMPTZ NOT NULL,
-                    resolved_at            TIMESTAMPTZ,
-                    total_downtime_seconds BIGINT NOT NULL DEFAULT 0,
-                    created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS alert_events (
-                    id                BIGSERIAL PRIMARY KEY,
-                    alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
-                    event_type        TEXT NOT NULL,
-                    event_at          TIMESTAMPTZ NOT NULL,
-                    alert_level       TEXT NOT NULL DEFAULT 'unknown',
-                    alert_reason      TEXT NOT NULL DEFAULT '',
-                    snapshot_json     TEXT NOT NULL DEFAULT '{}',
-                    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS alert_cases (
-                    id                BIGSERIAL PRIMARY KEY,
-                    alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
-                    case_number       TEXT NOT NULL,
-                    created_by        TEXT NOT NULL DEFAULT '',
-                    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(alert_instance_id, case_number)
-                )
-                """
-            )
-            primary_ip_column_missing = _row_to_dict(
-                conn.execute(
-                    """
-                    SELECT NOT EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = 'nautobot_device_cache'
-                          AND column_name = 'primary_ip'
-                    ) AS missing
-                    """
-                ).fetchone()
-            ).get("missing")
-            conn.execute(
-                """
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = 'nautobot_location_cache'
-                          AND column_name = 'time_zone'
-                          AND is_nullable = 'NO'
-                    ) THEN
-                        ALTER TABLE nautobot_location_cache ALTER COLUMN time_zone DROP NOT NULL;
-                    END IF;
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = 'nautobot_device_cache'
-                          AND column_name = 'primary_ip'
-                    ) THEN
-                        ALTER TABLE nautobot_device_cache ADD COLUMN primary_ip TEXT NOT NULL DEFAULT '';
-                    END IF;
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = 'inventory_sync_state'
-                          AND column_name = 'cache_version'
-                    ) THEN
-                        ALTER TABLE inventory_sync_state ADD COLUMN cache_version TEXT NOT NULL DEFAULT '';
-                    END IF;
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = 'librenms_device_status'
-                          AND column_name = 'ip'
-                    ) THEN
-                        ALTER TABLE librenms_device_status ADD COLUMN ip TEXT NOT NULL DEFAULT '';
-                    END IF;
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = 'nautobot_location_cache'
-                          AND column_name = 'parent_id'
-                    ) THEN
-                        -- Filled by the full resync the cache-version bump triggers (#158).
-                        ALTER TABLE nautobot_location_cache ADD COLUMN parent_id TEXT NOT NULL DEFAULT '';
-                    END IF;
-                END;
-                $$;
-                """
-            )
-            if primary_ip_column_missing:
-                _mark_nautobot_inventory_sync_pending(conn)
-            _migrate_open_alert_keys(conn)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_nautobot_device_cache_location ON nautobot_device_cache(location_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_alert_instances_site_status ON alert_instances(site_id, status)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
-            )
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
-            )
-    finally:
-        conn.close()
-    logger.info("Nautobot Maps persistence initialised (postgres)")
-
-
-def _migrate_open_alert_keys(conn) -> None:
-    """Re-key open alerts to site + device (#163); a no-op once done.
-
-    Keys used to include the severity.  Should a device have several open
-    alerts, the one that started first is kept and the others are closed
-    without adding downtime (they covered the same outage).
-    """
-    rows = [
-        _row_to_dict(row)
-        for row in conn.execute(
-            "SELECT id, alert_key, site_id, device_id FROM alert_instances "
-            "WHERE status = 'open' ORDER BY down_started_at ASC, id ASC"
-        ).fetchall()
-    ]
-    kept: set[tuple[str, str]] = set()
-    rekeyed = closed = 0
-    for row in rows:
-        device = (row.get("site_id") or "", row.get("device_id") or "")
-        if device in kept:
-            conn.execute(
-                "UPDATE alert_instances SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, "
-                "updated_at = CURRENT_TIMESTAMP WHERE id = %s",
-                (row["id"],),
-            )
-            closed += 1
-            continue
-        kept.add(device)
-        new_key = _build_alert_key(*device)
-        if row.get("alert_key") != new_key:
-            # Only one open row per device remains, so the unique open-key index holds.
-            conn.execute("UPDATE alert_instances SET alert_key = %s WHERE id = %s", (new_key, row["id"]))
-            rekeyed += 1
-    if rekeyed or closed:
-        logger.info("Alert keys migrated to site + device: %d re-keyed, %d duplicates closed", rekeyed, closed)
-
-
-def _mark_nautobot_inventory_sync_pending(conn) -> None:
-    marker = _sql_placeholders(1)
-    conn.execute(
-        f"""
-        UPDATE inventory_sync_state
-        SET last_started_at = NULL,
-            last_completed_at = NULL,
-            last_successful_sync = NULL,
-            cache_version = '',
-            status = 'pending',
-            error_message = ''
-        WHERE source = {marker}
-        """,
-        ("nautobot_inventory",),
-    )
-
-
 # Initialise the DB at startup (no-op when persistence is not configured).
-_init_db()
+db.init_db()
 
 
 def _cache_get(key: str):
@@ -1059,15 +661,15 @@ def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> l
 def _read_cached_location_name_map(conn=None) -> dict:
     owns_conn = conn is None
     if owns_conn:
-        conn = _get_db_conn()
+        conn = db.get_conn()
     if conn is None:
         return {}
     try:
         rows = conn.execute("SELECT location_id, name FROM nautobot_location_cache").fetchall()
         return {
-            _row_to_dict(row).get("location_id", ""): _row_to_dict(row).get("name", "")
+            db.row_to_dict(row).get("location_id", ""): db.row_to_dict(row).get("name", "")
             for row in rows
-            if _row_to_dict(row).get("location_id")
+            if db.row_to_dict(row).get("location_id")
         }
     except Exception as exc:
         logger.debug("Could not read cached location names: %s", exc)
@@ -1080,7 +682,7 @@ def _read_cached_location_name_map(conn=None) -> dict:
 def _read_cached_locations(include_without_coordinates: bool = False, conn=None) -> list:
     owns_conn = conn is None
     if owns_conn:
-        conn = _get_db_conn()
+        conn = db.get_conn()
     if conn is None:
         return []
     try:
@@ -1095,7 +697,7 @@ def _read_cached_locations(include_without_coordinates: bool = False, conn=None)
         ).fetchall()
         locations = []
         for row in rows:
-            data = _row_to_dict(row)
+            data = db.row_to_dict(row)
             lat = data.get("latitude")
             lon = data.get("longitude")
             has_coordinates = lat is not None and lon is not None
@@ -1136,13 +738,13 @@ def _read_cached_locations(include_without_coordinates: bool = False, conn=None)
 def _read_cached_devices(location_id: str | None = None, conn=None) -> list:
     owns_conn = conn is None
     if owns_conn:
-        conn = _get_db_conn()
+        conn = db.get_conn()
     if conn is None:
         return []
     try:
         params = ()
         if location_id:
-            marker = _sql_placeholders(1)
+            marker = db.placeholders(1)
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
                 "primary_ip, platform, serial, tenant FROM nautobot_device_cache "
@@ -1169,7 +771,7 @@ def _read_cached_devices(location_id: str | None = None, conn=None) -> list:
                 "serial": data.get("serial", ""),
                 "tenant": data.get("tenant", ""),
             }
-            for data in (_row_to_dict(row) for row in rows)
+            for data in (db.row_to_dict(row) for row in rows)
         ]
     except Exception as exc:
         logger.debug("Could not read cached devices: %s", exc)
@@ -1182,7 +784,7 @@ def _read_cached_devices(location_id: str | None = None, conn=None) -> list:
 def _read_cached_librenms_inventory(conn=None) -> list:
     owns_conn = conn is None
     if owns_conn:
-        conn = _get_db_conn()
+        conn = db.get_conn()
     if conn is None:
         return []
     try:
@@ -1196,7 +798,7 @@ def _read_cached_librenms_inventory(conn=None) -> list:
                 "ip": data.get("ip", ""),
                 "status": data.get("status"),
             }
-            for data in (_row_to_dict(row) for row in rows)
+            for data in (db.row_to_dict(row) for row in rows)
         ]
     except Exception as exc:
         logger.debug("Could not read cached LibreNMS inventory: %s", exc)
@@ -1217,7 +819,7 @@ def _record_sync_state(
     status: str = "idle",
     error_message: str = "",
 ) -> None:
-    p0, p1, p2, p3, p4, p5, p6 = _sql_placeholders(7).split(",")
+    p0, p1, p2, p3, p4, p5, p6 = db.placeholders(7).split(",")
     conn.execute(
         f"""
         INSERT INTO inventory_sync_state
@@ -1246,11 +848,11 @@ def _record_sync_state(
 def _get_sync_state(source: str, conn=None) -> dict:
     owns_conn = conn is None
     if owns_conn:
-        conn = _get_db_conn()
+        conn = db.get_conn()
     if conn is None:
         return {}
     try:
-        marker = _sql_placeholders(1)
+        marker = db.placeholders(1)
         row = conn.execute(
             f"""
             SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message
@@ -1259,7 +861,7 @@ def _get_sync_state(source: str, conn=None) -> dict:
             """,
             (source,),
         ).fetchone()
-        return _row_to_dict(row)
+        return db.row_to_dict(row)
     except Exception as exc:
         logger.debug("Could not read sync state for %s: %s", source, exc)
         return {}
@@ -1301,7 +903,7 @@ def _coalesce_cache_text(value):
 
 
 def _write_cached_locations(conn, locations: list) -> None:
-    placeholders = _sql_placeholders(20).split(",")
+    placeholders = db.placeholders(20).split(",")
     for loc in locations:
         conn.execute(
             f"""
@@ -1309,7 +911,7 @@ def _write_cached_locations(conn, locations: list) -> None:
                 (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
                  time_zone, tags_json, url, last_updated, synced_at)
-            VALUES ({", ".join(placeholders)}, {_sql_now()})
+            VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
                 slug = excluded.slug,
@@ -1358,14 +960,14 @@ def _write_cached_locations(conn, locations: list) -> None:
 
 
 def _write_cached_devices(conn, devices: list) -> None:
-    placeholders = _sql_placeholders(12).split(",")
+    placeholders = db.placeholders(12).split(",")
     for device in devices:
         conn.execute(
             f"""
             INSERT INTO nautobot_device_cache
                 (device_id, location_id, name, device_type, manufacturer, role, status,
                  primary_ip, platform, serial, tenant, last_updated, synced_at)
-            VALUES ({", ".join(placeholders)}, {_sql_now()})
+            VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(device_id) DO UPDATE SET
                 location_id = excluded.location_id,
                 name = excluded.name,
@@ -1412,13 +1014,13 @@ def _librenms_polled_ip(device: dict) -> str:
 
 
 def _write_cached_librenms_devices(conn, devices: list) -> None:
-    placeholders = _sql_placeholders(6).split(",")
+    placeholders = db.placeholders(6).split(",")
     for device in devices:
         conn.execute(
             f"""
             INSERT INTO librenms_device_status
                 (device_id, hostname, ip, status, status_raw, status_reason, synced_at)
-            VALUES ({", ".join(placeholders)}, {_sql_now()})
+            VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(device_id) DO UPDATE SET
                 hostname = excluded.hostname,
                 ip = excluded.ip,
@@ -1439,7 +1041,7 @@ def _write_cached_librenms_devices(conn, devices: list) -> None:
 
 
 def _sync_nautobot_inventory(force: bool = False) -> None:
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         if conn is not None:
             conn.close()
@@ -1463,7 +1065,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                 conn=conn,
             )
         )
-        with _db_transaction(conn):
+        with db.transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -1490,7 +1092,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
                     (SELECT COUNT(*) FROM nautobot_device_cache) AS device_count
                 """
             ).fetchone()
-            existing_counts = _row_to_dict(existing_counts)
+            existing_counts = db.row_to_dict(existing_counts)
             if (
                 (
                     int(existing_counts.get("location_count") or 0) > 0
@@ -1518,7 +1120,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
             watermark = _next_watermark(observed_last_updated)
         if full_reconcile:
             watermark = _max_iso_datetime_value(watermark, started_at) or started_at
-        with _db_transaction(conn):
+        with db.transaction(conn):
             if full_reconcile:
                 conn.execute("DELETE FROM nautobot_device_cache")
                 conn.execute("DELETE FROM nautobot_location_cache")
@@ -1548,7 +1150,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         _invalidate_alert_board_cache()
     except Exception as exc:
         logger.warning("Could not sync Nautobot inventory into persistence DB: %s", exc)
-        with _db_transaction(conn):
+        with db.transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -1564,7 +1166,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
 
 
 def _sync_librenms_inventory(force: bool = False) -> None:
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None or not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         if conn is not None:
             conn.close()
@@ -1574,7 +1176,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
     last_successful_sync = None
     try:
         last_successful_sync = None if force else _get_sync_state(source, conn=conn).get("last_successful_sync")
-        with _db_transaction(conn):
+        with db.transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -1586,10 +1188,10 @@ def _sync_librenms_inventory(force: bool = False) -> None:
             )
         devices = _fetch_librenms_inventory()
         existing_count = conn.execute("SELECT COUNT(*) AS device_count FROM librenms_device_status").fetchone()
-        existing_count = int(_row_to_dict(existing_count).get("device_count") or 0)
+        existing_count = int(db.row_to_dict(existing_count).get("device_count") or 0)
         if existing_count > 0 and not devices:
             raise RuntimeError("LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot")
-        with _db_transaction(conn):
+        with db.transaction(conn):
             completed_at = _iso_utc_now()
             conn.execute("DELETE FROM librenms_device_status")
             _write_cached_librenms_devices(conn, devices)
@@ -1605,7 +1207,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
         _invalidate_alert_board_cache()
     except Exception as exc:
         logger.warning("Could not sync LibreNMS inventory into persistence DB: %s", exc)
-        with _db_transaction(conn):
+        with db.transaction(conn):
             _record_sync_state(
                 conn,
                 source,
@@ -1635,10 +1237,10 @@ def _ensure_inventory_snapshot(force: bool = False, wait: bool = False, full: bo
         conn = None
         release_db_lock = None
         try:
-            release_db_lock = _acquire_db_inventory_lock("inventory_snapshot_sync")
+            release_db_lock = db.try_advisory_lock("inventory_snapshot_sync")
             if release_db_lock is False:
                 return False
-            conn = _get_db_conn()
+            conn = db.get_conn()
             if conn is None:
                 return False
             nautobot_state = _get_sync_state("nautobot_inventory", conn=conn)
@@ -1855,11 +1457,11 @@ def _read_criticality_overrides(conn, device_ids: list | None = None) -> dict:
     query = "SELECT nautobot_device_id, is_critical FROM device_criticality_override"
     params: list = []
     if device_ids is not None:
-        query += f" WHERE nautobot_device_id IN ({_sql_placeholders(len(device_ids))})"
+        query += f" WHERE nautobot_device_id IN ({db.placeholders(len(device_ids))})"
         params = list(device_ids)
     overrides = {}
     for row in conn.execute(query, params).fetchall():
-        data = _row_to_dict(row)
+        data = db.row_to_dict(row)
         if data.get("nautobot_device_id"):
             overrides[data["nautobot_device_id"]] = bool(data.get("is_critical"))
     return overrides
@@ -1901,7 +1503,7 @@ def compute_alert_level(
 
     if override_map is None:
         override_map = {}
-        conn = _get_db_conn()
+        conn = db.get_conn()
         if conn is not None:
             try:
                 ids = [d.get("id") for d in devices if d.get("id")]
@@ -1991,7 +1593,7 @@ def _fetch_librenms_inventory() -> list:
 def _load_librenms_id_map() -> dict:
     """Load persisted Nautobot UUID → LibreNMS device mapping."""
     lnms_id_map: dict = {}
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is not None:
         try:
             rows = conn.execute(
@@ -2113,12 +1715,12 @@ def _enrich_with_librenms(
 
 def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, librenms_hostname: str) -> None:
     """Upsert a Nautobot ↔ LibreNMS device mapping into the database."""
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None:
         return
     try:
-        with _db_transaction(conn):
-            p0, p1, p2 = _sql_placeholders(3).split(",")
+        with db.transaction(conn):
+            p0, p1, p2 = db.placeholders(3).split(",")
             conn.execute(
                 f"""
                 INSERT INTO librenms_device_map (nautobot_device_id, librenms_device_id, librenms_hostname)
@@ -2234,8 +1836,8 @@ def _insert_alert_event(
     alert_reason: str,
     snapshot: dict,
 ) -> None:
-    now_sql = _sql_now()
-    placeholders = _sql_placeholders(6)
+    now_sql = db.sql_now()
+    placeholders = db.placeholders(6)
     conn.execute(
         f"""
         INSERT INTO alert_events
@@ -2259,7 +1861,7 @@ def _resolve_open_alert_instances_for_site(
     open_alert_keys: set[str],
     checked_at: str,
 ) -> None:
-    marker = _sql_placeholders(1)
+    marker = db.placeholders(1)
     open_rows = conn.execute(
         f"""
         SELECT id, alert_key, site_id, site_name, device_id, device_name, down_started_at
@@ -2269,7 +1871,7 @@ def _resolve_open_alert_instances_for_site(
         (site_id,),
     ).fetchall()
     for row in open_rows:
-        row_data = _row_to_dict(row)
+        row_data = db.row_to_dict(row)
         alert_key = row_data.get("alert_key", "")
         if alert_key in open_alert_keys:
             continue
@@ -2278,8 +1880,8 @@ def _resolve_open_alert_instances_for_site(
         elapsed = 0
         if started and resolved:
             elapsed = max(0, int((resolved - started).total_seconds()))
-        now_sql = _sql_now()
-        p0, p1, p2, p3 = _sql_placeholders(4).split(",")
+        now_sql = db.sql_now()
+        p0, p1, p2, p3 = db.placeholders(4).split(",")
         cur = conn.execute(
             f"""
             UPDATE alert_instances
@@ -2323,7 +1925,7 @@ def _upsert_alert_lifecycle_for_site(
     """
     owns_conn = conn is None
     if conn is None:
-        conn = _get_db_conn()
+        conn = db.get_conn()
     if conn is None:
         return False
     site_id = (site.get("id") or "").strip()
@@ -2333,7 +1935,7 @@ def _upsert_alert_lifecycle_for_site(
         return True
     open_alert_keys: set[str] = set()
     try:
-        with _db_transaction(conn):
+        with db.transaction(conn):
             for device in devices:
                 status = (device.get("status") or "").lower().strip()
                 if status not in _DOWN_STATUSES:
@@ -2343,9 +1945,9 @@ def _upsert_alert_lifecycle_for_site(
                     continue
                 level = (alert.get("level") or "no_data").lower()
                 reason = alert.get("reason") or ""
-                alert_key = _build_alert_key(site_id, device_id)
+                alert_key = db.build_alert_key(site_id, device_id)
                 open_alert_keys.add(alert_key)
-                marker = _sql_placeholders(1)
+                marker = db.placeholders(1)
                 latest_row = conn.execute(
                     f"""
                     SELECT id, status, down_started_at, alert_level, alert_reason
@@ -2357,8 +1959,8 @@ def _upsert_alert_lifecycle_for_site(
                     (alert_key,),
                 ).fetchone()
                 if latest_row is None:
-                    now_sql = _sql_now()
-                    p = _sql_placeholders(10).split(",")
+                    now_sql = db.sql_now()
+                    p = db.placeholders(10).split(",")
                     conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
                     inserted = conn.execute(
                         f"""
@@ -2384,7 +1986,7 @@ def _upsert_alert_lifecycle_for_site(
                             checked_at,
                         ),
                     ).fetchone()
-                    inserted_id = _row_to_dict(inserted).get("id")
+                    inserted_id = db.row_to_dict(inserted).get("id")
                     if inserted_id is not None:
                         _insert_alert_event(
                             conn=conn,
@@ -2414,9 +2016,9 @@ def _upsert_alert_lifecycle_for_site(
                     ).fetchone()
                     if latest_row is None:
                         continue
-                current = _row_to_dict(latest_row)
-                now_sql = _sql_now()
-                p = _sql_placeholders(6).split(",")
+                current = db.row_to_dict(latest_row)
+                now_sql = db.sql_now()
+                p = db.placeholders(6).split(",")
                 conn.execute(
                     f"""
                     UPDATE alert_instances
@@ -2464,7 +2066,7 @@ def _upsert_alert_lifecycle_for_site(
 
 
 def _get_case_numbers_for_instance(conn, instance_id: int) -> list[str]:
-    marker = _sql_placeholders(1)
+    marker = db.placeholders(1)
     rows = conn.execute(
         f"""
         SELECT case_number
@@ -2475,16 +2077,16 @@ def _get_case_numbers_for_instance(conn, instance_id: int) -> list[str]:
         (instance_id,),
     ).fetchall()
     return [
-        (_row_to_dict(row).get("case_number") or "").strip()
+        (db.row_to_dict(row).get("case_number") or "").strip()
         for row in rows
-        if (_row_to_dict(row).get("case_number") or "").strip()
+        if (db.row_to_dict(row).get("case_number") or "").strip()
     ]
 
 
 def _get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, list[str]]:
     if not instance_ids:
         return {}
-    markers = _sql_placeholders(len(instance_ids))
+    markers = db.placeholders(len(instance_ids))
     rows = conn.execute(
         f"""
         SELECT alert_instance_id, case_number
@@ -2496,7 +2098,7 @@ def _get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, 
     ).fetchall()
     case_numbers_by_instance: dict[int, list[str]] = {instance_id: [] for instance_id in instance_ids}
     for row in rows:
-        data = _row_to_dict(row)
+        data = db.row_to_dict(row)
         instance_id = int(data.get("alert_instance_id") or 0)
         case_number = (data.get("case_number") or "").strip()
         if instance_id and case_number:
@@ -2557,7 +2159,7 @@ def _summarize_alert_context(
 
 def _read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     """Query one site's alert context on *conn*; raises on database errors."""
-    site_marker = _sql_placeholders(1)
+    site_marker = db.placeholders(1)
     rows = conn.execute(
         f"""
         SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds
@@ -2570,7 +2172,7 @@ def _read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     historical_seconds = 0
     open_rows = []
     for row in rows:
-        data = _row_to_dict(row)
+        data = db.row_to_dict(row)
         historical_seconds += int(data.get("total_downtime_seconds") or 0)
         if data.get("status") == "open":
             open_rows.append(data)
@@ -2584,7 +2186,7 @@ def _read_alert_context(conn, site_id: str, checked_at: str) -> dict:
 def _get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dict:
     owns_conn = conn is None
     if conn is None:
-        conn = _get_db_conn()
+        conn = db.get_conn()
     if conn is None:
         return _empty_alert_context()
     try:
@@ -2608,7 +2210,7 @@ def _nautobot_sync_in_progress() -> bool:
     Reads the shared ``inventory_sync_state`` row, so every worker process
     sees syncs started by any other worker.
     """
-    if not _current_persistence_dialect():
+    if not db.dialect():
         return False
     state = _get_sync_state("nautobot_inventory")
     if state.get("status") != "running":
@@ -2636,9 +2238,9 @@ def _inventory_update_schedule() -> tuple[bool, int | None]:
         sources.append(("nautobot_inventory", settings.INVENTORY_SYNC_INTERVAL_SECONDS))
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         sources.append(("librenms_inventory", settings.LIBRENMS_SYNC_INTERVAL_SECONDS))
-    if not sources or not _current_persistence_dialect():
+    if not sources or not db.dialect():
         return False, None
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None:
         return False, None
     try:
@@ -2693,7 +2295,7 @@ def _apply_alert_board_freshness(
     result["sync_pending"] = bool(sync_enqueued) or _nautobot_sync_in_progress()
     # The board reads only the persisted snapshot, so without a database it is
     # always empty; the UI uses this flag to say why (#136).
-    result["persistence_configured"] = bool(_current_persistence_dialect())
+    result["persistence_configured"] = bool(db.dialect())
     result["next_update_in_seconds"] = next_update_in_seconds
     return result
 
@@ -2794,7 +2396,7 @@ def _read_alert_board_data(conn) -> dict:
         GROUP BY site_id
         """
     ).fetchall():
-        data = _row_to_dict(row)
+        data = db.row_to_dict(row)
         historical_downtime_by_site[data.get("site_id") or ""] = int(data.get("total") or 0)
 
     open_rows_by_site: dict[str, list[dict]] = {}
@@ -2806,7 +2408,7 @@ def _read_alert_board_data(conn) -> dict:
         ORDER BY id DESC
         """
     ).fetchall():
-        data = _row_to_dict(row)
+        data = db.row_to_dict(row)
         open_rows_by_site.setdefault(data.get("site_id") or "", []).append(data)
 
     case_numbers_by_instance: dict[int, list[str]] = {}
@@ -2819,7 +2421,7 @@ def _read_alert_board_data(conn) -> dict:
         ORDER BY ac.created_at DESC, ac.id DESC
         """
     ).fetchall():
-        data = _row_to_dict(row)
+        data = db.row_to_dict(row)
         instance_id = int(data.get("alert_instance_id") or 0)
         case_number = (data.get("case_number") or "").strip()
         if instance_id and case_number:
@@ -2870,7 +2472,7 @@ def _build_alert_board_payload(
     board_data = None
     read_conn = None
     try:
-        read_conn = _get_db_conn()
+        read_conn = db.get_conn()
     except Exception as exc:
         logger.warning("Could not connect to persistence DB for alert board: %s", exc)
     if read_conn is None:
@@ -2958,7 +2560,7 @@ def _build_alert_board_payload(
             if needs_write and not persistence_unavailable:
                 if write_conn is None:
                     try:
-                        write_conn = _get_db_conn()
+                        write_conn = db.get_conn()
                     except Exception as exc:
                         logger.warning("Could not connect to persistence DB for alert board: %s", exc)
                     if write_conn is None:
@@ -3152,7 +2754,7 @@ def _scheduler_tick_seconds() -> int:
 
 def _scheduler_tick() -> bool:
     """Run the due syncs and rebuild the board if one ran.  Returns whether it did work."""
-    release = _acquire_db_inventory_lock("background_scheduler")
+    release = db.try_advisory_lock("background_scheduler")
     if not callable(release):
         return False  # no database, or another process holds the tick
     try:
@@ -3181,7 +2783,7 @@ def start_background_scheduler() -> bool:
     global _scheduler_started
     if (
         not settings.BACKGROUND_SYNC_ENABLED
-        or not _current_persistence_dialect()
+        or not db.dialect()
         or not (settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN)
     ):
         return False
@@ -3349,10 +2951,10 @@ def healthz():
     ``"status": "unavailable"``.  Error details are logged, never returned.
     """
     checks = {"app": "ok"}
-    if _current_persistence_dialect():
+    if db.dialect():
         conn = None
         try:
-            conn = _get_db_conn()
+            conn = db.get_conn()
             conn.execute("SELECT 1").fetchone()
             checks["database"] = "ok"
         except Exception as exc:
@@ -3532,7 +3134,7 @@ def api_list_criticality_overrides():
 
     Returns 503 when the persistence DB is not configured.
     """
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     try:
@@ -3540,7 +3142,7 @@ def api_list_criticality_overrides():
             "SELECT nautobot_device_id, is_critical, reason, updated_by, updated_at "
             "FROM device_criticality_override ORDER BY updated_at DESC"
         ).fetchall()
-        return jsonify({"overrides": [_row_to_dict(r) for r in rows]})
+        return jsonify({"overrides": [db.row_to_dict(r) for r in rows]})
     except Exception as exc:
         logger.error("Could not list criticality overrides: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
@@ -3564,7 +3166,7 @@ def api_set_criticality_override():
 
     Returns 503 when the DB is not configured.
     """
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     body = request.get_json(silent=True) or {}
@@ -3578,9 +3180,9 @@ def api_set_criticality_override():
     if not updated_by:
         updated_by = _get_current_user().get("username", "")
     try:
-        with _db_transaction(conn):
-            p0, p1, p2, p3 = _sql_placeholders(4).split(",")
-            now_sql = _sql_now()
+        with db.transaction(conn):
+            p0, p1, p2, p3 = db.placeholders(4).split(",")
+            now_sql = db.sql_now()
             conn.execute(
                 f"""
                 INSERT INTO device_criticality_override
@@ -3610,12 +3212,12 @@ def api_delete_criticality_override(device_id: str):
     Returns 404 if no override exists for the given device ID.
     Returns 503 when the DB is not configured.
     """
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     try:
-        with _db_transaction(conn):
-            marker = _sql_placeholders(1)
+        with db.transaction(conn):
+            marker = db.placeholders(1)
             cur = conn.execute(
                 f"DELETE FROM device_criticality_override WHERE nautobot_device_id = {marker}",
                 (device_id,),
@@ -3639,7 +3241,7 @@ def api_delete_criticality_override(device_id: str):
 @require_role("operator")
 def api_alert_history():
     """Return historical alert instances with events and case numbers."""
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     site_id = (request.args.get("site_id") or "").strip()
@@ -3664,16 +3266,16 @@ def api_alert_history():
         conditions = []
         params = []
         if site_id:
-            conditions.append(f"site_id = {_sql_placeholders(1)}")
+            conditions.append(f"site_id = {db.placeholders(1)}")
             params.append(site_id)
         if device_id:
-            conditions.append(f"device_id = {_sql_placeholders(1)}")
+            conditions.append(f"device_id = {db.placeholders(1)}")
             params.append(device_id)
         if start_at:
-            conditions.append(f"created_at >= {_sql_placeholders(1)}")
+            conditions.append(f"created_at >= {db.placeholders(1)}")
             params.append(start_at)
         if end_at:
-            conditions.append(f"created_at <= {_sql_placeholders(1)}")
+            conditions.append(f"created_at <= {db.placeholders(1)}")
             params.append(end_at)
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         rows = conn.execute(
@@ -3688,12 +3290,12 @@ def api_alert_history():
             """,
             tuple(params),
         ).fetchall()
-        instances = [_row_to_dict(row) for row in rows]
+        instances = [db.row_to_dict(row) for row in rows]
         instance_ids = [row["id"] for row in instances if row.get("id") is not None]
         events_by_instance: dict[str, list[dict]] = {str(instance_id): [] for instance_id in instance_ids}
         cases_by_instance: dict[str, list[dict]] = {str(instance_id): [] for instance_id in instance_ids}
         if instance_ids:
-            markers = _sql_placeholders(len(instance_ids))
+            markers = db.placeholders(len(instance_ids))
             ev_rows = conn.execute(
                 f"""
                 SELECT alert_instance_id, event_type, event_at, alert_level, alert_reason, snapshot_json
@@ -3713,7 +3315,7 @@ def api_alert_history():
                 tuple(instance_ids),
             ).fetchall()
             for ev_row in ev_rows:
-                event = _row_to_dict(ev_row)
+                event = db.row_to_dict(ev_row)
                 instance_id = str(event.pop("alert_instance_id"))
                 try:
                     event["snapshot"] = json.loads(event.pop("snapshot_json", "{}") or "{}")
@@ -3721,7 +3323,7 @@ def api_alert_history():
                     event["snapshot"] = {}
                 events_by_instance.setdefault(instance_id, []).append(event)
             for case_row in case_rows:
-                case_data = _row_to_dict(case_row)
+                case_data = db.row_to_dict(case_row)
                 instance_id = str(case_data.pop("alert_instance_id"))
                 cases_by_instance.setdefault(instance_id, []).append(case_data)
         for instance in instances:
@@ -3766,15 +3368,15 @@ def api_add_alert_case():
     if len(device_ids) > _MAX_CASE_DEVICES:
         return jsonify({"error": f"At most {_MAX_CASE_DEVICES} devices per request"}), 400
 
-    conn = _get_db_conn()
+    conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     created_by = (_get_current_user().get("username") or "").strip()
     try:
-        with _db_transaction(conn):
+        with db.transaction(conn):
             instance_ids: dict[str, int] = {}
             for device_id in device_ids:
-                p0, p1 = _sql_placeholders(2).split(",")
+                p0, p1 = db.placeholders(2).split(",")
                 row = conn.execute(
                     f"""
                     SELECT id
@@ -3786,7 +3388,7 @@ def api_add_alert_case():
                     (site_id, device_id),
                 ).fetchone()
                 if row is not None:
-                    instance_ids[device_id] = _row_to_dict(row)["id"]
+                    instance_ids[device_id] = db.row_to_dict(row)["id"]
             missing = [device_id for device_id in device_ids if device_id not in instance_ids]
             if missing:
                 return (
@@ -3799,11 +3401,11 @@ def api_add_alert_case():
                     404,
                 )
             for device_id in device_ids:
-                p0, p1, p2 = _sql_placeholders(3).split(",")
+                p0, p1, p2 = db.placeholders(3).split(",")
                 conn.execute(
                     f"""
                     INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at)
-                    VALUES ({p0}, {p1}, {p2}, {_sql_now()})
+                    VALUES ({p0}, {p1}, {p2}, {db.sql_now()})
                     ON CONFLICT(alert_instance_id, case_number) DO NOTHING
                     """,
                     (instance_ids[device_id], case_number, created_by),
