@@ -28,23 +28,45 @@ if _demo_dir not in sys.path:
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "").strip()
 
 
-@pytest.fixture(autouse=True)
-def _settings_live_only_in_settings_module():
-    """Fail a test that sets a moved setting on `app` (#165).
+# Names moved out of app.py (#165). Assigning one on `app` would silently create
+# an unused attribute, so the test would test nothing.
+_MOVED_FROM_APP = {
+    "db": (
+        "_current_persistence_dialect",
+        "_db_transaction",
+        "_serialize_value",
+        "_row_to_dict",
+        "_sql_placeholders",
+        "_sql_now",
+        "_build_alert_key",
+        "_advisory_lock_key",
+        "_get_db_conn",
+        "_acquire_db_inventory_lock",
+        "_init_db",
+        "_migrate_open_alert_keys",
+        "_mark_nautobot_inventory_sync_pending",
+        "psycopg",
+        "dict_row",
+    ),
+}
 
-    Settings live in nautobot_maps.settings; `app.NAUTOBOT_URL = ...` would
-    silently create an unused attribute and the test would test nothing.
-    """
+
+@pytest.fixture(autouse=True)
+def _moved_names_are_not_set_on_app():
+    """Fail a test that sets a moved setting or function on `app` (#165)."""
     yield
     app_module = sys.modules.get("app")
     if app_module is None:
         return
     from nautobot_maps import settings
 
-    stray = [name for name in settings.SETTING_NAMES if name in vars(app_module)]
+    moved = {name: "settings" for name in settings.SETTING_NAMES}
+    for module, names in _MOVED_FROM_APP.items():
+        moved.update(dict.fromkeys(names, module))
+    stray = {name: moved[name] for name in moved if name in vars(app_module)}
     for name in stray:
         delattr(app_module, name)  # so only the offending test fails
-    assert not stray, f"set these on nautobot_maps.settings, not on app: {stray}"
+    assert not stray, f"set these on their nautobot_maps module, not on app: {stray}"
 
 
 def _with_search_path(url: str, schema: str) -> str:
@@ -79,14 +101,14 @@ def pg_database(monkeypatch):
             pytest.fail("TEST_DATABASE_URL must be set in CI: PostgreSQL tests may not be skipped")
         pytest.skip("TEST_DATABASE_URL not set – skipping PostgreSQL tests")
     import app as flask_app
-    from nautobot_maps import settings
+    from nautobot_maps import db, settings
 
     schema = f"test_{uuid.uuid4().hex[:16]}"
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
         admin.execute(f'CREATE SCHEMA "{schema}"')
     url = _with_search_path(TEST_DATABASE_URL, schema)
     monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", url)
-    flask_app._init_db()
+    db.init_db()
     flask_app.cache.clear()
     try:
         yield TestDatabase(url)

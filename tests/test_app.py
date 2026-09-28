@@ -11,7 +11,7 @@ from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
-from nautobot_maps import settings
+from nautobot_maps import db, settings
 
 
 @contextmanager
@@ -845,7 +845,7 @@ class TestAlertBoard:
             {"id": "d2", "name": "sw01", "role": "Switch", "status": "", "primary_ip": "10.0.0.2"},
             {"id": "d3", "name": "sw02", "role": "Switch", "status": "Active", "primary_ip": "10.0.0.3"},
         ]
-        with patch.object(flask_app, "_get_db_conn", return_value=None):
+        with patch.object(db, "get_conn", return_value=None):
             scored, alert = flask_app._get_location_devices_and_alert(
                 "loc-1",
                 devices_data=devices,
@@ -1121,7 +1121,7 @@ class TestAlertBoard:
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(flask_app, "_nautobot_inventory_primary_ip_backfill_pending", return_value=False),
-            patch.object(flask_app, "_get_db_conn", side_effect=fake_get_db_conn),
+            patch.object(db, "get_conn", side_effect=fake_get_db_conn),
             patch.object(flask_app, "_upsert_alert_lifecycle_for_site", side_effect=fake_upsert),
             patch.object(flask_app, "_read_alert_context", side_effect=fake_context),
         ):
@@ -1151,7 +1151,7 @@ class TestAlertBoard:
                 "_get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
-            patch.object(flask_app, "_get_db_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn,
+            patch.object(db, "get_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn,
             patch.object(flask_app, "_upsert_alert_lifecycle_for_site") as upsert,
             patch.object(flask_app, "_read_alert_context") as get_context,
         ):
@@ -1181,7 +1181,7 @@ class TestAlertBoard:
                 "_get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
-            patch.object(flask_app, "_get_db_conn", return_value=_FakeConn()),
+            patch.object(db, "get_conn", return_value=_FakeConn()),
             patch.object(
                 flask_app,
                 "_get_sync_state",
@@ -2289,7 +2289,7 @@ class TestAlertLifecycleTracking:
         assert len(dev1) == 1, dev1  # one alert, not resolved and reopened
         assert dev1[0]["status"] == "open"
         assert dev1[0]["alert_level"] == "critical"
-        assert flask_app._serialize_value(dev1[0]["down_started_at"]) == t0
+        assert db.serialize_value(dev1[0]["down_started_at"]) == t0
         events = self.db.execute(
             "SELECT e.event_type, e.alert_level FROM alert_events e "
             "JOIN alert_instances i ON i.id = e.alert_instance_id WHERE i.device_id = 'dev-1' ORDER BY e.id"
@@ -2323,8 +2323,8 @@ class TestAlertLifecycleTracking:
             [(key, device, device, status, started, started) for key, device, status, started in rows],
         )
 
-        flask_app._init_db()
-        flask_app._init_db()  # a second run changes nothing
+        db.init_db()
+        db.init_db()  # a second run changes nothing
 
         result = self.db.execute(
             "SELECT alert_key, device_id, status, down_started_at, total_downtime_seconds "
@@ -2336,8 +2336,8 @@ class TestAlertLifecycleTracking:
             ("dev-2", "open"),
             ("dev-3", "resolved"),
         ]
-        assert result[0]["alert_key"] == flask_app._build_alert_key("loc-1", "dev-1")
-        assert result[2]["alert_key"] == flask_app._build_alert_key("loc-1", "dev-2")
+        assert result[0]["alert_key"] == db.build_alert_key("loc-1", "dev-1")
+        assert result[2]["alert_key"] == db.build_alert_key("loc-1", "dev-2")
         assert result[3]["alert_key"] == old_key("loc-1", "dev-3", "medium")  # history untouched
         assert all(r["total_downtime_seconds"] == 0 for r in result)
         # The build finds the migrated alert and keeps its start time.
@@ -2353,13 +2353,13 @@ class TestAlertLifecycleTracking:
         open_rows = self.db.execute(
             "SELECT device_id, down_started_at FROM alert_instances WHERE status = 'open' ORDER BY device_id"
         )
-        assert [(r["device_id"], flask_app._serialize_value(r["down_started_at"])) for r in open_rows] == [
+        assert [(r["device_id"], db.serialize_value(r["down_started_at"])) for r in open_rows] == [
             ("dev-1", "2026-01-01T00:00:00Z"),
             ("dev-2", "2026-01-01T01:00:00Z"),
         ]
 
     def test_app_starts_with_open_alerts_to_migrate(self):
-        """Startup runs _init_db() while app.py is still loading; the migration must work there.
+        """Startup runs db.init_db() while app.py is still loading; the migration must work there.
 
         Production crashed with NameError: the migration called a helper
         defined further down the file.  Import the app in a fresh process
@@ -2386,7 +2386,7 @@ class TestAlertLifecycleTracking:
         )
         assert completed.returncode == 0, completed.stderr[-2000:]
         rows = self.db.execute("SELECT alert_key FROM alert_instances")
-        assert rows == [{"alert_key": flask_app._build_alert_key("loc-1", "dev-1")}]
+        assert rows == [{"alert_key": db.build_alert_key("loc-1", "dev-1")}]
 
     def test_add_case_number_to_active_alert(self, client):
         site = {"id": "loc-1", "name": "Site One"}
@@ -2425,7 +2425,7 @@ class TestAlertLifecycleTracking:
             content_type="application/json",
         )
         assert created.status_code == 200
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._record_sync_state(
@@ -2551,7 +2551,7 @@ class TestAlertLifecycleTracking:
         assert data["alerts"][0]["alert_level"] == "no_data"
         history = flask_app._get_alert_context_for_site("loc-1", flask_app._iso_utc_now())
         assert history["active_alert_instance_count"] == 1
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             rows = conn.execute(
                 "SELECT status FROM alert_instances WHERE site_id = %s ORDER BY id DESC",
@@ -2559,7 +2559,7 @@ class TestAlertLifecycleTracking:
             ).fetchall()
         finally:
             conn.close()
-        assert flask_app._row_to_dict(rows[0])["status"] == "open"
+        assert db.row_to_dict(rows[0])["status"] == "open"
 
     def test_get_alert_board_data_uses_cache_when_persistence_enabled(self):
         sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
@@ -2752,7 +2752,7 @@ class TestAlertLifecycleTracking:
 
         fake_conn = _FakeConn()
         checked_at = "2026-01-01T00:00:00Z"
-        with patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"):
+        with patch.object(db, "dialect", return_value="postgres"):
             flask_app._upsert_alert_lifecycle_for_site(
                 {"id": "loc-1", "name": "Site One"},
                 [{"id": "dev-1", "name": "router01", "status": "offline"}],
@@ -2831,10 +2831,10 @@ class TestAlertLifecycleTracking:
 
         fake_conn = _FakeConn()
         with (
-            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
-            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
+            patch.object(db, "get_conn", return_value=fake_conn),
+            patch.object(db, "dialect", return_value="postgres"),
         ):
-            flask_app._init_db()
+            db.init_db()
 
         lock_idx = next(i for i, query in enumerate(fake_conn.queries) if "pg_advisory_xact_lock" in query)
         table_idx = next(
@@ -2894,10 +2894,10 @@ class TestAlertLifecycleTracking:
 
         fake_conn = _FakeConn()
         with (
-            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
-            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
+            patch.object(db, "get_conn", return_value=fake_conn),
+            patch.object(db, "dialect", return_value="postgres"),
         ):
-            flask_app._init_db()
+            db.init_db()
 
         reset_query, reset_params = next(
             (query, params) for query, params in fake_conn.queries if "UPDATE inventory_sync_state" in query
@@ -2970,10 +2970,10 @@ class TestAlertLifecycleTracking:
 
         fake_conn = _FakeConn()
         with (
-            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
-            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
+            patch.object(db, "get_conn", return_value=fake_conn),
+            patch.object(db, "dialect", return_value="postgres"),
         ):
-            flask_app._init_db()
+            db.init_db()
 
         assert any(
             "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query for query, _ in fake_conn.queries
@@ -2998,7 +2998,7 @@ class TestAlertLifecycleTracking:
         )
 
     def test_init_db_migrates_legacy_time_zone_not_null(self):
-        """Old databases had time_zone NOT NULL; _init_db relaxes it and keeps the rows."""
+        """Old databases had time_zone NOT NULL; db.init_db relaxes it and keeps the rows."""
         self.db.execute("DROP TABLE nautobot_location_cache")
         self.db.execute(
             """
@@ -3031,7 +3031,7 @@ class TestAlertLifecycleTracking:
             ("loc-legacy", "UTC"),
         )
 
-        flask_app._init_db()
+        db.init_db()
 
         column = self.db.execute(
             """
@@ -3072,7 +3072,7 @@ class TestAlertLifecycleTracking:
             ),
         )
 
-        flask_app._init_db()
+        db.init_db()
 
         columns = {
             row["table_name"] + "." + row["column_name"]
@@ -3102,12 +3102,12 @@ class TestAlertLifecycleTracking:
         sentinel_row_factory = object()
         with (
             patch.object(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://db.example/maps"),
-            patch.object(flask_app, "psycopg") as psycopg_module,
-            patch.object(flask_app, "dict_row", sentinel_row_factory),
+            patch.object(db, "psycopg") as psycopg_module,
+            patch.object(db, "dict_row", sentinel_row_factory),
         ):
             psycopg_module.connect.return_value = sentinel_conn
 
-            conn = flask_app._get_db_conn()
+            conn = db.get_conn()
 
         assert conn is sentinel_conn
         psycopg_module.connect.assert_called_once_with(
@@ -3127,7 +3127,7 @@ class TestInventoryCacheSync:
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -3187,7 +3187,7 @@ class TestInventoryCacheSync:
         ]
 
     def test_cached_locations_allow_null_time_zone(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -3225,7 +3225,7 @@ class TestInventoryCacheSync:
         assert location["time_zone"] is None
 
     def test_write_cached_locations_coalesces_explicit_none_text_fields(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -3270,7 +3270,7 @@ class TestInventoryCacheSync:
         assert locations[0]["url"] == ""
 
     def test_write_cached_devices_coalesces_explicit_none_text_fields(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_devices(
@@ -3309,7 +3309,7 @@ class TestInventoryCacheSync:
         assert devices[0]["tenant"] == ""
 
     def test_alert_board_uses_cached_inventory_snapshot(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -3370,7 +3370,7 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["alert_level"] == "critical"
 
     def test_cached_location_read_triggers_background_refresh_when_sync_is_due(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -3493,7 +3493,7 @@ class TestInventoryCacheSync:
         assert device_calls[1]["depth"] == 1
 
     def test_incremental_sync_keeps_existing_watermark_without_newer_last_updated(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._record_sync_state(
@@ -3615,7 +3615,7 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._record_sync_state(
@@ -3655,7 +3655,7 @@ class TestInventoryCacheSync:
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
     def test_ensure_inventory_snapshot_runs_nautobot_sync_on_cache_version_mismatch(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._record_sync_state(
@@ -3725,7 +3725,7 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._record_sync_state(
@@ -3784,7 +3784,7 @@ class TestInventoryCacheSync:
             assert flask_app._nautobot_inventory_primary_ip_backfill_pending() is False
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -3853,7 +3853,7 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["down_device_count"] == 0
 
     def test_api_alerts_filters_cached_devices_without_primary_ip(self, client):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -4009,7 +4009,7 @@ class TestInventoryCacheSync:
 
         fake_conn = _FakeConn(autocommit=True)
         with (
-            patch.object(flask_app, "_get_db_conn", return_value=fake_conn),
+            patch.object(db, "get_conn", return_value=fake_conn),
             patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
             patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
             patch.object(flask_app, "_get_sync_state", return_value={"last_successful_sync": None}),
@@ -4034,7 +4034,7 @@ class TestInventoryCacheSync:
         assert cache_delete.call_count == 2
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._write_cached_locations(
@@ -4669,7 +4669,7 @@ class TestAlertBoardSyncProgress:
         flask_app.cache.clear()
 
     def _set_nautobot_sync_state(self, status, started_at, completed_at=None):
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         try:
             with conn:
                 flask_app._record_sync_state(
@@ -4784,7 +4784,7 @@ class TestAlertBoardSyncProgress:
         monkeypatch.setattr(settings, "LIBRENMS_SYNC_INTERVAL_SECONDS", 120)
         now = datetime.now(UTC).isoformat()
         self._set_nautobot_sync_state("idle", now, now)
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         with conn:
             flask_app._record_sync_state(
                 conn, "librenms_inventory", last_started_at=now, last_completed_at=now, status="idle"
@@ -4820,7 +4820,7 @@ class TestAlertBoardSyncProgress:
             [
                 sys.executable,
                 "-c",
-                "import app; from nautobot_maps import settings as s; "
+                "import app; from nautobot_maps import db, settings as s; "
                 "print(s.INVENTORY_SYNC_INTERVAL_SECONDS, s.LIBRENMS_SYNC_INTERVAL_SECONDS)",
             ],
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -4995,7 +4995,7 @@ class TestLibreNMSPolledIp:
     def test_sync_caches_polled_ip(self, monkeypatch, pg_database):
         monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
-        flask_app._init_db()
+        db.init_db()
         with patch.object(
             flask_app,
             "_fetch_librenms_inventory",
@@ -5032,7 +5032,7 @@ class TestLibreNMSPolledIp:
         pg_database.execute(
             "INSERT INTO librenms_device_status (device_id, hostname, status) VALUES (7, 'router01', 1)"
         )
-        flask_app._init_db()
+        db.init_db()
         assert flask_app._read_cached_librenms_inventory() == [
             {"device_id": 7, "hostname": "router01", "ip": "", "status": 1}
         ]
@@ -5070,10 +5070,10 @@ class TestLibreNMSPolledIp:
 
         conn = _Conn()
         with (
-            patch.object(flask_app, "_get_db_conn", return_value=conn),
-            patch.object(flask_app, "_current_persistence_dialect", return_value="postgres"),
+            patch.object(db, "get_conn", return_value=conn),
+            patch.object(db, "dialect", return_value="postgres"),
         ):
-            flask_app._init_db()
+            db.init_db()
         sql = "\n".join(conn.queries)
         assert "ip             TEXT NOT NULL DEFAULT ''" in sql  # fresh CREATE TABLE
         assert "table_name = 'librenms_device_status'" in sql
@@ -5100,7 +5100,7 @@ class TestAlertBoardWithoutPersistence:
         assert data["sync_pending"] is False
 
     def test_payload_reports_configured_database(self, client, monkeypatch, pg_database):
-        flask_app._init_db()
+        db.init_db()
         flask_app.cache.clear()
         with (
             patch.object(flask_app, "_ensure_inventory_snapshot", return_value=False),
@@ -5141,7 +5141,7 @@ class TestRefreshIsIncremental:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        flask_app._init_db()
+        db.init_db()
 
     def _location_queries(self, **ensure_kwargs):
         """Run a synchronous sync and return the params sent to dcim/locations/."""
@@ -5186,7 +5186,7 @@ class TestAlertBoardBulkReads:
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
         monkeypatch.setattr(flask_app, "_ensure_inventory_snapshot", lambda *a, **k: False)
         monkeypatch.setattr(flask_app, "_iso_utc_now", lambda: self.CHECKED_AT)
-        flask_app._init_db()
+        db.init_db()
         flask_app.cache.clear()
         yield
         flask_app.cache.clear()
@@ -5217,7 +5217,7 @@ class TestAlertBoardBulkReads:
                 for j in range(3)
             ],
         )
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         with conn:
             flask_app._record_sync_state(
                 conn,
@@ -5237,7 +5237,7 @@ class TestAlertBoardBulkReads:
             "VALUES (%s, %s, '', %s, %s, 'critical', '', %s, %s, %s, %s) RETURNING id",
             (
                 # Open alerts use the real key so the build recognises them as still open.
-                flask_app._build_alert_key(site_id, device_id)
+                db.build_alert_key(site_id, device_id)
                 if status == "open"
                 else f"{site_id}-{device_id}-{down_started_at}",
                 site_id,
@@ -5252,13 +5252,13 @@ class TestAlertBoardBulkReads:
 
     def _build_counting_connections(self):
         opened = []
-        real_get_db_conn = flask_app._get_db_conn
+        real_get_db_conn = db.get_conn
 
         def counting_get_db_conn():
             opened.append(1)
             return real_get_db_conn()
 
-        with patch.object(flask_app, "_get_db_conn", side_effect=counting_get_db_conn):
+        with patch.object(db, "get_conn", side_effect=counting_get_db_conn):
             data = flask_app.get_alert_board_data()
         return data, len(opened)
 
@@ -5408,7 +5408,7 @@ class TestSiteRollup:
                 ("d-orphan", "bld-orphan", "loose01", "access", "Active", "10.3.0.1/32"),
             ],
         )
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         with conn:
             flask_app._record_sync_state(
                 conn,
@@ -5481,7 +5481,7 @@ class TestSiteRollup:
 
     def test_migration_adds_parent_id_column(self):
         self.db.execute("ALTER TABLE nautobot_location_cache DROP COLUMN parent_id")
-        flask_app._init_db()
+        db.init_db()
         columns = {
             row["column_name"]
             for row in self.db.execute(
@@ -5511,7 +5511,7 @@ class TestBackgroundScheduler:
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES ('dev-1', 'loc-1', 'router01', 'router', 'Offline', '10.0.0.1/32')"
         )
-        conn = flask_app._get_db_conn()
+        conn = db.get_conn()
         with conn:
             flask_app._record_sync_state(
                 conn,
@@ -5543,10 +5543,10 @@ class TestBackgroundScheduler:
 
     def test_only_one_process_ticks_at_a_time(self):
         """Another worker holding the lock makes this tick skip."""
-        release = flask_app._acquire_db_inventory_lock("background_scheduler")
+        release = db.try_advisory_lock("background_scheduler")
         assert callable(release)
         try:
-            other = flask_app._acquire_db_inventory_lock("background_scheduler")
+            other = db.try_advisory_lock("background_scheduler")
             assert other is False  # a second connection cannot take it
             with patch.object(flask_app, "_ensure_inventory_snapshot") as ensure:
                 assert flask_app._scheduler_tick() is False
