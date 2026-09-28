@@ -70,6 +70,11 @@ under `nautobot_maps/` (#165):
   `monkeypatch.setattr(settings, "NAME", value)`.
 - `nautobot_maps/db.py`: PostgreSQL connections (`db.get_conn()`, `db.transaction()`), the
   schema and its migrations (`db.init_db()`), and small SQL helpers.
+- `nautobot_maps/nautobot.py`: the Nautobot REST client (`nautobot.get()`, `nautobot.post()`,
+  `nautobot.delete()`, `nautobot.fetch_all_pages()`) and the id → name lookup maps.
+- `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
+  `librenms.fetch_inventory()`).
+- `nautobot_maps/caching.py`: the shared response cache (Flask-Caching).
 
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.

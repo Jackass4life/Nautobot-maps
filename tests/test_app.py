@@ -11,7 +11,7 @@ from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
-from nautobot_maps import db, settings
+from nautobot_maps import caching, db, librenms, nautobot, settings
 
 
 @contextmanager
@@ -201,8 +201,8 @@ class TestFetchAllPages:
             calls.append((endpoint, dict(params or {})))
             return {"count": 1, "next": None, "results": [{"id": "dev-1"}]}
 
-        with patch.object(flask_app, "nautobot_get", side_effect=fake_get):
-            results = flask_app.fetch_all_pages("dcim/devices/")
+        with patch.object(nautobot, "get", side_effect=fake_get):
+            results = nautobot.fetch_all_pages("dcim/devices/")
 
         assert results == [{"id": "dev-1"}]
         assert calls == [("dcim/devices/", {"limit": 1000, "depth": 0, "offset": 0})]
@@ -214,8 +214,8 @@ class TestFetchAllPages:
             calls.append((endpoint, dict(params or {})))
             return {"count": 0, "next": None, "results": []}
 
-        with patch.object(flask_app, "nautobot_get", side_effect=fake_get):
-            flask_app.fetch_all_pages("dcim/devices/", {"limit": 25, "depth": 2})
+        with patch.object(nautobot, "get", side_effect=fake_get):
+            nautobot.fetch_all_pages("dcim/devices/", {"limit": 25, "depth": 2})
 
         assert calls == [("dcim/devices/", {"limit": 25, "depth": 2, "offset": 0})]
 
@@ -253,7 +253,7 @@ class TestPrimaryIpExtraction:
 # ---------------------------------------------------------------------------
 class TestApiLocations:
     def test_returns_locations_with_coordinates(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -262,7 +262,7 @@ class TestApiLocations:
         assert len(data["locations"]) == 2
 
     def test_location_fields(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["name"] == "Copenhagen DC"
@@ -273,13 +273,13 @@ class TestApiLocations:
         assert loc["status"] == "Active"
 
     def test_location_type_field_populated(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["location_type"] == "Data Center"
 
     def test_country_field_populated(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["country"] == "Denmark"
@@ -315,50 +315,50 @@ class TestApiLocations:
                 return fallback_locations
             return {"count": 0, "next": None, "results": []}
 
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+        with patch.object(nautobot, "get", side_effect=mock_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["country"] == "Denmark"
 
     def test_parent_field_populated(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["parent"] == "Denmark"
 
     def test_tenant_group_field_populated(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["tenant_group"] == "Corporate"
 
     def test_tenant_group_empty_when_no_tenant(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         # loc-2 (Aarhus PoP) has no tenant
         loc = resp.get_json()["locations"][1]
         assert loc["tenant_group"] == ""
 
     def test_facility_field_populated(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["facility"] == "CPH-1"
 
     def test_facility_empty_when_not_set(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][1]
         assert loc["facility"] == ""
 
     def test_tags_field_populated(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["tags"] == ["critical", "production"]
 
     def test_tags_empty_when_none(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][1]
         assert loc["tags"] == []
@@ -408,7 +408,7 @@ class TestApiLocations:
                 return brief_locations
             return {"count": 0, "next": None, "results": []}
 
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+        with patch.object(nautobot, "get", side_effect=mock_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["tags"] == ["critical", "production"]
@@ -450,7 +450,7 @@ class TestApiLocations:
                 return brief_locations
             return {"count": 0, "next": None, "results": []}
 
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+        with patch.object(nautobot, "get", side_effect=mock_get):
             resp = client.get("/api/locations")
         loc = resp.get_json()["locations"][0]
         assert loc["location_type"] == "Data Center"
@@ -501,7 +501,7 @@ class TestApiLocations:
                 return brief_locations
             return {"count": 0, "next": None, "results": []}
 
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+        with patch.object(nautobot, "get", side_effect=mock_get):
             resp = client.get("/api/locations")
         # loc-parent has no GPS (lat/lon=None) so only loc-child is returned
         locs = resp.get_json()["locations"]
@@ -525,7 +525,7 @@ class TestApiLocations:
         import requests as req_lib
 
         http_err = req_lib.HTTPError(response=MagicMock(status_code=500))
-        with patch.object(flask_app, "nautobot_get", side_effect=http_err):
+        with patch.object(nautobot, "get", side_effect=http_err):
             resp = client.get("/api/locations")
         assert resp.status_code == 502
 
@@ -628,7 +628,7 @@ class TestAlertBoard:
 
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=mock_devices),
         ):
             data = flask_app.get_alert_board_data()
@@ -676,7 +676,7 @@ class TestAlertBoard:
                     }
                 ],
             ),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -923,7 +923,7 @@ class TestAlertBoard:
 
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
             data = flask_app.get_alert_board_data()
@@ -937,7 +937,7 @@ class TestAlertBoard:
         with (
             patch.object(flask_app, "_read_cached_devices", return_value=[]),
             patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
-            patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
+            patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
             devices, alert = flask_app._get_location_devices_and_alert(
                 "loc-1",
@@ -1018,7 +1018,7 @@ class TestAlertBoard:
         with (
             patch.object(flask_app, "_read_cached_devices", side_effect=[[], []]),
             patch.object(flask_app, "_ensure_inventory_snapshot"),
-            patch.object(flask_app, "fetch_all_pages", side_effect=_mock_fetch),
+            patch.object(nautobot, "fetch_all_pages", side_effect=_mock_fetch),
         ):
             devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
 
@@ -1040,7 +1040,7 @@ class TestAlertBoard:
             patch.object(flask_app, "get_locations", return_value=sample_locations),
             patch.object(flask_app, "_read_cached_devices", return_value=[]),
             patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
-            patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
+            patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
@@ -1060,9 +1060,9 @@ class TestAlertBoard:
         with (
             patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
             patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
-            patch.object(flask_app, "_fetch_librenms_inventory", side_effect=RuntimeError("down")),
+            patch.object(librenms, "fetch_inventory", side_effect=RuntimeError("down")),
             patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -1113,7 +1113,7 @@ class TestAlertBoard:
 
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_ensure_inventory_snapshot"),
             patch.object(
                 flask_app,
@@ -1144,7 +1144,7 @@ class TestAlertBoard:
 
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_ensure_inventory_snapshot"),
             patch.object(
                 flask_app,
@@ -1174,7 +1174,7 @@ class TestAlertBoard:
 
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_ensure_inventory_snapshot"),
             patch.object(
                 flask_app,
@@ -1221,7 +1221,7 @@ class TestAlertBoard:
 # ---------------------------------------------------------------------------
 class TestApiLocationDetail:
     def test_returns_devices_and_asns(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations/loc-1/detail")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1231,7 +1231,7 @@ class TestApiLocationDetail:
         assert data["asns"][0]["asn"] == 65001
 
     def test_device_fields(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations/loc-1/detail")
         dev = resp.get_json()["devices"][0]
         assert dev["manufacturer"] == "Cisco"
@@ -1278,7 +1278,7 @@ class TestApiLocationDetail:
                 return {"count": 0, "next": None, "results": []}
             return {"count": 0, "next": None, "results": []}
 
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_get):
+        with patch.object(nautobot, "get", side_effect=mock_get):
             resp = client.get("/api/locations/loc-1/detail")
         assert resp.status_code == 200
         dev = resp.get_json()["devices"][0]
@@ -1306,7 +1306,7 @@ class TestApiLocationDetail:
                 "_get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
-            patch.object(flask_app, "fetch_all_pages", side_effect=http_err),
+            patch.object(nautobot, "fetch_all_pages", side_effect=http_err),
         ):
             resp = client.get("/api/locations/loc-1/detail")
 
@@ -1325,9 +1325,9 @@ class TestApiLocationDetail:
                 "_get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
-            patch.object(flask_app, "fetch_all_pages", side_effect=not_found),
+            patch.object(nautobot, "fetch_all_pages", side_effect=not_found),
             patch.object(flask_app, "_read_cached_locations", return_value=cached_locations),
-            patch.object(flask_app, "nautobot_get", side_effect=location_get) as mock_get,
+            patch.object(nautobot, "get", side_effect=location_get) as mock_get,
         ):
             resp = client.get("/api/locations/loc-1/detail")
         return resp, mock_get
@@ -1376,7 +1376,7 @@ class TestApiSearch:
         assert "error" in resp.get_json()
 
     def test_gps_coordinates_search(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             # Copenhagen coordinates – loc-1 is exactly at 55.6761,12.5683 (distance 0)
             resp = client.get("/api/search?q=55.6761,12.5683")
         assert resp.status_code == 200
@@ -1389,7 +1389,7 @@ class TestApiSearch:
         assert "Copenhagen DC" in names
 
     def test_gps_no_results_far_away(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             # Tokyo – far from all test locations
             resp = client.get("/api/search?q=35.6895,139.6917")
         assert resp.status_code == 200
@@ -1398,7 +1398,7 @@ class TestApiSearch:
         assert data["locations"] == []
 
     def test_search_results_sorted_by_distance(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             # Point very close to loc-1 (within 5 km)
             resp = client.get("/api/search?q=55.678,12.571")
         data = resp.get_json()
@@ -1412,7 +1412,7 @@ class TestApiSearch:
         mock_geolocator = MagicMock()
         mock_geolocator.geocode.return_value = mock_geo_result
 
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             with patch("app.Nominatim", return_value=mock_geolocator):
                 resp = client.get("/api/search?q=Copenhagen")
         assert resp.status_code == 200
@@ -1429,7 +1429,7 @@ class TestApiSearch:
         assert "error" in resp.get_json()
 
     def test_distance_km_field_present(self, client):
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/search?q=55.6761,12.5683")
         data = resp.get_json()
         for loc in data["locations"]:
@@ -1440,29 +1440,29 @@ class TestNautobotRuntimeErrors:
     def test_runtime_errors_do_not_leak_internal_messages(self, client):
         secret = "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"
         cases = [
-            ("get", "/api/locations", "get_locations", {}),
-            ("get", "/api/locations/loc-1/detail", "get_location_detail", {}),
-            ("get", "/api/search?q=55.6761,12.5683", "get_locations", {}),
-            ("get", "/api/roles", "fetch_all_pages", {}),
+            ("get", "/api/locations", (flask_app, "get_locations"), {}),
+            ("get", "/api/locations/loc-1/detail", (flask_app, "get_location_detail"), {}),
+            ("get", "/api/search?q=55.6761,12.5683", (flask_app, "get_locations"), {}),
+            ("get", "/api/roles", (nautobot, "fetch_all_pages"), {}),
             (
                 "post",
                 "/api/roles",
-                "nautobot_post",
+                (nautobot, "post"),
                 {"json": {"name": "Test Role"}, "content_type": "application/json"},
             ),
-            ("delete", "/api/roles/role-1", "nautobot_delete", {}),
-            ("get", "/api/location-types", "fetch_all_pages", {}),
+            ("delete", "/api/roles/role-1", (nautobot, "delete"), {}),
+            ("get", "/api/location-types", (nautobot, "fetch_all_pages"), {}),
             (
                 "post",
                 "/api/location-types",
-                "nautobot_post",
+                (nautobot, "post"),
                 {"json": {"name": "Test Type"}, "content_type": "application/json"},
             ),
-            ("delete", "/api/location-types/lt-dc", "nautobot_delete", {}),
+            ("delete", "/api/location-types/lt-dc", (nautobot, "delete"), {}),
         ]
 
-        for method, url, patch_target, kwargs in cases:
-            with patch.object(flask_app, patch_target, side_effect=RuntimeError(secret)):
+        for method, url, (module, name), kwargs in cases:
+            with patch.object(module, name, side_effect=RuntimeError(secret)):
                 resp = getattr(client, method)(url, **kwargs)
 
             assert resp.status_code == 503
@@ -1569,8 +1569,8 @@ class TestCaching:
             settings.NAUTOBOT_URL = "http://nautobot.test"
             settings.NAUTOBOT_TOKEN = "test-token"
             try:
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
             finally:
                 settings.NAUTOBOT_URL = ""
                 settings.NAUTOBOT_TOKEN = ""
@@ -1580,8 +1580,8 @@ class TestCaching:
 
     def test_cache_set_and_get(self):
         flask_app.cache.clear()
-        flask_app._cache_set("test-key", {"data": 42})
-        result = flask_app._cache_get("test-key")
+        caching.set("test-key", {"data": 42})
+        result = caching.get("test-key")
         assert result == {"data": 42}
 
     def test_cache_expires(self):
@@ -1592,7 +1592,7 @@ class TestCaching:
         import time
 
         time.sleep(1.1)
-        result = flask_app._cache_get("expiring-key")
+        result = caching.get("expiring-key")
         assert result is None
 
     def test_cache_default_timeout_matches_cache_ttl(self):
@@ -1643,7 +1643,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_VERIFY_SSL = False
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
             assert kwargs["verify"] is False
@@ -1669,7 +1669,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_VERIFY_SSL = True
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
             assert kwargs["verify"] is True
@@ -1695,7 +1695,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_VERIFY_SSL = "/etc/ssl/certs/custom-ca.pem"
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
             assert kwargs["verify"] == "/etc/ssl/certs/custom-ca.pem"
@@ -1719,7 +1719,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_TOKEN = "test-token"
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
             assert kwargs["timeout"] == (5, 30)
@@ -1731,9 +1731,9 @@ class TestSSLVerification:
         original_verify = settings.NAUTOBOT_VERIFY_SSL
         settings.NAUTOBOT_VERIFY_SSL = False
         try:
-            with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
-                flask_app._configure_nautobot_ssl_warnings()
-            mock_disable.assert_called_once_with(flask_app.InsecureRequestWarning)
+            with patch.object(nautobot.urllib3, "disable_warnings") as mock_disable:
+                nautobot.configure_ssl_warnings()
+            mock_disable.assert_called_once_with(nautobot.InsecureRequestWarning)
         finally:
             settings.NAUTOBOT_VERIFY_SSL = original_verify
 
@@ -1741,8 +1741,8 @@ class TestSSLVerification:
         original_verify = settings.NAUTOBOT_VERIFY_SSL
         settings.NAUTOBOT_VERIFY_SSL = True
         try:
-            with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
-                flask_app._configure_nautobot_ssl_warnings()
+            with patch.object(nautobot.urllib3, "disable_warnings") as mock_disable:
+                nautobot.configure_ssl_warnings()
             mock_disable.assert_not_called()
         finally:
             settings.NAUTOBOT_VERIFY_SSL = original_verify
@@ -1753,8 +1753,8 @@ class TestSSLVerification:
         settings.NAUTOBOT_VERIFY_SSL = True
         settings.LIBRENMS_VERIFY_SSL = False
         try:
-            with patch.object(flask_app.urllib3, "disable_warnings") as mock_disable:
-                flask_app._configure_nautobot_ssl_warnings()
+            with patch.object(nautobot.urllib3, "disable_warnings") as mock_disable:
+                nautobot.configure_ssl_warnings()
             mock_disable.assert_not_called()
         finally:
             settings.NAUTOBOT_VERIFY_SSL = original_nautobot_verify
@@ -1782,7 +1782,7 @@ class TestApiVersionHeader:
         settings.NAUTOBOT_API_VERSION = ""
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
             assert kwargs["headers"]["Accept"] == "application/json"
@@ -1808,7 +1808,7 @@ class TestApiVersionHeader:
         settings.NAUTOBOT_API_VERSION = "3.0"
         try:
             with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
-                flask_app.nautobot_get("dcim/locations/", {"limit": 1})
+                nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
             assert kwargs["headers"]["Accept"] == "application/json; version=3.0"
@@ -1966,7 +1966,7 @@ class TestConfigurableCriticalKeywords:
 class TestLocationDetailWithLocationType:
     def test_location_type_param_accepted(self, client):
         """The ?location_type query param is accepted without error."""
-        with patch.object(flask_app, "nautobot_get", side_effect=mock_nautobot_get):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
             resp = client.get("/api/locations/loc-1/detail?location_type=Data+Center")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -2005,7 +2005,7 @@ class TestLocationDetailWithLocationType:
             return {"count": 0, "next": None, "results": []}
 
         try:
-            with patch.object(flask_app_local, "nautobot_get", side_effect=mock_get):
+            with patch.object(nautobot, "get", side_effect=mock_get):
                 resp = client.get("/api/locations/loc-1/detail?location_type=datacenter")
             data = resp.get_json()
             assert data["alert"]["level"] == "critical"
@@ -2202,7 +2202,7 @@ class TestAlertLifecycleTracking:
                     }
                 ],
             ),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -2467,7 +2467,7 @@ class TestAlertLifecycleTracking:
                     }
                 ],
             ),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -2544,7 +2544,7 @@ class TestAlertLifecycleTracking:
         sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
@@ -2569,7 +2569,7 @@ class TestAlertLifecycleTracking:
         )
         with (
             patch.object(flask_app, "get_locations", return_value=sample_locations) as get_locations,
-            patch.object(flask_app, "fetch_all_pages", return_value=[]),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", return_value=devices_return) as get_alert,
         ):
             first = flask_app.get_alert_board_data(force_refresh=True)
@@ -2598,7 +2598,7 @@ class TestAlertLifecycleTracking:
                 "_build_alert_board_payload",
                 side_effect=[first_payload, second_payload],
             ) as build_payload,
-            patch.object(flask_app, "_cache_set", wraps=flask_app._cache_set) as cache_set,
+            patch.object(caching, "set", wraps=caching.set) as cache_set,
             patch.object(
                 flask_app,
                 "_ensure_inventory_snapshot",
@@ -2659,9 +2659,9 @@ class TestAlertLifecycleTracking:
                 return_value=payload,
             ) as build_payload,
             patch.object(
-                flask_app,
-                "_cache_set",
-                wraps=flask_app._cache_set,
+                caching,
+                "set",
+                wraps=caching.set,
             ) as cache_set,
             patch.object(
                 flask_app,
@@ -3159,7 +3159,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
+        with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             locations = flask_app.get_locations()
 
         assert locations == [
@@ -3361,7 +3361,7 @@ class TestInventoryCacheSync:
             conn.close()
 
         flask_app.cache.clear()
-        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
+        with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["critical"] == 1
@@ -3475,9 +3475,9 @@ class TestInventoryCacheSync:
         with (
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
-            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
-            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             flask_app._sync_nautobot_inventory(force=True)
             first_state = flask_app._get_sync_state("nautobot_inventory")
@@ -3562,9 +3562,9 @@ class TestInventoryCacheSync:
         with (
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
-            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
-            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             flask_app._sync_nautobot_inventory()
 
@@ -3634,9 +3634,9 @@ class TestInventoryCacheSync:
         with (
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
-            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
-            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(flask_app, "_sync_due", return_value=False),
             patch.object(flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
         ):
@@ -3744,9 +3744,9 @@ class TestInventoryCacheSync:
         with (
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
-            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
-            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(flask_app, "_sync_due", return_value=True),
             patch.object(flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
         ):
@@ -3845,7 +3845,7 @@ class TestInventoryCacheSync:
             conn.close()
 
         flask_app.cache.clear()
-        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
+        with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = flask_app.get_alert_board_data(force_refresh=True)
 
         assert data["summary"]["no_data"] == 1  # no monitored devices yet
@@ -3929,7 +3929,7 @@ class TestInventoryCacheSync:
             conn.close()
 
         flask_app.cache.clear()
-        with patch.object(flask_app, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
+        with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             resp = client.get("/api/alerts")
 
         assert resp.status_code == 200
@@ -4014,8 +4014,8 @@ class TestInventoryCacheSync:
             patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
             patch.object(flask_app, "_get_sync_state", return_value={"last_successful_sync": None}),
             patch.object(
-                flask_app,
-                "_fetch_librenms_inventory",
+                librenms,
+                "fetch_inventory",
                 return_value=[{"device_id": 1, "hostname": "router01", "status": 1, "status_reason": ""}],
             ),
             patch.object(flask_app.cache, "delete") as cache_delete,
@@ -4128,9 +4128,9 @@ class TestInventoryCacheSync:
         with (
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
-            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
-            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             flask_app._sync_nautobot_inventory(force=True)
 
@@ -4209,7 +4209,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "   "
         settings.LIBRENMS_API_TOKEN = "   "
         with patch.object(flask_app.requests, "get") as mock_get:
-            result = flask_app._fetch_librenms_inventory()
+            result = librenms.fetch_inventory()
         assert result == []
         mock_get.assert_not_called()
 
@@ -4221,7 +4221,7 @@ class TestLibreNMSEnrichment:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
         with patch.object(flask_app.requests, "get", return_value=mock_resp) as mock_get:
-            flask_app._librenms_get("devices", {"type": "all"})
+            librenms.get("devices", {"type": "all"})
         _, kwargs = mock_get.call_args
         assert kwargs["verify"] is False
 
@@ -4234,9 +4234,9 @@ class TestLibreNMSEnrichment:
         mock_resp.json.return_value = {"devices": []}
         with (
             patch.object(flask_app.requests, "get", return_value=mock_resp),
-            patch.object(flask_app.warnings, "catch_warnings") as mock_catch,
+            patch.object(librenms.warnings, "catch_warnings") as mock_catch,
         ):
-            flask_app._librenms_get("devices", {"type": "all"})
+            librenms.get("devices", {"type": "all"})
         mock_catch.assert_called_once()
 
     def test_librenms_down_overrides_active_status(self):
@@ -4248,7 +4248,7 @@ class TestLibreNMSEnrichment:
                 {"device_id": 1, "hostname": "router01", "status": 0},
             ]
         }
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
@@ -4258,7 +4258,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 1}]}
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
@@ -4268,7 +4268,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 0}]}
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "offline"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
@@ -4277,7 +4277,7 @@ class TestLibreNMSEnrichment:
         """If LibreNMS API call fails, original device list is returned unchanged."""
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
-        with patch.object(flask_app, "_librenms_get", side_effect=Exception("timeout")):
+        with patch.object(librenms, "get", side_effect=Exception("timeout")):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result == devices
@@ -4287,7 +4287,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]}
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
@@ -4297,7 +4297,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01.example.com", "status": 0}]}
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
@@ -4307,7 +4307,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "192.0.2.1", "status": 0}]}
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "primary_ip": "192.0.2.1/32", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
@@ -4317,7 +4317,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "2001:DB8::1", "status": 0}]}
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "primary_ip": "2001:db8::1/128", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "offline"
@@ -4327,7 +4327,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = "http://librenms.test"
         settings.LIBRENMS_API_TOKEN = "tok"
         lnms_response = {"devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]}
-        with patch.object(flask_app, "_librenms_get", return_value=lnms_response):
+        with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "10", "primary_ip": "192.0.2.5/32", "status": "active"}]
             result = flask_app._enrich_with_librenms(devices)
         assert result[0]["status"] == "active"
@@ -4350,7 +4350,7 @@ SAMPLE_ROLES_PAGE = {
 class TestApiRoles:
     def test_list_roles_returns_all(self, client):
         """GET /api/roles returns all roles from Nautobot."""
-        with patch.object(flask_app, "nautobot_get", return_value=SAMPLE_ROLES_PAGE):
+        with patch.object(nautobot, "get", return_value=SAMPLE_ROLES_PAGE):
             resp = client.get("/api/roles")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -4360,16 +4360,14 @@ class TestApiRoles:
 
     def test_list_roles_nautobot_unconfigured_returns_503(self, client):
         """GET /api/roles returns 503 when Nautobot is not configured."""
-        with patch.object(
-            flask_app, "nautobot_get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
-        ):
+        with patch.object(nautobot, "get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
             resp = client.get("/api/roles")
         assert resp.status_code == 503
 
     def test_create_role_success(self, client):
         """POST /api/roles proxies to Nautobot and returns 201 on success."""
         created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
-        with patch.object(flask_app, "nautobot_post", return_value=created):
+        with patch.object(nautobot, "post", return_value=created):
             resp = client.post(
                 "/api/roles", json={"name": "Edge Router", "color": "2196f3"}, content_type="application/json"
             )
@@ -4384,9 +4382,7 @@ class TestApiRoles:
 
     def test_create_role_nautobot_unconfigured_returns_503(self, client):
         """POST /api/roles returns 503 when Nautobot is not configured."""
-        with patch.object(
-            flask_app, "nautobot_post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
-        ):
+        with patch.object(nautobot, "post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
             resp = client.post("/api/roles", json={"name": "Test Role"}, content_type="application/json")
         assert resp.status_code == 503
 
@@ -4404,7 +4400,7 @@ class TestApiRoles:
     def test_create_role_accepts_admin_group_when_auth_enabled(self, client):
         created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
         with auth_config(mode="header", admin_groups={"nautobot-admins"}):
-            with patch.object(flask_app, "nautobot_post", return_value=created):
+            with patch.object(nautobot, "post", return_value=created):
                 resp = client.post(
                     "/api/roles",
                     json={"name": "Edge Router", "color": "2196f3"},
@@ -4415,7 +4411,7 @@ class TestApiRoles:
 
     def test_delete_role_success(self, client):
         """DELETE /api/roles/<id> proxies to Nautobot and returns 200."""
-        with patch.object(flask_app, "nautobot_delete", return_value=None):
+        with patch.object(nautobot, "delete", return_value=None):
             resp = client.delete("/api/roles/role-1")
         assert resp.status_code == 200
         assert resp.get_json()["status"] == "deleted"
@@ -4426,16 +4422,14 @@ class TestApiRoles:
         mock_response = MagicMock()
         mock_response.status_code = 404
         http_err = flask_app.requests.HTTPError(response=mock_response)
-        with patch.object(flask_app, "nautobot_delete", side_effect=http_err):
+        with patch.object(nautobot, "delete", side_effect=http_err):
             resp = client.delete("/api/roles/does-not-exist")
         assert resp.status_code == 404
         assert "not found" in resp.get_json()["error"].lower()
 
     def test_delete_role_nautobot_unconfigured_returns_503(self, client):
         """DELETE /api/roles/<id> returns 503 when Nautobot is not configured."""
-        with patch.object(
-            flask_app, "nautobot_delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
-        ):
+        with patch.object(nautobot, "delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
             resp = client.delete("/api/roles/role-1")
         assert resp.status_code == 503
 
@@ -4457,7 +4451,7 @@ SAMPLE_LOCATION_TYPES_PAGE = {
 class TestApiLocationTypes:
     def test_list_location_types_returns_all(self, client):
         """GET /api/location-types returns all location types from Nautobot."""
-        with patch.object(flask_app, "nautobot_get", return_value=SAMPLE_LOCATION_TYPES_PAGE):
+        with patch.object(nautobot, "get", return_value=SAMPLE_LOCATION_TYPES_PAGE):
             resp = client.get("/api/location-types")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -4467,16 +4461,14 @@ class TestApiLocationTypes:
 
     def test_list_location_types_nautobot_unconfigured_returns_503(self, client):
         """GET /api/location-types returns 503 when Nautobot is not configured."""
-        with patch.object(
-            flask_app, "nautobot_get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
-        ):
+        with patch.object(nautobot, "get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
             resp = client.get("/api/location-types")
         assert resp.status_code == 503
 
     def test_create_location_type_success(self, client):
         """POST /api/location-types proxies to Nautobot and returns 201 on success."""
         created = {"id": "lt-new", "name": "Office", "slug": "office"}
-        with patch.object(flask_app, "nautobot_post", return_value=created):
+        with patch.object(nautobot, "post", return_value=created):
             resp = client.post(
                 "/api/location-types", json={"name": "Office", "slug": "office"}, content_type="application/json"
             )
@@ -4491,15 +4483,13 @@ class TestApiLocationTypes:
 
     def test_create_location_type_nautobot_unconfigured_returns_503(self, client):
         """POST /api/location-types returns 503 when Nautobot is not configured."""
-        with patch.object(
-            flask_app, "nautobot_post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
-        ):
+        with patch.object(nautobot, "post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
             resp = client.post("/api/location-types", json={"name": "Test Type"}, content_type="application/json")
         assert resp.status_code == 503
 
     def test_delete_location_type_success(self, client):
         """DELETE /api/location-types/<id> proxies to Nautobot and returns 200."""
-        with patch.object(flask_app, "nautobot_delete", return_value=None):
+        with patch.object(nautobot, "delete", return_value=None):
             resp = client.delete("/api/location-types/lt-dc")
         assert resp.status_code == 200
         assert resp.get_json()["status"] == "deleted"
@@ -4510,16 +4500,14 @@ class TestApiLocationTypes:
         mock_response = MagicMock()
         mock_response.status_code = 404
         http_err = flask_app.requests.HTTPError(response=mock_response)
-        with patch.object(flask_app, "nautobot_delete", side_effect=http_err):
+        with patch.object(nautobot, "delete", side_effect=http_err):
             resp = client.delete("/api/location-types/does-not-exist")
         assert resp.status_code == 404
         assert "not found" in resp.get_json()["error"].lower()
 
     def test_delete_location_type_nautobot_unconfigured_returns_503(self, client):
         """DELETE /api/location-types/<id> returns 503 when Nautobot is not configured."""
-        with patch.object(
-            flask_app, "nautobot_delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")
-        ):
+        with patch.object(nautobot, "delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
             resp = client.delete("/api/location-types/lt-dc")
         assert resp.status_code == 503
 
@@ -4997,8 +4985,8 @@ class TestLibreNMSPolledIp:
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
         db.init_db()
         with patch.object(
-            flask_app,
-            "_fetch_librenms_inventory",
+            librenms,
+            "fetch_inventory",
             return_value=[
                 {
                     "device_id": 7,
@@ -5152,9 +5140,9 @@ class TestRefreshIsIncremental:
             return []
 
         with (
-            patch.object(flask_app, "fetch_all_pages", side_effect=fake_fetch),
+            patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
-            patch.object(flask_app, "_build_device_lookup_maps", return_value={}),
+            patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             flask_app._ensure_inventory_snapshot(wait=True, **ensure_kwargs)
         return [params for endpoint, params in calls if endpoint == "dcim/locations/"]

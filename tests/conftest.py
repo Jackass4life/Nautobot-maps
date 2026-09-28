@@ -48,6 +48,20 @@ _MOVED_FROM_APP = {
         "psycopg",
         "dict_row",
     ),
+    "caching": ("_cache_get", "_cache_set"),
+    "nautobot": (
+        "_configure_nautobot_ssl_warnings",
+        "_nested_str",
+        "_build_id_name_map",
+        "_build_device_type_maps",
+        "_build_tenant_group_map",
+        "nautobot_get",
+        "nautobot_post",
+        "nautobot_delete",
+        "fetch_all_pages",
+        "_build_device_lookup_maps",
+    ),
+    "librenms": ("_librenms_get", "_fetch_librenms_inventory"),
 }
 
 
