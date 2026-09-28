@@ -20,7 +20,7 @@ import pytest
 from werkzeug.serving import make_server
 
 import app as flask_app
-from nautobot_maps import settings
+from nautobot_maps import inventory, settings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -564,7 +564,7 @@ def persisted_integration_client(integration_client, pg_database, monkeypatch):
     """Integration client with PostgreSQL persistence and a synced inventory snapshot."""
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
     monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-    assert flask_app._ensure_inventory_snapshot(force=True, wait=True)
+    assert inventory.ensure_snapshot(force=True, wait=True)
     return integration_client
 
 
@@ -575,7 +575,7 @@ class TestAlertBoardWithPersistence:
         return {site["id"]: site for site in resp.get_json()["alerts"]}
 
     def test_cached_devices_are_linked_to_their_location(self, persisted_integration_client):
-        devices = flask_app._read_cached_devices()
+        devices = inventory.read_devices()
         assert len(devices) == sum(len(devs) for devs in mock_nautobot.DEVICES.values())
         assert all(device["location_id"] for device in devices)
 

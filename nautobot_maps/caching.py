@@ -27,3 +27,8 @@ def get(key: str):
 
 def set(key: str, data, timeout: int | None = None):  # noqa: A001 - mirrors cache.set
     cache.set(key, data, timeout=timeout)
+
+
+def invalidate_alert_board() -> None:
+    cache.delete("alert-board-data:v3")
+    cache.delete("alert-board-data:v3:include-non-operational")

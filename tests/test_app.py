@@ -11,7 +11,7 @@ from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
-from nautobot_maps import caching, db, librenms, nautobot, settings
+from nautobot_maps import caching, db, inventory, librenms, nautobot, settings, timeutil
 
 
 @contextmanager
@@ -227,7 +227,7 @@ class TestPrimaryIpExtraction:
             "primary_ip4": {"host": "10.11.12.13", "address": "10.11.12.13/25"},
         }
 
-        assert flask_app._extract_primary_ip(device) == "10.11.12.13"
+        assert inventory.extract_primary_ip(device) == "10.11.12.13"
 
     def test_falls_back_to_primary_ip6_then_legacy_primary_ip(self):
         for device, expected in (
@@ -245,7 +245,7 @@ class TestPrimaryIpExtraction:
             ),
             ({"primary_ip": "192.0.2.9/32", "primary_ip4": None, "primary_ip6": None}, "192.0.2.9/32"),
         ):
-            assert flask_app._extract_primary_ip(device) == expected
+            assert inventory.extract_primary_ip(device) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -627,7 +627,7 @@ class TestAlertBoard:
             )
 
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=mock_devices),
         ):
@@ -651,7 +651,7 @@ class TestAlertBoard:
         flask_app.cache.clear()
         with (
             patch.object(
-                flask_app,
+                inventory,
                 "get_locations",
                 return_value=[
                     {
@@ -758,7 +758,7 @@ class TestAlertBoard:
         ]
 
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -922,7 +922,7 @@ class TestAlertBoard:
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
 
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
@@ -935,8 +935,8 @@ class TestAlertBoard:
 
     def test_location_alert_uses_cached_snapshot_only_on_device_cache_miss(self):
         with (
-            patch.object(flask_app, "_read_cached_devices", return_value=[]),
-            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
+            patch.object(inventory, "read_devices", return_value=[]),
+            patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
             patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
             devices, alert = flask_app._get_location_devices_and_alert(
@@ -1016,8 +1016,8 @@ class TestAlertBoard:
             return live_device_page
 
         with (
-            patch.object(flask_app, "_read_cached_devices", side_effect=[[], []]),
-            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(inventory, "read_devices", side_effect=[[], []]),
+            patch.object(inventory, "ensure_snapshot"),
             patch.object(nautobot, "fetch_all_pages", side_effect=_mock_fetch),
         ):
             devices, alert = flask_app._get_location_devices_and_alert("loc-1", "Data Center")
@@ -1037,9 +1037,9 @@ class TestAlertBoard:
         ]
 
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
-            patch.object(flask_app, "_read_cached_devices", return_value=[]),
-            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
+            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "read_devices", return_value=[]),
+            patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
             patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
@@ -1061,7 +1061,7 @@ class TestAlertBoard:
             patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
             patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
             patch.object(librenms, "fetch_inventory", side_effect=RuntimeError("down")),
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
                 flask_app,
@@ -1112,9 +1112,9 @@ class TestAlertBoard:
             return flask_app._empty_alert_context()
 
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
-            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(inventory, "ensure_snapshot"),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -1143,9 +1143,9 @@ class TestAlertBoard:
         ]
 
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
-            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(inventory, "ensure_snapshot"),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -1173,9 +1173,9 @@ class TestAlertBoard:
                 return None
 
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
-            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(inventory, "ensure_snapshot"),
             patch.object(
                 flask_app,
                 "_get_location_devices_and_alert",
@@ -1183,8 +1183,8 @@ class TestAlertBoard:
             ),
             patch.object(db, "get_conn", return_value=_FakeConn()),
             patch.object(
-                flask_app,
-                "_get_sync_state",
+                inventory,
+                "get_sync_state",
                 return_value={
                     "status": "error",
                     "last_successful_sync": None,
@@ -1326,7 +1326,7 @@ class TestApiLocationDetail:
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(nautobot, "fetch_all_pages", side_effect=not_found),
-            patch.object(flask_app, "_read_cached_locations", return_value=cached_locations),
+            patch.object(inventory, "read_locations", return_value=cached_locations),
             patch.object(nautobot, "get", side_effect=location_get) as mock_get,
         ):
             resp = client.get("/api/locations/loc-1/detail")
@@ -1440,9 +1440,9 @@ class TestNautobotRuntimeErrors:
     def test_runtime_errors_do_not_leak_internal_messages(self, client):
         secret = "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"
         cases = [
-            ("get", "/api/locations", (flask_app, "get_locations"), {}),
+            ("get", "/api/locations", (inventory, "get_locations"), {}),
             ("get", "/api/locations/loc-1/detail", (flask_app, "get_location_detail"), {}),
-            ("get", "/api/search?q=55.6761,12.5683", (flask_app, "get_locations"), {}),
+            ("get", "/api/search?q=55.6761,12.5683", (inventory, "get_locations"), {}),
             ("get", "/api/roles", (nautobot, "fetch_all_pages"), {}),
             (
                 "post",
@@ -2178,7 +2178,7 @@ class TestAlertLifecycleTracking:
     def test_api_alerts_contains_lifecycle_fields(self, client):
         with (
             patch.object(
-                flask_app,
+                inventory,
                 "get_locations",
                 return_value=[
                     {
@@ -2385,6 +2385,10 @@ class TestAlertLifecycleTracking:
             check=False,
         )
         assert completed.returncode == 0, completed.stderr[-2000:]
+        # The startup log must show the database setup (it was once silenced
+        # by running before logging was configured).
+        assert "persistence initialised" in completed.stderr
+        assert "Alert keys migrated to site + device: 1 re-keyed" in completed.stderr
         rows = self.db.execute("SELECT alert_key FROM alert_instances")
         assert rows == [{"alert_key": db.build_alert_key("loc-1", "dev-1")}]
 
@@ -2428,13 +2432,13 @@ class TestAlertLifecycleTracking:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
                     last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    cache_version=inventory.CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -2443,7 +2447,7 @@ class TestAlertLifecycleTracking:
 
         with (
             patch.object(
-                flask_app,
+                inventory,
                 "get_locations",
                 return_value=[
                     {
@@ -2543,13 +2547,13 @@ class TestAlertLifecycleTracking:
         )
         sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
             data = flask_app.get_alert_board_data(force_refresh=True)
         assert data["alerts"][0]["alert_level"] == "no_data"
-        history = flask_app._get_alert_context_for_site("loc-1", flask_app._iso_utc_now())
+        history = flask_app._get_alert_context_for_site("loc-1", timeutil.iso_utc_now())
         assert history["active_alert_instance_count"] == 1
         conn = db.get_conn()
         try:
@@ -2568,7 +2572,7 @@ class TestAlertLifecycleTracking:
             {"level": "critical", "reason": "Core device(s) offline: router01"},
         )
         with (
-            patch.object(flask_app, "get_locations", return_value=sample_locations) as get_locations,
+            patch.object(inventory, "get_locations", return_value=sample_locations) as get_locations,
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(flask_app, "_get_location_devices_and_alert", return_value=devices_return) as get_alert,
         ):
@@ -2600,12 +2604,12 @@ class TestAlertLifecycleTracking:
             ) as build_payload,
             patch.object(caching, "set", wraps=caching.set) as cache_set,
             patch.object(
-                flask_app,
-                "_ensure_inventory_snapshot",
+                inventory,
+                "ensure_snapshot",
             ) as ensure_snapshot,
             patch.object(
-                flask_app,
-                "_nautobot_snapshot_initialized",
+                inventory,
+                "snapshot_initialized",
                 return_value=True,
             ),
         ):
@@ -2633,7 +2637,7 @@ class TestAlertLifecycleTracking:
         }
         with (
             patch.object(flask_app, "_build_alert_board_payload", return_value=payload) as build_payload,
-            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure_snapshot,
+            patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
         ):
             result = flask_app.get_alert_board_data(force_refresh=True)
 
@@ -2664,11 +2668,11 @@ class TestAlertLifecycleTracking:
                 wraps=caching.set,
             ) as cache_set,
             patch.object(
-                flask_app,
-                "_nautobot_snapshot_initialized",
+                inventory,
+                "snapshot_initialized",
                 return_value=False,
             ),
-            patch.object(flask_app, "_ensure_inventory_snapshot"),
+            patch.object(inventory, "ensure_snapshot"),
         ):
             first = flask_app.get_alert_board_data(force_refresh=True)
             second = flask_app.get_alert_board_data()
@@ -2983,16 +2987,16 @@ class TestAlertLifecycleTracking:
         )
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
-        state = flask_app._get_sync_state("nautobot_inventory", conn=fake_conn)
+        state = inventory.get_sync_state("nautobot_inventory", conn=fake_conn)
         assert state["cache_version"] == ""
 
-        flask_app._record_sync_state(
+        inventory.record_sync_state(
             fake_conn,
             "nautobot_inventory",
-            cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+            cache_version=inventory.CACHE_VERSION,
         )
         assert any(
-            params[4] == flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION
+            params[4] == inventory.CACHE_VERSION
             for query, params in fake_conn.queries
             if "INSERT INTO inventory_sync_state" in query
         )
@@ -3130,7 +3134,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -3160,7 +3164,7 @@ class TestInventoryCacheSync:
             conn.close()
 
         with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
-            locations = flask_app.get_locations()
+            locations = inventory.get_locations()
 
         assert locations == [
             {
@@ -3190,7 +3194,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -3219,7 +3223,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        locations = flask_app._read_cached_locations(include_without_coordinates=True)
+        locations = inventory.read_locations(include_without_coordinates=True)
         location = next(item for item in locations if item["id"] == "loc-1")
 
         assert location["time_zone"] is None
@@ -3228,7 +3232,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -3257,7 +3261,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        locations = flask_app._read_cached_locations(include_without_coordinates=True)
+        locations = inventory.read_locations(include_without_coordinates=True)
         assert len(locations) == 1
         assert locations[0]["parent"] == ""
         assert locations[0]["description"] == ""
@@ -3273,7 +3277,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_devices(
+                inventory.write_devices(
                     conn,
                     [
                         {
@@ -3295,7 +3299,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        devices = flask_app._read_cached_devices()
+        devices = inventory.read_devices()
         assert len(devices) == 1
         assert devices[0]["location_id"] == ""
         assert devices[0]["name"] == ""
@@ -3312,7 +3316,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -3338,7 +3342,7 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                flask_app._write_cached_devices(
+                inventory.write_devices(
                     conn,
                     [
                         {
@@ -3373,7 +3377,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -3399,13 +3403,13 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:00:00Z",
                     last_successful_sync="2026-01-01T00:00:00Z",
-                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    cache_version=inventory.CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -3421,9 +3425,9 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 0),
-            patch.object(flask_app, "_sync_nautobot_inventory", side_effect=fake_sync),
+            patch.object(inventory, "sync_nautobot", side_effect=fake_sync),
         ):
-            locations = flask_app.get_locations()
+            locations = inventory.get_locations()
             assert refresh_called.wait(1), "expected cached read to trigger a background refresh"
 
         assert locations[0]["id"] == "loc-1"
@@ -3476,12 +3480,12 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            flask_app._sync_nautobot_inventory(force=True)
-            first_state = flask_app._get_sync_state("nautobot_inventory")
-            flask_app._sync_nautobot_inventory()
+            inventory.sync_nautobot(force=True)
+            first_state = inventory.get_sync_state("nautobot_inventory")
+            inventory.sync_nautobot()
 
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
@@ -3496,23 +3500,23 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
                     last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    cache_version=inventory.CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory_reconcile",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2099-01-01T00:00:00Z",
                     last_successful_sync="2099-01-01T00:00:00Z",
-                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    cache_version=inventory.CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -3563,12 +3567,12 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            flask_app._sync_nautobot_inventory()
+            inventory.sync_nautobot()
 
-        state = flask_app._get_sync_state("nautobot_inventory")
+        state = inventory.get_sync_state("nautobot_inventory")
         assert state["last_successful_sync"] == "2026-01-01T00:05:00Z"
 
     def test_sync_nautobot_inventory_full_reconciles_when_cache_version_changes(self):
@@ -3618,7 +3622,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
@@ -3635,22 +3639,22 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
-            patch.object(flask_app, "_sync_due", return_value=False),
-            patch.object(flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
+            patch.object(inventory, "sync_due", return_value=False),
+            patch.object(timeutil, "iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
         ):
-            flask_app._sync_nautobot_inventory()
+            inventory.sync_nautobot()
 
-        state = flask_app._get_sync_state("nautobot_inventory")
-        reconcile_state = flask_app._get_sync_state("nautobot_inventory_reconcile")
+        state = inventory.get_sync_state("nautobot_inventory")
+        reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
         assert location_calls == [{}]
         assert device_calls == [{"depth": 1}]
-        assert state["cache_version"] == flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION
-        assert reconcile_state["cache_version"] == flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION
+        assert state["cache_version"] == inventory.CACHE_VERSION
+        assert reconcile_state["cache_version"] == inventory.CACHE_VERSION
         assert state["last_successful_sync"] == "2026-01-02T00:00:00Z"
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
@@ -3658,7 +3662,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
@@ -3674,10 +3678,10 @@ class TestInventoryCacheSync:
         with (
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
-            patch.object(flask_app, "_sync_due", return_value=False),
-            patch.object(flask_app, "_sync_nautobot_inventory") as sync_nautobot,
+            patch.object(inventory, "sync_due", return_value=False),
+            patch.object(inventory, "sync_nautobot") as sync_nautobot,
         ):
-            assert flask_app._ensure_inventory_snapshot(wait=True) is True
+            assert inventory.ensure_snapshot(wait=True) is True
 
         sync_nautobot.assert_called_once_with(force=False)
 
@@ -3728,13 +3732,13 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
                     last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    cache_version=inventory.CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -3745,15 +3749,15 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
-            patch.object(flask_app, "_sync_due", return_value=True),
-            patch.object(flask_app, "_iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
+            patch.object(inventory, "sync_due", return_value=True),
+            patch.object(timeutil, "iso_utc_now", side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"]),
         ):
-            flask_app._sync_nautobot_inventory()
+            inventory.sync_nautobot()
 
-        state = flask_app._get_sync_state("nautobot_inventory")
-        reconcile_state = flask_app._get_sync_state("nautobot_inventory_reconcile")
+        state = inventory.get_sync_state("nautobot_inventory")
+        reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
@@ -3764,8 +3768,8 @@ class TestInventoryCacheSync:
 
     def test_primary_ip_backfill_pending_until_current_cache_version_sync(self):
         with patch.object(
-            flask_app,
-            "_get_sync_state",
+            inventory,
+            "get_sync_state",
             return_value={
                 "last_successful_sync": "2026-01-01T00:05:00Z",
                 "cache_version": "1",
@@ -3774,11 +3778,11 @@ class TestInventoryCacheSync:
             assert flask_app._nautobot_inventory_primary_ip_backfill_pending() is True
 
         with patch.object(
-            flask_app,
-            "_get_sync_state",
+            inventory,
+            "get_sync_state",
             return_value={
                 "last_successful_sync": "2026-01-01T00:05:00Z",
-                "cache_version": flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                "cache_version": inventory.CACHE_VERSION,
             },
         ):
             assert flask_app._nautobot_inventory_primary_ip_backfill_pending() is False
@@ -3787,7 +3791,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -3813,7 +3817,7 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                flask_app._write_cached_devices(
+                inventory.write_devices(
                     conn,
                     [
                         {
@@ -3832,7 +3836,7 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at=None,
@@ -3856,7 +3860,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -3882,7 +3886,7 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                flask_app._write_cached_devices(
+                inventory.write_devices(
                     conn,
                     [
                         {
@@ -3915,13 +3919,13 @@ class TestInventoryCacheSync:
                         },
                     ],
                 )
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
                     last_successful_sync="2026-01-01T00:05:00Z",
-                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    cache_version=inventory.CACHE_VERSION,
                     status="idle",
                     error_message="",
                 )
@@ -4012,7 +4016,7 @@ class TestInventoryCacheSync:
             patch.object(db, "get_conn", return_value=fake_conn),
             patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
             patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
-            patch.object(flask_app, "_get_sync_state", return_value={"last_successful_sync": None}),
+            patch.object(inventory, "get_sync_state", return_value={"last_successful_sync": None}),
             patch.object(
                 librenms,
                 "fetch_inventory",
@@ -4020,7 +4024,7 @@ class TestInventoryCacheSync:
             ),
             patch.object(flask_app.cache, "delete") as cache_delete,
         ):
-            flask_app._sync_librenms_inventory()
+            inventory.sync_librenms()
 
         assert fake_conn.connection_context_entries == 0
         assert fake_conn.transaction_entries == 2
@@ -4037,7 +4041,7 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._write_cached_locations(
+                inventory.write_locations(
                     conn,
                     [
                         {
@@ -4063,7 +4067,7 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                flask_app._write_cached_devices(
+                inventory.write_devices(
                     conn,
                     [
                         {
@@ -4129,13 +4133,13 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            flask_app._sync_nautobot_inventory(force=True)
+            inventory.sync_nautobot(force=True)
 
-        assert [item["id"] for item in flask_app._read_cached_locations(include_without_coordinates=True)] == ["loc-1"]
-        assert [item["id"] for item in flask_app._read_cached_devices()] == ["dev-1"]
+        assert [item["id"] for item in inventory.read_locations(include_without_coordinates=True)] == ["loc-1"]
+        assert [item["id"] for item in inventory.read_devices()] == ["dev-1"]
 
 
 # ---------------------------------------------------------------------------
@@ -4660,13 +4664,13 @@ class TestAlertBoardSyncProgress:
         conn = db.get_conn()
         try:
             with conn:
-                flask_app._record_sync_state(
+                inventory.record_sync_state(
                     conn,
                     "nautobot_inventory",
                     last_started_at=started_at,
                     last_completed_at=completed_at,
                     last_successful_sync=completed_at,
-                    cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                    cache_version=inventory.CACHE_VERSION,
                     status=status,
                     error_message="",
                 )
@@ -4675,17 +4679,17 @@ class TestAlertBoardSyncProgress:
 
     def _board(self, alerts=None):
         return {
-            "checked_at": flask_app._iso_utc_now(),
+            "checked_at": timeutil.iso_utc_now(),
             "stale_after_seconds": 300,
             "summary": {"total": len(alerts or [])},
             "alerts": alerts or [],
         }
 
     def test_refresh_1_enqueues_forced_background_sync(self, client):
-        now = flask_app._iso_utc_now()
+        now = timeutil.iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts?refresh=1")
@@ -4695,10 +4699,10 @@ class TestAlertBoardSyncProgress:
 
     def test_timestamp_refresh_value_does_not_trigger_sync(self, client):
         """The old UI sent refresh=<Date.now()>; the server contract is 1/true/yes/refresh."""
-        now = flask_app._iso_utc_now()
+        now = timeutil.iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts?refresh=1727000000000")
@@ -4709,7 +4713,7 @@ class TestAlertBoardSyncProgress:
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board()),
         ):
             resp = client.get("/api/alerts")
@@ -4723,10 +4727,10 @@ class TestAlertBoardSyncProgress:
         assert flask_app.cache.get("alert-board-data:v3") is None
 
     def test_initialized_snapshot_does_not_start_sync_and_is_not_pending(self, client):
-        now = flask_app._iso_utc_now()
+        now = timeutil.iso_utc_now()
         self._set_nautobot_sync_state("idle", now, now)
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure,
+            patch.object(inventory, "ensure_snapshot") as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             resp = client.get("/api/alerts")
@@ -4741,7 +4745,7 @@ class TestAlertBoardSyncProgress:
         old = (datetime.now(UTC) - timedelta(seconds=301)).isoformat()
         self._set_nautobot_sync_state("idle", old, old)
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure,
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             data = client.get("/api/alerts").get_json()
@@ -4756,7 +4760,7 @@ class TestAlertBoardSyncProgress:
         completed = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
         self._set_nautobot_sync_state("idle", completed, completed)
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot") as ensure,
+            patch.object(inventory, "ensure_snapshot") as ensure,
             patch.object(flask_app, "_build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])),
         ):
             data = client.get("/api/alerts").get_json()
@@ -4774,7 +4778,7 @@ class TestAlertBoardSyncProgress:
         self._set_nautobot_sync_state("idle", now, now)
         conn = db.get_conn()
         with conn:
-            flask_app._record_sync_state(
+            inventory.record_sync_state(
                 conn, "librenms_inventory", last_started_at=now, last_completed_at=now, status="idle"
             )
         conn.close()
@@ -4785,7 +4789,7 @@ class TestAlertBoardSyncProgress:
     def test_next_update_unknown_while_sync_runs(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
-        self._set_nautobot_sync_state("running", flask_app._iso_utc_now())
+        self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
         assert flask_app._inventory_update_schedule() == (False, None)
 
     def test_next_update_unknown_without_persistence(self, monkeypatch):
@@ -4821,7 +4825,7 @@ class TestAlertBoardSyncProgress:
         assert completed.stdout.strip().splitlines()[-1] == "120 45"
 
     def test_running_sync_is_reported_as_pending(self, client):
-        self._set_nautobot_sync_state("running", flask_app._iso_utc_now())
+        self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
         assert flask_app._nautobot_sync_in_progress() is True
 
     def test_abandoned_running_sync_is_not_pending(self):
@@ -4840,7 +4844,7 @@ class TestAlertBoardSyncProgress:
             site,
             devices_down,
             {"level": "critical", "reason": "Core device(s) offline: router01"},
-            flask_app._iso_utc_now(),
+            timeutil.iso_utc_now(),
         )
         flask_app.cache.set("alert-board-data:v3", self._board([{"id": "loc-1"}]))
         resp = client.post(
@@ -4865,7 +4869,7 @@ class TestMultiDeviceCases:
                 {"id": "dev-3", "name": "sw03", "status": "offline"},
             ],
             {"level": "medium", "reason": "3/4 devices offline (75%)"},
-            flask_app._iso_utc_now(),
+            timeutil.iso_utc_now(),
         )
         yield
         flask_app.cache.clear()
@@ -4978,7 +4982,7 @@ class TestLibreNMSPolledIp:
         ids=["override-wins", "ip", "ipv6", "non-ip-ignored", "missing"],
     )
     def test_polled_ip_selection(self, record, expected):
-        assert flask_app._librenms_polled_ip(record) == expected
+        assert inventory.librenms_polled_ip(record) == expected
 
     def test_sync_caches_polled_ip(self, monkeypatch, pg_database):
         monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
@@ -4997,8 +5001,8 @@ class TestLibreNMSPolledIp:
                 },
             ],
         ):
-            flask_app._sync_librenms_inventory(force=True)
-        cached = flask_app._read_cached_librenms_inventory()
+            inventory.sync_librenms(force=True)
+        cached = inventory.read_librenms_devices()
         assert cached == [{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}]
 
     def test_device_added_by_hostname_shows_librenms_ip(self, monkeypatch):
@@ -5021,9 +5025,7 @@ class TestLibreNMSPolledIp:
             "INSERT INTO librenms_device_status (device_id, hostname, status) VALUES (7, 'router01', 1)"
         )
         db.init_db()
-        assert flask_app._read_cached_librenms_inventory() == [
-            {"device_id": 7, "hostname": "router01", "ip": "", "status": 1}
-        ]
+        assert inventory.read_librenms_devices() == [{"device_id": 7, "hostname": "router01", "ip": "", "status": 1}]
 
     def test_postgres_migration_adds_ip_column(self):
         class _Result:
@@ -5078,7 +5080,7 @@ class TestAlertBoardWithoutPersistence:
             flask_app,
             "_build_alert_board_payload",
             return_value={
-                "checked_at": flask_app._iso_utc_now(),
+                "checked_at": timeutil.iso_utc_now(),
                 "summary": {},
                 "alerts": [],
             },
@@ -5091,11 +5093,11 @@ class TestAlertBoardWithoutPersistence:
         db.init_db()
         flask_app.cache.clear()
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=False),
+            patch.object(inventory, "ensure_snapshot", return_value=False),
             patch.object(
                 flask_app,
                 "_build_alert_board_payload",
-                return_value={"checked_at": flask_app._iso_utc_now(), "summary": {}, "alerts": []},
+                return_value={"checked_at": timeutil.iso_utc_now(), "summary": {}, "alerts": []},
             ),
         ):
             data = client.get("/api/alerts").get_json()
@@ -5141,15 +5143,15 @@ class TestRefreshIsIncremental:
 
         with (
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(flask_app, "_read_cached_location_name_map", return_value={}),
+            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            flask_app._ensure_inventory_snapshot(wait=True, **ensure_kwargs)
+            inventory.ensure_snapshot(wait=True, **ensure_kwargs)
         return [params for endpoint, params in calls if endpoint == "dcim/locations/"]
 
     def test_sync_now_only_fetches_changes_since_last_sync(self):
         self._location_queries(force=True)  # first sync: full, sets the watermark
-        watermark = flask_app._get_sync_state("nautobot_inventory")["last_successful_sync"]
+        watermark = inventory.get_sync_state("nautobot_inventory")["last_successful_sync"]
         queries = self._location_queries(force=True, full=False)
         assert queries == [{"last_updated__gte": watermark}]
 
@@ -5172,8 +5174,8 @@ class TestAlertBoardBulkReads:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        monkeypatch.setattr(flask_app, "_ensure_inventory_snapshot", lambda *a, **k: False)
-        monkeypatch.setattr(flask_app, "_iso_utc_now", lambda: self.CHECKED_AT)
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
         db.init_db()
         flask_app.cache.clear()
         yield
@@ -5207,13 +5209,13 @@ class TestAlertBoardBulkReads:
         )
         conn = db.get_conn()
         with conn:
-            flask_app._record_sync_state(
+            inventory.record_sync_state(
                 conn,
                 "nautobot_inventory",
                 last_started_at="2026-09-25T11:00:00+00:00",
                 last_completed_at="2026-09-25T11:00:00+00:00",
                 last_successful_sync="2026-09-25T11:00:00+00:00" if backfill_done else None,
-                cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                cache_version=inventory.CACHE_VERSION,
                 status="idle",
             )
         conn.close()
@@ -5372,7 +5374,7 @@ class TestSiteRollup:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        monkeypatch.setattr(flask_app, "_ensure_inventory_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
         monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"decommissioning"})
         monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", set())
         names = {location_id: name for location_id, name, *_ in self.LOCATIONS}
@@ -5398,13 +5400,13 @@ class TestSiteRollup:
         )
         conn = db.get_conn()
         with conn:
-            flask_app._record_sync_state(
+            inventory.record_sync_state(
                 conn,
                 "nautobot_inventory",
                 last_started_at="2026-09-25T11:00:00+00:00",
                 last_completed_at="2026-09-25T11:00:00+00:00",
                 last_successful_sync="2026-09-25T11:00:00+00:00",
-                cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                cache_version=inventory.CACHE_VERSION,
                 status="idle",
             )
         conn.close()
@@ -5501,19 +5503,19 @@ class TestBackgroundScheduler:
         )
         conn = db.get_conn()
         with conn:
-            flask_app._record_sync_state(
+            inventory.record_sync_state(
                 conn,
                 "nautobot_inventory",
                 last_started_at="2026-09-25T11:00:00+00:00",
                 last_completed_at="2026-09-25T11:00:00+00:00",
                 last_successful_sync="2026-09-25T11:00:00+00:00",
-                cache_version=flask_app._NAUTOBOT_INVENTORY_CACHE_VERSION,
+                cache_version=inventory.CACHE_VERSION,
                 status="idle",
             )
         conn.close()
 
     def test_tick_after_a_sync_records_alert_history_without_any_request(self):
-        with patch.object(flask_app, "_ensure_inventory_snapshot", return_value=True) as ensure:
+        with patch.object(inventory, "ensure_snapshot", return_value=True) as ensure:
             assert flask_app._scheduler_tick() is True
         ensure.assert_called_once_with(wait=True)
         rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
@@ -5523,7 +5525,7 @@ class TestBackgroundScheduler:
 
     def test_tick_without_a_due_sync_does_nothing(self):
         with (
-            patch.object(flask_app, "_ensure_inventory_snapshot", return_value=False),
+            patch.object(inventory, "ensure_snapshot", return_value=False),
             patch.object(flask_app, "_build_alert_board_payload") as build,
         ):
             assert flask_app._scheduler_tick() is False
@@ -5536,7 +5538,7 @@ class TestBackgroundScheduler:
         try:
             other = db.try_advisory_lock("background_scheduler")
             assert other is False  # a second connection cannot take it
-            with patch.object(flask_app, "_ensure_inventory_snapshot") as ensure:
+            with patch.object(inventory, "ensure_snapshot") as ensure:
                 assert flask_app._scheduler_tick() is False
             ensure.assert_not_called()
         finally:
@@ -5642,7 +5644,7 @@ class TestSeverityTiers:
 
         flask_app.cache.clear()
         with (
-            patch.object(flask_app, "get_locations", return_value=locations),
+            patch.object(inventory, "get_locations", return_value=locations),
             patch.object(flask_app, "_get_location_devices_and_alert", side_effect=fake_alert),
         ):
             summary = flask_app.get_alert_board_data()["summary"]

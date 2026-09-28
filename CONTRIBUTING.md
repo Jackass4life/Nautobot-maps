@@ -75,6 +75,13 @@ under `nautobot_maps/` (#165):
 - `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
   `librenms.fetch_inventory()`).
 - `nautobot_maps/caching.py`: the shared response cache (Flask-Caching).
+- `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,
+  sync state, and `inventory.ensure_snapshot()` / `inventory.get_locations()`.
+- `nautobot_maps/timeutil.py`: time helpers; tests freeze time with
+  `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`.
+
+Importing a module must not touch the database: `app.py` calls `db.init_db()` once at startup,
+after logging is configured (a test enforces this).
 
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.

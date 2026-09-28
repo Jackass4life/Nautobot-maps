@@ -60,3 +60,22 @@ def test_only_the_settings_module_reads_the_environment():
     """app.py reads settings via nautobot_maps.settings, never os.getenv (#165)."""
     source = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
     assert not re.search(r"os\.(getenv|environ)", source)
+
+
+def test_importing_the_modules_does_not_touch_the_database():
+    """Only app.py sets up the database at startup, after logging is configured (#165).
+
+    Nothing listens on port 1, so any module connecting at import would fail here.
+    """
+    modules = sorted(p.stem for p in (REPO_ROOT / "nautobot_maps").glob("*.py") if p.stem != "__init__")
+    env = {**os.environ, "NAUTOBOT_MAPS_DATABASE_URL": "postgresql://nobody@127.0.0.1:1/none"}
+    completed = subprocess.run(
+        [sys.executable, "-c", "; ".join(f"import nautobot_maps.{m}" for m in modules)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr[-2000:]
+    assert len(modules) >= 7
