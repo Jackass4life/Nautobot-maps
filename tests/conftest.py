@@ -119,6 +119,18 @@ _MOVED_FROM_APP = {
         "_scheduler_loop",
         "start_background_scheduler",
     ),
+    "auth": (
+        "_AUTH_ROLE_LEVELS",
+        "_SUPPORTED_AUTH_MODES",
+        "_normalize_auth_role",
+        "_is_auth_config_valid",
+        "_get_flask_run_host",
+        "_auth_role_level",
+        "_resolve_role_from_groups",
+        "_get_current_user",
+        "require_role",
+    ),
+    "web": ("_wants_json", "_nautobot_service_unavailable", "_MAX_CASE_DEVICES", "cache", "requests"),
     "timeutil": (
         "_iso_utc_now",
         "_parse_iso_datetime",
@@ -208,8 +220,7 @@ def pg_database(monkeypatch):
         if os.getenv("CI"):
             pytest.fail("TEST_DATABASE_URL must be set in CI: PostgreSQL tests may not be skipped")
         pytest.skip("TEST_DATABASE_URL not set – skipping PostgreSQL tests")
-    import app as flask_app
-    from nautobot_maps import db, settings
+    from nautobot_maps import caching, db, settings
 
     schema = f"test_{uuid.uuid4().hex[:16]}"
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
@@ -217,10 +228,10 @@ def pg_database(monkeypatch):
     url = _with_search_path(TEST_DATABASE_URL, schema)
     monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", url)
     db.init_db()
-    flask_app.cache.clear()
+    caching.cache.clear()
     try:
         yield TestDatabase(url)
     finally:
-        flask_app.cache.clear()
+        caching.cache.clear()
         with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA "{schema}" CASCADE')
