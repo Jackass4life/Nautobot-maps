@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Breaking:** SQLite support. PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`) is the only persistence database; `NAUTOBOT_MAPS_DB` is ignored and logged as an error at startup. There is no data migration: move to PostgreSQL before upgrading (the bundled `docker-compose.yml` already uses it) (#153)
 
 ### Changed
+- The web routes and error handlers moved to `nautobot_maps/web.py` (a Flask blueprint) and authentication to `nautobot_maps/auth.py`. `app.py` is now a ~60-line entry point; splitting `app.py` is complete (last step). No behaviour change, URLs unchanged (#165)
 - The alert logic moved from `app.py` to `nautobot_maps/alerts.py` and the background scheduler to `nautobot_maps/scheduler.py` (fifth step of splitting `app.py`); no behaviour change. Their log lines now show `nautobot_maps.alerts` / `nautobot_maps.scheduler` instead of `app` (#165)
 - The inventory sync moved from `app.py` to `nautobot_maps/inventory.py`, and the time helpers to `nautobot_maps/timeutil.py` (fourth step of splitting `app.py`); no behaviour change. Tests now fail if a module touches the database when imported, or if the startup log loses its database lines (#165)
 - The Nautobot and LibreNMS API clients and the response cache moved from `app.py` to `nautobot_maps/nautobot.py`, `nautobot_maps/librenms.py` and `nautobot_maps/caching.py` (third step of splitting `app.py`); no behaviour change (#165)

@@ -19,7 +19,7 @@ import os
 import pytest
 
 import app as flask_app
-from nautobot_maps import settings
+from nautobot_maps import caching, settings
 
 # ---------------------------------------------------------------------------
 # Skip entire module when no live Nautobot is available
@@ -52,7 +52,7 @@ def live_client():
     settings.NAUTOBOT_URL = NAUTOBOT_LIVE_URL
     settings.NAUTOBOT_TOKEN = NAUTOBOT_LIVE_TOKEN
     settings.NAUTOBOT_VERIFY_SSL = False
-    flask_app.cache.clear()
+    caching.cache.clear()
 
     flask_app.app.config["TESTING"] = True
     flask_app.app.config["SECRET_KEY"] = "live-test-secret"
@@ -67,9 +67,9 @@ def live_client():
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    flask_app.cache.clear()
+    caching.cache.clear()
     yield
-    flask_app.cache.clear()
+    caching.cache.clear()
 
 
 # ---------------------------------------------------------------------------

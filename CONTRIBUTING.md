@@ -61,8 +61,9 @@ Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After cha
 
 ### Project layout
 
-`app.py` is the Flask entry point (`app:app` for gunicorn). It is being split into modules
-under `nautobot_maps/` (#165):
+`app.py` is the entry point (`app:app` for gunicorn): it creates the Flask app, sets up
+logging, the cache and the database, registers the routes, and logs the startup settings.
+Everything else lives in modules under `nautobot_maps/` (#165):
 
 - `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new
   settings here, pass them in `docker-compose.yml` (a test checks this), and read them as
@@ -82,6 +83,9 @@ under `nautobot_maps/` (#165):
   the map's location detail.
 - `nautobot_maps/scheduler.py`: the background scheduler (`scheduler.start()`, started by
   gunicorn in each worker).
+- `nautobot_maps/web.py`: all routes and error handlers (a Flask blueprint, `web.bp`).
+- `nautobot_maps/auth.py`: optional header-based authentication and roles
+  (`@auth.require_role("operator")`).
 - `nautobot_maps/timeutil.py`: time helpers; tests freeze time with
   `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`.
 

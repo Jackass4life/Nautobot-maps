@@ -20,7 +20,7 @@ import pytest
 from werkzeug.serving import make_server
 
 import app as flask_app
-from nautobot_maps import inventory, settings
+from nautobot_maps import caching, inventory, settings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -69,7 +69,7 @@ def integration_client(mock_nautobot_server):
     # Patch the module-level config variables so all calls go to the mock server
     settings.NAUTOBOT_URL = mock_nautobot_server
     settings.NAUTOBOT_TOKEN = "demo-token"
-    flask_app.cache.clear()
+    caching.cache.clear()
 
     flask_app.app.config["TESTING"] = True
     flask_app.app.config["SECRET_KEY"] = "integration-test-secret"
@@ -87,9 +87,9 @@ def integration_client(mock_nautobot_server):
 # ---------------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def clear_cache():
-    flask_app.cache.clear()
+    caching.cache.clear()
     yield
-    flask_app.cache.clear()
+    caching.cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +595,7 @@ class TestAlertBoardWithPersistence:
     def test_site_rollup_through_a_real_sync(self, persisted_integration_client, monkeypatch):
         """Parents come from the Nautobot API, are cached, and the board rolls up to Sites (#158)."""
         monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
-        flask_app.cache.clear()
+        caching.cache.clear()
         alerts = self._alerts_by_site(persisted_integration_client)
         for hidden in ("loc-emea", "loc-dnk", "loc-aar-bld-a", "loc-aar-bld-a-f2"):
             assert hidden not in alerts

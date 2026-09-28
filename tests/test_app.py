@@ -7,11 +7,12 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
-from nautobot_maps import alerts, caching, db, inventory, librenms, nautobot, scheduler, settings, timeutil
+from nautobot_maps import alerts, auth, caching, db, inventory, librenms, nautobot, scheduler, settings, timeutil, web
 
 
 @contextmanager
@@ -39,7 +40,7 @@ def auth_config(
     settings.AUTH_VIEWER_GROUPS = set(viewer_groups or set())
     settings.AUTH_OPERATOR_GROUPS = set(operator_groups or set())
     settings.AUTH_ADMIN_GROUPS = set(admin_groups or set())
-    settings.AUTH_DEFAULT_ROLE = flask_app._normalize_auth_role(default_role)
+    settings.AUTH_DEFAULT_ROLE = auth.normalize_role(default_role)
     try:
         yield
     finally:
@@ -57,7 +58,7 @@ def client():
     flask_app.app.config["TESTING"] = True
     flask_app.app.config["SECRET_KEY"] = "test-secret"
     # Clear cache before each test
-    flask_app.cache.clear()
+    caching.cache.clear()
     with flask_app.app.test_client() as c:
         yield c
 
@@ -545,7 +546,7 @@ class TestAlertBoard:
         assert b"Expand all" in resp.data
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [
             {
                 "id": "loc-1",
@@ -648,7 +649,7 @@ class TestAlertBoard:
         assert data["stale"] is False
 
     def test_api_alerts_returns_board_data(self, client):
-        flask_app.cache.clear()
+        caching.cache.clear()
         with (
             patch.object(
                 inventory,
@@ -715,7 +716,7 @@ class TestAlertBoard:
         ]
 
     def test_api_alerts_hides_non_operational_locations_unless_requested(self, client):
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [
             {
                 "id": "loc-1",
@@ -782,7 +783,7 @@ class TestAlertBoard:
             assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1"]
             assert get_alert.call_count == 1
 
-            flask_app.cache.clear()
+            caching.cache.clear()
             get_alert.reset_mock()
             resp = client.get("/api/alerts?include_non_operational=1")
 
@@ -918,7 +919,7 @@ class TestAlertBoard:
             )
 
     def test_get_alert_board_data_marks_location_no_data_on_error(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
 
         with (
@@ -991,7 +992,7 @@ class TestAlertBoard:
         }
 
     def test_location_detail_live_device_fetch_retries_with_location_filter_on_400(self):
-        bad_request = flask_app.requests.HTTPError(
+        bad_request = requests.HTTPError(
             "bad request",
             response=MagicMock(status_code=400),
         )
@@ -1030,7 +1031,7 @@ class TestAlertBoard:
         ]
 
     def test_get_alert_board_data_does_not_live_fetch_devices_on_cache_miss(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [
             {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
             {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
@@ -1051,7 +1052,7 @@ class TestAlertBoard:
         ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [
             {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
             {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
@@ -1081,7 +1082,7 @@ class TestAlertBoard:
 
     def test_get_alert_board_data_replaces_write_connection_after_failure(self):
         """Sites share one write connection; a failed write gets the next site a fresh one (#88, #149)."""
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [
             {"id": f"loc-{i}", "name": f"Site {i}", "location_type": "Office", "latitude": 1.0, "longitude": 2.0}
             for i in (1, 2, 3)
@@ -1136,7 +1137,7 @@ class TestAlertBoard:
         assert read_conn not in upsert_conns
 
     def test_get_alert_board_data_disables_persistence_after_connect_failure(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [
             {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
             {"id": "loc-2", "name": "Site 2", "location_type": "Office", "latitude": 3.0, "longitude": 4.0},
@@ -1163,7 +1164,7 @@ class TestAlertBoard:
         get_context.assert_not_called()
 
     def test_get_alert_board_data_skips_lifecycle_upsert_until_first_successful_nautobot_sync(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         sample_locations = [
             {"id": "loc-1", "name": "Site 1", "location_type": "Data Center", "latitude": 1.0, "longitude": 2.0},
         ]
@@ -1296,7 +1297,7 @@ class TestApiLocationDetail:
         assert resp.get_json()["error"] == "Nautobot service unavailable"
 
     def test_asn_lookup_http_error_returns_502(self, client):
-        http_err = flask_app.requests.HTTPError(
+        http_err = requests.HTTPError(
             "upstream failed",
             response=MagicMock(status_code=502),
         )
@@ -1315,7 +1316,7 @@ class TestApiLocationDetail:
 
     def _get_detail_with_asn_endpoint_missing(self, client, cached_locations, location_get):
         """Request a detail while ``ipam/asns/`` returns 404 (Nautobot 3.x core)."""
-        not_found = flask_app.requests.HTTPError(
+        not_found = requests.HTTPError(
             "404 Client Error: Not Found",
             response=MagicMock(status_code=404),
         )
@@ -1358,7 +1359,7 @@ class TestApiLocationDetail:
         assert resp.get_json()["asns"] == []
 
     def test_missing_asn_endpoint_still_fails_when_location_lookup_fails(self, client):
-        upstream_err = flask_app.requests.HTTPError(
+        upstream_err = requests.HTTPError(
             "500 Server Error",
             response=MagicMock(status_code=500),
         )
@@ -1413,7 +1414,7 @@ class TestApiSearch:
         mock_geolocator.geocode.return_value = mock_geo_result
 
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            with patch("app.Nominatim", return_value=mock_geolocator):
+            with patch("nautobot_maps.web.Nominatim", return_value=mock_geolocator):
                 resp = client.get("/api/search?q=Copenhagen")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1423,7 +1424,7 @@ class TestApiSearch:
         mock_geolocator = MagicMock()
         mock_geolocator.geocode.return_value = None
 
-        with patch("app.Nominatim", return_value=mock_geolocator):
+        with patch("nautobot_maps.web.Nominatim", return_value=mock_geolocator):
             resp = client.get("/api/search?q=ThisPlaceDoesNotExist12345")
         assert resp.status_code == 404
         assert "error" in resp.get_json()
@@ -1563,7 +1564,7 @@ class TestCaching:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
             # Patch env vars so nautobot_get doesn't raise RuntimeError
             settings.NAUTOBOT_URL = "http://nautobot.test"
@@ -1579,16 +1580,16 @@ class TestCaching:
         assert mock_get.call_count == 1
 
     def test_cache_set_and_get(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         caching.set("test-key", {"data": 42})
         result = caching.get("test-key")
         assert result == {"data": 42}
 
     def test_cache_expires(self):
         """Verify that Flask-Caching is configured with the correct timeout."""
-        flask_app.cache.clear()
+        caching.cache.clear()
         # Store with a very short timeout and verify it expires
-        flask_app.cache.set("expiring-key", "value", timeout=1)
+        caching.cache.set("expiring-key", "value", timeout=1)
         import time
 
         time.sleep(1.1)
@@ -1634,7 +1635,7 @@ class TestSSLVerification:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         original_url = settings.NAUTOBOT_URL
         original_token = settings.NAUTOBOT_TOKEN
         original_verify = settings.NAUTOBOT_VERIFY_SSL
@@ -1660,7 +1661,7 @@ class TestSSLVerification:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         original_url = settings.NAUTOBOT_URL
         original_token = settings.NAUTOBOT_TOKEN
         original_verify = settings.NAUTOBOT_VERIFY_SSL
@@ -1686,7 +1687,7 @@ class TestSSLVerification:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         original_url = settings.NAUTOBOT_URL
         original_token = settings.NAUTOBOT_TOKEN
         original_verify = settings.NAUTOBOT_VERIFY_SSL
@@ -1712,7 +1713,7 @@ class TestSSLVerification:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         original_url = settings.NAUTOBOT_URL
         original_token = settings.NAUTOBOT_TOKEN
         settings.NAUTOBOT_URL = "https://nautobot.test"
@@ -1773,7 +1774,7 @@ class TestApiVersionHeader:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         original_url = settings.NAUTOBOT_URL
         original_token = settings.NAUTOBOT_TOKEN
         original_version = settings.NAUTOBOT_API_VERSION
@@ -1799,7 +1800,7 @@ class TestApiVersionHeader:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         original_url = settings.NAUTOBOT_URL
         original_token = settings.NAUTOBOT_TOKEN
         original_version = settings.NAUTOBOT_API_VERSION
@@ -1853,7 +1854,7 @@ class TestErrorHandlers:
 
     def test_http_exception_returns_json_for_api_path(self):
         with flask_app.app.test_request_context("/api/alerts"):
-            resp, status = flask_app.api_http_error(GatewayTimeout())
+            resp, status = web.api_http_error(GatewayTimeout())
         assert status == 504
         assert resp.get_json()["error"] == "The connection to an upstream server timed out."
 
@@ -2594,7 +2595,7 @@ class TestAlertLifecycleTracking:
             "summary": {"total": 0, "critical": 0, "medium": 0, "unknown": 0, "ok": 0, "non_ok": 0},
             "alerts": [],
         }
-        flask_app.cache.clear()
+        caching.cache.clear()
         with (
             patch.object(
                 alerts,
@@ -2627,7 +2628,7 @@ class TestAlertLifecycleTracking:
         assert all(call.kwargs.get("timeout") == settings.CACHE_TTL for call in cache_set.call_args_list)
 
     def test_get_alert_board_data_builds_snapshot_only_payload(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
             "stale_after_seconds": settings.CACHE_TTL,
@@ -2648,7 +2649,7 @@ class TestAlertLifecycleTracking:
         ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
 
     def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
-        flask_app.cache.clear()
+        caching.cache.clear()
         payload = {
             "checked_at": "2026-01-01T00:00:00Z",
             "stale_after_seconds": settings.CACHE_TTL,
@@ -3363,7 +3364,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = alerts.get_alert_board_data(force_refresh=True)
 
@@ -3847,7 +3848,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             data = alerts.get_alert_board_data(force_refresh=True)
 
@@ -3931,7 +3932,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")):
             resp = client.get("/api/alerts")
 
@@ -4021,7 +4022,7 @@ class TestInventoryCacheSync:
                 "fetch_inventory",
                 return_value=[{"device_id": 1, "hostname": "router01", "status": 1, "status_reason": ""}],
             ),
-            patch.object(flask_app.cache, "delete") as cache_delete,
+            patch.object(caching.cache, "delete") as cache_delete,
         ):
             inventory.sync_librenms()
 
@@ -4211,7 +4212,7 @@ class TestLibreNMSEnrichment:
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
         settings.LIBRENMS_URL = "   "
         settings.LIBRENMS_API_TOKEN = "   "
-        with patch.object(flask_app.requests, "get") as mock_get:
+        with patch.object(requests, "get") as mock_get:
             result = librenms.fetch_inventory()
         assert result == []
         mock_get.assert_not_called()
@@ -4223,7 +4224,7 @@ class TestLibreNMSEnrichment:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
-        with patch.object(flask_app.requests, "get", return_value=mock_resp) as mock_get:
+        with patch.object(requests, "get", return_value=mock_resp) as mock_get:
             librenms.get("devices", {"type": "all"})
         _, kwargs = mock_get.call_args
         assert kwargs["verify"] is False
@@ -4236,7 +4237,7 @@ class TestLibreNMSEnrichment:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
         with (
-            patch.object(flask_app.requests, "get", return_value=mock_resp),
+            patch.object(requests, "get", return_value=mock_resp),
             patch.object(librenms.warnings, "catch_warnings") as mock_catch,
         ):
             librenms.get("devices", {"type": "all"})
@@ -4424,7 +4425,7 @@ class TestApiRoles:
         """DELETE /api/roles/<id> returns 404 when Nautobot responds with 404."""
         mock_response = MagicMock()
         mock_response.status_code = 404
-        http_err = flask_app.requests.HTTPError(response=mock_response)
+        http_err = requests.HTTPError(response=mock_response)
         with patch.object(nautobot, "delete", side_effect=http_err):
             resp = client.delete("/api/roles/does-not-exist")
         assert resp.status_code == 404
@@ -4502,7 +4503,7 @@ class TestApiLocationTypes:
         """DELETE /api/location-types/<id> returns 404 when Nautobot responds with 404."""
         mock_response = MagicMock()
         mock_response.status_code = 404
-        http_err = flask_app.requests.HTTPError(response=mock_response)
+        http_err = requests.HTTPError(response=mock_response)
         with patch.object(nautobot, "delete", side_effect=http_err):
             resp = client.delete("/api/location-types/does-not-exist")
         assert resp.status_code == 404
@@ -4524,11 +4525,11 @@ class TestAuthConfiguration:
 
     def test_header_auth_binds_flask_to_loopback(self):
         with auth_config(mode="header"):
-            assert flask_app._get_flask_run_host() == "127.0.0.1"
+            assert auth.flask_run_host() == "127.0.0.1"
 
     def test_non_header_auth_keeps_public_flask_bind(self):
         with auth_config(mode="disabled"):
-            assert flask_app._get_flask_run_host() == "0.0.0.0"
+            assert auth.flask_run_host() == "0.0.0.0"
 
     def test_header_auth_binds_gunicorn_to_loopback(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "header")
@@ -4655,9 +4656,9 @@ class TestDeviceDisplayIp:
 class TestAlertBoardSyncProgress:
     @pytest.fixture(autouse=True)
     def _persistence(self, pg_database):
-        flask_app.cache.clear()
+        caching.cache.clear()
         yield
-        flask_app.cache.clear()
+        caching.cache.clear()
 
     def _set_nautobot_sync_state(self, status, started_at, completed_at=None):
         conn = db.get_conn()
@@ -4723,7 +4724,7 @@ class TestAlertBoardSyncProgress:
         assert data["sync_pending"] is True
         # The empty cold-start board must not be cached, or the synced data
         # would stay hidden until the cache expires.
-        assert flask_app.cache.get("alert-board-data:v3") is None
+        assert caching.cache.get("alert-board-data:v3") is None
 
     def test_initialized_snapshot_does_not_start_sync_and_is_not_pending(self, client):
         now = timeutil.iso_utc_now()
@@ -4845,13 +4846,13 @@ class TestAlertBoardSyncProgress:
             {"level": "critical", "reason": "Core device(s) offline: router01"},
             timeutil.iso_utc_now(),
         )
-        flask_app.cache.set("alert-board-data:v3", self._board([{"id": "loc-1"}]))
+        caching.cache.set("alert-board-data:v3", self._board([{"id": "loc-1"}]))
         resp = client.post(
             "/api/alert-cases",
             json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-2001"},
         )
         assert resp.status_code == 200
-        assert flask_app.cache.get("alert-board-data:v3") is None
+        assert caching.cache.get("alert-board-data:v3") is None
 
 
 # ---------------------------------------------------------------------------
@@ -4871,7 +4872,7 @@ class TestMultiDeviceCases:
             timeutil.iso_utc_now(),
         )
         yield
-        flask_app.cache.clear()
+        caching.cache.clear()
 
     def _cases_for(self, client, device_id):
         history = client.get(f"/api/alert-history?site_id=loc-1&device_id={device_id}").get_json()
@@ -4921,7 +4922,7 @@ class TestMultiDeviceCases:
 
     @pytest.mark.parametrize(
         "device_ids",
-        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(flask_app._MAX_CASE_DEVICES + 1)]],
+        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(web.MAX_CASE_DEVICES + 1)]],
         ids=["string-not-list", "empty", "non-string-id", "too-many"],
     )
     def test_rejects_invalid_device_ids(self, client, device_ids):
@@ -4960,7 +4961,7 @@ class TestHealthz:
     def test_makes_no_upstream_calls(self, client, monkeypatch):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        with patch.object(flask_app.requests, "get", side_effect=AssertionError("no upstream calls")):
+        with patch.object(requests, "get", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/healthz")
         assert resp.status_code == 200
 
@@ -5074,7 +5075,7 @@ class TestLibreNMSPolledIp:
 class TestAlertBoardWithoutPersistence:
     def test_payload_reports_missing_database(self, client, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        flask_app.cache.clear()
+        caching.cache.clear()
         with patch.object(
             alerts,
             "build_alert_board_payload",
@@ -5090,7 +5091,7 @@ class TestAlertBoardWithoutPersistence:
 
     def test_payload_reports_configured_database(self, client, monkeypatch, pg_database):
         db.init_db()
-        flask_app.cache.clear()
+        caching.cache.clear()
         with (
             patch.object(inventory, "ensure_snapshot", return_value=False),
             patch.object(
@@ -5176,9 +5177,9 @@ class TestAlertBoardBulkReads:
         monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
         db.init_db()
-        flask_app.cache.clear()
+        caching.cache.clear()
         yield
-        flask_app.cache.clear()
+        caching.cache.clear()
 
     def _execute(self, sql, rows):
         self.db.executemany(sql, rows)
@@ -5254,7 +5255,7 @@ class TestAlertBoardBulkReads:
     def test_connection_count_does_not_grow_with_site_count(self):
         self._seed(20)
         small, small_conns = self._build_counting_connections()
-        flask_app.cache.clear()
+        caching.cache.clear()
         self._seed_more(20, 2000)
         large, large_conns = self._build_counting_connections()
 
@@ -5412,7 +5413,7 @@ class TestSiteRollup:
 
     def _board(self, monkeypatch, site_type="site"):
         monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", site_type)
-        flask_app.cache.clear()
+        caching.cache.clear()
         return {row["id"]: row for row in alerts.get_alert_board_data()["alerts"]}
 
     def test_only_sites_are_rows_and_regions_are_hidden(self, monkeypatch):
@@ -5520,7 +5521,7 @@ class TestBackgroundScheduler:
         rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
         assert rows == [{"site_id": "loc-1", "device_id": "dev-1", "status": "open"}]
         # The rebuilt board is cached, so the next page load is instant.
-        assert flask_app.cache.get("alert-board-data:v3")["summary"]["critical"] == 1
+        assert caching.cache.get("alert-board-data:v3")["summary"]["critical"] == 1
 
     def test_tick_without_a_due_sync_does_nothing(self):
         with (
@@ -5641,7 +5642,7 @@ class TestSeverityTiers:
         def fake_alert(location_id, *args, **kwargs):
             return [], {"level": levels[int(location_id.split("-")[1])], "reason": ""}
 
-        flask_app.cache.clear()
+        caching.cache.clear()
         with (
             patch.object(inventory, "get_locations", return_value=locations),
             patch.object(alerts, "get_location_devices_and_alert", side_effect=fake_alert),
