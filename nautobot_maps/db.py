@@ -268,6 +268,30 @@ def init_db() -> None:
                 )
                 """
             )
+            # Each site's alert level at the last board build, and a log of
+            # changes, for the alert feed (#180).
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_alert_levels (
+                    site_id     TEXT PRIMARY KEY,
+                    site_name   TEXT NOT NULL DEFAULT '',
+                    alert_level TEXT NOT NULL,
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_level_changes (
+                    id         BIGSERIAL PRIMARY KEY,
+                    site_id    TEXT NOT NULL,
+                    site_name  TEXT NOT NULL DEFAULT '',
+                    from_level TEXT NOT NULL,
+                    to_level   TEXT NOT NULL,
+                    changed_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
             primary_ip_column_missing = row_to_dict(
                 conn.execute(
                     """
@@ -349,6 +373,9 @@ def init_db() -> None:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_alert_events_instance_time ON alert_events(alert_instance_id, event_at)"
             )
+            # The alert feed reads the newest events and level changes (#180).
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_time ON alert_events(event_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_site_level_changes_time ON site_level_changes(changed_at)")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_instances_open_key ON alert_instances(alert_key) WHERE status = 'open'"
             )

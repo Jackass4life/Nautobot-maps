@@ -9,6 +9,7 @@ Run with:
     python -m pytest tests/test_integration.py -v
 """
 
+import os
 import pathlib
 import re
 import shutil
@@ -891,6 +892,85 @@ check(focused.at(-1) === "history-panel", "no focus without the row");
         html = integration_client.get("/alerts").data.decode()
         assert 'id="case-panel"' in html and 'role="dialog"' in html
         assert 'id="case-close"' in html
+
+
+class TestAlertFeedInTheBrowser:
+    """The activity panel beside the board (#180)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = ("escHtml", "alertBadge", "formatFeedTime", "renderFeedEvent", "renderFeed", "feedStartsCollapsed")
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        width = re.search(r"const FEED_OPEN_MIN_WIDTH_PX = \d+;", js).group(0)
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{width}
+{functions}
+{body}
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            env={**os.environ, "TZ": "UTC"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_entries(self):
+        self._run("""
+const now = new Date("2026-09-28T15:00:00Z");
+check(formatFeedTime("2026-09-28T12:05:00Z", now).includes("12:05"), formatFeedTime("2026-09-28T12:05:00Z", now));
+check(formatFeedTime("2026-09-25T12:05:00Z", now).includes("Sep"), "another day shows the date");
+check(formatFeedTime("nonsense", now) === "", "bad time");
+
+let html = renderFeedEvent({ kind: "down", at: "2026-09-28T12:05:00Z", down_since: "2026-09-28T12:05:00Z",
+  site_name: "Site <One>", device_name: "sw01" }, now);
+check(html.includes("feed-down") && html.includes("<strong>sw01</strong> down") && html.includes("Site &lt;One&gt;"), html);
+check(!html.includes("down since"), "noticed when it went down: no extra time");
+
+html = renderFeedEvent({ kind: "down", at: "2026-09-28T12:05:00Z", down_since: "2026-09-25T09:00:00Z",
+  site_name: "Site One", device_name: "sw01" }, now);
+check(html.includes("down since") && html.includes("Sep"), html);
+
+html = renderFeedEvent({ kind: "up", at: "2026-09-28T12:10:00Z", site_name: "Site One", device_id: "d-1" }, now);
+check(html.includes("feed-up") && html.includes("<strong>d-1</strong> back up"), html);
+
+html = renderFeedEvent({ kind: "severity", at: "2026-09-28T12:10:00Z", site_name: "Site One",
+  from_level: "ok", to_level: "critical" }, now);
+check(html.includes("feed-severity") && html.includes("alert-ok") && html.includes("alert-critical"), html);
+check(html.indexOf("alert-ok") < html.indexOf("alert-critical"), "from → to");
+""")
+
+    def test_empty_states(self):
+        self._run("""
+check(renderFeed({ events: [] }, []).includes("Choose what to show"), "no kinds");
+check(renderFeed({ events: [], persistence_configured: false }, ["down"]).includes("PostgreSQL"), "no database");
+check(renderFeed({ events: [], persistence_configured: true }, ["down"]).includes("No changes yet"), "empty");
+const html = renderFeed({ events: [
+  { kind: "up", at: "2026-09-28T12:10:00Z", site_name: "A", device_name: "x" },
+  { kind: "down", at: "2026-09-28T12:05:00Z", site_name: "A", device_name: "x" },
+], persistence_configured: true }, ["down", "up"]);
+check((html.match(/<li class="feed-entry/g) || []).length === 2, html);
+""")
+
+    def test_starts_collapsed_only_without_room_or_when_hidden(self):
+        self._run("""
+check(feedStartsCollapsed(null, 1440) === true, "laptop: the table keeps its room");
+check(feedStartsCollapsed(null, 1920) === false, "wide screen: open");
+check(feedStartsCollapsed("0", 1440) === false, "opened by the user stays open");
+check(feedStartsCollapsed("1", 1920) === true, "hidden by the user stays hidden");
+""")
+
+    def test_board_page_has_the_feed_panel(self, integration_client):
+        html = integration_client.get("/alerts").data.decode()
+        assert 'id="feed-panel"' in html and 'id="feed-list"' in html
+        assert 'id="feed-show"' in html  # brings a hidden feed back
+        for kind in ("down", "up", "severity"):
+            assert f'data-feed-kind="{kind}" aria-pressed="true"' in html
 
 
 class TestSeverityTiersInTheBrowser:

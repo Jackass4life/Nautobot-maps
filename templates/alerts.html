@@ -99,10 +99,12 @@
       <div class="toolbar-meta">
         <span id="board-status">Loading alert board…</span>
         <span id="next-update" class="next-update" hidden></span>
+        <button id="feed-show" class="secondary-filter-btn" type="button" aria-controls="feed-panel" hidden>Show activity</button>
         <button id="refresh-alerts" type="button">Refresh</button>
       </div>
     </section>
 
+    <div id="board-layout" class="board-layout">
     <section class="table-shell" aria-label="Alert table">
       <table>
         <thead>
@@ -127,6 +129,25 @@
         </tbody>
       </table>
     </section>
+
+    <!-- What changed: devices down and up, site severity changes (#180). -->
+    <aside id="feed-panel" class="feed-panel" aria-labelledby="feed-title">
+      <div class="feed-header">
+        <h2 id="feed-title">Activity</h2>
+        <button id="feed-toggle" class="feed-toggle" type="button" aria-controls="feed-panel">Hide</button>
+      </div>
+      <div id="feed-body" class="feed-body">
+        <div class="feed-filters" role="group" aria-label="Show in activity">
+          <button class="feed-filter-btn" type="button" data-feed-kind="down" aria-pressed="true">Down</button>
+          <button class="feed-filter-btn" type="button" data-feed-kind="up" aria-pressed="true">Up</button>
+          <button class="feed-filter-btn" type="button" data-feed-kind="severity" aria-pressed="true">Severity</button>
+        </div>
+        <ol id="feed-list" class="feed-list">
+          <li class="feed-empty">Loading activity…</li>
+        </ol>
+      </div>
+    </aside>
+    </div>
   </div>
 
   <section

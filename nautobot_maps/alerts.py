@@ -1161,6 +1161,112 @@ def read_alert_board_data(conn) -> dict:
     }
 
 
+def record_site_level_changes(levels: dict[str, tuple[str, str]], checked_at: str) -> int:
+    """Remember each site's alert level and log the changes, for the alert feed (#180).
+
+    *levels* maps site id to ``(site_name, alert_level)``.  A site seen for the
+    first time only gets its level stored: a new database or a newly added site
+    is not a change.  The rows are locked in site order, so two builds running
+    at once neither deadlock nor log the same change twice.  Returns the number
+    of changes logged.
+    """
+    if not levels:
+        return 0
+    conn = db.get_conn()
+    if conn is None:
+        return 0
+    changes = 0
+    try:
+        with db.transaction(conn):
+            rows = conn.execute(
+                "SELECT site_id, alert_level FROM site_alert_levels "
+                "WHERE site_id = ANY(%s) ORDER BY site_id FOR UPDATE",
+                (sorted(levels),),
+            ).fetchall()
+            previous = {row["site_id"]: row["alert_level"] for row in map(db.row_to_dict, rows)}
+            for site_id in sorted(levels):
+                site_name, level = levels[site_id]
+                if site_id not in previous:
+                    conn.execute(
+                        "INSERT INTO site_alert_levels (site_id, site_name, alert_level, updated_at) "
+                        "VALUES (%s, %s, %s, %s) ON CONFLICT (site_id) DO NOTHING",
+                        (site_id, site_name, level, checked_at),
+                    )
+                elif previous[site_id] != level:
+                    conn.execute(
+                        "UPDATE site_alert_levels SET site_name = %s, alert_level = %s, updated_at = %s "
+                        "WHERE site_id = %s",
+                        (site_name, level, checked_at, site_id),
+                    )
+                    conn.execute(
+                        "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
+                        "VALUES (%s, %s, %s, %s, %s)",
+                        (site_id, site_name, previous[site_id], level, checked_at),
+                    )
+                    changes += 1
+    finally:
+        conn.close()
+    return changes
+
+
+FEED_KINDS = ("down", "up", "severity")
+
+
+def read_alert_feed(conn, limit: int, since: str | None = None, kinds=FEED_KINDS) -> list[dict]:
+    """What changed on the board, newest first (#180).
+
+    ``down`` (an alert opened) and ``up`` (resolved) come from the alert
+    events; ``severity`` from the logged site level changes.  *since* keeps
+    only entries after that time.
+    """
+    branches, params = [], []
+    event_types = [event for kind, event in (("down", "opened"), ("up", "resolved")) if kind in kinds]
+    if event_types:
+        branches.append(
+            f"""
+            SELECT CASE e.event_type WHEN 'opened' THEN 'down' ELSE 'up' END AS kind,
+                   e.event_at AS at, e.id AS seq, i.site_id, i.site_name, i.device_id, i.device_name,
+                   e.alert_level AS level, i.down_started_at AS down_since,
+                   '' AS from_level, '' AS to_level
+            FROM alert_events e
+            JOIN alert_instances i ON i.id = e.alert_instance_id
+            WHERE e.event_type = ANY(%s) {"AND e.event_at > %s" if since else ""}
+            """
+        )
+        params += [event_types] + ([since] if since else [])
+    if "severity" in kinds:
+        branches.append(
+            f"""
+            SELECT 'severity' AS kind, c.changed_at AS at, c.id AS seq, c.site_id, c.site_name,
+                   '' AS device_id, '' AS device_name, c.to_level AS level,
+                   NULL::timestamptz AS down_since, c.from_level, c.to_level
+            FROM site_level_changes c
+            {"WHERE c.changed_at > %s" if since else ""}
+            """
+        )
+        params += [since] if since else []
+    if not branches:
+        return []
+    rows = conn.execute(
+        # At the same moment a site's severity change sits above the device
+        # events that caused it (newest first).
+        f"SELECT * FROM ({' UNION ALL '.join(branches)}) feed "
+        "ORDER BY at DESC, kind = 'severity' DESC, seq DESC LIMIT %s",
+        (*params, limit),
+    ).fetchall()
+    events = []
+    for row in rows:
+        event = db.row_to_dict(row)
+        event.pop("seq", None)
+        if event["kind"] != "down":
+            event.pop("down_since", None)
+        if event["kind"] != "severity":
+            event.pop("from_level", None)
+            event.pop("to_level", None)
+        events.append(event)
+    return events
+
+
 def build_alert_board_payload(
     snapshot_only: bool = False,
     include_non_operational: bool = False,
@@ -1175,6 +1281,8 @@ def build_alert_board_payload(
         locations = [loc for loc in locations if not location_is_excluded_from_alert_board(loc)]
     alerts = []
     summary = dict.fromkeys(ALERT_LEVEL_ORDER, 0)
+    # Site levels this build actually observed, for the alert feed (#180).
+    observed_levels: dict[str, tuple[str, str]] = {}
     lnms_devices = None
     lnms_id_map = None
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
@@ -1378,6 +1486,8 @@ def build_alert_board_payload(
                     seen_down_device_keys.add(item_key)
             level = (alert.get("level") or "ok").lower()
             summary[level] = summary.get(level, 0) + 1
+            if observation_succeeded and site_id:
+                observed_levels[site_id] = (loc.get("name") or "", level)
             alerts.append(
                 {
                     **loc,
@@ -1398,6 +1508,12 @@ def build_alert_board_payload(
     finally:
         if write_conn is not None:
             write_conn.close()
+
+    if not persistence_unavailable:
+        try:
+            record_site_level_changes(observed_levels, timeutil.iso_utc_now())
+        except Exception as exc:
+            logger.warning("Could not record site alert level changes: %s", exc)
 
     alerts.sort(
         key=lambda item: (

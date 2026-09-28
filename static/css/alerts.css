@@ -290,6 +290,128 @@ html, body {
   overflow-x: auto;
 }
 
+/* The table and the activity feed beside it (#180). */
+.board-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Hidden: the table gets the whole width; "Show activity" is in the toolbar. */
+.board-layout.feed-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.feed-panel[hidden] {
+  display: none;
+}
+
+.feed-panel {
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 32px);
+  padding: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.feed-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.feed-toggle,
+.feed-filter-btn {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.feed-filter-btn[aria-pressed="true"] {
+  background: rgba(13, 110, 253, 0.2);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.feed-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.feed-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.feed-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.feed-entry {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 2px 6px;
+  padding: 7px 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.feed-entry:first-child {
+  border-top: 0;
+}
+
+.feed-icon {
+  grid-row: span 2;
+  text-align: center;
+}
+
+.feed-down .feed-icon { color: var(--color-danger); }
+.feed-up .feed-icon { color: var(--color-success); }
+.feed-severity .feed-icon { color: var(--color-text-muted); }
+
+.feed-meta {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+/* Compact badges: the table's minimum width would wrap "CRITICAL → OK". */
+.feed-entry .alert-badge {
+  min-width: 0;
+  padding: 1px 6px;
+  font-size: 0.65rem;
+}
+
+.feed-empty {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  padding: 8px 0;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -599,6 +721,16 @@ thead th:last-child {
 }
 
 @media (max-width: 1180px) {
+  /* The feed moves below the table. */
+  .board-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .feed-panel {
+    position: static;
+    max-height: 60vh;
+  }
+
   .toolbar-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
