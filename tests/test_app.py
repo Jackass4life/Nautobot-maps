@@ -1130,11 +1130,12 @@ class TestAlertBoard:
 
         assert data["summary"]["total"] == 3
         # conn-1 is the bulk read (it fails on the fake, so every site takes the per-site path).
-        read_conn, first_write, second_write = opened_conns
+        # The last one records the site levels for the alert feed (#180).
+        read_conn, first_write, second_write, levels_conn = opened_conns
         assert upsert_conns == [first_write, first_write, second_write]
         assert context_conns == [first_write, second_write]
         assert all(conn.closed for conn in opened_conns)
-        assert read_conn not in upsert_conns
+        assert read_conn not in upsert_conns and levels_conn not in upsert_conns
 
     def test_get_alert_board_data_disables_persistence_after_connect_failure(self):
         caching.cache.clear()
@@ -5766,3 +5767,125 @@ class TestRealStartTimes:
         pg_database.execute("UPDATE nautobot_device_cache SET last_updated = '2026-09-28T11:30:00Z'")
         board()
         assert self._start(pg_database) == ["2026-09-25T12:00:00Z"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: alert feed of devices going down and up and site severity changes (#180)
+# ---------------------------------------------------------------------------
+class TestAlertFeed:
+    @pytest.fixture
+    def board(self, pg_database, monkeypatch):
+        """A site with two switches; returns (build, set_status, clock)."""
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        clock = {"now": "2026-09-28T12:00:00+00:00"}
+        monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
+        pg_database.execute(
+            "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
+            "VALUES ('loc-1', 'Site One', 'Office', 'Active')"
+        )
+        pg_database.executemany(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
+            "VALUES (%s, 'loc-1', %s, 'access', 'Active', %s)",
+            [("d-1", "sw01", "10.0.0.1/32"), ("d-2", "sw02", "10.0.0.2/32")],
+        )
+        conn = db.get_conn()
+        with conn:
+            inventory.record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_started_at="2026-09-28T11:00:00+00:00",
+                last_completed_at="2026-09-28T11:00:00+00:00",
+                last_successful_sync="2026-09-28T11:00:00+00:00",
+                cache_version=inventory.CACHE_VERSION,
+                status="idle",
+            )
+        conn.close()
+
+        def build(at):
+            clock["now"] = at
+            caching.cache.clear()
+            return {row["id"]: row for row in alerts.get_alert_board_data()["alerts"]}
+
+        def set_status(device_id, status):
+            pg_database.execute(
+                "UPDATE nautobot_device_cache SET status = %s WHERE device_id = %s", (status, device_id)
+            )
+
+        return build, set_status
+
+    def _feed(self, client, query=""):
+        resp = client.get(f"/api/alert-feed{query}")
+        assert resp.status_code == 200, resp.get_json()
+        return resp.get_json()
+
+    def test_level_changes_are_logged_but_not_first_sightings(self, pg_database):
+        at = "2026-09-28T12:00:00+00:00"
+        assert alerts.record_site_level_changes({"s1": ("One", "ok"), "s2": ("Two", "critical")}, at) == 0
+        assert alerts.record_site_level_changes({"s1": ("One", "ok"), "s2": ("Two", "critical")}, at) == 0
+        assert alerts.record_site_level_changes({"s1": ("One", "low"), "s2": ("Two", "critical")}, at) == 1
+        rows = pg_database.execute("SELECT site_id, from_level, to_level FROM site_level_changes")
+        assert rows == [{"site_id": "s1", "from_level": "ok", "to_level": "low"}]
+        levels = pg_database.execute("SELECT site_id, alert_level FROM site_alert_levels ORDER BY site_id")
+        assert levels == [{"site_id": "s1", "alert_level": "low"}, {"site_id": "s2", "alert_level": "critical"}]
+
+    def test_board_builds_fill_the_feed(self, board, client):
+        build, set_status = board
+        assert build("2026-09-28T12:00:00+00:00")["loc-1"]["alert_level"] == "ok"
+        assert self._feed(client)["events"] == []  # first sighting: nothing changed
+
+        set_status("d-1", "Offline")
+        down_level = build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"]
+        assert down_level != "ok"
+        set_status("d-1", "Active")
+        build("2026-09-28T12:10:00+00:00")
+
+        feed = self._feed(client)
+        assert feed["persistence_configured"] is True
+        assert [(e["kind"], e["at"]) for e in feed["events"]] == [
+            ("severity", "2026-09-28T12:10:00Z"),
+            ("up", "2026-09-28T12:10:00Z"),
+            ("severity", "2026-09-28T12:05:00Z"),
+            ("down", "2026-09-28T12:05:00Z"),
+        ]
+        back_to_ok, up, went_down, down = feed["events"]
+        assert down["site_name"] == "Site One" and down["device_name"] == "sw01"
+        assert down["down_since"] == "2026-09-28T12:05:00Z" and "from_level" not in down
+        assert up["device_id"] == "d-1" and up["level"] == "ok" and "down_since" not in up
+        assert (went_down["from_level"], went_down["to_level"]) == ("ok", down_level)
+        assert (back_to_ok["from_level"], back_to_ok["to_level"]) == (down_level, "ok")
+        assert back_to_ok["device_id"] == ""
+
+        # Filters.
+        assert [e["kind"] for e in self._feed(client, "?kinds=severity")["events"]] == ["severity", "severity"]
+        assert [e["kind"] for e in self._feed(client, "?kinds=down,up")["events"]] == ["up", "down"]
+        assert [e["kind"] for e in self._feed(client, "?limit=1")["events"]] == ["severity"]
+        since = self._feed(client, "?since=2026-09-28T12:05:00Z")["events"]
+        assert [e["kind"] for e in since] == ["severity", "up"]
+
+    def test_bad_parameters_are_rejected(self, pg_database, client):
+        assert client.get("/api/alert-feed?limit=many").status_code == 400
+        assert client.get("/api/alert-feed?since=yesterday").status_code == 400
+        resp = client.get("/api/alert-feed?kinds=down,cases")
+        assert resp.status_code == 400 and "cases" in resp.get_json()["error"]
+        # Out-of-range limits are clamped, not rejected.
+        assert client.get("/api/alert-feed?limit=0").status_code == 200
+        assert client.get("/api/alert-feed?limit=100000").status_code == 200
+
+    def test_without_persistence_the_feed_is_empty(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        assert self._feed(client) == {"events": [], "persistence_configured": False}
+
+    def test_failed_observation_is_not_a_level_change(self, board, monkeypatch, pg_database):
+        build, _ = board
+        build("2026-09-28T12:00:00+00:00")
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
+        assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
+        assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]

@@ -24,6 +24,17 @@ const caseTitle = document.getElementById("case-title");
 const caseContent = document.getElementById("case-content");
 const caseCloseBtn = document.getElementById("case-close");
 const sidePanels = [historyPanel, casePanel].filter(Boolean);
+const boardLayout = document.getElementById("board-layout");
+const feedPanel = document.getElementById("feed-panel");
+const feedToggle = document.getElementById("feed-toggle");
+const feedShowBtn = document.getElementById("feed-show");
+const feedList = document.getElementById("feed-list");
+const feedFilterButtons = Array.from(document.querySelectorAll("[data-feed-kind]"));
+const FEED_LIMIT = 100;
+const FEED_COLLAPSED_KEY = "nautobot-maps-feed-collapsed";
+// Below this width the open feed leaves the table too little room (it then
+// scrolls sideways), so the feed starts collapsed unless the user opened it.
+const FEED_OPEN_MIN_WIDTH_PX = 1700;
 const nextUpdateEl = document.getElementById("next-update");
 
 let allAlerts = [];
@@ -274,6 +285,107 @@ function renderDeviceCases(device) {
   return cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
 }
 
+// Today: the time only; otherwise the date too.
+function formatFeedTime(value, now = new Date()) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) return "";
+  const time = parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (parsed.toDateString() === now.toDateString()) return time;
+  return `${parsed.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
+}
+
+function renderFeedEvent(event, now = new Date()) {
+  const at = `<time datetime="${escHtml(event.at)}">${escHtml(formatFeedTime(event.at, now))}</time>`;
+  const site = escHtml(event.site_name || event.site_id || "Unknown site");
+  const device = escHtml(event.device_name || event.device_id || "Unknown device");
+  if (event.kind === "severity") {
+    return `
+      <li class="feed-entry feed-severity">
+        <span class="feed-icon" aria-hidden="true">●</span>
+        <span><strong>${site}</strong><span class="visually-hidden"> severity changed</span></span>
+        <span class="feed-meta">${alertBadge(event.from_level)} → ${alertBadge(event.to_level)} · ${at}</span>
+      </li>`;
+  }
+  if (event.kind === "up") {
+    return `
+      <li class="feed-entry feed-up">
+        <span class="feed-icon" aria-hidden="true">▲</span>
+        <span><strong>${device}</strong> back up</span>
+        <span class="feed-meta">${at} · ${site}</span>
+      </li>`;
+  }
+  // Down: also when it went down, if that was before it was noticed (#166).
+  const since = new Date(event.down_since);
+  const noticed = new Date(event.at);
+  const earlier = !Number.isNaN(since.valueOf()) && noticed - since >= 60000
+    ? ` · down since ${escHtml(formatFeedTime(event.down_since, now))}`
+    : "";
+  return `
+    <li class="feed-entry feed-down">
+      <span class="feed-icon" aria-hidden="true">▼</span>
+      <span><strong>${device}</strong> down</span>
+      <span class="feed-meta">${at} · ${site}${earlier}</span>
+    </li>`;
+}
+
+function renderFeed(payload, kinds) {
+  if (!kinds.length) return '<li class="feed-empty">Choose what to show.</li>';
+  if (payload.persistence_configured === false) {
+    return '<li class="feed-empty">The activity log needs the PostgreSQL database.</li>';
+  }
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  if (!events.length) return '<li class="feed-empty">No changes yet.</li>';
+  const now = new Date();
+  return events.map((event) => renderFeedEvent(event, now)).join("");
+}
+
+function selectedFeedKinds() {
+  return feedFilterButtons
+    .filter((button) => button.getAttribute("aria-pressed") === "true")
+    .map((button) => button.dataset.feedKind);
+}
+
+async function loadFeed() {
+  // Hidden: nothing to show; it loads again when shown.
+  if (!feedList || feedPanel?.hidden) return;
+  const kinds = selectedFeedKinds();
+  if (!kinds.length) {
+    feedList.innerHTML = renderFeed({}, kinds);
+    return;
+  }
+  try {
+    const params = new URLSearchParams({ limit: String(FEED_LIMIT), kinds: kinds.join(",") });
+    const resp = await fetch(`/api/alert-feed?${params}`, { cache: "no-store" });
+    const payload = await readJsonResponse(resp);
+    if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+    feedList.innerHTML = renderFeed(payload, kinds);
+  } catch (err) {
+    // The board refreshes often; no toast for every failed feed load.
+    feedList.innerHTML = `<li class="feed-empty">Could not load activity: ${escHtml(err.message)}</li>`;
+  }
+}
+
+// The user's last Hide/Show choice; without one, whether there is room.
+function feedStartsCollapsed(stored, viewportWidth) {
+  if (stored === "1" || stored === "0") return stored === "1";
+  return viewportWidth < FEED_OPEN_MIN_WIDTH_PX;
+}
+
+function setFeedCollapsed(collapsed) {
+  if (!boardLayout || !feedPanel || !feedShowBtn) return;
+  boardLayout.classList.toggle("feed-collapsed", collapsed);
+  feedPanel.hidden = collapsed;
+  feedShowBtn.hidden = !collapsed;
+}
+
+function rememberFeedCollapsed(collapsed) {
+  try {
+    localStorage.setItem(FEED_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch (_err) {
+    // noop
+  }
+}
+
 function formatBoardStatus(payload, visibleCount) {
   const checkedAt = payload.checked_at ? new Date(payload.checked_at) : null;
   const timestamp = checkedAt && !Number.isNaN(checkedAt.valueOf())
@@ -517,6 +629,8 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     applyFilters(payload);
     scheduleSyncPoll(payload);
     setNextUpdate(payload);
+    // The feed refreshes with the board (#180).
+    loadFeed();
   } catch (err) {
     stopSyncPolling();
     alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
@@ -735,6 +849,34 @@ casePanel?.addEventListener("submit", async (event) => {
     caseBtn.disabled = false;
   }
 });
+
+feedFilterButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    button.setAttribute("aria-pressed", button.getAttribute("aria-pressed") === "true" ? "false" : "true");
+    loadFeed();
+  });
+});
+
+if (feedToggle && feedShowBtn) {
+  let stored = null;
+  try {
+    stored = localStorage.getItem(FEED_COLLAPSED_KEY);
+  } catch (_err) {
+    // Storage unavailable: decide by the window width.
+  }
+  setFeedCollapsed(feedStartsCollapsed(stored, window.innerWidth));
+  feedToggle.addEventListener("click", () => {
+    setFeedCollapsed(true);
+    rememberFeedCollapsed(true);
+    feedShowBtn.focus();
+  });
+  feedShowBtn.addEventListener("click", () => {
+    setFeedCollapsed(false);
+    rememberFeedCollapsed(false);
+    feedToggle.focus();
+    loadFeed();
+  });
+}
 
 loadAlertBoard();
 if (themeToggle) {

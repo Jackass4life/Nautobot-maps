@@ -421,6 +421,49 @@ def api_delete_criticality_override(device_id: str):
 # ---------------------------------------------------------------------------
 
 
+# Most entries /api/alert-feed returns at once.
+MAX_FEED_ENTRIES = 500
+
+
+@bp.route("/api/alert-feed")
+def api_alert_feed():
+    """What changed on the alert board, newest first (#180).
+
+    Devices going down and back up, and site severity changes.  Query
+    parameters: ``limit`` (default 100, at most 500), ``since`` (ISO-8601;
+    only newer entries) and ``kinds`` (comma-separated ``down``, ``up``,
+    ``severity``; default all).
+    """
+    try:
+        limit = int(request.args.get("limit") or 100)
+    except ValueError:
+        return jsonify({"error": "limit must be a whole number"}), 400
+    limit = max(1, min(limit, MAX_FEED_ENTRIES))
+    since = (request.args.get("since") or "").strip() or None
+    if since:
+        parsed_since = timeutil.parse_iso_datetime(since)
+        if parsed_since is None:
+            return jsonify({"error": "since must be an ISO-8601 timestamp"}), 400
+        if parsed_since.tzinfo is None:
+            parsed_since = parsed_since.replace(tzinfo=UTC)
+        since = parsed_since.astimezone(UTC).isoformat()
+    kinds = [kind.strip() for kind in (request.args.get("kinds") or "").split(",") if kind.strip()]
+    unknown = sorted(set(kinds) - set(alerts.FEED_KINDS))
+    if unknown:
+        return jsonify({"error": f"Unknown kinds: {', '.join(unknown)}"}), 400
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"events": [], "persistence_configured": False})
+    try:
+        events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS)
+        return jsonify({"events": events, "persistence_configured": True})
+    except Exception as exc:
+        logger.error("Could not read the alert feed: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        conn.close()
+
+
 @bp.route("/api/alert-history", methods=["GET"])
 @auth.require_role("operator")
 def api_alert_history():
