@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Breaking:** SQLite support. PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`) is the only persistence database; `NAUTOBOT_MAPS_DB` is ignored and logged as an error at startup. There is no data migration: move to PostgreSQL before upgrading (the bundled `docker-compose.yml` already uses it) (#153)
 
 ### Changed
+- The Nautobot and LibreNMS API clients and the response cache moved from `app.py` to `nautobot_maps/nautobot.py`, `nautobot_maps/librenms.py` and `nautobot_maps/caching.py` (third step of splitting `app.py`); no behaviour change (#165)
 - PostgreSQL connections, schema and migrations moved from `app.py` to `nautobot_maps/db.py` (second step of splitting `app.py`); no behaviour change. Their two startup log lines now show `nautobot_maps.db` instead of `app` (#165)
 - Settings read from the environment moved from `app.py` to `nautobot_maps/settings.py` (first step of splitting `app.py`); no behaviour change. A test guard fails any test that still sets a setting on `app` (#165)
 - Alert levels: **Low** (at least one device down, 25% or fewer), **No data** (no monitored devices, or the level could not be computed; replaces Unknown and is not counted in `non_ok`), and every monitored device down is now **Critical**. Sites with no monitored devices or a single down access switch no longer show as OK. The board and map show the new levels; `/api/alerts` `summary` has `low` and `no_data` instead of `unknown` (#124)

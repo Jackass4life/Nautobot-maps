@@ -3,20 +3,17 @@ import json
 import logging
 import re
 import threading
-import warnings
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 
 import requests
-import urllib3
 from flask import Flask, g, jsonify, render_template, request
-from flask_caching import Cache
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
-from urllib3.exceptions import InsecureRequestWarning
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import db, settings
+from nautobot_maps import caching, db, librenms, nautobot, settings
+from nautobot_maps.caching import cache
 
 app = Flask(__name__)
 app.secret_key = settings.FLASK_SECRET_KEY
@@ -29,24 +26,9 @@ _FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # (3: locations store parent_id, #158).
 _NAUTOBOT_INVENTORY_CACHE_VERSION = "3"
 
-# Flask-Caching configuration.
-# Defaults to SimpleCache (in-process) for development / single-worker setups.
-# Set CACHE_TYPE=RedisCache and CACHE_REDIS_URL=redis://redis:6379/0 in
-# production to share cache across multiple Gunicorn workers.
-app.config["CACHE_TYPE"] = settings.CACHE_TYPE
-app.config["CACHE_DEFAULT_TIMEOUT"] = settings.CACHE_TTL
-if settings.CACHE_REDIS_URL:
-    app.config["CACHE_REDIS_URL"] = settings.CACHE_REDIS_URL
-cache = Cache(app)
+caching.init_app(app)
+nautobot.configure_ssl_warnings()
 _inventory_sync_lock = threading.Lock()
-
-
-def _configure_nautobot_ssl_warnings() -> None:
-    if settings.NAUTOBOT_VERIFY_SSL is False:
-        urllib3.disable_warnings(InsecureRequestWarning)
-
-
-_configure_nautobot_ssl_warnings()
 
 
 _AUTH_ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}
@@ -242,229 +224,22 @@ def _max_iso_datetime_value(*values: str | None) -> str | None:
 db.init_db()
 
 
-def _cache_get(key: str):
-    return cache.get(key)
-
-
-def _cache_set(key: str, data, timeout: int | None = None):
-    cache.set(key, data, timeout=timeout)
-
-
-def _nested_str(obj: dict | None, *keys: str) -> str:
-    """Return the first non-empty value found in *obj* for the given keys.
-
-    Nautobot 2.x uses ``name`` / ``label`` for nested objects; Nautobot 3.x
-    returns a full model representation that uses ``display``.  Trying all
-    three keys keeps the code compatible with both versions and with the
-    mock fixtures used in unit/integration tests.
-    """
-    if not obj:
-        return ""
-    if isinstance(obj, str):
-        return obj
-    if not isinstance(obj, dict):
-        return str(obj)
-    for key in keys:
-        val = obj.get(key)
-        if val is not None and val != "":
-            return str(val)
-    return ""
-
-
-def _build_id_name_map(endpoint: str) -> dict:
-    """Fetch all objects from *endpoint* and return a ``{id: display_name}`` map.
-
-    Used as a fallback when nested objects in Nautobot's response don't
-    include a human-readable field (e.g. some Nautobot 3.x builds return
-    brief nested objects with only ``id`` and ``url``).
-    """
-    try:
-        items = fetch_all_pages(endpoint)
-        result = {}
-        for item in items:
-            uid = item.get("id")
-            if not uid:
-                continue
-            name = _nested_str(item, "name", "display", "label", "slug")
-            if name:
-                result[uid] = name
-        return result
-    except Exception as exc:
-        logger.debug("Could not build name lookup for %s: %s", endpoint, exc)
-        return {}
-
-
-def _build_device_type_maps() -> tuple:
-    """Return ``({device_type_id: manufacturer_name}, {device_type_id: model_name})``.
-
-    In Nautobot 3.x the brief nested ``device_type`` object returned inside
-    device list responses does **not** include ``manufacturer`` or ``model``
-    fields — only ``id`` and ``url``.  Fetching all device types once lets us
-    resolve both fields for any device without extra per-device API calls.
-
-    The manufacturer sub-object inside a device-type listing may itself be a
-    brief object (id+url only in Nautobot 3.0.x), so we also build a
-    manufacturer UUID→name map and fall back to it when the inline name is
-    missing.
-    """
-    try:
-        mfr_map = _build_id_name_map("dcim/manufacturers/")
-        items = fetch_all_pages("dcim/device-types/")
-        dt_mfr: dict = {}
-        dt_model: dict = {}
-        for item in items:
-            uid = item.get("id")
-            if not uid:
-                continue
-            # model name
-            model = item.get("model") or _nested_str(item, "display") or ""
-            if model:
-                dt_model[uid] = model
-            # manufacturer name
-            mfr_obj = item.get("manufacturer") or {}
-            mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
-            mfr_name = _nested_str(mfr_obj, "name", "display") or mfr_map.get(mfr_id, "")
-            if mfr_name:
-                dt_mfr[uid] = mfr_name
-        return dt_mfr, dt_model
-    except Exception as exc:
-        logger.debug("Could not build device-type maps: %s", exc)
-        return {}, {}
-
-
-def _build_tenant_group_map() -> dict:
-    """Return ``{tenant_id: tenant_group_name}``.
-
-    Fetches all tenants and resolves each tenant's ``tenant_group`` field so
-    that locations can expose the tenant group without extra per-location API
-    calls.  A fallback name-map for tenant groups is built from the
-    ``tenancy/tenant-groups/`` endpoint for Nautobot builds where the nested
-    object is brief (id + url only).
-    """
-    try:
-        tg_name_map = _build_id_name_map("tenancy/tenant-groups/")
-        tenants = fetch_all_pages("tenancy/tenants/")
-        tenant_group_map: dict = {}
-        for tenant in tenants:
-            tid = tenant.get("id")
-            if not tid:
-                continue
-            tg_obj = tenant.get("tenant_group") or {}
-            tg_id = tg_obj.get("id", "") if isinstance(tg_obj, dict) else ""
-            tg_name = _nested_str(tg_obj, "name", "display") or tg_name_map.get(tg_id, "")
-            if tg_name:
-                tenant_group_map[tid] = tg_name
-        return tenant_group_map
-    except Exception as exc:
-        logger.debug("Could not build tenant group map: %s", exc)
-        return {}
-
-
-def nautobot_get(endpoint: str, params: dict | None = None) -> dict:
-    """Perform a GET request against the Nautobot REST API."""
-    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
-    cache_key = f"{endpoint}:{params}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    accept = "application/json"
-    if settings.NAUTOBOT_API_VERSION:
-        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
-    headers = {
-        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": accept,
-    }
-    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.get(url, headers=headers, params=params, timeout=(5, 30), verify=settings.NAUTOBOT_VERIFY_SSL)
-    response.raise_for_status()
-    data = response.json()
-    _cache_set(cache_key, data)
-    return data
-
-
-def nautobot_post(endpoint: str, payload: dict) -> dict:
-    """Perform a POST request against the Nautobot REST API."""
-    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
-    accept = "application/json"
-    if settings.NAUTOBOT_API_VERSION:
-        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
-    headers = {
-        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": accept,
-    }
-    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.post(url, headers=headers, json=payload, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
-    response.raise_for_status()
-    return response.json()
-
-
-def nautobot_delete(endpoint: str) -> None:
-    """Perform a DELETE request against the Nautobot REST API."""
-    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
-    accept = "application/json"
-    if settings.NAUTOBOT_API_VERSION:
-        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
-    headers = {
-        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": accept,
-    }
-    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.delete(url, headers=headers, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
-    response.raise_for_status()
-
-
-def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
-    """Fetch all paginated results from a Nautobot API endpoint."""
-    params = dict(params or {})
-    params.setdefault("limit", 1000)
-    params.setdefault("depth", 0)
-    results = []
-    offset = 0
-    while True:
-        params["offset"] = offset
-        data = nautobot_get(endpoint, params)
-        results.extend(data.get("results", []))
-        if not data.get("next"):
-            break
-        offset += params["limit"]
-    return results
-
-
-def _build_device_lookup_maps() -> dict:
-    dt_mfr_map, dt_model_map = _build_device_type_maps()
-    return {
-        "dt_mfr_map": dt_mfr_map,
-        "dt_model_map": dt_model_map,
-        "mfr_map": _build_id_name_map("dcim/manufacturers/"),
-        "role_map": _build_id_name_map("extras/roles/"),
-        "tenant_map": _build_id_name_map("tenancy/tenants/"),
-        "status_map": _build_id_name_map("extras/statuses/"),
-    }
-
-
 def _normalize_locations(
     raw: list,
     include_without_coordinates: bool = False,
     existing_location_name_map: dict | None = None,
 ) -> list:
-    tenant_map = _build_id_name_map("tenancy/tenants/")
-    status_map = _build_id_name_map("extras/statuses/")
-    lt_map = _build_id_name_map("dcim/location-types/")
-    tag_map = _build_id_name_map("extras/tags/")
-    tenant_group_map = _build_tenant_group_map()
+    tenant_map = nautobot.id_name_map("tenancy/tenants/")
+    status_map = nautobot.id_name_map("extras/statuses/")
+    lt_map = nautobot.id_name_map("dcim/location-types/")
+    tag_map = nautobot.id_name_map("extras/tags/")
+    tenant_group_map = nautobot.tenant_group_map()
 
     loc_name_map = dict(existing_location_name_map or {})
     for loc in raw:
         uid = loc.get("id")
         if uid:
-            name = _nested_str(loc, "name", "display")
+            name = nautobot.nested_str(loc, "name", "display")
             if name:
                 loc_name_map[uid] = name
 
@@ -478,7 +253,7 @@ def _normalize_locations(
     def _extract_location_country(location: dict, physical_address: str) -> str:
         country_obj = location.get("country")
         if isinstance(country_obj, dict):
-            country_name = _nested_str(country_obj, "name", "display", "label")
+            country_name = nautobot.nested_str(country_obj, "name", "display", "label")
             if country_name:
                 return country_name
         elif isinstance(country_obj, str) and country_obj.strip():
@@ -514,19 +289,19 @@ def _normalize_locations(
 
         tenant_obj = loc.get("tenant") or {}
         tenant_id = tenant_obj.get("id", "") if isinstance(tenant_obj, dict) else ""
-        tenant_name = _nested_str(tenant_obj, "name", "display") or tenant_map.get(tenant_id, "")
+        tenant_name = nautobot.nested_str(tenant_obj, "name", "display") or tenant_map.get(tenant_id, "")
 
         status_obj = loc.get("status") or {}
         status_id = status_obj.get("id", "") if isinstance(status_obj, dict) else ""
-        status_name = _nested_str(status_obj, "label", "name", "display") or status_map.get(status_id, "")
+        status_name = nautobot.nested_str(status_obj, "label", "name", "display") or status_map.get(status_id, "")
 
         lt_obj = loc.get("location_type") or {}
         lt_id = lt_obj.get("id", "") if isinstance(lt_obj, dict) else ""
-        location_type_name = _nested_str(lt_obj, "name", "display") or lt_map.get(lt_id, "")
+        location_type_name = nautobot.nested_str(lt_obj, "name", "display") or lt_map.get(lt_id, "")
 
         parent_obj = loc.get("parent") or {}
         parent_id = parent_obj.get("id", "") if isinstance(parent_obj, dict) else ""
-        parent_name = _nested_str(parent_obj, "name", "display") or loc_name_map.get(parent_id, "")
+        parent_name = nautobot.nested_str(parent_obj, "name", "display") or loc_name_map.get(parent_id, "")
 
         tenant_group_name = tenant_group_map.get(tenant_id, "")
         raw_tags = loc.get("tags") or []
@@ -534,7 +309,7 @@ def _normalize_locations(
         for t in raw_tags:
             if isinstance(t, dict):
                 tag_id = t.get("id", "")
-                tag_name = _nested_str(t, "name", "display") or tag_map.get(tag_id, "")
+                tag_name = nautobot.nested_str(t, "name", "display") or tag_map.get(tag_id, "")
             else:
                 tag_name = ""
             if tag_name:
@@ -576,7 +351,7 @@ def _extract_primary_ip(device: dict) -> str:
         value = device.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-        extracted = _nested_str(value, "host", "address", "display", "name")
+        extracted = nautobot.nested_str(value, "host", "address", "display", "name")
         if extracted:
             return extracted
     return ""
@@ -609,7 +384,7 @@ def _is_ip_literal(value: str) -> bool:
 
 def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> list:
     if lookup_maps is None:
-        lookup_maps = _build_device_lookup_maps()
+        lookup_maps = nautobot.device_lookup_maps()
     dt_mfr_map = lookup_maps.get("dt_mfr_map", {})
     dt_model_map = lookup_maps.get("dt_model_map", {})
     mfr_map = lookup_maps.get("mfr_map", {})
@@ -623,24 +398,28 @@ def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> l
         dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
         mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
         mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
-        mfr_name = _nested_str(mfr_obj, "name", "display") or mfr_map.get(mfr_id, "") or dt_mfr_map.get(dt_id, "")
+        mfr_name = (
+            nautobot.nested_str(mfr_obj, "name", "display") or mfr_map.get(mfr_id, "") or dt_mfr_map.get(dt_id, "")
+        )
 
         ten_obj = d.get("tenant") or {}
         ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
-        ten_name = _nested_str(ten_obj, "name", "display") or tenant_map.get(ten_id, "")
+        ten_name = nautobot.nested_str(ten_obj, "name", "display") or tenant_map.get(ten_id, "")
 
         st_obj = d.get("status") or {}
         st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
-        st_name = _nested_str(st_obj, "label", "name", "display") or status_map.get(st_id, "")
+        st_name = nautobot.nested_str(st_obj, "label", "name", "display") or status_map.get(st_id, "")
 
         devices.append(
             {
                 "id": d.get("id") or "",
                 "name": d.get("name") or "Unknown",
-                "device_type": (_nested_str(d.get("device_type"), "model", "display") or dt_model_map.get(dt_id, "")),
+                "device_type": (
+                    nautobot.nested_str(d.get("device_type"), "model", "display") or dt_model_map.get(dt_id, "")
+                ),
                 "manufacturer": mfr_name,
                 "role": (
-                    _nested_str(d.get("role"), "name", "display")
+                    nautobot.nested_str(d.get("role"), "name", "display")
                     or role_map.get(
                         d.get("role", {}).get("id", "") if isinstance(d.get("role"), dict) else "",
                         "",
@@ -648,7 +427,7 @@ def _normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> l
                 ),
                 "status": st_name,
                 "primary_ip": _extract_primary_ip(d),
-                "platform": _nested_str(d.get("platform"), "name", "display"),
+                "platform": nautobot.nested_str(d.get("platform"), "name", "display"),
                 "serial": d.get("serial") or "",
                 "tenant": ten_name,
                 "last_updated": d.get("last_updated") or "",
@@ -1080,10 +859,10 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
         params = {}
         if last_successful_sync and not full_reconcile:
             params["last_updated__gte"] = last_successful_sync
-        raw_locations = fetch_all_pages("dcim/locations/", params or None)
+        raw_locations = nautobot.fetch_all_pages("dcim/locations/", params or None)
         device_params = dict(params)
         device_params["depth"] = 1
-        raw_devices = fetch_all_pages("dcim/devices/", device_params or None)
+        raw_devices = nautobot.fetch_all_pages("dcim/devices/", device_params or None)
         if full_reconcile:
             existing_counts = conn.execute(
                 """
@@ -1110,7 +889,7 @@ def _sync_nautobot_inventory(force: bool = False) -> None:
             include_without_coordinates=True,
             existing_location_name_map=existing_location_name_map,
         )
-        devices = _normalize_devices(raw_devices, lookup_maps=_build_device_lookup_maps())
+        devices = _normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
         completed_at = _iso_utc_now()
         watermark = last_successful_sync
         observed_last_updated = _max_last_updated(raw_locations + raw_devices)
@@ -1186,7 +965,7 @@ def _sync_librenms_inventory(force: bool = False) -> None:
                 status="running",
                 error_message="",
             )
-        devices = _fetch_librenms_inventory()
+        devices = librenms.fetch_inventory()
         existing_count = conn.execute("SELECT COUNT(*) AS device_count FROM librenms_device_status").fetchone()
         existing_count = int(db.row_to_dict(existing_count).get("device_count") or 0)
         if existing_count > 0 and not devices:
@@ -1304,7 +1083,7 @@ def get_locations(include_without_coordinates: bool = False, snapshot_only: bool
     cached = _read_cached_locations(include_without_coordinates=include_without_coordinates)
     if cached:
         return cached
-    raw = fetch_all_pages("dcim/locations/")
+    raw = nautobot.fetch_all_pages("dcim/locations/")
     return _normalize_locations(raw, include_without_coordinates=include_without_coordinates)
 
 
@@ -1376,7 +1155,7 @@ def _location_is_excluded_from_alert_board(location: dict) -> bool:
     tags = set()
     for tag in location.get("tags") or []:
         if isinstance(tag, dict):
-            tag_name = _nested_str(tag, "name", "display", "label", "value")
+            tag_name = nautobot.nested_str(tag, "name", "display", "label", "value")
         else:
             tag_name = str(tag).strip()
         if tag_name:
@@ -1563,33 +1342,6 @@ def compute_alert_level(
     return {"level": "ok", "reason": ""}
 
 
-def _librenms_get(path: str, params: dict | None = None) -> dict:
-    """Perform a GET request against the LibreNMS REST API."""
-    base_url = (settings.LIBRENMS_URL or "").strip().rstrip("/")
-    api_token = (settings.LIBRENMS_API_TOKEN or "").strip()
-    if not base_url or not api_token:
-        return {}
-
-    headers = {"X-Auth-Token": api_token}
-    url = f"{base_url}/api/v0/{path.lstrip('/')}"
-    if settings.LIBRENMS_VERIFY_SSL is False:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", InsecureRequestWarning)
-            response = requests.get(url, headers=headers, params=params, timeout=15, verify=False)
-    else:
-        response = requests.get(url, headers=headers, params=params, timeout=15, verify=settings.LIBRENMS_VERIFY_SSL)
-    response.raise_for_status()
-    return response.json()
-
-
-def _fetch_librenms_inventory() -> list:
-    """Fetch full LibreNMS inventory once."""
-    if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
-        return []
-    data = _librenms_get("devices", {"type": "all"})
-    return data.get("devices", [])
-
-
 def _load_librenms_id_map() -> dict:
     """Load persisted Nautobot UUID → LibreNMS device mapping."""
     lnms_id_map: dict = {}
@@ -1642,7 +1394,7 @@ def _enrich_with_librenms(
         lnms_devices = _read_cached_librenms_inventory()
     if not lnms_devices and not snapshot_only:
         try:
-            lnms_devices = _fetch_librenms_inventory()
+            lnms_devices = librenms.fetch_inventory()
         except Exception as exc:
             logger.warning("LibreNMS enrichment failed (could not fetch devices): %s", exc)
             return devices
@@ -1740,13 +1492,13 @@ def _store_librenms_map(nautobot_device_id: str, librenms_device_id: int, libren
 def _fetch_live_location_devices(location_id: str) -> list:
     """Fetch devices for one location, handling Nautobot filter-key variants."""
     try:
-        return fetch_all_pages("dcim/devices/", {"location_id": location_id, "depth": 1})
+        return nautobot.fetch_all_pages("dcim/devices/", {"location_id": location_id, "depth": 1})
     except requests.HTTPError as exc:
         response = getattr(exc, "response", None)
         status_code = getattr(response, "status_code", None)
         if status_code != 400:
             raise
-    return fetch_all_pages("dcim/devices/", {"location": location_id, "depth": 1})
+    return nautobot.fetch_all_pages("dcim/devices/", {"location": location_id, "depth": 1})
 
 
 def _get_location_devices_and_alert(
@@ -2712,7 +2464,7 @@ def get_alert_board_data(
         # an open board keeps itself up to date (#152).  This request still
         # makes no upstream calls itself.
         sync_enqueued = _ensure_inventory_snapshot(wait=False)
-    cached = _cache_get(cache_key)
+    cached = caching.get(cache_key)
     if cached is not None:
         return _apply_alert_board_freshness(
             cached, sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
@@ -2724,7 +2476,7 @@ def get_alert_board_data(
     )
     should_cache = bool(payload.get("alerts")) or _nautobot_snapshot_initialized()
     if should_cache:
-        _cache_set(cache_key, payload, timeout=settings.CACHE_TTL)
+        caching.set(cache_key, payload, timeout=settings.CACHE_TTL)
     return _apply_alert_board_freshness(
         payload, sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
     )
@@ -2763,7 +2515,7 @@ def _scheduler_tick() -> bool:
         # The syncs invalidated the cached board; rebuild it now so alert
         # history is recorded even if nobody opens the board.
         payload = _build_alert_board_payload(snapshot_only=True)
-        _cache_set("alert-board-data:v3", payload, timeout=settings.CACHE_TTL)
+        caching.set("alert-board-data:v3", payload, timeout=settings.CACHE_TTL)
         return True
     finally:
         release()
@@ -2809,7 +2561,7 @@ def _location_field_asns(location_id: str) -> list:
     if cached:
         asn = cached[0].get("asn")
     else:
-        asn = nautobot_get(f"dcim/locations/{location_id}/").get("asn")
+        asn = nautobot.get(f"dcim/locations/{location_id}/").get("asn")
     if asn in (None, ""):
         return []
     return [{"asn": asn, "description": "", "tenant": ""}]
@@ -2824,7 +2576,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     """
     devices, alert = _get_location_devices_and_alert(location_id, location_type)
     try:
-        asns_data = fetch_all_pages("ipam/asns/", {"location_id": location_id})
+        asns_data = nautobot.fetch_all_pages("ipam/asns/", {"location_id": location_id})
     except requests.HTTPError as exc:
         if exc.response is None or exc.response.status_code != 404:
             raise
@@ -2834,7 +2586,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             {
                 "asn": a.get("asn"),
                 "description": a.get("description", ""),
-                "tenant": _nested_str(a.get("tenant"), "name", "display"),
+                "tenant": nautobot.nested_str(a.get("tenant"), "name", "display"),
             }
             for a in asns_data
         ]
@@ -3441,7 +3193,7 @@ def api_add_alert_case():
 def api_list_roles():
     """Return all roles from Nautobot (proxied from extras/roles/)."""
     try:
-        roles = fetch_all_pages("extras/roles/")
+        roles = nautobot.fetch_all_pages("extras/roles/")
         return jsonify({"roles": roles})
     except RuntimeError as exc:
         return _nautobot_service_unavailable("Roles listing unavailable", exc)
@@ -3466,8 +3218,8 @@ def api_create_role():
     if not body.get("name"):
         return jsonify({"error": "name is required"}), 400
     try:
-        created = nautobot_post("extras/roles/", body)
-        cache.delete_memoized(fetch_all_pages)
+        created = nautobot.post("extras/roles/", body)
+        cache.delete_memoized(nautobot.fetch_all_pages)
         return jsonify(created), 201
     except RuntimeError as exc:
         return _nautobot_service_unavailable("Role creation unavailable", exc)
@@ -3488,7 +3240,7 @@ def api_create_role():
 def api_delete_role(role_id: str):
     """Delete a role from Nautobot by its UUID (proxied to extras/roles/<id>/)."""
     try:
-        nautobot_delete(f"extras/roles/{role_id}/")
+        nautobot.delete(f"extras/roles/{role_id}/")
         cache.clear()
         return jsonify({"status": "deleted", "id": role_id})
     except RuntimeError as exc:
@@ -3512,7 +3264,7 @@ def api_delete_role(role_id: str):
 def api_list_location_types():
     """Return all location types from Nautobot (proxied from dcim/location-types/)."""
     try:
-        location_types = fetch_all_pages("dcim/location-types/")
+        location_types = nautobot.fetch_all_pages("dcim/location-types/")
         return jsonify({"location_types": location_types})
     except RuntimeError as exc:
         return _nautobot_service_unavailable("Location type listing unavailable", exc)
@@ -3537,7 +3289,7 @@ def api_create_location_type():
     if not body.get("name"):
         return jsonify({"error": "name is required"}), 400
     try:
-        created = nautobot_post("dcim/location-types/", body)
+        created = nautobot.post("dcim/location-types/", body)
         cache.clear()
         return jsonify(created), 201
     except RuntimeError as exc:
@@ -3559,7 +3311,7 @@ def api_create_location_type():
 def api_delete_location_type(lt_id: str):
     """Delete a location type from Nautobot by its UUID (proxied to dcim/location-types/<id>/)."""
     try:
-        nautobot_delete(f"dcim/location-types/{lt_id}/")
+        nautobot.delete(f"dcim/location-types/{lt_id}/")
         cache.clear()
         return jsonify({"status": "deleted", "id": lt_id})
     except RuntimeError as exc:
