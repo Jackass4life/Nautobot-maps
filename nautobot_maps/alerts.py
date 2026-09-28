@@ -1016,6 +1016,28 @@ PATH_SEPARATOR = " › "
 logged_rollup_orphans: set[str] = set()
 
 
+def location_chain(location_id: str, by_id: dict[str, dict]) -> list[dict]:
+    """*location_id* and its ancestors, nearest first (stops at unknown ids and cycles)."""
+    chain, seen = [], set()
+    while location_id and location_id in by_id and location_id not in seen:
+        seen.add(location_id)
+        chain.append(by_id[location_id])
+        location_id = by_id[location_id].get("parent_id") or ""
+    return chain
+
+
+def ancestor_path(loc: dict, by_id: dict[str, dict]) -> str:
+    """The Nautobot location path above *loc*, e.g. ``"EMEA › DNK"``."""
+    ancestors = location_chain(loc.get("parent_id") or "", by_id)
+    return PATH_SEPARATOR.join(a.get("name", "") for a in reversed(ancestors))
+
+
+def with_ancestor_paths(locations: list[dict], all_locations: list[dict]) -> list[dict]:
+    """*locations*, each with its ``ancestor_path`` (#178)."""
+    by_id = {loc.get("id"): loc for loc in all_locations if loc.get("id")}
+    return [{**loc, "ancestor_path": ancestor_path(loc, by_id)} for loc in locations]
+
+
 def roll_up_to_site_locations(
     locations: list[dict],
     devices_by_location: dict[str, list[dict]],
@@ -1040,26 +1062,16 @@ def roll_up_to_site_locations(
     def is_excluded(loc: dict) -> bool:
         return not include_non_operational and location_is_excluded_from_alert_board(loc)
 
-    def chain_up(location_id: str) -> list[dict]:
-        """*location_id* and its ancestors, nearest first (stops at unknown ids and cycles)."""
-        chain, seen = [], set()
-        while location_id and location_id in by_id and location_id not in seen:
-            seen.add(location_id)
-            chain.append(by_id[location_id])
-            location_id = by_id[location_id].get("parent_id") or ""
-        return chain
-
     rows = []
     row_ids = set()
     for loc in locations:
         if is_site(loc) and not is_excluded(loc):
-            ancestors = chain_up(loc.get("parent_id") or "")
-            rows.append({**loc, "ancestor_path": PATH_SEPARATOR.join(a.get("name", "") for a in reversed(ancestors))})
+            rows.append({**loc, "ancestor_path": ancestor_path(loc, by_id)})
             row_ids.add(loc["id"])
 
     devices_by_row: dict[str, list[dict]] = {}
     for location_id, devices in devices_by_location.items():
-        chain = chain_up(location_id)
+        chain = location_chain(location_id, by_id)
         site_index = next((i for i, loc in enumerate(chain) if is_site(loc)), None)
         if site_index is None:
             # No site above it: the location keeps its own row.
@@ -1212,6 +1224,9 @@ def build_alert_board_payload(
             settings.ALERT_BOARD_SITE_LOCATION_TYPE,
             include_non_operational=include_non_operational,
         )
+    else:
+        # The full Nautobot location path above each row, as with the roll-up (#178).
+        locations = with_ancestor_paths(locations, all_locations)
 
     # Writes share one connection, opened on first use.  After a failure it is
     # closed and the next site opens a fresh one, so a broken connection

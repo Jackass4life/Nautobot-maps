@@ -748,6 +748,35 @@ check(nextUpdateEl.hidden, "hidden when unknown");
         assert 'id="next-update"' in html
 
 
+class TestSiteMetaInTheBrowser:
+    """The grey line under a site shows only the path above it (#178)."""
+
+    def test_site_meta_is_only_the_path(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        functions = "\n".join(_extract_js_function(js, name) for name in ("escHtml", "siteMeta"))
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{functions}
+
+const site = {{ ancestor_path: "EMEA › DNK", parent: "DNK", country: "Denmark", tenant: "Acme", tenant_group: "JM" }};
+let meta = siteMeta(site);
+check(meta === "EMEA › DNK", meta);
+meta = siteMeta({{ parent: "R&D", country: "Denmark", tenant: "Acme" }});
+check(meta === "R&amp;D", meta);
+check(siteMeta({{ tenant: "Acme" }}) === "", "empty without a path");
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
 class TestSeverityTiersInTheBrowser:
     """Low and No data on the board and the map (#124)."""
 
