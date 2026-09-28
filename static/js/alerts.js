@@ -280,6 +280,12 @@ function renderDownDeviceRows(item, isExpanded) {
   `).join("");
 }
 
+// Only the path above the site, e.g. "NORAM › GRL" (#178); the tenant has its own column.
+function siteMeta(item) {
+  // With ALERT_BOARD_SITE_LOCATION_TYPE the full path above the site (#158).
+  return escHtml(item.ancestor_path || item.parent || "");
+}
+
 function renderTableRows(alerts, payload) {
   if (!alerts.length) {
     let emptyText = "No sites match the current filters.";
@@ -301,12 +307,7 @@ function renderTableRows(alerts, payload) {
     const toggleButton = downCount
       ? `<button class="site-toggle-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="${isExpanded ? "Collapse" : "Expand"} ${escHtml(item.name || item.id || "site")}">${isExpanded ? "▾" : "▸"}</button>`
       : '<span class="site-toggle-spacer" aria-hidden="true"></span>';
-    const siteMeta = [
-      item.country && address && address.toLowerCase().endsWith(item.country.toLowerCase()) ? "" : item.country,
-      // With ALERT_BOARD_SITE_LOCATION_TYPE the full path above the site (#158).
-      item.ancestor_path || item.parent,
-      item.tenant_group,
-    ].filter(Boolean).map(escHtml).join(" · ");
+    const meta = siteMeta(item);
 
     return `
     <tr class="site-row">
@@ -319,7 +320,7 @@ function renderTableRows(alerts, payload) {
           </div>
         </div>
         ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
-        <div class="site-meta">${siteMeta || "—"}</div>
+        <div class="site-meta">${meta || "—"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
       <td>${escHtml(item.status || "—")}</td>
@@ -349,7 +350,7 @@ function getFilteredAlerts() {
   const filtered = allAlerts.filter((item) => {
     const searchableText = [
       item.name,
-      item.parent,
+      item.ancestor_path || item.parent,
       formatLocationAddress(item),
       item.country,
     ].join(" ").toLowerCase();

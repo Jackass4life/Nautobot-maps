@@ -5451,7 +5451,10 @@ class TestSiteRollup:
         rows = self._board(monkeypatch, site_type="")
         assert {"reg-emea", "cty-dnk", "bld-a", "flr-2"} <= set(rows)
         assert rows["flr-2"]["down_device_count"] == 1
-        assert "ancestor_path" not in rows["site-aar"]
+        # Every row still shows the Nautobot location path above it (#178).
+        assert rows["site-aar"]["ancestor_path"] == "EMEA › DNK"
+        assert rows["flr-2"]["ancestor_path"] == "EMEA › DNK › Aarhus › Bygning A"
+        assert rows["reg-emea"]["ancestor_path"] == ""
 
     def test_orphan_location_is_logged_once(self, monkeypatch, caplog):
         alerts.logged_rollup_orphans.clear()
@@ -5468,6 +5471,7 @@ class TestSiteRollup:
         rows, devices = alerts.roll_up_to_site_locations(locations, {"a": [{"id": "d1"}]}, "site")
         assert [row["id"] for row in rows] == ["a"]
         assert devices == {"a": [{"id": "d1", "location_path": ""}]}
+        assert [row["ancestor_path"] for row in alerts.with_ancestor_paths(locations, locations)] == ["A › B", "B › A"]
 
     def test_migration_adds_parent_id_column(self):
         self.db.execute("ALTER TABLE nautobot_location_cache DROP COLUMN parent_id")
