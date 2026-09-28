@@ -77,6 +77,11 @@ under `nautobot_maps/` (#165):
 - `nautobot_maps/caching.py`: the shared response cache (Flask-Caching).
 - `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,
   sync state, and `inventory.ensure_snapshot()` / `inventory.get_locations()`.
+- `nautobot_maps/alerts.py`: the alert logic — severity scoring (`alerts.compute_alert_level()`),
+  the LibreNMS status merge, alert history, the alert board (`alerts.get_alert_board_data()`) and
+  the map's location detail.
+- `nautobot_maps/scheduler.py`: the background scheduler (`scheduler.start()`, started by
+  gunicorn in each worker).
 - `nautobot_maps/timeutil.py`: time helpers; tests freeze time with
   `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`.
 
