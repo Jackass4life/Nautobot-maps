@@ -649,6 +649,7 @@ def _init_db() -> None:
             )
             if primary_ip_column_missing:
                 _mark_nautobot_inventory_sync_pending(conn)
+            _migrate_open_alert_keys(conn)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_instances_key ON alert_instances(alert_key)")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_nautobot_device_cache_location ON nautobot_device_cache(location_id)"
@@ -665,6 +666,42 @@ def _init_db() -> None:
     finally:
         conn.close()
     logger.info("Nautobot Maps persistence initialised (postgres)")
+
+
+def _migrate_open_alert_keys(conn) -> None:
+    """Re-key open alerts to site + device (#163); a no-op once done.
+
+    Keys used to include the severity.  Should a device have several open
+    alerts, the one that started first is kept and the others are closed
+    without adding downtime (they covered the same outage).
+    """
+    rows = [
+        _row_to_dict(row)
+        for row in conn.execute(
+            "SELECT id, alert_key, site_id, device_id FROM alert_instances "
+            "WHERE status = 'open' ORDER BY down_started_at ASC, id ASC"
+        ).fetchall()
+    ]
+    kept: set[tuple[str, str]] = set()
+    rekeyed = closed = 0
+    for row in rows:
+        device = (row.get("site_id") or "", row.get("device_id") or "")
+        if device in kept:
+            conn.execute(
+                "UPDATE alert_instances SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+                (row["id"],),
+            )
+            closed += 1
+            continue
+        kept.add(device)
+        new_key = _build_alert_key(*device)
+        if row.get("alert_key") != new_key:
+            # Only one open row per device remains, so the unique open-key index holds.
+            conn.execute("UPDATE alert_instances SET alert_key = %s WHERE id = %s", (new_key, row["id"]))
+            rekeyed += 1
+    if rekeyed or closed:
+        logger.info("Alert keys migrated to site + device: %d re-keyed, %d duplicates closed", rekeyed, closed)
 
 
 def _mark_nautobot_inventory_sync_pending(conn) -> None:
@@ -2255,8 +2292,14 @@ def _alert_sort_key(level: str) -> int:
     return {"critical": 0, "medium": 1, "unknown": 2, "ok": 3}.get((level or "").lower(), 4)
 
 
-def _build_alert_key(site_id: str, device_id: str, alert_level: str) -> str:
-    raw = f"{site_id.strip()}::{device_id.strip()}::{(alert_level or '').lower()}"
+def _build_alert_key(site_id: str, device_id: str) -> str:
+    """Identify a device's alert on a site.
+
+    The severity is deliberately not part of it: a Medium → Critical change
+    updates the open alert instead of resolving it and opening a new one,
+    which restarted its downtime (#163).
+    """
+    raw = f"{site_id.strip()}::{device_id.strip()}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -2378,7 +2421,7 @@ def _upsert_alert_lifecycle_for_site(
                     continue
                 level = (alert.get("level") or "unknown").lower()
                 reason = alert.get("reason") or ""
-                alert_key = _build_alert_key(site_id, device_id, level)
+                alert_key = _build_alert_key(site_id, device_id)
                 open_alert_keys.add(alert_key)
                 marker = _sql_placeholders(1)
                 latest_row = conn.execute(

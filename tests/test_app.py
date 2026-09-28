@@ -2256,6 +2256,103 @@ class TestAlertLifecycleTracking:
         assert resolved_event["snapshot"]["device_id"] == "dev-1"
         assert resolved_event["snapshot"]["status"] == "resolved"
 
+    def test_severity_change_keeps_the_alert_and_its_downtime(self):
+        """Medium → Critical must not restart the device's downtime (#163)."""
+        site = {"id": "loc-1", "name": "Site One"}
+        t0 = "2026-01-01T00:00:00Z"
+        t1 = "2026-01-01T01:00:00Z"
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            [{"id": "dev-1", "name": "sw01", "status": "offline"}],
+            {"level": "medium", "reason": "1/3 devices offline (33%)"},
+            t0,
+        )
+        flask_app._upsert_alert_lifecycle_for_site(
+            site,
+            [
+                {"id": "dev-1", "name": "sw01", "status": "offline"},
+                {"id": "dev-2", "name": "core01", "status": "offline"},
+            ],
+            {"level": "critical", "reason": "Core device(s) offline: core01"},
+            t1,
+        )
+
+        rows = self.db.execute(
+            "SELECT device_id, status, alert_level, down_started_at FROM alert_instances ORDER BY device_id, id"
+        )
+        dev1 = [row for row in rows if row["device_id"] == "dev-1"]
+        assert len(dev1) == 1, dev1  # one alert, not resolved and reopened
+        assert dev1[0]["status"] == "open"
+        assert dev1[0]["alert_level"] == "critical"
+        assert flask_app._serialize_value(dev1[0]["down_started_at"]) == t0
+        events = self.db.execute(
+            "SELECT e.event_type, e.alert_level FROM alert_events e "
+            "JOIN alert_instances i ON i.id = e.alert_instance_id WHERE i.device_id = 'dev-1' ORDER BY e.id"
+        )
+        assert events == [
+            {"event_type": "opened", "alert_level": "medium"},
+            {"event_type": "updated", "alert_level": "critical"},
+        ]
+        context = flask_app._get_alert_context_for_site("loc-1", t1)
+        assert context["current_downtime_seconds"] == 3600
+
+    def test_init_db_rekeys_open_alerts_without_severity(self):
+        """Open alerts keyed with the old site::device::level format are migrated once (#163)."""
+        import hashlib
+
+        def old_key(site_id, device_id, level):
+            return hashlib.sha256(f"{site_id}::{device_id}::{level}".encode()).hexdigest()
+
+        rows = [
+            # (alert_key, device_id, status, down_started_at)
+            (old_key("loc-1", "dev-1", "critical"), "dev-1", "open", "2026-01-01T00:00:00Z"),
+            # Same device, a second open alert that started later: closed, adds no downtime.
+            (old_key("loc-1", "dev-1", "medium"), "dev-1", "open", "2026-01-01T02:00:00Z"),
+            (old_key("loc-1", "dev-2", "medium"), "dev-2", "open", "2026-01-01T01:00:00Z"),
+            (old_key("loc-1", "dev-3", "medium"), "dev-3", "resolved", "2025-12-01T00:00:00Z"),
+        ]
+        self.db.executemany(
+            "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
+            "alert_reason, status, down_started_at, last_seen_down_at, total_downtime_seconds) "
+            "VALUES (%s, 'loc-1', 'Site One', %s, %s, 'medium', '', %s, %s, %s, 0)",
+            [(key, device, device, status, started, started) for key, device, status, started in rows],
+        )
+
+        flask_app._init_db()
+        flask_app._init_db()  # a second run changes nothing
+
+        result = self.db.execute(
+            "SELECT alert_key, device_id, status, down_started_at, total_downtime_seconds "
+            "FROM alert_instances ORDER BY id"
+        )
+        assert [(r["device_id"], r["status"]) for r in result] == [
+            ("dev-1", "open"),
+            ("dev-1", "resolved"),
+            ("dev-2", "open"),
+            ("dev-3", "resolved"),
+        ]
+        assert result[0]["alert_key"] == flask_app._build_alert_key("loc-1", "dev-1")
+        assert result[2]["alert_key"] == flask_app._build_alert_key("loc-1", "dev-2")
+        assert result[3]["alert_key"] == old_key("loc-1", "dev-3", "medium")  # history untouched
+        assert all(r["total_downtime_seconds"] == 0 for r in result)
+        # The build finds the migrated alert and keeps its start time.
+        flask_app._upsert_alert_lifecycle_for_site(
+            {"id": "loc-1", "name": "Site One"},
+            [
+                {"id": "dev-1", "name": "dev-1", "status": "offline"},
+                {"id": "dev-2", "name": "dev-2", "status": "offline"},
+            ],
+            {"level": "critical", "reason": "x"},
+            "2026-01-01T03:00:00Z",
+        )
+        open_rows = self.db.execute(
+            "SELECT device_id, down_started_at FROM alert_instances WHERE status = 'open' ORDER BY device_id"
+        )
+        assert [(r["device_id"], flask_app._serialize_value(r["down_started_at"])) for r in open_rows] == [
+            ("dev-1", "2026-01-01T00:00:00Z"),
+            ("dev-2", "2026-01-01T01:00:00Z"),
+        ]
+
     def test_add_case_number_to_active_alert(self, client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
@@ -2654,6 +2751,9 @@ class TestAlertLifecycleTracking:
             def fetchone(self):
                 return self.row
 
+            def fetchall(self):
+                return [self.row] if self.row else []
+
         class _FakeTransaction:
             def __init__(self, conn):
                 self.conn = conn
@@ -2726,6 +2826,9 @@ class TestAlertLifecycleTracking:
             def fetchone(self):
                 return self._rows[0] if self._rows else None
 
+            def fetchall(self):
+                return self._rows
+
         class _FakeTransaction:
             def __init__(self, conn):
                 self.conn = conn
@@ -2774,6 +2877,9 @@ class TestAlertLifecycleTracking:
 
             def fetchone(self):
                 return self._rows[0] if self._rows else None
+
+            def fetchall(self):
+                return self._rows
 
         class _FakeTransaction:
             def __init__(self, conn):
@@ -5093,7 +5199,7 @@ class TestAlertBoardBulkReads:
             "VALUES (%s, %s, '', %s, %s, 'critical', '', %s, %s, %s, %s) RETURNING id",
             (
                 # Open alerts use the real key so the build recognises them as still open.
-                flask_app._build_alert_key(site_id, device_id, "critical")
+                flask_app._build_alert_key(site_id, device_id)
                 if status == "open"
                 else f"{site_id}-{device_id}-{down_started_at}",
                 site_id,
