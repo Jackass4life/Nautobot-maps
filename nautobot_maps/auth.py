@@ -4,12 +4,17 @@ A trusted reverse proxy sets the user and group headers (AUTH_MODE=header);
 ``@auth.require_role("operator")`` protects write endpoints.
 """
 
+import hmac
+import ipaddress
+import logging
 import re
 from functools import wraps
 
 from flask import g, jsonify, request
 
 from nautobot_maps import settings
+
+logger = logging.getLogger(__name__)
 
 ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}
 SUPPORTED_MODES = {"disabled", "header"}
@@ -26,6 +31,36 @@ def is_config_valid() -> bool:
 
 def flask_run_host() -> str:
     return "127.0.0.1" if settings.AUTH_MODE == "header" else "0.0.0.0"
+
+
+PROXY_SECRET_HEADER = "X-Auth-Proxy-Secret"
+# Addresses already warned about, so a scanner can't flood the log.
+_logged_untrusted: set[str] = set()
+
+
+def request_from_trusted_proxy() -> bool:
+    """Whether this request's identity headers can be trusted (#187).
+
+    The direct peer must be in AUTH_TRUSTED_PROXIES and, when AUTH_PROXY_SECRET
+    is set, send it.  Anyone else could simply set X-Forwarded-User themselves.
+    """
+    try:
+        address = ipaddress.ip_address(request.remote_addr or "")
+    except ValueError:
+        return False
+    if address.version == 6 and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    trusted = any(address in network for network in settings.AUTH_TRUSTED_PROXIES)
+    if trusted and settings.AUTH_PROXY_SECRET:
+        trusted = hmac.compare_digest(request.headers.get(PROXY_SECRET_HEADER, ""), settings.AUTH_PROXY_SECRET)
+    if not trusted and str(address) not in _logged_untrusted and len(_logged_untrusted) < 100:
+        _logged_untrusted.add(str(address))
+        logger.warning(
+            "Header auth: ignoring identity headers from %s (not in AUTH_TRUSTED_PROXIES%s)",
+            address,
+            " or wrong/missing proxy secret" if settings.AUTH_PROXY_SECRET else "",
+        )
+    return trusted
 
 
 def role_level(role: str) -> int:
@@ -61,6 +96,9 @@ def get_current_user() -> dict:
         return current
 
     if settings.AUTH_MODE == "header":
+        if not request_from_trusted_proxy():
+            g._current_user = current
+            return current
         username = request.headers.get(settings.AUTH_HEADER_USER, "").strip()
         groups_header = request.headers.get(settings.AUTH_HEADER_GROUPS, "")
         groups = [item.strip() for item in re.split(r"[;,]", groups_header) if item.strip()]

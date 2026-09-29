@@ -42,6 +42,13 @@ def _log_alert_board_exclusions() -> None:
             "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach the app "
             "can change criticality overrides"
         )
+    if settings.AUTH_MODE == "header":
+        proxies = ", ".join(str(network) for network in settings.AUTH_TRUSTED_PROXIES)
+        # Two calls, so nothing derived from the secret reaches the log.
+        if settings.AUTH_PROXY_SECRET:
+            logger.info("Header auth: identity headers trusted from %s with the proxy secret", proxies)
+        else:
+            logger.info("Header auth: identity headers trusted from %s (no AUTH_PROXY_SECRET)", proxies)
     if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "
