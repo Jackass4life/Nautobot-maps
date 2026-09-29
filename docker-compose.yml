@@ -9,10 +9,18 @@
 # "has no container to start" on a fresh checkout.  Always use
 # "docker compose up" which both creates and starts containers.
 
+# Docker keeps container logs forever by default; cap them (#193).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-nautobot_maps}
       - POSTGRES_USER=${POSTGRES_USER:-nautobot_maps}
@@ -28,6 +36,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,6 +45,7 @@ services:
 
   nautobot-maps:
     build: .
+    logging: *default-logging
     ports:
       - "127.0.0.1:5000:5000"
     environment:
@@ -43,6 +53,9 @@ services:
       - NAUTOBOT_TOKEN=${NAUTOBOT_TOKEN}
       - NAUTOBOT_VERIFY_SSL=${NAUTOBOT_VERIFY_SSL:-true}
       - NAUTOBOT_API_VERSION=${NAUTOBOT_API_VERSION:-}
+      # Logging (optional): DEBUG/INFO/WARNING/ERROR, text or json
+      - LOG_LEVEL=${LOG_LEVEL:-}
+      - LOG_FORMAT=${LOG_FORMAT:-}
       - CACHE_TTL=${CACHE_TTL:-300}
       - CACHE_TYPE=${CACHE_TYPE:-RedisCache}
       - CACHE_REDIS_URL=${CACHE_REDIS_URL:-redis://redis:6379/0}
