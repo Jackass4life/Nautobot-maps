@@ -162,41 +162,6 @@ def get(endpoint: str, params: dict | None = None, *, use_cache: bool = True) ->
     return data
 
 
-def post(endpoint: str, payload: dict) -> dict:
-    """Perform a POST request against the Nautobot REST API."""
-    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
-    accept = "application/json"
-    if settings.NAUTOBOT_API_VERSION:
-        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
-    headers = {
-        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": accept,
-    }
-    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.post(url, headers=headers, json=payload, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
-    response.raise_for_status()
-    return response.json()
-
-
-def delete(endpoint: str) -> None:
-    """Perform a DELETE request against the Nautobot REST API."""
-    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
-    accept = "application/json"
-    if settings.NAUTOBOT_API_VERSION:
-        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
-    headers = {
-        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": accept,
-    }
-    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.delete(url, headers=headers, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
-    response.raise_for_status()
-
-
 def fetch_all_pages(endpoint: str, params: dict | None = None, *, use_cache: bool = True) -> list:
     """Fetch all paginated results from a Nautobot API endpoint (see ``get`` for *use_cache*)."""
     params = dict(params or {})
