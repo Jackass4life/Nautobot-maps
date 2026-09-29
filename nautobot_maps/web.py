@@ -694,7 +694,9 @@ def api_create_role():
         return jsonify({"error": "name is required"}), 400
     try:
         created = nautobot.post("extras/roles/", body)
-        caching.cache.delete_memoized(nautobot.fetch_all_pages)
+        # The cached role listings are keyed by endpoint and parameters, not
+        # memoized, so clear the cache as the other write endpoints do (#185).
+        caching.cache.clear()
         return jsonify(created), 201
     except RuntimeError as exc:
         return nautobot_service_unavailable("Role creation unavailable", exc)
