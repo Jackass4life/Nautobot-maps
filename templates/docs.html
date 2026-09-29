@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nautobot Maps API</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/docs.css') }}" />
+</head>
+<body>
+  <div class="page-shell docs-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Nautobot Maps</p>
+        <h1>API</h1>
+        <p class="page-subtitle">
+          Every page and endpoint this app serves. <strong>Try it</strong> sends a real request as you:
+          your login and role apply, and POST and DELETE change data.
+          The same list as JSON: <a href="/api/endpoints">/api/endpoints</a>.
+        </p>
+      </div>
+      <nav class="app-nav" aria-label="Primary">
+        <a class="app-nav-link" href="/">Map</a>
+        <a class="app-nav-link" href="/alerts">Alert Board</a>
+        <a class="app-nav-link active" href="/docs" aria-current="page">API</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
+      </nav>
+    </header>
+
+    <div class="docs-filter">
+      <label class="visually-hidden" for="endpoint-filter">Filter endpoints</label>
+      <input id="endpoint-filter" type="search" placeholder="Filter by path or description" autocomplete="off" />
+      <span id="endpoint-count" class="docs-count" aria-live="polite"></span>
+    </div>
+
+    {% for group, items in groups %}
+    <section class="docs-group" aria-labelledby="group-{{ loop.index }}">
+      <h2 id="group-{{ loop.index }}">{{ group }}</h2>
+      {% for item in items %}
+      {% set method = item.methods[0] if item.methods else "GET" %}
+      <article class="endpoint" data-path="{{ item.path }}" data-method="{{ method }}"
+               data-search="{{ (item.path ~ ' ' ~ item.summary ~ ' ' ~ item.methods|join(' '))|lower }}">
+        <div class="endpoint-head">
+          {% for m in item.methods %}<span class="method method-{{ m|lower }}">{{ m }}</span>{% endfor %}
+          <code class="endpoint-path">{{ item.path }}</code>
+          {% if item.required_role %}<span class="role-badge" title="Needs this role with AUTH_MODE=header">{{ item.required_role }}</span>{% endif %}
+        </div>
+        {% if item.summary %}<p class="endpoint-summary">{{ item.summary }}</p>{% endif %}
+        {% if item.description %}
+        <details class="endpoint-details">
+          <summary>Details</summary>
+          <pre>{{ item.description }}</pre>
+        </details>
+        {% endif %}
+
+        {% if group == "Pages" %}
+        <a class="try-btn" href="{{ item.path }}">Open page</a>
+        {% else %}
+        <form class="try-form">
+          {% if item.path_params or item.query_params %}
+          <div class="param-grid">
+            {% for name in item.path_params %}
+            <label>
+              <span>{{ name }} <em>path, required</em></span>
+              <input type="text" data-path-param="{{ name }}" required autocomplete="off" />
+            </label>
+            {% endfor %}
+            {% for name in item.query_params %}
+            <label>
+              <span>{{ name }} <em>query</em></span>
+              <input type="text" data-query-param="{{ name }}" autocomplete="off" />
+            </label>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% if method in ("POST", "PUT", "PATCH") %}
+          <label class="body-label">
+            <span>JSON body</span>
+            <textarea class="body-input" rows="7" spellcheck="false">{{ item.example_body_text }}</textarea>
+          </label>
+          {% endif %}
+          <div class="try-actions">
+            <button class="try-btn{% if method != 'GET' %} try-write{% endif %}" type="submit">Try it</button>
+            {% if method != "GET" %}<span class="write-note">Changes data</span>{% endif %}
+          </div>
+        </form>
+        <div class="try-result" hidden>
+          <div class="try-status"></div>
+          <code class="try-curl"></code>
+          <pre class="try-body"></pre>
+        </div>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </div>
+  <script src="{{ url_for('static', filename='js/docs.js') }}"></script>
+</body>
+</html>

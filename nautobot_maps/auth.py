@@ -157,6 +157,8 @@ def require_role(required_role: str, open_when_disabled: bool = False):
                 ), 403
             return func(*args, **kwargs)
 
+        # Shown by the API explorer (#230).
+        wrapper.required_role = normalized_required_role
         return wrapper
 
     return decorator
