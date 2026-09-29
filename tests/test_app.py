@@ -238,7 +238,7 @@ class TestSyncBypassesResponseCache:
             response.json.return_value = {"results": [{"id": "d1"}], "next": None}
             return response
 
-        return patch("requests.get", side_effect=fake_requests_get)
+        return patch.object(requests.Session, "get", side_effect=fake_requests_get)
 
     def test_uncached_fetches_always_reach_nautobot(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
@@ -1600,7 +1600,7 @@ class TestCaching:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         caching.cache.clear()
-        with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+        with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
             # Patch env vars so nautobot_get doesn't raise RuntimeError
             settings.NAUTOBOT_URL = "http://nautobot.test"
             settings.NAUTOBOT_TOKEN = "test-token"
@@ -1721,7 +1721,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_VERIFY_SSL = False
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1747,7 +1747,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_VERIFY_SSL = True
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1773,7 +1773,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_VERIFY_SSL = "/etc/ssl/certs/custom-ca.pem"
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1797,7 +1797,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_URL = "https://nautobot.test"
         settings.NAUTOBOT_TOKEN = "test-token"
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1860,7 +1860,7 @@ class TestApiVersionHeader:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_API_VERSION = ""
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1886,7 +1886,7 @@ class TestApiVersionHeader:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_API_VERSION = "3.0"
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -4291,7 +4291,7 @@ class TestLibreNMSEnrichment:
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
         settings.LIBRENMS_URL = "   "
         settings.LIBRENMS_API_TOKEN = "   "
-        with patch.object(requests, "get") as mock_get:
+        with patch.object(requests.Session, "get") as mock_get:
             result = librenms.fetch_inventory()
         assert result == []
         mock_get.assert_not_called()
@@ -4303,7 +4303,7 @@ class TestLibreNMSEnrichment:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
-        with patch.object(requests, "get", return_value=mock_resp) as mock_get:
+        with patch.object(requests.Session, "get", return_value=mock_resp) as mock_get:
             librenms.get("devices", {"type": "all"})
         _, kwargs = mock_get.call_args
         assert kwargs["verify"] is False
@@ -4316,7 +4316,7 @@ class TestLibreNMSEnrichment:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
         with (
-            patch.object(requests, "get", return_value=mock_resp),
+            patch.object(requests.Session, "get", return_value=mock_resp),
             patch.object(librenms.warnings, "catch_warnings") as mock_catch,
         ):
             librenms.get("devices", {"type": "all"})
@@ -4953,7 +4953,7 @@ class TestHealthz:
     def test_makes_no_upstream_calls(self, client, monkeypatch):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        with patch.object(requests, "get", side_effect=AssertionError("no upstream calls")):
+        with patch.object(requests.Session, "get", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/healthz")
         assert resp.status_code == 200
 
@@ -5880,3 +5880,120 @@ class TestAlertFeed:
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
         assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
+
+
+# ---------------------------------------------------------------------------
+# Tests: upstream HTTP retries and connection reuse (#192)
+# ---------------------------------------------------------------------------
+class TestUpstreamRetries:
+    @pytest.fixture
+    def flaky_server(self):
+        """A local HTTP server answering from a script of (status, headers) per request."""
+        import http.server
+
+        script, requests_seen = [], []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _answer(self):
+                requests_seen.append((self.command, self.path))
+                status, headers = script.pop(0) if script else (200, {})
+                body = json.dumps({"results": [{"id": "d1"}], "next": None, "devices": []}).encode()
+                self.send_response(status)
+                for key, value in headers.items():
+                    self.send_header(key, value)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST = do_DELETE = _answer
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        yield f"http://127.0.0.1:{server.server_address[1]}", script, requests_seen
+        server.shutdown()
+
+    @pytest.fixture(autouse=True)
+    def _fast_backoff(self, monkeypatch):
+        from nautobot_maps import http
+
+        monkeypatch.setattr(http, "_local", threading.local())  # a fresh session per test
+        production = _retry_kwargs(http.retry_policy())
+        monkeypatch.setattr(http, "retry_policy", lambda: http.CappedRetry(**{**production, "backoff_factor": 0}))
+
+    def _nautobot(self, monkeypatch, url):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", url)
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+
+    def test_transient_503_is_retried(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        self._nautobot(monkeypatch, url)
+        script.append((503, {}))
+        assert nautobot.fetch_all_pages("dcim/devices/", use_cache=False) == [{"id": "d1"}]
+        assert len(seen) == 2
+
+    def test_gives_up_after_three_retries(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        self._nautobot(monkeypatch, url)
+        script.extend([(502, {})] * 10)
+        with pytest.raises(requests.HTTPError):
+            nautobot.fetch_all_pages("dcim/devices/", use_cache=False)
+        assert len(seen) == 4  # the request and three retries
+
+    def test_client_errors_and_writes_are_not_retried(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        self._nautobot(monkeypatch, url)
+        script.append((404, {}))
+        with pytest.raises(requests.HTTPError):
+            nautobot.get("dcim/devices/x/", use_cache=False)
+        # The app no longer writes to Nautobot (#188), but the session must
+        # never retry a write: it might already have been applied.
+        from nautobot_maps import http
+
+        script.append((503, {}))
+        assert http.session().post(f"{url}/api/extras/roles/", json={"name": "x"}, timeout=5).status_code == 503
+        assert [method for method, _ in seen] == ["GET", "POST"]
+
+    def test_librenms_is_retried_too(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        monkeypatch.setattr(settings, "LIBRENMS_URL", url)
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
+        script.append((429, {"Retry-After": "0"}))
+        assert librenms.fetch_inventory() == []
+        assert len(seen) == 2
+
+    def test_retry_after_is_capped(self):
+        from nautobot_maps import http
+
+        response = MagicMock()
+        response.headers = {"Retry-After": "3600"}
+        response.getheader = lambda name, default=None: response.headers.get(name, default)
+        assert http.retry_policy().get_retry_after(response) == http.MAX_RETRY_AFTER_SECONDS
+
+    def test_one_session_per_thread(self):
+        from nautobot_maps import http
+
+        other = []
+        thread = threading.Thread(target=lambda: other.append(http.session()))
+        thread.start()
+        thread.join()
+        assert http.session() is http.session()
+        assert other[0] is not http.session()
+
+
+def _retry_kwargs(policy) -> dict:
+    """The production retry settings, so tests only change the backoff."""
+    return {
+        "total": policy.total,
+        "connect": policy.connect,
+        "read": policy.read,
+        "status": policy.status,
+        "status_forcelist": policy.status_forcelist,
+        "allowed_methods": policy.allowed_methods,
+        "respect_retry_after_header": policy.respect_retry_after_header,
+        "raise_on_status": policy.raise_on_status,
+    }
