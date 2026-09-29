@@ -67,7 +67,6 @@ def _flag(name: str, default: bool) -> bool:
 
 
 # Flask
-FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "change-me-to-a-random-string")
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"  # python app.py only
 FLASK_RUN_PORT = os.getenv("FLASK_RUN_PORT", "")  # python app.py only
 
@@ -100,6 +99,10 @@ ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "")
 
 # Persistence
 NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
+# Without these a database that drops packets makes every request hang until
+# the OS gives up on the connection, and a runaway query holds a worker (#190).
+DB_CONNECT_TIMEOUT_SECONDS = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "").strip() or 5)
+DB_STATEMENT_TIMEOUT_SECONDS = int(os.getenv("DB_STATEMENT_TIMEOUT_SECONDS", "").strip() or 60)
 # Removed in #153 (SQLite support); only read to warn when it is still set.
 LEGACY_SQLITE_DB = os.getenv("NAUTOBOT_MAPS_DB", "").strip()
 
