@@ -73,7 +73,6 @@ def integration_client(mock_nautobot_server):
     caching.cache.clear()
 
     flask_app.app.config["TESTING"] = True
-    flask_app.app.config["SECRET_KEY"] = "integration-test-secret"
 
     with flask_app.app.test_client() as client:
         yield client
