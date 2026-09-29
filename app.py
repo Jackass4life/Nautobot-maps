@@ -43,11 +43,12 @@ def _log_alert_board_exclusions() -> None:
             "can change criticality overrides"
         )
     if settings.AUTH_MODE == "header":
-        logger.info(
-            "Header auth: identity headers trusted from %s%s",
-            ", ".join(str(network) for network in settings.AUTH_TRUSTED_PROXIES),
-            " with the proxy secret" if settings.AUTH_PROXY_SECRET else " (no AUTH_PROXY_SECRET)",
-        )
+        proxies = ", ".join(str(network) for network in settings.AUTH_TRUSTED_PROXIES)
+        # Two calls, so nothing derived from the secret reaches the log.
+        if settings.AUTH_PROXY_SECRET:
+            logger.info("Header auth: identity headers trusted from %s with the proxy secret", proxies)
+        else:
+            logger.info("Header auth: identity headers trusted from %s (no AUTH_PROXY_SECRET)", proxies)
     if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "
