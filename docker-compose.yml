@@ -87,6 +87,10 @@ services:
       - LIBRENMS_URL=${LIBRENMS_URL:-}
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
       - LIBRENMS_VERIFY_SSL=${LIBRENMS_VERIFY_SSL:-true}
+      # Delete alert history older than this many days (optional; 0/empty keeps everything)
+      - ALERT_HISTORY_RETENTION_DAYS=${ALERT_HISTORY_RETENTION_DAYS:-}
+      # Prometheus metrics at /metrics (optional; default on)
+      - METRICS_ENABLED=${METRICS_ENABLED:-}
       # PostgreSQL connect and statement timeouts (optional; defaults 5 s / 60 s)
       - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-}
       - DB_STATEMENT_TIMEOUT_SECONDS=${DB_STATEMENT_TIMEOUT_SECONDS:-}

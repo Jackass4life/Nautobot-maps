@@ -411,19 +411,24 @@ def record_sync_state(
     status: str = "idle",
     error_message: str = "",
 ) -> None:
-    p0, p1, p2, p3, p4, p5, p6 = db.placeholders(7).split(",")
+    p0, p1, p2, p3, p4, p5, p6, p7 = db.placeholders(8).split(",")
+    # A sync that finished without error ("idle" with a completion time) is
+    # also recorded as the last success, which a later failure keeps (#200).
+    last_succeeded_at = last_completed_at if status == "idle" else None
     conn.execute(
         f"""
         INSERT INTO inventory_sync_state
-            (source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message)
-        VALUES ({p0}, {p1}, {p2}, {p3}, {p4}, {p5}, {p6})
+            (source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message,
+             last_succeeded_at)
+        VALUES ({p0}, {p1}, {p2}, {p3}, {p4}, {p5}, {p6}, {p7})
         ON CONFLICT(source) DO UPDATE SET
             last_started_at = excluded.last_started_at,
             last_completed_at = excluded.last_completed_at,
             last_successful_sync = excluded.last_successful_sync,
             cache_version = excluded.cache_version,
             status = excluded.status,
-            error_message = excluded.error_message
+            error_message = excluded.error_message,
+            last_succeeded_at = COALESCE(excluded.last_succeeded_at, inventory_sync_state.last_succeeded_at)
         """,
         (
             source,
@@ -433,6 +438,7 @@ def record_sync_state(
             cache_version,
             status,
             error_message,
+            last_succeeded_at,
         ),
     )
 
