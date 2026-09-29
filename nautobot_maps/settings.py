@@ -91,6 +91,13 @@ if AUTH_DEFAULT_ROLE not in ("viewer", "operator", "admin"):
 AUTH_VIEWER_GROUPS = parse_csv_set(os.getenv("AUTH_VIEWER_GROUPS", ""))
 AUTH_OPERATOR_GROUPS = parse_csv_set(os.getenv("AUTH_OPERATOR_GROUPS", ""))
 AUTH_ADMIN_GROUPS = parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
+# Header mode: every page and API (except /healthz) needs at least the viewer
+# role.  Off by default, so reads stay public (#188).
+AUTH_REQUIRE_VIEWER = _flag("AUTH_REQUIRE_VIEWER", False)
+# AUTH_MODE=disabled: allow the administrative writes (criticality overrides,
+# Nautobot roles and location types) without authentication.  Off by default:
+# anyone who can reach the app could change Nautobot with the app's token (#188).
+ALLOW_UNAUTHENTICATED_WRITES = _flag("ALLOW_UNAUTHENTICATED_WRITES", False)
 
 # Criticality
 CRITICAL_ROLE_KEYWORDS = os.getenv("CRITICAL_ROLE_KEYWORDS", "").strip()

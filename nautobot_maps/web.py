@@ -18,6 +18,7 @@ from nautobot_maps import alerts, auth, caching, db, inventory, nautobot, settin
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("web", __name__)
+bp.before_app_request(auth.check_viewer)
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +571,7 @@ MAX_CASE_DEVICES = 200
 
 
 @bp.route("/api/alert-cases", methods=["POST"])
-@auth.require_role("operator")
+@auth.require_role("operator", open_when_disabled=True)
 def api_add_alert_case():
     """Attach a case number to the open alert of one or more devices at a site.
 

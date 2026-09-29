@@ -88,6 +88,8 @@ python app.py
 | `AUTH_VIEWER_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `viewer` role |
 | `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
+| `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz`) needs at least the `viewer` role |
+| `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow criticality-override changes and creating/deleting Nautobot roles and location types without authentication (logged as a warning at startup). Off: they return 403 |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
 | `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
 | `LIBRENMS_VERIFY_SSL` | ❌ | `true` | LibreNMS TLS verification toggle: set `false`/`no`/`0` to skip certificate verification |
@@ -190,20 +192,20 @@ for a full description of the seed data and suggested demo scenarios.
 
 ## Optional Authentication / RBAC
 
-By default, Nautobot Maps stays public and behaves exactly as before:
+By default (`AUTH_MODE=disabled`):
 
-- `AUTH_MODE=disabled`
-- map, alerts, and read-only APIs remain public
-- administrative API routes continue to work without authentication
+- the map, the alert board and the read-only APIs are public
+- adding a case number to an alert works (the board needs it)
+- the **administrative writes are refused** (403): criticality overrides and creating/deleting Nautobot roles and location types. They would change Nautobot using the app's token for anyone who can reach the app. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
 
-To protect only administrative actions, set `AUTH_MODE=header` and place the app
+To protect administrative actions with real identities, set `AUTH_MODE=header` and place the app
 behind a trusted reverse proxy or SSO gateway that injects identity headers.
 This works well with OIDC or SAML providers when the proxy handles the login
 flow and forwards the authenticated username/groups to Nautobot Maps.
 
 ### Roles
 
-- `viewer` — reserved for future read-only admin features
+- `viewer` — can open the map, the board and the read APIs when `AUTH_REQUIRE_VIEWER=true` (otherwise they are public)
 - `operator` — can manage `/api/criticality-overrides`
 - `admin` — can also create/delete Nautobot roles and location types
 

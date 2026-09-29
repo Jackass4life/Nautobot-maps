@@ -30,6 +30,11 @@ def _log_alert_board_exclusions() -> None:
             "NAUTOBOT_MAPS_DB is set, but SQLite support was removed: the alert board "
             "needs PostgreSQL. Set NAUTOBOT_MAPS_DATABASE_URL=postgresql://... and remove NAUTOBOT_MAPS_DB."
         )
+    if settings.AUTH_MODE == "disabled" and settings.ALLOW_UNAUTHENTICATED_WRITES:
+        logger.warning(
+            "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach the app "
+            "can change criticality overrides and create/delete Nautobot roles and location types"
+        )
     if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "

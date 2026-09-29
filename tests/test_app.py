@@ -63,6 +63,13 @@ def client():
         yield c
 
 
+@pytest.fixture
+def allow_unauthenticated_writes(monkeypatch):
+    """The endpoint tests below run with AUTH_MODE=disabled, where the
+    administrative writes are refused unless explicitly allowed (#188)."""
+    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+
+
 # ---------------------------------------------------------------------------
 # Sample Nautobot API fixtures
 # ---------------------------------------------------------------------------
@@ -1438,6 +1445,7 @@ class TestApiSearch:
             assert "distance_km" in loc
 
 
+@pytest.mark.usefixtures("allow_unauthenticated_writes")
 class TestNautobotRuntimeErrors:
     def test_runtime_errors_do_not_leak_internal_messages(self, client):
         secret = "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"
@@ -2018,6 +2026,7 @@ class TestLocationDetailWithLocationType:
 # ---------------------------------------------------------------------------
 # Tests: criticality override REST endpoints
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("allow_unauthenticated_writes")
 class TestCriticalityOverrideEndpoints:
     """Tests for /api/criticality-overrides (requires the persistence database)."""
 
@@ -4352,6 +4361,7 @@ SAMPLE_ROLES_PAGE = {
 }
 
 
+@pytest.mark.usefixtures("allow_unauthenticated_writes")
 class TestApiRoles:
     def test_list_roles_returns_all(self, client):
         """GET /api/roles returns all roles from Nautobot."""
@@ -4453,6 +4463,7 @@ SAMPLE_LOCATION_TYPES_PAGE = {
 }
 
 
+@pytest.mark.usefixtures("allow_unauthenticated_writes")
 class TestApiLocationTypes:
     def test_list_location_types_returns_all(self, client):
         """GET /api/location-types returns all location types from Nautobot."""
@@ -4558,14 +4569,60 @@ class TestAuthConfiguration:
         monkeypatch.setenv("GUNICORN_TIMEOUT", "180")
         assert self._reload_gunicorn_config().timeout == 180
 
-    def test_auth_disabled_keeps_write_endpoints_unchanged(self, client):
+    def test_auth_disabled_refuses_admin_writes_by_default(self, client, monkeypatch):
+        """Anyone who can reach the app must not change Nautobot with its token (#188)."""
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
+        writes = [
+            ("post", "/api/criticality-overrides", {"nautobot_device_id": "dev-abc", "is_critical": False}),
+            ("delete", "/api/criticality-overrides/dev-abc", None),
+            ("post", "/api/roles", {"name": "Evil"}),
+            ("delete", "/api/roles/role-1", None),
+            ("post", "/api/location-types", {"name": "Evil"}),
+            ("delete", "/api/location-types/lt-1", None),
+        ]
+        with (
+            auth_config(mode="disabled"),
+            patch.object(nautobot, "post", side_effect=AssertionError("must not reach Nautobot")),
+            patch.object(nautobot, "delete", side_effect=AssertionError("must not reach Nautobot")),
+        ):
+            for method, url, body in writes:
+                resp = getattr(client, method)(url, json=body) if body else getattr(client, method)(url)
+                assert resp.status_code == 403, (method, url)
+                assert "ALLOW_UNAUTHENTICATED_WRITES" in resp.get_json()["detail"]
+
+    def test_auth_disabled_keeps_reads_and_cases_open(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
+        with auth_config(mode="disabled"), patch.object(nautobot, "fetch_all_pages", return_value=[]):
+            assert client.get("/api/roles").status_code == 200
+            # Adding a case is what the board does; it reaches the handler
+            # (400: nothing to add), not the auth check.
+            assert client.post("/api/alert-cases", json={}).status_code != 403
+
+    def test_allow_unauthenticated_writes_restores_the_old_behaviour(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         with auth_config(mode="disabled"):
             resp = client.post(
                 "/api/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
                 content_type="application/json",
             )
-        assert resp.status_code == 503
+        assert resp.status_code == 503  # reached the handler: no database here
+
+    def test_require_viewer_protects_every_page_but_healthz(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert client.get("/").status_code == 401
+            assert client.get("/api/alerts").status_code == 401
+            assert client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
+            ok = client.get("/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
+            assert ok.status_code == 200
+            assert client.get("/healthz").status_code in (200, 503)
+
+    def test_require_viewer_is_off_by_default(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", False)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert client.get("/").status_code == 200
 
     def test_missing_identity_header_returns_401(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
