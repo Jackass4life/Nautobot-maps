@@ -54,6 +54,14 @@ FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "change-me-to-a-random-string")
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"  # python app.py only
 FLASK_RUN_PORT = os.getenv("FLASK_RUN_PORT", "")  # python app.py only
 
+# Logging (#193): DEBUG, INFO, WARNING, ERROR; "text" or "json" lines.
+LOG_LEVEL = os.getenv("LOG_LEVEL", "").strip().upper() or "INFO"
+if LOG_LEVEL not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+    raise RuntimeError(f"Invalid LOG_LEVEL {LOG_LEVEL!r}: expected DEBUG, INFO, WARNING or ERROR")
+LOG_FORMAT = os.getenv("LOG_FORMAT", "").strip().lower() or "text"
+if LOG_FORMAT not in ("text", "json"):
+    raise RuntimeError(f"Invalid LOG_FORMAT {LOG_FORMAT!r}: expected text or json")
+
 # Nautobot
 NAUTOBOT_URL = _validate_nautobot_url(os.getenv("NAUTOBOT_URL", ""))
 NAUTOBOT_TOKEN = os.getenv("NAUTOBOT_TOKEN", "")

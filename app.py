@@ -2,12 +2,12 @@ import logging
 
 from flask import Flask
 
-from nautobot_maps import auth, caching, db, nautobot, scheduler, settings, web
+from nautobot_maps import auth, caching, db, logs, nautobot, scheduler, settings, web
 
 app = Flask(__name__)
 app.secret_key = settings.FLASK_SECRET_KEY
 
-logging.basicConfig(level=logging.INFO)
+logs.configure()
 logger = logging.getLogger(__name__)
 
 caching.init_app(app)

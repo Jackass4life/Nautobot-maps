@@ -65,6 +65,8 @@ python app.py
 | `NAUTOBOT_API_VERSION` | ❌ | *(server default)* | Pin a specific Nautobot REST API version (e.g. `2.0`, `3.0`). Leave empty to use the server's default. |
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
 | `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
+| `LOG_LEVEL` | ❌ | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
+| `LOG_FORMAT` | ❌ | `text` | `text`, or `json` for one JSON object per line (for Loki, ELK, Splunk) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
 | `GUNICORN_TIMEOUT` | ❌ | `120` | Gunicorn worker timeout in seconds; values below 120 are raised to 120 |
@@ -124,6 +126,8 @@ docker compose logs -f
 # Stop and remove containers
 docker compose down
 ```
+
+Logs go to `docker compose logs`: the app's messages (unexpected errors with their stack trace) and an access log line per request, with the user from the auth proxy, the status and the response time in ms (successful `/healthz` probes are left out). The bundled `docker-compose.yml` caps each container's log at 5 × 10 MB.
 
 The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
 

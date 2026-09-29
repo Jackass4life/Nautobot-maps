@@ -51,7 +51,7 @@ def loop() -> None:
         try:
             tick()
         except Exception as exc:
-            logger.warning("Background scheduler tick failed: %s", exc)
+            logger.warning("Background scheduler tick failed: %s", exc, exc_info=True)
         _stop.wait(tick_seconds())
 
 
