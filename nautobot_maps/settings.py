@@ -114,9 +114,9 @@ AUTH_TRUSTED_PROXIES = _networks(
     "AUTH_TRUSTED_PROXIES", os.getenv("AUTH_TRUSTED_PROXIES", "").strip() or "127.0.0.1/32,::1/128"
 )
 AUTH_PROXY_SECRET = os.getenv("AUTH_PROXY_SECRET", "").strip()
-# AUTH_MODE=disabled: allow the administrative writes (criticality overrides,
-# Nautobot roles and location types) without authentication.  Off by default:
-# anyone who can reach the app could change Nautobot with the app's token (#188).
+# AUTH_MODE=disabled: allow changing criticality overrides without
+# authentication.  Off by default: anyone who can reach the app could change
+# which devices count as critical (#188).
 ALLOW_UNAUTHENTICATED_WRITES = _flag("ALLOW_UNAUTHENTICATED_WRITES", False)
 
 # Criticality

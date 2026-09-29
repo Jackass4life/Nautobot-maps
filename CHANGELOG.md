@@ -7,10 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Removed
+- **Breaking:** the Nautobot pass-through API: `GET/POST /api/roles`, `DELETE /api/roles/<id>`, `GET/POST /api/location-types` and `DELETE /api/location-types/<id>`. The app never writes to Nautobot any more: Nautobot is the source of truth, and sites, devices, roles and location types are changed there. The UI never used these endpoints, and `NAUTOBOT_TOKEN` now only needs read permission (#188)
 - **Breaking:** SQLite support. PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`) is the only persistence database; `NAUTOBOT_MAPS_DB` is ignored and logged as an error at startup. There is no data migration: move to PostgreSQL before upgrading (the bundled `docker-compose.yml` already uses it) (#153)
 
 ### Changed
-- **Breaking:** with `AUTH_MODE=disabled` (the default), criticality-override changes and creating/deleting Nautobot roles and location types now return 403, because anyone who could reach the app could change Nautobot with its token. Reads and adding cases are unchanged. Set `AUTH_MODE=header`, or `ALLOW_UNAUTHENTICATED_WRITES=true` to keep the old behaviour. New `AUTH_REQUIRE_VIEWER=true` (header mode) makes every page and API need the `viewer` role (#188)
+- **Breaking:** with `AUTH_MODE=disabled` (the default), changing criticality overrides now returns 403. Reads and adding cases are unchanged. Set `AUTH_MODE=header`, or `ALLOW_UNAUTHENTICATED_WRITES=true` to keep the old behaviour. New `AUTH_REQUIRE_VIEWER=true` (header mode) makes every page and API need the `viewer` role (#188)
 - The web routes and error handlers moved to `nautobot_maps/web.py` (a Flask blueprint) and authentication to `nautobot_maps/auth.py`. `app.py` is now a ~60-line entry point; splitting `app.py` is complete (last step). No behaviour change, URLs unchanged (#165)
 - The alert logic moved from `app.py` to `nautobot_maps/alerts.py` and the background scheduler to `nautobot_maps/scheduler.py` (fifth step of splitting `app.py`); no behaviour change. Their log lines now show `nautobot_maps.alerts` / `nautobot_maps.scheduler` instead of `app` (#165)
 - The inventory sync moved from `app.py` to `nautobot_maps/inventory.py`, and the time helpers to `nautobot_maps/timeutil.py` (fourth step of splitting `app.py`); no behaviour change. Tests now fail if a module touches the database when imported, or if the startup log loses its database lines (#165)
