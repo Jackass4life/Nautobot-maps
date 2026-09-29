@@ -99,6 +99,7 @@
           <option value="">All tenants</option>
         </select>
         <select id="sort-by" aria-label="Sort">
+          <option value="newest" selected>Sort: newest down first</option>
           <option value="severity">Sort: severity</option>
           <option value="site">Sort: site</option>
           <option value="address">Sort: address</option>
@@ -196,7 +197,30 @@
     <div id="case-content"></div>
   </section>
 
+  <!-- Copy a site's details by hand when the browser won't copy them (#227). -->
+  <section
+    id="copy-panel"
+    class="history-panel copy-panel hidden"
+    role="dialog"
+    aria-modal="false"
+    aria-labelledby="copy-title"
+    aria-describedby="copy-hint"
+    tabindex="-1"
+    aria-hidden="true"
+  >
+    <div class="history-panel-header">
+      <h2 id="copy-title">Copy site details</h2>
+      <button id="copy-close" class="panel-close-btn" type="button">Close</button>
+    </div>
+    <p id="copy-hint" class="copy-hint">The browser did not allow copying. The text is selected: press Ctrl+C (⌘C on a Mac).</p>
+    <textarea id="copy-text" class="copy-text" readonly rows="14" aria-label="Site details"></textarea>
+  </section>
+
+  <div id="copy-status" class="visually-hidden" role="status" aria-live="polite"></div>
   <div id="error-toast" class="hidden" role="alert"></div>
+
+  <!-- Settings for alerts.js; data attributes, not an inline script (#197) -->
+  <div id="app-config" hidden data-nautobot-url="{{ nautobot_url or '' }}"></div>
   <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
 </body>
 </html>

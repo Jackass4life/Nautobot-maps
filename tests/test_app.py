@@ -7,7 +7,7 @@ import re
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 import requests
@@ -2583,6 +2583,7 @@ class TestAlertLifecycleTracking:
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": ["INC-1001"],
+                "down_started_at": "2026-01-01T00:00:00Z",
             }
         ]
 
@@ -4044,6 +4045,7 @@ class TestInventoryCacheSync:
                 "status": "offline",
                 "role": "Core Router",
                 "case_numbers": [],
+                "down_started_at": "2026-01-01T00:00:00Z",
             }
         ]
 
@@ -5329,6 +5331,29 @@ class TestAlertBoardBulkReads:
         assert by_site["loc-3"]["current_downtime_seconds"] == 3600
         assert by_site["loc-3"]["historical_downtime_seconds"] == 120 + 3600
 
+    def test_sites_and_devices_carry_when_they_went_down(self):
+        """The board's default sort and Copy need each down device's start (#227, #228)."""
+        self._seed(3, down_every=1)  # every site has its router down
+        self.db.execute("UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'dev-2-1'")
+        self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T10:00:00+00:00")
+        self._add_alert("loc-2", "dev-2-0", "open", "2026-09-25T09:00:00+00:00")
+        self._add_alert("loc-2", "dev-2-1", "open", "2026-09-25T11:30:00+00:00")
+        # loc-1 has no open alert yet: this build opens one, starting now.
+
+        data = alerts.get_alert_board_data()
+
+        by_site = {entry["id"]: entry for entry in data["alerts"]}
+
+        def at(value):
+            return timeutil.parse_iso_datetime(value)
+
+        assert at(by_site["loc-0"]["latest_down_at"]) == at("2026-09-25T10:00:00Z")
+        assert at(by_site["loc-1"]["latest_down_at"]) == at(self.CHECKED_AT)
+        assert at(by_site["loc-2"]["latest_down_at"]) == at("2026-09-25T11:30:00Z")  # the newer of two
+        started = {device["device_id"]: at(device["down_started_at"]) for device in by_site["loc-2"]["down_devices"]}
+        assert started == {"dev-2-0": at("2026-09-25T09:00:00Z"), "dev-2-1": at("2026-09-25T11:30:00Z")}
+        assert alerts.empty_alert_context()["latest_down_at"] is None
+
     def test_excluded_device_status_resolves_its_open_alert(self):
         self._seed(3, down_every=2)  # loc-0 and loc-2: router down (status Offline)
         self.db.execute("UPDATE nautobot_device_cache SET status = 'Decommissioning' WHERE device_id = 'dev-0-0'")
@@ -5450,6 +5475,7 @@ class TestSiteRollup:
                 "role": "access",
                 "case_numbers": [],
                 "location_path": "Bygning A › Etage 2",
+                "down_started_at": ANY,  # opened by this build, so "now"
             }
         ]
 

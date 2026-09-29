@@ -29,6 +29,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 def _extract_js_function(source, name):
     token = f"function {name}("
     start = source.index(token)
+    if source[max(0, start - 6) : start] == "async ":
+        start -= 6  # keep "async", or await inside is a syntax error
     brace_start = source.index("{", start)
     depth = 0
     for idx in range(brace_start, len(source)):
@@ -1022,6 +1024,233 @@ check(buildAlertBanner({{ level: "medium" }}).includes("alert-medium"), "medium 
         assert 'id="summary-unknown"' not in html
 
 
+class TestNewestDownSortInTheBrowser:
+    """The board lists the site with the newest down device first (#228)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = (
+            "severityWeight",
+            "formatLocationAddress",
+            "compareText",
+            "latestDownTime",
+            "compareSites",
+            "restoreSort",
+            "rememberSort",
+        )
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        constants = "\n".join(
+            re.search(pattern, js).group(0)
+            for pattern in (
+                r"const SEVERITY_ORDER = \[[^\]]*\];",
+                r"const SORT_KEY = [^;]*;",
+                r"const DEFAULT_SORT = [^;]*;",
+            )
+        )
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{constants}
+{functions}
+{body}
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_newest_down_first_then_severity(self):
+        self._run("""
+const sites = [
+  { name: "Healthy", alert_level: "ok", down_device_count: 0, latest_down_at: null },
+  { name: "Old outage", alert_level: "critical", down_device_count: 5, latest_down_at: "2026-09-29T08:00:00Z" },
+  { name: "No data", alert_level: "no_data", down_device_count: 0 },
+  { name: "Just now", alert_level: "low", down_device_count: 1, latest_down_at: "2026-09-29T11:59:00Z" },
+  { name: "An hour ago", alert_level: "medium", down_device_count: 2, latest_down_at: "2026-09-29T11:00:00Z" },
+  { name: "Down, no alert yet", alert_level: "medium", down_device_count: 1, latest_down_at: "not a time" },
+];
+const order = (sort) => [...sites].sort((a, b) => compareSites(a, b, sort)).map((s) => s.name).join(" | ");
+check(order("newest") === "Just now | An hour ago | Old outage | Down, no alert yet | No data | Healthy", order("newest"));
+// The other sorts are unchanged.
+check(order("severity") === "Old outage | An hour ago | Down, no alert yet | Just now | No data | Healthy", order("severity"));
+check(order("site").startsWith("An hour ago | Down, no alert yet | Healthy"), order("site"));
+""")
+
+    def test_the_choice_is_remembered_and_reset(self):
+        self._run("""
+const store = {};
+let localStorage = {
+  getItem: (key) => (key in store ? store[key] : null),
+  setItem: (key, value) => { store[key] = String(value); },
+  removeItem: (key) => { delete store[key]; },
+};
+const sortBy = { value: "", options: ["newest", "severity", "site"].map((value) => ({ value })) };
+
+restoreSort();
+check(sortBy.value === "newest", "default: " + sortBy.value);
+rememberSort("severity");
+restoreSort();
+check(sortBy.value === "severity", "remembered: " + sortBy.value);
+rememberSort("newest");
+check(!(SORT_KEY in store), "choosing the default forgets the choice");
+store[SORT_KEY] = "gone";
+restoreSort();
+check(sortBy.value === "newest", "an option that no longer exists falls back to the default");
+localStorage = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+restoreSort();
+rememberSort("site");
+check(sortBy.value === "newest", "blocked storage keeps the default");
+""")
+
+    def test_board_page_defaults_to_newest_down(self, integration_client):
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        select = html[html.index('<select id="sort-by"') :]
+        first_option = re.search(r"<option [^>]*>", select).group(0)
+        assert 'value="newest"' in first_option and "selected" in first_option
+        assert '<option value="severity">' in select
+
+
+class TestCopySiteInTheBrowser:
+    """Copy a site and its down devices as text for an ITSM ticket (#227)."""
+
+    def _run(self, body, tz="Europe/Copenhagen"):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = (
+            "escHtml",
+            "caseDevices",
+            "actionCell",
+            "formatLocationAddress",
+            "formatReportTime",
+            "siteReport",
+            "copyText",
+        )
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{functions}
+{body}
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            env={**os.environ, "TZ": tz},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    SITE = """
+const site = {
+  id: "loc 1", name: "Aarhus HQ", ancestor_path: "EMEA › DNK", physical_address: "Havnegade 1, Aarhus",
+  tenant: "Acme", alert_level: "critical", alert_reason: "Core device(s) offline: core01",
+  device_count: 12, down_device_count: 2, active_cases: ["INC-7"],
+  down_devices: [
+    { device_id: "d1", device_name: "acc01", device_ip: "10.1.0.3", role: "Access Switch", status: "Offline",
+      location_path: "Bygning A › Etage 2", down_started_at: "2026-09-29T08:00:00Z", case_numbers: ["INC-7"] },
+    { device_id: "d2", device_name: "core01", device_ip: "", role: "Core Router", status: "Failed",
+      down_started_at: "2026-09-29T10:30:00Z", case_numbers: [] },
+  ],
+};
+"""
+
+    def test_report_lists_the_site_and_every_down_device(self):
+        self._run(
+            self.SITE
+            + """
+const text = siteReport(site, "https://nautobot.example.com/");
+const expected = [
+  "Site: Aarhus HQ",
+  "Location: EMEA › DNK",
+  "Address: Havnegade 1, Aarhus",
+  "Tenant: Acme",
+  "Severity: CRITICAL (2 of 12 devices down)",
+  "Reason: Core device(s) offline: core01",
+  "Cases: INC-7",
+  "Nautobot: https://nautobot.example.com/dcim/locations/loc%201/",
+  "",
+  "Down devices (2):",
+  "- core01 | IP — | Role Core Router | Status Failed | Down since 2026-09-29 12:30 +02:00",
+  "- acc01 | IP 10.1.0.3 | Role Access Switch | Status Offline | Location Bygning A › Etage 2 | Down since 2026-09-29 10:00 +02:00 | Case INC-7",
+].join("\\n");
+check(text === expected, "\\n" + text);
+"""
+        )
+
+    def test_report_without_optional_fields(self):
+        self._run("""
+const text = siteReport({ id: "s1", alert_level: "no_data", down_devices: [{ device_id: "d1" }] });
+check(text.startsWith("Site: s1\\nSeverity: NO DATA (0 of 0 devices down)\\n\\nDown devices (1):"), text);
+check(text.endsWith("- d1 | IP — | Role — | Status —"), text);
+check(!text.includes("Nautobot:") && !text.includes("undefined"), text);
+""")
+
+    def test_report_times_carry_their_offset(self):
+        self._run(
+            """
+check(formatReportTime("2026-01-15T08:05:00Z") === "2026-01-15 08:05 +00:00", formatReportTime("2026-01-15T08:05:00Z"));
+check(formatReportTime("") === "" && formatReportTime("nonsense") === "", "no time");
+""",
+            tz="UTC",
+        )
+        self._run(
+            """
+check(formatReportTime("2026-01-15T08:05:00Z") === "2026-01-15 03:05 -05:00", formatReportTime("2026-01-15T08:05:00Z"));
+""",
+            tz="America/New_York",
+        )
+
+    def test_copy_button_only_for_sites_with_down_devices(self):
+        self._run(
+            self.SITE
+            + """
+let html = actionCell(site);
+check(html.includes('class="action-btn copy-site-btn"') && html.includes('data-site-id="loc 1"'), html);
+check(html.includes("Copy<span class=\\"visually-hidden\\"> for Aarhus HQ</span>"), html);
+html = actionCell({ id: "s2", name: "Oslo", down_devices: [] });
+check(!html.includes("copy-site-btn"), html);
+"""
+        )
+
+    def test_plain_http_falls_back_to_the_copy_command(self):
+        self._run("""
+const calls = [];
+let execResult = true;
+const body = { appendChild: (el) => calls.push(["append", el.className, el.value]) };
+const document = {
+  body,
+  createElement: () => ({ setAttribute() {}, select() { calls.push(["select"]); }, remove() { calls.push(["remove"]); } }),
+  execCommand: (command) => { calls.push(["exec", command]); return execResult; },
+};
+const window = { isSecureContext: false };
+const navigator = { clipboard: { writeText: () => { throw new Error("must not use the API over HTTP"); } } };
+(async () => {
+  check(await copyText("hello") === true, "copied with the fallback");
+  check(JSON.stringify(calls) === JSON.stringify([["append", "clipboard-buffer", "hello"], ["select"], ["exec", "copy"], ["remove"]]), JSON.stringify(calls));
+  execResult = false;
+  check(await copyText("hello") === false, "reports failure so the panel opens");
+})().catch((err) => { console.error(err); process.exit(1); });
+""")
+
+    def test_secure_pages_use_the_clipboard_api(self):
+        self._run("""
+const written = [];
+const window = { isSecureContext: true };
+const navigator = { clipboard: { writeText: async (text) => { written.push(text); } } };
+const document = { createElement: () => { throw new Error("no fallback needed"); } };
+(async () => {
+  check(await copyText("site text") === true && written[0] === "site text", JSON.stringify(written));
+})().catch((err) => { console.error(err); process.exit(1); });
+""")
+
+    def test_board_page_has_the_copy_panel_and_config(self, integration_client):
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        assert 'id="copy-panel"' in html and 'id="copy-text"' in html and 'id="copy-close"' in html
+        assert 'id="copy-status"' in html and 'aria-live="polite"' in html
+        assert 'id="app-config"' in html and "data-nautobot-url=" in html
+
+
 class TestAlarmsOnlyInTheBrowser:
     """All sites / Alarms only on the alert board (#232)."""
 
@@ -1033,6 +1262,8 @@ class TestAlarmsOnlyInTheBrowser:
             "severityWeight",
             "formatLocationAddress",
             "compareText",
+            "latestDownTime",
+            "compareSites",
             "hasActiveAlarm",
             "selectedScope",
             "setScope",

@@ -20,7 +20,7 @@ A web application that displays Nautobot locations on an interactive OpenStreetM
   - Location name, type, status, tenant, time zone, and physical address
   - ASN(s) assigned to the location
   - Network equipment (devices) at the location with model, role, and status
-- 🚨 Dedicated **Alert Board** page showing per-site alert severity with filters for site, tenant, location type, status, and severity, an **All sites / Alarms only** choice that hides every site without an active alarm (Critical, Medium or Low), collapsible per-site device rows showing each device's IP, (i) tooltips defining each alert tier, and server-side filtering for primary-IP-backed devices
+- 🚨 Dedicated **Alert Board** page showing per-site alert severity with filters for site, tenant, location type, status, and severity, an **All sites / Alarms only** choice that hides every site without an active alarm (Critical, Medium or Low), collapsible per-site device rows showing each device's IP, (i) tooltips defining each alert tier, and server-side filtering for primary-IP-backed devices. Sites are listed newest down first by default (Sort menu for severity and more), and **Copy** on a site puts it and its down devices (name, IP, role, status, down since, cases) on the clipboard as text for an ITSM ticket
 - 🔍 Search by **address** (geocoded via OpenStreetMap/Nominatim) **or GPS coordinates** (`lat,lon`)
   - Returns all Nautobot locations within **5 km** of the searched point, sorted by distance
   - Draws a 5 km radius circle on the map
