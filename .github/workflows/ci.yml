@@ -26,7 +26,8 @@ jobs:
           python-version: "3.12"
 
       - name: Install ruff
-        run: pip install "$(grep '^ruff==' requirements-dev.txt)"
+        # requirements-dev.txt is a hashed lock file; take just ruff's pin.
+        run: pip install "$(grep -o '^ruff==[0-9.]*' requirements-dev.txt)"
 
       - name: Ruff lint
         # github format turns findings into annotations on the PR diff.
@@ -57,6 +58,44 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npx eslint static/js
+
+  # -----------------------------------------------------------------------
+  # Known vulnerabilities in the locked dependencies (#186)
+  # -----------------------------------------------------------------------
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python dependencies (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --strict -r requirements.txt
+          pip-audit --strict -r requirements-dev.txt
+
+      - name: Lock files match the .in files
+        # Fails if someone edited requirements*.in without recompiling.
+        if: success() || failure()
+        run: |
+          pip install pip-tools
+          pins() { grep -oE '^[A-Za-z0-9._-]+==[^ ]+' "$1" | sort; }
+          for name in requirements requirements-dev; do
+            # Start from the committed lock, so only a change the .in file
+            # requires shows up (not newer releases of transitive packages).
+            cp "$name.txt" "$name.check.txt"
+            pip-compile --quiet --generate-hashes --strip-extras --allow-unsafe -o "$name.check.txt" "$name.in"
+            diff <(pins "$name.txt") <(pins "$name.check.txt")
+          done
+
+      - name: JavaScript dev tools (npm audit)
+        if: success() || failure()
+        run: npm audit --audit-level=high
 
   # -----------------------------------------------------------------------
   # Unit + mock-integration tests (fast, Python matrix)
@@ -95,7 +134,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install --require-hashes -r requirements-dev.txt
 
       - name: Start mock Nautobot server
         run: |
@@ -139,7 +178,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install --require-hashes -r requirements-dev.txt
 
       - name: Seed Nautobot with test data
         run: python development/seed_nautobot.py
@@ -169,6 +208,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Scan the image (Trivy)
+        # Known fixable HIGH/CRITICAL vulnerabilities in the OS packages and
+        # Python libraries of the image fail the build (#186).
+        run: |
+          docker build -t nautobot-maps:ci .
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 \
+            image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --no-progress nautobot-maps:ci
 
       - name: Build and start the demo stack
         # --wait blocks until every container is running and healthy
