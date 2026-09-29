@@ -158,7 +158,8 @@ def init_db() -> None:
                     last_successful_sync TIMESTAMPTZ,
                     cache_version        TEXT NOT NULL DEFAULT '',
                     status               TEXT NOT NULL DEFAULT 'idle',
-                    error_message        TEXT NOT NULL DEFAULT ''
+                    error_message        TEXT NOT NULL DEFAULT '',
+                    last_succeeded_at    TIMESTAMPTZ
                 )
                 """
             )
@@ -355,6 +356,18 @@ def init_db() -> None:
                     ) THEN
                         -- Filled by the full resync the cache-version bump triggers (#158).
                         ALTER TABLE nautobot_location_cache ADD COLUMN parent_id TEXT NOT NULL DEFAULT '';
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'inventory_sync_state'
+                          AND column_name = 'last_succeeded_at'
+                    ) THEN
+                        -- When a sync last succeeded; a failure overwrites
+                        -- last_completed_at, so it can't tell (#200).
+                        ALTER TABLE inventory_sync_state ADD COLUMN last_succeeded_at TIMESTAMPTZ;
+                        UPDATE inventory_sync_state SET last_succeeded_at = last_completed_at WHERE status = 'idle';
                     END IF;
                 END;
                 $$;

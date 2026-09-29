@@ -76,6 +76,9 @@ LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
 LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 LIBRENMS_VERIFY_SSL = _flag("LIBRENMS_VERIFY_SSL", True)
 
+# Prometheus metrics at /metrics (#200); "false" turns the endpoint off.
+METRICS_ENABLED = _flag("METRICS_ENABLED", True)
+
 # Persistence
 NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
 # Removed in #153 (SQLite support); only read to warn when it is still set.

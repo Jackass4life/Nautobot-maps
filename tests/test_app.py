@@ -2905,7 +2905,9 @@ class TestAlertLifecycleTracking:
             db.init_db()
 
         reset_query, reset_params = next(
-            (query, params) for query, params in fake_conn.queries if "UPDATE inventory_sync_state" in query
+            (query, params)
+            for query, params in fake_conn.queries
+            if query.strip().startswith("UPDATE inventory_sync_state")
         )
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
@@ -2984,7 +2986,9 @@ class TestAlertLifecycleTracking:
             "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query for query, _ in fake_conn.queries
         )
         reset_query, reset_params = next(
-            (query, params) for query, params in fake_conn.queries if "UPDATE inventory_sync_state" in query
+            (query, params)
+            for query, params in fake_conn.queries
+            if query.strip().startswith("UPDATE inventory_sync_state")
         )
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
@@ -4942,7 +4946,7 @@ class TestHealthz:
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         resp = client.get("/healthz")
         assert resp.status_code == 200
-        assert resp.get_json() == {"status": "ok", "checks": {"app": "ok"}}
+        assert resp.get_json() == {"status": "ok", "checks": {"app": "ok"}, "inventory_sync_age_seconds": None}
 
     def test_ok_with_reachable_database(self, client, monkeypatch, pg_database):
         resp = client.get("/healthz")
@@ -4957,6 +4961,7 @@ class TestHealthz:
         assert resp.get_json() == {
             "status": "unavailable",
             "checks": {"app": "ok", "database": "unavailable"},
+            "inventory_sync_age_seconds": None,
         }
 
     def test_makes_no_upstream_calls(self, client, monkeypatch):
@@ -5889,3 +5894,90 @@ class TestAlertFeed:
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
         assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Prometheus metrics and sync age (#200)
+# ---------------------------------------------------------------------------
+class TestMetrics:
+    def _record(self, status, started, completed):
+        conn = db.get_conn()
+        with conn:
+            inventory.record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_started_at=started,
+                last_completed_at=completed,
+                last_successful_sync="2026-09-01T00:00:00+00:00",
+                status=status,
+            )
+        conn.close()
+
+    @staticmethod
+    def _value(body: str, sample: str) -> float:
+        line = next(line for line in body.splitlines() if line.startswith(sample + " "))
+        return float(line.rsplit(" ", 1)[1])
+
+    def test_last_success_survives_a_failure(self, pg_database, client):
+        self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
+        self._record("running", "2026-09-29T10:05:00+00:00", None)
+        self._record("error", "2026-09-29T10:05:00+00:00", "2026-09-29T10:05:10+00:00")
+        body = client.get("/metrics").get_data(as_text=True)
+        src = '{source="nautobot_inventory"}'
+        success = datetime(2026, 9, 29, 10, 0, 30, tzinfo=UTC).timestamp()
+        assert self._value(body, "nautobot_maps_sync_last_success_timestamp_seconds" + src) == success
+        assert self._value(body, "nautobot_maps_sync_failing" + src) == 1
+        assert self._value(body, "nautobot_maps_sync_last_duration_seconds" + src) == 10
+
+    def test_alert_and_site_counts(self, pg_database, client):
+        alerts.upsert_alert_lifecycle_for_site(
+            {"id": "loc-1", "name": "Site One"},
+            [{"id": "d1", "name": "sw1", "status": "offline"}, {"id": "d2", "name": "sw2", "status": "offline"}],
+            {"level": "critical", "reason": "all down"},
+            timeutil.iso_utc_now(),
+        )
+        alerts.record_site_level_changes({"s1": ("One", "ok"), "s2": ("Two", "ok"), "s3": ("Three", "low")}, "now")
+        resp = client.get("/metrics")
+        assert resp.headers["Content-Type"].startswith("text/plain; version=0.0.4")
+        body = resp.get_data(as_text=True)
+        assert self._value(body, 'nautobot_maps_open_alerts{level="critical"}') == 2
+        assert self._value(body, 'nautobot_maps_sites{level="ok"}') == 2
+        assert self._value(body, "nautobot_maps_database_up") == 1
+        assert "# TYPE nautobot_maps_sites gauge" in body
+
+    def test_without_database(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        body = client.get("/metrics").get_data(as_text=True)
+        assert self._value(body, "nautobot_maps_up") == 1 and self._value(body, "nautobot_maps_database_up") == 0
+
+    def test_can_be_turned_off(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "METRICS_ENABLED", False)
+        assert client.get("/metrics").status_code == 404
+
+    def test_label_values_are_escaped(self):
+        from nautobot_maps import metrics
+
+        out = metrics.Exposition()
+        out.gauge("m", "h", [({"level": 'a"b\\c\nd'}, 1)])
+        assert 'm{level="a\\"b\\\\c\\nd"} 1' in out.render()
+
+    def test_healthz_reports_sync_age_without_failing(self, pg_database, client):
+        assert client.get("/healthz").get_json()["inventory_sync_age_seconds"] is None  # never synced
+        self._record("idle", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:10+00:00")
+        resp = client.get("/healthz")
+        assert resp.status_code == 200  # an old sync is not a liveness failure
+        assert resp.get_json()["inventory_sync_age_seconds"] > 365 * 24 * 3600
+
+    def test_migration_backfills_last_success(self, pg_database):
+        self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
+        pg_database.execute("ALTER TABLE inventory_sync_state DROP COLUMN last_succeeded_at")
+        db.init_db()
+        rows = pg_database.execute("SELECT last_succeeded_at FROM inventory_sync_state")
+        assert db.serialize_value(rows[0]["last_succeeded_at"]) == "2026-09-29T10:00:30Z"
+
+    def test_timestamps_keep_full_precision(self):
+        from nautobot_maps import metrics
+
+        out = metrics.Exposition()
+        out.gauge("t", "h", [({}, 1790676030.0), ({"x": "1"}, 0.25)])
+        assert "t 1790676030\n" in out.render() and 't{x="1"} 0.25' in out.render()

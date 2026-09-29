@@ -66,6 +66,7 @@ python app.py
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
 | `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
+| `METRICS_ENABLED` | ❌ | `true` | Serve Prometheus metrics at `/metrics`; `false` turns it off (404) |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
 | `GUNICORN_TIMEOUT` | ❌ | `120` | Gunicorn worker timeout in seconds; values below 120 are raised to 120 |
 | `GUNICORN_BIND` | ❌ | `0.0.0.0:5000` | Gunicorn listen address; `127.0.0.1:5000` when `AUTH_MODE=header` |
@@ -147,6 +148,32 @@ services:
   newer; check with `docker compose version`).
 - Ports are `host:container`: the app inside the container keeps listening on 5000.
 - Check the merged result with `docker compose config`.
+
+## Monitoring
+
+`/healthz` is the liveness probe: 200 while the app and its database answer. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if it never has) without failing on it, since restarting the app can't fix a sync that fails upstream.
+
+`/metrics` serves Prometheus metrics, read from the database when scraped (so every worker gives the same answer):
+
+| Metric | Meaning |
+|---|---|
+| `nautobot_maps_sync_last_success_timestamp_seconds{source}` | When the sync last finished without error |
+| `nautobot_maps_sync_last_attempt_timestamp_seconds{source}` | When it last started |
+| `nautobot_maps_sync_last_duration_seconds{source}` | How long the last finished sync took |
+| `nautobot_maps_sync_failing{source}` / `nautobot_maps_sync_running{source}` | 1 if the last sync failed / while one runs |
+| `nautobot_maps_open_alerts{level}` | Open device alerts by level |
+| `nautobot_maps_sites{level}` | Sites by level at the last board build |
+| `nautobot_maps_database_up` | The database answered this scrape |
+
+`source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full reconcile) or `librenms_inventory`. Request counts and response times are in the access log. An example alert, for a sync interval of 5 minutes:
+
+```yaml
+- alert: NautobotMapsInventoryStale
+  expr: time() - nautobot_maps_sync_last_success_timestamp_seconds{source="nautobot_inventory"} > 3 * 300
+  for: 5m
+  annotations:
+    summary: "No successful Nautobot inventory sync for 15 minutes; the alert board shows old data"
+```
 
 ## Demo (Mock Nautobot)
 
