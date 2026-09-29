@@ -31,7 +31,8 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    ```bash
    python -m pytest tests/ -v
    ```
-5. **Submit** a pull request against `main` with a clear description of the change.
+5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
+6. **Submit** a pull request against `main` with a clear description of the change.
 
 ### Development Setup
 
@@ -105,6 +106,18 @@ can replace a function where it is defined.
 - JavaScript in `static/js/` must pass ESLint (`eslint.config.mjs`; CI runs it on every PR):
   `npm ci` once, then `npm run lint:js`. Keep it consistent with the existing style.
 - Write clear commit messages describing what changed and why.
+
+### Dependencies
+
+Direct dependencies are listed in `requirements.in` (runtime) and `requirements-dev.in` (tests and linters). `requirements.txt` and `requirements-dev.txt` are **generated lock files**: every package, transitive ones included, pinned with hashes, so the Docker image and CI install exactly what was tested (#186). To add or change a dependency, edit the `.in` file and recompile:
+
+```bash
+pip install pip-tools
+pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt requirements.in
+pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements-dev.txt requirements-dev.in
+```
+
+CI fails when a lock file doesn't match its `.in` file, or when `pip-audit`, `npm audit` or the Trivy image scan finds a known vulnerability. Dependabot proposes updates weekly.
 
 ### Tests
 
