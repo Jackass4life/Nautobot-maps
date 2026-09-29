@@ -97,6 +97,11 @@ python app.py
 | `AUTH_PROXY_SECRET` | ❌ | — | Header mode: when set, identity headers only count if the proxy also sends this value in `X-Auth-Proxy-Secret` |
 | `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz` and `/metrics`) needs at least the `viewer` role |
 | `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow changing criticality overrides without authentication (logged as a warning at startup). Off: they return 403 |
+| `MAP_TILE_URL` | ❌ | OpenStreetMap | Map tile URL template (`{s}`, `{z}`, `{x}`, `{y}`), e.g. an internal tile server |
+| `MAP_TILE_ATTRIBUTION` | ❌ | OpenStreetMap | Attribution shown on the map (HTML allowed) |
+| `GEOCODER_ENABLED` | ❌ | `true` | `false` turns address search off: only `lat,lon` searches work, and nothing is sent to a geocoder |
+| `GEOCODER_URL` | ❌ | `https://nominatim.openstreetmap.org` | Nominatim-compatible geocoder for address search |
+| `GEOCODER_USER_AGENT` | ❌ | `nautobot-maps (+repo URL)` | User agent sent to the geocoder (the public Nominatim requires one that identifies you) |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
 | `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
 | `LIBRENMS_VERIFY_SSL` | ❌ | `true` | SSL certificate verification for LibreNMS: `true`, `false`, or a path to a custom CA bundle (e.g. an internal CA) |
@@ -435,7 +440,7 @@ The application is tested against **Nautobot 2.x and 3.x**:
 ## Notes on Nautobot Data
 
 - Only locations with both `latitude` **and** `longitude` fields populated appear on the map.
-- The geocoding service used for address search is [Nominatim](https://nominatim.org/) (OpenStreetMap) — no API key required.
+- **External services:** by default the map loads tiles from `tile.openstreetmap.org`, and address search asks the public [Nominatim](https://nominatim.org/) (no API key). So viewers' browsers fetch tiles for the areas they look at, and the app sends address queries to OpenStreetMap. On closed networks, or to keep that data inside, point `MAP_TILE_URL` and `GEOCODER_URL` at internal services, or set `GEOCODER_ENABLED=false`. Both public services have usage policies: geocoding results are cached for a day, and the app asks the geocoder at most once per second (a busy search gets "try again in a second").
 
 ## Contributing
 

@@ -1567,28 +1567,32 @@ class TestIndex:
         assert b'aria-label="Unpin location inspector"' in resp.data
         assert b'aria-label="Close location inspector"' in resp.data
 
-    def test_index_contains_nautobot_url(self, client):
-        saved = settings.NAUTOBOT_URL
-        settings.NAUTOBOT_URL = "https://nautobot.example.com"
-        try:
-            resp = client.get("/")
-            # Read the value handed to the frontend and compare it exactly,
-            # rather than substring-matching a URL anywhere in the page.
-            match = re.search(rb"window\.NAUTOBOT_URL = (.*?);</script>", resp.data)
-            assert match is not None
-            assert json.loads(match.group(1)) == "https://nautobot.example.com"
-        finally:
-            settings.NAUTOBOT_URL = saved
+    @staticmethod
+    def _app_config(resp) -> dict:
+        """The settings the page hands to map.js (data attributes, #197)."""
+        import html
 
-    def test_index_nautobot_url_empty_when_unset(self, client):
-        saved = settings.NAUTOBOT_URL
-        settings.NAUTOBOT_URL = ""
-        try:
-            resp = client.get("/")
-            assert b"window.NAUTOBOT_URL" in resp.data
-            assert b'window.NAUTOBOT_URL = ""' in resp.data
-        finally:
-            settings.NAUTOBOT_URL = saved
+        tag = re.search(rb'<div\s+id="app-config"(.*?)></div>', resp.data, re.S).group(1).decode()
+        return {name: html.unescape(value) for name, value in re.findall(r'data-([a-z-]+)="([^"]*)"', tag)}
+
+    def test_index_contains_nautobot_url(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        assert self._app_config(client.get("/"))["nautobot-url"] == "https://nautobot.example.com"
+
+    def test_index_nautobot_url_empty_when_unset(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+        assert self._app_config(client.get("/"))["nautobot-url"] == ""
+
+    def test_index_has_no_inline_script(self, client):
+        """The page settings are data attributes, so a CSP needs no 'unsafe-inline' (#197, #198)."""
+        assert not re.search(rb"<script>(?!\s*</script>)", client.get("/").data)
+
+    def test_tile_server_is_configurable(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "https://tiles.internal/{z}/{x}/{y}.png")
+        monkeypatch.setattr(settings, "MAP_TILE_ATTRIBUTION", '<a href="https://x">"Ours" & co</a>')
+        config = self._app_config(client.get("/"))
+        assert config["tile-url"] == "https://tiles.internal/{z}/{x}/{y}.png"
+        assert config["tile-attribution"] == '<a href="https://x">"Ours" & co</a>'
 
 
 # ---------------------------------------------------------------------------
@@ -5897,6 +5901,71 @@ class TestAlertFeed:
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
         assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
+
+
+# ---------------------------------------------------------------------------
+# Tests: configurable geocoder, cache and rate limit (#197)
+# ---------------------------------------------------------------------------
+class TestGeocoder:
+    @pytest.fixture(autouse=True)
+    def _fresh_cache(self, monkeypatch):
+        caching.cache.clear()
+        monkeypatch.setattr(inventory, "get_locations", lambda *a, **k: [])
+        yield
+        caching.cache.clear()
+
+    def _geolocator(self, lat=55.68, lon=12.57):
+        geolocator = MagicMock()
+        geolocator.geocode.return_value = MagicMock(latitude=lat, longitude=lon)
+        return geolocator
+
+    def test_disabled_geocoder_only_accepts_coordinates(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "GEOCODER_ENABLED", False)
+        with patch("nautobot_maps.web.Nominatim", side_effect=AssertionError("must not geocode")):
+            resp = client.get("/api/search?q=Copenhagen")
+            assert resp.status_code == 400 and "coordinates" in resp.get_json()["error"]
+            assert client.get("/api/search?q=55.68,12.57").status_code == 200
+
+    def test_uses_the_configured_service(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "GEOCODER_URL", "http://nominatim.internal:8080/nominatim")
+        monkeypatch.setattr(settings, "GEOCODER_USER_AGENT", "noc-maps/2")
+        with patch("nautobot_maps.web.Nominatim", return_value=self._geolocator()) as nominatim:
+            assert client.get("/api/search?q=Copenhagen").status_code == 200
+        nominatim.assert_called_once_with(
+            user_agent="noc-maps/2", domain="nominatim.internal:8080/nominatim", scheme="http"
+        )
+
+    def test_results_are_cached(self, client):
+        geolocator = self._geolocator()
+        with patch("nautobot_maps.web.Nominatim", return_value=geolocator):
+            first = client.get("/api/search?q=Copenhagen").get_json()
+            caching.cache.delete("geocode-rate-limit")
+            second = client.get("/api/search?q=copenhagen ").get_json()
+        assert geolocator.geocode.call_count == 1
+        assert first["search_lat"] == second["search_lat"] == pytest.approx(55.68)
+
+    def test_at_most_one_request_per_second(self, client):
+        with patch("nautobot_maps.web.Nominatim", return_value=self._geolocator()):
+            assert client.get("/api/search?q=Copenhagen").status_code == 200
+            busy = client.get("/api/search?q=Aarhus")
+        assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
+
+    def test_geocoder_error_is_not_passed_to_the_client(self, client):
+        geolocator = MagicMock()
+        geolocator.geocode.side_effect = OSError("connect to 10.0.0.5 refused")
+        with patch("nautobot_maps.web.Nominatim", return_value=geolocator):
+            resp = client.get("/api/search?q=Copenhagen")
+        assert resp.status_code == 503
+        assert resp.get_json() == {"error": "Geocoding service unavailable"}
+
+    def test_not_found_is_cached_too(self, client):
+        geolocator = MagicMock()
+        geolocator.geocode.return_value = None
+        with patch("nautobot_maps.web.Nominatim", return_value=geolocator):
+            assert client.get("/api/search?q=Nowhere").status_code == 404
+            caching.cache.delete("geocode-rate-limit")
+            assert client.get("/api/search?q=Nowhere").status_code == 404
+        assert geolocator.geocode.call_count == 1
 
 
 # ---------------------------------------------------------------------------
