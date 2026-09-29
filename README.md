@@ -67,6 +67,8 @@ python app.py
 | `LOG_LEVEL` | ❌ | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
 | `LOG_FORMAT` | ❌ | `text` | `text`, or `json` for one JSON object per line (for Loki, ELK, Splunk) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
+| `ALERT_HISTORY_RETENTION_DAYS` | ❌ | `0` (keep all) | Once a day, delete resolved alerts (with their events and cases) and site severity changes older than this many days. Open alerts are never deleted |
+| `METRICS_ENABLED` | ❌ | `true` | Serve Prometheus metrics at `/metrics`; `false` turns it off (404) |
 | `DB_CONNECT_TIMEOUT_SECONDS` | ❌ | `5` | Give up connecting to PostgreSQL after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | ❌ | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (schema migrations at startup are exempt) |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
@@ -93,7 +95,7 @@ python app.py
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
 | `AUTH_TRUSTED_PROXIES` | ❌ | `127.0.0.1/32,::1/128` | Header mode: comma-separated IPs/CIDRs of the reverse proxy. Identity headers from any other address are ignored (the request is anonymous) and logged |
 | `AUTH_PROXY_SECRET` | ❌ | — | Header mode: when set, identity headers only count if the proxy also sends this value in `X-Auth-Proxy-Secret` |
-| `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz`) needs at least the `viewer` role |
+| `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz` and `/metrics`) needs at least the `viewer` role |
 | `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow changing criticality overrides without authentication (logged as a warning at startup). Off: they return 403 |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
 | `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
@@ -160,6 +162,65 @@ services:
 - Ports are `host:container`: the app inside the container keeps listening on 5000.
 - Check the merged result with `docker compose config`.
 
+## Backup and restore
+
+PostgreSQL holds two kinds of data:
+
+- **Rebuilt automatically:** the Nautobot and LibreNMS inventory caches. Losing them costs one full sync.
+- **Not rebuilt from anywhere:** alert history (when devices went down and came back, the downtime), case numbers, criticality overrides and site severity changes. **Back these up.**
+
+With the bundled `docker-compose.yml` everything lives in the `postgres_data` volume; `docker compose down -v`, or losing the host, deletes it.
+
+**Back up** (e.g. nightly from cron on the host; the dump is small):
+
+```bash
+docker compose exec -T postgres pg_dump -Fc -U nautobot_maps nautobot_maps > nautobot-maps-$(date +%F).dump
+```
+
+**Restore** (stop the app first so nothing writes meanwhile):
+
+```bash
+docker compose stop nautobot-maps
+docker compose exec -T postgres pg_restore --clean --if-exists --no-owner -U nautobot_maps -d nautobot_maps < nautobot-maps-2026-09-29.dump
+docker compose start nautobot-maps
+```
+
+Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
+
+**Upgrading PostgreSQL to a new major version** (e.g. `postgres:16-alpine` → `postgres:17-alpine`): the new version can't read the old data directory, so dump, recreate, restore:
+
+1. Take a backup as above.
+2. `docker compose down`, then `docker volume rm <project>_postgres_data` (see `docker volume ls`).
+3. Change the image in `docker-compose.yml` (or `docker-compose.override.yml`).
+4. `docker compose up -d postgres`, restore the dump as above, then `docker compose up -d`.
+
+**Growth:** alert history is kept forever unless you set `ALERT_HISTORY_RETENTION_DAYS` (e.g. `365`); the scheduler then prunes once a day.
+
+## Monitoring
+
+`/healthz` is the liveness probe: 200 while the app and its database answer. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if it never has) without failing on it, since restarting the app can't fix a sync that fails upstream.
+
+`/metrics` serves Prometheus metrics, read from the database when scraped (so every worker gives the same answer):
+
+| Metric | Meaning |
+|---|---|
+| `nautobot_maps_sync_last_success_timestamp_seconds{source}` | When the sync last finished without error |
+| `nautobot_maps_sync_last_attempt_timestamp_seconds{source}` | When it last started |
+| `nautobot_maps_sync_last_duration_seconds{source}` | How long the last finished sync took |
+| `nautobot_maps_sync_failing{source}` / `nautobot_maps_sync_running{source}` | 1 if the last sync failed / while one runs |
+| `nautobot_maps_open_alerts{level}` | Open device alerts by level |
+| `nautobot_maps_sites{level}` | Sites by level at the last board build |
+| `nautobot_maps_database_up` | The database answered this scrape |
+
+`source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full reconcile) or `librenms_inventory`. Request counts and response times are in the access log. It needs no login, even with `AUTH_REQUIRE_VIEWER=true`, since it holds only counts (no site or device names); set `METRICS_ENABLED=false` if even those should stay private. An example alert, for a sync interval of 5 minutes:
+
+```yaml
+- alert: NautobotMapsInventoryStale
+  expr: time() - nautobot_maps_sync_last_success_timestamp_seconds{source="nautobot_inventory"} > 3 * 300
+  for: 5m
+  annotations:
+    summary: "No successful Nautobot inventory sync for 15 minutes; the alert board shows old data"
+```
 ## Database migrations
 
 The container runs `python -m nautobot_maps migrate` before starting the app: each schema change is applied once and recorded in `schema_migrations`, so the app's workers start without migrating. `python -m nautobot_maps schema-version` shows the database's version and the one the release expects (`docker compose exec nautobot-maps python -m nautobot_maps schema-version`).

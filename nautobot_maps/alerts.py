@@ -1209,6 +1209,64 @@ def record_site_level_changes(levels: dict[str, tuple[str, str]], checked_at: st
     return changes
 
 
+HISTORY_RETENTION_SOURCE = "alert_history_retention"
+RETENTION_BATCH_SIZE = 1000
+
+
+def prune_alert_history(conn, retention_days: int) -> dict:
+    """Delete alert history older than *retention_days* (#194).
+
+    Resolved alert instances whose ``resolved_at`` is older go, with their
+    events and cases (``ON DELETE CASCADE``), and so do site severity
+    changes.  Open alerts are never deleted.  Deletes in batches, each its
+    own transaction, so the tables aren't locked for long.  Returns the
+    number of rows deleted per table.
+    """
+    deleted = {"alert_instances": 0, "site_level_changes": 0}
+    if retention_days <= 0:
+        return deleted
+    batches = {
+        "alert_instances": "DELETE FROM alert_instances WHERE id IN ("
+        "SELECT id FROM alert_instances WHERE status = 'resolved' "
+        "AND resolved_at < now() - make_interval(days => %s) LIMIT %s)",
+        "site_level_changes": "DELETE FROM site_level_changes WHERE id IN ("
+        "SELECT id FROM site_level_changes WHERE changed_at < now() - make_interval(days => %s) LIMIT %s)",
+    }
+    for table, query in batches.items():
+        while True:
+            with db.transaction(conn):
+                count = conn.execute(query, (retention_days, RETENTION_BATCH_SIZE)).rowcount
+            deleted[table] += count
+            if count < RETENTION_BATCH_SIZE:
+                break
+    return deleted
+
+
+def maybe_prune_alert_history(conn) -> dict | None:
+    """Prune once a day when ALERT_HISTORY_RETENTION_DAYS is set (scheduler, #194)."""
+    days = settings.ALERT_HISTORY_RETENTION_DAYS
+    if days <= 0 or not inventory.sync_due(HISTORY_RETENTION_SOURCE, 24 * 3600, conn=conn):
+        return None
+    started_at = timeutil.iso_utc_now()
+    deleted = prune_alert_history(conn, days)
+    with db.transaction(conn):
+        inventory.record_sync_state(
+            conn,
+            HISTORY_RETENTION_SOURCE,
+            last_started_at=started_at,
+            last_completed_at=timeutil.iso_utc_now(),
+            status="idle",
+        )
+    if any(deleted.values()):
+        logger.info(
+            "Alert history retention (%d days): deleted %d resolved alerts and %d severity changes",
+            days,
+            deleted["alert_instances"],
+            deleted["site_level_changes"],
+        )
+    return deleted
+
+
 FEED_KINDS = ("down", "up", "severity")
 
 

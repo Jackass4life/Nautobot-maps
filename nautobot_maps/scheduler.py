@@ -29,12 +29,28 @@ def tick_seconds() -> int:
     return max(1, min(MAX_TICK_SECONDS, *intervals))
 
 
+def prune_alert_history_if_due() -> None:
+    """Daily history retention (#194); a failure is logged, never stops the syncs."""
+    if settings.ALERT_HISTORY_RETENTION_DAYS <= 0:
+        return
+    conn = db.get_conn()
+    if conn is None:
+        return
+    try:
+        alerts.maybe_prune_alert_history(conn)
+    except Exception as exc:
+        logger.warning("Alert history retention failed: %s", exc, exc_info=True)
+    finally:
+        conn.close()
+
+
 def tick() -> bool:
     """Run the due syncs and rebuild the board if one ran.  Returns whether it did work."""
     release = db.try_advisory_lock("background_scheduler")
     if not callable(release):
         return False  # no database, or another process holds the tick
     try:
+        prune_alert_history_if_due()
         if not inventory.ensure_snapshot(wait=True):
             return False
         # The syncs invalidated the cached board; rebuild it now so alert

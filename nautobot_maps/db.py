@@ -385,10 +385,26 @@ def baseline_schema(conn) -> None:
     )
 
 
+def add_sync_last_succeeded_at(conn) -> None:
+    """When a sync last succeeded, for /metrics and /healthz (#200).
+
+    A failed sync overwrites last_completed_at, so that can't tell.  Syncs
+    whose last run succeeded start from their completion time.
+    """
+    conn.execute("ALTER TABLE inventory_sync_state ADD COLUMN IF NOT EXISTS last_succeeded_at TIMESTAMPTZ")
+    conn.execute(
+        "UPDATE inventory_sync_state SET last_succeeded_at = last_completed_at "
+        "WHERE status = 'idle' AND last_succeeded_at IS NULL"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
-MIGRATIONS = ((1, "baseline schema", baseline_schema),)
+MIGRATIONS = (
+    (1, "baseline schema", baseline_schema),
+    (2, "inventory_sync_state.last_succeeded_at", add_sync_last_succeeded_at),
+)
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
 
