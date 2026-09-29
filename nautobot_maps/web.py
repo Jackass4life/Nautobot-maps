@@ -6,6 +6,7 @@ A Flask blueprint registered by app.py; URLs are unchanged.
 import json
 import logging
 from datetime import UTC
+from urllib.parse import urlsplit
 
 import requests
 from flask import Blueprint, jsonify, render_template, request
@@ -119,7 +120,12 @@ def nautobot_service_unavailable(context: str, exc: Exception):
 
 @bp.route("/")
 def index():
-    return render_template("index.html", nautobot_url=settings.NAUTOBOT_URL)
+    return render_template(
+        "index.html",
+        nautobot_url=settings.NAUTOBOT_URL,
+        tile_url=settings.MAP_TILE_URL,
+        tile_attribution=settings.MAP_TILE_ATTRIBUTION,
+    )
 
 
 @bp.route("/healthz")
@@ -240,6 +246,45 @@ def api_alerts():
         return jsonify({"error": "Internal server error"}), 500
 
 
+GEOCODE_CACHE_SECONDS = 24 * 3600
+
+
+class GeocodeError(Exception):
+    def __init__(self, message: str, status: int):
+        super().__init__(message)
+        self.status = status
+
+
+def geocode(query: str):
+    """Geocode *query* with GEOCODER_URL (#197).
+
+    Returns ``[lat, lon]``, or ``None`` when not found; raises GeocodeError.
+    Results are cached for a day, and the service is asked at most once per
+    second across all workers: the public Nominatim allows no more.
+    """
+    cache_key = f"geocode:{query.strip().lower()}"
+    cached = caching.get(cache_key)
+    if cached is not None:
+        return cached.get("point")
+    # cache.add is atomic (SET NX in Redis): only one caller per second wins.
+    if not caching.cache.add("geocode-rate-limit", 1, timeout=1):
+        raise GeocodeError("Address search is busy; try again in a second", 429)
+    parsed = urlsplit(settings.GEOCODER_URL)
+    try:
+        geolocator = Nominatim(
+            user_agent=settings.GEOCODER_USER_AGENT,
+            domain=(parsed.netloc + parsed.path) or settings.GEOCODER_URL,
+            scheme=parsed.scheme or "https",
+        )
+        location = geolocator.geocode(query, timeout=10)
+    except Exception as exc:
+        logger.error("Geocoding error: %s", exc)
+        raise GeocodeError("Geocoding service unavailable", 503) from exc
+    point = [location.latitude, location.longitude] if location is not None else None
+    caching.set(cache_key, {"point": point}, timeout=GEOCODE_CACHE_SECONDS)
+    return point
+
+
 @bp.route("/api/search")
 def api_search():
     """
@@ -265,16 +310,15 @@ def api_search():
 
     # Fall back to geocoding
     if lat is None or lon is None:
+        if not settings.GEOCODER_ENABLED:
+            return jsonify({"error": "Address search is turned off; enter coordinates as lat,lon"}), 400
         try:
-            geolocator = Nominatim(user_agent="nautobot-maps/1.0")
-            location = geolocator.geocode(query, timeout=10)
-            if location is None:
-                return jsonify({"error": f"Address not found: {query}"}), 404
-            lat = location.latitude
-            lon = location.longitude
-        except Exception as exc:
-            logger.error("Geocoding error: %s", exc)
-            return jsonify({"error": "Geocoding service unavailable"}), 503
+            point = geocode(query)
+        except GeocodeError as exc:
+            return jsonify({"error": str(exc)}), exc.status
+        if point is None:
+            return jsonify({"error": f"Address not found: {query}"}), 404
+        lat, lon = point
 
     # Find locations within 5 km
     try:

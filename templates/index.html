@@ -149,8 +149,14 @@
   <!-- Leaflet JS (vendored locally for offline/air-gapped use) -->
   <script src="{{ url_for('static', filename='vendor/leaflet.js') }}"></script>
 
-  <!-- Pass Nautobot base URL to frontend for deep-linking -->
-  <script>window.NAUTOBOT_URL = {{ (nautobot_url or "") | tojson }};</script>
+  <!-- Settings for map.js; data attributes, not an inline script (#197) -->
+  <div
+    id="app-config"
+    hidden
+    data-nautobot-url="{{ nautobot_url or '' }}"
+    data-tile-url="{{ tile_url }}"
+    data-tile-attribution="{{ tile_attribution }}"
+  ></div>
 
   <!-- App JS -->
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>

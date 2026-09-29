@@ -88,6 +88,11 @@ python app.py
 | `AUTH_VIEWER_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `viewer` role |
 | `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
+| `MAP_TILE_URL` | ❌ | OpenStreetMap | Map tile URL template (`{s}`, `{z}`, `{x}`, `{y}`), e.g. an internal tile server |
+| `MAP_TILE_ATTRIBUTION` | ❌ | OpenStreetMap | Attribution shown on the map (HTML allowed) |
+| `GEOCODER_ENABLED` | ❌ | `true` | `false` turns address search off: only `lat,lon` searches work, and nothing is sent to a geocoder |
+| `GEOCODER_URL` | ❌ | `https://nominatim.openstreetmap.org` | Nominatim-compatible geocoder for address search |
+| `GEOCODER_USER_AGENT` | ❌ | `nautobot-maps (+repo URL)` | User agent sent to the geocoder (the public Nominatim requires one that identifies you) |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
 | `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
 | `LIBRENMS_VERIFY_SSL` | ❌ | `true` | LibreNMS TLS verification toggle: set `false`/`no`/`0` to skip certificate verification |
@@ -323,7 +328,7 @@ The application is tested against **Nautobot 2.x and 3.x**:
 ## Notes on Nautobot Data
 
 - Only locations with both `latitude` **and** `longitude` fields populated appear on the map.
-- The geocoding service used for address search is [Nominatim](https://nominatim.org/) (OpenStreetMap) — no API key required.
+- **External services:** by default the map loads tiles from `tile.openstreetmap.org`, and address search asks the public [Nominatim](https://nominatim.org/) (no API key). So viewers' browsers fetch tiles for the areas they look at, and the app sends address queries to OpenStreetMap. On closed networks, or to keep that data inside, point `MAP_TILE_URL` and `GEOCODER_URL` at internal services, or set `GEOCODER_ENABLED=false`. Both public services have usage policies: geocoding results are cached for a day, and the app asks the geocoder at most once per second (a busy search gets "try again in a second").
 
 ## Contributing
 
