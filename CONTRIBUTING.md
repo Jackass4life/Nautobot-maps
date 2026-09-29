@@ -127,6 +127,16 @@ CI fails when a lock file doesn't match its `.in` file, or when `pip-audit`, `np
   `TEST_DATABASE_URL` those tests are skipped locally; in CI they fail instead.
 - Both unit tests (mocked) and integration tests are welcome.
 
+## Releasing
+
+Versions follow [Semantic Versioning](https://semver.org/) (a **Breaking** changelog entry means a new major version).
+
+1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it.
+2. Merge that to `main`.
+3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The `Release` workflow then builds the image, pushes `ghcr.io/jackass4life/nautobot-maps:X.Y.Z` (plus `X.Y` and `latest`) with provenance and an SBOM, and creates a GitHub Release with that changelog section. It refuses a tag without a matching changelog section. The first published image is private on GitHub; make the package public (package settings → visibility) or have deployments `docker login ghcr.io`.
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.

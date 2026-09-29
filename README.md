@@ -127,6 +127,24 @@ docker compose down
 
 The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
 
+### Deploying a released version
+
+`docker compose up --build` builds the image from your checkout. For production, run a published release instead, so every host runs exactly what CI built and tested, and a rollback is one line:
+
+```yaml
+# docker-compose.override.yml
+services:
+  nautobot-maps:
+    image: ghcr.io/jackass4life/nautobot-maps:1.0.0   # the version to run
+    build: !reset null
+```
+
+```bash
+docker compose pull nautobot-maps && docker compose up -d
+```
+
+To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see *Backup and restore*). Releases and their changes are listed on the repository's Releases page and in `CHANGELOG.md`.
+
 ### Local overrides (ports, volumes, …)
 
 Don't edit `docker-compose.yml` for machine-specific settings: `git pull` will then
