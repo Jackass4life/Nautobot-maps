@@ -1020,3 +1020,111 @@ check(buildAlertBanner({{ level: "medium" }}).includes("alert-medium"), "medium 
         ):
             assert needle in html
         assert 'id="summary-unknown"' not in html
+
+
+class TestAlarmsOnlyInTheBrowser:
+    """All sites / Alarms only on the alert board (#232)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = (
+            "severityWeight",
+            "formatLocationAddress",
+            "compareText",
+            "hasActiveAlarm",
+            "selectedScope",
+            "setScope",
+            "restoreScope",
+            "rememberScope",
+            "formatBoardStatus",
+            "getFilteredAlerts",
+        )
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        constants = "\n".join(
+            re.search(pattern, js).group(0)
+            for pattern in (
+                r"const SEVERITY_ORDER = \[[^\]]*\];",
+                r"const SCOPE_KEY = [^;]*;",
+                r"const ALARM_LEVELS = \[[^\]]*\];",
+            )
+        )
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const store = {{}};
+let localStorage = {{
+  getItem: (key) => (key in store ? store[key] : null),
+  setItem: (key, value) => {{ store[key] = String(value); }},
+  removeItem: (key) => {{ delete store[key]; }},
+}};
+const siteScopeInputs = [{{ value: "all", checked: true }}, {{ value: "alarms", checked: false }}];
+const field = (value = "") => ({{ value }});
+const filterSite = field(), filterSeverity = field(), filterStatus = field(), filterType = field(), filterTenant = field();
+const sortBy = field("severity");
+const boardStatus = {{ textContent: "" }};
+let allAlerts = [
+  {{ name: "Oslo", alert_level: "ok" }},
+  {{ name: "Aarhus", alert_level: "critical", down_device_count: 3 }},
+  {{ name: "Bergen", alert_level: "no_data" }},
+  {{ name: "London", alert_level: "low", down_device_count: 1, tenant: "Acme" }},
+  {{ name: "Paris", alert_level: "medium", down_device_count: 2 }},
+];
+{constants}
+{functions}
+{body}
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_alarms_only_hides_sites_without_an_active_alarm(self):
+        self._run("""
+const names = () => getFilteredAlerts().map((site) => site.name).join(",");
+check(names() === "Aarhus,Paris,London,Bergen,Oslo", "all sites: " + names());
+setScope("alarms");
+check(selectedScope() === "alarms", "selected");
+check(names() === "Aarhus,Paris,London", "alarms only (No data is not an alarm): " + names());
+// Works with the other filters.
+filterTenant.value = "Acme";
+check(names() === "London", "with a tenant filter: " + names());
+filterTenant.value = "";
+filterSeverity.value = "no_data";
+check(names() === "", "No data under Alarms only is empty: " + names());
+""")
+
+    def test_choice_is_remembered_and_reset(self):
+        self._run("""
+restoreScope();
+check(selectedScope() === "all", "default");
+setScope("alarms");
+rememberScope("alarms");
+setScope("all");
+restoreScope();
+check(selectedScope() === "alarms", "remembered");
+rememberScope("all");
+check(!(SCOPE_KEY in store), "All sites forgets the choice");
+store[SCOPE_KEY] = "nonsense";
+restoreScope();
+check(selectedScope() === "all", "unknown value: all sites");
+localStorage = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+restoreScope();
+rememberScope("alarms");
+check(selectedScope() === "all", "blocked storage: all sites");
+""")
+
+    def test_status_line_says_when_limited(self):
+        self._run("""
+formatBoardStatus({ checked_at: null, stale: false }, 3, true);
+check(boardStatus.textContent.startsWith("3 sites shown (alarms only) · last checked"), boardStatus.textContent);
+formatBoardStatus({ checked_at: null, stale: false }, 1, false);
+check(boardStatus.textContent.startsWith("1 site shown · last checked"), boardStatus.textContent);
+setScope("alarms");
+formatBoardStatus({ checked_at: null, stale: false }, 2);
+check(boardStatus.textContent.includes("(alarms only)"), "defaults to the selected scope: " + boardStatus.textContent);
+""")
+
+    def test_board_page_has_the_choice(self, integration_client):
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        assert '<input type="radio" name="site-scope" value="all" checked />' in html
+        assert '<input type="radio" name="site-scope" value="alarms" />' in html
+        assert "<legend" in html and "Alarms only" in html

@@ -36,6 +36,11 @@ const FEED_COLLAPSED_KEY = "nautobot-maps-feed-collapsed";
 // scrolls sideways), so the feed starts collapsed unless the user opened it.
 const FEED_OPEN_MIN_WIDTH_PX = 1700;
 const nextUpdateEl = document.getElementById("next-update");
+// All sites / Alarms only (#232), remembered per browser.
+const siteScopeInputs = Array.from(document.querySelectorAll('input[name="site-scope"]'));
+const SCOPE_KEY = "nautobot-maps-alert-scope";
+// Levels that are an active alarm; No data is not an alert (#124).
+const ALARM_LEVELS = ["critical", "medium", "low"];
 
 let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
@@ -386,14 +391,48 @@ function rememberFeedCollapsed(collapsed) {
   }
 }
 
-function formatBoardStatus(payload, visibleCount) {
+function hasActiveAlarm(item) {
+  return ALARM_LEVELS.includes(item.alert_level);
+}
+
+function selectedScope() {
+  return siteScopeInputs.find((input) => input.checked)?.value || "all";
+}
+
+function setScope(value) {
+  siteScopeInputs.forEach((input) => {
+    input.checked = input.value === value;
+  });
+}
+
+function restoreScope() {
+  let stored = null;
+  try {
+    stored = localStorage.getItem(SCOPE_KEY);
+  } catch (_err) {
+    // Storage unavailable: show all sites.
+  }
+  setScope(stored === "alarms" ? "alarms" : "all");
+}
+
+function rememberScope(value) {
+  try {
+    if (value === "alarms") localStorage.setItem(SCOPE_KEY, value);
+    else localStorage.removeItem(SCOPE_KEY);
+  } catch (_err) {
+    // noop
+  }
+}
+
+function formatBoardStatus(payload, visibleCount, alarmsOnly = selectedScope() === "alarms") {
   const checkedAt = payload.checked_at ? new Date(payload.checked_at) : null;
   const timestamp = checkedAt && !Number.isNaN(checkedAt.valueOf())
     ? checkedAt.toLocaleString()
     : "unknown";
   const staleText = payload.stale ? "stale" : "fresh";
   const syncText = payload.sync_pending ? " · inventory sync in progress…" : "";
-  boardStatus.textContent = `${visibleCount} site${visibleCount !== 1 ? "s" : ""} shown · last checked ${timestamp} · ${staleText}${syncText}`;
+  const scopeText = alarmsOnly ? " (alarms only)" : "";
+  boardStatus.textContent = `${visibleCount} site${visibleCount !== 1 ? "s" : ""} shown${scopeText} · last checked ${timestamp} · ${staleText}${syncText}`;
 }
 
 function alertBadge(level) {
@@ -453,6 +492,8 @@ function renderTableRows(alerts, payload) {
         + "and restart the app. The map works without it.";
     } else if (payload.sync_pending && !allAlerts.length) {
       emptyText = "Inventory sync in progress – the board will update automatically.";
+    } else if (selectedScope() === "alarms" && !allAlerts.some(hasActiveAlarm)) {
+      emptyText = "No site has an active alarm. Choose All sites to see every site.";
     }
     alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">${emptyText}</td></tr>`;
     formatBoardStatus(payload, 0);
@@ -505,6 +546,7 @@ function getFilteredAlerts() {
   const type = filterType.value;
   const tenant = filterTenant.value;
   const sort = sortBy.value;
+  const alarmsOnly = selectedScope() === "alarms";
 
   const filtered = allAlerts.filter((item) => {
     const searchableText = [
@@ -513,6 +555,7 @@ function getFilteredAlerts() {
       formatLocationAddress(item),
       item.country,
     ].join(" ").toLowerCase();
+    if (alarmsOnly && !hasActiveAlarm(item)) return false;
     if (siteNeedle && !searchableText.includes(siteNeedle)) return false;
     if (severity && item.alert_level !== severity) return false;
     if (status && item.status !== status) return false;
@@ -658,6 +701,13 @@ function showError(message) {
   });
 });
 
+siteScopeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    rememberScope(selectedScope());
+    applyFilters(latestPayload);
+  });
+});
+
 quickSeverityButtons.forEach((button) => {
   button.addEventListener("click", () => {
     if (refreshBtn.disabled) return;
@@ -674,6 +724,8 @@ if (clearAlertFiltersBtn) {
     filterStatus.value = "";
     filterType.value = "";
     filterTenant.value = "";
+    setScope("all");
+    rememberScope("all");
     sortBy.value = "severity";
     applyFilters(latestPayload);
   });
@@ -878,6 +930,7 @@ if (feedToggle && feedShowBtn) {
   });
 }
 
+restoreScope();
 loadAlertBoard();
 if (themeToggle) {
   initTheme();
