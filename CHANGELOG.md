@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Removed
+- `FLASK_SECRET_KEY`: the app never used it (no sessions or signed cookies), yet it was presented as a required secret with insecure defaults (`change-me`). A value left in `.env` is ignored (#199)
 - **Breaking:** the Nautobot pass-through API: `GET/POST /api/roles`, `DELETE /api/roles/<id>`, `GET/POST /api/location-types` and `DELETE /api/location-types/<id>`. The app never writes to Nautobot any more: Nautobot is the source of truth, and sites, devices, roles and location types are changed there. The UI never used these endpoints, and `NAUTOBOT_TOKEN` now only needs read permission (#188)
 - **Breaking:** SQLite support. PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`) is the only persistence database; `NAUTOBOT_MAPS_DB` is ignored and logged as an error at startup. There is no data migration: move to PostgreSQL before upgrading (the bundled `docker-compose.yml` already uses it) (#153)
 
