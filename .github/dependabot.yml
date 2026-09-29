@@ -32,9 +32,19 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # A new Python version (3.12 -> 3.14 counts as "minor") is a deliberate
+      # change: add it to CI's test matrix and check the image scan first.
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
 
   # postgres / redis images in docker-compose.yml
   - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # A new PostgreSQL major version can't read the existing data volume:
+      # it needs a dump and restore (README, "Backup and restore").
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
