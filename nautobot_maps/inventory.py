@@ -748,7 +748,7 @@ def sync_nautobot(force: bool = False) -> None:
                 )
         caching.invalidate_alert_board()
     except Exception as exc:
-        logger.warning("Could not sync Nautobot inventory into persistence DB: %s", exc)
+        logger.warning("Could not sync Nautobot inventory into persistence DB: %s", exc, exc_info=True)
         with db.transaction(conn):
             record_sync_state(
                 conn,
@@ -805,7 +805,7 @@ def sync_librenms(force: bool = False) -> None:
             )
         caching.invalidate_alert_board()
     except Exception as exc:
-        logger.warning("Could not sync LibreNMS inventory into persistence DB: %s", exc)
+        logger.warning("Could not sync LibreNMS inventory into persistence DB: %s", exc, exc_info=True)
         with db.transaction(conn):
             record_sync_state(
                 conn,
