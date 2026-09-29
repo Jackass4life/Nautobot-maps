@@ -1,4 +1,5 @@
 import logging
+import os
 
 from flask import Flask
 
@@ -30,6 +31,12 @@ def _log_alert_board_exclusions() -> None:
             "NAUTOBOT_MAPS_DB is set, but SQLite support was removed: the alert board "
             "needs PostgreSQL. Set NAUTOBOT_MAPS_DATABASE_URL=postgresql://... and remove NAUTOBOT_MAPS_DB."
         )
+    for name in ("NAUTOBOT_VERIFY_SSL", "LIBRENMS_VERIFY_SSL"):
+        value = getattr(settings, name)
+        if isinstance(value, str) and not os.path.exists(value):
+            logger.error(
+                "%s=%r is neither true/false nor an existing CA bundle file: TLS connections will fail", name, value
+            )
     if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "

@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
+- `LIBRENMS_VERIFY_SSL` could not take a CA bundle path (it was silently treated as `true`), so a LibreNMS signed by an internal CA only worked with verification off. It now accepts `true`, `false` or a path, like `NAUTOBOT_VERIFY_SSL`; both also accept `yes`/`no`/`1`/`0`, and a path that doesn't exist is logged as an error at startup (#191)
 - App crashed at startup (`NameError: _build_alert_key`) when open alerts had to be migrated to the new alert key (#163): the migration runs while `app.py` is still loading and used a helper defined further down. The data was not changed (the migration's transaction was rolled back) (#169)
 - Alert downtime restarted when a site's severity changed (e.g. Medium → Critical): alerts are now identified by site + device, so a severity change updates the open alert (recorded as an `updated` event) and its downtime keeps running. Open alerts are migrated once at startup (#163)
 - `NAUTOBOT_API_VERSION` and `GUNICORN_WORKERS` / `GUNICORN_TIMEOUT` / `GUNICORN_BIND` in `.env` had no effect with `docker compose`; an empty `CACHE_TTL` or `GUNICORN_*` value now means the default instead of crashing at startup. A test now fails when a setting is missing from `docker-compose.yml` (#159)

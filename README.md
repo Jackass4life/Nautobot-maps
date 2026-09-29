@@ -90,16 +90,17 @@ python app.py
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
 | `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
-| `LIBRENMS_VERIFY_SSL` | ❌ | `true` | LibreNMS TLS verification toggle: set `false`/`no`/`0` to skip certificate verification |
+| `LIBRENMS_VERIFY_SSL` | ❌ | `true` | SSL certificate verification for LibreNMS: `true`, `false`, or a path to a custom CA bundle (e.g. an internal CA) |
 | `FLASK_DEBUG` | ❌ | `false` | Set `true` to enable Flask debug mode |
 | `FLASK_RUN_PORT` | ❌ | `5000` | Port for the development server (useful if 5000 is taken, e.g. by macOS AirPlay Receiver) |
 
 ### LibreNMS integration settings
 
 Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to enable optional LibreNMS enrichment.
-`LIBRENMS_VERIFY_SSL` defaults to `true`; set it to `false`/`no`/`0` only when you
-explicitly accept the TLS trust tradeoff (for example, an internal CA not in the trust
-store). Prefer using a trusted CA bundle (for example via `REQUESTS_CA_BUNDLE`) when possible.
+`LIBRENMS_VERIFY_SSL` defaults to `true`. For a LibreNMS signed by an internal CA, mount the CA
+certificate into the container and point the setting at it (e.g. `LIBRENMS_VERIFY_SSL=/certs/internal-ca.pem`);
+`false` skips verification entirely and should be a last resort, since the API token travels over that
+connection. A path that doesn't exist is logged as an error at startup.
 
 Each LibreNMS sync also caches the address LibreNMS polls for every device (`overwrite_ip` if set, otherwise `ip`). The alert board shows it as the device IP when Nautobot has no primary IP for that device.
 
