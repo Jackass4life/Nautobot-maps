@@ -770,7 +770,7 @@ def upsert_alert_lifecycle_for_site(
             resolve_open_alert_instances_for_site(conn, site_id, open_alert_keys, checked_at)
         return True
     except Exception as exc:
-        logger.warning("Could not persist alert lifecycle for site %s: %s", site_id, exc)
+        logger.warning("Could not persist alert lifecycle for site %s: %s", site_id, exc, exc_info=True)
         return False
     finally:
         if owns_conn:
@@ -1371,7 +1371,7 @@ def build_alert_board_payload(
         try:
             board_data = read_alert_board_data(read_conn)
         except Exception as exc:
-            logger.warning("Could not bulk-read alert board data; reading per site instead: %s", exc)
+            logger.warning("Could not bulk-read alert board data; reading per site instead: %s", exc, exc_info=True)
         finally:
             read_conn.close()
 
@@ -1571,7 +1571,7 @@ def build_alert_board_payload(
         try:
             record_site_level_changes(observed_levels, timeutil.iso_utc_now())
         except Exception as exc:
-            logger.warning("Could not record site alert level changes: %s", exc)
+            logger.warning("Could not record site alert level changes: %s", exc, exc_info=True)
 
     alerts.sort(
         key=lambda item: (

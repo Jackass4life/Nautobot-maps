@@ -1,5 +1,8 @@
 import importlib
 import json
+import logging
+import os
+import pathlib
 import re
 import threading
 from contextlib import contextmanager
@@ -13,6 +16,8 @@ from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
 from nautobot_maps import alerts, auth, caching, db, inventory, librenms, nautobot, scheduler, settings, timeutil, web
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 @contextmanager
@@ -5988,6 +5993,70 @@ class TestSecurityHeaders:
         assert "img-src 'self' data: http://tiles.internal:8080;" in client.get("/").headers["Content-Security-Policy"]
         monkeypatch.setattr(settings, "MAP_TILE_URL", "/tiles/{z}/{x}/{y}.png")
         assert "img-src 'self' data:;" in client.get("/").headers["Content-Security-Policy"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: logging (#193)
+# ---------------------------------------------------------------------------
+class TestLogging:
+    def _record(self, **kwargs):
+        record = logging.LogRecord("nautobot_maps.web", logging.ERROR, __file__, 1, "boom %s", ("x",), None)
+        record.__dict__.update(kwargs)
+        return record
+
+    def test_json_lines_include_the_stack_trace(self):
+        from nautobot_maps import logs
+
+        try:
+            raise KeyError("site")
+        except KeyError:
+            import sys
+
+            record = self._record(exc_info=sys.exc_info())
+        entry = json.loads(logs.JsonFormatter().format(record))
+        assert entry["level"] == "ERROR" and entry["logger"] == "nautobot_maps.web" and entry["message"] == "boom x"
+        assert "KeyError: 'site'" in entry["exception"]
+
+    def test_successful_health_checks_are_not_access_logged(self):
+        from nautobot_maps import logs
+
+        skip = logs.SkipSuccessfulHealthChecks()
+        assert not skip.filter(self._record(args={"U": "/healthz", "s": "200"}))
+        assert skip.filter(self._record(args={"U": "/healthz", "s": "503"}))
+        assert skip.filter(self._record(args={"U": "/api/alerts", "s": "200"}))
+
+    def test_gunicorn_config_logs_access_and_keeps_a_root_logger(self):
+        import gunicorn_config
+
+        config = importlib.reload(gunicorn_config)
+        assert config.accesslog == "-" and "%(M)sms" in config.access_log_format
+        # gunicorn refuses to start if the root logger names a missing handler.
+        root_handlers = config.logconfig_dict["root"]["handlers"]
+        assert set(root_handlers) <= set(config.logconfig_dict["handlers"])
+
+    @pytest.mark.parametrize("name, value", [("LOG_LEVEL", "LOUD"), ("LOG_FORMAT", "xml")])
+    def test_invalid_log_settings_stop_startup(self, name, value):
+        import subprocess
+        import sys
+
+        completed = subprocess.run(
+            [sys.executable, "-c", "import nautobot_maps.settings"],
+            cwd=REPO_ROOT,
+            env={**os.environ, name: value},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode != 0 and name in completed.stderr
+
+    def test_unexpected_error_is_logged_with_its_stack_trace(self, client, caplog):
+        with (
+            patch.object(inventory, "get_locations", side_effect=KeyError("oops")),
+            caplog.at_level("ERROR", logger="nautobot_maps.web"),
+        ):
+            assert client.get("/api/locations").status_code == 500
+        record = next(r for r in caplog.records if "fetching locations" in r.getMessage())
+        assert record.exc_info is not None
 
 
 # ---------------------------------------------------------------------------

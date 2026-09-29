@@ -64,6 +64,8 @@ python app.py
 | `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token; read-only is enough (the app never writes to Nautobot) |
 | `NAUTOBOT_API_VERSION` | ❌ | *(server default)* | Pin a specific Nautobot REST API version (e.g. `2.0`, `3.0`). Leave empty to use the server's default. |
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
+| `LOG_LEVEL` | ❌ | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
+| `LOG_FORMAT` | ❌ | `text` | `text`, or `json` for one JSON object per line (for Loki, ELK, Splunk) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `ALERT_HISTORY_RETENTION_DAYS` | ❌ | `0` (keep all) | Once a day, delete resolved alerts (with their events and cases) and site severity changes older than this many days. Open alerts are never deleted |
 | `METRICS_ENABLED` | ❌ | `true` | Serve Prometheus metrics at `/metrics`; `false` turns it off (404) |
@@ -139,6 +141,8 @@ docker compose logs -f
 # Stop and remove containers
 docker compose down
 ```
+
+Logs go to `docker compose logs`: the app's messages (unexpected errors with their stack trace) and an access log line per request, with the user from the auth proxy, the status and the response time in ms (successful `/healthz` probes are left out). The bundled `docker-compose.yml` caps each container's log at 5 × 10 MB.
 
 Every response carries browser security headers: a Content-Security-Policy that only runs the app's own scripts and loads images only from the app and the `MAP_TILE_URL` host (so the pages can't be framed or inject scripts), plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
 

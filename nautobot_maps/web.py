@@ -253,7 +253,7 @@ def api_locations():
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
     except Exception as exc:
-        logger.error("Unexpected error fetching locations: %s", exc)
+        logger.exception("Unexpected error fetching locations: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -276,7 +276,7 @@ def api_location_detail(location_id: str):
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
     except Exception as exc:
-        logger.error("Unexpected error fetching location detail: %s", exc)
+        logger.exception("Unexpected error fetching location detail: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -314,7 +314,7 @@ def api_alerts():
         logger.error("Nautobot API HTTP error while building alert board: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
     except Exception as exc:
-        logger.error("Unexpected error building alert board: %s", exc)
+        logger.exception("Unexpected error building alert board: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -353,7 +353,7 @@ def geocode(query: str):
         )
         location = geolocator.geocode(query, timeout=10)
     except Exception as exc:
-        logger.error("Geocoding error: %s", exc)
+        logger.exception("Geocoding error: %s", exc)
         raise GeocoderUnavailable() from exc
     point = [location.latitude, location.longitude] if location is not None else None
     caching.set(cache_key, {"point": point}, timeout=GEOCODE_CACHE_SECONDS)
@@ -403,7 +403,7 @@ def api_search():
     except RuntimeError as exc:
         return nautobot_service_unavailable("Location search unavailable", exc)
     except Exception as exc:
-        logger.error("Error fetching locations for search: %s", exc)
+        logger.exception("Error fetching locations for search: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
 
     search_point = (lat, lon)
@@ -449,7 +449,7 @@ def api_list_criticality_overrides():
         ).fetchall()
         return jsonify({"overrides": [db.row_to_dict(r) for r in rows]})
     except Exception as exc:
-        logger.error("Could not list criticality overrides: %s", exc)
+        logger.exception("Could not list criticality overrides: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
@@ -503,7 +503,7 @@ def api_set_criticality_override():
             )
         return jsonify({"status": "ok", "nautobot_device_id": device_id, "is_critical": is_critical})
     except Exception as exc:
-        logger.error("Could not set criticality override: %s", exc)
+        logger.exception("Could not set criticality override: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
@@ -531,7 +531,7 @@ def api_delete_criticality_override(device_id: str):
             return jsonify({"error": "Override not found"}), 404
         return jsonify({"status": "deleted", "nautobot_device_id": device_id})
     except Exception as exc:
-        logger.error("Could not delete criticality override: %s", exc)
+        logger.exception("Could not delete criticality override: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
@@ -579,7 +579,7 @@ def api_alert_feed():
         events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS)
         return jsonify({"events": events, "persistence_configured": True})
     except Exception as exc:
-        logger.error("Could not read the alert feed: %s", exc)
+        logger.exception("Could not read the alert feed: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
@@ -680,7 +680,7 @@ def api_alert_history():
             instance["cases"] = cases_by_instance.get(instance_id, [])
         return jsonify({"instances": instances})
     except Exception as exc:
-        logger.error("Could not fetch alert history: %s", exc)
+        logger.exception("Could not fetch alert history: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
@@ -774,7 +774,7 @@ def api_add_alert_case():
             result["alert_instance_id"] = instance_ids[device_ids[0]]
         return jsonify(result)
     except Exception as exc:
-        logger.error("Could not add alert case: %s", exc)
+        logger.exception("Could not add alert case: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
