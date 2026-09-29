@@ -7,8 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# requirements.txt is the compiled lock file: every package, transitive ones
+# included, pinned with hashes (#186).
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 # Run as an unprivileged user.  The code stays root-owned (read-only for the
 # app); all state lives in PostgreSQL.
