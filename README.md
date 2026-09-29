@@ -61,7 +61,7 @@ python app.py
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `NAUTOBOT_URL` | ✅ | — | Base URL of your Nautobot instance, e.g. `https://nautobot.example.com` (validated at startup) |
-| `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token |
+| `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token; read-only is enough (the app never writes to Nautobot) |
 | `NAUTOBOT_API_VERSION` | ❌ | *(server default)* | Pin a specific Nautobot REST API version (e.g. `2.0`, `3.0`). Leave empty to use the server's default. |
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
 | `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
@@ -89,7 +89,7 @@ python app.py
 | `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
 | `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz`) needs at least the `viewer` role |
-| `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow criticality-override changes and creating/deleting Nautobot roles and location types without authentication (logged as a warning at startup). Off: they return 403 |
+| `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow changing criticality overrides without authentication (logged as a warning at startup). Off: they return 403 |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
 | `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
 | `LIBRENMS_VERIFY_SSL` | ❌ | `true` | LibreNMS TLS verification toggle: set `false`/`no`/`0` to skip certificate verification |
@@ -183,12 +183,8 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/api/alert-feed` | What changed on the alert board, newest first: devices going down (`down`, with `down_since`) and back up (`up`), and site severity changes (`severity`, with `from_level`/`to_level`). `?limit=` (default 100, max 500), `?since=` (ISO-8601, only newer entries), `?kinds=down,up,severity` (default all). A site's first build is not a change. Needs the database (`persistence_configured: false` otherwise) |
 | `GET` | `/api/alert-history` | Historical alert incidents/events/cases (filter by `site_id`, `device_id`, `start_at`, `end_at`) *(operator when auth enabled)* |
 | `POST` | `/api/alert-cases` | Attach a case number to the active alerts of one or more devices at a site: `{"site_id", "case_number", "device_ids": [...]}` (single `device_id` also accepted). All-or-nothing: 404 with `missing_device_ids` if any device has no open alert *(operator when auth enabled)* |
-| `GET` | `/api/roles` | List Nautobot roles |
-| `POST` | `/api/roles` | Create a Nautobot role *(admin when auth enabled)* |
-| `DELETE` | `/api/roles/<role_id>` | Delete a Nautobot role *(admin when auth enabled)* |
-| `GET` | `/api/location-types` | List Nautobot location types |
-| `POST` | `/api/location-types` | Create a Nautobot location type *(admin when auth enabled)* |
-| `DELETE` | `/api/location-types/<lt_id>` | Delete a Nautobot location type *(admin when auth enabled)* |
+
+The API serves this app only. Nautobot is the source of truth: the app never creates, changes or deletes anything in Nautobot (sites, devices, roles, location types…); make those changes in Nautobot itself. `NAUTOBOT_TOKEN` therefore only needs **read** permission.
 
 ## Optional Authentication / RBAC
 
@@ -196,7 +192,7 @@ By default (`AUTH_MODE=disabled`):
 
 - the map, the alert board and the read-only APIs are public
 - adding a case number to an alert works (the board needs it)
-- the **administrative writes are refused** (403): criticality overrides and creating/deleting Nautobot roles and location types. They would change Nautobot using the app's token for anyone who can reach the app. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
+- **changing criticality overrides is refused** (403): it changes which devices count as critical, for everyone. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
 
 To protect administrative actions with real identities, set `AUTH_MODE=header` and place the app
 behind a trusted reverse proxy or SSO gateway that injects identity headers.
@@ -206,8 +202,8 @@ flow and forwards the authenticated username/groups to Nautobot Maps.
 ### Roles
 
 - `viewer` — can open the map, the board and the read APIs when `AUTH_REQUIRE_VIEWER=true` (otherwise they are public)
-- `operator` — can manage `/api/criticality-overrides`
-- `admin` — can also create/delete Nautobot roles and location types
+- `operator` — can manage `/api/criticality-overrides`, view alert history and add cases
+- `admin` — everything an operator can (reserved for future administrative features)
 
 ### Example header-based SSO configuration
 
