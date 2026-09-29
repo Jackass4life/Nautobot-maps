@@ -623,6 +623,15 @@ class TestAlertBoardWithPersistence:
         # Locations without a Site above them keep their own rows.
         assert alerts["loc-lon"]["down_device_count"] == 2
 
+    def test_every_tenant_of_a_site_through_a_real_sync(self, persisted_integration_client):
+        """Tenants linked by a Location <-> Tenant relationship are listed after its own (#238)."""
+        alerts = self._alerts_by_site(persisted_integration_client)
+        assert alerts["loc-lon"]["tenants"] == ["Acme Corp", "DataCenter GmbH", "EuroIX", "Nordic Net"]
+        assert alerts["loc-lon"]["tenant"] == "Acme Corp"
+        # Amsterdam's own tenant is EuroIX; Acme Corp is linked.
+        assert alerts["loc-ams"]["tenants"] == ["EuroIX", "Acme Corp"]
+        assert alerts["loc-sto"]["tenants"] == ["Acme Corp"]
+
     def test_sites_with_devices_report_device_counts(self, persisted_integration_client):
         alerts = self._alerts_by_site(persisted_integration_client)
         for location_id in mock_nautobot.DEVICES:
@@ -1135,6 +1144,7 @@ class TestCopySiteInTheBrowser:
             "actionCell",
             "formatLocationAddress",
             "formatReportTime",
+            "siteTenants",
             "siteReport",
             "copyText",
         )
@@ -1283,6 +1293,7 @@ class TestAlarmsOnlyInTheBrowser:
             "restoreScope",
             "rememberScope",
             "formatBoardStatus",
+            "siteTenants",
             "getFilteredAlerts",
         )
         functions = "\n".join(_extract_js_function(js, name) for name in names)
@@ -1498,6 +1509,53 @@ NAUTOBOT_URL = "";
 html = buildCircuitCard({{ id: "cir-2", cid: "C2", status: "Active", port_speed: "10 Gbps", upstream_speed: "10 Gbps" }});
 check(!html.includes("<a "), "no link without a Nautobot URL");
 check(html.includes("device-status-active") && html.includes(">10 Gbps<"), html);
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+class TestSiteTenantsInTheBrowser:
+    """The Tenants column and Copy for ITSM show every tenant of a site (#238)."""
+
+    def test_tenant_cell_and_report(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        functions = "\n".join(
+            _extract_js_function(js, name)
+            for name in (
+                "escHtml",
+                "siteTenants",
+                "tenantCell",
+                "formatLocationAddress",
+                "formatReportTime",
+                "siteReport",
+            )
+        )
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const TENANTS_SHOWN = 3;
+{functions}
+
+check(tenantCell({{}}) === "—", "no tenant");
+check(tenantCell({{ tenant: "Acme" }}) === "Acme", "a board cached before #238 has only tenant");
+check(tenantCell({{ tenant: "Acme", tenants: ["Acme"] }}) === "Acme", "one tenant is plain text");
+
+let cell = tenantCell({{ tenants: ["Acme", "B&B"] }});
+check(cell.includes(">2 tenants<") && cell.includes("Acme, B&amp;B") && !cell.includes("more"), cell);
+cell = tenantCell({{ tenants: ["A", "B", "C", "D", "E"] }});
+check(cell.includes(">5 tenants<") && cell.includes("A, B, C +2 more") && cell.includes('title="A, B, C, D, E"'), cell);
+
+let report = siteReport({{ name: "LON", tenant: "Acme", tenants: ["Acme", "Nordic"], alert_level: "low" }});
+check(report.includes("Tenants (2): Acme, Nordic") && !report.includes("Tenant: "), report);
+report = siteReport({{ name: "STO", tenant: "Acme", alert_level: "ok" }});
+check(report.includes("Tenant: Acme"), report);
 """
         completed = subprocess.run(
             ["node", "-e", script],

@@ -1557,6 +1557,8 @@ def build_alert_board_payload(
             alerts.append(
                 {
                     **loc,
+                    # Its own tenant first, then those linked by a Relationship (#238).
+                    "tenants": loc.get("tenants") or inventory.site_tenants(loc.get("tenant") or "", []),
                     "alert_level": level,
                     "alert_reason": alert.get("reason", ""),
                     "device_count": len(devices),

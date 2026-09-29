@@ -398,12 +398,28 @@ def add_sync_last_succeeded_at(conn) -> None:
     )
 
 
+def add_location_tenant_cache(conn) -> None:
+    """Tenants linked to a location by a Nautobot Relationship (#238)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nautobot_location_tenant_cache (
+            location_id  TEXT NOT NULL,
+            tenant_id    TEXT NOT NULL,
+            tenant       TEXT NOT NULL DEFAULT '',
+            relationship TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (location_id, tenant_id, relationship)
+        )
+        """
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
 MIGRATIONS = (
     (1, "baseline schema", baseline_schema),
     (2, "inventory_sync_state.last_succeeded_at", add_sync_last_succeeded_at),
+    (3, "nautobot_location_tenant_cache", add_location_tenant_cache),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

@@ -171,6 +171,9 @@ ALERT_BOARD_EXCLUDED_DEVICE_STATUSES = parse_csv_set(os.getenv("ALERT_BOARD_EXCL
 # Location type whose locations are the alert-board rows (e.g. "Site"); devices
 # in descendant locations roll up into them (#158).  Empty: one row per location.
 ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()
+# Nautobot Relationships (keys or labels) that link a location to more
+# tenants (#238).  Empty: every Location <-> Tenant relationship.
+SITE_TENANT_RELATIONSHIPS = parse_csv_set(os.getenv("SITE_TENANT_RELATIONSHIPS", ""))
 
 # Every setting, for tests that check none is read or set elsewhere.
 SETTING_NAMES = tuple(name for name in dir() if name.isupper() and name != "SETTING_NAMES")

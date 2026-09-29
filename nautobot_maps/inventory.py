@@ -156,6 +156,58 @@ def normalize_locations(
     return locations
 
 
+LOCATION_TYPE = "dcim.location"
+TENANT_TYPE = "tenancy.tenant"
+
+
+def fetch_location_tenant_links() -> list[dict] | None:
+    """Tenants linked to locations by Nautobot Relationships (#238).
+
+    Returns ``[{location_id, tenant_id, tenant, relationship}]`` for every
+    Location <-> Tenant relationship (or only those named in
+    ``SITE_TENANT_RELATIONSHIPS``), or ``None`` when Nautobot could not be
+    read, so the caller keeps what it has.  Associations are read in full on
+    every sync: adding one does not change the location's ``last_updated``.
+    """
+    try:
+        relationships = nautobot.fetch_all_pages("extras/relationships/", use_cache=False)
+        selected = []
+        for rel in relationships:
+            if {rel.get("source_type"), rel.get("destination_type")} != {LOCATION_TYPE, TENANT_TYPE}:
+                continue
+            key = str(rel.get("key") or rel.get("slug") or "").strip()
+            label = nautobot.nested_str(rel, "label", "name", "display") or key
+            wanted = settings.SITE_TENANT_RELATIONSHIPS
+            if wanted and key.lower() not in wanted and label.lower() not in wanted:
+                continue
+            selected.append((rel, label))
+        if not selected:
+            return []
+        tenant_names = nautobot.id_name_map("tenancy/tenants/")
+        links = {}
+        for rel, label in selected:
+            associations = nautobot.fetch_all_pages(
+                "extras/relationship-associations/", {"relationship": rel.get("id")}, use_cache=False
+            )
+            location_side = "source" if rel.get("source_type") == LOCATION_TYPE else "destination"
+            tenant_side = "destination" if location_side == "source" else "source"
+            for assoc in associations:
+                location_id = str(assoc.get(f"{location_side}_id") or "")
+                tenant_id = str(assoc.get(f"{tenant_side}_id") or "")
+                if not location_id or not tenant_id:
+                    continue
+                links[(location_id, tenant_id, label)] = {
+                    "location_id": location_id,
+                    "tenant_id": tenant_id,
+                    "tenant": tenant_names.get(tenant_id, ""),
+                    "relationship": label,
+                }
+        return list(links.values())
+    except Exception as exc:
+        logger.warning("Could not read location tenant relationships from Nautobot: %s", exc)
+        return None
+
+
 def extract_primary_ip(device: dict) -> str:
     for key in ("primary_ip4", "primary_ip6", "primary_ip"):
         value = device.get(key)
@@ -284,6 +336,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             ORDER BY name ASC
             """
         ).fetchall()
+        related_tenants = read_location_tenant_links(conn)
         locations = []
         for row in rows:
             data = db.row_to_dict(row)
@@ -313,6 +366,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
                     "time_zone": data.get("time_zone", ""),
                     "tags": json_load_list(data.get("tags_json")),
                     "url": data.get("url", ""),
+                    "tenants": site_tenants(data.get("tenant", ""), related_tenants.get(data.get("location_id"), [])),
                 }
             )
         return locations
@@ -557,6 +611,35 @@ def write_locations(conn, locations: list) -> None:
         )
 
 
+def write_location_tenant_links(conn, links: list[dict]) -> None:
+    """Replace the cached location <-> tenant relationship links (#238)."""
+    conn.execute("DELETE FROM nautobot_location_tenant_cache")
+    for link in links:
+        conn.execute(
+            f"INSERT INTO nautobot_location_tenant_cache (location_id, tenant_id, tenant, relationship) "
+            f"VALUES ({db.placeholders(4)}) ON CONFLICT DO NOTHING",
+            (link["location_id"], link["tenant_id"], link.get("tenant") or "", link.get("relationship") or ""),
+        )
+
+
+def site_tenants(tenant: str, related: list[str]) -> list[str]:
+    """Every tenant of a site: its own tenant first, then the related ones (#238)."""
+    names = [tenant] if tenant else []
+    names.extend(name for name in related if name and name not in names)
+    return names
+
+
+def read_location_tenant_links(conn) -> dict[str, list[str]]:
+    """``{location_id: [tenant name, ...]}`` from the relationship links, sorted by name (#238)."""
+    rows = conn.execute("SELECT location_id, tenant FROM nautobot_location_tenant_cache").fetchall()
+    tenants: dict[str, set[str]] = {}
+    for row in rows:
+        data = db.row_to_dict(row)
+        if data.get("tenant"):
+            tenants.setdefault(data["location_id"], set()).add(data["tenant"])
+    return {location_id: sorted(names, key=str.lower) for location_id, names in tenants.items()}
+
+
 def write_devices(conn, devices: list) -> None:
     placeholders = db.placeholders(12).split(",")
     for device in devices:
@@ -710,6 +793,7 @@ def sync_nautobot(force: bool = False) -> None:
             existing_location_name_map=existing_location_name_map,
         )
         devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
+        tenant_links = fetch_location_tenant_links()
         completed_at = timeutil.iso_utc_now()
         watermark = last_successful_sync
         observed_last_updated = timeutil.max_last_updated(raw_locations + raw_devices)
@@ -725,6 +809,8 @@ def sync_nautobot(force: bool = False) -> None:
                 conn.execute("DELETE FROM nautobot_location_cache")
             write_locations(conn, locations)
             write_devices(conn, devices)
+            if tenant_links is not None:
+                write_location_tenant_links(conn, tenant_links)
             record_sync_state(
                 conn,
                 source,
