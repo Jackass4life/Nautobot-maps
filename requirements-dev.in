@@ -1,0 +1,7 @@
+# Development and CI tools, on top of the runtime requirements (compiled to
+# requirements-dev.txt with hashes; edit here, then recompile).
+-c requirements.txt
+-r requirements.in
+pytest==9.1.1
+ruff==0.16.9
+pyyaml==6.0.3
