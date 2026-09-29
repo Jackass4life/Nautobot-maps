@@ -5,10 +5,9 @@ Called as ``librenms.function()`` so tests can replace it on this module.
 
 import warnings
 
-import requests
 from urllib3.exceptions import InsecureRequestWarning
 
-from nautobot_maps import settings
+from nautobot_maps import http, settings
 
 
 def get(path: str, params: dict | None = None) -> dict:
@@ -23,9 +22,11 @@ def get(path: str, params: dict | None = None) -> dict:
     if settings.LIBRENMS_VERIFY_SSL is False:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", InsecureRequestWarning)
-            response = requests.get(url, headers=headers, params=params, timeout=15, verify=False)
+            response = http.session().get(url, headers=headers, params=params, timeout=15, verify=False)
     else:
-        response = requests.get(url, headers=headers, params=params, timeout=15, verify=settings.LIBRENMS_VERIFY_SSL)
+        response = http.session().get(
+            url, headers=headers, params=params, timeout=15, verify=settings.LIBRENMS_VERIFY_SSL
+        )
     response.raise_for_status()
     return response.json()
 

@@ -63,6 +63,13 @@ def client():
         yield c
 
 
+@pytest.fixture
+def allow_unauthenticated_writes(monkeypatch):
+    """The endpoint tests below run with AUTH_MODE=disabled, where the
+    administrative writes are refused unless explicitly allowed (#188)."""
+    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+
+
 # ---------------------------------------------------------------------------
 # Sample Nautobot API fixtures
 # ---------------------------------------------------------------------------
@@ -166,7 +173,7 @@ SAMPLE_ASNS_PAGE = {
 # ---------------------------------------------------------------------------
 # Helper – mock nautobot_get to return fixture data
 # ---------------------------------------------------------------------------
-def mock_nautobot_get(endpoint, params=None):
+def mock_nautobot_get(endpoint, params=None, **kwargs):
     params = params or {}
     if "dcim/locations" in endpoint:
         return SAMPLE_LOCATIONS_PAGE
@@ -198,7 +205,7 @@ class TestFetchAllPages:
     def test_sets_large_limit_and_depth_defaults(self):
         calls = []
 
-        def fake_get(endpoint, params=None):
+        def fake_get(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             return {"count": 1, "next": None, "results": [{"id": "dev-1"}]}
 
@@ -211,7 +218,7 @@ class TestFetchAllPages:
     def test_respects_explicit_limit_and_depth(self):
         calls = []
 
-        def fake_get(endpoint, params=None):
+        def fake_get(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             return {"count": 0, "next": None, "results": []}
 
@@ -219,6 +226,49 @@ class TestFetchAllPages:
             nautobot.fetch_all_pages("dcim/devices/", {"limit": 25, "depth": 2})
 
         assert calls == [("dcim/devices/", {"limit": 25, "depth": 2, "offset": 0})]
+
+
+class TestSyncBypassesResponseCache:
+    """The inventory sync reads Nautobot directly, never cached pages (#185)."""
+
+    def _counting_requests(self, calls):
+        def fake_requests_get(url, **kwargs):
+            calls.append(dict(kwargs.get("params") or {}))
+            response = MagicMock()
+            response.json.return_value = {"results": [{"id": "d1"}], "next": None}
+            return response
+
+        return patch.object(requests.Session, "get", side_effect=fake_requests_get)
+
+    def test_uncached_fetches_always_reach_nautobot(self, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        caching.cache.clear()
+        calls = []
+        params = {"last_updated__gte": "2026-09-28T12:00:00Z", "depth": 1}
+        with flask_app.app.app_context(), self._counting_requests(calls):
+            nautobot.fetch_all_pages("dcim/devices/", params, use_cache=False)
+            nautobot.fetch_all_pages("dcim/devices/", params, use_cache=False)
+            assert len(calls) == 2  # same parameters, still two requests
+            # Nor do they fill the cache for a cached reader.
+            nautobot.fetch_all_pages("dcim/devices/", params)
+            assert len(calls) == 3
+            # The UI's cached reads still use the cache.
+            nautobot.fetch_all_pages("dcim/devices/", params)
+            assert len(calls) == 3
+
+    def test_sync_fetches_without_cache(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        seen = []
+
+        def fake_fetch(endpoint, params=None, **kwargs):
+            seen.append((endpoint, kwargs.get("use_cache", True)))
+            return []
+
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fake_fetch)
+        inventory.sync_nautobot(force=True)
+        assert ("dcim/locations/", False) in seen and ("dcim/devices/", False) in seen
 
 
 class TestPrimaryIpExtraction:
@@ -311,7 +361,7 @@ class TestApiLocations:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/locations" in endpoint:
                 return fallback_locations
             return {"count": 0, "next": None, "results": []}
@@ -402,7 +452,7 @@ class TestApiLocations:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "extras/tags" in endpoint:
                 return tags_page
             if "dcim/locations" in endpoint:
@@ -444,7 +494,7 @@ class TestApiLocations:
             "results": [{"id": "lt-dc", "name": "Data Center"}],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/location-types" in endpoint:
                 return lt_page
             if "dcim/locations" in endpoint:
@@ -497,7 +547,7 @@ class TestApiLocations:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/locations" in endpoint:
                 return brief_locations
             return {"count": 0, "next": None, "results": []}
@@ -1010,7 +1060,7 @@ class TestAlertBoard:
         ]
         fetch_calls = []
 
-        def _mock_fetch(endpoint, params=None):
+        def _mock_fetch(endpoint, params=None, **kwargs):
             fetch_calls.append((endpoint, params))
             if len(fetch_calls) == 1:
                 raise bad_request
@@ -1263,7 +1313,7 @@ class TestApiLocationDetail:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/devices" in endpoint:
                 return sparse_devices
             if "dcim/device-types" in endpoint:
@@ -1445,22 +1495,6 @@ class TestNautobotRuntimeErrors:
             ("get", "/api/locations", (inventory, "get_locations"), {}),
             ("get", "/api/locations/loc-1/detail", (alerts, "get_location_detail"), {}),
             ("get", "/api/search?q=55.6761,12.5683", (inventory, "get_locations"), {}),
-            ("get", "/api/roles", (nautobot, "fetch_all_pages"), {}),
-            (
-                "post",
-                "/api/roles",
-                (nautobot, "post"),
-                {"json": {"name": "Test Role"}, "content_type": "application/json"},
-            ),
-            ("delete", "/api/roles/role-1", (nautobot, "delete"), {}),
-            ("get", "/api/location-types", (nautobot, "fetch_all_pages"), {}),
-            (
-                "post",
-                "/api/location-types",
-                (nautobot, "post"),
-                {"json": {"name": "Test Type"}, "content_type": "application/json"},
-            ),
-            ("delete", "/api/location-types/lt-dc", (nautobot, "delete"), {}),
         ]
 
         for method, url, (module, name), kwargs in cases:
@@ -1566,7 +1600,7 @@ class TestCaching:
         mock_resp.json.return_value = {"count": 0, "next": None, "results": []}
 
         caching.cache.clear()
-        with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+        with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
             # Patch env vars so nautobot_get doesn't raise RuntimeError
             settings.NAUTOBOT_URL = "http://nautobot.test"
             settings.NAUTOBOT_TOKEN = "test-token"
@@ -1622,6 +1656,49 @@ class TestNautobotURLValidation:
 # Tests: SSL verification configuration
 # ---------------------------------------------------------------------------
 class TestSSLVerification:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("true", True),
+            ("", True),
+            ("yes", True),
+            ("false", False),
+            ("no", False),
+            ("0", False),
+            ("/certs/internal-ca.pem", "/certs/internal-ca.pem"),
+        ],
+    )
+    def test_verify_setting_values(self, value, expected):
+        """Both upstreams accept true/false or a CA bundle path (#191)."""
+        assert settings._verify_ssl(value) == expected
+
+    def test_librenms_accepts_a_ca_bundle_path(self):
+        """A path used to be read as a yes/no flag and silently became True (#191).
+
+        Checked in a fresh process: reloading the settings module here would
+        reset settings that other tests rely on.
+        """
+        import os
+        import subprocess
+        import sys
+
+        completed = subprocess.run(
+            [sys.executable, "-c", "from nautobot_maps import settings; print(settings.LIBRENMS_VERIFY_SSL)"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env={**os.environ, "LIBRENMS_VERIFY_SSL": "/certs/internal-ca.pem"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert completed.stdout.strip() == "/certs/internal-ca.pem"
+
+    def test_missing_ca_bundle_is_logged_at_startup(self, monkeypatch, caplog):
+        monkeypatch.setattr(settings, "LIBRENMS_VERIFY_SSL", "/nonexistent/ca.pem")
+        with caplog.at_level("ERROR"):
+            flask_app._log_alert_board_exclusions()
+        assert "LIBRENMS_VERIFY_SSL='/nonexistent/ca.pem'" in caplog.text
+
     def test_verify_ssl_defaults_to_true(self):
         """When NAUTOBOT_VERIFY_SSL is not set, verify should default to True."""
         # The module-level NAUTOBOT_VERIFY_SSL is parsed at import time from
@@ -1644,7 +1721,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_VERIFY_SSL = False
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1670,7 +1747,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_VERIFY_SSL = True
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1696,7 +1773,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_VERIFY_SSL = "/etc/ssl/certs/custom-ca.pem"
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1720,7 +1797,7 @@ class TestSSLVerification:
         settings.NAUTOBOT_URL = "https://nautobot.test"
         settings.NAUTOBOT_TOKEN = "test-token"
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1783,7 +1860,7 @@ class TestApiVersionHeader:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_API_VERSION = ""
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -1809,7 +1886,7 @@ class TestApiVersionHeader:
         settings.NAUTOBOT_TOKEN = "test-token"
         settings.NAUTOBOT_API_VERSION = "3.0"
         try:
-            with patch.object(req_lib, "get", return_value=mock_resp) as mock_get:
+            with patch.object(req_lib.Session, "get", return_value=mock_resp) as mock_get:
                 nautobot.get("dcim/locations/", {"limit": 1})
             mock_get.assert_called_once()
             _, kwargs = mock_get.call_args
@@ -2000,7 +2077,7 @@ class TestLocationDetailWithLocationType:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/devices" in endpoint:
                 return firewall_devices_page
             return {"count": 0, "next": None, "results": []}
@@ -2018,6 +2095,7 @@ class TestLocationDetailWithLocationType:
 # ---------------------------------------------------------------------------
 # Tests: criticality override REST endpoints
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("allow_unauthenticated_writes")
 class TestCriticalityOverrideEndpoints:
     """Tests for /api/criticality-overrides (requires the persistence database)."""
 
@@ -3436,7 +3514,7 @@ class TestInventoryCacheSync:
     def test_sync_nautobot_inventory_uses_last_successful_sync_watermark(self):
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             if endpoint == "dcim/locations/":
                 return [
@@ -3524,7 +3602,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
                 return [
                     {
@@ -3579,7 +3657,7 @@ class TestInventoryCacheSync:
     def test_sync_nautobot_inventory_full_reconciles_when_cache_version_changes(self):
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             if endpoint == "dcim/locations/":
                 return [
@@ -3689,7 +3767,7 @@ class TestInventoryCacheSync:
     def test_sync_nautobot_inventory_full_reconcile_advances_watermark(self):
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             if endpoint == "dcim/locations/":
                 return [
@@ -4090,7 +4168,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
                 return [
                     {
@@ -4213,7 +4291,7 @@ class TestLibreNMSEnrichment:
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
         settings.LIBRENMS_URL = "   "
         settings.LIBRENMS_API_TOKEN = "   "
-        with patch.object(requests, "get") as mock_get:
+        with patch.object(requests.Session, "get") as mock_get:
             result = librenms.fetch_inventory()
         assert result == []
         mock_get.assert_not_called()
@@ -4225,7 +4303,7 @@ class TestLibreNMSEnrichment:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
-        with patch.object(requests, "get", return_value=mock_resp) as mock_get:
+        with patch.object(requests.Session, "get", return_value=mock_resp) as mock_get:
             librenms.get("devices", {"type": "all"})
         _, kwargs = mock_get.call_args
         assert kwargs["verify"] is False
@@ -4238,7 +4316,7 @@ class TestLibreNMSEnrichment:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
         with (
-            patch.object(requests, "get", return_value=mock_resp),
+            patch.object(requests.Session, "get", return_value=mock_resp),
             patch.object(librenms.warnings, "catch_warnings") as mock_catch,
         ):
             librenms.get("devices", {"type": "all"})
@@ -4338,185 +4416,6 @@ class TestLibreNMSEnrichment:
         assert result[0]["status"] == "active"
 
 
-# ---------------------------------------------------------------------------
-# Tests: /api/roles
-# ---------------------------------------------------------------------------
-
-SAMPLE_ROLES_PAGE = {
-    "count": 2,
-    "next": None,
-    "results": [
-        {"id": "role-1", "name": "Core Router", "color": "aa1409", "content_types": []},
-        {"id": "role-2", "name": "Firewall", "color": "f44336", "content_types": []},
-    ],
-}
-
-
-class TestApiRoles:
-    def test_list_roles_returns_all(self, client):
-        """GET /api/roles returns all roles from Nautobot."""
-        with patch.object(nautobot, "get", return_value=SAMPLE_ROLES_PAGE):
-            resp = client.get("/api/roles")
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert "roles" in data
-        assert len(data["roles"]) == 2
-        assert data["roles"][0]["name"] == "Core Router"
-
-    def test_list_roles_nautobot_unconfigured_returns_503(self, client):
-        """GET /api/roles returns 503 when Nautobot is not configured."""
-        with patch.object(nautobot, "get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.get("/api/roles")
-        assert resp.status_code == 503
-
-    def test_create_role_success(self, client):
-        """POST /api/roles proxies to Nautobot and returns 201 on success."""
-        created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
-        with patch.object(nautobot, "post", return_value=created):
-            resp = client.post(
-                "/api/roles", json={"name": "Edge Router", "color": "2196f3"}, content_type="application/json"
-            )
-        assert resp.status_code == 201
-        assert resp.get_json()["name"] == "Edge Router"
-
-    def test_create_role_missing_name_returns_400(self, client):
-        """POST /api/roles without a name returns 400."""
-        resp = client.post("/api/roles", json={"color": "2196f3"}, content_type="application/json")
-        assert resp.status_code == 400
-        assert "name is required" in resp.get_json()["error"]
-
-    def test_create_role_nautobot_unconfigured_returns_503(self, client):
-        """POST /api/roles returns 503 when Nautobot is not configured."""
-        with patch.object(nautobot, "post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.post("/api/roles", json={"name": "Test Role"}, content_type="application/json")
-        assert resp.status_code == 503
-
-    def test_create_role_requires_admin_when_auth_enabled(self, client):
-        with auth_config(mode="header", operator_groups={"noc-operators"}):
-            resp = client.post(
-                "/api/roles",
-                json={"name": "Edge Router", "color": "2196f3"},
-                content_type="application/json",
-                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
-            )
-        assert resp.status_code == 403
-        assert resp.get_json()["required_role"] == "admin"
-
-    def test_create_role_accepts_admin_group_when_auth_enabled(self, client):
-        created = {"id": "role-new", "name": "Edge Router", "color": "2196f3", "content_types": []}
-        with auth_config(mode="header", admin_groups={"nautobot-admins"}):
-            with patch.object(nautobot, "post", return_value=created):
-                resp = client.post(
-                    "/api/roles",
-                    json={"name": "Edge Router", "color": "2196f3"},
-                    content_type="application/json",
-                    headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "nautobot-admins"},
-                )
-        assert resp.status_code == 201
-
-    def test_delete_role_success(self, client):
-        """DELETE /api/roles/<id> proxies to Nautobot and returns 200."""
-        with patch.object(nautobot, "delete", return_value=None):
-            resp = client.delete("/api/roles/role-1")
-        assert resp.status_code == 200
-        assert resp.get_json()["status"] == "deleted"
-        assert resp.get_json()["id"] == "role-1"
-
-    def test_delete_role_not_found_returns_404(self, client):
-        """DELETE /api/roles/<id> returns 404 when Nautobot responds with 404."""
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        http_err = requests.HTTPError(response=mock_response)
-        with patch.object(nautobot, "delete", side_effect=http_err):
-            resp = client.delete("/api/roles/does-not-exist")
-        assert resp.status_code == 404
-        assert "not found" in resp.get_json()["error"].lower()
-
-    def test_delete_role_nautobot_unconfigured_returns_503(self, client):
-        """DELETE /api/roles/<id> returns 503 when Nautobot is not configured."""
-        with patch.object(nautobot, "delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.delete("/api/roles/role-1")
-        assert resp.status_code == 503
-
-
-# ---------------------------------------------------------------------------
-# Tests: /api/location-types
-# ---------------------------------------------------------------------------
-
-SAMPLE_LOCATION_TYPES_PAGE = {
-    "count": 2,
-    "next": None,
-    "results": [
-        {"id": "lt-dc", "name": "Data Center"},
-        {"id": "lt-pop", "name": "PoP"},
-    ],
-}
-
-
-class TestApiLocationTypes:
-    def test_list_location_types_returns_all(self, client):
-        """GET /api/location-types returns all location types from Nautobot."""
-        with patch.object(nautobot, "get", return_value=SAMPLE_LOCATION_TYPES_PAGE):
-            resp = client.get("/api/location-types")
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert "location_types" in data
-        assert len(data["location_types"]) == 2
-        assert data["location_types"][0]["name"] == "Data Center"
-
-    def test_list_location_types_nautobot_unconfigured_returns_503(self, client):
-        """GET /api/location-types returns 503 when Nautobot is not configured."""
-        with patch.object(nautobot, "get", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.get("/api/location-types")
-        assert resp.status_code == 503
-
-    def test_create_location_type_success(self, client):
-        """POST /api/location-types proxies to Nautobot and returns 201 on success."""
-        created = {"id": "lt-new", "name": "Office", "slug": "office"}
-        with patch.object(nautobot, "post", return_value=created):
-            resp = client.post(
-                "/api/location-types", json={"name": "Office", "slug": "office"}, content_type="application/json"
-            )
-        assert resp.status_code == 201
-        assert resp.get_json()["name"] == "Office"
-
-    def test_create_location_type_missing_name_returns_400(self, client):
-        """POST /api/location-types without a name returns 400."""
-        resp = client.post("/api/location-types", json={"slug": "office"}, content_type="application/json")
-        assert resp.status_code == 400
-        assert "name is required" in resp.get_json()["error"]
-
-    def test_create_location_type_nautobot_unconfigured_returns_503(self, client):
-        """POST /api/location-types returns 503 when Nautobot is not configured."""
-        with patch.object(nautobot, "post", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.post("/api/location-types", json={"name": "Test Type"}, content_type="application/json")
-        assert resp.status_code == 503
-
-    def test_delete_location_type_success(self, client):
-        """DELETE /api/location-types/<id> proxies to Nautobot and returns 200."""
-        with patch.object(nautobot, "delete", return_value=None):
-            resp = client.delete("/api/location-types/lt-dc")
-        assert resp.status_code == 200
-        assert resp.get_json()["status"] == "deleted"
-        assert resp.get_json()["id"] == "lt-dc"
-
-    def test_delete_location_type_not_found_returns_404(self, client):
-        """DELETE /api/location-types/<id> returns 404 when Nautobot responds with 404."""
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        http_err = requests.HTTPError(response=mock_response)
-        with patch.object(nautobot, "delete", side_effect=http_err):
-            resp = client.delete("/api/location-types/does-not-exist")
-        assert resp.status_code == 404
-        assert "not found" in resp.get_json()["error"].lower()
-
-    def test_delete_location_type_nautobot_unconfigured_returns_503(self, client):
-        """DELETE /api/location-types/<id> returns 503 when Nautobot is not configured."""
-        with patch.object(nautobot, "delete", side_effect=RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set")):
-            resp = client.delete("/api/location-types/lt-dc")
-        assert resp.status_code == 503
-
-
 class TestAuthConfiguration:
     @staticmethod
     def _reload_gunicorn_config():
@@ -4532,9 +4431,44 @@ class TestAuthConfiguration:
         with auth_config(mode="disabled"):
             assert auth.flask_run_host() == "0.0.0.0"
 
-    def test_header_auth_binds_gunicorn_to_loopback(self, monkeypatch):
+    def test_header_auth_binds_gunicorn_to_all_interfaces(self, monkeypatch):
+        """In a container 127.0.0.1 is unreachable; trust is checked per request instead (#187)."""
         monkeypatch.setenv("AUTH_MODE", "header")
-        assert self._reload_gunicorn_config().bind == "127.0.0.1:5000"
+        assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
+
+    def test_identity_headers_only_count_from_trusted_proxies(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_TRUSTED_PROXIES", settings._networks("t", "10.0.0.0/24"))
+        monkeypatch.setattr(settings, "AUTH_PROXY_SECRET", "")
+        headers = {"X-Forwarded-User": "mallory", "X-Forwarded-Groups": "noc-admins"}
+        body = {"nautobot_device_id": "dev-abc", "is_critical": False}
+        with auth_config(mode="header", admin_groups={"noc-admins"}):
+            # From an untrusted address the headers are ignored: anonymous.
+            resp = client.post(
+                "/api/criticality-overrides", json=body, headers=headers, environ_base={"REMOTE_ADDR": "192.0.2.7"}
+            )
+            assert resp.status_code == 401
+            # From the proxy they count (503: no database in this test).
+            resp = client.post(
+                "/api/criticality-overrides", json=body, headers=headers, environ_base={"REMOTE_ADDR": "10.0.0.5"}
+            )
+            assert resp.status_code == 503
+
+    def test_proxy_secret_is_required_when_set(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_TRUSTED_PROXIES", settings._networks("t", "0.0.0.0/0"))
+        monkeypatch.setattr(settings, "AUTH_PROXY_SECRET", "s3cret")
+        headers = {"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-admins"}
+        body = {"nautobot_device_id": "dev-abc", "is_critical": False}
+        with auth_config(mode="header", admin_groups={"noc-admins"}):
+            assert client.post("/api/criticality-overrides", json=body, headers=headers).status_code == 401
+            wrong = {**headers, "X-Auth-Proxy-Secret": "guess"}
+            assert client.post("/api/criticality-overrides", json=body, headers=wrong).status_code == 401
+            right = {**headers, "X-Auth-Proxy-Secret": "s3cret"}
+            assert client.post("/api/criticality-overrides", json=body, headers=right).status_code == 503
+
+    def test_default_trusts_only_localhost(self):
+        assert [str(n) for n in settings._networks("t", "127.0.0.1/32,::1/128")] == ["127.0.0.1/32", "::1/128"]
+        with pytest.raises(RuntimeError, match="AUTH_TRUSTED_PROXIES"):
+            settings._networks("AUTH_TRUSTED_PROXIES", "10.0.0.0/33")
 
     def test_non_header_auth_keeps_public_gunicorn_bind(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "disabled")
@@ -4558,14 +4492,71 @@ class TestAuthConfiguration:
         monkeypatch.setenv("GUNICORN_TIMEOUT", "180")
         assert self._reload_gunicorn_config().timeout == 180
 
-    def test_auth_disabled_keeps_write_endpoints_unchanged(self, client):
+    def test_auth_disabled_refuses_admin_writes_by_default(self, client, monkeypatch):
+        """Anyone who can reach the app must not change Nautobot with its token (#188)."""
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
+        writes = [
+            ("post", "/api/criticality-overrides", {"nautobot_device_id": "dev-abc", "is_critical": False}),
+            ("delete", "/api/criticality-overrides/dev-abc", None),
+        ]
+        with auth_config(mode="disabled"):
+            for method, url, body in writes:
+                resp = getattr(client, method)(url, json=body) if body else getattr(client, method)(url)
+                assert resp.status_code == 403, (method, url)
+                assert "ALLOW_UNAUTHENTICATED_WRITES" in resp.get_json()["detail"]
+
+    def test_auth_disabled_keeps_reads_and_cases_open(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
+        with auth_config(mode="disabled"):
+            assert client.get("/api/criticality-overrides").status_code != 403
+            # Adding a case is what the board does; it reaches the handler
+            # (400: nothing to add), not the auth check.
+            assert client.post("/api/alert-cases", json={}).status_code != 403
+
+    @pytest.mark.parametrize(
+        "method, url",
+        [
+            ("get", "/api/roles"),
+            ("post", "/api/roles"),
+            ("delete", "/api/roles/role-1"),
+            ("get", "/api/location-types"),
+            ("post", "/api/location-types"),
+            ("delete", "/api/location-types/lt-1"),
+        ],
+    )
+    def test_nautobot_proxy_endpoints_are_gone(self, client, method, url, monkeypatch):
+        """Changes to Nautobot data are made in Nautobot, not through this app (#188)."""
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+        assert getattr(client, method)(url).status_code in (404, 405)
+
+    def test_the_nautobot_client_cannot_write(self):
+        assert not hasattr(nautobot, "post") and not hasattr(nautobot, "delete")
+
+    def test_allow_unauthenticated_writes_restores_the_old_behaviour(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         with auth_config(mode="disabled"):
             resp = client.post(
                 "/api/criticality-overrides",
                 json={"nautobot_device_id": "dev-abc", "is_critical": False},
                 content_type="application/json",
             )
-        assert resp.status_code == 503
+        assert resp.status_code == 503  # reached the handler: no database here
+
+    def test_require_viewer_protects_every_page_but_healthz(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert client.get("/").status_code == 401
+            assert client.get("/api/alerts").status_code == 401
+            assert client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
+            ok = client.get("/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
+            assert ok.status_code == 200
+            assert client.get("/healthz").status_code in (200, 503)
+
+    def test_require_viewer_is_off_by_default(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", False)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert client.get("/").status_code == 200
 
     def test_missing_identity_header_returns_401(self, client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
@@ -4962,7 +4953,7 @@ class TestHealthz:
     def test_makes_no_upstream_calls(self, client, monkeypatch):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        with patch.object(requests, "get", side_effect=AssertionError("no upstream calls")):
+        with patch.object(requests.Session, "get", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/healthz")
         assert resp.status_code == 200
 
@@ -5138,7 +5129,7 @@ class TestRefreshIsIncremental:
         """Run a synchronous sync and return the params sent to dcim/locations/."""
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             return []
 
@@ -5889,3 +5880,120 @@ class TestAlertFeed:
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
         assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
+
+
+# ---------------------------------------------------------------------------
+# Tests: upstream HTTP retries and connection reuse (#192)
+# ---------------------------------------------------------------------------
+class TestUpstreamRetries:
+    @pytest.fixture
+    def flaky_server(self):
+        """A local HTTP server answering from a script of (status, headers) per request."""
+        import http.server
+
+        script, requests_seen = [], []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _answer(self):
+                requests_seen.append((self.command, self.path))
+                status, headers = script.pop(0) if script else (200, {})
+                body = json.dumps({"results": [{"id": "d1"}], "next": None, "devices": []}).encode()
+                self.send_response(status)
+                for key, value in headers.items():
+                    self.send_header(key, value)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST = do_DELETE = _answer
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        yield f"http://127.0.0.1:{server.server_address[1]}", script, requests_seen
+        server.shutdown()
+
+    @pytest.fixture(autouse=True)
+    def _fast_backoff(self, monkeypatch):
+        from nautobot_maps import http
+
+        monkeypatch.setattr(http, "_local", threading.local())  # a fresh session per test
+        production = _retry_kwargs(http.retry_policy())
+        monkeypatch.setattr(http, "retry_policy", lambda: http.CappedRetry(**{**production, "backoff_factor": 0}))
+
+    def _nautobot(self, monkeypatch, url):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", url)
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+
+    def test_transient_503_is_retried(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        self._nautobot(monkeypatch, url)
+        script.append((503, {}))
+        assert nautobot.fetch_all_pages("dcim/devices/", use_cache=False) == [{"id": "d1"}]
+        assert len(seen) == 2
+
+    def test_gives_up_after_three_retries(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        self._nautobot(monkeypatch, url)
+        script.extend([(502, {})] * 10)
+        with pytest.raises(requests.HTTPError):
+            nautobot.fetch_all_pages("dcim/devices/", use_cache=False)
+        assert len(seen) == 4  # the request and three retries
+
+    def test_client_errors_and_writes_are_not_retried(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        self._nautobot(monkeypatch, url)
+        script.append((404, {}))
+        with pytest.raises(requests.HTTPError):
+            nautobot.get("dcim/devices/x/", use_cache=False)
+        # The app no longer writes to Nautobot (#188), but the session must
+        # never retry a write: it might already have been applied.
+        from nautobot_maps import http
+
+        script.append((503, {}))
+        assert http.session().post(f"{url}/api/extras/roles/", json={"name": "x"}, timeout=5).status_code == 503
+        assert [method for method, _ in seen] == ["GET", "POST"]
+
+    def test_librenms_is_retried_too(self, flaky_server, monkeypatch):
+        url, script, seen = flaky_server
+        monkeypatch.setattr(settings, "LIBRENMS_URL", url)
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
+        script.append((429, {"Retry-After": "0"}))
+        assert librenms.fetch_inventory() == []
+        assert len(seen) == 2
+
+    def test_retry_after_is_capped(self):
+        from nautobot_maps import http
+
+        response = MagicMock()
+        response.headers = {"Retry-After": "3600"}
+        response.getheader = lambda name, default=None: response.headers.get(name, default)
+        assert http.retry_policy().get_retry_after(response) == http.MAX_RETRY_AFTER_SECONDS
+
+    def test_one_session_per_thread(self):
+        from nautobot_maps import http
+
+        other = []
+        thread = threading.Thread(target=lambda: other.append(http.session()))
+        thread.start()
+        thread.join()
+        assert http.session() is http.session()
+        assert other[0] is not http.session()
+
+
+def _retry_kwargs(policy) -> dict:
+    """The production retry settings, so tests only change the backoff."""
+    return {
+        "total": policy.total,
+        "connect": policy.connect,
+        "read": policy.read,
+        "status": policy.status,
+        "status_forcelist": policy.status_forcelist,
+        "allowed_methods": policy.allowed_methods,
+        "respect_retry_after_header": policy.respect_retry_after_header,
+        "raise_on_status": policy.raise_on_status,
+    }

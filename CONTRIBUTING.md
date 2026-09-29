@@ -31,7 +31,8 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    ```bash
    python -m pytest tests/ -v
    ```
-5. **Submit** a pull request against `main` with a clear description of the change.
+5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
+6. **Submit** a pull request against `main` with a clear description of the change.
 
 ### Development Setup
 
@@ -71,11 +72,13 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   `monkeypatch.setattr(settings, "NAME", value)`.
 - `nautobot_maps/db.py`: PostgreSQL connections (`db.get_conn()`, `db.transaction()`), the
   schema and its migrations (`db.init_db()`), and small SQL helpers.
-- `nautobot_maps/nautobot.py`: the Nautobot REST client (`nautobot.get()`, `nautobot.post()`,
-  `nautobot.delete()`, `nautobot.fetch_all_pages()`) and the id → name lookup maps.
+- `nautobot_maps/nautobot.py`: the Nautobot REST client, **read-only** (`nautobot.get()`,
+  `nautobot.fetch_all_pages()`), and the id → name lookup maps. The app never writes to Nautobot:
+  Nautobot is the source of truth, and changes to its data are made there.
 - `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
   `librenms.fetch_inventory()`).
 - `nautobot_maps/caching.py`: the shared response cache (Flask-Caching).
+- `nautobot_maps/http.py`: the HTTP session both clients use (one per thread, connections reused), with retries and backoff for transient upstream errors.
 - `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,
   sync state, and `inventory.ensure_snapshot()` / `inventory.get_locations()`.
 - `nautobot_maps/alerts.py`: the alert logic — severity scoring (`alerts.compute_alert_level()`),

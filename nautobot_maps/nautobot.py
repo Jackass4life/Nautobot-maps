@@ -6,11 +6,10 @@ with ``monkeypatch.setattr(nautobot, "fetch_all_pages", ...)``.
 
 import logging
 
-import requests
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 
-from nautobot_maps import caching, settings
+from nautobot_maps import caching, http, settings
 
 logger = logging.getLogger(__name__)
 
@@ -130,14 +129,20 @@ def tenant_group_map() -> dict:
         return {}
 
 
-def get(endpoint: str, params: dict | None = None) -> dict:
-    """Perform a GET request against the Nautobot REST API."""
+def get(endpoint: str, params: dict | None = None, *, use_cache: bool = True) -> dict:
+    """Perform a GET request against the Nautobot REST API.
+
+    Responses are cached for ``CACHE_TTL`` unless *use_cache* is false.  The
+    inventory sync must not use the cache: it would be served the pages of a
+    previous sync and miss changes (#185).
+    """
     if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
     cache_key = f"{endpoint}:{params}"
-    cached = caching.get(cache_key)
-    if cached is not None:
-        return cached
+    if use_cache:
+        cached = caching.get(cache_key)
+        if cached is not None:
+            return cached
 
     accept = "application/json"
     if settings.NAUTOBOT_API_VERSION:
@@ -148,50 +153,18 @@ def get(endpoint: str, params: dict | None = None) -> dict:
         "Accept": accept,
     }
     url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.get(url, headers=headers, params=params, timeout=(5, 30), verify=settings.NAUTOBOT_VERIFY_SSL)
+    response = http.session().get(
+        url, headers=headers, params=params, timeout=(5, 30), verify=settings.NAUTOBOT_VERIFY_SSL
+    )
     response.raise_for_status()
     data = response.json()
-    caching.set(cache_key, data)
+    if use_cache:
+        caching.set(cache_key, data)
     return data
 
 
-def post(endpoint: str, payload: dict) -> dict:
-    """Perform a POST request against the Nautobot REST API."""
-    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
-    accept = "application/json"
-    if settings.NAUTOBOT_API_VERSION:
-        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
-    headers = {
-        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": accept,
-    }
-    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.post(url, headers=headers, json=payload, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
-    response.raise_for_status()
-    return response.json()
-
-
-def delete(endpoint: str) -> None:
-    """Perform a DELETE request against the Nautobot REST API."""
-    if not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        raise RuntimeError("NAUTOBOT_URL and NAUTOBOT_TOKEN must be set in environment variables.")
-    accept = "application/json"
-    if settings.NAUTOBOT_API_VERSION:
-        accept += f"; version={settings.NAUTOBOT_API_VERSION}"
-    headers = {
-        "Authorization": f"Token {settings.NAUTOBOT_TOKEN}",
-        "Content-Type": "application/json",
-        "Accept": accept,
-    }
-    url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.delete(url, headers=headers, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
-    response.raise_for_status()
-
-
-def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
-    """Fetch all paginated results from a Nautobot API endpoint."""
+def fetch_all_pages(endpoint: str, params: dict | None = None, *, use_cache: bool = True) -> list:
+    """Fetch all paginated results from a Nautobot API endpoint (see ``get`` for *use_cache*)."""
     params = dict(params or {})
     params.setdefault("limit", 1000)
     params.setdefault("depth", 0)
@@ -199,7 +172,7 @@ def fetch_all_pages(endpoint: str, params: dict | None = None) -> list:
     offset = 0
     while True:
         params["offset"] = offset
-        data = get(endpoint, params)
+        data = get(endpoint, params, use_cache=use_cache)
         results.extend(data.get("results", []))
         if not data.get("next"):
             break
