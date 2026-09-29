@@ -13,7 +13,7 @@ from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import alerts, auth, caching, db, inventory, settings, timeutil
+from nautobot_maps import alerts, auth, caching, db, inventory, metrics, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,9 @@ def healthz():
     ``"status": "unavailable"``.  Error details are logged, never returned.
     """
     checks = {"app": "ok"}
+    # Informational, never a failure: restarting the app can't fix a sync
+    # that fails upstream, but monitoring can alert on its age (#200).
+    sync_age = None
     if db.dialect():
         conn = None
         try:
@@ -144,6 +147,7 @@ def healthz():
             conn = db.get_conn(connect_timeout=2)
             conn.execute("SELECT 1").fetchone()
             checks["database"] = "ok"
+            sync_age = metrics.inventory_sync_age_seconds(conn)
         except Exception as exc:
             logger.warning("Health check: database unavailable: %s", exc)
             checks["database"] = "unavailable"
@@ -152,9 +156,34 @@ def healthz():
                 conn.close()
     healthy = all(value == "ok" for value in checks.values())
     return (
-        jsonify({"status": "ok" if healthy else "unavailable", "checks": checks}),
+        jsonify(
+            {
+                "status": "ok" if healthy else "unavailable",
+                "checks": checks,
+                "inventory_sync_age_seconds": sync_age,
+            }
+        ),
         200 if healthy else 503,
     )
+
+
+@bp.route("/metrics")
+def prometheus_metrics():
+    """Prometheus metrics: sync health, open alerts, sites by level (#200)."""
+    if not settings.METRICS_ENABLED:
+        return jsonify({"error": "Not found"}), 404
+    conn = None
+    try:
+        if db.dialect():
+            conn = db.get_conn()
+        body = metrics.collect(conn)
+    except Exception as exc:
+        logger.warning("Metrics: database unavailable: %s", exc)
+        body = metrics.collect(None)
+    finally:
+        if conn is not None:
+            conn.close()
+    return body, 200, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"}
 
 
 @bp.route("/alerts")

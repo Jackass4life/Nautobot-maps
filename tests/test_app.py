@@ -2984,7 +2984,9 @@ class TestAlertLifecycleTracking:
             db.init_db()
 
         reset_query, reset_params = next(
-            (query, params) for query, params in fake_conn.queries if "UPDATE inventory_sync_state" in query
+            (query, params)
+            for query, params in fake_conn.queries
+            if query.strip().startswith("UPDATE inventory_sync_state")
         )
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
@@ -3063,7 +3065,9 @@ class TestAlertLifecycleTracking:
             "ALTER TABLE inventory_sync_state ADD COLUMN cache_version" in query for query, _ in fake_conn.queries
         )
         reset_query, reset_params = next(
-            (query, params) for query, params in fake_conn.queries if "UPDATE inventory_sync_state" in query
+            (query, params)
+            for query, params in fake_conn.queries
+            if query.strip().startswith("UPDATE inventory_sync_state")
         )
         assert "status = 'pending'" in reset_query
         assert reset_params == ("nautobot_inventory",)
@@ -4547,7 +4551,7 @@ class TestAuthConfiguration:
             )
         assert resp.status_code == 503  # reached the handler: no database here
 
-    def test_require_viewer_protects_every_page_but_healthz(self, client, monkeypatch):
+    def test_require_viewer_protects_every_page_but_probes(self, client, monkeypatch):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/").status_code == 401
@@ -4556,6 +4560,7 @@ class TestAuthConfiguration:
             ok = client.get("/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
             assert ok.status_code == 200
             assert client.get("/healthz").status_code in (200, 503)
+            assert client.get("/metrics").status_code == 200
 
     def test_require_viewer_is_off_by_default(self, client, monkeypatch):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", False)
@@ -4937,7 +4942,7 @@ class TestHealthz:
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         resp = client.get("/healthz")
         assert resp.status_code == 200
-        assert resp.get_json() == {"status": "ok", "checks": {"app": "ok"}}
+        assert resp.get_json() == {"status": "ok", "checks": {"app": "ok"}, "inventory_sync_age_seconds": None}
 
     def test_ok_with_reachable_database(self, client, monkeypatch, pg_database):
         resp = client.get("/healthz")
@@ -4952,6 +4957,7 @@ class TestHealthz:
         assert resp.get_json() == {
             "status": "unavailable",
             "checks": {"app": "ok", "database": "unavailable"},
+            "inventory_sync_age_seconds": None,
         }
 
     def test_makes_no_upstream_calls(self, client, monkeypatch):
@@ -5969,6 +5975,95 @@ class TestHistoryRetention:
 
 
 # ---------------------------------------------------------------------------
+# Tests: Prometheus metrics and sync age (#200)
+# ---------------------------------------------------------------------------
+class TestMetrics:
+    def _record(self, status, started, completed):
+        conn = db.get_conn()
+        with conn:
+            inventory.record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_started_at=started,
+                last_completed_at=completed,
+                last_successful_sync="2026-09-01T00:00:00+00:00",
+                status=status,
+            )
+        conn.close()
+
+    @staticmethod
+    def _value(body: str, sample: str) -> float:
+        line = next(line for line in body.splitlines() if line.startswith(sample + " "))
+        return float(line.rsplit(" ", 1)[1])
+
+    def test_last_success_survives_a_failure(self, pg_database, client):
+        self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
+        self._record("running", "2026-09-29T10:05:00+00:00", None)
+        self._record("error", "2026-09-29T10:05:00+00:00", "2026-09-29T10:05:10+00:00")
+        body = client.get("/metrics").get_data(as_text=True)
+        src = '{source="nautobot_inventory"}'
+        success = datetime(2026, 9, 29, 10, 0, 30, tzinfo=UTC).timestamp()
+        assert self._value(body, "nautobot_maps_sync_last_success_timestamp_seconds" + src) == success
+        assert self._value(body, "nautobot_maps_sync_failing" + src) == 1
+        assert self._value(body, "nautobot_maps_sync_last_duration_seconds" + src) == 10
+
+    def test_alert_and_site_counts(self, pg_database, client):
+        alerts.upsert_alert_lifecycle_for_site(
+            {"id": "loc-1", "name": "Site One"},
+            [{"id": "d1", "name": "sw1", "status": "offline"}, {"id": "d2", "name": "sw2", "status": "offline"}],
+            {"level": "critical", "reason": "all down"},
+            timeutil.iso_utc_now(),
+        )
+        alerts.record_site_level_changes({"s1": ("One", "ok"), "s2": ("Two", "ok"), "s3": ("Three", "low")}, "now")
+        resp = client.get("/metrics")
+        assert resp.headers["Content-Type"].startswith("text/plain; version=0.0.4")
+        body = resp.get_data(as_text=True)
+        assert self._value(body, 'nautobot_maps_open_alerts{level="critical"}') == 2
+        assert self._value(body, 'nautobot_maps_sites{level="ok"}') == 2
+        assert self._value(body, "nautobot_maps_database_up") == 1
+        assert "# TYPE nautobot_maps_sites gauge" in body
+
+    def test_without_database(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        body = client.get("/metrics").get_data(as_text=True)
+        assert self._value(body, "nautobot_maps_up") == 1 and self._value(body, "nautobot_maps_database_up") == 0
+
+    def test_can_be_turned_off(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "METRICS_ENABLED", False)
+        assert client.get("/metrics").status_code == 404
+
+    def test_label_values_are_escaped(self):
+        from nautobot_maps import metrics
+
+        out = metrics.Exposition()
+        out.gauge("m", "h", [({"level": 'a"b\\c\nd'}, 1)])
+        assert 'm{level="a\\"b\\\\c\\nd"} 1' in out.render()
+
+    def test_healthz_reports_sync_age_without_failing(self, pg_database, client):
+        assert client.get("/healthz").get_json()["inventory_sync_age_seconds"] is None  # never synced
+        self._record("idle", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:10+00:00")
+        resp = client.get("/healthz")
+        assert resp.status_code == 200  # an old sync is not a liveness failure
+        assert resp.get_json()["inventory_sync_age_seconds"] > 365 * 24 * 3600
+
+    def test_migration_backfills_last_success(self, pg_database):
+        self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
+        # A database at version 1, from before step 2 (#201).
+        pg_database.execute("ALTER TABLE inventory_sync_state DROP COLUMN last_succeeded_at")
+        pg_database.execute("DELETE FROM schema_migrations WHERE version >= 2")
+        db.init_db()
+        rows = pg_database.execute("SELECT last_succeeded_at FROM inventory_sync_state")
+        assert db.serialize_value(rows[0]["last_succeeded_at"]) == "2026-09-29T10:00:30Z"
+
+    def test_timestamps_keep_full_precision(self):
+        from nautobot_maps import metrics
+
+        out = metrics.Exposition()
+        out.gauge("t", "h", [({}, 1790676030.0), ({"x": "1"}, 0.25)])
+        assert "t 1790676030\n" in out.render() and 't{x="1"} 0.25' in out.render()
+
+
+# ---------------------------------------------------------------------------
 # Tests: versioned schema migrations (#201)
 # ---------------------------------------------------------------------------
 # sha256 of db.baseline_schema's source.  The baseline is frozen: a schema
@@ -5982,7 +6077,8 @@ class TestSchemaMigrations:
         return [row["version"] for row in db_.execute("SELECT version FROM schema_migrations ORDER BY version")]
 
     def test_fresh_database_is_at_the_current_version(self, pg_database):
-        assert self._versions(pg_database) == [1] == [db.SCHEMA_VERSION]
+        assert self._versions(pg_database) == [version for version, _, _ in db.MIGRATIONS]
+        assert self._versions(pg_database)[-1] == db.SCHEMA_VERSION
 
     def test_database_from_before_versioning_is_recorded_as_baseline(self, pg_database):
         pg_database.execute("DROP TABLE schema_migrations")
@@ -5990,25 +6086,27 @@ class TestSchemaMigrations:
             "INSERT INTO device_criticality_override (nautobot_device_id, is_critical) VALUES ('d1', 1)"
         )
         db.init_db()
-        assert self._versions(pg_database) == [1]
+        # Recorded as the baseline, then the later steps run.
+        assert self._versions(pg_database) == [version for version, _, _ in db.MIGRATIONS]
         assert pg_database.execute("SELECT count(*) AS n FROM device_criticality_override") == [{"n": 1}]
 
     def test_current_database_skips_the_migrations(self, pg_database, monkeypatch):
         def boom(conn):
             raise AssertionError("a current database must not run migrations")
 
-        monkeypatch.setattr(db, "MIGRATIONS", ((1, "baseline schema", boom),))
+        monkeypatch.setattr(db, "MIGRATIONS", tuple((version, name, boom) for version, name, _ in db.MIGRATIONS))
         db.init_db()
 
     def test_a_new_step_runs_once(self, pg_database, monkeypatch):
         def add_table(conn):
             conn.execute("CREATE TABLE migration_probe (id INTEGER)")
 
-        monkeypatch.setattr(db, "MIGRATIONS", (*db.MIGRATIONS, (2, "probe table", add_table)))
-        monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
+        probe = db.SCHEMA_VERSION + 1
+        monkeypatch.setattr(db, "MIGRATIONS", (*db.MIGRATIONS, (probe, "probe table", add_table)))
+        monkeypatch.setattr(db, "SCHEMA_VERSION", probe)
         db.init_db()
         db.init_db()  # would fail with "relation already exists" if run twice
-        assert self._versions(pg_database) == [1, 2]
+        assert self._versions(pg_database)[-2:] == [probe - 1, probe]
 
     def test_newer_database_is_refused(self, pg_database):
         pg_database.execute("INSERT INTO schema_migrations (version, name) VALUES (99, 'from the future')")
@@ -6033,7 +6131,8 @@ class TestSchemaMigrations:
 
         repo_root = pathlib.Path(__file__).resolve().parent.parent
         env = {**os.environ, "NAUTOBOT_MAPS_DATABASE_URL": pg_database.url}
-        for command, expected in (("migrate", ""), ("schema-version", "database: 1, this release: 1")):
+        current = f"database: {db.SCHEMA_VERSION}, this release: {db.SCHEMA_VERSION}"
+        for command, expected in (("migrate", ""), ("schema-version", current)):
             completed = subprocess.run(
                 [sys.executable, "-m", "nautobot_maps", command],
                 cwd=repo_root,
@@ -6065,8 +6164,9 @@ class TestDatabaseTimeouts:
         """init_db waits for other workers' migrations; that wait must not time out."""
         monkeypatch.setattr(settings, "DB_STATEMENT_TIMEOUT_SECONDS", 1)
         # A pending step, so init_db has to take the migration lock (#201).
-        monkeypatch.setattr(db, "MIGRATIONS", (*db.MIGRATIONS, (2, "no-op", lambda conn: None)))
-        monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
+        pending = db.SCHEMA_VERSION + 1
+        monkeypatch.setattr(db, "MIGRATIONS", (*db.MIGRATIONS, (pending, "no-op", lambda conn: None)))
+        monkeypatch.setattr(db, "SCHEMA_VERSION", pending)
         holder = db.get_conn()
         try:
             holder.execute("SELECT pg_advisory_lock(%s)", (db.MIGRATION_LOCK_KEY,))
@@ -6078,7 +6178,7 @@ class TestDatabaseTimeouts:
             released.join()
         finally:
             holder.close()
-        assert pg_database.execute("SELECT max(version) AS v FROM schema_migrations")[0]["v"] == 2
+        assert pg_database.execute("SELECT max(version) AS v FROM schema_migrations")[0]["v"] == pending
 
     def test_unreachable_database_fails_fast(self, monkeypatch):
         import psycopg

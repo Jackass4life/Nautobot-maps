@@ -162,8 +162,10 @@ def require_role(required_role: str, open_when_disabled: bool = False):
     return decorator
 
 
-# Reachable without the viewer role even with AUTH_REQUIRE_VIEWER (probes).
-PUBLIC_PATHS = {"/healthz"}
+# Reachable without the viewer role even with AUTH_REQUIRE_VIEWER: probes and
+# Prometheus scrapes send no identity headers.  /metrics has only counts,
+# no site or device names (#200).
+PUBLIC_PATHS = {"/healthz", "/metrics"}
 
 
 def check_viewer():
