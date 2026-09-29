@@ -156,6 +156,12 @@ services:
 - Ports are `host:container`: the app inside the container keeps listening on 5000.
 - Check the merged result with `docker compose config`.
 
+## Database migrations
+
+The container runs `python -m nautobot_maps migrate` before starting the app: each schema change is applied once and recorded in `schema_migrations`, so the app's workers start without migrating. `python -m nautobot_maps schema-version` shows the database's version and the one the release expects (`docker compose exec nautobot-maps python -m nautobot_maps schema-version`).
+
+Rolling back to an older release after its database was migrated is refused at startup ("The database schema is version N, newer than this release…"): run the release the database was migrated with, or restore a backup taken before the upgrade.
+
 ## Demo (Mock Nautobot)
 
 No Nautobot instance? Spin up a fully self-contained demo using the mock
