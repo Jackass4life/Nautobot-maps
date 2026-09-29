@@ -61,7 +61,7 @@ python app.py
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `NAUTOBOT_URL` | ✅ | — | Base URL of your Nautobot instance, e.g. `https://nautobot.example.com` (validated at startup) |
-| `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token |
+| `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token; read-only is enough (the app never writes to Nautobot) |
 | `NAUTOBOT_API_VERSION` | ❌ | *(server default)* | Pin a specific Nautobot REST API version (e.g. `2.0`, `3.0`). Leave empty to use the server's default. |
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
 | `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
@@ -88,18 +88,21 @@ python app.py
 | `AUTH_VIEWER_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `viewer` role |
 | `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
+| `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz`) needs at least the `viewer` role |
+| `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow changing criticality overrides without authentication (logged as a warning at startup). Off: they return 403 |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
 | `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
-| `LIBRENMS_VERIFY_SSL` | ❌ | `true` | LibreNMS TLS verification toggle: set `false`/`no`/`0` to skip certificate verification |
+| `LIBRENMS_VERIFY_SSL` | ❌ | `true` | SSL certificate verification for LibreNMS: `true`, `false`, or a path to a custom CA bundle (e.g. an internal CA) |
 | `FLASK_DEBUG` | ❌ | `false` | Set `true` to enable Flask debug mode |
 | `FLASK_RUN_PORT` | ❌ | `5000` | Port for the development server (useful if 5000 is taken, e.g. by macOS AirPlay Receiver) |
 
 ### LibreNMS integration settings
 
 Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to enable optional LibreNMS enrichment.
-`LIBRENMS_VERIFY_SSL` defaults to `true`; set it to `false`/`no`/`0` only when you
-explicitly accept the TLS trust tradeoff (for example, an internal CA not in the trust
-store). Prefer using a trusted CA bundle (for example via `REQUESTS_CA_BUNDLE`) when possible.
+`LIBRENMS_VERIFY_SSL` defaults to `true`. For a LibreNMS signed by an internal CA, mount the CA
+certificate into the container and point the setting at it (e.g. `LIBRENMS_VERIFY_SSL=/certs/internal-ca.pem`);
+`false` skips verification entirely and should be a last resort, since the API token travels over that
+connection. A path that doesn't exist is logged as an error at startup.
 
 Each LibreNMS sync also caches the address LibreNMS polls for every device (`overwrite_ip` if set, otherwise `ip`). The alert board shows it as the device IP when Nautobot has no primary IP for that device.
 
@@ -181,31 +184,27 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/api/alert-feed` | What changed on the alert board, newest first: devices going down (`down`, with `down_since`) and back up (`up`), and site severity changes (`severity`, with `from_level`/`to_level`). `?limit=` (default 100, max 500), `?since=` (ISO-8601, only newer entries), `?kinds=down,up,severity` (default all). A site's first build is not a change. Needs the database (`persistence_configured: false` otherwise) |
 | `GET` | `/api/alert-history` | Historical alert incidents/events/cases (filter by `site_id`, `device_id`, `start_at`, `end_at`) *(operator when auth enabled)* |
 | `POST` | `/api/alert-cases` | Attach a case number to the active alerts of one or more devices at a site: `{"site_id", "case_number", "device_ids": [...]}` (single `device_id` also accepted). All-or-nothing: 404 with `missing_device_ids` if any device has no open alert *(operator when auth enabled)* |
-| `GET` | `/api/roles` | List Nautobot roles |
-| `POST` | `/api/roles` | Create a Nautobot role *(admin when auth enabled)* |
-| `DELETE` | `/api/roles/<role_id>` | Delete a Nautobot role *(admin when auth enabled)* |
-| `GET` | `/api/location-types` | List Nautobot location types |
-| `POST` | `/api/location-types` | Create a Nautobot location type *(admin when auth enabled)* |
-| `DELETE` | `/api/location-types/<lt_id>` | Delete a Nautobot location type *(admin when auth enabled)* |
+
+The API serves this app only. Nautobot is the source of truth: the app never creates, changes or deletes anything in Nautobot (sites, devices, roles, location types…); make those changes in Nautobot itself. `NAUTOBOT_TOKEN` therefore only needs **read** permission.
 
 ## Optional Authentication / RBAC
 
-By default, Nautobot Maps stays public and behaves exactly as before:
+By default (`AUTH_MODE=disabled`):
 
-- `AUTH_MODE=disabled`
-- map, alerts, and read-only APIs remain public
-- administrative API routes continue to work without authentication
+- the map, the alert board and the read-only APIs are public
+- adding a case number to an alert works (the board needs it)
+- **changing criticality overrides is refused** (403): it changes which devices count as critical, for everyone. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
 
-To protect only administrative actions, set `AUTH_MODE=header` and place the app
+To protect administrative actions with real identities, set `AUTH_MODE=header` and place the app
 behind a trusted reverse proxy or SSO gateway that injects identity headers.
 This works well with OIDC or SAML providers when the proxy handles the login
 flow and forwards the authenticated username/groups to Nautobot Maps.
 
 ### Roles
 
-- `viewer` — reserved for future read-only admin features
-- `operator` — can manage `/api/criticality-overrides`
-- `admin` — can also create/delete Nautobot roles and location types
+- `viewer` — can open the map, the board and the read APIs when `AUTH_REQUIRE_VIEWER=true` (otherwise they are public)
+- `operator` — can manage `/api/criticality-overrides`, view alert history and add cases
+- `admin` — everything an operator can (reserved for future administrative features)
 
 ### Example header-based SSO configuration
 

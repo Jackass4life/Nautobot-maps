@@ -76,15 +76,33 @@ def get_current_user() -> dict:
     return current
 
 
-def require_role(required_role: str):
-    """Allow access when auth is disabled or the current user meets *required_role*."""
+def disabled_mode_allows(method: str, open_when_disabled: bool) -> bool:
+    """Whether a protected route runs with AUTH_MODE=disabled (#188).
+
+    Reads and the routes the board itself uses (*open_when_disabled*, e.g.
+    adding a case) always do; administrative writes only with
+    ALLOW_UNAUTHENTICATED_WRITES.
+    """
+    return method in ("GET", "HEAD", "OPTIONS") or open_when_disabled or settings.ALLOW_UNAUTHENTICATED_WRITES
+
+
+def require_role(required_role: str, open_when_disabled: bool = False):
+    """Require *required_role*; see ``disabled_mode_allows`` for AUTH_MODE=disabled."""
     normalized_required_role = normalize_role(required_role)
 
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             if settings.AUTH_MODE == "disabled":
-                return func(*args, **kwargs)
+                if disabled_mode_allows(request.method, open_when_disabled):
+                    return func(*args, **kwargs)
+                return jsonify(
+                    {
+                        "error": "Authentication required for this change",
+                        "detail": "Set AUTH_MODE=header behind an authenticating proxy, "
+                        "or ALLOW_UNAUTHENTICATED_WRITES=true to allow it without authentication.",
+                    }
+                ), 403
             if not is_config_valid():
                 return jsonify({"error": "Unsupported AUTH_MODE configuration"}), 503
 
@@ -104,3 +122,21 @@ def require_role(required_role: str):
         return wrapper
 
     return decorator
+
+
+# Reachable without the viewer role even with AUTH_REQUIRE_VIEWER (probes).
+PUBLIC_PATHS = {"/healthz"}
+
+
+def check_viewer():
+    """``before_request`` hook: with AUTH_REQUIRE_VIEWER in header mode, every
+    page and API needs at least the viewer role (#188).  Returns a response
+    to stop the request, or None."""
+    if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER or request.path in PUBLIC_PATHS:
+        return None
+    current_user = get_current_user()
+    if not current_user["is_authenticated"]:
+        return jsonify({"error": "Authentication required"}), 401
+    if role_level(current_user["role"]) < role_level("viewer"):
+        return jsonify({"error": "Insufficient permissions", "required_role": "viewer"}), 403
+    return None
