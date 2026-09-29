@@ -678,10 +678,11 @@ def sync_nautobot(force: bool = False) -> None:
         params = {}
         if last_successful_sync and not full_reconcile:
             params["last_updated__gte"] = last_successful_sync
-        raw_locations = nautobot.fetch_all_pages("dcim/locations/", params or None)
+        # Straight from Nautobot, never the response cache (#185).
+        raw_locations = nautobot.fetch_all_pages("dcim/locations/", params or None, use_cache=False)
         device_params = dict(params)
         device_params["depth"] = 1
-        raw_devices = nautobot.fetch_all_pages("dcim/devices/", device_params or None)
+        raw_devices = nautobot.fetch_all_pages("dcim/devices/", device_params or None, use_cache=False)
         if full_reconcile:
             existing_counts = conn.execute(
                 """
