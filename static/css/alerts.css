@@ -234,6 +234,25 @@ html, body {
   margin: 0;
 }
 
+/* All sites / Alarms only (#232). */
+.site-scope {
+  display: inline-flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.scope-chip:has(input:checked) {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.scope-chip:has(input:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .quick-filter-btn.active {
   background: var(--color-primary);
   border-color: var(--color-primary);

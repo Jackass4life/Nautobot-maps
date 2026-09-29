@@ -61,6 +61,17 @@
         <button class="secondary-filter-btn" type="button" id="clear-alert-filters">Reset</button>
       </div>
       <div class="tree-controls" role="group" aria-label="Alert tree controls">
+        <fieldset class="site-scope">
+          <legend class="visually-hidden">Sites to show</legend>
+          <label class="toggle-chip scope-chip">
+            <input type="radio" name="site-scope" value="all" checked />
+            <span>All sites</span>
+          </label>
+          <label class="toggle-chip scope-chip">
+            <input type="radio" name="site-scope" value="alarms" />
+            <span>Alarms only</span>
+          </label>
+        </fieldset>
         <label class="toggle-chip" for="toggle-non-operational">
           <input id="toggle-non-operational" type="checkbox" />
           <span>Show non-operational sites</span>
