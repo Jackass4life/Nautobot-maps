@@ -1681,15 +1681,26 @@ class TestSSLVerification:
         """Both upstreams accept true/false or a CA bundle path (#191)."""
         assert settings._verify_ssl(value) == expected
 
-    def test_librenms_accepts_a_ca_bundle_path(self, monkeypatch):
-        """A path used to be read as a yes/no flag and silently became True (#191)."""
-        monkeypatch.setenv("LIBRENMS_VERIFY_SSL", "/certs/internal-ca.pem")
-        reloaded = importlib.reload(settings)
-        try:
-            assert reloaded.LIBRENMS_VERIFY_SSL == "/certs/internal-ca.pem"
-        finally:
-            monkeypatch.delenv("LIBRENMS_VERIFY_SSL")
-            importlib.reload(settings)
+    def test_librenms_accepts_a_ca_bundle_path(self):
+        """A path used to be read as a yes/no flag and silently became True (#191).
+
+        Checked in a fresh process: reloading the settings module here would
+        reset settings that other tests rely on.
+        """
+        import os
+        import subprocess
+        import sys
+
+        completed = subprocess.run(
+            [sys.executable, "-c", "from nautobot_maps import settings; print(settings.LIBRENMS_VERIFY_SSL)"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env={**os.environ, "LIBRENMS_VERIFY_SSL": "/certs/internal-ca.pem"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert completed.stdout.strip() == "/certs/internal-ca.pem"
 
     def test_missing_ca_bundle_is_logged_at_startup(self, monkeypatch, caplog):
         monkeypatch.setattr(settings, "LIBRENMS_VERIFY_SSL", "/nonexistent/ca.pem")
