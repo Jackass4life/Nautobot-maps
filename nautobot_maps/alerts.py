@@ -1640,6 +1640,66 @@ def get_alert_board_data(
     )
 
 
+LOCATION_ALERTS_CACHE_KEY = "location-alert-levels:v1"
+
+
+def build_location_alert_levels() -> dict:
+    """Score every mapped location from the inventory snapshot (#234).
+
+    The same scoring as the map's site panel (``get_location_detail``): each
+    location's own devices, criticality overrides and the LibreNMS status,
+    read for all locations at once.  Makes no upstream calls.  Only
+    locations with an alert (critical, medium, low) are returned.
+    """
+    locations = inventory.get_locations(snapshot_only=True)
+    devices_by_location: dict[str, list] = {}
+    override_map: dict = {}
+    conn = db.get_conn()
+    if conn is not None:
+        try:
+            for device in inventory.read_devices(conn=conn):
+                devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
+            override_map = read_criticality_overrides(conn)
+        finally:
+            conn.close()
+    lnms_devices = None
+    lnms_id_map = None
+    if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
+        lnms_devices = inventory.read_librenms_devices()
+        lnms_id_map = load_librenms_id_map()
+
+    levels = {}
+    for loc in locations:
+        location_id = loc.get("id") or ""
+        devices = devices_by_location.get(location_id)
+        if not location_id or not devices:
+            continue
+        _, alert = get_location_devices_and_alert(
+            location_id,
+            loc.get("location_type") or None,
+            devices_data=devices,
+            devices_already_normalized=True,
+            lnms_devices=lnms_devices,
+            lnms_id_map=lnms_id_map,
+            snapshot_only=True,
+            override_map=override_map,
+        )
+        if alert["level"] in ALERT_LEVELS_NON_OK:
+            levels[location_id] = {"level": alert["level"], "reason": alert.get("reason", "")}
+    return {"checked_at": timeutil.iso_utc_now(), "levels": levels}
+
+
+def get_location_alert_levels() -> dict:
+    """``build_location_alert_levels``, cached like the alert board (``CACHE_TTL``)."""
+    cached = caching.get(LOCATION_ALERTS_CACHE_KEY)
+    if cached is not None:
+        return cached
+    payload = build_location_alert_levels()
+    if payload["levels"] or inventory.snapshot_initialized():
+        caching.set(LOCATION_ALERTS_CACHE_KEY, payload, timeout=settings.CACHE_TTL)
+    return payload
+
+
 def location_field_asns(location_id: str) -> list:
     """Return the ASN stored directly on a location as an ASN-list entry.
 
@@ -1659,7 +1719,7 @@ def location_field_asns(location_id: str) -> list:
 
 
 def get_location_detail(location_id: str, location_type: str | None = None) -> dict:
-    """Fetch detailed info (devices, prefixes, ASNs) for a single location.
+    """Fetch detailed info (devices, ASNs, circuits) for a single location.
 
     Upstream failures raise so the caller can report them.  The one exception
     is a 404 from ``ipam/asns/``: that endpoint does not exist on Nautobot 3.x
@@ -1681,4 +1741,68 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             }
             for a in asns_data
         ]
-    return {"devices": devices, "alert": alert, "asns": asns}
+    circuits, circuits_error = location_circuits(location_id)
+    return {
+        "devices": devices,
+        "alert": alert,
+        "asns": asns,
+        "circuits": circuits,
+        "circuits_error": circuits_error,
+    }
+
+
+def circuit_speed(kbps) -> str:
+    """Nautobot circuit speeds are in Kbps; show them as ``10 Gbps`` / ``500 Mbps``."""
+    try:
+        value = int(kbps)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    for unit, size in (("Tbps", 1_000_000_000), ("Gbps", 1_000_000), ("Mbps", 1_000)):
+        if value >= size:
+            amount = value / size
+            return f"{amount:g} {unit}" if amount == int(amount) else f"{amount:.1f} {unit}"
+    return f"{value} Kbps"
+
+
+def location_circuits(location_id: str) -> tuple[list[dict], str]:
+    """Return ``(circuits, error)``: every circuit termination at *location_id* (#235).
+
+    Circuits are optional: a failed call gives an empty list and an error
+    message, so the rest of the site panel still loads.  A 404 means Nautobot
+    has no circuits app; that is not an error.
+    """
+    try:
+        terminations = nautobot.fetch_all_pages("circuits/circuit-terminations/", {"location": location_id, "depth": 2})
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return [], ""
+        logger.warning("Could not fetch circuits for location %s: %s", location_id, exc)
+        return [], "Circuit information unavailable"
+    except Exception as exc:
+        logger.warning("Could not fetch circuits for location %s: %s", location_id, exc)
+        return [], "Circuit information unavailable"
+
+    circuits = []
+    for term in terminations:
+        circuit = term.get("circuit") if isinstance(term.get("circuit"), dict) else {}
+        circuits.append(
+            {
+                "id": circuit.get("id") or "",
+                "cid": circuit.get("cid") or nautobot.nested_str(circuit, "display") or "Unnamed circuit",
+                "provider": nautobot.nested_str(circuit.get("provider"), "name", "display"),
+                "circuit_type": nautobot.nested_str(circuit.get("circuit_type"), "name", "display"),
+                "status": nautobot.nested_str(circuit.get("status"), "name", "label", "display"),
+                "tenant": nautobot.nested_str(circuit.get("tenant"), "name", "display"),
+                "commit_rate": circuit_speed(circuit.get("commit_rate")),
+                "term_side": term.get("term_side") or "",
+                "port_speed": circuit_speed(term.get("port_speed")),
+                "upstream_speed": circuit_speed(term.get("upstream_speed")),
+                "xconnect_id": term.get("xconnect_id") or "",
+                "pp_info": term.get("pp_info") or "",
+                "description": term.get("description") or circuit.get("description") or "",
+            }
+        )
+    circuits.sort(key=lambda item: (item["cid"].lower(), item["term_side"]))
+    return circuits, ""

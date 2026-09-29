@@ -52,6 +52,20 @@ const ICONS = {
 // "ok" and "no_data" are not alerts (#124).
 const ALERT_RANK = { low: 1, medium: 2, critical: 3 };
 
+// Worst alert level among *locIds*, or "ok".
+function worstAlertLevel(locIds) {
+  return locIds.reduce((highest, id) => {
+    const level = locationAlerts[id] || "ok";
+    return (ALERT_RANK[level] || 0) > (ALERT_RANK[highest] || 0) ? level : highest;
+  }, "ok");
+}
+
+// A marker shows its alert level when it has one, else its Nautobot status (#234).
+function iconForLocation(loc) {
+  const level = locationAlerts[loc.id];
+  return ALERT_RANK[level] ? ICONS[level] : iconForStatus(loc.status);
+}
+
 function iconForStatus(status) {
   const s = (status || "").toLowerCase();
   if (s === "active") return ICONS.active;
@@ -103,6 +117,41 @@ function deviceFilterLabel(filterKey) {
 function buildNautobotLink(loc) {
   if (!NAUTOBOT_URL || !loc.id) return "";
   return `<a class="nautobot-link" href="${escHtml(NAUTOBOT_URL)}/dcim/locations/${encodeURIComponent(loc.id)}/" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`;
+}
+
+function deviceStatusClass(status) {
+  const health = normalizeDeviceHealth(status);
+  if (health === "active") return "device-status-active";
+  if (health === "down") return "device-status-offline";
+  return "device-status-other";
+}
+
+// One card per circuit termination at the site (#235).
+function buildCircuitCard(circuit) {
+  const title = NAUTOBOT_URL && circuit.id
+    ? `<a class="circuit-link" href="${escHtml(NAUTOBOT_URL)}/circuits/circuits/${encodeURIComponent(circuit.id)}/" target="_blank" rel="noopener noreferrer">${escHtml(circuit.cid)}</a>`
+    : escHtml(circuit.cid);
+  const kind = [circuit.provider, circuit.circuit_type].filter(Boolean).map(escHtml).join(" · ");
+  let speed = circuit.port_speed || "";
+  if (circuit.upstream_speed && circuit.upstream_speed !== circuit.port_speed) {
+    speed = `${speed || "?"} down / ${circuit.upstream_speed} up`;
+  }
+  const termination = [circuit.term_side ? `Side ${circuit.term_side}` : "", speed].filter(Boolean).map(escHtml).join(" · ");
+  return `<li class="device-card circuit-card">
+    <div class="device-card-header">
+      <div class="device-card-title">${title}</div>
+      <span class="device-status-badge ${deviceStatusClass(circuit.status)}">${escHtml(circuit.status || "Unknown")}</span>
+    </div>
+    <div class="device-card-body">
+      ${kind ? `<div class="device-meta">${kind}</div>` : ""}
+      ${termination ? `<div class="device-meta">${termination}</div>` : ""}
+      ${circuit.commit_rate ? `<div class="device-meta">Commit rate: ${escHtml(circuit.commit_rate)}</div>` : ""}
+      ${circuit.xconnect_id ? `<div class="device-meta">Cross-connect: ${escHtml(circuit.xconnect_id)}</div>` : ""}
+      ${circuit.pp_info ? `<div class="device-meta">Patch panel: ${escHtml(circuit.pp_info)}</div>` : ""}
+      ${circuit.tenant ? `<div class="device-meta">Tenant: ${escHtml(circuit.tenant)}</div>` : ""}
+      ${circuit.description ? `<div class="device-meta">${escHtml(circuit.description)}</div>` : ""}
+    </div>
+  </li>`;
 }
 
 function buildAlertBanner(alert) {
@@ -160,6 +209,20 @@ function groupByCoords(locations) {
     groups[key].push(loc);
   }
   return groups;
+}
+
+const CLUSTER_COLORS = { critical: "#e74c3c", medium: "#ff8c00", low: "#eab308" };
+
+// Zoomed-out cluster bubble, coloured by the worst alert inside it (#234).
+function makeClusterIcon(count, alertLevel) {
+  const color = CLUSTER_COLORS[alertLevel] || "#3388ff";
+  const cls = alertLevel === "critical" ? "marker-pulse" : "";
+  return L.divIcon({
+    html: `<div class="${cls}" style="width:40px;height:40px;background:${color};color:white;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 0 8px rgba(0,0,0,.4)">${count}</div>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    className: "",
+  });
 }
 
 function makeStackedIcon(count, alertLevel) {
@@ -379,12 +442,7 @@ function renderInspectorContent() {
       .join("");
     const cards = filteredDevices
       .map((device) => {
-        const health = normalizeDeviceHealth(device.status);
-        const badgeClassName = health === "active"
-          ? "device-status-active"
-          : health === "down"
-            ? "device-status-offline"
-            : "device-status-other";
+        const badgeClassName = deviceStatusClass(device.status);
         const hardware = [device.manufacturer, device.device_type].filter(Boolean).map(escHtml).join(" · ");
         return `<li class="device-card">
           <div class="device-card-header">
@@ -425,6 +483,22 @@ function renderInspectorContent() {
       )
       .join("");
   }
+
+  const circuits = selectedDetail && Array.isArray(selectedDetail.circuits) ? selectedDetail.circuits : [];
+  const circuitsError = selectedDetail ? selectedDetail.circuits_error || "" : "";
+  let circuitBody;
+  if (inspectorLoading) {
+    circuitBody = `<div class="inspector-empty">Loading circuits…</div>`;
+  } else if (inspectorError) {
+    circuitBody = `<div class="inspector-empty">Retry loading to retrieve circuits.</div>`;
+  } else if (circuitsError) {
+    circuitBody = `<div class="inspector-empty">${escHtml(circuitsError)}</div>`;
+  } else if (circuits.length === 0) {
+    circuitBody = `<div class="inspector-empty">No circuits found for this location.</div>`;
+  } else {
+    circuitBody = `<ul class="inspector-device-list" aria-label="Circuit list">${circuits.map(buildCircuitCard).join("")}</ul>`;
+  }
+  const circuitCount = !inspectorLoading && !inspectorError && circuits.length > 0 ? ` (${circuits.length})` : "";
 
   const loadingSummary = inspectorLoading
     ? `<div class="inspector-empty">Loading health summary…</div>`
@@ -479,6 +553,11 @@ function renderInspectorContent() {
     <section class="inspector-section" aria-labelledby="inspector-equipment-title">
       <div id="inspector-equipment-title" class="inspector-section-title">Network equipment</div>
       ${equipmentBody}
+    </section>
+
+    <section class="inspector-section" aria-labelledby="inspector-circuits-title">
+      <div id="inspector-circuits-title" class="inspector-section-title">Circuits${circuitCount}</div>
+      ${circuitBody}
     </section>
 
     <section class="inspector-section" aria-labelledby="inspector-asn-title">
@@ -604,7 +683,7 @@ function addColocatedMarker(locations) {
   const first = locations[0];
   const ids = locations.map((loc) => loc.id);
   const marker = L.marker([first.latitude, first.longitude], {
-    icon: makeStackedIcon(locations.length),
+    icon: makeStackedIcon(locations.length, worstAlertLevel(ids)),
     title: locations.map((loc) => loc.name).join(", "),
   });
 
@@ -668,20 +747,71 @@ function openLocationFromQuery() {
 
 function updateMarkerForAlert(locId, alertLevel) {
   locationAlerts[locId] = alertLevel;
-  const marker = markerByLocId[locId];
-  if (!marker) return;
+  refreshMarkerIcon(locId);
+}
 
-  const groupIds = colocGroupByLocId[locId];
-  if (groupIds) {
-    const groupLevel = groupIds.reduce((highest, id) => {
-      const level = locationAlerts[id] || "ok";
-      return (ALERT_RANK[level] || 0) > (ALERT_RANK[highest] || 0) ? level : highest;
-    }, "ok");
-    if (ALERT_RANK[groupLevel]) marker.setIcon(makeStackedIcon(groupIds.length, groupLevel));
+// Redraw the marker (or co-located stack, or cluster) holding *locId*.
+function refreshMarkerIcon(locId) {
+  const marker = markerByLocId[locId];
+  if (marker) {
+    const groupIds = colocGroupByLocId[locId];
+    if (groupIds) {
+      marker.setIcon(makeStackedIcon(groupIds.length, worstAlertLevel(groupIds)));
+    } else {
+      const loc = getLocationById(locId);
+      if (loc) marker.setIcon(iconForLocation(loc));
+    }
     return;
   }
+  const cluster = clusterByLocId[locId];
+  if (cluster && cluster.locIds) {
+    cluster.setIcon(makeClusterIcon(cluster.locIds.length, worstAlertLevel(cluster.locIds)));
+  }
+}
 
-  if (ALERT_RANK[alertLevel]) marker.setIcon(ICONS[alertLevel]);
+// Alert levels of every location, so markers are coloured without a click (#234).
+const ALERT_REFRESH_MS = 60 * 1000;
+
+async function loadLocationAlerts() {
+  let data;
+  try {
+    const resp = await fetch("/api/location-alerts");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    data = await resp.json();
+  } catch (err) {
+    // Markers keep their last colours; a click still loads the site's level.
+    console.warn("Could not load location alert levels:", err);
+    return;
+  }
+  const levels = data.levels || {};
+  const changed = new Set();
+  for (const id of Object.keys(locationAlerts)) {
+    if (!levels[id]) {
+      delete locationAlerts[id];
+      changed.add(id);
+    }
+  }
+  for (const [id, alert] of Object.entries(levels)) {
+    if (locationAlerts[id] !== alert.level) {
+      locationAlerts[id] = alert.level;
+      changed.add(id);
+    }
+  }
+  // Site details loaded earlier may now hold an old alert level.
+  for (const id of detailCache.keys()) {
+    if (id !== selectedLocationId) detailCache.delete(id);
+  }
+  for (const id of changed) refreshMarkerIcon(id);
+}
+
+function startLocationAlertRefresh() {
+  loadLocationAlerts();
+  setInterval(() => {
+    if (!document.hidden) loadLocationAlerts();
+  }, ALERT_REFRESH_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) loadLocationAlerts();
+  });
 }
 
 async function loadLocationDetail(locId) {
@@ -791,14 +921,11 @@ function renderMarkersWithClustering(locations) {
     } else if (currentZoom < 8) {
       const lat = group.reduce((sum, loc) => sum + loc.latitude, 0) / group.length;
       const lon = group.reduce((sum, loc) => sum + loc.longitude, 0) / group.length;
-      const clusterIcon = L.divIcon({
-        html: `<div style="width:40px;height:40px;background:#3388ff;color:white;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 0 8px rgba(0,0,0,.4)">${group.length}</div>`,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20],
-        className: "",
+      const locIds = group.map((loc) => loc.id);
+      const clusterMarker = L.marker([lat, lon], {
+        icon: makeClusterIcon(group.length, worstAlertLevel(locIds)),
       });
-
-      const clusterMarker = L.marker([lat, lon], { icon: clusterIcon });
+      clusterMarker.locIds = locIds;
       clusterMarker.on("click", () => {
         map.setView([lat, lon], Math.min(currentZoom + 3, 15));
       });
@@ -839,7 +966,7 @@ function renderMarkersWithClustering(locations) {
 
 function addMarker(loc) {
   const marker = L.marker([loc.latitude, loc.longitude], {
-    icon: iconForStatus(loc.status),
+    icon: iconForLocation(loc),
     title: loc.name,
   });
 
@@ -1194,4 +1321,4 @@ function updateLocationCount(count) {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
-loadLocations();
+loadLocations().then(startLocationAlertRefresh);

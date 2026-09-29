@@ -281,7 +281,8 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/healthz` | Liveness probe: `200 {"status": "ok"}`, or `503` when the configured persistence database is unreachable. Never calls Nautobot/LibreNMS |
 | `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues an incremental background sync of changes since the last sync, `?include_non_operational=1` includes excluded locations). A normal request also starts a sync when one is due. `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears. `next_update_in_seconds` is the time until the next sync is due (`0` = due now, `null` = unknown or running). `persistence_configured: false` means no database is set, so the board is always empty |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
-| `GET` | `/api/locations/<id>/detail` | Devices and ASNs for a location |
+| `GET` | `/api/locations/<id>/detail` | Devices, ASNs and circuits for a location |
+| `GET` | `/api/location-alerts` | Alert level of every location with an alert (map marker colours) |
 | `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |
 | `GET` | `/api/criticality-overrides` | List stored device criticality overrides *(operator when auth enabled)* |
 | `POST` | `/api/criticality-overrides` | Create/update a device criticality override *(operator when auth enabled)* |

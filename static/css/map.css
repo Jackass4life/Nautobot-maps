@@ -386,6 +386,17 @@ body.inspector-open #map {
   margin-top: 8px;
 }
 
+/* Circuit ID links to the circuit in Nautobot (#235). */
+.circuit-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.circuit-link:hover {
+  color: var(--color-primary);
+}
+
 .inspector-empty,
 .inspector-error {
   margin-top: 12px;
@@ -1171,6 +1182,7 @@ body.inspector-open #loading-overlay {
 }
 
 /* Alert legend dots */
+.dot-low      { background: #eab308; }
 .dot-medium   { background: #ff8c00; }
 .dot-critical { background: var(--color-danger); }
 

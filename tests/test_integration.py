@@ -375,6 +375,19 @@ class TestLocationDetailEndpoint:
         assert router["status"] == "Active"
         assert router["tenant"] == "Acme Corp"
 
+    def test_every_circuit_returned_for_copenhagen_dc(self, integration_client):
+        """Both circuits at the site, not just one (#235)."""
+        data = integration_client.get("/api/locations/loc-cph/detail").get_json()
+        assert [(c["cid"], c["status"], c["port_speed"]) for c in data["circuits"]] == [
+            ("GTT-MPLS-7781", "Offline", "1 Gbps"),
+            ("TEL-CPH-0001", "Active", "10 Gbps"),
+        ]
+        assert data["circuits_error"] == ""
+
+    def test_no_circuits_for_stockholm(self, integration_client):
+        data = integration_client.get("/api/locations/loc-sto/detail").get_json()
+        assert data["circuits"] == []
+
     def test_asns_returned_for_copenhagen_dc(self, integration_client):
         data = integration_client.get("/api/locations/loc-cph/detail").get_json()
         assert len(data["asns"]) == 1
@@ -1407,3 +1420,90 @@ const long = "x".repeat(MAX_BODY_CHARS + 5);
 const shown = formatResponseBody(long, "text/html");
 check(shown.startsWith("x".repeat(MAX_BODY_CHARS)) && shown.endsWith("(5 more characters)"), shown.slice(-40));
 """)
+
+
+class TestMapAlertColoursInTheBrowser:
+    """Markers are coloured from /api/location-alerts, without a click (#234)."""
+
+    def test_levels_are_applied_and_cleared(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        functions = "\n".join(_extract_js_function(js, name) for name in ("worstAlertLevel", "loadLocationAlerts"))
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const ALERT_RANK = {{ low: 1, medium: 2, critical: 3 }};
+const locationAlerts = {{ "loc-old": "medium", "loc-same": "low" }};
+const detailCache = new Map([["loc-a", {{}}], ["loc-open", {{}}]]);
+const selectedLocationId = "loc-open";
+const redrawn = [];
+function refreshMarkerIcon(id) {{ redrawn.push(id); }}
+let payload = {{ levels: {{ "loc-a": {{ level: "critical" }}, "loc-same": {{ level: "low" }} }} }};
+globalThis.fetch = async () => ({{ ok: true, json: async () => payload }});
+{functions}
+
+(async () => {{
+  await loadLocationAlerts();
+  check(JSON.stringify(locationAlerts) === JSON.stringify({{ "loc-same": "low", "loc-a": "critical" }}), JSON.stringify(locationAlerts));
+  check(redrawn.sort().join() === "loc-a,loc-old", "only changed markers are redrawn: " + redrawn);
+  check(!detailCache.has("loc-a") && detailCache.has("loc-open"), "old site details are dropped, the open one kept");
+  check(worstAlertLevel(["loc-same", "loc-a", "loc-none"]) === "critical", "worst level");
+  check(worstAlertLevel(["loc-none"]) === "ok", "no alert is ok");
+
+  globalThis.fetch = async () => {{ throw new Error("offline"); }};
+  console.warn = () => {{}};
+  await loadLocationAlerts();
+  check(locationAlerts["loc-a"] === "critical", "a failed refresh keeps the colours");
+}})().catch((err) => {{ console.error(err.message); process.exit(1); }});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+class TestMapCircuitsInTheBrowser:
+    """The site panel shows each circuit at the site (#235)."""
+
+    def test_circuit_card(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        functions = "\n".join(
+            _extract_js_function(js, name)
+            for name in ("escHtml", "normalizeDeviceHealth", "deviceStatusClass", "buildCircuitCard")
+        )
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+let NAUTOBOT_URL = "https://nautobot.example";
+{functions}
+
+let html = buildCircuitCard({{
+  id: "cir-1", cid: "TEL<1>", provider: "Telia", circuit_type: "Transit", status: "Offline",
+  term_side: "A", port_speed: "1 Gbps", upstream_speed: "500 Mbps", commit_rate: "", xconnect_id: "XC-1",
+  pp_info: "", tenant: "", description: "",
+}});
+check(html.includes('href="https://nautobot.example/circuits/circuits/cir-1/"'), html);
+check(html.includes("TEL&lt;1&gt;"), "circuit ID is escaped");
+check(html.includes("device-status-offline"), "an offline circuit is red");
+check(html.includes("Telia · Transit"), html);
+check(html.includes("Side A · 1 Gbps down / 500 Mbps up"), html);
+check(html.includes("Cross-connect: XC-1") && !html.includes("Patch panel"), html);
+
+NAUTOBOT_URL = "";
+html = buildCircuitCard({{ id: "cir-2", cid: "C2", status: "Active", port_speed: "10 Gbps", upstream_speed: "10 Gbps" }});
+check(!html.includes("<a "), "no link without a Nautobot URL");
+check(html.includes("device-status-active") && html.includes(">10 Gbps<"), html);
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout

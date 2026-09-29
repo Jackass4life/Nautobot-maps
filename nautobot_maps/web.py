@@ -294,6 +294,16 @@ def api_location_detail(location_id: str):
         return jsonify({"error": "Internal server error"}), 500
 
 
+@bp.route("/api/location-alerts")
+def api_location_alerts():
+    """Alert level of every map location with an alert, for the marker colours (#234)."""
+    try:
+        return jsonify(alerts.get_location_alert_levels())
+    except Exception as exc:
+        logger.exception("Could not compute location alert levels: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+
 @bp.route("/api/alerts")
 def api_alerts():
     """Return alert-board summaries for all Nautobot locations."""
