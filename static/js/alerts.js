@@ -36,6 +36,10 @@ const FEED_COLLAPSED_KEY = "nautobot-maps-feed-collapsed";
 // scrolls sideways), so the feed starts collapsed unless the user opened it.
 const FEED_OPEN_MIN_WIDTH_PX = 1700;
 const nextUpdateEl = document.getElementById("next-update");
+// The operator's last Sort choice; the default puts the site with the
+// newest down device first (#228).
+const SORT_KEY = "nautobot-maps-alert-sort";
+const DEFAULT_SORT = "newest";
 
 let allAlerts = [];
 let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
@@ -410,6 +414,52 @@ function compareText(left, right) {
   return (left || "").localeCompare(right || "");
 }
 
+// Milliseconds of the site's newest open alert start, or null without one.
+function latestDownTime(item) {
+  const parsed = Date.parse(item.latest_down_at || "");
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function compareSites(a, b, sort) {
+  if (sort === "site") return compareText(a.name, b.name);
+  if (sort === "address") return compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
+  if (sort === "country") return compareText(a.country, b.country) || compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
+  if (sort === "down") return (b.down_device_count || 0) - (a.down_device_count || 0) || compareText(a.name, b.name);
+  if (sort === "devices") return (b.device_count || 0) - (a.device_count || 0) || compareText(a.name, b.name);
+  if (sort === "newest") {
+    // Newest down first (#228); sites with nothing down follow, by severity.
+    const left = latestDownTime(a);
+    const right = latestDownTime(b);
+    if (left !== right) {
+      if (left === null) return 1;
+      if (right === null) return -1;
+      return right - left;
+    }
+  }
+  return severityWeight(a.alert_level) - severityWeight(b.alert_level)
+    || (b.down_device_count || 0) - (a.down_device_count || 0)
+    || compareText(a.name, b.name);
+}
+
+function restoreSort() {
+  let stored = null;
+  try {
+    stored = localStorage.getItem(SORT_KEY);
+  } catch (_err) {
+    // Storage unavailable: keep the default.
+  }
+  sortBy.value = Array.from(sortBy.options).some((option) => option.value === stored) ? stored : DEFAULT_SORT;
+}
+
+function rememberSort(value) {
+  try {
+    if (value === DEFAULT_SORT) localStorage.removeItem(SORT_KEY);
+    else localStorage.setItem(SORT_KEY, value);
+  } catch (_err) {
+    // noop
+  }
+}
+
 function isSiteExpanded(item) {
   const siteId = String(item.id || "");
   return allSitesExpanded ? !expandedSiteIds.has(siteId) : expandedSiteIds.has(siteId);
@@ -521,16 +571,7 @@ function getFilteredAlerts() {
     return true;
   });
 
-  filtered.sort((a, b) => {
-    if (sort === "site") return compareText(a.name, b.name);
-    if (sort === "address") return compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
-    if (sort === "country") return compareText(a.country, b.country) || compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
-    if (sort === "down") return (b.down_device_count || 0) - (a.down_device_count || 0) || compareText(a.name, b.name);
-    if (sort === "devices") return (b.device_count || 0) - (a.device_count || 0) || compareText(a.name, b.name);
-    return severityWeight(a.alert_level) - severityWeight(b.alert_level)
-      || (b.down_device_count || 0) - (a.down_device_count || 0)
-      || compareText(a.name, b.name);
-  });
+  filtered.sort((a, b) => compareSites(a, b, sort));
 
   return filtered;
 }
@@ -658,6 +699,8 @@ function showError(message) {
   });
 });
 
+sortBy.addEventListener("change", () => rememberSort(sortBy.value));
+
 quickSeverityButtons.forEach((button) => {
   button.addEventListener("click", () => {
     if (refreshBtn.disabled) return;
@@ -674,7 +717,8 @@ if (clearAlertFiltersBtn) {
     filterStatus.value = "";
     filterType.value = "";
     filterTenant.value = "";
-    sortBy.value = "severity";
+    sortBy.value = DEFAULT_SORT;
+    rememberSort(DEFAULT_SORT);
     applyFilters(latestPayload);
   });
 }
@@ -878,6 +922,7 @@ if (feedToggle && feedShowBtn) {
   });
 }
 
+restoreSort();
 loadAlertBoard();
 if (themeToggle) {
   initTheme();

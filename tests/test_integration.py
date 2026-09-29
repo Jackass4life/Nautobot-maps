@@ -1020,3 +1020,88 @@ check(buildAlertBanner({{ level: "medium" }}).includes("alert-medium"), "medium 
         ):
             assert needle in html
         assert 'id="summary-unknown"' not in html
+
+
+class TestNewestDownSortInTheBrowser:
+    """The board lists the site with the newest down device first (#228)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = (
+            "severityWeight",
+            "formatLocationAddress",
+            "compareText",
+            "latestDownTime",
+            "compareSites",
+            "restoreSort",
+            "rememberSort",
+        )
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        constants = "\n".join(
+            re.search(pattern, js).group(0)
+            for pattern in (
+                r"const SEVERITY_ORDER = \[[^\]]*\];",
+                r"const SORT_KEY = [^;]*;",
+                r"const DEFAULT_SORT = [^;]*;",
+            )
+        )
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{constants}
+{functions}
+{body}
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_newest_down_first_then_severity(self):
+        self._run("""
+const sites = [
+  { name: "Healthy", alert_level: "ok", down_device_count: 0, latest_down_at: null },
+  { name: "Old outage", alert_level: "critical", down_device_count: 5, latest_down_at: "2026-09-29T08:00:00Z" },
+  { name: "No data", alert_level: "no_data", down_device_count: 0 },
+  { name: "Just now", alert_level: "low", down_device_count: 1, latest_down_at: "2026-09-29T11:59:00Z" },
+  { name: "An hour ago", alert_level: "medium", down_device_count: 2, latest_down_at: "2026-09-29T11:00:00Z" },
+  { name: "Down, no alert yet", alert_level: "medium", down_device_count: 1, latest_down_at: "not a time" },
+];
+const order = (sort) => [...sites].sort((a, b) => compareSites(a, b, sort)).map((s) => s.name).join(" | ");
+check(order("newest") === "Just now | An hour ago | Old outage | Down, no alert yet | No data | Healthy", order("newest"));
+// The other sorts are unchanged.
+check(order("severity") === "Old outage | An hour ago | Down, no alert yet | Just now | No data | Healthy", order("severity"));
+check(order("site").startsWith("An hour ago | Down, no alert yet | Healthy"), order("site"));
+""")
+
+    def test_the_choice_is_remembered_and_reset(self):
+        self._run("""
+const store = {};
+let localStorage = {
+  getItem: (key) => (key in store ? store[key] : null),
+  setItem: (key, value) => { store[key] = String(value); },
+  removeItem: (key) => { delete store[key]; },
+};
+const sortBy = { value: "", options: ["newest", "severity", "site"].map((value) => ({ value })) };
+
+restoreSort();
+check(sortBy.value === "newest", "default: " + sortBy.value);
+rememberSort("severity");
+restoreSort();
+check(sortBy.value === "severity", "remembered: " + sortBy.value);
+rememberSort("newest");
+check(!(SORT_KEY in store), "choosing the default forgets the choice");
+store[SORT_KEY] = "gone";
+restoreSort();
+check(sortBy.value === "newest", "an option that no longer exists falls back to the default");
+localStorage = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+restoreSort();
+rememberSort("site");
+check(sortBy.value === "newest", "blocked storage keeps the default");
+""")
+
+    def test_board_page_defaults_to_newest_down(self, integration_client):
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        select = html[html.index('<select id="sort-by"') :]
+        first_option = re.search(r"<option [^>]*>", select).group(0)
+        assert 'value="newest"' in first_option and "selected" in first_option
+        assert '<option value="severity">' in select
