@@ -3193,7 +3193,8 @@ class TestAlertLifecycleTracking:
 
         assert conn is sentinel_conn
         psycopg_module.connect.assert_called_once_with(
-            "postgresql://db.example/maps",
+            # The URL plus the connect and statement timeouts (#190).
+            "dbname=maps host=db.example connect_timeout=5 options='-c statement_timeout=60000'",
             row_factory=sentinel_row_factory,
             autocommit=True,
         )
@@ -5879,6 +5880,69 @@ class TestAlertFeed:
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
         assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
+
+
+# ---------------------------------------------------------------------------
+# Tests: database connect and statement timeouts (#190)
+# ---------------------------------------------------------------------------
+class TestDatabaseTimeouts:
+    def test_long_statement_is_cancelled(self, pg_database, monkeypatch):
+        import psycopg
+
+        monkeypatch.setattr(settings, "DB_STATEMENT_TIMEOUT_SECONDS", 1)
+        conn = db.get_conn()
+        try:
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                conn.execute("SELECT pg_sleep(3)")
+        finally:
+            conn.close()
+
+    def test_migrations_are_not_limited_by_the_statement_timeout(self, pg_database, monkeypatch):
+        """init_db waits for other workers' migrations; that wait must not time out."""
+        monkeypatch.setattr(settings, "DB_STATEMENT_TIMEOUT_SECONDS", 1)
+        holder = db.get_conn()
+        try:
+            holder.execute("SELECT pg_advisory_lock(674864467105151045)")
+            released = threading.Timer(2, lambda: holder.execute("SELECT pg_advisory_unlock(674864467105151045)"))
+            released.start()
+            db.init_db()  # waits ~2 s for the lock, longer than the 1 s timeout
+            released.join()
+        finally:
+            holder.close()
+
+    def test_unreachable_database_fails_fast(self, monkeypatch):
+        import psycopg
+
+        # A non-routable address: packets are dropped, so without a timeout
+        # the connect would wait for the operating system (a minute or more).
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://u:p@10.255.255.1:5432/db")
+        started = datetime.now(UTC)
+        with pytest.raises(psycopg.OperationalError):
+            db.get_conn(connect_timeout=1)
+        assert (datetime.now(UTC) - started).total_seconds() < 5
+
+    def test_healthz_uses_a_short_connect_timeout(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://u:p@db.invalid:5432/db")
+        seen = {}
+
+        def fake_get_conn(connect_timeout=None):
+            seen["connect_timeout"] = connect_timeout
+            raise RuntimeError("down")
+
+        monkeypatch.setattr(db, "get_conn", fake_get_conn)
+        resp = client.get("/healthz")
+        assert resp.status_code == 503
+        assert seen["connect_timeout"] == 2
+
+    def test_timeout_keeps_options_from_the_url(self, pg_database):
+        """The URL's own options (the tests' search_path) survive (#190)."""
+        conn = db.get_conn()
+        try:
+            row = conn.execute("SHOW statement_timeout").fetchone()
+            assert row["statement_timeout"] == "1min"
+            assert conn.execute("SELECT current_schema() AS s").fetchone()["s"].startswith("test_")
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------

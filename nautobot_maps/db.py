@@ -13,6 +13,7 @@ from nautobot_maps import settings
 
 try:
     import psycopg
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
     from psycopg.rows import dict_row
 except Exception:  # pragma: no cover - optional dependency
     psycopg = None
@@ -77,8 +78,12 @@ def advisory_lock_key(name: str) -> int:
     return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "big", signed=True)
 
 
-def get_conn():
-    """Return a PostgreSQL connection, or ``None`` when persistence is disabled."""
+def get_conn(connect_timeout: int | None = None):
+    """Return a PostgreSQL connection, or ``None`` when persistence is disabled.
+
+    Connecting gives up after DB_CONNECT_TIMEOUT_SECONDS (or *connect_timeout*),
+    and every statement after DB_STATEMENT_TIMEOUT_SECONDS (#190).
+    """
     if not dialect():
         return None
     if psycopg is None:
@@ -87,8 +92,12 @@ def get_conn():
             "install psycopg to enable PostgreSQL persistence"
         )
         return None
+    url = settings.NAUTOBOT_MAPS_DATABASE_URL
+    # Add to any options the URL already has (e.g. a search_path), not replace them.
+    options = conninfo_to_dict(url).get("options") or ""
+    options = f"{options} -c statement_timeout={settings.DB_STATEMENT_TIMEOUT_SECONDS * 1000}".strip()
     return psycopg.connect(
-        settings.NAUTOBOT_MAPS_DATABASE_URL,
+        make_conninfo(url, connect_timeout=connect_timeout or settings.DB_CONNECT_TIMEOUT_SECONDS, options=options),
         row_factory=dict_row,
         autocommit=True,
     )
@@ -128,6 +137,9 @@ def init_db() -> None:
         return
     try:
         with transaction(conn):
+            # Waiting for another worker's migration, or a migration on a big
+            # table, may take longer than a request's statement timeout.
+            conn.execute("SET LOCAL statement_timeout = 0")
             conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
             conn.execute(
                 """
