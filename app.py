@@ -3,11 +3,11 @@ import os
 
 from flask import Flask
 
-from nautobot_maps import auth, caching, db, nautobot, scheduler, settings, web
+from nautobot_maps import auth, caching, db, logs, nautobot, scheduler, settings, web
 
 app = Flask(__name__)
 
-logging.basicConfig(level=logging.INFO)
+logs.configure()
 logger = logging.getLogger(__name__)
 
 caching.init_app(app)
