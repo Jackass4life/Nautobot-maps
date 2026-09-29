@@ -4133,7 +4133,8 @@ class TestInventoryCacheSync:
         assert any("DELETE FROM librenms_device_status" in query for query, _ in fake_conn.queries)
         cache_delete.assert_any_call("alert-board-data:v3")
         cache_delete.assert_any_call("alert-board-data:v3:include-non-operational")
-        assert cache_delete.call_count == 2
+        cache_delete.assert_any_call("location-alert-levels:v1")
+        assert cache_delete.call_count == 3
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
         conn = db.get_conn()
@@ -6586,3 +6587,244 @@ class TestApiExplorer:
             assert client.get("/api/endpoints").status_code == 401
             ok = client.get("/docs", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
             assert ok.status_code == 200
+
+
+def _snapshot_location(location_id: str, name: str, location_type: str = "Data Center") -> dict:
+    return {
+        "id": location_id,
+        "name": name,
+        "slug": location_id,
+        "status": "Active",
+        "location_type": location_type,
+        "parent": "",
+        "latitude": 55.0,
+        "longitude": 12.0,
+        "description": "",
+        "physical_address": "",
+        "facility": "",
+        "tenant": "",
+        "tenant_id": "",
+        "tenant_group": "",
+        "asn": None,
+        "time_zone": "",
+        "tags": [],
+        "url": "",
+        "last_updated": "2026-01-01T00:00:00Z",
+    }
+
+
+def _snapshot_device(device_id: str, location_id: str, role: str, status: str) -> dict:
+    return {
+        "id": device_id,
+        "location_id": location_id,
+        "name": device_id,
+        "device_type": "",
+        "manufacturer": "",
+        "role": role,
+        "status": status,
+        "primary_ip": "10.0.0.1",
+        "platform": "",
+        "serial": "",
+        "tenant": "",
+        "last_updated": "2026-01-01T00:00:00Z",
+    }
+
+
+class TestLocationAlertLevels:
+    """/api/location-alerts colours the map markers without a click (#234)."""
+
+    @pytest.fixture(autouse=True)
+    def _database(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+        conn = db.get_conn()
+        try:
+            with conn:
+                inventory.write_locations(
+                    conn,
+                    [
+                        _snapshot_location("loc-core", "Core down"),
+                        _snapshot_location("loc-few", "One of five down"),
+                        _snapshot_location("loc-ok", "All up"),
+                        _snapshot_location("loc-empty", "No devices"),
+                    ],
+                )
+                inventory.write_devices(
+                    conn,
+                    [
+                        _snapshot_device("core-1", "loc-core", "Core Router", "Offline"),
+                        _snapshot_device("acc-1", "loc-core", "Access Switch", "Active"),
+                        _snapshot_device("few-1", "loc-few", "Access Switch", "Offline"),
+                        *[_snapshot_device(f"few-{n}", "loc-few", "Access Switch", "Active") for n in range(2, 6)],
+                        _snapshot_device("ok-1", "loc-ok", "Access Switch", "Active"),
+                    ],
+                )
+                inventory.record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:01:00Z",
+                    last_successful_sync="2026-01-01T00:01:00Z",
+                    status="success",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+        caching.cache.clear()
+
+    def test_returns_only_locations_with_an_alert(self, client):
+        with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("no upstream calls")):
+            resp = client.get("/api/location-alerts")
+        assert resp.status_code == 200
+        levels = resp.get_json()["levels"]
+        assert levels == {
+            "loc-core": {"level": "critical", "reason": "Core device(s) offline: core-1"},
+            "loc-few": {"level": "low", "reason": "1/5 devices offline (20%)"},
+        }
+
+    def test_matches_the_site_panel(self, client):
+        levels = client.get("/api/location-alerts").get_json()["levels"]
+        with patch.object(nautobot, "fetch_all_pages", return_value=[]):
+            for location_id in ("loc-core", "loc-few", "loc-ok"):
+                detail = alerts.get_location_detail(location_id, location_type="Data Center")
+                expected = levels.get(location_id, {}).get("level", "ok")
+                assert detail["alert"]["level"] == expected
+
+    def test_criticality_override_is_applied(self, client):
+        conn = db.get_conn()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
+                    " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
+                )
+        finally:
+            conn.close()
+        assert client.get("/api/location-alerts").get_json()["levels"]["loc-few"]["level"] == "critical"
+
+    def test_cached_until_a_sync_invalidates_it(self, client):
+        assert "loc-ok" not in client.get("/api/location-alerts").get_json()["levels"]
+        conn = db.get_conn()
+        try:
+            with conn:
+                conn.execute("UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'ok-1'")
+        finally:
+            conn.close()
+        assert "loc-ok" not in client.get("/api/location-alerts").get_json()["levels"]
+        caching.invalidate_alert_board()
+        assert client.get("/api/location-alerts").get_json()["levels"]["loc-ok"]["level"] == "critical"
+
+
+SAMPLE_CIRCUIT_TERMINATIONS = [
+    {
+        "id": "term-2",
+        "circuit": {
+            "id": "cir-2",
+            "cid": "GTT-7781",
+            "provider": {"id": "p2", "name": "GTT"},
+            "circuit_type": {"id": "t2", "name": "MPLS"},
+            "status": {"id": "s2", "name": "Offline"},
+            "tenant": None,
+            "commit_rate": 1000000,
+        },
+        "term_side": "Z",
+        "port_speed": 1000000,
+        "upstream_speed": 500000,
+        "xconnect_id": "",
+        "pp_info": "",
+        "description": "",
+    },
+    {
+        "id": "term-1",
+        "circuit": {
+            "id": "cir-1",
+            "cid": "TEL-0001",
+            "provider": {"id": "p1", "display": "Telia"},
+            "circuit_type": {"id": "t1", "name": "Transit"},
+            "status": {"id": "s1", "name": "Active"},
+            "tenant": {"id": "ten-1", "name": "Acme Corp"},
+            "commit_rate": None,
+        },
+        "term_side": "A",
+        "port_speed": 10000000,
+        "upstream_speed": None,
+        "xconnect_id": "XC-1",
+        "pp_info": "PP-02 port 7",
+        "description": "Primary transit",
+    },
+]
+
+
+class TestLocationCircuits:
+    """The map's site panel lists every circuit at the location (#235)."""
+
+    def _mock(self, terminations=None, error=None):
+        def fetch(endpoint, params=None, **kwargs):
+            if endpoint.startswith("circuits/"):
+                if error is not None:
+                    raise error
+                assert params["location"] == "loc-1"
+                assert params["depth"] == 2
+                return terminations or []
+            return [page for page in mock_nautobot_get(endpoint, params)["results"]]
+
+        return patch.object(nautobot, "fetch_all_pages", side_effect=fetch)
+
+    def test_every_circuit_is_listed(self, client):
+        with self._mock(SAMPLE_CIRCUIT_TERMINATIONS):
+            data = client.get("/api/locations/loc-1/detail").get_json()
+        assert data["circuits_error"] == ""
+        assert [c["cid"] for c in data["circuits"]] == ["GTT-7781", "TEL-0001"]
+        assert data["circuits"][1] == {
+            "id": "cir-1",
+            "cid": "TEL-0001",
+            "provider": "Telia",
+            "circuit_type": "Transit",
+            "status": "Active",
+            "tenant": "Acme Corp",
+            "commit_rate": "",
+            "term_side": "A",
+            "port_speed": "10 Gbps",
+            "upstream_speed": "",
+            "xconnect_id": "XC-1",
+            "pp_info": "PP-02 port 7",
+            "description": "Primary transit",
+        }
+        assert data["circuits"][0]["status"] == "Offline"
+        assert data["circuits"][0]["upstream_speed"] == "500 Mbps"
+        assert data["devices"] and data["asns"]
+
+    def test_no_circuits_app_is_not_an_error(self, client):
+        response = MagicMock(status_code=404)
+        with self._mock(error=requests.HTTPError(response=response)):
+            data = client.get("/api/locations/loc-1/detail").get_json()
+        assert data["circuits"] == []
+        assert data["circuits_error"] == ""
+
+    def test_a_failed_call_keeps_the_rest_of_the_panel(self, client):
+        with self._mock(error=requests.ConnectionError("boom")):
+            resp = client.get("/api/locations/loc-1/detail")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["circuits"] == []
+        assert data["circuits_error"] == "Circuit information unavailable"
+        assert "boom" not in resp.get_data(as_text=True)
+        assert data["devices"]
+
+    @pytest.mark.parametrize(
+        ("kbps", "expected"),
+        [
+            (None, ""),
+            (0, ""),
+            ("bad", ""),
+            (512, "512 Kbps"),
+            (1500, "1.5 Mbps"),
+            (100000, "100 Mbps"),
+            (10000000, "10 Gbps"),
+            (2500000, "2.5 Gbps"),
+        ],
+    )
+    def test_circuit_speed(self, kbps, expected):
+        assert alerts.circuit_speed(kbps) == expected

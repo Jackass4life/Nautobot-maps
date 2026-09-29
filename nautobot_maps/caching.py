@@ -32,3 +32,5 @@ def set(key: str, data, timeout: int | None = None):  # noqa: A001 - mirrors cac
 def invalidate_alert_board() -> None:
     cache.delete("alert-board-data:v3")
     cache.delete("alert-board-data:v3:include-non-operational")
+    # The map's marker colours (#234).
+    cache.delete("location-alert-levels:v1")

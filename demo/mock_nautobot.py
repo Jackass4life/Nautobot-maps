@@ -9,6 +9,7 @@ Endpoints implemented:
   GET /api/dcim/locations/
   GET /api/dcim/devices/        (filterable by ?location_id=)
   GET /api/ipam/asns/           (filterable by ?location_id=)
+  GET /api/circuits/circuit-terminations/  (filterable by ?location=)
 
 Token auth: any request must carry  Authorization: Token <any non-empty value>
 """
@@ -527,6 +528,69 @@ ASNS = {
 }
 
 
+# Circuit terminations keyed by location_id (#235).  Copenhagen has two.
+CIRCUIT_PROVIDERS = {
+    "prov-telia": {"id": "prov-telia", "name": "Telia Carrier"},
+    "prov-gtt": {"id": "prov-gtt", "name": "GTT"},
+}
+CIRCUIT_TYPES = {
+    "ct-transit": {"id": "ct-transit", "name": "Internet Transit"},
+    "ct-mpls": {"id": "ct-mpls", "name": "MPLS"},
+}
+
+
+def _circuit(circuit_id, cid, provider, circuit_type, status, commit_rate):
+    return {
+        "id": circuit_id,
+        "cid": cid,
+        "display": cid,
+        "provider": CIRCUIT_PROVIDERS[provider],
+        "circuit_type": CIRCUIT_TYPES[circuit_type],
+        "status": {"name": status},
+        "commit_rate": commit_rate,
+        "tenant": TENANTS["ten-acme"],
+        "description": "",
+    }
+
+
+CIRCUIT_TERMINATIONS = {
+    "loc-cph": [
+        {
+            "id": "ct-cph-1",
+            "circuit": _circuit("cir-cph-1", "TEL-CPH-0001", "prov-telia", "ct-transit", "Active", 10_000_000),
+            "term_side": "A",
+            "port_speed": 10_000_000,
+            "upstream_speed": None,
+            "xconnect_id": "XC-4411",
+            "pp_info": "PP-02 port 7",
+            "description": "Primary transit",
+        },
+        {
+            "id": "ct-cph-2",
+            "circuit": _circuit("cir-cph-2", "GTT-MPLS-7781", "prov-gtt", "ct-mpls", "Offline", 1_000_000),
+            "term_side": "Z",
+            "port_speed": 1_000_000,
+            "upstream_speed": 500_000,
+            "xconnect_id": "",
+            "pp_info": "",
+            "description": "",
+        },
+    ],
+    "loc-ams": [
+        {
+            "id": "ct-ams-1",
+            "circuit": _circuit("cir-ams-1", "TEL-AMS-0042", "prov-telia", "ct-transit", "Active", 100_000_000),
+            "term_side": "A",
+            "port_speed": 100_000_000,
+            "upstream_speed": None,
+            "xconnect_id": "",
+            "pp_info": "",
+            "description": "",
+        },
+    ],
+}
+
+
 # ---------------------------------------------------------------------------
 # Auth helper
 # ---------------------------------------------------------------------------
@@ -614,6 +678,17 @@ def asns():
         items = ASNS.get(location_id, [])
     else:
         items = [a for asn_list in ASNS.values() for a in asn_list]
+    return jsonify(_paginate(items))
+
+
+@app.route("/api/circuits/circuit-terminations/")
+def circuit_terminations():
+    _check_auth()
+    location_id = request.args.get("location")
+    if location_id:
+        items = CIRCUIT_TERMINATIONS.get(location_id, [])
+    else:
+        items = [t for terms in CIRCUIT_TERMINATIONS.values() for t in terms]
     return jsonify(_paginate(items))
 
 
