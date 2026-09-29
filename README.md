@@ -64,7 +64,6 @@ python app.py
 | `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token |
 | `NAUTOBOT_API_VERSION` | ❌ | *(server default)* | Pin a specific Nautobot REST API version (e.g. `2.0`, `3.0`). Leave empty to use the server's default. |
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
-| `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
 | `GUNICORN_TIMEOUT` | ❌ | `120` | Gunicorn worker timeout in seconds; values below 120 are raised to 120 |
@@ -109,6 +108,8 @@ Each LibreNMS sync also caches the address LibreNMS polls for every device (`ove
 > The `start` sub-command only restarts previously created containers and will
 > fail with *"service … has no container to start"* on a fresh checkout.
 > `docker compose up` handles building, creating, and starting in one step.
+
+The bundled PostgreSQL uses `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` from `.env`, defaulting to `nautobot_maps` for all three. Its port is not published, so only containers in this compose project can reach it; still, set your own `POSTGRES_PASSWORD` before the first start (the password is fixed when the data volume is created).
 
 ```bash
 # 1. Configure environment variables
