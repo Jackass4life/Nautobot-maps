@@ -479,6 +479,25 @@ tbody tr:hover {
   font-size: 0.8rem;
 }
 
+/* A site with several tenants (Nautobot relationships, #238). */
+.multi-tenant-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.tenant-list {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
 .site-row > td {
   background: rgba(255, 255, 255, 0.01);
 }

@@ -85,6 +85,7 @@ python app.py
 | `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | ❌ | — | Optional comma/semicolon-separated Nautobot tag names hidden from the alert board |
 | `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | ❌ | — | Optional fallback comma/semicolon-separated location names hidden from the alert board |
 | `ALERT_BOARD_SITE_LOCATION_TYPE` | ❌ | — | Location type that gets the alert-board rows (e.g. `Site`); devices in its child locations roll up into it, and levels above it get no rows. Empty: one row per location |
+| `SITE_TENANT_RELATIONSHIPS` | ❌ | — | Nautobot Relationships (comma-separated keys or labels) that link a location to more tenants, shown on the alert board next to its own tenant. Empty: every Location ↔ Tenant relationship |
 | `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | ❌ | — | Optional comma/semicolon-separated device statuses ignored on the alert board (not counted, not listed); `null` matches an empty status |
 | `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
 | `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |

@@ -117,7 +117,7 @@ function populateFilters(alerts) {
   );
   populateSelect(
     filterTenant,
-    [...new Set(alerts.map((item) => item.tenant).filter(Boolean))].sort(),
+    [...new Set(alerts.flatMap(siteTenants))].sort(),
     "All tenants"
   );
 }
@@ -263,7 +263,9 @@ function siteReport(item, nautobotUrl = "") {
   if (path) lines.push(`Location: ${path}`);
   const address = formatLocationAddress(item);
   if (address) lines.push(`Address: ${address}`);
-  if (item.tenant) lines.push(`Tenant: ${item.tenant}`);
+  const tenants = siteTenants(item);
+  if (tenants.length > 1) lines.push(`Tenants (${tenants.length}): ${tenants.join(", ")}`);
+  else if (tenants.length) lines.push(`Tenant: ${tenants[0]}`);
   lines.push(`Severity: ${level === "no_data" ? "NO DATA" : level.toUpperCase()} (${item.down_device_count || 0} of ${item.device_count || 0} devices down)`);
   if (item.alert_reason) lines.push(`Reason: ${item.alert_reason}`);
   if (Array.isArray(item.active_cases) && item.active_cases.length) lines.push(`Cases: ${item.active_cases.join(", ")}`);
@@ -631,7 +633,7 @@ function renderDownDeviceRows(item, isExpanded) {
       <td>${alertBadge(item.alert_level)}</td>
       <td>${escHtml(device.status || item.status || "—")}</td>
       <td>${escHtml(item.location_type || "—")}</td>
-      <td>${escHtml(item.tenant || "—")}</td>
+      <td>${tenantCell(item)}</td>
       <td>—</td>
       <td>—</td>
       <td>—</td>
@@ -640,6 +642,27 @@ function renderDownDeviceRows(item, isExpanded) {
       <td></td>
     </tr>
   `).join("");
+}
+
+// Every tenant of the site: its own, then those linked by a Nautobot
+// Relationship (#238).  Boards cached before #238 only have `tenant`.
+function siteTenants(item) {
+  if (Array.isArray(item.tenants) && item.tenants.length) return item.tenants;
+  return item.tenant ? [item.tenant] : [];
+}
+
+const TENANTS_SHOWN = 3;
+
+// One tenant as text; several get a "N tenants" badge so a multi-customer
+// site stands out when it alarms (#238).
+function tenantCell(item) {
+  const tenants = siteTenants(item);
+  if (!tenants.length) return "—";
+  if (tenants.length === 1) return escHtml(tenants[0]);
+  const shown = tenants.slice(0, TENANTS_SHOWN).map(escHtml).join(", ");
+  const more = tenants.length > TENANTS_SHOWN ? ` +${tenants.length - TENANTS_SHOWN} more` : "";
+  return `<span class="multi-tenant-badge" title="${escHtml(tenants.join(", "))}">${tenants.length} tenants</span>`
+    + `<div class="tenant-list">${shown}${more}</div>`;
 }
 
 // Only the path above the site, e.g. "NORAM › GRL" (#178); the tenant has its own column.
@@ -689,7 +712,7 @@ function renderTableRows(alerts, payload) {
       <td>${alertBadge(item.alert_level)}</td>
       <td>${escHtml(item.status || "—")}</td>
       <td>${escHtml(item.location_type || "—")}</td>
-      <td>${escHtml(item.tenant || "—")}</td>
+      <td>${tenantCell(item)}</td>
       <td>${item.device_count || 0}</td>
       <td>${item.down_device_count || 0}</td>
       <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
@@ -724,7 +747,7 @@ function getFilteredAlerts() {
     if (severity && item.alert_level !== severity) return false;
     if (status && item.status !== status) return false;
     if (type && item.location_type !== type) return false;
-    if (tenant && item.tenant !== tenant) return false;
+    if (tenant && !siteTenants(item).includes(tenant)) return false;
     return true;
   });
 

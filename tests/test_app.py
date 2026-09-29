@@ -3284,6 +3284,7 @@ class TestInventoryCacheSync:
                 "time_zone": "",
                 "tags": ["cached"],
                 "url": "",
+                "tenants": [],
             }
         ]
 
@@ -6828,3 +6829,156 @@ class TestLocationCircuits:
     )
     def test_circuit_speed(self, kbps, expected):
         assert alerts.circuit_speed(kbps) == expected
+
+
+LOCATION_TENANT_RELATIONSHIPS = [
+    {
+        "id": "rel-1",
+        "key": "site_customers",
+        "label": "Site customers",
+        "source_type": "dcim.location",
+        "destination_type": "tenancy.tenant",
+    },
+    # The other direction counts too.
+    {
+        "id": "rel-2",
+        "key": "hosted_at",
+        "label": "Hosted at",
+        "source_type": "tenancy.tenant",
+        "destination_type": "dcim.location",
+    },
+    {
+        "id": "rel-3",
+        "key": "backup",
+        "label": "Backup",
+        "source_type": "dcim.device",
+        "destination_type": "dcim.device",
+    },
+]
+RELATIONSHIP_ASSOCIATIONS = {
+    "rel-1": [
+        {"source_id": "loc-1", "destination_id": "ten-2"},
+        {"source_id": "loc-1", "destination_id": "ten-3"},
+    ],
+    "rel-2": [{"source_id": "ten-3", "destination_id": "loc-2"}],
+}
+TENANT_NAMES = {"ten-1": "Acme Corp", "ten-2": "Nordic Net", "ten-3": "EuroIX"}
+
+
+def _relationship_fetch(error_on=None):
+    calls = []
+
+    def fetch(endpoint, params=None, **kwargs):
+        calls.append((endpoint, dict(params or {}), kwargs.get("use_cache", True)))
+        if error_on and endpoint.startswith(error_on):
+            raise requests.HTTPError(response=MagicMock(status_code=403))
+        if endpoint == "extras/relationships/":
+            return LOCATION_TENANT_RELATIONSHIPS
+        if endpoint == "extras/relationship-associations/":
+            return RELATIONSHIP_ASSOCIATIONS.get(params["relationship"], [])
+        if endpoint == "tenancy/tenants/":
+            return [{"id": tid, "name": name} for tid, name in TENANT_NAMES.items()]
+        return []
+
+    return fetch, calls
+
+
+class TestLocationTenantRelationships:
+    """Every tenant of a site, from Nautobot relationships (#238)."""
+
+    def test_both_directions_of_location_tenant_relationships(self, monkeypatch):
+        fetch, calls = _relationship_fetch()
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+        links = inventory.fetch_location_tenant_links()
+        assert sorted((link["location_id"], link["tenant"], link["relationship"]) for link in links) == [
+            ("loc-1", "EuroIX", "Site customers"),
+            ("loc-1", "Nordic Net", "Site customers"),
+            ("loc-2", "EuroIX", "Hosted at"),
+        ]
+        # Only Location <-> Tenant relationships are read, never from the cache.
+        read = [(endpoint, params.get("relationship")) for endpoint, params, _ in calls if "associations" in endpoint]
+        assert read == [("extras/relationship-associations/", "rel-1"), ("extras/relationship-associations/", "rel-2")]
+        assert all(use_cache is False for endpoint, _, use_cache in calls if endpoint.startswith("extras/"))
+
+    @pytest.mark.parametrize("wanted", ["site_customers", "site customers"])
+    def test_setting_narrows_by_key_or_label(self, monkeypatch, wanted):
+        fetch, _ = _relationship_fetch()
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+        monkeypatch.setattr(settings, "SITE_TENANT_RELATIONSHIPS", {wanted})
+        links = inventory.fetch_location_tenant_links()
+        assert {link["relationship"] for link in links} == {"Site customers"}
+
+    def test_no_relationship_is_an_empty_list(self, monkeypatch):
+        fetch, _ = _relationship_fetch()
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+        monkeypatch.setattr(settings, "SITE_TENANT_RELATIONSHIPS", {"nothing-matches"})
+        assert inventory.fetch_location_tenant_links() == []
+
+    def test_a_failed_read_is_none(self, monkeypatch):
+        fetch, _ = _relationship_fetch(error_on="extras/relationship-associations/")
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+        assert inventory.fetch_location_tenant_links() is None
+
+    def test_site_tenants_puts_its_own_tenant_first(self):
+        assert inventory.site_tenants("Acme", ["Beta", "Acme", "Gamma"]) == ["Acme", "Beta", "Gamma"]
+        assert inventory.site_tenants("", ["Beta"]) == ["Beta"]
+        assert inventory.site_tenants("", []) == []
+
+
+class TestLocationTenantSync:
+    @pytest.fixture(autouse=True)
+    def _database(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+
+    def _sync(self, monkeypatch, error_on=None):
+        fetch, _ = _relationship_fetch(error_on)
+
+        def with_inventory(endpoint, params=None, **kwargs):
+            if endpoint == "dcim/locations/":
+                return [
+                    {
+                        "id": "loc-1",
+                        "name": "London",
+                        "tenant": {"id": "ten-1", "name": "Acme Corp"},
+                        "latitude": "51.5",
+                        "longitude": "-0.1",
+                        "location_type": {"id": "lt", "name": "Data Center"},
+                    }
+                ]
+            if endpoint == "dcim/devices/":
+                return [
+                    {
+                        "id": "dev-1",
+                        "name": "lon-core",
+                        "location": {"id": "loc-1"},
+                        "role": {"name": "Core Router"},
+                        "status": {"name": "Offline"},
+                        "primary_ip4": {"address": "10.0.0.1/32"},
+                    }
+                ]
+            return fetch(endpoint, params, **kwargs)
+
+        monkeypatch.setattr(nautobot, "fetch_all_pages", with_inventory)
+        inventory.sync_nautobot(force=True)
+        caching.cache.clear()
+
+    def test_sync_fills_the_board_and_the_map(self, client, monkeypatch):
+        self._sync(monkeypatch)
+        (site,) = client.get("/api/alerts").get_json()["alerts"]
+        assert site["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
+        (location,) = client.get("/api/locations").get_json()["locations"]
+        assert location["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
+
+    def test_a_failed_read_keeps_the_links_a_removed_one_goes(self, client, monkeypatch):
+        self._sync(monkeypatch)
+        self._sync(monkeypatch, error_on="extras/relationships/")
+        (site,) = client.get("/api/alerts").get_json()["alerts"]
+        assert site["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
+
+        monkeypatch.setitem(RELATIONSHIP_ASSOCIATIONS, "rel-1", [{"source_id": "loc-1", "destination_id": "ten-2"}])
+        self._sync(monkeypatch)
+        (site,) = client.get("/api/alerts").get_json()["alerts"]
+        assert site["tenants"] == ["Acme Corp", "Nordic Net"]

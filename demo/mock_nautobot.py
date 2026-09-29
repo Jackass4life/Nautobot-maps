@@ -10,6 +10,7 @@ Endpoints implemented:
   GET /api/dcim/devices/        (filterable by ?location_id=)
   GET /api/ipam/asns/           (filterable by ?location_id=)
   GET /api/circuits/circuit-terminations/  (filterable by ?location=)
+  GET /api/extras/relationships/, /api/extras/relationship-associations/
 
 Token auth: any request must carry  Authorization: Token <any non-empty value>
 """
@@ -591,6 +592,40 @@ CIRCUIT_TERMINATIONS = {
 }
 
 
+# Location <-> Tenant relationship: London HQ hosts three customers (#238).
+RELATIONSHIPS = [
+    {
+        "id": "rel-site-customers",
+        "key": "site_customers",
+        "label": "Site customers",
+        "type": "many-to-many",
+        "source_type": "dcim.location",
+        "destination_type": "tenancy.tenant",
+    },
+    {
+        "id": "rel-other",
+        "key": "device_backup",
+        "label": "Backup device",
+        "type": "one-to-one",
+        "source_type": "dcim.device",
+        "destination_type": "dcim.device",
+    },
+]
+RELATIONSHIP_ASSOCIATIONS = [
+    {
+        "id": f"ra-{index}",
+        "relationship": {"id": "rel-site-customers"},
+        "source_type": "dcim.location",
+        "source_id": location_id,
+        "destination_type": "tenancy.tenant",
+        "destination_id": tenant_id,
+    }
+    for index, (location_id, tenant_id) in enumerate(
+        [("loc-lon", "ten-nordnet"), ("loc-lon", "ten-euroix"), ("loc-lon", "ten-dcgmbh"), ("loc-ams", "ten-acme")]
+    )
+]
+
+
 # ---------------------------------------------------------------------------
 # Auth helper
 # ---------------------------------------------------------------------------
@@ -689,6 +724,20 @@ def circuit_terminations():
         items = CIRCUIT_TERMINATIONS.get(location_id, [])
     else:
         items = [t for terms in CIRCUIT_TERMINATIONS.values() for t in terms]
+    return jsonify(_paginate(items))
+
+
+@app.route("/api/extras/relationships/")
+def relationships():
+    _check_auth()
+    return jsonify(_paginate(RELATIONSHIPS))
+
+
+@app.route("/api/extras/relationship-associations/")
+def relationship_associations():
+    _check_auth()
+    relationship = request.args.get("relationship")
+    items = [a for a in RELATIONSHIP_ASSOCIATIONS if not relationship or a["relationship"]["id"] == relationship]
     return jsonify(_paginate(items))
 
 
