@@ -22,6 +22,46 @@ bp = Blueprint("web", __name__)
 bp.before_app_request(auth.check_viewer)
 
 
+def tile_source() -> str:
+    """The CSP source for MAP_TILE_URL's host, with ``{s}`` subdomains as ``*``."""
+    parsed = urlsplit(settings.MAP_TILE_URL)
+    if not parsed.netloc:
+        return ""  # a relative URL: same origin, covered by 'self'
+    return f"{parsed.scheme}://{parsed.netloc.replace('{s}', '*')}"
+
+
+def content_security_policy() -> str:
+    """Only this app's own scripts run; images may also come from the tile server (#198).
+
+    Inline styles stay allowed: Leaflet markers and popups render HTML with
+    style attributes, and the error page has a <style> block.
+    """
+    return "; ".join(
+        [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            f"img-src 'self' data: {tile_source()}".strip(),
+            "connect-src 'self'",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ]
+    )
+
+
+@bp.after_app_request
+def security_headers(response):
+    """Browser security headers on every response (#198); a header the
+    response already has is left alone."""
+    response.headers.setdefault("Content-Security-Policy", content_security_policy())
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Persistence (PostgreSQL)
 # ---------------------------------------------------------------------------
