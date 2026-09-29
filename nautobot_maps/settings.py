@@ -5,6 +5,7 @@ Other modules read them as ``settings.NAME`` at call time, never with
 ``monkeypatch.setattr(settings, "NAME", value)``.
 """
 
+import ipaddress
 import os
 import re
 from urllib.parse import urlsplit
@@ -33,13 +34,29 @@ def _validate_nautobot_url(value: str) -> str:
 
 
 def _verify_ssl(value: str) -> bool | str:
-    """ "true" (default) = verify, "false" = skip, anything else = path to a CA bundle."""
+    """ "true" (default) = verify, "false" = skip, anything else = path to a CA bundle.
+
+    The usual yes/no words work too ("no"/"0"/"off" were documented for
+    LIBRENMS_VERIFY_SSL before it accepted a path, #191).
+    """
     value = value.strip()
-    if value.lower() == "false":
+    if value.lower() in ("false", "no", "0", "off"):
         return False
-    if value.lower() == "true":
+    if value.lower() in ("", "true", "yes", "1", "on"):
         return True
     return value
+
+
+def _networks(name: str, value: str) -> tuple:
+    """Parse comma/semicolon-separated IP addresses or CIDRs; fail at startup on a typo."""
+    networks = []
+    for item in re.split(r"[;,]", value or ""):
+        if item.strip():
+            try:
+                networks.append(ipaddress.ip_network(item.strip(), strict=False))
+            except ValueError as exc:
+                raise RuntimeError(f"Invalid {name} entry {item.strip()!r}: expected an IP address or CIDR") from exc
+    return tuple(networks)
 
 
 def _flag(name: str, default: bool) -> bool:
@@ -82,7 +99,8 @@ BACKGROUND_SYNC_ENABLED = _flag("BACKGROUND_SYNC_ENABLED", True)
 # LibreNMS (optional)
 LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
 LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
-LIBRENMS_VERIFY_SSL = _flag("LIBRENMS_VERIFY_SSL", True)
+# Like NAUTOBOT_VERIFY_SSL: "true", "false" or a path to a CA bundle (#191).
+LIBRENMS_VERIFY_SSL = _verify_ssl(os.getenv("LIBRENMS_VERIFY_SSL", "true"))
 
 # Persistence
 NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
@@ -99,6 +117,20 @@ if AUTH_DEFAULT_ROLE not in ("viewer", "operator", "admin"):
 AUTH_VIEWER_GROUPS = parse_csv_set(os.getenv("AUTH_VIEWER_GROUPS", ""))
 AUTH_OPERATOR_GROUPS = parse_csv_set(os.getenv("AUTH_OPERATOR_GROUPS", ""))
 AUTH_ADMIN_GROUPS = parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
+# Header mode: every page and API (except /healthz) needs at least the viewer
+# role.  Off by default, so reads stay public (#188).
+AUTH_REQUIRE_VIEWER = _flag("AUTH_REQUIRE_VIEWER", False)
+# Header mode: identity headers are only trusted from these proxy addresses,
+# and, when AUTH_PROXY_SECRET is set, only with that secret in the
+# X-Auth-Proxy-Secret header.  Anything else is anonymous (#187).
+AUTH_TRUSTED_PROXIES = _networks(
+    "AUTH_TRUSTED_PROXIES", os.getenv("AUTH_TRUSTED_PROXIES", "").strip() or "127.0.0.1/32,::1/128"
+)
+AUTH_PROXY_SECRET = os.getenv("AUTH_PROXY_SECRET", "").strip()
+# AUTH_MODE=disabled: allow changing criticality overrides without
+# authentication.  Off by default: anyone who can reach the app could change
+# which devices count as critical (#188).
+ALLOW_UNAUTHENTICATED_WRITES = _flag("ALLOW_UNAUTHENTICATED_WRITES", False)
 
 # Criticality
 CRITICAL_ROLE_KEYWORDS = os.getenv("CRITICAL_ROLE_KEYWORDS", "").strip()
