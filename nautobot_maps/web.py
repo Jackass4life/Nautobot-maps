@@ -14,11 +14,12 @@ from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import alerts, auth, caching, db, inventory, nautobot, settings, timeutil
+from nautobot_maps import alerts, auth, caching, db, inventory, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("web", __name__)
+bp.before_app_request(auth.check_viewer)
 
 
 def tile_source() -> str:
@@ -289,16 +290,19 @@ def api_alerts():
 GEOCODE_CACHE_SECONDS = 24 * 3600
 
 
-class GeocodeError(Exception):
-    def __init__(self, message: str, status: int):
-        super().__init__(message)
-        self.status = status
+class GeocoderBusy(Exception):
+    """Another address search asked the geocoder less than a second ago."""
+
+
+class GeocoderUnavailable(Exception):
+    """The geocoder could not be reached or returned an error."""
 
 
 def geocode(query: str):
     """Geocode *query* with GEOCODER_URL (#197).
 
-    Returns ``[lat, lon]``, or ``None`` when not found; raises GeocodeError.
+    Returns ``[lat, lon]``, or ``None`` when not found; raises GeocoderBusy or
+    GeocoderUnavailable.
     Results are cached for a day, and the service is asked at most once per
     second across all workers: the public Nominatim allows no more.
     """
@@ -308,7 +312,7 @@ def geocode(query: str):
         return cached.get("point")
     # cache.add is atomic (SET NX in Redis): only one caller per second wins.
     if not caching.cache.add("geocode-rate-limit", 1, timeout=1):
-        raise GeocodeError("Address search is busy; try again in a second", 429)
+        raise GeocoderBusy()
     parsed = urlsplit(settings.GEOCODER_URL)
     try:
         geolocator = Nominatim(
@@ -319,7 +323,7 @@ def geocode(query: str):
         location = geolocator.geocode(query, timeout=10)
     except Exception as exc:
         logger.error("Geocoding error: %s", exc)
-        raise GeocodeError("Geocoding service unavailable", 503) from exc
+        raise GeocoderUnavailable() from exc
     point = [location.latitude, location.longitude] if location is not None else None
     caching.set(cache_key, {"point": point}, timeout=GEOCODE_CACHE_SECONDS)
     return point
@@ -354,8 +358,10 @@ def api_search():
             return jsonify({"error": "Address search is turned off; enter coordinates as lat,lon"}), 400
         try:
             point = geocode(query)
-        except GeocodeError as exc:
-            return jsonify({"error": str(exc)}), exc.status
+        except GeocoderBusy:
+            return jsonify({"error": "Address search is busy; try again in a second"}), 429
+        except GeocoderUnavailable:
+            return jsonify({"error": "Geocoding service unavailable"}), 503
         if point is None:
             return jsonify({"error": f"Address not found: {query}"}), 404
         lat, lon = point
@@ -654,7 +660,7 @@ MAX_CASE_DEVICES = 200
 
 
 @bp.route("/api/alert-cases", methods=["POST"])
-@auth.require_role("operator")
+@auth.require_role("operator", open_when_disabled=True)
 def api_add_alert_case():
     """Attach a case number to the open alert of one or more devices at a site.
 
@@ -741,145 +747,3 @@ def api_add_alert_case():
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Roles proxy endpoints
-# ---------------------------------------------------------------------------
-
-
-@bp.route("/api/roles", methods=["GET"])
-def api_list_roles():
-    """Return all roles from Nautobot (proxied from extras/roles/)."""
-    try:
-        roles = nautobot.fetch_all_pages("extras/roles/")
-        return jsonify({"roles": roles})
-    except RuntimeError as exc:
-        return nautobot_service_unavailable("Roles listing unavailable", exc)
-    except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
-        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
-    except Exception as exc:
-        logger.error("Unexpected error listing roles: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@bp.route("/api/roles", methods=["POST"])
-@auth.require_role("admin")
-def api_create_role():
-    """Create a new role in Nautobot (proxied to extras/roles/).
-
-    Expected JSON body follows the Nautobot Role schema, e.g.::
-
-        {"name": "Core Router", "color": "aa1409", "content_types": [...]}
-    """
-    body = request.get_json(silent=True) or {}
-    if not body.get("name"):
-        return jsonify({"error": "name is required"}), 400
-    try:
-        created = nautobot.post("extras/roles/", body)
-        caching.cache.delete_memoized(nautobot.fetch_all_pages)
-        return jsonify(created), 201
-    except RuntimeError as exc:
-        return nautobot_service_unavailable("Role creation unavailable", exc)
-    except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
-        try:
-            detail = exc.response.json()
-        except Exception:
-            detail = "Could not parse Nautobot error response"
-        return jsonify({"error": "Failed to communicate with Nautobot API", "detail": detail}), exc.response.status_code
-    except Exception as exc:
-        logger.error("Unexpected error creating role: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@bp.route("/api/roles/<role_id>", methods=["DELETE"])
-@auth.require_role("admin")
-def api_delete_role(role_id: str):
-    """Delete a role from Nautobot by its UUID (proxied to extras/roles/<id>/)."""
-    try:
-        nautobot.delete(f"extras/roles/{role_id}/")
-        caching.cache.clear()
-        return jsonify({"status": "deleted", "id": role_id})
-    except RuntimeError as exc:
-        return nautobot_service_unavailable("Role deletion unavailable", exc)
-    except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
-        if exc.response.status_code == 404:
-            return jsonify({"error": "Role not found"}), 404
-        return jsonify({"error": "Failed to communicate with Nautobot API"}), exc.response.status_code
-    except Exception as exc:
-        logger.error("Unexpected error deleting role: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
-
-
-# ---------------------------------------------------------------------------
-# Location-type proxy endpoints
-# ---------------------------------------------------------------------------
-
-
-@bp.route("/api/location-types", methods=["GET"])
-def api_list_location_types():
-    """Return all location types from Nautobot (proxied from dcim/location-types/)."""
-    try:
-        location_types = nautobot.fetch_all_pages("dcim/location-types/")
-        return jsonify({"location_types": location_types})
-    except RuntimeError as exc:
-        return nautobot_service_unavailable("Location type listing unavailable", exc)
-    except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
-        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
-    except Exception as exc:
-        logger.error("Unexpected error listing location types: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@bp.route("/api/location-types", methods=["POST"])
-@auth.require_role("admin")
-def api_create_location_type():
-    """Create a new location type in Nautobot (proxied to dcim/location-types/).
-
-    Expected JSON body follows the Nautobot LocationType schema, e.g.::
-
-        {"name": "Data Center", "slug": "data-center"}
-    """
-    body = request.get_json(silent=True) or {}
-    if not body.get("name"):
-        return jsonify({"error": "name is required"}), 400
-    try:
-        created = nautobot.post("dcim/location-types/", body)
-        caching.cache.clear()
-        return jsonify(created), 201
-    except RuntimeError as exc:
-        return nautobot_service_unavailable("Location type creation unavailable", exc)
-    except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
-        try:
-            detail = exc.response.json()
-        except Exception:
-            detail = "Could not parse Nautobot error response"
-        return jsonify({"error": "Failed to communicate with Nautobot API", "detail": detail}), exc.response.status_code
-    except Exception as exc:
-        logger.error("Unexpected error creating location type: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@bp.route("/api/location-types/<lt_id>", methods=["DELETE"])
-@auth.require_role("admin")
-def api_delete_location_type(lt_id: str):
-    """Delete a location type from Nautobot by its UUID (proxied to dcim/location-types/<id>/)."""
-    try:
-        nautobot.delete(f"dcim/location-types/{lt_id}/")
-        caching.cache.clear()
-        return jsonify({"status": "deleted", "id": lt_id})
-    except RuntimeError as exc:
-        return nautobot_service_unavailable("Location type deletion unavailable", exc)
-    except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
-        if exc.response.status_code == 404:
-            return jsonify({"error": "Location type not found"}), 404
-        return jsonify({"error": "Failed to communicate with Nautobot API"}), exc.response.status_code
-    except Exception as exc:
-        logger.error("Unexpected error deleting location type: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
