@@ -37,6 +37,11 @@ def _log_alert_board_exclusions() -> None:
             logger.error(
                 "%s=%r is neither true/false nor an existing CA bundle file: TLS connections will fail", name, value
             )
+    if settings.AUTH_MODE == "disabled" and settings.ALLOW_UNAUTHENTICATED_WRITES:
+        logger.warning(
+            "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach the app "
+            "can change criticality overrides"
+        )
     if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "
