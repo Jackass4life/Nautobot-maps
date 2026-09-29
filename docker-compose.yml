@@ -43,7 +43,6 @@ services:
       - NAUTOBOT_TOKEN=${NAUTOBOT_TOKEN}
       - NAUTOBOT_VERIFY_SSL=${NAUTOBOT_VERIFY_SSL:-true}
       - NAUTOBOT_API_VERSION=${NAUTOBOT_API_VERSION:-}
-      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me}
       - CACHE_TTL=${CACHE_TTL:-300}
       - CACHE_TYPE=${CACHE_TYPE:-RedisCache}
       - CACHE_REDIS_URL=${CACHE_REDIS_URL:-redis://redis:6379/0}
@@ -82,6 +81,9 @@ services:
       - LIBRENMS_URL=${LIBRENMS_URL:-}
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
       - LIBRENMS_VERIFY_SSL=${LIBRENMS_VERIFY_SSL:-true}
+      # PostgreSQL connect and statement timeouts (optional; defaults 5 s / 60 s)
+      - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-}
+      - DB_STATEMENT_TIMEOUT_SECONDS=${DB_STATEMENT_TIMEOUT_SECONDS:-}
       # PostgreSQL persistence: the bundled postgres service unless overridden.
       - NAUTOBOT_MAPS_DATABASE_URL=${NAUTOBOT_MAPS_DATABASE_URL-postgresql://${POSTGRES_USER:-nautobot_maps}:${POSTGRES_PASSWORD:-nautobot_maps}@postgres:5432/${POSTGRES_DB:-nautobot_maps}}
     depends_on:

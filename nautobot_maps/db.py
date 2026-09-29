@@ -13,6 +13,7 @@ from nautobot_maps import settings
 
 try:
     import psycopg
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
     from psycopg.rows import dict_row
 except Exception:  # pragma: no cover - optional dependency
     psycopg = None
@@ -77,8 +78,12 @@ def advisory_lock_key(name: str) -> int:
     return int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "big", signed=True)
 
 
-def get_conn():
-    """Return a PostgreSQL connection, or ``None`` when persistence is disabled."""
+def get_conn(connect_timeout: int | None = None):
+    """Return a PostgreSQL connection, or ``None`` when persistence is disabled.
+
+    Connecting gives up after DB_CONNECT_TIMEOUT_SECONDS (or *connect_timeout*),
+    and every statement after DB_STATEMENT_TIMEOUT_SECONDS (#190).
+    """
     if not dialect():
         return None
     if psycopg is None:
@@ -87,8 +92,12 @@ def get_conn():
             "install psycopg to enable PostgreSQL persistence"
         )
         return None
+    url = settings.NAUTOBOT_MAPS_DATABASE_URL
+    # Add to any options the URL already has (e.g. a search_path), not replace them.
+    options = conninfo_to_dict(url).get("options") or ""
+    options = f"{options} -c statement_timeout={settings.DB_STATEMENT_TIMEOUT_SECONDS * 1000}".strip()
     return psycopg.connect(
-        settings.NAUTOBOT_MAPS_DATABASE_URL,
+        make_conninfo(url, connect_timeout=connect_timeout or settings.DB_CONNECT_TIMEOUT_SECONDS, options=options),
         row_factory=dict_row,
         autocommit=True,
     )
@@ -419,6 +428,175 @@ def init_db() -> None:
         if current != SCHEMA_VERSION:
             with transaction(conn):
                 conn.execute("SELECT pg_advisory_xact_lock(%s)", (MIGRATION_LOCK_KEY,))
+        with transaction(conn):
+            # Waiting for another worker's migration, or a migration on a big
+            # table, may take longer than a request's statement timeout.
+            conn.execute("SET LOCAL statement_timeout = 0")
+            conn.execute("SELECT pg_advisory_xact_lock(674864467105151045)")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS device_criticality_override (
+                    nautobot_device_id TEXT PRIMARY KEY,
+                    is_critical        INTEGER NOT NULL DEFAULT 1,
+                    reason             TEXT    NOT NULL DEFAULT '',
+                    updated_by         TEXT    NOT NULL DEFAULT '',
+                    updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS librenms_device_map (
+                    nautobot_device_id  TEXT PRIMARY KEY,
+                    librenms_device_id  INTEGER NOT NULL,
+                    librenms_hostname   TEXT    NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inventory_sync_state (
+                    source               TEXT PRIMARY KEY,
+                    last_started_at      TIMESTAMPTZ,
+                    last_completed_at    TIMESTAMPTZ,
+                    last_successful_sync TIMESTAMPTZ,
+                    cache_version        TEXT NOT NULL DEFAULT '',
+                    status               TEXT NOT NULL DEFAULT 'idle',
+                    error_message        TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS nautobot_location_cache (
+                    location_id       TEXT PRIMARY KEY,
+                    name              TEXT NOT NULL DEFAULT '',
+                    slug              TEXT NOT NULL DEFAULT '',
+                    status            TEXT NOT NULL DEFAULT '',
+                    location_type     TEXT NOT NULL DEFAULT '',
+                    parent            TEXT NOT NULL DEFAULT '',
+                    parent_id         TEXT NOT NULL DEFAULT '',
+                    latitude          DOUBLE PRECISION,
+                    longitude         DOUBLE PRECISION,
+                    description       TEXT NOT NULL DEFAULT '',
+                    physical_address  TEXT NOT NULL DEFAULT '',
+                    facility          TEXT NOT NULL DEFAULT '',
+                    tenant            TEXT NOT NULL DEFAULT '',
+                    tenant_id         TEXT NOT NULL DEFAULT '',
+                    tenant_group      TEXT NOT NULL DEFAULT '',
+                    asn               BIGINT,
+                    time_zone         TEXT,
+                    tags_json         TEXT NOT NULL DEFAULT '[]',
+                    url               TEXT NOT NULL DEFAULT '',
+                    last_updated      TIMESTAMPTZ,
+                    synced_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS nautobot_device_cache (
+                    device_id      TEXT PRIMARY KEY,
+                    location_id    TEXT NOT NULL DEFAULT '',
+                    name           TEXT NOT NULL DEFAULT '',
+                    device_type    TEXT NOT NULL DEFAULT '',
+                    manufacturer   TEXT NOT NULL DEFAULT '',
+                    role           TEXT NOT NULL DEFAULT '',
+                    status         TEXT NOT NULL DEFAULT '',
+                    primary_ip     TEXT NOT NULL DEFAULT '',
+                    platform       TEXT NOT NULL DEFAULT '',
+                    serial         TEXT NOT NULL DEFAULT '',
+                    tenant         TEXT NOT NULL DEFAULT '',
+                    last_updated   TIMESTAMPTZ,
+                    synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS librenms_device_status (
+                    device_id      INTEGER PRIMARY KEY,
+                    hostname       TEXT NOT NULL DEFAULT '',
+                    ip             TEXT NOT NULL DEFAULT '',
+                    status         INTEGER,
+                    status_raw     TEXT NOT NULL DEFAULT '',
+                    status_reason  TEXT NOT NULL DEFAULT '',
+                    synced_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_instances (
+                    id                     BIGSERIAL PRIMARY KEY,
+                    alert_key              TEXT NOT NULL,
+                    site_id                TEXT NOT NULL,
+                    site_name              TEXT NOT NULL DEFAULT '',
+                    device_id              TEXT NOT NULL,
+                    device_name            TEXT NOT NULL DEFAULT '',
+                    alert_level            TEXT NOT NULL DEFAULT 'unknown',
+                    alert_reason           TEXT NOT NULL DEFAULT '',
+                    status                 TEXT NOT NULL DEFAULT 'open',
+                    down_started_at        TIMESTAMPTZ NOT NULL,
+                    last_seen_down_at      TIMESTAMPTZ NOT NULL,
+                    resolved_at            TIMESTAMPTZ,
+                    total_downtime_seconds BIGINT NOT NULL DEFAULT 0,
+                    created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_events (
+                    id                BIGSERIAL PRIMARY KEY,
+                    alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
+                    event_type        TEXT NOT NULL,
+                    event_at          TIMESTAMPTZ NOT NULL,
+                    alert_level       TEXT NOT NULL DEFAULT 'unknown',
+                    alert_reason      TEXT NOT NULL DEFAULT '',
+                    snapshot_json     TEXT NOT NULL DEFAULT '{}',
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_cases (
+                    id                BIGSERIAL PRIMARY KEY,
+                    alert_instance_id BIGINT NOT NULL REFERENCES alert_instances(id) ON DELETE CASCADE,
+                    case_number       TEXT NOT NULL,
+                    created_by        TEXT NOT NULL DEFAULT '',
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(alert_instance_id, case_number)
+                )
+                """
+            )
+            # Each site's alert level at the last board build, and a log of
+            # changes, for the alert feed (#180).
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_alert_levels (
+                    site_id     TEXT PRIMARY KEY,
+                    site_name   TEXT NOT NULL DEFAULT '',
+                    alert_level TEXT NOT NULL,
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS site_level_changes (
+                    id         BIGSERIAL PRIMARY KEY,
+                    site_id    TEXT NOT NULL,
+                    site_name  TEXT NOT NULL DEFAULT '',
+                    from_level TEXT NOT NULL,
+                    to_level   TEXT NOT NULL,
+                    changed_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            primary_ip_column_missing = row_to_dict(
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS schema_migrations (
