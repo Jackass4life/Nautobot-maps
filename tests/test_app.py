@@ -1656,6 +1656,49 @@ class TestNautobotURLValidation:
 # Tests: SSL verification configuration
 # ---------------------------------------------------------------------------
 class TestSSLVerification:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("true", True),
+            ("", True),
+            ("yes", True),
+            ("false", False),
+            ("no", False),
+            ("0", False),
+            ("/certs/internal-ca.pem", "/certs/internal-ca.pem"),
+        ],
+    )
+    def test_verify_setting_values(self, value, expected):
+        """Both upstreams accept true/false or a CA bundle path (#191)."""
+        assert settings._verify_ssl(value) == expected
+
+    def test_librenms_accepts_a_ca_bundle_path(self):
+        """A path used to be read as a yes/no flag and silently became True (#191).
+
+        Checked in a fresh process: reloading the settings module here would
+        reset settings that other tests rely on.
+        """
+        import os
+        import subprocess
+        import sys
+
+        completed = subprocess.run(
+            [sys.executable, "-c", "from nautobot_maps import settings; print(settings.LIBRENMS_VERIFY_SSL)"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env={**os.environ, "LIBRENMS_VERIFY_SSL": "/certs/internal-ca.pem"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert completed.stdout.strip() == "/certs/internal-ca.pem"
+
+    def test_missing_ca_bundle_is_logged_at_startup(self, monkeypatch, caplog):
+        monkeypatch.setattr(settings, "LIBRENMS_VERIFY_SSL", "/nonexistent/ca.pem")
+        with caplog.at_level("ERROR"):
+            flask_app._log_alert_board_exclusions()
+        assert "LIBRENMS_VERIFY_SSL='/nonexistent/ca.pem'" in caplog.text
+
     def test_verify_ssl_defaults_to_true(self):
         """When NAUTOBOT_VERIFY_SSL is not set, verify should default to True."""
         # The module-level NAUTOBOT_VERIFY_SSL is parsed at import time from
