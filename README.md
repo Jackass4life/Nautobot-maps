@@ -130,6 +130,8 @@ docker compose logs -f
 docker compose down
 ```
 
+Every response carries browser security headers: a Content-Security-Policy that only runs the app's own scripts and loads images only from the app and the `MAP_TILE_URL` host (so the pages can't be framed or inject scripts), plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
+
 The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
 
 ### Local overrides (ports, volumes, …)

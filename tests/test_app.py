@@ -5950,3 +5950,30 @@ class TestGeocoder:
             caching.cache.delete("geocode-rate-limit")
             assert client.get("/api/search?q=Nowhere").status_code == 404
         assert geolocator.geocode.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: browser security headers (#198)
+# ---------------------------------------------------------------------------
+class TestSecurityHeaders:
+    @pytest.mark.parametrize("path", ["/", "/alerts", "/healthz", "/api/does-not-exist"])
+    def test_headers_on_every_response(self, client, path, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        resp = client.get(path)
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+        csp = resp.headers["Content-Security-Policy"]
+        assert "script-src 'self';" in csp and "frame-ancestors 'none'" in csp
+        assert "unsafe-inline" not in csp.split("script-src")[1].split(";")[0]
+
+    def test_images_allowed_from_the_tile_server(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+        assert (
+            "img-src 'self' data: https://*.tile.openstreetmap.org;"
+            in client.get("/").headers["Content-Security-Policy"]
+        )
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "http://tiles.internal:8080/{z}/{x}/{y}.png")
+        assert "img-src 'self' data: http://tiles.internal:8080;" in client.get("/").headers["Content-Security-Policy"]
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "/tiles/{z}/{x}/{y}.png")
+        assert "img-src 'self' data:;" in client.get("/").headers["Content-Security-Policy"]
