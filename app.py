@@ -1,4 +1,5 @@
 import logging
+import os
 
 from flask import Flask
 
@@ -29,6 +30,24 @@ def _log_alert_board_exclusions() -> None:
             "NAUTOBOT_MAPS_DB is set, but SQLite support was removed: the alert board "
             "needs PostgreSQL. Set NAUTOBOT_MAPS_DATABASE_URL=postgresql://... and remove NAUTOBOT_MAPS_DB."
         )
+    for name in ("NAUTOBOT_VERIFY_SSL", "LIBRENMS_VERIFY_SSL"):
+        value = getattr(settings, name)
+        if isinstance(value, str) and not os.path.exists(value):
+            logger.error(
+                "%s=%r is neither true/false nor an existing CA bundle file: TLS connections will fail", name, value
+            )
+    if settings.AUTH_MODE == "disabled" and settings.ALLOW_UNAUTHENTICATED_WRITES:
+        logger.warning(
+            "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach the app "
+            "can change criticality overrides"
+        )
+    if settings.AUTH_MODE == "header":
+        proxies = ", ".join(str(network) for network in settings.AUTH_TRUSTED_PROXIES)
+        # Two calls, so nothing derived from the secret reaches the log.
+        if settings.AUTH_PROXY_SECRET:
+            logger.info("Header auth: identity headers trusted from %s with the proxy secret", proxies)
+        else:
+            logger.info("Header auth: identity headers trusted from %s (no AUTH_PROXY_SECRET)", proxies)
     if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "
