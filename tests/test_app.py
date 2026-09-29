@@ -5964,6 +5964,9 @@ class TestSchemaMigrations:
             )
             assert completed.returncode == 0, completed.stderr[-2000:]
             assert expected in completed.stdout
+
+
+# ---------------------------------------------------------------------------
 # Tests: database connect and statement timeouts (#190)
 # ---------------------------------------------------------------------------
 class TestDatabaseTimeouts:
@@ -5981,15 +5984,21 @@ class TestDatabaseTimeouts:
     def test_migrations_are_not_limited_by_the_statement_timeout(self, pg_database, monkeypatch):
         """init_db waits for other workers' migrations; that wait must not time out."""
         monkeypatch.setattr(settings, "DB_STATEMENT_TIMEOUT_SECONDS", 1)
+        # A pending step, so init_db has to take the migration lock (#201).
+        monkeypatch.setattr(db, "MIGRATIONS", (*db.MIGRATIONS, (2, "no-op", lambda conn: None)))
+        monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
         holder = db.get_conn()
         try:
-            holder.execute("SELECT pg_advisory_lock(674864467105151045)")
-            released = threading.Timer(2, lambda: holder.execute("SELECT pg_advisory_unlock(674864467105151045)"))
+            holder.execute("SELECT pg_advisory_lock(%s)", (db.MIGRATION_LOCK_KEY,))
+            released = threading.Timer(
+                2, lambda: holder.execute("SELECT pg_advisory_unlock(%s)", (db.MIGRATION_LOCK_KEY,))
+            )
             released.start()
             db.init_db()  # waits ~2 s for the lock, longer than the 1 s timeout
             released.join()
         finally:
             holder.close()
+        assert pg_database.execute("SELECT max(version) AS v FROM schema_migrations")[0]["v"] == 2
 
     def test_unreachable_database_fails_fast(self, monkeypatch):
         import psycopg
