@@ -39,6 +39,12 @@ jobs:
         # Fails if any file is not formatted; run `ruff format .` locally to fix.
         run: ruff format --check --diff .
 
+      - name: No committed dependencies
+        # node_modules is git-ignored; a `git add -A` after `npm ci` once
+        # committed 941 files of it (#189).
+        if: success() || failure()
+        run: test -z "$(git ls-files node_modules)"
+
       - name: Set up Node
         if: success() || failure()
         uses: actions/setup-node@v4

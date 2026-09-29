@@ -31,7 +31,8 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    ```bash
    python -m pytest tests/ -v
    ```
-5. **Submit** a pull request against `main` with a clear description of the change.
+5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
+6. **Submit** a pull request against `main` with a clear description of the change.
 
 ### Development Setup
 
