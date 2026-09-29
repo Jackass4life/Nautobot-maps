@@ -55,7 +55,6 @@ def live_client():
     caching.cache.clear()
 
     flask_app.app.config["TESTING"] = True
-    flask_app.app.config["SECRET_KEY"] = "live-test-secret"
 
     with flask_app.app.test_client() as client:
         yield client

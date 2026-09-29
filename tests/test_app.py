@@ -61,7 +61,6 @@ def auth_config(
 @pytest.fixture
 def client():
     flask_app.app.config["TESTING"] = True
-    flask_app.app.config["SECRET_KEY"] = "test-secret"
     # Clear cache before each test
     caching.cache.clear()
     with flask_app.app.test_client() as c:
@@ -2387,6 +2386,7 @@ class TestAlertLifecycleTracking:
 
     def test_init_db_rekeys_open_alerts_without_severity(self):
         """Open alerts keyed with the old site::device::level format are migrated once (#163)."""
+        self.db.execute("DROP TABLE schema_migrations")  # from before versioned migrations (#201)
         import hashlib
 
         def old_key(site_id, device_id, level):
@@ -2449,6 +2449,7 @@ class TestAlertLifecycleTracking:
         defined further down the file.  Import the app in a fresh process
         against a database with an open old-style alert, like a real start.
         """
+        self.db.execute("DROP TABLE schema_migrations")  # from before versioned migrations (#201)
         import os
         import subprocess
         import sys
@@ -3087,6 +3088,7 @@ class TestAlertLifecycleTracking:
 
     def test_init_db_migrates_legacy_time_zone_not_null(self):
         """Old databases had time_zone NOT NULL; db.init_db relaxes it and keeps the rows."""
+        self.db.execute("DROP TABLE schema_migrations")  # from before versioned migrations (#201)
         self.db.execute("DROP TABLE nautobot_location_cache")
         self.db.execute(
             """
@@ -3142,6 +3144,7 @@ class TestAlertLifecycleTracking:
 
     def test_init_db_marks_primary_ip_migration_pending(self):
         """Adding the primary_ip column forces a fresh Nautobot sync to fill it."""
+        self.db.execute("DROP TABLE schema_migrations")  # from before versioned migrations (#201)
         self.db.execute("ALTER TABLE nautobot_device_cache DROP COLUMN primary_ip")
         self.db.execute("ALTER TABLE inventory_sync_state DROP COLUMN cache_version")
         self.db.execute(
@@ -3199,7 +3202,8 @@ class TestAlertLifecycleTracking:
 
         assert conn is sentinel_conn
         psycopg_module.connect.assert_called_once_with(
-            "postgresql://db.example/maps",
+            # The URL plus the connect and statement timeouts (#190).
+            "dbname=maps host=db.example connect_timeout=5 options='-c statement_timeout=60000'",
             row_factory=sentinel_row_factory,
             autocommit=True,
         )
@@ -5017,6 +5021,7 @@ class TestLibreNMSPolledIp:
         assert alerts.device_display_ip(device) == "10.0.0.1"
 
     def test_migration_adds_ip_column_to_existing_table(self, pg_database):
+        pg_database.execute("DROP TABLE schema_migrations")  # from before versioned migrations (#201)
         pg_database.execute("ALTER TABLE librenms_device_status DROP COLUMN ip")
         pg_database.execute(
             "INSERT INTO librenms_device_status (device_id, hostname, status) VALUES (7, 'router01', 1)"
@@ -5471,6 +5476,7 @@ class TestSiteRollup:
         assert [row["ancestor_path"] for row in alerts.with_ancestor_paths(locations, locations)] == ["A › B", "B › A"]
 
     def test_migration_adds_parent_id_column(self):
+        self.db.execute("DROP TABLE schema_migrations")  # from before versioned migrations (#201)
         self.db.execute("ALTER TABLE nautobot_location_cache DROP COLUMN parent_id")
         db.init_db()
         columns = {
@@ -5949,6 +5955,153 @@ class TestLogging:
             assert client.get("/api/locations").status_code == 500
         record = next(r for r in caplog.records if "fetching locations" in r.getMessage())
         assert record.exc_info is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests: versioned schema migrations (#201)
+# ---------------------------------------------------------------------------
+# sha256 of db.baseline_schema's source.  The baseline is frozen: a schema
+# change goes into a new step in db.MIGRATIONS, never into the baseline, or
+# databases already at version 1 would never get it.
+BASELINE_SCHEMA_SHA256 = "f5e812f54f7ffad33bf515db035d384fdb49f791a89451c3f623e12ca986178f"
+
+
+class TestSchemaMigrations:
+    def _versions(self, db_):
+        return [row["version"] for row in db_.execute("SELECT version FROM schema_migrations ORDER BY version")]
+
+    def test_fresh_database_is_at_the_current_version(self, pg_database):
+        assert self._versions(pg_database) == [1] == [db.SCHEMA_VERSION]
+
+    def test_database_from_before_versioning_is_recorded_as_baseline(self, pg_database):
+        pg_database.execute("DROP TABLE schema_migrations")
+        pg_database.execute(
+            "INSERT INTO device_criticality_override (nautobot_device_id, is_critical) VALUES ('d1', 1)"
+        )
+        db.init_db()
+        assert self._versions(pg_database) == [1]
+        assert pg_database.execute("SELECT count(*) AS n FROM device_criticality_override") == [{"n": 1}]
+
+    def test_current_database_skips_the_migrations(self, pg_database, monkeypatch):
+        def boom(conn):
+            raise AssertionError("a current database must not run migrations")
+
+        monkeypatch.setattr(db, "MIGRATIONS", ((1, "baseline schema", boom),))
+        db.init_db()
+
+    def test_a_new_step_runs_once(self, pg_database, monkeypatch):
+        def add_table(conn):
+            conn.execute("CREATE TABLE migration_probe (id INTEGER)")
+
+        monkeypatch.setattr(db, "MIGRATIONS", (*db.MIGRATIONS, (2, "probe table", add_table)))
+        monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
+        db.init_db()
+        db.init_db()  # would fail with "relation already exists" if run twice
+        assert self._versions(pg_database) == [1, 2]
+
+    def test_newer_database_is_refused(self, pg_database):
+        pg_database.execute("INSERT INTO schema_migrations (version, name) VALUES (99, 'from the future')")
+        with pytest.raises(RuntimeError, match="newer than this release"):
+            db.init_db()
+
+    def test_baseline_is_frozen(self):
+        import hashlib
+        import inspect
+
+        digest = hashlib.sha256(inspect.getsource(db.baseline_schema).encode()).hexdigest()
+        assert digest == BASELINE_SCHEMA_SHA256, (
+            "db.baseline_schema changed: add a new step to db.MIGRATIONS instead, "
+            "so databases already at version 1 get the change too"
+        )
+
+    def test_migrate_command(self, pg_database):
+        import os
+        import pathlib
+        import subprocess
+        import sys
+
+        repo_root = pathlib.Path(__file__).resolve().parent.parent
+        env = {**os.environ, "NAUTOBOT_MAPS_DATABASE_URL": pg_database.url}
+        for command, expected in (("migrate", ""), ("schema-version", "database: 1, this release: 1")):
+            completed = subprocess.run(
+                [sys.executable, "-m", "nautobot_maps", command],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert completed.returncode == 0, completed.stderr[-2000:]
+            assert expected in completed.stdout
+
+
+# ---------------------------------------------------------------------------
+# Tests: database connect and statement timeouts (#190)
+# ---------------------------------------------------------------------------
+class TestDatabaseTimeouts:
+    def test_long_statement_is_cancelled(self, pg_database, monkeypatch):
+        import psycopg
+
+        monkeypatch.setattr(settings, "DB_STATEMENT_TIMEOUT_SECONDS", 1)
+        conn = db.get_conn()
+        try:
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                conn.execute("SELECT pg_sleep(3)")
+        finally:
+            conn.close()
+
+    def test_migrations_are_not_limited_by_the_statement_timeout(self, pg_database, monkeypatch):
+        """init_db waits for other workers' migrations; that wait must not time out."""
+        monkeypatch.setattr(settings, "DB_STATEMENT_TIMEOUT_SECONDS", 1)
+        # A pending step, so init_db has to take the migration lock (#201).
+        monkeypatch.setattr(db, "MIGRATIONS", (*db.MIGRATIONS, (2, "no-op", lambda conn: None)))
+        monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
+        holder = db.get_conn()
+        try:
+            holder.execute("SELECT pg_advisory_lock(%s)", (db.MIGRATION_LOCK_KEY,))
+            released = threading.Timer(
+                2, lambda: holder.execute("SELECT pg_advisory_unlock(%s)", (db.MIGRATION_LOCK_KEY,))
+            )
+            released.start()
+            db.init_db()  # waits ~2 s for the lock, longer than the 1 s timeout
+            released.join()
+        finally:
+            holder.close()
+        assert pg_database.execute("SELECT max(version) AS v FROM schema_migrations")[0]["v"] == 2
+
+    def test_unreachable_database_fails_fast(self, monkeypatch):
+        import psycopg
+
+        # A non-routable address: packets are dropped, so without a timeout
+        # the connect would wait for the operating system (a minute or more).
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://u:p@10.255.255.1:5432/db")
+        started = datetime.now(UTC)
+        with pytest.raises(psycopg.OperationalError):
+            db.get_conn(connect_timeout=1)
+        assert (datetime.now(UTC) - started).total_seconds() < 5
+
+    def test_healthz_uses_a_short_connect_timeout(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://u:p@db.invalid:5432/db")
+        seen = {}
+
+        def fake_get_conn(connect_timeout=None):
+            seen["connect_timeout"] = connect_timeout
+            raise RuntimeError("down")
+
+        monkeypatch.setattr(db, "get_conn", fake_get_conn)
+        resp = client.get("/healthz")
+        assert resp.status_code == 503
+        assert seen["connect_timeout"] == 2
+
+    def test_timeout_keeps_options_from_the_url(self, pg_database):
+        """The URL's own options (the tests' search_path) survive (#190)."""
+        conn = db.get_conn()
+        try:
+            row = conn.execute("SHOW statement_timeout").fetchone()
+            assert row["statement_timeout"] == "1min"
+            assert conn.execute("SELECT current_schema() AS s").fetchone()["s"].startswith("test_")
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,6 @@ from flask import Flask
 from nautobot_maps import auth, caching, db, logs, nautobot, scheduler, settings, web
 
 app = Flask(__name__)
-app.secret_key = settings.FLASK_SECRET_KEY
 
 logs.configure()
 logger = logging.getLogger(__name__)
