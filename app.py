@@ -35,6 +35,12 @@ def _log_alert_board_exclusions() -> None:
             "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach the app "
             "can change criticality overrides and create/delete Nautobot roles and location types"
         )
+    if settings.AUTH_MODE == "header":
+        logger.info(
+            "Header auth: identity headers trusted from %s%s",
+            ", ".join(str(network) for network in settings.AUTH_TRUSTED_PROXIES),
+            " with the proxy secret" if settings.AUTH_PROXY_SECRET else " (no AUTH_PROXY_SECRET)",
+        )
     if not db.dialect():
         logger.warning(
             "No persistence database configured (NAUTOBOT_MAPS_DATABASE_URL): "

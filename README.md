@@ -68,7 +68,7 @@ python app.py
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
 | `GUNICORN_TIMEOUT` | ❌ | `120` | Gunicorn worker timeout in seconds; values below 120 are raised to 120 |
-| `GUNICORN_BIND` | ❌ | `0.0.0.0:5000` | Gunicorn listen address; `127.0.0.1:5000` when `AUTH_MODE=header` |
+| `GUNICORN_BIND` | ❌ | `0.0.0.0:5000` | Gunicorn listen address |
 | `CACHE_TYPE` | ❌ | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with multiple workers |
 | `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
 | `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | PostgreSQL URL (`postgresql://...`) for the inventory snapshot, overrides, alert downtime history and case tracking. Required for the alert board. `docker-compose.yml` sets it to its bundled PostgreSQL |
@@ -88,6 +88,8 @@ python app.py
 | `AUTH_VIEWER_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `viewer` role |
 | `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
 | `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
+| `AUTH_TRUSTED_PROXIES` | ❌ | `127.0.0.1/32,::1/128` | Header mode: comma-separated IPs/CIDRs of the reverse proxy. Identity headers from any other address are ignored (the request is anonymous) and logged |
+| `AUTH_PROXY_SECRET` | ❌ | — | Header mode: when set, identity headers only count if the proxy also sends this value in `X-Auth-Proxy-Secret` |
 | `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz`) needs at least the `viewer` role |
 | `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow criticality-override changes and creating/deleting Nautobot roles and location types without authentication (logged as a warning at startup). Off: they return 403 |
 | `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
@@ -218,6 +220,43 @@ AUTH_HEADER_GROUPS=X-Forwarded-Groups
 AUTH_OPERATOR_GROUPS=nautobot-operators
 AUTH_ADMIN_GROUPS=nautobot-admins
 ```
+
+### Header mode with Docker
+
+The app trusts `X-Forwarded-User` / `X-Forwarded-Groups` only from the proxy: the direct peer must be in `AUTH_TRUSTED_PROXIES` (default: localhost only) and, if `AUTH_PROXY_SECRET` is set, send it in `X-Auth-Proxy-Secret`. Anything else is treated as anonymous, so a client that reaches the app directly cannot claim to be an admin.
+
+With the proxy (e.g. nginx or oauth2-proxy) as another service in the same compose project, pin the network's subnet and trust it:
+
+```yaml
+# docker-compose.override.yml
+services:
+  nautobot-maps:
+    ports: !reset []          # only the proxy talks to the app
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+```
+
+```dotenv
+AUTH_MODE=header
+AUTH_TRUSTED_PROXIES=172.30.0.0/24
+AUTH_PROXY_SECRET=<long random string>
+```
+
+and in the proxy (nginx):
+
+```nginx
+location / {
+    proxy_pass http://nautobot-maps:5000;
+    proxy_set_header X-Forwarded-User   $authenticated_user;   # from your SSO module
+    proxy_set_header X-Forwarded-Groups $authenticated_groups;
+    proxy_set_header X-Auth-Proxy-Secret "<the same secret>";
+}
+```
+
+The startup log shows which proxies are trusted.
 
 Recommended deployment patterns:
 

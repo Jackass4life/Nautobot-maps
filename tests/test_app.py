@@ -4543,9 +4543,44 @@ class TestAuthConfiguration:
         with auth_config(mode="disabled"):
             assert auth.flask_run_host() == "0.0.0.0"
 
-    def test_header_auth_binds_gunicorn_to_loopback(self, monkeypatch):
+    def test_header_auth_binds_gunicorn_to_all_interfaces(self, monkeypatch):
+        """In a container 127.0.0.1 is unreachable; trust is checked per request instead (#187)."""
         monkeypatch.setenv("AUTH_MODE", "header")
-        assert self._reload_gunicorn_config().bind == "127.0.0.1:5000"
+        assert self._reload_gunicorn_config().bind == "0.0.0.0:5000"
+
+    def test_identity_headers_only_count_from_trusted_proxies(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_TRUSTED_PROXIES", settings._networks("t", "10.0.0.0/24"))
+        monkeypatch.setattr(settings, "AUTH_PROXY_SECRET", "")
+        headers = {"X-Forwarded-User": "mallory", "X-Forwarded-Groups": "noc-admins"}
+        body = {"nautobot_device_id": "dev-abc", "is_critical": False}
+        with auth_config(mode="header", admin_groups={"noc-admins"}):
+            # From an untrusted address the headers are ignored: anonymous.
+            resp = client.post(
+                "/api/criticality-overrides", json=body, headers=headers, environ_base={"REMOTE_ADDR": "192.0.2.7"}
+            )
+            assert resp.status_code == 401
+            # From the proxy they count (503: no database in this test).
+            resp = client.post(
+                "/api/criticality-overrides", json=body, headers=headers, environ_base={"REMOTE_ADDR": "10.0.0.5"}
+            )
+            assert resp.status_code == 503
+
+    def test_proxy_secret_is_required_when_set(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_TRUSTED_PROXIES", settings._networks("t", "0.0.0.0/0"))
+        monkeypatch.setattr(settings, "AUTH_PROXY_SECRET", "s3cret")
+        headers = {"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-admins"}
+        body = {"nautobot_device_id": "dev-abc", "is_critical": False}
+        with auth_config(mode="header", admin_groups={"noc-admins"}):
+            assert client.post("/api/criticality-overrides", json=body, headers=headers).status_code == 401
+            wrong = {**headers, "X-Auth-Proxy-Secret": "guess"}
+            assert client.post("/api/criticality-overrides", json=body, headers=wrong).status_code == 401
+            right = {**headers, "X-Auth-Proxy-Secret": "s3cret"}
+            assert client.post("/api/criticality-overrides", json=body, headers=right).status_code == 503
+
+    def test_default_trusts_only_localhost(self):
+        assert [str(n) for n in settings._networks("t", "127.0.0.1/32,::1/128")] == ["127.0.0.1/32", "::1/128"]
+        with pytest.raises(RuntimeError, match="AUTH_TRUSTED_PROXIES"):
+            settings._networks("AUTH_TRUSTED_PROXIES", "10.0.0.0/33")
 
     def test_non_header_auth_keeps_public_gunicorn_bind(self, monkeypatch):
         monkeypatch.setenv("AUTH_MODE", "disabled")

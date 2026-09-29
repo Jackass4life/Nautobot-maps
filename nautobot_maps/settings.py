@@ -5,6 +5,7 @@ Other modules read them as ``settings.NAME`` at call time, never with
 ``monkeypatch.setattr(settings, "NAME", value)``.
 """
 
+import ipaddress
 import os
 import re
 from urllib.parse import urlsplit
@@ -40,6 +41,18 @@ def _verify_ssl(value: str) -> bool | str:
     if value.lower() == "true":
         return True
     return value
+
+
+def _networks(name: str, value: str) -> tuple:
+    """Parse comma/semicolon-separated IP addresses or CIDRs; fail at startup on a typo."""
+    networks = []
+    for item in re.split(r"[;,]", value or ""):
+        if item.strip():
+            try:
+                networks.append(ipaddress.ip_network(item.strip(), strict=False))
+            except ValueError as exc:
+                raise RuntimeError(f"Invalid {name} entry {item.strip()!r}: expected an IP address or CIDR") from exc
+    return tuple(networks)
 
 
 def _flag(name: str, default: bool) -> bool:
@@ -94,6 +107,13 @@ AUTH_ADMIN_GROUPS = parse_csv_set(os.getenv("AUTH_ADMIN_GROUPS", ""))
 # Header mode: every page and API (except /healthz) needs at least the viewer
 # role.  Off by default, so reads stay public (#188).
 AUTH_REQUIRE_VIEWER = _flag("AUTH_REQUIRE_VIEWER", False)
+# Header mode: identity headers are only trusted from these proxy addresses,
+# and, when AUTH_PROXY_SECRET is set, only with that secret in the
+# X-Auth-Proxy-Secret header.  Anything else is anonymous (#187).
+AUTH_TRUSTED_PROXIES = _networks(
+    "AUTH_TRUSTED_PROXIES", os.getenv("AUTH_TRUSTED_PROXIES", "").strip() or "127.0.0.1/32,::1/128"
+)
+AUTH_PROXY_SECRET = os.getenv("AUTH_PROXY_SECRET", "").strip()
 # AUTH_MODE=disabled: allow the administrative writes (criticality overrides,
 # Nautobot roles and location types) without authentication.  Off by default:
 # anyone who can reach the app could change Nautobot with the app's token (#188).
