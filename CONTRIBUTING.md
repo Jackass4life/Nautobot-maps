@@ -114,6 +114,7 @@ The schema is versioned (#201). `db.baseline_schema()` is version 1 and **frozen
 def add_foo_column(conn) -> None:
     conn.execute("ALTER TABLE alert_instances ADD COLUMN foo TEXT NOT NULL DEFAULT ''")
 
+
 MIGRATIONS = (
     (1, "baseline schema", baseline_schema),
     (2, "alert_instances.foo", add_foo_column),
