@@ -270,10 +270,14 @@ for a full description of the seed data and suggested demo scenarios.
 
 ## API Endpoints
 
+**API** in the header of every page opens `/docs`, the API explorer: every page and endpoint with its methods, parameters, example body and required role, and **Try it** to send a request and see the status, time and response (with the same request as a `curl` command). Try it runs as you, so your login and role apply and POST/DELETE change data (it asks first). `/api/endpoints` returns the same list as JSON. It is read from the app's routes, so new endpoints appear on their own.
+
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Map web UI |
 | `GET` | `/alerts` | Alert board web UI |
+| `GET` | `/docs` | API explorer: every endpoint, with Try it |
+| `GET` | `/api/endpoints` | Every page and endpoint as JSON: `path`, `methods`, `summary`, `description`, `path_params`, `query_params`, `required_role`, `example_body` |
 | `GET` | `/healthz` | Liveness probe: `200 {"status": "ok"}`, or `503` when the configured persistence database is unreachable. Never calls Nautobot/LibreNMS |
 | `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues an incremental background sync of changes since the last sync, `?include_non_operational=1` includes excluded locations). A normal request also starts a sync when one is due. `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears. `next_update_in_seconds` is the time until the next sync is due (`0` = due now, `null` = unknown or running). `persistence_configured: false` means no database is set, so the board is always empty |
 | `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |

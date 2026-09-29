@@ -9,12 +9,12 @@ from datetime import UTC
 from urllib.parse import urlsplit
 
 import requests
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, current_app, jsonify, render_template, request
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import alerts, auth, caching, db, inventory, metrics, settings, timeutil
+from nautobot_maps import alerts, apidocs, auth, caching, db, inventory, metrics, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,7 @@ def nautobot_service_unavailable(context: str, exc: Exception):
 
 @bp.route("/")
 def index():
+    """The map: Nautobot locations, address and GPS search, alert banners."""
     return render_template(
         "index.html",
         nautobot_url=settings.NAUTOBOT_URL,
@@ -234,11 +235,24 @@ def prometheus_metrics():
 
 @bp.route("/alerts")
 def alert_board():
+    """The alert board: every site's severity, down devices, cases and history."""
     return render_template(
         "alerts.html",
         nautobot_url=settings.NAUTOBOT_URL,
         tier_definitions=alerts.ALERT_STATUS_TIER_DEFINITIONS,
     )
+
+
+@bp.route("/docs")
+def api_docs():
+    """This page: every page and API endpoint, with Try it (#230)."""
+    return render_template("docs.html", groups=apidocs.grouped(current_app))
+
+
+@bp.route("/api/endpoints")
+def api_endpoints():
+    """Every page and API endpoint as JSON: methods, parameters, body and role (#230)."""
+    return jsonify({"endpoints": apidocs.endpoints(current_app)})
 
 
 @bp.route("/api/locations")

@@ -422,7 +422,7 @@ body.inspector-open #map {
 
 .theme-toggle {
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   background: var(--color-surface-2);
@@ -440,7 +440,7 @@ body.inspector-open #map {
 
 .app-nav {
   display: flex;
-  gap: 8px;
+  gap: 6px; /* Map, Alert Board, API and the theme toggle fit on one line (#230) */
   margin-top: 12px;
   flex-wrap: wrap;
 }
@@ -450,7 +450,7 @@ body.inspector-open #map {
   align-items: center;
   justify-content: center;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 9px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);

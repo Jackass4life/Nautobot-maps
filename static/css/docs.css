@@ -1,0 +1,201 @@
+/* The API explorer (#230); colours and layout come from alerts.css. */
+.docs-shell {
+  max-width: 1100px;
+}
+
+.docs-shell .app-nav {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.docs-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.docs-filter input {
+  flex: 1;
+  max-width: 420px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.docs-count {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.docs-group h2 {
+  margin: 24px 0 10px;
+  font-size: 1.1rem;
+}
+
+.endpoint {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.endpoint-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.endpoint-path {
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.method {
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--color-text-muted);
+}
+
+.method-get { background: var(--color-primary); }
+.method-post { background: var(--color-success); }
+.method-delete { background: var(--color-danger); }
+
+.role-badge {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.endpoint-summary {
+  margin: 6px 0;
+  color: var(--color-text-muted);
+}
+
+.endpoint-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.endpoint-details pre,
+.try-body {
+  overflow: auto;
+  max-height: 420px;
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.try-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.param-grid label,
+.body-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+
+.param-grid em {
+  color: var(--color-text-muted);
+  font-style: normal;
+}
+
+.param-grid input,
+.body-input {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.body-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.try-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.try-btn {
+  display: inline-block;
+  margin-top: 4px;
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: #fff;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.try-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.try-write {
+  border-color: var(--color-warning);
+  background: var(--color-warning);
+}
+
+.write-note {
+  color: var(--color-warning);
+  font-size: 0.8rem;
+}
+
+.try-result {
+  margin-top: 10px;
+  padding-left: 10px;
+  border-left: 3px solid var(--color-border);
+}
+
+.try-result.try-ok { border-left-color: var(--color-success); }
+.try-result.try-failed { border-left-color: var(--color-danger); }
+
+.try-status {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.try-curl {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}

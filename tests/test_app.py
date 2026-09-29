@@ -6521,3 +6521,68 @@ def _retry_kwargs(policy) -> dict:
         "respect_retry_after_header": policy.respect_retry_after_header,
         "raise_on_status": policy.raise_on_status,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tests: API explorer (#230)
+# ---------------------------------------------------------------------------
+class TestApiExplorer:
+    def _routes(self):
+        return {
+            (rule.rule, method)
+            for rule in flask_app.app.url_map.iter_rules()
+            if rule.endpoint != "static"
+            for method in rule.methods - {"HEAD", "OPTIONS"}
+        }
+
+    def test_every_route_is_listed(self, client):
+        listed = client.get("/api/endpoints").get_json()["endpoints"]
+        assert {(item["path"], method) for item in listed for method in item["methods"]} == self._routes()
+        html = client.get("/docs").get_data(as_text=True)
+        for path, method in self._routes():
+            assert f'data-path="{path}" data-method="{method}"' in html.replace("&lt;", "<").replace("&gt;", ">")
+
+    def test_every_write_has_an_example_body(self):
+        from nautobot_maps import apidocs
+
+        for rule in flask_app.app.url_map.iter_rules():
+            if rule.methods & {"POST", "PUT", "PATCH"}:
+                assert rule.endpoint in apidocs.EXAMPLE_BODIES, f"add an example body for {rule.endpoint} to apidocs"
+
+    def test_what_each_endpoint_takes(self, client):
+        listed = client.get("/api/endpoints").get_json()["endpoints"]
+        by_key = {(item["path"], item["methods"][0]): item for item in listed}
+        detail = by_key[("/api/locations/<location_id>/detail", "GET")]
+        assert detail["path_params"] == ["location_id"] and detail["query_params"] == ["location_type"]
+        assert detail["group"] == "API" and detail["required_role"] is None
+        assert by_key[("/api/alert-feed", "GET")]["query_params"] == ["limit", "since", "kinds"]
+        assert by_key[("/api/alert-history", "GET")]["required_role"] == "operator"
+        assert by_key[("/metrics", "GET")]["group"] == "Monitoring"
+        assert by_key[("/alerts", "GET")]["group"] == "Pages"
+        feed = by_key[("/api/alert-feed", "GET")]
+        assert feed["summary"] == "What changed on the alert board, newest first."  # no "(#180)"
+        assert "Query" in feed["description"]
+        case = by_key[("/api/alert-cases", "POST")]
+        assert json.loads(case["example_body_text"]) == case["example_body"]
+        # The page keeps the example's own order (the JSON response sorts keys).
+        assert list(json.loads(case["example_body_text"])) == ["site_id", "device_ids", "case_number"]
+
+    def test_page_shows_bodies_unescaped_and_escapes_html(self, client):
+        import html as html_lib
+
+        html = client.get("/docs").get_data(as_text=True)
+        assert "&lt;device uuid&gt;" in html and "\\u003c" not in html
+        assert '"case_number": "INC-1234"' in html_lib.unescape(html)
+        assert '<script src="/static/js/docs.js">' in html and "<script>" not in html
+
+    def test_header_links_to_the_explorer(self, client):
+        for path in ("/", "/alerts", "/docs"):
+            assert 'href="/docs"' in client.get(path).get_data(as_text=True), path
+
+    def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert client.get("/docs").status_code == 401
+            assert client.get("/api/endpoints").status_code == 401
+            ok = client.get("/docs", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
+            assert ok.status_code == 200
