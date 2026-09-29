@@ -23,5 +23,5 @@ When deploying Nautobot Maps:
 - **Never** commit your `.env` file or expose API tokens in source code.
 - Use a strong, unique `FLASK_SECRET_KEY` in production.
 - Run behind a reverse proxy (e.g., Nginx) with TLS in production.
-- Keep dependencies up to date by regularly running `pip install --upgrade -r requirements.txt`.
+- Keep dependencies up to date: Dependabot proposes updates weekly, and CI runs `pip-audit`, `npm audit` and a Trivy image scan on every pull request. Deploy from a current release.
 - Restrict network access to your Nautobot instance as appropriate.
