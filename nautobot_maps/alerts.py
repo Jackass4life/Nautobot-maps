@@ -823,6 +823,7 @@ def empty_alert_context() -> dict:
         "active_alert_instance_count": 0,
         "historical_downtime_seconds": 0,
         "current_downtime_seconds": 0,
+        "latest_down_at": None,
         "active_cases": [],
         "down_devices": [],
     }
@@ -845,18 +846,22 @@ def summarize_alert_context(
     active_cases: set[str] = set()
     down_devices = []
     current_downtime_seconds = 0
+    latest_down_at = None
     for data in open_rows:
         started = timeutil.parse_iso_datetime(data.get("down_started_at"))
         if started is not None:
             elapsed = max(0, int((now_dt - started).total_seconds()))
             historical_seconds += elapsed
             current_downtime_seconds = max(current_downtime_seconds, elapsed)
+        latest_down_at = timeutil.max_iso_datetime_value(latest_down_at, data.get("down_started_at"))
         case_numbers = case_numbers_by_instance.get(int(data["id"]), [])
         active_cases.update(case_numbers)
         down_devices.append(
             {
                 "device_id": data.get("device_id") or "",
                 "device_name": data.get("device_name") or "",
+                # When it went down, for "Newest down first" and Copy (#227, #228).
+                "down_started_at": data.get("down_started_at") or None,
                 "case_numbers": case_numbers,
             }
         )
@@ -864,6 +869,8 @@ def summarize_alert_context(
         "active_alert_instance_count": len(down_devices),
         "historical_downtime_seconds": historical_seconds,
         "current_downtime_seconds": current_downtime_seconds,
+        # The newest open alert's start: the board's default sort (#228).
+        "latest_down_at": latest_down_at,
         "active_cases": sorted(active_cases),
         "down_devices": down_devices,
     }
@@ -1492,6 +1499,7 @@ def build_alert_board_payload(
                     **alert_context,
                     "active_alert_instance_count": 0,
                     "current_downtime_seconds": 0,
+                    "latest_down_at": None,
                     "active_cases": [],
                     "down_devices": [],
                 }
@@ -1554,6 +1562,7 @@ def build_alert_board_payload(
                     "device_count": len(devices),
                     "down_device_count": len(down_devices),
                     "current_downtime_seconds": alert_context["current_downtime_seconds"],
+                    "latest_down_at": alert_context.get("latest_down_at"),
                     "historical_downtime_seconds": alert_context["historical_downtime_seconds"],
                     "active_alert_instance_count": max(
                         int(alert_context["active_alert_instance_count"]),
