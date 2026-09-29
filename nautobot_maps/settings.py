@@ -108,6 +108,19 @@ ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "")
 # Prometheus metrics at /metrics (#200); "false" turns the endpoint off.
 METRICS_ENABLED = _flag("METRICS_ENABLED", True)
 
+# Map tiles and address search (#197).  Both default to the public
+# OpenStreetMap services; point them at internal ones on closed networks.
+MAP_TILE_URL = os.getenv("MAP_TILE_URL", "").strip() or "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+MAP_TILE_ATTRIBUTION = (
+    os.getenv("MAP_TILE_ATTRIBUTION", "").strip()
+    or '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+)
+GEOCODER_ENABLED = _flag("GEOCODER_ENABLED", True)
+GEOCODER_URL = os.getenv("GEOCODER_URL", "").strip().rstrip("/") or "https://nominatim.openstreetmap.org"
+GEOCODER_USER_AGENT = (
+    os.getenv("GEOCODER_USER_AGENT", "").strip() or "nautobot-maps (+https://github.com/Jackass4life/Nautobot-maps)"
+)
+
 # Persistence
 NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
 # Without these a database that drops packets makes every request hang until

@@ -90,6 +90,12 @@ services:
       - AUTH_TRUSTED_PROXIES=${AUTH_TRUSTED_PROXIES:-}
       - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:-}
       - ALLOW_UNAUTHENTICATED_WRITES=${ALLOW_UNAUTHENTICATED_WRITES:-}
+      # Map tiles and address search (optional; default: public OpenStreetMap)
+      - MAP_TILE_URL=${MAP_TILE_URL:-}
+      - MAP_TILE_ATTRIBUTION=${MAP_TILE_ATTRIBUTION:-}
+      - GEOCODER_ENABLED=${GEOCODER_ENABLED:-}
+      - GEOCODER_URL=${GEOCODER_URL:-}
+      - GEOCODER_USER_AGENT=${GEOCODER_USER_AGENT:-}
       # LibreNMS integration (optional)
       - LIBRENMS_URL=${LIBRENMS_URL:-}
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}

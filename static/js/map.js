@@ -1,5 +1,9 @@
 "use strict";
 
+// Settings from the server (templates/index.html, #197).
+const APP_CONFIG = document.getElementById("app-config")?.dataset || {};
+const NAUTOBOT_URL = APP_CONFIG.nautobotUrl || "";
+
 // ---------------------------------------------------------------------------
 // Map initialisation
 // ---------------------------------------------------------------------------
@@ -9,9 +13,9 @@ const map = L.map("map", {
   preferCanvas: true,
 });
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+// MAP_TILE_URL / MAP_TILE_ATTRIBUTION; default OpenStreetMap.
+L.tileLayer(APP_CONFIG.tileUrl || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: APP_CONFIG.tileAttribution || "",
   maxZoom: 19,
 }).addTo(map);
 
@@ -97,8 +101,8 @@ function deviceFilterLabel(filterKey) {
 }
 
 function buildNautobotLink(loc) {
-  if (!window.NAUTOBOT_URL || !loc.id) return "";
-  return `<a class="nautobot-link" href="${escHtml(window.NAUTOBOT_URL)}/dcim/locations/${encodeURIComponent(loc.id)}/" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`;
+  if (!NAUTOBOT_URL || !loc.id) return "";
+  return `<a class="nautobot-link" href="${escHtml(NAUTOBOT_URL)}/dcim/locations/${encodeURIComponent(loc.id)}/" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`;
 }
 
 function buildAlertBanner(alert) {
