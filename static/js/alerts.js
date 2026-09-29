@@ -23,7 +23,15 @@ const casePanel = document.getElementById("case-panel");
 const caseTitle = document.getElementById("case-title");
 const caseContent = document.getElementById("case-content");
 const caseCloseBtn = document.getElementById("case-close");
-const sidePanels = [historyPanel, casePanel].filter(Boolean);
+const copyPanel = document.getElementById("copy-panel");
+const copyTextArea = document.getElementById("copy-text");
+const copyCloseBtn = document.getElementById("copy-close");
+const copyStatus = document.getElementById("copy-status");
+const sidePanels = [historyPanel, casePanel, copyPanel].filter(Boolean);
+// Settings from the server (templates/alerts.html).
+const APP_CONFIG = document.getElementById("app-config")?.dataset || {};
+const NAUTOBOT_URL = APP_CONFIG.nautobotUrl || "";
+const COPIED_LABEL_MS = 2000;
 const boardLayout = document.getElementById("board-layout");
 const feedPanel = document.getElementById("feed-panel");
 const feedToggle = document.getElementById("feed-toggle");
@@ -151,9 +159,14 @@ function actionCell(item) {
   const mapLink = hasCoordinates
     ? `<a class="action-btn map-link" href="/?location_id=${encodeURIComponent(item.id)}">Map${siteLabel}</a>`
     : `<span class="action-btn action-btn-disabled" title="No coordinates">Map<span class="visually-hidden"> unavailable: no coordinates</span></span>`;
+  // Copy the site and its down devices as text for an ITSM ticket (#227).
+  const copyButton = Array.isArray(item.down_devices) && item.down_devices.length
+    ? `<button class="action-btn copy-site-btn" type="button" data-site-id="${siteId}" title="Copy the site and its down devices as text">Copy${siteLabel}</button>`
+    : "";
   return `
     <div class="action-row">
       ${caseButton}
+      ${copyButton}
       <button class="action-btn history-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">History${siteLabel}</button>
       ${mapLink}
     </div>
@@ -221,6 +234,107 @@ function openCasePanel(siteId) {
   caseTitle.textContent = `Add case · ${item.name || siteId}`;
   caseContent.innerHTML = renderCaseForm(item);
   openSidePanel(casePanel, `.case-open-btn[data-site-id="${CSS.escape(siteId)}"]`, caseContent.querySelector(".case-input"));
+}
+
+// "2026-09-29 13:05 +02:00": local time with its offset, so a ticket read
+// in another time zone is still right (#227).
+function formatReportTime(value) {
+  const parsed = new Date(value || "");
+  if (!value || Number.isNaN(parsed.valueOf())) return "";
+  const pad = (number) => String(number).padStart(2, "0");
+  const offset = -parsed.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const zone = `${sign}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} `
+    + `${pad(parsed.getHours())}:${pad(parsed.getMinutes())} ${zone}`;
+}
+
+// A site and its down devices as plain text, for pasting into an ITSM
+// ticket (#227): one line per device, newest down first.
+function siteReport(item, nautobotUrl = "") {
+  const level = item.alert_level || "no_data";
+  const lines = [`Site: ${item.name || item.id || "Unknown site"}`];
+  const path = item.ancestor_path || item.parent;
+  if (path) lines.push(`Location: ${path}`);
+  const address = formatLocationAddress(item);
+  if (address) lines.push(`Address: ${address}`);
+  if (item.tenant) lines.push(`Tenant: ${item.tenant}`);
+  lines.push(`Severity: ${level === "no_data" ? "NO DATA" : level.toUpperCase()} (${item.down_device_count || 0} of ${item.device_count || 0} devices down)`);
+  if (item.alert_reason) lines.push(`Reason: ${item.alert_reason}`);
+  if (Array.isArray(item.active_cases) && item.active_cases.length) lines.push(`Cases: ${item.active_cases.join(", ")}`);
+  if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotUrl.replace(/\/+$/, "")}/dcim/locations/${encodeURIComponent(item.id)}/`);
+
+  const devices = (Array.isArray(item.down_devices) ? [...item.down_devices] : [])
+    .sort((a, b) => (Date.parse(b.down_started_at || "") || 0) - (Date.parse(a.down_started_at || "") || 0));
+  lines.push("", `Down devices (${devices.length}):`);
+  devices.forEach((device) => {
+    const since = formatReportTime(device.down_started_at);
+    const cases = Array.isArray(device.case_numbers) ? device.case_numbers : [];
+    const fields = [
+      device.device_name || device.device_id || "Unknown device",
+      `IP ${device.device_ip || "—"}`,
+      `Role ${device.role || "—"}`,
+      `Status ${device.status || "—"}`,
+      device.location_path ? `Location ${device.location_path}` : "",
+      since ? `Down since ${since}` : "",
+      cases.length ? `Case ${cases.join(", ")}` : "",
+    ];
+    lines.push(`- ${fields.filter(Boolean).join(" | ")}`);
+  });
+  return lines.join("\n");
+}
+
+// The clipboard API needs HTTPS (or localhost); plain-HTTP pages fall back to
+// the older copy command.  Returns whether the text was copied.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_err) {
+      // Denied: try the fallback.
+    }
+  }
+  const buffer = document.createElement("textarea");
+  buffer.className = "clipboard-buffer";
+  buffer.value = text;
+  buffer.setAttribute("readonly", "");
+  document.body.appendChild(buffer);
+  buffer.select();
+  let copied;
+  try {
+    copied = document.execCommand("copy");
+  } catch (_err) {
+    copied = false;
+  }
+  buffer.remove();
+  return copied;
+}
+
+async function copySite(siteId, button) {
+  const item = allAlerts.find((alert) => String(alert.id) === siteId);
+  if (!item) return;
+  const text = siteReport(item, NAUTOBOT_URL);
+  if (await copyText(text)) {
+    if (copyStatus) copyStatus.textContent = `Copied ${item.name || siteId} to the clipboard`;
+    if (button?.isConnected) {
+      button.classList.add("copied");
+      button.firstChild.textContent = "Copied";
+      setTimeout(() => {
+        button.classList.remove("copied");
+        button.firstChild.textContent = "Copy";
+      }, COPIED_LABEL_MS);
+    }
+    return;
+  }
+  // Not allowed: show the text, selected, to copy by hand.
+  if (!copyPanel || !copyTextArea) {
+    showError("Could not copy to the clipboard.");
+    return;
+  }
+  copyTextArea.value = text;
+  openSidePanel(copyPanel, `.copy-site-btn[data-site-id="${CSS.escape(siteId)}"]`, copyTextArea);
+  copyTextArea.select();
 }
 
 function formatDuration(seconds) {
@@ -787,6 +901,9 @@ if (historyCloseBtn && historyPanel) {
 if (caseCloseBtn && casePanel) {
   caseCloseBtn.addEventListener("click", () => closeSidePanel(casePanel));
 }
+if (copyCloseBtn && copyPanel) {
+  copyCloseBtn.addEventListener("click", () => closeSidePanel(copyPanel));
+}
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   const openPanel = sidePanels.find((panel) => !panel.classList.contains("hidden"));
@@ -823,6 +940,12 @@ alertsTableBody.addEventListener("click", async (event) => {
       expandedSiteIds.add(siteId);
     }
     applyFilters(latestPayload);
+    return;
+  }
+
+  const copyBtn = event.target.closest(".copy-site-btn");
+  if (copyBtn) {
+    await copySite(String(copyBtn.dataset.siteId || ""), copyBtn);
     return;
   }
 
