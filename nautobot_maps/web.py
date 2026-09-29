@@ -138,7 +138,9 @@ def healthz():
     if db.dialect():
         conn = None
         try:
-            conn = db.get_conn()
+            # Answer within Docker's 5 s probe timeout even when the
+            # database does not (#190).
+            conn = db.get_conn(connect_timeout=2)
             conn.execute("SELECT 1").fetchone()
             checks["database"] = "ok"
         except Exception as exc:
