@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
+- One transient upstream error (e.g. a 502 while Nautobot restarts) aborted a whole inventory sync. Nautobot and LibreNMS GET requests are now retried up to 3 times with backoff (1, 2, 4 s) on connection errors and 429/502/503/504, honouring `Retry-After` (capped at 30 s); writes are not retried. Connections are reused between pages instead of a new TLS handshake per request (#192)
 - The inventory sync could be served Nautobot pages from the response cache (up to `CACHE_TTL` old) instead of asking Nautobot, so a sync could miss recent changes; a sync now always reads Nautobot directly, and no longer stores its pages in Redis. Creating a role now also clears the cached role listings (#185)
 - App crashed at startup (`NameError: _build_alert_key`) when open alerts had to be migrated to the new alert key (#163): the migration runs while `app.py` is still loading and used a helper defined further down. The data was not changed (the migration's transaction was rolled back) (#169)
 - Alert downtime restarted when a site's severity changed (e.g. Medium → Critical): alerts are now identified by site + device, so a severity change updates the open alert (recorded as an `updated` event) and its downtime keeps running. Open alerts are migrated once at startup (#163)

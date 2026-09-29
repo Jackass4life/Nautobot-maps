@@ -6,11 +6,10 @@ with ``monkeypatch.setattr(nautobot, "fetch_all_pages", ...)``.
 
 import logging
 
-import requests
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 
-from nautobot_maps import caching, settings
+from nautobot_maps import caching, http, settings
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +153,9 @@ def get(endpoint: str, params: dict | None = None, *, use_cache: bool = True) ->
         "Accept": accept,
     }
     url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.get(url, headers=headers, params=params, timeout=(5, 30), verify=settings.NAUTOBOT_VERIFY_SSL)
+    response = http.session().get(
+        url, headers=headers, params=params, timeout=(5, 30), verify=settings.NAUTOBOT_VERIFY_SSL
+    )
     response.raise_for_status()
     data = response.json()
     if use_cache:
@@ -175,7 +176,7 @@ def post(endpoint: str, payload: dict) -> dict:
         "Accept": accept,
     }
     url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.post(url, headers=headers, json=payload, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
+    response = http.session().post(url, headers=headers, json=payload, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
     return response.json()
 
@@ -193,7 +194,7 @@ def delete(endpoint: str) -> None:
         "Accept": accept,
     }
     url = f"{settings.NAUTOBOT_URL}/api/{endpoint.lstrip('/')}"
-    response = requests.delete(url, headers=headers, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
+    response = http.session().delete(url, headers=headers, timeout=15, verify=settings.NAUTOBOT_VERIFY_SSL)
     response.raise_for_status()
 
 

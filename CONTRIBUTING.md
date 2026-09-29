@@ -76,6 +76,7 @@ Everything else lives in modules under `nautobot_maps/` (#165):
 - `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
   `librenms.fetch_inventory()`).
 - `nautobot_maps/caching.py`: the shared response cache (Flask-Caching).
+- `nautobot_maps/http.py`: the HTTP session both clients use (one per thread, connections reused), with retries and backoff for transient upstream errors.
 - `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,
   sync state, and `inventory.ensure_snapshot()` / `inventory.get_locations()`.
 - `nautobot_maps/alerts.py`: the alert logic — severity scoring (`alerts.compute_alert_level()`),
