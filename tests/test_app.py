@@ -173,7 +173,7 @@ SAMPLE_ASNS_PAGE = {
 # ---------------------------------------------------------------------------
 # Helper – mock nautobot_get to return fixture data
 # ---------------------------------------------------------------------------
-def mock_nautobot_get(endpoint, params=None):
+def mock_nautobot_get(endpoint, params=None, **kwargs):
     params = params or {}
     if "dcim/locations" in endpoint:
         return SAMPLE_LOCATIONS_PAGE
@@ -205,7 +205,7 @@ class TestFetchAllPages:
     def test_sets_large_limit_and_depth_defaults(self):
         calls = []
 
-        def fake_get(endpoint, params=None):
+        def fake_get(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             return {"count": 1, "next": None, "results": [{"id": "dev-1"}]}
 
@@ -218,7 +218,7 @@ class TestFetchAllPages:
     def test_respects_explicit_limit_and_depth(self):
         calls = []
 
-        def fake_get(endpoint, params=None):
+        def fake_get(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             return {"count": 0, "next": None, "results": []}
 
@@ -226,6 +226,49 @@ class TestFetchAllPages:
             nautobot.fetch_all_pages("dcim/devices/", {"limit": 25, "depth": 2})
 
         assert calls == [("dcim/devices/", {"limit": 25, "depth": 2, "offset": 0})]
+
+
+class TestSyncBypassesResponseCache:
+    """The inventory sync reads Nautobot directly, never cached pages (#185)."""
+
+    def _counting_requests(self, calls):
+        def fake_requests_get(url, **kwargs):
+            calls.append(dict(kwargs.get("params") or {}))
+            response = MagicMock()
+            response.json.return_value = {"results": [{"id": "d1"}], "next": None}
+            return response
+
+        return patch("requests.get", side_effect=fake_requests_get)
+
+    def test_uncached_fetches_always_reach_nautobot(self, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        caching.cache.clear()
+        calls = []
+        params = {"last_updated__gte": "2026-09-28T12:00:00Z", "depth": 1}
+        with flask_app.app.app_context(), self._counting_requests(calls):
+            nautobot.fetch_all_pages("dcim/devices/", params, use_cache=False)
+            nautobot.fetch_all_pages("dcim/devices/", params, use_cache=False)
+            assert len(calls) == 2  # same parameters, still two requests
+            # Nor do they fill the cache for a cached reader.
+            nautobot.fetch_all_pages("dcim/devices/", params)
+            assert len(calls) == 3
+            # The UI's cached reads still use the cache.
+            nautobot.fetch_all_pages("dcim/devices/", params)
+            assert len(calls) == 3
+
+    def test_sync_fetches_without_cache(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        seen = []
+
+        def fake_fetch(endpoint, params=None, **kwargs):
+            seen.append((endpoint, kwargs.get("use_cache", True)))
+            return []
+
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fake_fetch)
+        inventory.sync_nautobot(force=True)
+        assert ("dcim/locations/", False) in seen and ("dcim/devices/", False) in seen
 
 
 class TestPrimaryIpExtraction:
@@ -318,7 +361,7 @@ class TestApiLocations:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/locations" in endpoint:
                 return fallback_locations
             return {"count": 0, "next": None, "results": []}
@@ -409,7 +452,7 @@ class TestApiLocations:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "extras/tags" in endpoint:
                 return tags_page
             if "dcim/locations" in endpoint:
@@ -451,7 +494,7 @@ class TestApiLocations:
             "results": [{"id": "lt-dc", "name": "Data Center"}],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/location-types" in endpoint:
                 return lt_page
             if "dcim/locations" in endpoint:
@@ -504,7 +547,7 @@ class TestApiLocations:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/locations" in endpoint:
                 return brief_locations
             return {"count": 0, "next": None, "results": []}
@@ -1017,7 +1060,7 @@ class TestAlertBoard:
         ]
         fetch_calls = []
 
-        def _mock_fetch(endpoint, params=None):
+        def _mock_fetch(endpoint, params=None, **kwargs):
             fetch_calls.append((endpoint, params))
             if len(fetch_calls) == 1:
                 raise bad_request
@@ -1270,7 +1313,7 @@ class TestApiLocationDetail:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/devices" in endpoint:
                 return sparse_devices
             if "dcim/device-types" in endpoint:
@@ -1991,7 +2034,7 @@ class TestLocationDetailWithLocationType:
             ],
         }
 
-        def mock_get(endpoint, params=None):
+        def mock_get(endpoint, params=None, **kwargs):
             if "dcim/devices" in endpoint:
                 return firewall_devices_page
             return {"count": 0, "next": None, "results": []}
@@ -3428,7 +3471,7 @@ class TestInventoryCacheSync:
     def test_sync_nautobot_inventory_uses_last_successful_sync_watermark(self):
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             if endpoint == "dcim/locations/":
                 return [
@@ -3516,7 +3559,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
                 return [
                     {
@@ -3571,7 +3614,7 @@ class TestInventoryCacheSync:
     def test_sync_nautobot_inventory_full_reconciles_when_cache_version_changes(self):
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             if endpoint == "dcim/locations/":
                 return [
@@ -3681,7 +3724,7 @@ class TestInventoryCacheSync:
     def test_sync_nautobot_inventory_full_reconcile_advances_watermark(self):
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             if endpoint == "dcim/locations/":
                 return [
@@ -4082,7 +4125,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             if endpoint == "dcim/locations/":
                 return [
                     {
@@ -5008,7 +5051,7 @@ class TestRefreshIsIncremental:
         """Run a synchronous sync and return the params sent to dcim/locations/."""
         calls = []
 
-        def fake_fetch(endpoint, params=None):
+        def fake_fetch(endpoint, params=None, **kwargs):
             calls.append((endpoint, dict(params or {})))
             return []
 
