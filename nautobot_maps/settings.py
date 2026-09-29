@@ -93,6 +93,13 @@ LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 # Like NAUTOBOT_VERIFY_SSL: "true", "false" or a path to a CA bundle (#191).
 LIBRENMS_VERIFY_SSL = _verify_ssl(os.getenv("LIBRENMS_VERIFY_SSL", "true"))
 
+# Delete resolved alerts (with their events and cases) and site severity
+# changes older than this many days, once a day (#194).  0 keeps everything.
+ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "").strip() or 0)
+
+# Prometheus metrics at /metrics (#200); "false" turns the endpoint off.
+METRICS_ENABLED = _flag("METRICS_ENABLED", True)
+
 # Map tiles and address search (#197).  Both default to the public
 # OpenStreetMap services; point them at internal ones on closed networks.
 MAP_TILE_URL = os.getenv("MAP_TILE_URL", "").strip() or "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
