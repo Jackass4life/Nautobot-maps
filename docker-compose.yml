@@ -78,6 +78,8 @@ services:
       - LIBRENMS_URL=${LIBRENMS_URL:-}
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
       - LIBRENMS_VERIFY_SSL=${LIBRENMS_VERIFY_SSL:-true}
+      # Delete alert history older than this many days (optional; 0/empty keeps everything)
+      - ALERT_HISTORY_RETENTION_DAYS=${ALERT_HISTORY_RETENTION_DAYS:-}
       # PostgreSQL persistence: the bundled postgres service unless overridden.
       - NAUTOBOT_MAPS_DATABASE_URL=${NAUTOBOT_MAPS_DATABASE_URL-postgresql://${POSTGRES_USER:-nautobot_maps}:${POSTGRES_PASSWORD:-nautobot_maps}@postgres:5432/${POSTGRES_DB:-nautobot_maps}}
     depends_on:

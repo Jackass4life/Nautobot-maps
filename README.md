@@ -66,6 +66,7 @@ python app.py
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
 | `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
+| `ALERT_HISTORY_RETENTION_DAYS` | ❌ | `0` (keep all) | Once a day, delete resolved alerts (with their events and cases) and site severity changes older than this many days. Open alerts are never deleted |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
 | `GUNICORN_TIMEOUT` | ❌ | `120` | Gunicorn worker timeout in seconds; values below 120 are raised to 120 |
 | `GUNICORN_BIND` | ❌ | `0.0.0.0:5000` | Gunicorn listen address; `127.0.0.1:5000` when `AUTH_MODE=header` |
@@ -147,6 +148,40 @@ services:
   newer; check with `docker compose version`).
 - Ports are `host:container`: the app inside the container keeps listening on 5000.
 - Check the merged result with `docker compose config`.
+
+## Backup and restore
+
+PostgreSQL holds two kinds of data:
+
+- **Rebuilt automatically:** the Nautobot and LibreNMS inventory caches. Losing them costs one full sync.
+- **Not rebuilt from anywhere:** alert history (when devices went down and came back, the downtime), case numbers, criticality overrides and site severity changes. **Back these up.**
+
+With the bundled `docker-compose.yml` everything lives in the `postgres_data` volume; `docker compose down -v`, or losing the host, deletes it.
+
+**Back up** (e.g. nightly from cron on the host; the dump is small):
+
+```bash
+docker compose exec -T postgres pg_dump -Fc -U nautobot_maps nautobot_maps > nautobot-maps-$(date +%F).dump
+```
+
+**Restore** (stop the app first so nothing writes meanwhile):
+
+```bash
+docker compose stop nautobot-maps
+docker compose exec -T postgres pg_restore --clean --if-exists --no-owner -U nautobot_maps -d nautobot_maps < nautobot-maps-2026-09-29.dump
+docker compose start nautobot-maps
+```
+
+Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
+
+**Upgrading PostgreSQL to a new major version** (e.g. `postgres:16-alpine` → `postgres:17-alpine`): the new version can't read the old data directory, so dump, recreate, restore:
+
+1. Take a backup as above.
+2. `docker compose down`, then `docker volume rm <project>_postgres_data` (see `docker volume ls`).
+3. Change the image in `docker-compose.yml` (or `docker-compose.override.yml`).
+4. `docker compose up -d postgres`, restore the dump as above, then `docker compose up -d`.
+
+**Growth:** alert history is kept forever unless you set `ALERT_HISTORY_RETENTION_DAYS` (e.g. `365`); the scheduler then prunes once a day.
 
 ## Demo (Mock Nautobot)
 

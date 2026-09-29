@@ -76,6 +76,10 @@ LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
 LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 LIBRENMS_VERIFY_SSL = _flag("LIBRENMS_VERIFY_SSL", True)
 
+# Delete resolved alerts (with their events and cases) and site severity
+# changes older than this many days, once a day (#194).  0 keeps everything.
+ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "").strip() or 0)
+
 # Persistence
 NAUTOBOT_MAPS_DATABASE_URL = os.getenv("NAUTOBOT_MAPS_DATABASE_URL", "").strip()
 # Removed in #153 (SQLite support); only read to warn when it is still set.

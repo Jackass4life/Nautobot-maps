@@ -5889,3 +5889,83 @@ class TestAlertFeed:
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
         assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
+
+
+# ---------------------------------------------------------------------------
+# Tests: alert history retention (#194)
+# ---------------------------------------------------------------------------
+class TestHistoryRetention:
+    def _alert(self, db_, device, status, resolved_days_ago=None):
+        row = db_.execute(
+            "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
+            "status, down_started_at, last_seen_down_at, resolved_at) VALUES "
+            "(%s, 'loc-1', 'Site', %s, %s, 'low', %s, now() - interval '400 days', now() - interval '400 days', "
+            "CASE WHEN %s::int IS NULL THEN NULL ELSE now() - make_interval(days => %s::int) END) RETURNING id",
+            (f"key-{device}", device, device, status, resolved_days_ago, resolved_days_ago),
+        )[0]["id"]
+        db_.execute(
+            "INSERT INTO alert_events (alert_instance_id, event_type, event_at) VALUES (%s, 'opened', now())", (row,)
+        )
+        db_.execute("INSERT INTO alert_cases (alert_instance_id, case_number) VALUES (%s, 'INC-1')", (row,))
+        return row
+
+    def _change(self, db_, days_ago):
+        db_.execute(
+            "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
+            "VALUES ('loc-1', 'Site', 'ok', 'low', now() - make_interval(days => %s))",
+            (days_ago,),
+        )
+
+    def _devices(self, db_):
+        return sorted(r["device_id"] for r in db_.execute("SELECT device_id FROM alert_instances"))
+
+    def test_deletes_only_old_resolved_history(self, pg_database):
+        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
+        self._alert(pg_database, "new-resolved", "resolved", resolved_days_ago=5)
+        self._alert(pg_database, "old-open", "open")  # started 400 days ago, still down
+        self._change(pg_database, 100)
+        self._change(pg_database, 5)
+        conn = db.get_conn()
+        try:
+            deleted = alerts.prune_alert_history(conn, 30)
+        finally:
+            conn.close()
+        assert deleted == {"alert_instances": 1, "site_level_changes": 1}
+        assert self._devices(pg_database) == ["new-resolved", "old-open"]
+        # Its events and cases went with it.
+        assert pg_database.execute("SELECT count(*) AS n FROM alert_events") == [{"n": 2}]
+        assert pg_database.execute("SELECT count(*) AS n FROM alert_cases") == [{"n": 2}]
+
+    def test_deletes_in_batches(self, pg_database, monkeypatch):
+        monkeypatch.setattr(alerts, "RETENTION_BATCH_SIZE", 2)
+        for i in range(5):
+            self._alert(pg_database, f"d{i}", "resolved", resolved_days_ago=100)
+        conn = db.get_conn()
+        try:
+            assert alerts.prune_alert_history(conn, 30)["alert_instances"] == 5
+        finally:
+            conn.close()
+        assert self._devices(pg_database) == []
+
+    def test_off_by_default_and_once_a_day(self, pg_database, monkeypatch):
+        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
+        conn = db.get_conn()
+        try:
+            monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 0)
+            assert alerts.maybe_prune_alert_history(conn) is None
+            assert self._devices(pg_database) == ["old-resolved"]
+
+            monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
+            assert alerts.maybe_prune_alert_history(conn)["alert_instances"] == 1
+            self._alert(pg_database, "later", "resolved", resolved_days_ago=100)
+            assert alerts.maybe_prune_alert_history(conn) is None  # already ran today
+            assert self._devices(pg_database) == ["later"]
+        finally:
+            conn.close()
+
+    def test_scheduler_tick_runs_retention(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
+        scheduler.tick()
+        assert self._devices(pg_database) == []

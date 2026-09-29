@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- `ALERT_HISTORY_RETENTION_DAYS`: once a day the scheduler deletes, in batches, resolved alerts (with their events and cases) and site severity changes older than that; open alerts are never deleted. Off by default (keeps everything). The README has a new "Backup and restore" section: what must be backed up, `pg_dump`/`pg_restore` commands for the bundled PostgreSQL, and how to upgrade it to a new major version (#194)
 - ESLint for `static/js` in CI's `lint` job, the pre-commit hook and the dev container, with versions pinned in `package-lock.json`; fixed its findings (unused assignments, a duplicate `L` global) (#164)
 - Background scheduler: due syncs run and the alert board is rebuilt with no page open, so alert history is recorded around the clock. One thread per app process, a PostgreSQL lock lets only one work at a time; `BACKGROUND_SYNC_ENABLED=false` turns it off (#154)
 - `ALERT_BOARD_SITE_LOCATION_TYPE` (e.g. `Site`): one alert-board row per location of that type, with devices from child locations (buildings, floors) rolled up into it; the row shows its path (`EMEA › DNK`) and down devices show where they are (`Bygning A › Etage 2`). The location cache stores `parent_id` (one automatic full resync after upgrading) (#158)
