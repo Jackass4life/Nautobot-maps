@@ -37,7 +37,6 @@ services:
     environment:
       NAUTOBOT_URL: http://mock-nautobot:8080
       NAUTOBOT_TOKEN: demo-token
-      FLASK_SECRET_KEY: demo-secret-key
       FLASK_DEBUG: "false"
       CACHE_TTL: "60"
       # The alert board reads from the persisted inventory snapshot, so the

@@ -109,6 +109,23 @@ can replace a function where it is defined.
   `npm ci` once, then `npm run lint:js`. Keep it consistent with the existing style.
 - Write clear commit messages describing what changed and why.
 
+### Database schema changes
+
+The schema is versioned (#201). `db.baseline_schema()` is version 1 and **frozen** (a test fails if it changes). To change the schema, append a step to `db.MIGRATIONS`:
+
+```python
+def add_foo_column(conn) -> None:
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN foo TEXT NOT NULL DEFAULT ''")
+
+
+MIGRATIONS = (
+    (1, "baseline schema", baseline_schema),
+    (2, "alert_instances.foo", add_foo_column),
+)
+```
+
+Each step runs once, in order, inside one transaction with the other pending steps, and is recorded in `schema_migrations`. Never edit or reorder a step that may already have been applied. The container runs `python -m nautobot_maps migrate` before gunicorn starts; `python -m nautobot_maps schema-version` shows where a database is.
+
 ### Dependencies
 
 Direct dependencies are listed in `requirements.in` (runtime) and `requirements-dev.in` (tests and linters). `requirements.txt` and `requirements-dev.txt` are **generated lock files**: every package, transitive ones included, pinned with hashes, so the Docker image and CI install exactly what was tested (#186). To add or change a dependency, edit the `.in` file and recompile:

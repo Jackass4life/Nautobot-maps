@@ -28,4 +28,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('HEALTHCHECK_PORT', '5000'), timeout=4)"
 
-CMD ["gunicorn", "--config", "python:gunicorn_config", "app:app"]
+# Migrate the database once (#201), then start gunicorn in its place.
+CMD ["sh", "-c", "python -m nautobot_maps migrate && exec gunicorn --config python:gunicorn_config app:app"]
