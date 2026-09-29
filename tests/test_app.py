@@ -56,7 +56,6 @@ def auth_config(
 @pytest.fixture
 def client():
     flask_app.app.config["TESTING"] = True
-    flask_app.app.config["SECRET_KEY"] = "test-secret"
     # Clear cache before each test
     caching.cache.clear()
     with flask_app.app.test_client() as c:

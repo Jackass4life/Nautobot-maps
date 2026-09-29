@@ -67,7 +67,6 @@ def _flag(name: str, default: bool) -> bool:
 
 
 # Flask
-FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "change-me-to-a-random-string")
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"  # python app.py only
 FLASK_RUN_PORT = os.getenv("FLASK_RUN_PORT", "")  # python app.py only
 

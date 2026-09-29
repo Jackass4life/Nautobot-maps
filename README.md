@@ -64,7 +64,6 @@ python app.py
 | `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token; read-only is enough (the app never writes to Nautobot) |
 | `NAUTOBOT_API_VERSION` | ❌ | *(server default)* | Pin a specific Nautobot REST API version (e.g. `2.0`, `3.0`). Leave empty to use the server's default. |
 | `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
-| `FLASK_SECRET_KEY` | ✅ | `change-me-to-a-random-string` | Flask session secret (change for production) |
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `DB_CONNECT_TIMEOUT_SECONDS` | ❌ | `5` | Give up connecting to PostgreSQL after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | ❌ | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (schema migrations at startup are exempt) |
@@ -116,6 +115,8 @@ Each LibreNMS sync also caches the address LibreNMS polls for every device (`ove
 > The `start` sub-command only restarts previously created containers and will
 > fail with *"service … has no container to start"* on a fresh checkout.
 > `docker compose up` handles building, creating, and starting in one step.
+
+The bundled PostgreSQL uses `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` from `.env`, defaulting to `nautobot_maps` for all three. Its port is not published, so only containers in this compose project can reach it; still, set your own `POSTGRES_PASSWORD` before the first start (the password is fixed when the data volume is created).
 
 ```bash
 # 1. Configure environment variables
