@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
 
 ### Fixed
+- The inventory sync could be served Nautobot pages from the response cache (up to `CACHE_TTL` old) instead of asking Nautobot, so a sync could miss recent changes; a sync now always reads Nautobot directly, and no longer stores its pages in Redis. Creating a role now also clears the cached role listings (#185)
 - An alert started when the app first saw the device down, not when it went down: new alerts now start at the device's Nautobot `last_updated` when its Nautobot status makes it down and that is earlier; devices only LibreNMS reports down keep the time they were seen. Open alerts are moved earlier once on their next board build, and a start time never moves later (#166)
 - App crashed at startup (`NameError: _build_alert_key`) when open alerts had to be migrated to the new alert key (#163): the migration runs while `app.py` is still loading and used a helper defined further down. The data was not changed (the migration's transaction was rolled back) (#169)
 - Alert downtime restarted when a site's severity changed (e.g. Medium → Critical): alerts are now identified by site + device, so a severity change updates the open alert (recorded as an `updated` event) and its downtime keeps running. Open alerts are migrated once at startup (#163)
