@@ -6982,3 +6982,111 @@ class TestLocationTenantSync:
         self._sync(monkeypatch)
         (site,) = client.get("/api/alerts").get_json()["alerts"]
         assert site["tenants"] == ["Acme Corp", "Nordic Net"]
+
+
+class TestLibreNMSMappingsAreBatched:
+    """Board builds write new LibreNMS mappings once, not a connection per device (#240)."""
+
+    DEVICES = 60
+
+    @pytest.fixture(autouse=True)
+    def _inventory(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
+        # No background sync against the fake LibreNMS URL.
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        conn = db.get_conn()
+        try:
+            with conn:
+                inventory.write_locations(conn, [_snapshot_location("loc-1", "Big site")])
+                inventory.write_devices(
+                    conn,
+                    [
+                        {**_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"), "name": f"sw{n}"}
+                        for n in range(self.DEVICES)
+                    ],
+                )
+                inventory.write_librenms_devices(
+                    conn,
+                    [
+                        # The first device matches by hostname and is down in LibreNMS.
+                        {"device_id": 1000 + n, "hostname": f"sw{n}.corp.example", "status": 0 if n == 0 else 1}
+                        for n in range(self.DEVICES)
+                    ],
+                )
+                inventory.record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:01:00Z",
+                    last_successful_sync="2026-01-01T00:01:00Z",
+                    status="success",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+        caching.cache.clear()
+
+    def _mappings(self):
+        conn = db.get_conn()
+        try:
+            return {
+                row["nautobot_device_id"]: row["librenms_device_id"]
+                for row in conn.execute("SELECT * FROM librenms_device_map").fetchall()
+            }
+        finally:
+            conn.close()
+
+    def _count_connections(self):
+        counter = {"n": 0}
+        real = db.get_conn
+
+        def counting(*args, **kwargs):
+            counter["n"] += 1
+            return real(*args, **kwargs)
+
+        return counter, patch.object(db, "get_conn", side_effect=counting)
+
+    def test_board_build_uses_a_few_connections(self):
+        counter, patched = self._count_connections()
+        with patched, patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("no upstream calls")):
+            board = alerts.get_alert_board_data()
+        (site,) = board["alerts"]
+        assert site["down_device_count"] == 1
+        # Before #240 this was one connection per newly matched device.
+        assert counter["n"] < 15, counter["n"]
+        mappings = self._mappings()
+        assert len(mappings) == self.DEVICES
+        assert mappings["dev-7"] == 1007
+
+    def test_map_levels_store_mappings_in_one_batch(self):
+        counter, patched = self._count_connections()
+        with patched:
+            levels = alerts.build_location_alert_levels()["levels"]
+        assert levels["loc-1"]["level"] == "low"
+        assert counter["n"] < 10, counter["n"]
+        assert len(self._mappings()) == self.DEVICES
+
+    def test_persisted_mappings_win_and_are_not_rewritten(self):
+        alerts.store_librenms_maps({"dev-1": (1000, "sw0.corp.example")})
+        with patch.object(alerts, "store_librenms_maps", wraps=alerts.store_librenms_maps) as store:
+            board = alerts.get_alert_board_data()
+        # dev-1 is mapped to LibreNMS device 1000, which is down.
+        down = {d["device_id"] for d in board["alerts"][0]["down_devices"]}
+        assert down == {"dev-0", "dev-1"}
+        (written,) = [call.args[0] for call in store.call_args_list if call.args[0]]
+        assert "dev-1" not in written and len(written) == self.DEVICES - 1
+
+    def test_enrich_on_its_own_writes_once(self):
+        devices = [{"id": f"dev-{n}", "name": f"sw{n}", "status": "Active"} for n in range(5)]
+        with patch.object(alerts, "store_librenms_maps") as store:
+            alerts.enrich_with_librenms(devices, snapshot_only=True)
+        store.assert_called_once()
+        assert set(store.call_args.args[0]) == {f"dev-{n}" for n in range(5)}
+
+    def test_a_failed_write_does_not_fail_the_board(self, caplog):
+        with patch.object(db, "transaction", side_effect=RuntimeError("db gone")):
+            alerts.store_librenms_maps({"dev-1": (1, "sw1")})
+        assert "Could not store 1 LibreNMS device mappings" in caplog.text

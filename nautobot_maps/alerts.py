@@ -298,17 +298,43 @@ def load_librenms_id_map() -> dict:
     return lnms_id_map
 
 
+def librenms_index(lnms_devices: list) -> dict:
+    """Look-ups into the LibreNMS inventory by device id, hostname and IP (#240).
+
+    Built once per alert-board build, not once per site.  Hostnames and IPs
+    are kept apart so IP-valued hostnames are never short-name normalized
+    into ambiguous keys such as "10".
+    """
+    by_id: dict = {}
+    by_hostname: dict = {}
+    by_ip: dict = {}
+    for ld in lnms_devices:
+        if ld.get("device_id") is not None:
+            by_id.setdefault(ld.get("device_id"), ld)
+        hostname = (ld.get("hostname") or "").strip()
+        if hostname:
+            if inventory.is_ip_literal(hostname):
+                by_ip[inventory.librenms_ip_key(hostname)] = ld
+            else:
+                by_hostname[inventory.librenms_host_key(hostname)] = ld
+    return {"by_id": by_id, "by_hostname": by_hostname, "by_ip": by_ip}
+
+
 def enrich_with_librenms(
     devices: list,
     lnms_devices: list | None = None,
     lnms_id_map: dict | None = None,
     snapshot_only: bool = False,
+    lnms_index: dict | None = None,
+    new_librenms_maps: dict | None = None,
 ) -> list:
     """Merge live LibreNMS status into *devices* (in-place copy returned).
 
-    For each device, LibreNMS is queried by hostname.  The mapping between
-    Nautobot device IDs and LibreNMS device IDs is persisted in the
-    ``librenms_device_map`` table when the DB is configured.
+    Each device is matched to a LibreNMS device by its persisted mapping,
+    then by hostname, then by primary IP.  New hostname/IP matches are
+    persisted in ``librenms_device_map``: added to *new_librenms_maps* when
+    given (an alert-board build writes them all at once, #240), otherwise
+    written at the end of this call on one connection.
 
     LibreNMS ``status`` field: ``1`` = up, ``0`` = down.  When LibreNMS
     reports a device as down but Nautobot has it as active, the status is
@@ -320,59 +346,46 @@ def enrich_with_librenms(
     if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         return devices
 
-    if lnms_devices is None:
-        lnms_devices = inventory.read_librenms_devices()
-    if not lnms_devices and not snapshot_only:
-        inventory.ensure_snapshot()
-        lnms_devices = inventory.read_librenms_devices()
-    if not lnms_devices and not snapshot_only:
-        try:
-            lnms_devices = librenms.fetch_inventory()
-        except Exception as exc:
-            logger.warning("LibreNMS enrichment failed (could not fetch devices): %s", exc)
+    if lnms_index is None:
+        if lnms_devices is None:
+            lnms_devices = inventory.read_librenms_devices()
+        if not lnms_devices and not snapshot_only:
+            inventory.ensure_snapshot()
+            lnms_devices = inventory.read_librenms_devices()
+        if not lnms_devices and not snapshot_only:
+            try:
+                lnms_devices = librenms.fetch_inventory()
+            except Exception as exc:
+                logger.warning("LibreNMS enrichment failed (could not fetch devices): %s", exc)
+                return devices
+        if not lnms_devices:
             return devices
-    if not lnms_devices:
+        lnms_index = librenms_index(lnms_devices)
+    if not lnms_index["by_id"] and not lnms_index["by_hostname"] and not lnms_index["by_ip"]:
         return devices
-
-    # Build separate name/IP lookup maps so IP-valued hostnames are never
-    # short-name normalized into ambiguous keys such as "10".
-    lnms_by_hostname: dict = {}
-    lnms_by_ip: dict = {}
-    for ld in lnms_devices:
-        hostname = (ld.get("hostname") or "").strip()
-        if hostname:
-            if inventory.is_ip_literal(hostname):
-                lnms_by_ip[inventory.librenms_ip_key(hostname)] = ld
-            else:
-                lnms_by_hostname[inventory.librenms_host_key(hostname)] = ld
 
     # Load Nautobot UUID → LibreNMS device ID overrides from DB
     if lnms_id_map is None:
         lnms_id_map = load_librenms_id_map()
 
+    new_maps = new_librenms_maps if new_librenms_maps is not None else {}
     enriched = []
     for device in devices:
         device = dict(device)
         nautobot_id = device.get("id", "")
         lnms_record = None
 
-        # 1. Try the persisted ID mapping first
+        # 1. The persisted ID mapping first
         if nautobot_id in lnms_id_map:
-            entry = lnms_id_map[nautobot_id]
-            # Match by LibreNMS device_id
-            for ld in lnms_devices:
-                if ld.get("device_id") == entry["device_id"]:
-                    lnms_record = ld
-                    break
+            lnms_record = lnms_index["by_id"].get(lnms_id_map[nautobot_id]["device_id"])
 
-        # 2. Fall back to hostname matching
+        # 2. Fall back to hostname, then IP
         if lnms_record is None:
-            device_name = inventory.librenms_host_key(device.get("name") or "")
-            lnms_record = lnms_by_hostname.get(device_name)
+            lnms_record = lnms_index["by_hostname"].get(inventory.librenms_host_key(device.get("name") or ""))
             if lnms_record is None:
                 primary_ip = inventory.librenms_ip_key(device.get("primary_ip") or "")
                 if primary_ip:
-                    lnms_record = lnms_by_ip.get(primary_ip)
+                    lnms_record = lnms_index["by_ip"].get(primary_ip)
 
         if lnms_record is not None:
             device["librenms_hostname"] = lnms_record.get("hostname") or ""
@@ -389,26 +402,29 @@ def enrich_with_librenms(
                         "LibreNMS enrichment: device %s marked offline (LibreNMS status=0)",
                         device.get("name"),
                     )
-            # Persist the mapping if it was resolved by hostname and DB is available
+            # Remember a mapping resolved by hostname or IP
             if nautobot_id and nautobot_id not in lnms_id_map:
                 lnms_id = lnms_record.get("device_id")
-                lnms_host = lnms_record.get("hostname", "")
                 if lnms_id:
-                    store_librenms_map(nautobot_id, lnms_id, lnms_host)
+                    new_maps[nautobot_id] = (lnms_id, lnms_record.get("hostname", ""))
 
         enriched.append(device)
+    if new_librenms_maps is None and new_maps:
+        store_librenms_maps(new_maps)
     return enriched
 
 
-def store_librenms_map(nautobot_device_id: str, librenms_device_id: int, librenms_hostname: str) -> None:
-    """Upsert a Nautobot ↔ LibreNMS device mapping into the database."""
+def store_librenms_maps(maps: dict) -> None:
+    """Upsert ``{nautobot_device_id: (librenms_device_id, hostname)}`` in one transaction (#240)."""
+    if not maps:
+        return
     conn = db.get_conn()
     if conn is None:
         return
     try:
         with db.transaction(conn):
             p0, p1, p2 = db.placeholders(3).split(",")
-            conn.execute(
+            conn.cursor().executemany(
                 f"""
                 INSERT INTO librenms_device_map (nautobot_device_id, librenms_device_id, librenms_hostname)
                 VALUES ({p0}, {p1}, {p2})
@@ -416,10 +432,10 @@ def store_librenms_map(nautobot_device_id: str, librenms_device_id: int, librenm
                     librenms_device_id = excluded.librenms_device_id,
                     librenms_hostname   = excluded.librenms_hostname
                 """,
-                (nautobot_device_id, librenms_device_id, librenms_hostname),
+                [(nautobot_id, lnms_id, hostname or "") for nautobot_id, (lnms_id, hostname) in maps.items()],
             )
     except Exception as exc:
-        logger.debug("Could not store librenms_device_map entry: %s", exc)
+        logger.warning("Could not store %d LibreNMS device mappings: %s", len(maps), exc)
     finally:
         conn.close()
 
@@ -448,6 +464,8 @@ def get_location_devices_and_alert(
     require_primary_ip: bool = False,
     override_map: dict | None = None,
     excluded_device_statuses: set[str] | None = None,
+    lnms_index: dict | None = None,
+    new_librenms_maps: dict | None = None,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location.
 
@@ -502,6 +520,8 @@ def get_location_devices_and_alert(
         lnms_devices=lnms_devices,
         lnms_id_map=lnms_id_map,
         snapshot_only=snapshot_only,
+        lnms_index=lnms_index,
+        new_librenms_maps=new_librenms_maps,
     )
     return enriched, compute_alert_level(enriched, location_type, override_map=override_map)
 
@@ -1350,6 +1370,9 @@ def build_alert_board_payload(
     observed_levels: dict[str, tuple[str, str]] = {}
     lnms_devices = None
     lnms_id_map = None
+    lnms_index = None
+    # Device mappings found by hostname/IP, written once after the build (#240).
+    new_librenms_maps: dict = {}
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         try:
             lnms_devices = inventory.read_librenms_devices()
@@ -1361,6 +1384,7 @@ def build_alert_board_payload(
             logger.warning("Could not refresh LibreNMS inventory for alert board: %s", exc)
             lnms_devices = []
             lnms_id_map = {}
+        lnms_index = librenms_index(lnms_devices)
 
     # Read everything that can be read for all sites at once (#149).  A
     # failed connect disables persistence for this build; a failed bulk read
@@ -1426,6 +1450,8 @@ def build_alert_board_payload(
                     loc.get("location_type") or None,
                     lnms_devices=lnms_devices,
                     lnms_id_map=lnms_id_map,
+                    lnms_index=lnms_index,
+                    new_librenms_maps=new_librenms_maps,
                     snapshot_only=snapshot_only,
                     require_primary_ip=True,
                     excluded_device_statuses=settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
@@ -1578,6 +1604,8 @@ def build_alert_board_payload(
         if write_conn is not None:
             write_conn.close()
 
+    store_librenms_maps(new_librenms_maps)
+
     if not persistence_unavailable:
         try:
             record_site_level_changes(observed_levels, timeutil.iso_utc_now())
@@ -1666,9 +1694,12 @@ def build_location_alert_levels() -> dict:
             conn.close()
     lnms_devices = None
     lnms_id_map = None
+    lnms_index = None
+    new_librenms_maps: dict = {}
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         lnms_devices = inventory.read_librenms_devices()
         lnms_id_map = load_librenms_id_map()
+        lnms_index = librenms_index(lnms_devices)
 
     levels = {}
     for loc in locations:
@@ -1683,11 +1714,14 @@ def build_location_alert_levels() -> dict:
             devices_already_normalized=True,
             lnms_devices=lnms_devices,
             lnms_id_map=lnms_id_map,
+            lnms_index=lnms_index,
+            new_librenms_maps=new_librenms_maps,
             snapshot_only=True,
             override_map=override_map,
         )
         if alert["level"] in ALERT_LEVELS_NON_OK:
             levels[location_id] = {"level": alert["level"], "reason": alert.get("reason", "")}
+    store_librenms_maps(new_librenms_maps)
     return {"checked_at": timeutil.iso_utc_now(), "levels": levels}
 
 
