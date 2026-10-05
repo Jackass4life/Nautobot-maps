@@ -162,8 +162,15 @@ function syncCaseSelection(form) {
   button.disabled = selected === 0;
 }
 
+// The site's expandable device list: down now, or with an alert still open.
+// It can be non-empty while down_device_count is 0 (a failed observation
+// keeps open alerts), so the toggle, row buttons and History all use this.
+function downDeviceList(item) {
+  return Array.isArray(item.down_devices) ? item.down_devices : [];
+}
+
 function caseDevices(item) {
-  return (Array.isArray(item.down_devices) ? item.down_devices : []).filter((d) => d.device_id);
+  return downDeviceList(item).filter((d) => d.device_id);
 }
 
 // The row keeps the two triage actions (#179, #227); the site name links to
@@ -178,8 +185,7 @@ function historyButton(item) {
 function actionCell(item) {
   const siteId = escHtml(item.id || "");
   const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
-  const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
-  if (!downDevices.length) return `<div class="action-row">${historyButton(item)}</div>`;
+  if (!downDeviceList(item).length) return `<div class="action-row">${historyButton(item)}</div>`;
   const caseButton = caseDevices(item).length
     ? `<button class="action-btn case-open-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">+ Case${siteLabel}</button>`
     : "";
@@ -633,7 +639,7 @@ function deviceDowntimeSeconds(device, now = Date.now()) {
 }
 
 function renderDownDeviceRows(item, isExpanded) {
-  const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
+  const downDevices = downDeviceList(item);
   if (!downDevices.length) return "";
   const siteLabel = escHtml(item.name || item.id || "site");
   const hidden = isExpanded ? "" : " hidden";
@@ -711,7 +717,7 @@ function renderTableRows(alerts, payload) {
     const address = formatLocationAddress(item);
     const isExpanded = isSiteExpanded(item);
     const downCount = item.down_device_count || 0;
-    const toggleButton = downCount
+    const toggleButton = downDeviceList(item).length
       ? `<button class="site-toggle-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="${isExpanded ? "Collapse" : "Expand"} ${escHtml(item.name || item.id || "site")}">${isExpanded ? "▾" : "▸"}</button>`
       : '<span class="site-toggle-spacer" aria-hidden="true"></span>';
     // Path above the site, then its status and type (no columns of their own).
@@ -957,6 +963,14 @@ if (clearAlertFiltersBtn) {
     setSeverityFilter(DEFAULT_SEVERITY_FILTER);
     sortBy.value = DEFAULT_SORT;
     rememberSort(DEFAULT_SORT);
+    // Non-operational sites came from the server: reload without them.
+    if (toggleNonOperational?.checked) {
+      toggleNonOperational.checked = false;
+      expandedSiteIds = new Set();
+      allSitesExpanded = false;
+      loadAlertBoard(false);
+      return;
+    }
     applyFilters(latestPayload);
   });
 }
