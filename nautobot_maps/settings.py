@@ -108,6 +108,12 @@ ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "")
 # Prometheus metrics at /metrics (#200); "false" turns the endpoint off.
 METRICS_ENABLED = _flag("METRICS_ENABLED", True)
 
+# MCP server at /mcp for AI assistants (#250); off unless "true".
+MCP_ENABLED = _flag("MCP_ENABLED", False)
+# Browser origins (scheme://host[:port]) allowed to call /mcp; MCP clients send
+# no Origin, so this stays empty unless a web-based client needs it.
+MCP_ALLOWED_ORIGINS = [item.strip() for item in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if item.strip()]
+
 # Map tiles and address search (#197).  Both default to the public
 # OpenStreetMap services; point them at internal ones on closed networks.
 MAP_TILE_URL = os.getenv("MAP_TILE_URL", "").strip() or "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

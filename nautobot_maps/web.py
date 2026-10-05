@@ -14,7 +14,7 @@ from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import alerts, apidocs, auth, caching, db, inventory, metrics, settings, timeutil
+from nautobot_maps import alerts, apidocs, auth, caching, db, inventory, mcp, metrics, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +252,19 @@ def alert_board():
 def api_docs():
     """This page: every page and API endpoint, with Try it (#230)."""
     return render_template("docs.html", groups=apidocs.grouped(current_app))
+
+
+@bp.route("/mcp", methods=["POST"])
+def mcp_endpoint():
+    """MCP server for AI assistants (#250): the alert board as tools.
+
+    Off unless MCP_ENABLED=true.  Streamable HTTP, stateless, protocol
+    2026-07-28 and the older initialize-based versions.  Tools run the
+    matching API routes with the caller's sign-in and roles.
+    """
+    if not settings.MCP_ENABLED:
+        return jsonify({"error": "Not found"}), 404
+    return mcp.handle()
 
 
 @bp.route("/api/endpoints")

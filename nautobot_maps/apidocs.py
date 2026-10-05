@@ -19,6 +19,12 @@ EXAMPLE_BODIES = {
         "reason": "Core uplink for the site",
         "updated_by": "noc",
     },
+    "web.mcp_endpoint": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "get_alert_board", "arguments": {"filter": "alarms", "limit": 5}},
+    },
     "web.api_add_alert_case": {
         "site_id": "<site id>",
         "device_ids": ["<device uuid>"],
@@ -39,7 +45,7 @@ _ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")
 def _group(path: str) -> str:
     if path in MONITORING_PATHS:
         return "Monitoring"
-    return "API" if path.startswith("/api/") else "Pages"
+    return "API" if path.startswith("/api/") or path == "/mcp" else "Pages"
 
 
 def _query_params(view) -> list[str]:
