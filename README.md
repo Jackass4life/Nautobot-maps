@@ -70,6 +70,7 @@ python app.py
 | `ALERT_HISTORY_RETENTION_DAYS` | ❌ | `0` (keep all) | Once a day, delete resolved alerts (with their events and cases) and site severity changes older than this many days. Open alerts are never deleted |
 | `METRICS_ENABLED` | ❌ | `true` | Serve Prometheus metrics at `/metrics`; `false` turns it off (404) |
 | `MCP_ENABLED` | ❌ | `false` | Serve the MCP server for AI assistants at `/mcp` (see *MCP server*); off: 404 |
+| `MCP_ALLOWED_ORIGINS` | ❌ | — | Comma-separated browser origins (`https://host[:port]`) allowed to call `/mcp`. MCP clients send no `Origin`; any request that does is refused unless listed |
 | `DB_CONNECT_TIMEOUT_SECONDS` | ❌ | `5` | Give up connecting to PostgreSQL after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | ❌ | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (schema migrations at startup are exempt) |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
@@ -322,7 +323,7 @@ claude mcp add --transport http nautobot-maps https://nautobot-maps.example.com/
 
 With `AUTH_MODE=header`, the MCP client's requests must pass through your sign-in proxy like the browser's do. If your client can't sign in there, keep the MCP server on an internal address only, or leave it off.
 
-Protocol: Streamable HTTP, stateless (any worker answers any request), MCP 2026-07-28 and the earlier `initialize`-based versions (2025-11-25, 2025-06-18, 2025-03-26). Requests from a web page on another site are refused, and each caller may make 120 tool calls a minute.
+Protocol: Streamable HTTP, stateless (any worker answers any request), MCP 2026-07-28 and the earlier `initialize`-based versions (2025-11-25, 2025-06-18, 2025-03-26). A request with an `Origin` header (that is, from a web page) is refused unless the origin is in `MCP_ALLOWED_ORIGINS`, which also stops DNS-rebinding attacks. Each caller may make 120 tool calls a minute per worker; with `CACHE_TYPE=RedisCache` the count is shared, so 120 a minute in total.
 
 ## Optional Authentication / RBAC
 

@@ -25,7 +25,7 @@ from urllib.parse import quote, urlsplit
 
 from flask import current_app, jsonify, request
 
-from nautobot_maps import alerts, auth, caching
+from nautobot_maps import alerts, auth, caching, settings
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,15 @@ MAX_CASE_DEVICES = 200
 
 
 class ToolError(Exception):
-    """A tool failed in a way the model can act on: reported with isError."""
+    """A tool failed in a way the model can act on: reported with isError.
+
+    The text shown to the model is ``message``, always written by this
+    module, never an exception's own text.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 class ProtocolError(Exception):
@@ -160,7 +168,11 @@ def _flag(args: dict, name: str) -> bool:
 
 
 def _text_list(args: dict, name: str, max_items: int) -> list[str]:
-    value = args.get(name) or []
+    # Only a missing value means "none given": "" or false must not turn
+    # add_case into "every down device" (Copilot review on #251).
+    value = args.get(name)
+    if value is None:
+        return []
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ToolError(f"{name} must be a list of strings")
     items = list(dict.fromkeys(item.strip() for item in value if item.strip()))
@@ -474,7 +486,8 @@ def _rate_limited() -> bool:
     who = auth.get_current_user().get("username") or request.remote_addr or "unknown"
     # One counter per caller per clock minute (inc may refresh the expiry, so
     # the minute in the key is what ends a window).  Shared across workers
-    # with RedisCache; per worker with SimpleCache.
+    # with CACHE_TYPE=RedisCache; with SimpleCache each worker counts on its
+    # own, so the limit is per worker (documented in the README).
     key = f"mcp-rate:{who}:{int(time.time() // 60)}"
     if caching.cache.add(key, 1, timeout=120):
         return False
@@ -499,7 +512,7 @@ def call_tool(params: dict) -> dict:
             raise ToolError(f"Unknown arguments: {', '.join(unknown)}")
         data = TOOLS[name]["handler"](arguments)
     except ToolError as exc:
-        return {"content": [{"type": "text", "text": str(exc)}], "isError": True}
+        return {"content": [{"type": "text", "text": exc.message}], "isError": True}
     except Exception as exc:
         logger.exception("MCP tool %s failed: %s", name, exc)
         return {"content": [{"type": "text", "text": "Internal error in the tool"}], "isError": True}
@@ -525,12 +538,25 @@ def _decode_header(value: str) -> str:
     return value
 
 
+def _normalize_origin(value: str) -> str:
+    parts = urlsplit(value.strip().lower())
+    return f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else ""
+
+
 def _origin_allowed() -> bool:
-    """Requests from a web page on another site are refused (DNS rebinding)."""
+    """Only listed origins may call from a browser (DNS rebinding).
+
+    MCP clients send no Origin header; browsers always do.  Comparing it
+    with the Host header would not help: after DNS rebinding both name the
+    attacker's domain.  So an Origin must be in MCP_ALLOWED_ORIGINS
+    (empty by default: no browser page may call).
+    """
     origin = request.headers.get("Origin")
-    if not origin:
+    if origin is None:
         return True
-    return urlsplit(origin).netloc.lower() == request.host.lower()
+    allowed = {_normalize_origin(item) for item in settings.MCP_ALLOWED_ORIGINS}
+    normalized = _normalize_origin(origin)
+    return bool(normalized) and normalized in allowed
 
 
 def _validate_modern_headers(method: str, params: dict, version: str) -> None:
@@ -612,10 +638,14 @@ def handle():
     """Answer one POST to /mcp."""
     if not _origin_allowed():
         return _error(INVALID_REQUEST, "Origin not allowed", 403)
-    if (request.content_length or 0) > MAX_REQUEST_BYTES:
+    # Read at most one byte past the limit: a chunked request has no
+    # Content-Length to check first.
+    body = request.stream.read(MAX_REQUEST_BYTES + 1)
+    if len(body) > MAX_REQUEST_BYTES:
         return _error(INVALID_REQUEST, f"Request larger than {MAX_REQUEST_BYTES} bytes", 413)
-    message = request.get_json(silent=True)
-    if message is None:
+    try:
+        message = json.loads(body)
+    except (UnicodeDecodeError, ValueError):
         return _error(PARSE_ERROR, "Body is not JSON", 400)
     if not isinstance(message, dict) or message.get("jsonrpc") != "2.0" or not isinstance(message.get("method"), str):
         return _error(INVALID_REQUEST, "Expected one JSON-RPC 2.0 request", 400)

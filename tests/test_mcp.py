@@ -210,10 +210,48 @@ class TestProtocol:
     def test_get_is_not_allowed(self, client):
         assert client.get("/mcp").status_code == 405
 
-    def test_foreign_origin_is_refused(self, client):
+    def test_browser_origins_are_refused_unless_listed(self, client, monkeypatch):
         response = modern(client, "tools/list", headers={"Origin": "https://evil.example"})
         assert response.status_code == 403
-        assert modern(client, "tools/list", headers={"Origin": "http://localhost"}).status_code == 200
+        # Matching the Host header is no defence against DNS rebinding:
+        # after rebinding, Origin and Host both name the attacker's domain.
+        assert modern(client, "tools/list", headers={"Origin": "http://localhost"}).status_code == 403
+        assert modern(client, "tools/list", headers={"Origin": "null"}).status_code == 403
+        monkeypatch.setattr(settings, "MCP_ALLOWED_ORIGINS", ["https://Assistant.example.com"])
+        assert modern(client, "tools/list", headers={"Origin": "https://assistant.example.com"}).status_code == 200
+        assert modern(client, "tools/list", headers={"Origin": "http://assistant.example.com"}).status_code == 403
+        # MCP clients send no Origin at all.
+        assert modern(client, "tools/list").status_code == 200
+
+    def test_size_limit_also_without_content_length(self, client):
+        import io
+
+        big = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "pad": "x" * mcp.MAX_REQUEST_BYTES}).encode()
+        chunked = client.post(
+            "/mcp",
+            input_stream=io.BytesIO(big),
+            content_type="application/json",
+            # A chunked upload: no Content-Length, the server reads to the end.
+            environ_overrides={
+                "wsgi.input_terminated": True,
+                "CONTENT_LENGTH": "",
+                "HTTP_TRANSFER_ENCODING": "chunked",
+            },
+        )
+        assert chunked.status_code == 413
+        small = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode()
+        ok = client.post(
+            "/mcp",
+            input_stream=io.BytesIO(small),
+            content_type="application/json",
+            # A chunked upload: no Content-Length, the server reads to the end.
+            environ_overrides={
+                "wsgi.input_terminated": True,
+                "CONTENT_LENGTH": "",
+                "HTTP_TRANSFER_ENCODING": "chunked",
+            },
+        )
+        assert ok.status_code == 200 and ok.get_json()["result"] == {}
 
     def test_unknown_tool_and_bad_arguments(self, client):
         response = modern(client, "tools/call", {"name": "drop_tables", "arguments": {}})
@@ -263,6 +301,14 @@ class TestTools:
         assert ambiguous["isError"] and "2 sites match" in ambiguous["content"][0]["text"]
         missing = call(client, "get_site", {"site": "Bergen"})
         assert missing["isError"] and "No site matches" in missing["content"][0]["text"]
+
+    def test_add_case_rejects_malformed_device_ids_before_anything_else(self, client, monkeypatch):
+        calls = []
+        monkeypatch.setattr(mcp, "call_api", lambda *args, **kwargs: calls.append(args) or (200, {}))
+        for bad in ("", 0, False, "d1", [1], {}):
+            result = call(client, "add_case", {"site_id": "loc-1", "case_number": "INC-9", "device_ids": bad})
+            assert result["isError"] and "device_ids must be a list of strings" in result["content"][0]["text"], bad
+        assert calls == [], "nothing may be looked up or written"
 
     def test_feed_validation_comes_from_the_route(self, client):
         result = call(client, "get_alert_feed", {"since": "yesterday"})
@@ -324,6 +370,14 @@ class TestAddCase:
             assert cases == {"INC-42"}
             assert {case["created_by"] for i in history["instances"] for case in i["cases"]} == {"olga"}
             assert all("snapshot" not in event for i in history["instances"] for event in i["events"])
+
+    def test_malformed_device_ids_never_mean_all_devices(self, client):
+        self._open_alerts()
+        for bad in ("", 0, False, "d1", [1]):
+            result = call(client, "add_case", {"site_id": "loc-1", "case_number": "INC-9", "device_ids": bad})
+            assert result["isError"] and "device_ids must be a list of strings" in result["content"][0]["text"], bad
+        history = call(client, "get_alert_history", {"site_id": "loc-1"})["structuredContent"]
+        assert not [case for instance in history["instances"] for case in instance["cases"]]
 
     def test_all_or_nothing(self, client):
         self._open_alerts()

@@ -107,6 +107,7 @@ services:
       - METRICS_ENABLED=${METRICS_ENABLED:-}
       # MCP server for AI assistants at /mcp (optional; default off)
       - MCP_ENABLED=${MCP_ENABLED:-}
+      - MCP_ALLOWED_ORIGINS=${MCP_ALLOWED_ORIGINS:-}
       # PostgreSQL connect and statement timeouts (optional; defaults 5 s / 60 s)
       - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-}
       - DB_STATEMENT_TIMEOUT_SECONDS=${DB_STATEMENT_TIMEOUT_SECONDS:-}
