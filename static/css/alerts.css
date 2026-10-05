@@ -104,11 +104,6 @@ html, body {
   font-size: 2rem;
 }
 
-.page-subtitle {
-  margin: 8px 0 0;
-  color: var(--color-text-muted);
-}
-
 .app-nav {
   display: flex;
   gap: 8px;
@@ -136,18 +131,58 @@ html, body {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
 
 .summary-card {
   position: relative;
-  padding: 16px;
   border-radius: var(--radius);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow);
+}
+
+/* The whole tile is the filter button; the (i) glyph sits on top of it. */
+.summary-filter {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.summary-filter:hover {
+  background: var(--color-surface-2);
+}
+
+.summary-filter:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.summary-card:has(.summary-filter[aria-pressed="true"]) {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary), var(--shadow);
+}
+
+.summary-card > .tier-info {
+  position: absolute;
+  top: 16px;
+  right: 14px;
+}
+
+/* Positioned glyph: anchor the tooltip to its right edge, growing left. */
+.summary-card > .tier-info::after {
+  left: auto;
+  right: 0;
+  width: min(240px, 70vw);
 }
 
 .summary-card strong {
@@ -168,6 +203,7 @@ html, body {
 .summary-low { border-color: rgba(234, 179, 8, 0.5); }
 .summary-no-data { border-color: rgba(142, 148, 166, 0.55); }
 .summary-ok { border-color: rgba(46, 204, 113, 0.45); }
+.summary-alarms strong { color: var(--color-danger); }
 
 .toolbar,
 .table-shell {
@@ -180,31 +216,6 @@ html, body {
 .toolbar {
   padding: 16px;
   margin-bottom: 16px;
-}
-
-.quick-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.tree-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.quick-filter-btn {
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface-2);
-  color: var(--color-text);
-  min-height: 34px;
-  padding: 0 12px;
-  cursor: pointer;
 }
 
 .secondary-filter-btn {
@@ -234,47 +245,43 @@ html, body {
   margin: 0;
 }
 
-/* All sites / Alarms only (#232). */
-.site-scope {
-  display: inline-flex;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.scope-chip:has(input:checked) {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-.scope-chip:has(input:focus-visible) {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.quick-filter-btn.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: #fff;
-}
-
-.toolbar-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+/* Search, tenant, sort, More filters and Reset on one line. */
+.toolbar-row,
+.more-filters {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+  align-items: center;
 }
 
-.toolbar-grid input,
-.toolbar-grid select,
+.toolbar-row input {
+  flex: 1 1 260px;
+}
+
+.more-filters {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.more-filters[hidden] {
+  display: none;
+}
+
+.toolbar-row input,
+.toolbar-row select,
+.more-filters select,
 #refresh-alerts {
-  width: 100%;
   min-height: 40px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface-2);
   color: var(--color-text);
   padding: 0 12px;
+}
+
+.more-filters select {
+  min-width: 200px;
 }
 
 #refresh-alerts {
@@ -452,7 +459,19 @@ tbody tr:hover {
 }
 
 .site-name {
+  display: block;
   font-weight: 700;
+  color: inherit;
+}
+
+a.site-name {
+  text-decoration: none;
+}
+
+a.site-name:hover,
+a.site-name:focus-visible {
+  color: var(--color-primary);
+  text-decoration: underline;
 }
 
 .site-name-row {
@@ -509,7 +528,7 @@ tbody tr:hover {
 /* Pin the Action column to the right edge while the table scrolls
    horizontally; sticky cells need an opaque background. */
 thead th:last-child,
-tbody td:last-child:not(.empty-state) {
+tbody td:last-child:not(.empty-state, .site-tools-cell) {
   position: sticky;
   right: 0;
   z-index: 1;
@@ -523,6 +542,11 @@ thead th:last-child {
 
 .down-device-row > td:last-child {
   background: linear-gradient(rgba(13, 110, 253, 0.06), rgba(13, 110, 253, 0.06)), var(--color-surface);
+}
+
+/* History, under the site's down devices. */
+.site-tools-cell {
+  padding: 6px 10px 10px 28px;
 }
 
 .down-device-cell {
@@ -802,12 +826,8 @@ thead th:last-child {
     max-height: 60vh;
   }
 
-  .toolbar-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -825,13 +845,16 @@ thead th:last-child {
     margin-left: 0;
   }
 
-  .toolbar-grid,
   .summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toolbar-row > * {
+    flex: 1 1 100%;
   }
 
   table {
-    min-width: 1200px;
+    min-width: 900px;
   }
 }
 

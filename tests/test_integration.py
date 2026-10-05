@@ -807,8 +807,11 @@ class TestCompactActionsInTheBrowser:
     FUNCTIONS = (
         "escHtml",
         "caseButtonLabel",
+        "downDeviceList",
         "caseDevices",
+        "historyButton",
         "actionCell",
+        "siteNameHtml",
         "renderCaseForm",
         "hideSidePanel",
         "openSidePanel",
@@ -856,15 +859,39 @@ const site = { id: "s1", name: "Aarhus <HQ>", latitude: 56.1, longitude: 10.2,
   down_devices: [{ device_id: "d1", device_name: "sw01" }, { device_id: "", device_name: "ghost" }] };
 let html = actionCell(site);
 check(html.includes('class="action-btn case-open-btn"') && html.includes("+ Case"), html);
-check(html.includes('class="action-btn history-btn"') && html.includes('href="/?location_id=s1"'), html);
+check(html.includes('class="action-btn copy-site-btn"'), html);
+// History is under the down devices and the map is the site name: only the triage actions here.
+check(!html.includes("history-btn") && !html.includes("href"), html);
 check(html.includes("for Aarhus &lt;HQ&gt;"), "screen readers hear the site: " + html);
 // The whole case form is gone from the row.
 check(!html.includes("case-form") && !html.includes("checkbox") && !html.includes("<input"), html);
 
-// No down devices with an id: no + Case.  No coordinates: Map is disabled.
+// Down devices without an id: Copy but no + Case.
 html = actionCell({ id: "s2", name: "Oslo", down_devices: [{ device_id: "", device_name: "ghost" }] });
-check(!html.includes("case-open-btn"), html);
-check(html.includes("action-btn-disabled") && html.includes("no coordinates") && !html.includes("href"), html);
+check(!html.includes("case-open-btn") && html.includes("copy-site-btn"), html);
+
+// Nothing down: nothing to expand, so History stays in the row.
+html = actionCell({ id: "s3", name: "Bergen", down_devices: [] });
+check(html.includes('class="action-btn history-btn"') && !html.includes("copy-site-btn"), html);
+
+// An open alert kept after a failed observation: nothing down now, but there
+// is a list to expand, so History is under it, as for any other expandable site.
+html = actionCell({ id: "s4", name: "Kiel", down_device_count: 0, down_devices: [{ device_id: "d9", device_name: "sw9" }] });
+check(!html.includes("history-btn") && html.includes("copy-site-btn"), html);
+""")
+
+    def test_toggle_and_history_use_the_same_list(self):
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        assert "const toggleButton = downDeviceList(item).length" in js
+        assert "if (!downDeviceList(item).length) return" in _extract_js_function(js, "actionCell")
+        assert "const downDevices = downDeviceList(item);" in _extract_js_function(js, "renderDownDeviceRows")
+
+    def test_site_name_links_to_the_map(self):
+        self._run("""
+let html = siteNameHtml({ id: "loc 1", name: "Aarhus <HQ>", latitude: 56.1, longitude: 10.2 });
+check(html.includes('href="/?location_id=loc%201"') && html.includes("Aarhus &lt;HQ&gt;"), html);
+html = siteNameHtml({ id: "s2", name: "Oslo" });
+check(!html.includes("href") && html.includes(">Oslo<"), "no coordinates: plain text: " + html);
 """)
 
     def test_case_form_lists_down_devices(self):
@@ -1038,9 +1065,8 @@ check(buildAlertBanner({{ level: "medium" }}).includes("alert-medium"), "medium 
         for needle in (
             'id="summary-low"',
             'id="summary-no_data"',
-            'data-quick-severity="low"',
-            'data-quick-severity="no_data"',
-            '<option value="no_data">No data</option>',
+            'data-severity-filter="low"',
+            'data-severity-filter="no_data"',
         ):
             assert needle in html
         assert 'id="summary-unknown"' not in html
@@ -1140,7 +1166,9 @@ class TestCopySiteInTheBrowser:
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
         names = (
             "escHtml",
+            "downDeviceList",
             "caseDevices",
+            "historyButton",
             "actionCell",
             "formatLocationAddress",
             "formatReportTime",
@@ -1274,8 +1302,8 @@ const document = { createElement: () => { throw new Error("no fallback needed");
         assert 'id="app-config"' in html and "data-nautobot-url=" in html
 
 
-class TestAlarmsOnlyInTheBrowser:
-    """All sites / Alarms only on the alert board (#232)."""
+class TestSeverityTilesInTheBrowser:
+    """The summary tiles filter the board; it opens on Alarms (#232)."""
 
     def _run(self, body):
         if shutil.which("node") is None:
@@ -1288,34 +1316,36 @@ class TestAlarmsOnlyInTheBrowser:
             "latestDownTime",
             "compareSites",
             "hasActiveAlarm",
-            "selectedScope",
-            "setScope",
-            "restoreScope",
-            "rememberScope",
+            "matchesSeverityFilter",
+            "setSeverityFilter",
             "formatBoardStatus",
             "siteTenants",
             "getFilteredAlerts",
+            "moreFiltersInUse",
+            "renderMoreFiltersLabel",
         )
         functions = "\n".join(_extract_js_function(js, name) for name in names)
         constants = "\n".join(
             re.search(pattern, js).group(0)
             for pattern in (
                 r"const SEVERITY_ORDER = \[[^\]]*\];",
-                r"const SCOPE_KEY = [^;]*;",
+                r"const DEFAULT_SEVERITY_FILTER = [^;]*;",
                 r"const ALARM_LEVELS = \[[^\]]*\];",
             )
         )
         script = f"""
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const store = {{}};
-let localStorage = {{
-  getItem: (key) => (key in store ? store[key] : null),
-  setItem: (key, value) => {{ store[key] = String(value); }},
-  removeItem: (key) => {{ delete store[key]; }},
-}};
-const siteScopeInputs = [{{ value: "all", checked: true }}, {{ value: "alarms", checked: false }}];
+const button = (value) => ({{
+  dataset: {{ severityFilter: value }},
+  attrs: {{}},
+  setAttribute(key, v) {{ this.attrs[key] = v; }},
+}});
+const severityFilterButtons = ["alarms", "critical", "medium", "low", "no_data", "ok", "all"].map(button);
+const pressed = () => severityFilterButtons.filter((b) => b.attrs["aria-pressed"] === "true").map((b) => b.dataset.severityFilter).join();
 const field = (value = "") => ({{ value }});
-const filterSite = field(), filterSeverity = field(), filterStatus = field(), filterType = field(), filterTenant = field();
+const filterSite = field(), filterStatus = field(), filterType = field(), filterTenant = field();
+const toggleNonOperational = {{ checked: false }};
+const moreFiltersToggle = {{ textContent: "" }};
 const sortBy = field("severity");
 const boardStatus = {{ textContent: "" }};
 let allAlerts = [
@@ -1326,63 +1356,64 @@ let allAlerts = [
   {{ name: "Paris", alert_level: "medium", down_device_count: 2 }},
 ];
 {constants}
+let severityFilter = DEFAULT_SEVERITY_FILTER;
 {functions}
 {body}
 """
         completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
         assert completed.returncode == 0, completed.stderr or completed.stdout
 
-    def test_alarms_only_hides_sites_without_an_active_alarm(self):
+    def test_opens_on_alarms_and_each_tile_filters(self):
         self._run("""
 const names = () => getFilteredAlerts().map((site) => site.name).join(",");
+check(names() === "Aarhus,Paris,London", "default Alarms (No data is not an alarm): " + names());
+setSeverityFilter("all");
+check(pressed() === "all", "one tile pressed: " + pressed());
 check(names() === "Aarhus,Paris,London,Bergen,Oslo", "all sites: " + names());
-setScope("alarms");
-check(selectedScope() === "alarms", "selected");
-check(names() === "Aarhus,Paris,London", "alarms only (No data is not an alarm): " + names());
-// Works with the other filters.
+setSeverityFilter("no_data");
+check(names() === "Bergen", "one level: " + names());
+setSeverityFilter("alarms");
 filterTenant.value = "Acme";
 check(names() === "London", "with a tenant filter: " + names());
-filterTenant.value = "";
-filterSeverity.value = "no_data";
-check(names() === "", "No data under Alarms only is empty: " + names());
-""")
-
-    def test_choice_is_remembered_and_reset(self):
-        self._run("""
-restoreScope();
-check(selectedScope() === "all", "default");
-setScope("alarms");
-rememberScope("alarms");
-setScope("all");
-restoreScope();
-check(selectedScope() === "alarms", "remembered");
-rememberScope("all");
-check(!(SCOPE_KEY in store), "All sites forgets the choice");
-store[SCOPE_KEY] = "nonsense";
-restoreScope();
-check(selectedScope() === "all", "unknown value: all sites");
-localStorage = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
-restoreScope();
-rememberScope("alarms");
-check(selectedScope() === "all", "blocked storage: all sites");
+setSeverityFilter("nonsense");
+check(severityFilter === "alarms" && pressed() === "alarms", "unknown value: Alarms");
 """)
 
     def test_status_line_says_when_limited(self):
         self._run("""
-formatBoardStatus({ checked_at: null, stale: false }, 3, true);
+formatBoardStatus({ checked_at: null, stale: false }, 3);
 check(boardStatus.textContent.startsWith("3 sites shown (alarms only) · last checked"), boardStatus.textContent);
-formatBoardStatus({ checked_at: null, stale: false }, 1, false);
+setSeverityFilter("all");
+formatBoardStatus({ checked_at: null, stale: false }, 1);
 check(boardStatus.textContent.startsWith("1 site shown · last checked"), boardStatus.textContent);
-setScope("alarms");
-formatBoardStatus({ checked_at: null, stale: false }, 2);
-check(boardStatus.textContent.includes("(alarms only)"), "defaults to the selected scope: " + boardStatus.textContent);
 """)
 
-    def test_board_page_has_the_choice(self, integration_client):
+    def test_more_filters_says_when_in_use(self):
+        self._run("""
+renderMoreFiltersLabel();
+check(moreFiltersToggle.textContent === "More filters", moreFiltersToggle.textContent);
+filterStatus.value = "Active";
+toggleNonOperational.checked = true;
+renderMoreFiltersLabel();
+check(moreFiltersToggle.textContent === "More filters (2)", moreFiltersToggle.textContent);
+""")
+
+    def test_board_page_has_the_tiles_and_more_filters(self, integration_client):
         html = integration_client.get("/alerts").get_data(as_text=True)
-        assert '<input type="radio" name="site-scope" value="all" checked />' in html
-        assert '<input type="radio" name="site-scope" value="alarms" />' in html
-        assert "<legend" in html and "Alarms only" in html
+        assert 'data-severity-filter="alarms" aria-pressed="true"' in html
+        tiles = html[html.index('<section class="summary-grid"') : html.index('<section class="toolbar"')]
+        assert tiles.count('aria-pressed="true"') == 1
+        assert 'data-severity-filter="all" aria-pressed="false"' in html
+        assert 'id="summary-alarms"' in html
+        # Status, type and non-operational are behind More filters, closed by default.
+        more = html[html.index('<div id="more-filters"') :]
+        assert more.startswith('<div id="more-filters" class="more-filters" hidden>')
+        for needle in ('id="filter-status"', 'id="filter-type"', 'id="toggle-non-operational"'):
+            assert needle in more[: more.index("</div>")]
+        assert 'aria-controls="more-filters"' in html
+        # Gone: the duplicate severity controls.
+        for gone in ("data-quick-severity", 'id="filter-severity"', 'name="site-scope"', "page-subtitle"):
+            assert gone not in html
 
 
 class TestApiExplorerInTheBrowser:

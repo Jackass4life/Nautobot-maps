@@ -3,13 +3,16 @@
 const boardStatus = document.getElementById("board-status");
 const alertsTableBody = document.getElementById("alerts-table-body");
 const filterSite = document.getElementById("filter-site");
-const filterSeverity = document.getElementById("filter-severity");
 const filterStatus = document.getElementById("filter-status");
 const filterType = document.getElementById("filter-type");
 const filterTenant = document.getElementById("filter-tenant");
 const sortBy = document.getElementById("sort-by");
 const refreshBtn = document.getElementById("refresh-alerts");
-const quickSeverityButtons = Array.from(document.querySelectorAll("[data-quick-severity]"));
+// The summary tiles are the severity filter: Alarms (default), one level, or All sites.
+const severityFilterButtons = Array.from(document.querySelectorAll("[data-severity-filter]"));
+const DEFAULT_SEVERITY_FILTER = "alarms";
+const moreFiltersToggle = document.getElementById("more-filters-toggle");
+const moreFilters = document.getElementById("more-filters");
 const clearAlertFiltersBtn = document.getElementById("clear-alert-filters");
 const toggleNonOperational = document.getElementById("toggle-non-operational");
 const collapseAllSitesBtn = document.getElementById("collapse-all-sites");
@@ -48,9 +51,6 @@ const nextUpdateEl = document.getElementById("next-update");
 // newest down device first (#228).
 const SORT_KEY = "nautobot-maps-alert-sort";
 const DEFAULT_SORT = "newest";
-// All sites / Alarms only (#232), remembered per browser.
-const siteScopeInputs = Array.from(document.querySelectorAll('input[name="site-scope"]'));
-const SCOPE_KEY = "nautobot-maps-alert-scope";
 // Levels that are an active alarm; No data is not an alert (#124).
 const ALARM_LEVELS = ["critical", "medium", "low"];
 
@@ -61,6 +61,7 @@ let latestPayload = { checked_at: null, stale: false, summary: {}, alerts: [] };
 let panelTriggerSelector = null;
 let expandedSiteIds = new Set();
 let allSitesExpanded = false;
+let severityFilter = DEFAULT_SEVERITY_FILTER;
 
 // While the server reports an inventory sync in progress, re-poll the board
 // quietly so fresh data appears without the operator clicking Refresh.
@@ -123,6 +124,8 @@ function populateFilters(alerts) {
 }
 
 function renderSummary(summary) {
+  const alarms = summary.non_ok ?? ALARM_LEVELS.reduce((sum, level) => sum + (summary[level] || 0), 0);
+  document.getElementById("summary-alarms").textContent = alarms;
   document.getElementById("summary-critical").textContent = summary.critical || 0;
   document.getElementById("summary-medium").textContent = summary.medium || 0;
   document.getElementById("summary-low").textContent = summary.low || 0;
@@ -149,33 +152,49 @@ function syncCaseSelection(form) {
   button.disabled = selected === 0;
 }
 
-function caseDevices(item) {
-  return (Array.isArray(item.down_devices) ? item.down_devices : []).filter((d) => d.device_id);
+// The site's expandable device list: down now, or with an alert still open.
+// It can be non-empty while down_device_count is 0 (a failed observation
+// keeps open alerts), so the toggle, row buttons and History all use this.
+function downDeviceList(item) {
+  return Array.isArray(item.down_devices) ? item.down_devices : [];
 }
 
-// One line of small buttons per row; the case form opens in a side panel (#179).
+function caseDevices(item) {
+  return downDeviceList(item).filter((d) => d.device_id);
+}
+
+// The row keeps the two triage actions (#179, #227); the site name links to
+// the map, and History sits under the down devices (in the row when there
+// are none to expand).
+function historyButton(item) {
+  const siteId = escHtml(item.id || "");
+  const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
+  return `<button class="action-btn history-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">History${siteLabel}</button>`;
+}
+
 function actionCell(item) {
   const siteId = escHtml(item.id || "");
   const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
-  const hasCoordinates = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
+  if (!downDeviceList(item).length) return `<div class="action-row">${historyButton(item)}</div>`;
   const caseButton = caseDevices(item).length
     ? `<button class="action-btn case-open-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">+ Case${siteLabel}</button>`
     : "";
-  const mapLink = hasCoordinates
-    ? `<a class="action-btn map-link" href="/?location_id=${encodeURIComponent(item.id)}">Map${siteLabel}</a>`
-    : `<span class="action-btn action-btn-disabled" title="No coordinates">Map<span class="visually-hidden"> unavailable: no coordinates</span></span>`;
   // Copy the site and its down devices as text for an ITSM ticket (#227).
-  const copyButton = Array.isArray(item.down_devices) && item.down_devices.length
-    ? `<button class="action-btn copy-site-btn" type="button" data-site-id="${siteId}" title="Copy the site and its down devices as text">Copy${siteLabel}</button>`
-    : "";
+  const copyButton = `<button class="action-btn copy-site-btn" type="button" data-site-id="${siteId}" title="Copy the site and its down devices as text">Copy${siteLabel}</button>`;
   return `
     <div class="action-row">
       ${caseButton}
       ${copyButton}
-      <button class="action-btn history-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">History${siteLabel}</button>
-      ${mapLink}
     </div>
   `;
+}
+
+// The site name, linked to the site on the map when it has coordinates.
+function siteNameHtml(item) {
+  const name = escHtml(item.name || item.id || "Unknown site");
+  const hasCoordinates = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
+  if (!hasCoordinates || !item.id) return `<span class="site-name">${name}</span>`;
+  return `<a class="site-name" href="/?location_id=${encodeURIComponent(item.id)}" title="Show on the map">${name}</a>`;
 }
 
 function renderCaseForm(item) {
@@ -515,36 +534,23 @@ function hasActiveAlarm(item) {
   return ALARM_LEVELS.includes(item.alert_level);
 }
 
-function selectedScope() {
-  return siteScopeInputs.find((input) => input.checked)?.value || "all";
+// Whether a site passes the severity tiles: Alarms, one level, or all.
+function matchesSeverityFilter(item, filter = severityFilter) {
+  if (filter === "all") return true;
+  if (filter === "alarms") return hasActiveAlarm(item);
+  return (item.alert_level || "no_data") === filter;
 }
 
-function setScope(value) {
-  siteScopeInputs.forEach((input) => {
-    input.checked = input.value === value;
+function setSeverityFilter(value) {
+  severityFilter = severityFilterButtons.some((button) => button.dataset.severityFilter === value)
+    ? value
+    : DEFAULT_SEVERITY_FILTER;
+  severityFilterButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.severityFilter === severityFilter ? "true" : "false");
   });
 }
 
-function restoreScope() {
-  let stored = null;
-  try {
-    stored = localStorage.getItem(SCOPE_KEY);
-  } catch (_err) {
-    // Storage unavailable: show all sites.
-  }
-  setScope(stored === "alarms" ? "alarms" : "all");
-}
-
-function rememberScope(value) {
-  try {
-    if (value === "alarms") localStorage.setItem(SCOPE_KEY, value);
-    else localStorage.removeItem(SCOPE_KEY);
-  } catch (_err) {
-    // noop
-  }
-}
-
-function formatBoardStatus(payload, visibleCount, alarmsOnly = selectedScope() === "alarms") {
+function formatBoardStatus(payload, visibleCount, alarmsOnly = severityFilter === "alarms") {
   const checkedAt = payload.checked_at ? new Date(payload.checked_at) : null;
   const timestamp = checkedAt && !Number.isNaN(checkedAt.valueOf())
     ? checkedAt.toLocaleString()
@@ -577,10 +583,6 @@ function latestDownTime(item) {
 
 function compareSites(a, b, sort) {
   if (sort === "site") return compareText(a.name, b.name);
-  if (sort === "address") return compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
-  if (sort === "country") return compareText(a.country, b.country) || compareText(formatLocationAddress(a), formatLocationAddress(b)) || compareText(a.name, b.name);
-  if (sort === "down") return (b.down_device_count || 0) - (a.down_device_count || 0) || compareText(a.name, b.name);
-  if (sort === "devices") return (b.device_count || 0) - (a.device_count || 0) || compareText(a.name, b.name);
   if (sort === "newest") {
     // Newest down first (#228); sites with nothing down follow, by severity.
     const left = latestDownTime(a);
@@ -620,28 +622,38 @@ function isSiteExpanded(item) {
   return allSitesExpanded ? !expandedSiteIds.has(siteId) : expandedSiteIds.has(siteId);
 }
 
+// Seconds since the device went down, or 0 when unknown.
+function deviceDowntimeSeconds(device, now = Date.now()) {
+  const since = Date.parse(device.down_started_at || "");
+  return Number.isNaN(since) ? 0 : Math.max(0, (now - since) / 1000);
+}
+
 function renderDownDeviceRows(item, isExpanded) {
-  const downDevices = Array.isArray(item.down_devices) ? item.down_devices : [];
+  const downDevices = downDeviceList(item);
   if (!downDevices.length) return "";
   const siteLabel = escHtml(item.name || item.id || "site");
-  return downDevices.map((device) => `
-    <tr class="down-device-row${isExpanded ? "" : " hidden"}">
+  const hidden = isExpanded ? "" : " hidden";
+  const now = Date.now();
+  const rows = downDevices.map((device) => `
+    <tr class="down-device-row${hidden}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
         <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}</div>
         <div class="site-meta">${[device.location_path, device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
       </td>
-      <td>${alertBadge(item.alert_level)}</td>
-      <td>${escHtml(device.status || item.status || "—")}</td>
-      <td>${escHtml(item.location_type || "—")}</td>
-      <td>${tenantCell(item)}</td>
-      <td>—</td>
-      <td>—</td>
-      <td>—</td>
+      <td></td>
+      <td></td>
+      <td>${formatDuration(deviceDowntimeSeconds(device, now))}</td>
       <td class="cases-cell">${renderDeviceCases(device)}</td>
-      <td class="reason-cell">${escHtml(item.alert_reason || "Down device")}</td>
+      <td></td>
       <td></td>
     </tr>
   `).join("");
+  // The site's history, under its devices.
+  return `${rows}
+    <tr class="down-device-row site-tools-row${hidden}">
+      <td class="site-tools-cell" colspan="7">${historyButton(item)}</td>
+    </tr>
+  `;
 }
 
 // Every tenant of the site: its own, then those linked by a Nautobot
@@ -679,10 +691,10 @@ function renderTableRows(alerts, payload) {
         + "and restart the app. The map works without it.";
     } else if (payload.sync_pending && !allAlerts.length) {
       emptyText = "Inventory sync in progress – the board will update automatically.";
-    } else if (selectedScope() === "alarms" && !allAlerts.some(hasActiveAlarm)) {
+    } else if (severityFilter === "alarms" && !allAlerts.some(hasActiveAlarm)) {
       emptyText = "No site has an active alarm. Choose All sites to see every site.";
     }
-    alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">${emptyText}</td></tr>`;
+    alertsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">${emptyText}</td></tr>`;
     formatBoardStatus(payload, 0);
     return;
   }
@@ -691,10 +703,11 @@ function renderTableRows(alerts, payload) {
     const address = formatLocationAddress(item);
     const isExpanded = isSiteExpanded(item);
     const downCount = item.down_device_count || 0;
-    const toggleButton = downCount
+    const toggleButton = downDeviceList(item).length
       ? `<button class="site-toggle-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="${isExpanded ? "Collapse" : "Expand"} ${escHtml(item.name || item.id || "site")}">${isExpanded ? "▾" : "▸"}</button>`
       : '<span class="site-toggle-spacer" aria-hidden="true"></span>';
-    const meta = siteMeta(item);
+    // Path above the site, then its status and type (no columns of their own).
+    const meta = [siteMeta(item), escHtml(item.status || ""), escHtml(item.location_type || "")].filter(Boolean).join(" · ");
 
     return `
     <tr class="site-row">
@@ -702,7 +715,7 @@ function renderTableRows(alerts, payload) {
         <div class="site-name-row">
           ${toggleButton}
           <div>
-            <div class="site-name">${escHtml(item.name)}</div>
+            ${siteNameHtml(item)}
             <div class="site-summary">${downCount} down · ${item.device_count || 0} monitored</div>
           </div>
         </div>
@@ -710,11 +723,7 @@ function renderTableRows(alerts, payload) {
         <div class="site-meta">${meta || "—"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
-      <td>${escHtml(item.status || "—")}</td>
-      <td>${escHtml(item.location_type || "—")}</td>
       <td>${tenantCell(item)}</td>
-      <td>${item.device_count || 0}</td>
-      <td>${item.down_device_count || 0}</td>
       <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
       <td class="cases-cell">${renderCases(item)}</td>
       <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
@@ -728,12 +737,10 @@ function renderTableRows(alerts, payload) {
 
 function getFilteredAlerts() {
   const siteNeedle = filterSite.value.trim().toLowerCase();
-  const severity = filterSeverity.value;
   const status = filterStatus.value;
   const type = filterType.value;
   const tenant = filterTenant.value;
   const sort = sortBy.value;
-  const alarmsOnly = selectedScope() === "alarms";
 
   const filtered = allAlerts.filter((item) => {
     const searchableText = [
@@ -742,9 +749,8 @@ function getFilteredAlerts() {
       formatLocationAddress(item),
       item.country,
     ].join(" ").toLowerCase();
-    if (alarmsOnly && !hasActiveAlarm(item)) return false;
+    if (!matchesSeverityFilter(item)) return false;
     if (siteNeedle && !searchableText.includes(siteNeedle)) return false;
-    if (severity && item.alert_level !== severity) return false;
     if (status && item.status !== status) return false;
     if (type && item.location_type !== type) return false;
     if (tenant && !siteTenants(item).includes(tenant)) return false;
@@ -759,15 +765,18 @@ function getFilteredAlerts() {
 function applyFilters(payload) {
   const filtered = getFilteredAlerts();
   renderTableRows(filtered, payload);
-  syncQuickSeverityButtons();
+  renderMoreFiltersLabel();
 }
 
-function syncQuickSeverityButtons() {
-  quickSeverityButtons.forEach((button) => {
-    const isActive = (button.dataset.quickSeverity || "") === filterSeverity.value;
-    button.classList.toggle("active", isActive);
-    button.setAttribute("aria-pressed", isActive ? "true" : "false");
-  });
+// "More filters (2)": the hidden filters say when they are in use.
+function moreFiltersInUse() {
+  return [filterStatus?.value, filterType?.value, toggleNonOperational?.checked].filter(Boolean).length;
+}
+
+function renderMoreFiltersLabel() {
+  if (!moreFiltersToggle) return;
+  const inUse = moreFiltersInUse();
+  moreFiltersToggle.textContent = inUse ? `More filters (${inUse})` : "More filters";
 }
 
 function stopSyncPolling() {
@@ -854,7 +863,7 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     loadFeed();
   } catch (err) {
     stopSyncPolling();
-    alertsTableBody.innerHTML = `<tr><td colspan="11" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
+    alertsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
     boardStatus.textContent = "Alert board unavailable";
     showError(`Failed to load alert board: ${err.message}`);
   } finally {
@@ -873,7 +882,7 @@ function showError(message) {
   showError._timer = setTimeout(() => toast.classList.add("hidden"), 6000);
 }
 
-[filterSite, filterSeverity, filterStatus, filterType, filterTenant, sortBy].forEach((element) => {
+[filterSite, filterStatus, filterType, filterTenant, sortBy].forEach((element) => {
   element.addEventListener(element.tagName === "INPUT" ? "input" : "change", () => {
     applyFilters(latestPayload);
   });
@@ -881,33 +890,39 @@ function showError(message) {
 
 sortBy.addEventListener("change", () => rememberSort(sortBy.value));
 
-siteScopeInputs.forEach((input) => {
-  input.addEventListener("change", () => {
-    rememberScope(selectedScope());
+severityFilterButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setSeverityFilter(button.dataset.severityFilter);
     applyFilters(latestPayload);
   });
 });
 
-quickSeverityButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    if (refreshBtn.disabled) return;
-    filterSeverity.value = button.dataset.quickSeverity || "";
-    filterSeverity.dispatchEvent(new Event("change"));
+if (moreFiltersToggle && moreFilters) {
+  moreFiltersToggle.addEventListener("click", () => {
+    const open = moreFilters.hidden;
+    moreFilters.hidden = !open;
+    moreFiltersToggle.setAttribute("aria-expanded", open ? "true" : "false");
   });
-});
+}
 
 if (clearAlertFiltersBtn) {
   clearAlertFiltersBtn.addEventListener("click", () => {
     if (refreshBtn.disabled) return;
     filterSite.value = "";
-    filterSeverity.value = "";
     filterStatus.value = "";
     filterType.value = "";
     filterTenant.value = "";
-    setScope("all");
-    rememberScope("all");
+    setSeverityFilter(DEFAULT_SEVERITY_FILTER);
     sortBy.value = DEFAULT_SORT;
     rememberSort(DEFAULT_SORT);
+    // Non-operational sites came from the server: reload without them.
+    if (toggleNonOperational?.checked) {
+      toggleNonOperational.checked = false;
+      expandedSiteIds = new Set();
+      allSitesExpanded = false;
+      loadAlertBoard(false);
+      return;
+    }
     applyFilters(latestPayload);
   });
 }
@@ -1121,7 +1136,7 @@ if (feedToggle && feedShowBtn) {
 }
 
 restoreSort();
-restoreScope();
+setSeverityFilter(DEFAULT_SEVERITY_FILTER);
 loadAlertBoard();
 if (themeToggle) {
   initTheme();
