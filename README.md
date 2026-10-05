@@ -69,6 +69,7 @@ python app.py
 | `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
 | `ALERT_HISTORY_RETENTION_DAYS` | ❌ | `0` (keep all) | Once a day, delete resolved alerts (with their events and cases) and site severity changes older than this many days. Open alerts are never deleted |
 | `METRICS_ENABLED` | ❌ | `true` | Serve Prometheus metrics at `/metrics`; `false` turns it off (404) |
+| `MCP_ENABLED` | ❌ | `false` | Serve the MCP server for AI assistants at `/mcp` (see *MCP server*); off: 404 |
 | `DB_CONNECT_TIMEOUT_SECONDS` | ❌ | `5` | Give up connecting to PostgreSQL after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | ❌ | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (schema migrations at startup are exempt) |
 | `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
@@ -278,6 +279,7 @@ for a full description of the seed data and suggested demo scenarios.
 | `GET` | `/` | Map web UI |
 | `GET` | `/alerts` | Alert board web UI |
 | `GET` | `/docs` | API explorer: every endpoint, with Try it |
+| `POST` | `/mcp` | MCP server for AI assistants, when `MCP_ENABLED=true` (see *MCP server*) |
 | `GET` | `/api/endpoints` | Every page and endpoint as JSON: `path`, `methods`, `summary`, `description`, `path_params`, `query_params`, `required_role`, `example_body` |
 | `GET` | `/healthz` | Liveness probe: `200 {"status": "ok"}`, or `503` when the configured persistence database is unreachable. Never calls Nautobot/LibreNMS |
 | `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues an incremental background sync of changes since the last sync, `?include_non_operational=1` includes excluded locations). A normal request also starts a sync when one is due. `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears. `next_update_in_seconds` is the time until the next sync is due (`0` = due now, `null` = unknown or running). `persistence_configured: false` means no database is set, so the board is always empty |
@@ -293,6 +295,34 @@ for a full description of the seed data and suggested demo scenarios.
 | `POST` | `/api/alert-cases` | Attach a case number to the active alerts of one or more devices at a site: `{"site_id", "case_number", "device_ids": [...]}` (single `device_id` also accepted). All-or-nothing: 404 with `missing_device_ids` if any device has no open alert *(operator when auth enabled)* |
 
 The API serves this app only. Nautobot is the source of truth: the app never creates, changes or deletes anything in Nautobot (sites, devices, roles, location types…); make those changes in Nautobot itself. `NAUTOBOT_TOKEN` therefore only needs **read** permission.
+
+## MCP server (AI assistants)
+
+With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/) server at `/mcp`, so an AI assistant (Claude Code, Claude Desktop, or any MCP client) can answer questions like "which sites are down and since when?" and add a case to an alarm.
+
+| Tool | What it does | Role when sign-in is on |
+|---|---|---|
+| `get_alert_board` | Sites with alarms (or one level, or all): level, reason, down devices with IP and role, downtime, cases; filter by tenant or text | viewer\* |
+| `get_site` | One site by id or name | viewer\* |
+| `get_location_detail` | All devices, ASNs and circuits at a location | viewer\* |
+| `search_locations` | Locations within 5 km of an address or `lat,lon` | viewer\* |
+| `get_alert_feed` | Recent changes: devices down/up, level changes | viewer\* |
+| `get_alert_history` | Past and open incidents, downtime, cases | operator |
+| `add_case` | Attach a case number to a site's down devices (all of them by default), like **+ Case** on the board | operator |
+
+\*only with `AUTH_REQUIRE_VIEWER=true`.
+
+The tools run the same code and the same sign-in and role checks as the web pages, so an assistant can never do more than its user could on the board. `add_case` is the only change it can make; nothing is ever written to Nautobot.
+
+Add it to Claude Code:
+
+```bash
+claude mcp add --transport http nautobot-maps https://nautobot-maps.example.com/mcp
+```
+
+With `AUTH_MODE=header`, the MCP client's requests must pass through your sign-in proxy like the browser's do. If your client can't sign in there, keep the MCP server on an internal address only, or leave it off.
+
+Protocol: Streamable HTTP, stateless (any worker answers any request), MCP 2026-07-28 and the earlier `initialize`-based versions (2025-11-25, 2025-06-18, 2025-03-26). Requests from a web page on another site are refused, and each caller may make 120 tool calls a minute.
 
 ## Optional Authentication / RBAC
 
