@@ -1483,6 +1483,64 @@ showWallError("HTTP 502");
 check(wallErrorEl.textContent.endsWith(`Showing the board from ${formatClock(lastLoadedAt)}.`), wallErrorEl.textContent);
 """)
 
+    def test_loads_newest_wins_and_failures_keep_an_empty_board(self):
+        """Copilot review on #245: overlapping loads, and an empty last-good board."""
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        # The shared helper stops at the destructured `{ background }` parameter.
+        start = js.index("async function loadAlertBoard(")
+        body_start = js.index(") {", start) + 2
+        body = _extract_js_function("function body() " + js[body_start:], "body")
+        load = js[start:body_start] + body[len("function body() ") :]
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const WALL_VIEW = true;
+let loadSeq = 0, lastLoadedAt = null, latestPayload = null, allAlerts = [], syncPollAttempts = 0;
+const shown = [], errors = [];
+const alertsTableBody = {{ innerHTML: "board" }};
+const boardStatus = {{ textContent: "" }};
+const refreshBtn = {{ disabled: false }};
+const toggleNonOperational = null, collapseAllSitesBtn = null, expandAllSitesBtn = null;
+const wallErrorEl = {{ hidden: true }};
+const noop = () => {{}};
+const populateFilters = noop, renderSummary = noop, scheduleSyncPoll = noop, setNextUpdate = noop;
+const loadFeed = noop, renderWallStatus = noop, stopSyncPolling = noop, showError = noop;
+const applyFilters = (payload) => shown.push(payload.tag);
+const showWallError = (message) => errors.push(message);
+const escHtml = (value) => String(value);
+const readJsonResponse = (resp) => resp.json();
+const pending = [];
+const fetch = () => new Promise((resolve) => pending.push(resolve));
+const reply = (index, body, ok = true) =>
+  pending[index]({{ ok, status: ok ? 200 : 502, statusText: "", json: async () => body }});
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+{load}
+
+;(async () => {{
+  // Two loads overlap; the older answers last and must be ignored.
+  const first = loadAlertBoard(false, {{ background: true }});
+  const second = loadAlertBoard(false, {{ background: true }});
+  reply(1, {{ tag: "new", alerts: [] }});
+  await second;
+  reply(0, {{ tag: "old", alerts: [{{ name: "Stale" }}] }});
+  await first;
+  check(shown.join() === "new", "only the newest load renders: " + shown.join());
+  check(allAlerts.length === 0 && lastLoadedAt !== null, "the empty board was loaded");
+
+  // The board is empty but loaded: a failure keeps it and shows the banner.
+  alertsTableBody.innerHTML = "No active alarms.";
+  const failing = loadAlertBoard(false, {{ background: true }});
+  reply(2, {{ error: "upstream down" }}, false);
+  await failing;
+  await settle();
+  check(errors.join() === "upstream down", "banner: " + errors.join());
+  check(alertsTableBody.innerHTML === "No active alarms.", "kept: " + alertsTableBody.innerHTML);
+}})().catch((err) => {{ console.error(err.message); process.exit(1); }});
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
     def test_wall_page(self, integration_client):
         html = integration_client.get("/alerts?view=wall").get_data(as_text=True)
         assert '<body class="wall-view">' in html

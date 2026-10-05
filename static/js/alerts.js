@@ -57,6 +57,9 @@ const WALL_RELOAD_MS = 60000;
 // No successful load for this long: say so loudly, the data is old.
 const WALL_STALE_MS = 10 * 60000;
 let lastLoadedAt = null;
+// Board loads can overlap (countdown, sync polling, the wall's minute
+// reload); only the newest one may change the page.
+let loadSeq = 0;
 // The operator's last Sort choice; the default puts the site with the
 // newest down device first (#228).
 const SORT_KEY = "nautobot-maps-alert-sort";
@@ -845,6 +848,8 @@ function renderNextUpdate(now = Date.now()) {
 }
 
 async function loadAlertBoard(forceRefresh = false, { background = false } = {}) {
+  loadSeq += 1;
+  const seq = loadSeq;
   if (!background) {
     // A user-initiated load restarts the polling budget.
     stopSyncPolling();
@@ -863,6 +868,7 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     const query = params.toString();
     const resp = await fetch(`/api/alerts${query ? `?${query}` : ""}`, { cache: "no-store" });
     const payload = await readJsonResponse(resp);
+    if (seq !== loadSeq) return; // A newer load started meanwhile.
     if (!resp.ok || payload.error) {
       throw new Error(payload.error || resp.statusText || `HTTP ${resp.status}`);
     }
@@ -879,20 +885,25 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     loadFeed();
     renderWallStatus();
   } catch (err) {
+    if (seq !== loadSeq) return;
     stopSyncPolling();
     if (WALL_VIEW) {
-      // Keep the last good board on screen, under a banner that says it is old.
+      // Keep the last good board on screen (even an empty one), under a
+      // banner that says it is old.
       showWallError(err.message);
-      if (allAlerts.length) return;
+      if (lastLoadedAt !== null) return;
     }
     alertsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
     boardStatus.textContent = "Alert board unavailable";
     showError(`Failed to load alert board: ${err.message}`);
   } finally {
-    refreshBtn.disabled = false;
-    if (toggleNonOperational) toggleNonOperational.disabled = false;
-    if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = false;
-    if (expandAllSitesBtn) expandAllSitesBtn.disabled = false;
+    // An older load must not re-enable the controls while a newer one runs.
+    if (seq === loadSeq) {
+      refreshBtn.disabled = false;
+      if (toggleNonOperational) toggleNonOperational.disabled = false;
+      if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = false;
+      if (expandAllSitesBtn) expandAllSitesBtn.disabled = false;
+    }
   }
 }
 
