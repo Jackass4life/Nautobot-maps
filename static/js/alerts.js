@@ -47,6 +47,19 @@ const FEED_COLLAPSED_KEY = "nautobot-maps-feed-collapsed";
 // scrolls sideways), so the feed starts collapsed unless the user opened it.
 const FEED_OPEN_MIN_WIDTH_PX = 1700;
 const nextUpdateEl = document.getElementById("next-update");
+// Wall-screen view, /alerts?view=wall (#243): alarms only, every site
+// expanded, no controls.  It reloads on its own every minute as well, so a
+// screen nobody touches recovers from errors and an unknown next update.
+const WALL_VIEW = document.body.classList.contains("wall-view");
+const wallUpdatedEl = document.getElementById("wall-updated");
+const wallErrorEl = document.getElementById("wall-error");
+const WALL_RELOAD_MS = 60000;
+// No successful load for this long: say so loudly, the data is old.
+const WALL_STALE_MS = 10 * 60000;
+let lastLoadedAt = null;
+// Board loads can overlap (countdown, sync polling, the wall's minute
+// reload); only the newest one may change the page.
+let loadSeq = 0;
 // The operator's last Sort choice; the default puts the site with the
 // newest down device first (#228).
 const SORT_KEY = "nautobot-maps-alert-sort";
@@ -641,11 +654,11 @@ function renderDownDeviceRows(item, isExpanded) {
         <div class="site-meta">${[device.location_path, device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
       </td>
       <td></td>
-      <td></td>
+      <td class="col-tenants"></td>
       <td>${formatDuration(deviceDowntimeSeconds(device, now))}</td>
-      <td class="cases-cell">${renderDeviceCases(device)}</td>
-      <td></td>
-      <td></td>
+      <td class="cases-cell col-cases">${renderDeviceCases(device)}</td>
+      <td class="col-reason"></td>
+      <td class="col-action"></td>
     </tr>
   `).join("");
   // The site's history, under its devices.
@@ -686,15 +699,19 @@ function siteMeta(item) {
 function renderTableRows(alerts, payload) {
   if (!alerts.length) {
     let emptyText = "No sites match the current filters.";
+    let emptyClass = "empty-state";
     if (payload.persistence_configured === false) {
       emptyText = "The alert board needs a PostgreSQL database. Set NAUTOBOT_MAPS_DATABASE_URL "
         + "and restart the app. The map works without it.";
     } else if (payload.sync_pending && !allAlerts.length) {
       emptyText = "Inventory sync in progress – the board will update automatically.";
     } else if (severityFilter === "alarms" && !allAlerts.some(hasActiveAlarm)) {
-      emptyText = "No site has an active alarm. Choose All sites to see every site.";
+      emptyText = WALL_VIEW
+        ? "No active alarms."
+        : "No site has an active alarm. Choose All sites to see every site.";
+      emptyClass = "empty-state all-clear";
     }
-    alertsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">${emptyText}</td></tr>`;
+    alertsTableBody.innerHTML = `<tr><td colspan="7" class="${emptyClass}">${emptyText}</td></tr>`;
     formatBoardStatus(payload, 0);
     return;
   }
@@ -723,11 +740,11 @@ function renderTableRows(alerts, payload) {
         <div class="site-meta">${meta || "—"}</div>
       </td>
       <td>${alertBadge(item.alert_level)}</td>
-      <td>${tenantCell(item)}</td>
+      <td class="col-tenants">${tenantCell(item)}</td>
       <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
-      <td class="cases-cell">${renderCases(item)}</td>
-      <td class="reason-cell">${escHtml(item.alert_reason || "No active alert")}</td>
-      <td>${actionCell(item)}</td>
+      <td class="cases-cell col-cases">${renderCases(item)}</td>
+      <td class="reason-cell col-reason">${escHtml(item.alert_reason || "No active alert")}</td>
+      <td class="col-action">${actionCell(item)}</td>
     </tr>
     ${renderDownDeviceRows(item, isExpanded)}
   `;
@@ -831,6 +848,8 @@ function renderNextUpdate(now = Date.now()) {
 }
 
 async function loadAlertBoard(forceRefresh = false, { background = false } = {}) {
+  loadSeq += 1;
+  const seq = loadSeq;
   if (!background) {
     // A user-initiated load restarts the polling budget.
     stopSyncPolling();
@@ -849,11 +868,14 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     const query = params.toString();
     const resp = await fetch(`/api/alerts${query ? `?${query}` : ""}`, { cache: "no-store" });
     const payload = await readJsonResponse(resp);
+    if (seq !== loadSeq) return; // A newer load started meanwhile.
     if (!resp.ok || payload.error) {
       throw new Error(payload.error || resp.statusText || `HTTP ${resp.status}`);
     }
     latestPayload = payload;
     allAlerts = payload.alerts || [];
+    lastLoadedAt = Date.now();
+    if (wallErrorEl) wallErrorEl.hidden = true;
     populateFilters(allAlerts);
     renderSummary(payload.summary || {});
     applyFilters(payload);
@@ -861,17 +883,54 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     setNextUpdate(payload);
     // The feed refreshes with the board (#180).
     loadFeed();
+    renderWallStatus();
   } catch (err) {
+    if (seq !== loadSeq) return;
     stopSyncPolling();
+    if (WALL_VIEW) {
+      // Keep the last good board on screen (even an empty one), under a
+      // banner that says it is old.
+      showWallError(err.message);
+      if (lastLoadedAt !== null) return;
+    }
     alertsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
     boardStatus.textContent = "Alert board unavailable";
     showError(`Failed to load alert board: ${err.message}`);
   } finally {
-    refreshBtn.disabled = false;
-    if (toggleNonOperational) toggleNonOperational.disabled = false;
-    if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = false;
-    if (expandAllSitesBtn) expandAllSitesBtn.disabled = false;
+    // An older load must not re-enable the controls while a newer one runs.
+    if (seq === loadSeq) {
+      refreshBtn.disabled = false;
+      if (toggleNonOperational) toggleNonOperational.disabled = false;
+      if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = false;
+      if (expandAllSitesBtn) expandAllSitesBtn.disabled = false;
+    }
   }
+}
+
+function formatClock(ms) {
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// "Updated 14:05 · 3 sites with alarms"; flagged once no load has worked for a while.
+function renderWallStatus(now = Date.now()) {
+  if (!wallUpdatedEl) return;
+  if (lastLoadedAt === null) {
+    wallUpdatedEl.textContent = "Loading…";
+    return;
+  }
+  const alarms = allAlerts.filter(hasActiveAlarm).length;
+  const stale = now - lastLoadedAt >= WALL_STALE_MS;
+  wallUpdatedEl.classList.toggle("wall-stale", stale);
+  wallUpdatedEl.textContent = stale
+    ? `NOT UPDATED since ${formatClock(lastLoadedAt)}`
+    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms`;
+}
+
+function showWallError(message) {
+  if (!wallErrorEl) return;
+  const since = lastLoadedAt === null ? "" : ` Showing the board from ${formatClock(lastLoadedAt)}.`;
+  wallErrorEl.textContent = `Alert board not updating: ${message}.${since}`;
+  wallErrorEl.hidden = false;
 }
 
 function showError(message) {
@@ -980,7 +1039,11 @@ function initTheme() {
 }
 
 refreshBtn.addEventListener("click", () => loadAlertBoard(true));
-setInterval(() => renderNextUpdate(), 1000);
+setInterval(() => {
+  renderNextUpdate();
+  renderWallStatus();
+}, 1000);
+if (WALL_VIEW) setInterval(() => loadAlertBoard(false, { background: true }), WALL_RELOAD_MS);
 // Browsers slow timers in background tabs; catch up as soon as the tab is visible.
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) renderNextUpdate();
@@ -1137,6 +1200,12 @@ if (feedToggle && feedShowBtn) {
 
 restoreSort();
 setSeverityFilter(DEFAULT_SEVERITY_FILTER);
+if (WALL_VIEW) {
+  // The same screen for everyone: newest down first, every site open, no feed.
+  sortBy.value = DEFAULT_SORT;
+  allSitesExpanded = true;
+  setFeedCollapsed(true);
+}
 loadAlertBoard();
 if (themeToggle) {
   initTheme();

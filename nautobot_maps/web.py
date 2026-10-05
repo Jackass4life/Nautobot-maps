@@ -235,11 +235,16 @@ def prometheus_metrics():
 
 @bp.route("/alerts")
 def alert_board():
-    """The alert board: every site's severity, down devices, cases and history."""
+    """The alert board: every site's severity, down devices, cases and history.
+
+    ``?view=wall`` is the wall-screen view (#243): alarms only, down devices
+    listed, no controls.
+    """
     return render_template(
         "alerts.html",
         nautobot_url=settings.NAUTOBOT_URL,
         tier_definitions=alerts.ALERT_STATUS_TIER_DEFINITIONS,
+        wall_view=request.args.get("view") == "wall",
     )
 
 
