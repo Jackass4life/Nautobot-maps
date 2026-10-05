@@ -1561,6 +1561,9 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         for selector in (".toolbar", ".summary-grid", ".feed-panel", ".col-action", ".col-reason", ".site-tools-row"):
             assert f".wall-view {selector}" in hidden
         assert "display: none !important" in hidden
+        # Case numbers stay visible: the room can see a site has someone on it.
+        assert ".col-cases" not in hidden
+        assert ".wall-view .case-pill" in css
 
 
 class TestApiExplorerInTheBrowser:
