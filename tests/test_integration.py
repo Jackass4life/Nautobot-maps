@@ -282,7 +282,7 @@ class TestAlertBoardUI:
         rules = self._css_rules(css, "thead th:last-child")
         assert any("position: sticky" in body and "right: 0" in body for body in rules)
         page = integration_client.get("/alerts").get_data(as_text=True)
-        assert page.rstrip().count("<th>Action</th>") == 1
+        assert page.rstrip().count(">Action</th>") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1401,6 +1401,95 @@ check(moreFiltersToggle.textContent === "More filters (2)", moreFiltersToggle.te
         # Gone: the duplicate severity controls.
         for gone in ("data-quick-severity", 'id="filter-severity"', 'name="site-scope"', "page-subtitle"):
             assert gone not in html
+
+
+class TestWallViewInTheBrowser:
+    """The wall-screen view, /alerts?view=wall (#243)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = ("hasActiveAlarm", "formatClock", "renderWallStatus", "showWallError")
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        constants = "\n".join(
+            re.search(pattern, js).group(0)
+            for pattern in (
+                r"const ALARM_LEVELS = \[[^\]]*\];",
+                r"const WALL_STALE_MS = [^;]*;",
+            )
+        )
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const classes = new Set();
+const wallUpdatedEl = {{ textContent: "", classList: {{ toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) }} }};
+const wallErrorEl = {{ textContent: "", hidden: true }};
+let lastLoadedAt = null;
+let allAlerts = [
+  {{ name: "Aarhus", alert_level: "critical" }},
+  {{ name: "Bergen", alert_level: "no_data" }},
+  {{ name: "London", alert_level: "low" }},
+];
+{constants}
+{functions}
+{body}
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            env={**os.environ, "TZ": "UTC"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_status_says_when_it_last_updated_and_when_it_is_stale(self):
+        self._run("""
+renderWallStatus();
+check(wallUpdatedEl.textContent === "Loading…", wallUpdatedEl.textContent);
+lastLoadedAt = Date.UTC(2026, 9, 5, 14, 5);
+renderWallStatus(lastLoadedAt + 60000);
+const clock = formatClock(lastLoadedAt);
+check(clock.includes("05"), clock);
+check(wallUpdatedEl.textContent === `Updated ${clock} · 2 sites with alarms`, wallUpdatedEl.textContent);
+check(!classes.has("wall-stale"), "fresh");
+allAlerts = [{ alert_level: "medium" }];
+renderWallStatus(lastLoadedAt);
+check(wallUpdatedEl.textContent.endsWith("· 1 site with alarms"), wallUpdatedEl.textContent);
+renderWallStatus(lastLoadedAt + WALL_STALE_MS);
+check(wallUpdatedEl.textContent === `NOT UPDATED since ${clock}` && classes.has("wall-stale"), wallUpdatedEl.textContent);
+""")
+
+    def test_error_banner_keeps_the_last_board(self):
+        self._run("""
+showWallError("HTTP 502");
+check(!wallErrorEl.hidden && wallErrorEl.textContent === "Alert board not updating: HTTP 502.", wallErrorEl.textContent);
+lastLoadedAt = Date.UTC(2026, 9, 5, 9, 30);
+showWallError("HTTP 502");
+check(wallErrorEl.textContent.endsWith(`Showing the board from ${formatClock(lastLoadedAt)}.`), wallErrorEl.textContent);
+""")
+
+    def test_wall_page(self, integration_client):
+        html = integration_client.get("/alerts?view=wall").get_data(as_text=True)
+        assert '<body class="wall-view">' in html
+        assert 'id="wall-updated"' in html
+        assert '<div id="wall-error" class="wall-error" role="alert" hidden></div>' in html
+        assert 'href="/alerts">Operator view</a>' in html
+
+    def test_operator_page_links_to_the_wall_view(self, integration_client):
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        assert "<body>" in html and "wall-view" not in html.split("<body>", 1)[1].split(">", 1)[0]
+        assert 'id="wall-updated"' not in html
+        assert 'href="/alerts?view=wall"' in html
+
+    def test_wall_css_hides_the_controls(self, integration_client):
+        css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
+        hidden = css[css.index(".wall-view .page-header,") :]
+        hidden = hidden[: hidden.index("}")]
+        for selector in (".toolbar", ".summary-grid", ".feed-panel", ".col-action", ".col-reason", ".site-tools-row"):
+            assert f".wall-view {selector}" in hidden
+        assert "display: none !important" in hidden
 
 
 class TestApiExplorerInTheBrowser:

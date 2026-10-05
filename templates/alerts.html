@@ -9,8 +9,16 @@
   <title>Nautobot Alert Board</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
 </head>
-<body>
+<body{% if wall_view %} class="wall-view"{% endif %}>
   <div class="page-shell">
+    {%- if wall_view %}
+    <!-- Wall screen (#243): when the board last updated, and loudly when it can't. -->
+    <div class="wall-bar">
+      <span id="wall-updated" class="wall-updated">Loading…</span>
+      <a class="wall-exit" href="/alerts">Operator view</a>
+    </div>
+    <div id="wall-error" class="wall-error" role="alert" hidden></div>
+    {%- endif %}
     <header class="page-header">
       <div>
         <p class="eyebrow">Nautobot Maps</p>
@@ -66,6 +74,7 @@
         <span id="next-update" class="next-update" hidden></span>
         <button class="secondary-filter-btn" type="button" id="collapse-all-sites">Collapse all</button>
         <button class="secondary-filter-btn" type="button" id="expand-all-sites">Expand all</button>
+        <a class="secondary-filter-btn wall-link" href="/alerts?view=wall" title="For a wall screen: alarms only, no controls">Wall view</a>
         <button id="feed-show" class="secondary-filter-btn" type="button" aria-controls="feed-panel" hidden>Show activity</button>
         <button id="refresh-alerts" type="button">Refresh</button>
       </div>
@@ -77,11 +86,11 @@
           <tr>
             <th>Location</th>
             <th>Alert</th>
-            <th>Tenants</th>
+            <th class="col-tenants">Tenants</th>
             <th>Downtime</th>
-            <th>Cases</th>
-            <th>Reason</th>
-            <th>Action</th>
+            <th class="col-cases">Cases</th>
+            <th class="col-reason">Reason</th>
+            <th class="col-action">Action</th>
           </tr>
         </thead>
         <tbody id="alerts-table-body">
