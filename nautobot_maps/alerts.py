@@ -40,6 +40,7 @@ MEDIUM_DOWN_RATIO = 0.25
 # Tier definitions shown in the alert-board summary tile (i) tooltips.  They
 # describe compute_alert_level() and must be kept in sync with it.
 ALERT_STATUS_TIER_DEFINITIONS = {
+    "alarms": "Sites at Critical, Medium or Low: the ones that need attention. The board opens here.",
     "critical": (
         "At least one core device is down (its role matches a critical keyword, "
         "or it is marked critical by an override), or every monitored device is down."

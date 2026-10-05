@@ -15,7 +15,6 @@
       <div>
         <p class="eyebrow">Nautobot Maps</p>
         <h1>Alert Board</h1>
-        <p class="page-subtitle">LibreNMS is used as a collector; this board owns the alert view for location health.</p>
       </div>
       <nav class="app-nav" aria-label="Primary">
         <a class="app-nav-link" href="/">Map</a>
@@ -24,78 +23,21 @@
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
       </nav>
     </header>
-
-    <section class="summary-grid" aria-label="Alert summary">
-      <article class="summary-card summary-critical">
-        <span class="summary-label">Critical</span> {{ tier_info("Critical", "critical") }}
-        <strong id="summary-critical">0</strong>
-      </article>
-      <article class="summary-card summary-medium">
-        <span class="summary-label">Medium</span> {{ tier_info("Medium", "medium") }}
-        <strong id="summary-medium">0</strong>
-      </article>
-      <article class="summary-card summary-low">
-        <span class="summary-label">Low</span> {{ tier_info("Low", "low") }}
-        <strong id="summary-low">0</strong>
-      </article>
-      <article class="summary-card summary-no-data">
-        <span class="summary-label">No data</span> {{ tier_info("No data", "no_data") }}
-        <strong id="summary-no_data">0</strong>
-      </article>
-      <article class="summary-card summary-ok">
-        <span class="summary-label">OK</span> {{ tier_info("OK", "ok") }}
-        <strong id="summary-ok">0</strong>
-      </article>
-      <article class="summary-card">
-        <span class="summary-label">Total sites</span> {{ tier_info("Total sites", "total") }}
-        <strong id="summary-total">0</strong>
-      </article>
+    <!-- The tiles are the severity filter; the board opens on Alarms. -->
+    <section class="summary-grid" role="group" aria-label="Show sites">
+      {%- for key, label in [("alarms", "Alarms"), ("critical", "Critical"), ("medium", "Medium"), ("low", "Low"), ("no_data", "No data"), ("ok", "OK"), ("total", "All sites")] %}
+      <div class="summary-card summary-{{ key | replace('_', '-') }}">
+        <button class="summary-filter" type="button" data-severity-filter="{{ 'all' if key == 'total' else key }}" aria-pressed="{{ 'true' if key == 'alarms' else 'false' }}">
+          <span class="summary-label">{{ label }}</span>
+          <strong id="summary-{{ key }}">0</strong>
+        </button>
+        {{ tier_info(label, key) }}
+      </div>
+      {%- endfor %}
     </section>
-
     <section class="toolbar" aria-label="Filters">
-      <div class="quick-filters" role="group" aria-label="Quick filters">
-        <button class="quick-filter-btn active" type="button" data-quick-severity="" aria-pressed="true">All</button>
-        <button class="quick-filter-btn" type="button" data-quick-severity="critical" aria-pressed="false">Critical</button>
-        <button class="quick-filter-btn" type="button" data-quick-severity="medium" aria-pressed="false">Medium</button>
-        <button class="quick-filter-btn" type="button" data-quick-severity="low" aria-pressed="false">Low</button>
-        <button class="quick-filter-btn" type="button" data-quick-severity="no_data" aria-pressed="false">No data</button>
-        <button class="secondary-filter-btn" type="button" id="clear-alert-filters">Reset</button>
-      </div>
-      <div class="tree-controls" role="group" aria-label="Alert tree controls">
-        <fieldset class="site-scope">
-          <legend class="visually-hidden">Sites to show</legend>
-          <label class="toggle-chip scope-chip">
-            <input type="radio" name="site-scope" value="all" checked />
-            <span>All sites</span>
-          </label>
-          <label class="toggle-chip scope-chip">
-            <input type="radio" name="site-scope" value="alarms" />
-            <span>Alarms only</span>
-          </label>
-        </fieldset>
-        <label class="toggle-chip" for="toggle-non-operational">
-          <input id="toggle-non-operational" type="checkbox" />
-          <span>Show non-operational sites</span>
-        </label>
-        <button class="secondary-filter-btn" type="button" id="collapse-all-sites">Collapse all</button>
-        <button class="secondary-filter-btn" type="button" id="expand-all-sites">Expand all</button>
-      </div>
-      <div class="toolbar-grid">
+      <div class="toolbar-row">
         <input id="filter-site" type="text" placeholder="Filter by site, address, or country" aria-label="Site, address, or country" />
-        <select id="filter-severity" aria-label="Severity">
-          <option value="">All severities</option>
-          <option value="critical">Critical</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-          <option value="no_data">No data</option>
-          <option value="ok">OK</option>
-        </select>
-        <select id="filter-status" aria-label="Status">
-          <option value="">All statuses</option>
-        </select>
-        <select id="filter-type" aria-label="Type">
-          <option value="">All location types</option>
-        </select>
         <select id="filter-tenant" aria-label="Tenant">
           <option value="">All tenants</option>
         </select>
@@ -103,20 +45,31 @@
           <option value="newest" selected>Sort: newest down first</option>
           <option value="severity">Sort: severity</option>
           <option value="site">Sort: site</option>
-          <option value="address">Sort: address</option>
-          <option value="country">Sort: country</option>
-          <option value="down">Sort: devices down</option>
-          <option value="devices">Sort: device count</option>
         </select>
+        <button id="more-filters-toggle" class="secondary-filter-btn" type="button" aria-expanded="false" aria-controls="more-filters">More filters</button>
+        <button class="secondary-filter-btn" type="button" id="clear-alert-filters">Reset</button>
+      </div>
+      <div id="more-filters" class="more-filters" hidden>
+        <select id="filter-status" aria-label="Status">
+          <option value="">All statuses</option>
+        </select>
+        <select id="filter-type" aria-label="Type">
+          <option value="">All location types</option>
+        </select>
+        <label class="toggle-chip" for="toggle-non-operational">
+          <input id="toggle-non-operational" type="checkbox" />
+          <span>Show non-operational sites</span>
+        </label>
       </div>
       <div class="toolbar-meta">
         <span id="board-status">Loading alert board…</span>
         <span id="next-update" class="next-update" hidden></span>
+        <button class="secondary-filter-btn" type="button" id="collapse-all-sites">Collapse all</button>
+        <button class="secondary-filter-btn" type="button" id="expand-all-sites">Expand all</button>
         <button id="feed-show" class="secondary-filter-btn" type="button" aria-controls="feed-panel" hidden>Show activity</button>
         <button id="refresh-alerts" type="button">Refresh</button>
       </div>
     </section>
-
     <div id="board-layout" class="board-layout">
     <section class="table-shell" aria-label="Alert table">
       <table>
@@ -124,11 +77,7 @@
           <tr>
             <th>Location</th>
             <th>Alert</th>
-            <th>Status</th>
-            <th>Type</th>
             <th>Tenants</th>
-            <th>Devices</th>
-            <th>Down</th>
             <th>Downtime</th>
             <th>Cases</th>
             <th>Reason</th>
@@ -137,7 +86,7 @@
         </thead>
         <tbody id="alerts-table-body">
           <tr>
-            <td colspan="11" class="empty-state">Loading alerts…</td>
+            <td colspan="7" class="empty-state">Loading alerts…</td>
           </tr>
         </tbody>
       </table>

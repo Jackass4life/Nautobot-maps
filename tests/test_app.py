@@ -594,7 +594,7 @@ class TestAlertBoard:
         assert resp.status_code == 200
         assert b"Alert Board" in resp.data
         assert b"Filter by site, address, or country" in resp.data
-        assert b"Sort: country" in resp.data
+        assert b"Sort: newest down first" in resp.data
         assert b"Show non-operational sites" in resp.data
         assert b"Collapse all" in resp.data
         assert b"Expand all" in resp.data
@@ -4617,7 +4617,8 @@ class TestAlertBoardTierDefinitions:
             ("Low", "low"),
             ("No data", "no_data"),
             ("OK", "ok"),
-            ("Total sites", "total"),
+            ("All sites", "total"),
+            ("Alarms", "alarms"),
         ]:
             definition = escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])
             assert f'aria-label="{label}: {definition}"' in html
