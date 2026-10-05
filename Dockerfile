@@ -7,6 +7,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Debian security fixes released after the base image was built (#246); the
+# Trivy scan in CI fails on fixed HIGH/CRITICAL ones.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 # requirements.txt is the compiled lock file: every package, transitive ones
 # included, pinned with hashes (#186).
 COPY requirements.txt .
