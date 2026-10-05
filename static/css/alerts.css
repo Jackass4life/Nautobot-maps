@@ -990,7 +990,6 @@ thead th:last-child {
 .wall-view .site-toggle-spacer,
 .wall-view .site-tools-row,
 .wall-view .col-tenants,
-.wall-view .col-cases,
 .wall-view .col-reason,
 .wall-view .col-action,
 .wall-view .site-address {
@@ -1049,6 +1048,13 @@ thead th:last-child {
 .wall-view .site-meta,
 .wall-view .device-ip {
   font-size: 1rem;
+}
+
+/* Cases stay on the wall: a site with a case has someone on it. */
+.wall-view .case-pill {
+  padding: 4px 12px;
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .wall-view .alert-badge {
