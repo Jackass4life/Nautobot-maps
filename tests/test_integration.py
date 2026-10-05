@@ -807,6 +807,7 @@ class TestCompactActionsInTheBrowser:
     FUNCTIONS = (
         "escHtml",
         "caseButtonLabel",
+        "downDeviceList",
         "caseDevices",
         "historyButton",
         "actionCell",
@@ -872,7 +873,18 @@ check(!html.includes("case-open-btn") && html.includes("copy-site-btn"), html);
 // Nothing down: nothing to expand, so History stays in the row.
 html = actionCell({ id: "s3", name: "Bergen", down_devices: [] });
 check(html.includes('class="action-btn history-btn"') && !html.includes("copy-site-btn"), html);
+
+// An open alert kept after a failed observation: nothing down now, but there
+// is a list to expand, so History is under it, as for any other expandable site.
+html = actionCell({ id: "s4", name: "Kiel", down_device_count: 0, down_devices: [{ device_id: "d9", device_name: "sw9" }] });
+check(!html.includes("history-btn") && html.includes("copy-site-btn"), html);
 """)
+
+    def test_toggle_and_history_use_the_same_list(self):
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        assert "const toggleButton = downDeviceList(item).length" in js
+        assert "if (!downDeviceList(item).length) return" in _extract_js_function(js, "actionCell")
+        assert "const downDevices = downDeviceList(item);" in _extract_js_function(js, "renderDownDeviceRows")
 
     def test_site_name_links_to_the_map(self):
         self._run("""
@@ -1154,6 +1166,7 @@ class TestCopySiteInTheBrowser:
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
         names = (
             "escHtml",
+            "downDeviceList",
             "caseDevices",
             "historyButton",
             "actionCell",
