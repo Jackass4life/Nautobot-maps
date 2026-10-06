@@ -55,6 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
 
 ### Added
+- Tenant **(i)**: on the alert board's Tenants column and the map's site panel, a tenant with a description in Nautobot gets an (i) that shows it on hover or keyboard focus. Tenants and their descriptions are synced into a new `nautobot_tenant_cache` table (schema version 4, applied at startup); `/api/locations` and `/api/alerts` give each site `tenant_descriptions` (#263)
 - MCP server at `/mcp` for AI assistants (Claude Code, Claude Desktop, other MCP clients), off unless `MCP_ENABLED=true`. Tools: `get_alert_board`, `get_site`, `get_location_detail`, `search_locations`, `get_alert_feed`, `get_alert_history` and `add_case`; each runs the matching API route with the caller's sign-in and roles, so it can do no more than the web UI. Stateless Streamable HTTP; MCP 2026-07-28 and the earlier `initialize`-based versions (#250)
 - **Wall view** is in the top navigation of every page (Map · Alert Board · API · Wall view) instead of the alert board's toolbar (#254)
 - Alert board wall view: each site shows its physical address under its name, readable from across the room (#252)

@@ -6864,6 +6864,8 @@ RELATIONSHIP_ASSOCIATIONS = {
     "rel-2": [{"source_id": "ten-3", "destination_id": "loc-2"}],
 }
 TENANT_NAMES = {"ten-1": "Acme Corp", "ten-2": "Nordic Net", "ten-3": "EuroIX"}
+# Nautobot tenant descriptions (#263); EuroIX has none.
+TENANT_DESCRIPTIONS = {"ten-1": "Bank, 24/7 SLA", "ten-2": "  Shared rack  "}
 
 
 def _relationship_fetch(error_on=None):
@@ -6878,7 +6880,10 @@ def _relationship_fetch(error_on=None):
         if endpoint == "extras/relationship-associations/":
             return RELATIONSHIP_ASSOCIATIONS.get(params["relationship"], [])
         if endpoint == "tenancy/tenants/":
-            return [{"id": tid, "name": name} for tid, name in TENANT_NAMES.items()]
+            return [
+                {"id": tid, "name": name, "description": TENANT_DESCRIPTIONS.get(tid, "")}
+                for tid, name in TENANT_NAMES.items()
+            ]
         return []
 
     return fetch, calls
@@ -6983,6 +6988,53 @@ class TestLocationTenantSync:
         self._sync(monkeypatch)
         (site,) = client.get("/api/alerts").get_json()["alerts"]
         assert site["tenants"] == ["Acme Corp", "Nordic Net"]
+
+
+class TestTenantDescriptions:
+    """The tenant (i) shows the Nautobot description (#263)."""
+
+    @pytest.fixture(autouse=True)
+    def _sync_setup(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+
+    _sync = TestLocationTenantSync._sync
+
+    def test_fetch_reads_every_tenant_fresh(self, monkeypatch):
+        fetch, calls = _relationship_fetch()
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+        tenants = {tenant["name"]: tenant["description"] for tenant in inventory.fetch_tenants()}
+        assert tenants == {"Acme Corp": "Bank, 24/7 SLA", "Nordic Net": "Shared rack", "EuroIX": ""}
+        assert ("tenancy/tenants/", {}, False) in calls
+
+    def test_fetch_failure_is_none(self, monkeypatch):
+        fetch, _ = _relationship_fetch(error_on="tenancy/tenants/")
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+        assert inventory.fetch_tenants() is None
+
+    def test_board_and_map_get_the_descriptions_of_their_tenants(self, client, monkeypatch):
+        self._sync(monkeypatch)
+        (site,) = client.get("/api/alerts").get_json()["alerts"]
+        # Its own tenant and a related one; EuroIX has no description, so no entry.
+        assert site["tenant_descriptions"] == {"Acme Corp": "Bank, 24/7 SLA", "Nordic Net": "Shared rack"}
+        (location,) = client.get("/api/locations").get_json()["locations"]
+        assert location["tenant_descriptions"] == site["tenant_descriptions"]
+
+    def test_an_edited_description_replaces_the_old_one(self, client, monkeypatch):
+        self._sync(monkeypatch)
+        monkeypatch.setitem(TENANT_DESCRIPTIONS, "ten-1", "Bank, business hours")
+        monkeypatch.delitem(TENANT_DESCRIPTIONS, "ten-2")
+        self._sync(monkeypatch)
+        (location,) = client.get("/api/locations").get_json()["locations"]
+        assert location["tenant_descriptions"] == {"Acme Corp": "Bank, business hours"}
+
+    def test_a_failed_read_keeps_the_descriptions(self, monkeypatch):
+        self._sync(monkeypatch)
+        monkeypatch.setattr(inventory, "fetch_tenants", lambda: None)
+        self._sync(monkeypatch)
+        assert inventory.read_tenant_descriptions() == {"Acme Corp": "Bank, 24/7 SLA", "Nordic Net": "Shared rack"}
 
 
 class TestLibreNMSMappingsAreBatched:

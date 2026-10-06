@@ -8,6 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nautobot Alert Board</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
 </head>
 <body{% if wall_view %} class="wall-view"{% endif %}>
   <div class="page-shell">
@@ -180,6 +181,7 @@
 
   <!-- Settings for alerts.js; data attributes, not an inline script (#197) -->
   <div id="app-config" hidden data-nautobot-url="{{ nautobot_url or '' }}"></div>
+  <script src="{{ url_for('static', filename='js/tooltip.js') }}"></script>
   <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
 </body>
 </html>

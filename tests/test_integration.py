@@ -1582,6 +1582,61 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         assert ".wall-view .case-pill" in css
 
 
+class TestTenantInfoTipInTheBrowser:
+    """The floating box for the tenant (i) (#263): placed inside the window."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "tooltip.js").read_text(encoding="utf-8")
+        constants = "\n".join(re.findall(r"const INFO_TIP_[A-Z_]+ = [^;]*;", js))
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{constants}
+{_extract_js_function(js, "placeInfoTip")}
+{body}
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_placement_stays_in_the_window(self):
+        self._run("""
+const rect = (left, top) => ({ left, top, width: 15, height: 15, bottom: top + 15 });
+let at = placeInfoTip(rect(500, 100), 200, 60, 1200, 800);
+check(at.top === 123 && at.left === 407.5, "below, centred: " + JSON.stringify(at));
+at = placeInfoTip(rect(1190, 100), 200, 60, 1200, 800);
+check(at.left === 992, "kept off the right edge: " + JSON.stringify(at));
+at = placeInfoTip(rect(0, 100), 200, 60, 1200, 800);
+check(at.left === 8, "kept off the left edge: " + JSON.stringify(at));
+at = placeInfoTip(rect(500, 760), 200, 60, 1200, 800);
+check(at.top === 692, "above when there is no room below: " + JSON.stringify(at));
+""")
+
+    def test_pages_load_the_tooltip(self, integration_client):
+        for path in ("/", "/alerts"):
+            html = integration_client.get(path).get_data(as_text=True)
+            assert 'src="/static/js/tooltip.js"' in html and 'href="/static/css/tooltip.css"' in html, path
+            # Before the page script, which renders the (i).
+            assert html.index("js/tooltip.js") < html.index("js/map.js" if path == "/" else "js/alerts.js")
+
+    def test_map_tenant_row(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        functions = "\n".join(_extract_js_function(js, name) for name in ("escHtml", "infoTipHtml", "tenantRow"))
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{functions}
+let row = tenantRow({{ tenant: "Acme", tenant_descriptions: {{ Acme: "Bank & co" }} }});
+check(row.includes("Acme<span class=\\"info-tip\\"") && row.includes('data-info-tip="Bank &amp; co"'), row);
+row = tenantRow({{ tenant: "Acme", tenant_descriptions: {{ Other: "x" }} }});
+check(row.includes("Acme") && !row.includes("info-tip"), row);
+check(tenantRow({{ tenant: "" }}) === "", "no tenant, no row");
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
 class TestApiExplorerInTheBrowser:
     """Try it on the API explorer (#230)."""
 
@@ -1729,6 +1784,8 @@ class TestSiteTenantsInTheBrowser:
             for name in (
                 "escHtml",
                 "siteTenants",
+                "infoTipHtml",
+                "tenantName",
                 "tenantCell",
                 "formatLocationAddress",
                 "formatReportTime",
@@ -1753,6 +1810,15 @@ let report = siteReport({{ name: "LON", tenant: "Acme", tenants: ["Acme", "Nordi
 check(report.includes("Tenants (2): Acme, Nordic") && !report.includes("Tenant: "), report);
 report = siteReport({{ name: "STO", tenant: "Acme", alert_level: "ok" }});
 check(report.includes("Tenant: Acme"), report);
+
+// The (i) only for tenants with a description (#263), escaped.
+cell = tenantCell({{ tenant: "Acme", tenants: ["Acme"], tenant_descriptions: {{ Acme: 'Bank <"VIP">' }} }});
+check(cell.startsWith('Acme<span class="info-tip"'), cell);
+check(cell.includes('data-info-tip="Bank &lt;&quot;VIP&quot;&gt;"') && !cell.includes('<"VIP">'), cell);
+check(cell.includes('aria-label="Acme: Bank') && cell.includes('tabindex="0"'), cell);
+cell = tenantCell({{ tenants: ["Acme", "Nordic"], tenant_descriptions: {{ Nordic: "Shared rack" }} }});
+check(cell.includes("Acme, Nordic<span") && (cell.match(/info-tip"/g) || []).length === 1, cell);
+check(tenantCell({{ tenant: "Acme", tenant_descriptions: {{}} }}) === "Acme", "no description: no (i)");
 """
         completed = subprocess.run(
             ["node", "-e", script],

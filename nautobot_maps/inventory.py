@@ -208,6 +208,28 @@ def fetch_location_tenant_links() -> list[dict] | None:
         return None
 
 
+def fetch_tenants() -> list[dict] | None:
+    """Every Nautobot tenant with its description (#263).
+
+    Read in full on every sync (tenant lists are short), or ``None`` when
+    Nautobot could not be read, so the caller keeps what it has.
+    """
+    try:
+        tenants = nautobot.fetch_all_pages("tenancy/tenants/", use_cache=False)
+    except Exception as exc:
+        logger.warning("Could not read tenants from Nautobot: %s", exc)
+        return None
+    return [
+        {
+            "tenant_id": str(tenant.get("id") or ""),
+            "name": str(tenant.get("name") or tenant.get("display") or ""),
+            "description": str(tenant.get("description") or "").strip(),
+        }
+        for tenant in tenants
+        if tenant.get("id")
+    ]
+
+
 def extract_primary_ip(device: dict) -> str:
     for key in ("primary_ip4", "primary_ip6", "primary_ip"):
         value = device.get(key)
@@ -337,6 +359,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             """
         ).fetchall()
         related_tenants = read_location_tenant_links(conn)
+        tenant_descriptions = read_tenant_descriptions(conn)
         locations = []
         for row in rows:
             data = db.row_to_dict(row)
@@ -345,6 +368,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             has_coordinates = lat is not None and lon is not None
             if not has_coordinates and not include_without_coordinates:
                 continue
+            tenants = site_tenants(data.get("tenant", ""), related_tenants.get(data.get("location_id"), []))
             locations.append(
                 {
                     "id": data.get("location_id", ""),
@@ -366,7 +390,11 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
                     "time_zone": data.get("time_zone", ""),
                     "tags": json_load_list(data.get("tags_json")),
                     "url": data.get("url", ""),
-                    "tenants": site_tenants(data.get("tenant", ""), related_tenants.get(data.get("location_id"), [])),
+                    "tenants": tenants,
+                    # The (i) next to each tenant that has a description (#263).
+                    "tenant_descriptions": {
+                        name: tenant_descriptions[name] for name in tenants if name in tenant_descriptions
+                    },
                 }
             )
         return locations
@@ -622,6 +650,35 @@ def write_location_tenant_links(conn, links: list[dict]) -> None:
         )
 
 
+def write_tenants(conn, tenants: list[dict]) -> None:
+    """Replace the cached tenants and their descriptions (#263)."""
+    conn.execute("DELETE FROM nautobot_tenant_cache")
+    for tenant in tenants:
+        conn.execute(
+            f"INSERT INTO nautobot_tenant_cache (tenant_id, name, description) "
+            f"VALUES ({db.placeholders(3)}) ON CONFLICT DO NOTHING",
+            (tenant["tenant_id"], tenant.get("name") or "", tenant.get("description") or ""),
+        )
+
+
+def read_tenant_descriptions(conn=None) -> dict[str, str]:
+    """``{tenant name: description}`` for the tenants that have one (#263)."""
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        rows = conn.execute("SELECT name, description FROM nautobot_tenant_cache WHERE description <> ''").fetchall()
+        return {data["name"]: data["description"] for data in map(db.row_to_dict, rows) if data.get("name")}
+    except Exception as exc:
+        logger.debug("Could not read tenant descriptions: %s", exc)
+        return {}
+    finally:
+        if owns_conn:
+            conn.close()
+
+
 def site_tenants(tenant: str, related: list[str]) -> list[str]:
     """Every tenant of a site: its own tenant first, then the related ones (#238)."""
     names = [tenant] if tenant else []
@@ -794,6 +851,7 @@ def sync_nautobot(force: bool = False) -> None:
         )
         devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
         tenant_links = fetch_location_tenant_links()
+        tenants = fetch_tenants()
         completed_at = timeutil.iso_utc_now()
         watermark = last_successful_sync
         observed_last_updated = timeutil.max_last_updated(raw_locations + raw_devices)
@@ -811,6 +869,8 @@ def sync_nautobot(force: bool = False) -> None:
             write_devices(conn, devices)
             if tenant_links is not None:
                 write_location_tenant_links(conn, tenant_links)
+            if tenants is not None:
+                write_tenants(conn, tenants)
             record_sync_state(
                 conn,
                 source,

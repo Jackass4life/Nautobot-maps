@@ -413,6 +413,19 @@ def add_location_tenant_cache(conn) -> None:
     )
 
 
+def add_tenant_cache(conn) -> None:
+    """Every Nautobot tenant with its description, for the tenant (i) (#263)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nautobot_tenant_cache (
+            tenant_id   TEXT PRIMARY KEY,
+            name        TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -420,6 +433,7 @@ MIGRATIONS = (
     (1, "baseline schema", baseline_schema),
     (2, "inventory_sync_state.last_succeeded_at", add_sync_last_succeeded_at),
     (3, "nautobot_location_tenant_cache", add_location_tenant_cache),
+    (4, "nautobot_tenant_cache", add_tenant_cache),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

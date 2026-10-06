@@ -10,6 +10,7 @@
 
   <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/map.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
 </head>
 <body class="map-page">
   <!-- Sidebar / search panel -->
@@ -164,6 +165,7 @@
   ></div>
 
   <!-- App JS -->
+  <script src="{{ url_for('static', filename='js/tooltip.js') }}"></script>
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 </body>
 </html>
