@@ -648,8 +648,8 @@ def api_alert_history():
     """Return historical alert instances with events and case numbers.
 
     Newest first, at most 500.  Query parameters filter them: ``site_id``,
-    ``device_id``, and ``start_at`` / ``end_at`` (ISO-8601, on when the
-    incident was created).
+    ``device_id``, and ``start_at`` / ``end_at``: only incidents created at
+    or after / at or before this ISO-8601 time.
     """
     conn = db.get_conn()
     if conn is None:

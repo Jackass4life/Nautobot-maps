@@ -89,7 +89,7 @@ Rolling back to an older release after its database was migrated is refused at s
 
 ## Monitoring
 
-`/healthz` is the liveness probe: 200 while the app and its database answer, 503 when the database doesn't. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if never) without failing on it, since restarting the app can't fix a sync that fails upstream.
+`/healthz` is the liveness probe: 200 while the app answers and, when a database is configured, the database too; 503 when a configured database doesn't answer. Without `NAUTOBOT_MAPS_DATABASE_URL` (a map-only setup) it checks only the app. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if never) without failing on it, since restarting the app can't fix a sync that fails upstream.
 
 `/metrics` serves Prometheus metrics, read from the database when scraped (so every worker gives the same answer):
 
