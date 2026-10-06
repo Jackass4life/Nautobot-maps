@@ -1623,7 +1623,9 @@ check(at.top === 692, "above when there is no room below: " + JSON.stringify(at)
         if shutil.which("node") is None:
             pytest.skip("node is required for the browser runtime test")
         js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        functions = "\n".join(_extract_js_function(js, name) for name in ("escHtml", "infoTipHtml", "tenantRow"))
+        functions = "\n".join(
+            _extract_js_function(js, name) for name in ("escHtml", "infoTipHtml", "ownDescription", "tenantRow")
+        )
         script = f"""
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
 {functions}
@@ -1632,6 +1634,7 @@ check(row.includes("Acme<span class=\\"info-tip\\"") && row.includes('data-info-
 row = tenantRow({{ tenant: "Acme", tenant_descriptions: {{ Other: "x" }} }});
 check(row.includes("Acme") && !row.includes("info-tip"), row);
 check(tenantRow({{ tenant: "" }}) === "", "no tenant, no row");
+check(!tenantRow({{ tenant: "constructor", tenant_descriptions: {{}} }}).includes("info-tip"), "inherited property");
 """
         completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
         assert completed.returncode == 0, completed.stderr or completed.stdout
@@ -1785,6 +1788,7 @@ class TestSiteTenantsInTheBrowser:
                 "escHtml",
                 "siteTenants",
                 "infoTipHtml",
+                "ownDescription",
                 "tenantName",
                 "tenantCell",
                 "formatLocationAddress",
@@ -1819,6 +1823,9 @@ check(cell.includes('aria-label="Acme: Bank') && cell.includes('tabindex="0"'), 
 cell = tenantCell({{ tenants: ["Acme", "Nordic"], tenant_descriptions: {{ Nordic: "Shared rack" }} }});
 check(cell.includes("Acme, Nordic<span") && (cell.match(/info-tip"/g) || []).length === 1, cell);
 check(tenantCell({{ tenant: "Acme", tenant_descriptions: {{}} }}) === "Acme", "no description: no (i)");
+// Inherited object properties are not descriptions (Copilot review on #264).
+check(tenantCell({{ tenant: "constructor", tenant_descriptions: {{}} }}) === "constructor", "constructor");
+check(tenantCell({{ tenants: ["toString", "hasOwnProperty"] }}).indexOf("info-tip") === -1, "toString");
 """
         completed = subprocess.run(
             ["node", "-e", script],

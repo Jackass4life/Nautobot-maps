@@ -681,9 +681,15 @@ function infoTipHtml(text, label) {
   return `<span class="info-tip" tabindex="0" role="img" aria-label="${escHtml(label)}" data-info-tip="${escHtml(text)}">i</span>`;
 }
 
+// Only the map's own keys: a tenant named "constructor" or "toString" must not
+// pick up an inherited object property.
+function ownDescription(descriptions, name) {
+  return descriptions && Object.hasOwn(descriptions, name) ? descriptions[name] : "";
+}
+
 // A tenant name, with an (i) for its Nautobot description when it has one.
 function tenantName(name, descriptions) {
-  const description = (descriptions || {})[name];
+  const description = ownDescription(descriptions, name);
   return description ? `${escHtml(name)}${infoTipHtml(description, `${name}: ${description}`)}` : escHtml(name);
 }
 

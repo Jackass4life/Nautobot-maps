@@ -1050,4 +1050,26 @@ def get_locations(include_without_coordinates: bool = False, snapshot_only: bool
     if cached:
         return cached
     raw = nautobot.fetch_all_pages("dcim/locations/")
-    return normalize_locations(raw, include_without_coordinates=include_without_coordinates)
+    locations = normalize_locations(raw, include_without_coordinates=include_without_coordinates)
+    # Without the database (a map-only setup) the tenant (i) still works (#263).
+    descriptions = live_tenant_descriptions()
+    for loc in locations:
+        tenant = loc.get("tenant") or ""
+        loc["tenant_descriptions"] = {tenant: descriptions[tenant]} if tenant in descriptions else {}
+    return locations
+
+
+def live_tenant_descriptions() -> dict[str, str]:
+    """``{tenant name: description}`` straight from Nautobot, for setups without the database."""
+    try:
+        tenants = nautobot.fetch_all_pages("tenancy/tenants/")
+    except Exception as exc:
+        logger.warning("Could not read tenant descriptions from Nautobot: %s", exc)
+        return {}
+    result = {}
+    for tenant in tenants:
+        name = str(tenant.get("name") or tenant.get("display") or "")
+        description = str(tenant.get("description") or "").strip()
+        if name and description:
+            result[name] = description
+    return result

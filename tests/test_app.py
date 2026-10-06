@@ -3285,6 +3285,7 @@ class TestInventoryCacheSync:
                 "tags": ["cached"],
                 "url": "",
                 "tenants": [],
+                "tenant_descriptions": {},
             }
         ]
 
@@ -7029,6 +7030,31 @@ class TestTenantDescriptions:
         self._sync(monkeypatch)
         (location,) = client.get("/api/locations").get_json()["locations"]
         assert location["tenant_descriptions"] == {"Acme Corp": "Bank, business hours"}
+
+    def test_map_without_a_database_reads_them_from_nautobot(self, monkeypatch):
+        """Map-only setups (no PostgreSQL) get the (i) too (Copilot review on #264)."""
+        fetch, _ = _relationship_fetch()
+
+        def live(endpoint, params=None, **kwargs):
+            if endpoint == "dcim/locations/":
+                return [
+                    {
+                        "id": "loc-1",
+                        "name": "London",
+                        "tenant": {"id": "ten-1"},
+                        "latitude": "51.5",
+                        "longitude": "-0.1",
+                    },
+                    {"id": "loc-2", "name": "Paris", "tenant": {"id": "ten-3"}, "latitude": "48.8", "longitude": "2.3"},
+                ]
+            return fetch(endpoint, params, **kwargs)
+
+        monkeypatch.setattr(db, "get_conn", lambda *args, **kwargs: None)
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        monkeypatch.setattr(nautobot, "fetch_all_pages", live)
+        by_name = {loc["name"]: loc for loc in inventory.get_locations()}
+        assert by_name["London"]["tenant_descriptions"] == {"Acme Corp": "Bank, 24/7 SLA"}
+        assert by_name["Paris"]["tenant_descriptions"] == {}  # EuroIX has no description
 
     def test_a_failed_read_keeps_the_descriptions(self, monkeypatch):
         self._sync(monkeypatch)
