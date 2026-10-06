@@ -975,7 +975,7 @@ thead th:last-child {
 }
 
 .wall-view {
-  font-size: 1.25rem;
+  font-size: 1.05rem;
 }
 
 .wall-view .page-shell {
@@ -1004,7 +1004,7 @@ thead th:last-child {
 }
 
 .wall-updated {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1022,11 +1022,11 @@ thead th:last-child {
 .wall-view .wall-error:not([hidden]) {
   display: block;
   margin-bottom: 16px;
-  padding: 16px 20px;
+  padding: 12px 18px;
   border-radius: var(--radius);
   background: var(--color-danger);
   color: #fff;
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   font-weight: 700;
 }
 
@@ -1036,36 +1036,36 @@ thead th:last-child {
 
 .wall-view th,
 .wall-view td {
-  padding: 14px 16px;
+  padding: 10px 14px;
 }
 
 .wall-view .site-name {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
 }
 
 .wall-view .site-summary,
 .wall-view .site-meta,
 .wall-view .device-ip {
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 /* Where to send someone: readable from across the room. */
 .wall-view .site-address {
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: var(--color-text);
 }
 
 /* Cases stay on the wall: a site with a case has someone on it. */
 .wall-view .case-pill {
-  padding: 4px 12px;
-  font-size: 1rem;
+  padding: 3px 10px;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
 .wall-view .alert-badge {
-  min-width: 120px;
-  padding: 6px 14px;
-  font-size: 1rem;
+  min-width: 100px;
+  padding: 5px 12px;
+  font-size: 0.9rem;
 }
 
 .wall-view table {
@@ -1073,8 +1073,8 @@ thead th:last-child {
 }
 
 .wall-view .empty-state {
-  padding: 64px;
-  font-size: 2rem;
+  padding: 48px;
+  font-size: 1.6rem;
 }
 
 .wall-view .empty-state.all-clear {

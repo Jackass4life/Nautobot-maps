@@ -56,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 - MCP server at `/mcp` for AI assistants (Claude Code, Claude Desktop, other MCP clients), off unless `MCP_ENABLED=true`. Tools: `get_alert_board`, `get_site`, `get_location_detail`, `search_locations`, `get_alert_feed`, `get_alert_history` and `add_case`; each runs the matching API route with the caller's sign-in and roles, so it can do no more than the web UI. Stateless Streamable HTTP; MCP 2026-07-28 and the earlier `initialize`-based versions (#250)
+- Alert board wall view: text about 20% smaller and tighter rows, so more sites fit on the screen (#258)
 - **Wall view** is in the top navigation of every page (Map · Alert Board · API · Wall view) instead of the alert board's toolbar (#254)
 - Alert board wall view: each site shows its physical address under its name, readable from across the room (#252)
 - Alert board wall view: the **Cases** column is shown, in large type, so the room can see which sites already have a case (#248)
