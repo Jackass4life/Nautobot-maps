@@ -324,7 +324,22 @@ def api_location_alerts():
 
 @bp.route("/api/alerts")
 def api_alerts():
-    """Return alert-board summaries for all Nautobot locations."""
+    """Return alert-board summaries for all Nautobot locations.
+
+    Read from the persisted inventory snapshot; never calls Nautobot or
+    LibreNMS inline.  Query parameters: ``refresh=1`` queues an incremental
+    sync now, ``include_non_operational=1`` includes the excluded locations.
+    A normal request also queues a sync when one is due.
+
+    Response: ``alerts`` (one entry per site: ``alert_level``,
+    ``alert_reason``, ``down_devices``, ``current_downtime_seconds``,
+    ``historical_downtime_seconds``, ``active_cases``, ``latest_down_at``, ...),
+    ``summary`` (a count per level plus ``total``, and ``non_ok`` = critical +
+    medium + low), ``sync_pending`` (a sync is running; poll again),
+    ``next_update_in_seconds`` (until the next sync is due; 0 = now, null =
+    unknown or running) and ``persistence_configured`` (false: no database,
+    so the board is always empty).
+    """
     force_refresh = request.args.get("refresh", "").strip().lower() in {
         "1",
         "true",
@@ -630,7 +645,12 @@ def api_alert_feed():
 @bp.route("/api/alert-history", methods=["GET"])
 @auth.require_role("operator")
 def api_alert_history():
-    """Return historical alert instances with events and case numbers."""
+    """Return historical alert instances with events and case numbers.
+
+    Newest first, at most 500.  Query parameters filter them: ``site_id``,
+    ``device_id``, and ``start_at`` / ``end_at``: only incidents created at
+    or after / at or before this ISO-8601 time.
+    """
     conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
