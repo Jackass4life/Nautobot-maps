@@ -36,7 +36,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-See the [README](README.md) for detailed setup instructions, including Docker-based development with a local Nautobot instance.
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: `pip install -r requirements-dev.txt`, copy `.env.example` to `.env`, then `python app.py`. For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -55,7 +55,7 @@ extension), or start it in GitHub Codespaces. It provides:
 - Port 5000 forwarded for `python app.py`. If 5000 is already taken on your machine, VS Code
   picks another local port; check the **Ports** view.
 
-You still need a `.env` (see the README) to point the app at a Nautobot instance; for the
+You still need a `.env` (see [docs/configuration.md](docs/configuration.md)) to point the app at a Nautobot instance; for the
 alert board add `NAUTOBOT_MAPS_DATABASE_URL=postgresql://nautobot_maps:nautobot_maps@localhost:5432/nautobot_maps`.
 Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After changes to
 `.devcontainer/`, run **Dev Containers: Rebuild Container**.
@@ -67,7 +67,8 @@ logging, the cache and the database, registers the routes, and logs the startup 
 Everything else lives in modules under `nautobot_maps/` (#165):
 
 - `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new
-  settings here, pass them in `docker-compose.yml` (a test checks this), and read them as
+  settings here, pass them in `docker-compose.yml` (a test checks this), document them in
+  `docs/configuration.md` and `.env.example`, and read them as
   `settings.NAME` at call time; in tests change them with
   `monkeypatch.setattr(settings, "NAME", value)`.
 - `nautobot_maps/db.py`: PostgreSQL connections (`db.get_conn()`, `db.transaction()`), the
@@ -146,6 +147,32 @@ CI fails when a lock file doesn't match its `.in` file, or when `pip-audit`, `np
   its own empty PostgreSQL schema in `TEST_DATABASE_URL`, dropped afterwards. Without
   `TEST_DATABASE_URL` those tests are skipped locally; in CI they fail instead.
 - Both unit tests (mocked) and integration tests are welcome.
+
+The suite:
+
+- `tests/test_app.py`: unit tests, mock-based; persistence tests run against PostgreSQL.
+- `tests/test_integration.py`: starts a local mock Nautobot and exercises the full HTTP stack;
+  some tests run the page JavaScript in `node`.
+- `tests/test_mcp.py`: the MCP server.
+- `tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
+  point at a real Nautobot (see `development/`).
+
+### How the inventory sync works
+
+Requests never call Nautobot or LibreNMS for the alert board: they read the snapshot in
+PostgreSQL, which `/api/locations`, `/api/locations/<id>/detail` and `/api/alerts` prefer
+as their source. The sync (`inventory.sync_nautobot()`, `inventory.sync_librenms()`) runs
+from the scheduler, or is queued by a request once it is due; `?refresh=1` only queues it.
+
+- Nautobot is pulled incrementally with `last_updated__gte=<watermark>`. Device pages use
+  `depth=1` so `primary_ip4`/`primary_ip6` carry their address inline.
+- The watermark only advances when an incremental pull sees newer upstream `last_updated`
+  values; a full reconcile uses its start time.
+- A change in the cached extraction version forces a full reconcile; a daily full reconcile
+  removes objects deleted in Nautobot.
+- LibreNMS refreshes on its own interval.
+- On a fresh database the first `/api/alerts` request starts the initial sync in the
+  background and returns `sync_pending: true`; the board re-polls until it clears.
 
 ## Releasing
 

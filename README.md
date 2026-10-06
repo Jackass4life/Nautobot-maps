@@ -1,510 +1,70 @@
 # Nautobot Maps
 
-A web application that displays Nautobot locations on an interactive OpenStreetMap, with device/ASN/tenant details on click and a 5 km proximity search.
+Your Nautobot sites on a map, and an alert board that shows which sites are down, since when, and who has a case on them.
+
+<!-- Screenshots: add the images to docs/images/ and remove this comment around them.
+![The map](docs/images/map.png)
+![The alert board](docs/images/alert-board.png)
+![The wall view](docs/images/wall-view.png)
+-->
 
 ## Features
 
-- 🗺️ Interactive map showing all Nautobot locations that have GPS coordinates
-- 📍 Color-coded markers by status (Active / Planned / Other)
-- 🔍 **Filtering** locations by:
-  - Status (Active, Planned, etc.)
-  - Location Type
-  - Parent Location (hierarchical)
-  - Tenant
-- ⚡ **Performance optimizations** for large environments:
-  - Automatic marker clustering for 100+ locations
-  - Grid-based clustering that adapts to zoom level
-  - Canvas rendering for improved performance
-  - Progressive loading indicators
-- 🖱️ Click a marker to see a popup with:
-  - Location name, type, status, tenant, time zone, and physical address
-  - ASN(s) assigned to the location
-  - Network equipment (devices) at the location with model, role, and status
-- 🚨 Dedicated **Alert Board** page showing per-site alert severity with filters for site, tenant, location type, status, and severity, an **All sites / Alarms only** choice that hides every site without an active alarm (Critical, Medium or Low), collapsible per-site device rows showing each device's IP, (i) tooltips defining each alert tier, and server-side filtering for primary-IP-backed devices. Sites are listed newest down first by default (Sort menu for severity and more), and **Copy** on a site puts it and its down devices (name, IP, role, status, down since, cases) on the clipboard as text for an ITSM ticket
-- 🔍 Search by **address** (geocoded via OpenStreetMap/Nominatim) **or GPS coordinates** (`lat,lon`)
-  - Returns all Nautobot locations within **5 km** of the searched point, sorted by distance
-  - Draws a 5 km radius circle on the map
-- ⚡ Server-side response caching to reduce Nautobot API load
+- **Map** of every Nautobot location with coordinates, coloured by alert level, with clustering for large inventories. Click a site for its devices, ASNs and circuits; search by address or `lat,lon` for sites within 5 km.
+- **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, downtime, and case numbers. It opens on sites with alarms and updates itself.
+- **Wall view** for a NOC screen: large text, no buttons, and a loud warning when it stops updating.
+- **Cases and ITSM**: attach a case number to down devices, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
+- **LibreNMS** status (optional) next to Nautobot's.
+- **Sign-in and roles** through your SSO proxy (viewer, operator, admin).
+- **MCP server** (optional) so AI assistants can read the board and add cases.
+- **Read-only towards Nautobot**: the app never changes anything there, so a read-only API token is enough.
 
-## Requirements
+## Try it
 
-- Python 3.11+
-- A running Nautobot instance (v2.x or v3.x) with an API token
-
-## Quick Start
+No Nautobot needed: the demo comes with a mock Nautobot holding nine European sites.
 
 ```bash
-# 1. Clone and enter the repository
+docker compose -f demo/docker-compose.yml up --build
+# → http://localhost:5000
+```
+
+See [`demo/README.md`](demo/README.md) for the seed data and things to try.
+
+## Install
+
+You need Docker and a Nautobot 2.x or 3.x with an API token.
+
+```bash
 git clone https://github.com/Jackass4life/Nautobot-maps.git
 cd Nautobot-maps
-
-# 2. Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure environment variables
-cp .env.example .env
-# Edit .env and set NAUTOBOT_URL and NAUTOBOT_TOKEN.
-# The alert board also needs PostgreSQL: set NAUTOBOT_MAPS_DATABASE_URL
-# (the Docker setup below includes a database).
-
-# 5. Run the development server
-python app.py
-# → Open http://localhost:5000
-```
-
-## Configuration (`.env`)
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `NAUTOBOT_URL` | ✅ | — | Base URL of your Nautobot instance, e.g. `https://nautobot.example.com` (validated at startup) |
-| `NAUTOBOT_TOKEN` | ✅ | — | Nautobot API token; read-only is enough (the app never writes to Nautobot) |
-| `NAUTOBOT_API_VERSION` | ❌ | *(server default)* | Pin a specific Nautobot REST API version (e.g. `2.0`, `3.0`). Leave empty to use the server's default. |
-| `NAUTOBOT_VERIFY_SSL` | ❌ | `true` | SSL certificate verification: `true`, `false` (e.g. for self-signed certs), or a path to a custom CA bundle |
-| `LOG_LEVEL` | ❌ | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
-| `LOG_FORMAT` | ❌ | `text` | `text`, or `json` for one JSON object per line (for Loki, ELK, Splunk) |
-| `CACHE_TTL` | ❌ | `300` | Seconds to cache Nautobot API responses |
-| `ALERT_HISTORY_RETENTION_DAYS` | ❌ | `0` (keep all) | Once a day, delete resolved alerts (with their events and cases) and site severity changes older than this many days. Open alerts are never deleted |
-| `METRICS_ENABLED` | ❌ | `true` | Serve Prometheus metrics at `/metrics`; `false` turns it off (404) |
-| `MCP_ENABLED` | ❌ | `false` | Serve the MCP server for AI assistants at `/mcp` (see *MCP server*); off: 404 |
-| `MCP_ALLOWED_ORIGINS` | ❌ | — | Comma-separated browser origins (`https://host[:port]`) allowed to call `/mcp`. MCP clients send no `Origin`; any request that does is refused unless listed |
-| `DB_CONNECT_TIMEOUT_SECONDS` | ❌ | `5` | Give up connecting to PostgreSQL after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
-| `DB_STATEMENT_TIMEOUT_SECONDS` | ❌ | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (schema migrations at startup are exempt) |
-| `GUNICORN_WORKERS` | ❌ | `4` | Gunicorn worker processes (Docker image) |
-| `GUNICORN_TIMEOUT` | ❌ | `120` | Gunicorn worker timeout in seconds; values below 120 are raised to 120 |
-| `GUNICORN_BIND` | ❌ | `0.0.0.0:5000` | Gunicorn listen address |
-| `CACHE_TYPE` | ❌ | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with multiple workers |
-| `CACHE_REDIS_URL` | ❌ | — | Redis connection URL (e.g. `redis://redis:6379/0`). Required when `CACHE_TYPE=RedisCache` |
-| `NAUTOBOT_MAPS_DATABASE_URL` | ❌ | — | PostgreSQL URL (`postgresql://...`) for the inventory snapshot, overrides, alert downtime history and case tracking. Required for the alert board. `docker-compose.yml` sets it to its bundled PostgreSQL |
-| `BACKGROUND_SYNC_ENABLED` | ❌ | `true` | Run due syncs and record alert history in the background, with no page open. `false` turns it off |
-| `INVENTORY_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs into the persistence database. Run by the background scheduler (and by page requests) once due |
-| `LIBRENMS_SYNC_INTERVAL_SECONDS` | ❌ | `CACHE_TTL` | Minimum seconds between LibreNMS status refreshes, started the same way. The alert board counts down to the sooner of the two |
-| `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` | ❌ | `graveyard,warehouse` | Comma/semicolon-separated location types hidden from `/api/alerts` and the alert board by default |
-| `ALERT_BOARD_EXCLUDED_LOCATION_STATUSES` | ❌ | — | Optional comma/semicolon-separated location statuses hidden from the alert board; `null` matches an empty status |
-| `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | ❌ | — | Optional comma/semicolon-separated Nautobot tag names hidden from the alert board |
-| `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | ❌ | — | Optional fallback comma/semicolon-separated location names hidden from the alert board |
-| `ALERT_BOARD_SITE_LOCATION_TYPE` | ❌ | — | Location type that gets the alert-board rows (e.g. `Site`); devices in its child locations roll up into it, and levels above it get no rows. Empty: one row per location |
-| `SITE_TENANT_RELATIONSHIPS` | ❌ | — | Nautobot Relationships (comma-separated keys or labels) that link a location to more tenants, shown on the alert board next to its own tenant. Empty: every Location ↔ Tenant relationship |
-| `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | ❌ | — | Optional comma/semicolon-separated device statuses ignored on the alert board (not counted, not listed); `null` matches an empty status |
-| `AUTH_MODE` | ❌ | `disabled` | Authentication mode for admin API routes: `disabled` or `header` |
-| `AUTH_HEADER_USER` | ❌ | `X-Forwarded-User` | Header-mode username header supplied by a trusted reverse proxy |
-| `AUTH_HEADER_GROUPS` | ❌ | `X-Forwarded-Groups` | Header-mode group header supplied by a trusted reverse proxy |
-| `AUTH_DEFAULT_ROLE` | ❌ | — | Optional fallback role (`viewer`, `operator`, or `admin`) for authenticated users with no matching group |
-| `AUTH_VIEWER_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `viewer` role |
-| `AUTH_OPERATOR_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `operator` role |
-| `AUTH_ADMIN_GROUPS` | ❌ | — | Comma-separated SSO group names mapped to the `admin` role |
-| `AUTH_TRUSTED_PROXIES` | ❌ | `127.0.0.1/32,::1/128` | Header mode: comma-separated IPs/CIDRs of the reverse proxy. Identity headers from any other address are ignored (the request is anonymous) and logged |
-| `AUTH_PROXY_SECRET` | ❌ | — | Header mode: when set, identity headers only count if the proxy also sends this value in `X-Auth-Proxy-Secret` |
-| `AUTH_REQUIRE_VIEWER` | ❌ | `false` | Header mode: every page and API (except `/healthz` and `/metrics`) needs at least the `viewer` role |
-| `ALLOW_UNAUTHENTICATED_WRITES` | ❌ | `false` | `AUTH_MODE=disabled` only: allow changing criticality overrides without authentication (logged as a warning at startup). Off: they return 403 |
-| `MAP_TILE_URL` | ❌ | OpenStreetMap | Map tile URL template (`{s}`, `{z}`, `{x}`, `{y}`), e.g. an internal tile server |
-| `MAP_TILE_ATTRIBUTION` | ❌ | OpenStreetMap | Attribution shown on the map (HTML allowed) |
-| `GEOCODER_ENABLED` | ❌ | `true` | `false` turns address search off: only `lat,lon` searches work, and nothing is sent to a geocoder |
-| `GEOCODER_URL` | ❌ | `https://nominatim.openstreetmap.org` | Nominatim-compatible geocoder for address search |
-| `GEOCODER_USER_AGENT` | ❌ | `nautobot-maps (+repo URL)` | User agent sent to the geocoder (the public Nominatim requires one that identifies you) |
-| `LIBRENMS_URL` | ❌ | — | Base URL of your LibreNMS instance used for optional status enrichment |
-| `LIBRENMS_API_TOKEN` | ❌ | — | API token for LibreNMS requests |
-| `LIBRENMS_VERIFY_SSL` | ❌ | `true` | SSL certificate verification for LibreNMS: `true`, `false`, or a path to a custom CA bundle (e.g. an internal CA) |
-| `FLASK_DEBUG` | ❌ | `false` | Set `true` to enable Flask debug mode |
-| `FLASK_RUN_PORT` | ❌ | `5000` | Port for the development server (useful if 5000 is taken, e.g. by macOS AirPlay Receiver) |
-
-### LibreNMS integration settings
-
-Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to enable optional LibreNMS enrichment.
-`LIBRENMS_VERIFY_SSL` defaults to `true`. For a LibreNMS signed by an internal CA, mount the CA
-certificate into the container and point the setting at it (e.g. `LIBRENMS_VERIFY_SSL=/certs/internal-ca.pem`);
-`false` skips verification entirely and should be a last resort, since the API token travels over that
-connection. A path that doesn't exist is logged as an error at startup.
-
-Each LibreNMS sync also caches the address LibreNMS polls for every device (`overwrite_ip` if set, otherwise `ip`). The alert board shows it as the device IP when Nautobot has no primary IP for that device.
-
-## Docker
-
-> **Important:** Always use `docker compose up` — **not** `docker compose build && docker compose start`.
-> The `start` sub-command only restarts previously created containers and will
-> fail with *"service … has no container to start"* on a fresh checkout.
-> `docker compose up` handles building, creating, and starting in one step.
-
-The bundled PostgreSQL uses `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` from `.env`, defaulting to `nautobot_maps` for all three. Its port is not published, so only containers in this compose project can reach it; still, set your own `POSTGRES_PASSWORD` before the first start (the password is fixed when the data volume is created).
-
-```bash
-# 1. Configure environment variables
-cp .env.example .env   # fill in NAUTOBOT_URL and NAUTOBOT_TOKEN
-
-# 2. Build images and start containers
+cp .env.example .env    # set NAUTOBOT_URL, NAUTOBOT_TOKEN and POSTGRES_PASSWORD
 docker compose up --build -d
-# → Open http://localhost:5000
-
-# View logs
-docker compose logs -f
-
-# Stop and remove containers
-docker compose down
+# → http://localhost:5000
 ```
 
-Logs go to `docker compose logs`: the app's messages (unexpected errors with their stack trace) and an access log line per request, with the user from the auth proxy, the status and the response time in ms (successful `/healthz` probes are left out). The bundled `docker-compose.yml` caps each container's log at 5 × 10 MB.
+> **Use `docker compose up`, not `docker compose build && docker compose start`.** `start` only restarts containers that already exist and fails with *"service … has no container to start"* on a fresh checkout.
 
-Every response carries browser security headers: a Content-Security-Policy that only runs the app's own scripts and loads images only from the app and the `MAP_TILE_URL` host (so the pages can't be framed or inject scripts), plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
+The bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created. For LibreNMS, sign-in and everything else, see [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
 
-The image runs as an unprivileged user (`app`, uid 10001) and has a Docker `HEALTHCHECK` that probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. The health check never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
+Without Docker (for development): `pip install -r requirements.txt`, then `python app.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Deploying a released version
+## Documentation
 
-`docker compose up --build` builds the image from your checkout. For production, run a published release instead, so every host runs exactly what CI built and tested, and a rollback is one line:
-
-```yaml
-# docker-compose.override.yml
-services:
-  nautobot-maps:
-    image: ghcr.io/jackass4life/nautobot-maps:1.0.0   # the version to run
-    build: !reset null
-```
-
-```bash
-docker compose pull nautobot-maps && docker compose up -d
-```
-
-To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see *Backup and restore*). Releases and their changes are listed on the repository's Releases page and in `CHANGELOG.md`.
-
-### Local overrides (ports, volumes, …)
-
-Don't edit `docker-compose.yml` for machine-specific settings: `git pull` will then
-refuse to update it ("Your local changes … would be overwritten by merge"). Put them
-in `docker-compose.override.yml` next to it instead. Docker Compose merges that file
-automatically, and it is git-ignored.
-
-```yaml
-# docker-compose.override.yml
-services:
-  nautobot-maps:
-    # Port 5000 is already taken on this machine: publish the app on 9000 instead.
-    ports: !override
-      - "127.0.0.1:9000:5000"
-```
-
-- `!override` replaces the port list instead of adding to it (Docker Compose v2.24.4 or
-  newer; check with `docker compose version`).
-- Ports are `host:container`: the app inside the container keeps listening on 5000.
-- Check the merged result with `docker compose config`.
-
-## Backup and restore
-
-PostgreSQL holds two kinds of data:
-
-- **Rebuilt automatically:** the Nautobot and LibreNMS inventory caches. Losing them costs one full sync.
-- **Not rebuilt from anywhere:** alert history (when devices went down and came back, the downtime), case numbers, criticality overrides and site severity changes. **Back these up.**
-
-With the bundled `docker-compose.yml` everything lives in the `postgres_data` volume; `docker compose down -v`, or losing the host, deletes it.
-
-**Back up** (e.g. nightly from cron on the host; the dump is small):
-
-```bash
-docker compose exec -T postgres pg_dump -Fc -U nautobot_maps nautobot_maps > nautobot-maps-$(date +%F).dump
-```
-
-**Restore** (stop the app first so nothing writes meanwhile):
-
-```bash
-docker compose stop nautobot-maps
-docker compose exec -T postgres pg_restore --clean --if-exists --no-owner -U nautobot_maps -d nautobot_maps < nautobot-maps-2026-09-29.dump
-docker compose start nautobot-maps
-```
-
-Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
-
-**Upgrading PostgreSQL to a new major version** (e.g. `postgres:16-alpine` → `postgres:17-alpine`): the new version can't read the old data directory, so dump, recreate, restore:
-
-1. Take a backup as above.
-2. `docker compose down`, then `docker volume rm <project>_postgres_data` (see `docker volume ls`).
-3. Change the image in `docker-compose.yml` (or `docker-compose.override.yml`).
-4. `docker compose up -d postgres`, restore the dump as above, then `docker compose up -d`.
-
-**Growth:** alert history is kept forever unless you set `ALERT_HISTORY_RETENTION_DAYS` (e.g. `365`); the scheduler then prunes once a day.
-
-## Monitoring
-
-`/healthz` is the liveness probe: 200 while the app and its database answer. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if it never has) without failing on it, since restarting the app can't fix a sync that fails upstream.
-
-`/metrics` serves Prometheus metrics, read from the database when scraped (so every worker gives the same answer):
-
-| Metric | Meaning |
+| | |
 |---|---|
-| `nautobot_maps_sync_last_success_timestamp_seconds{source}` | When the sync last finished without error |
-| `nautobot_maps_sync_last_attempt_timestamp_seconds{source}` | When it last started |
-| `nautobot_maps_sync_last_duration_seconds{source}` | How long the last finished sync took |
-| `nautobot_maps_sync_failing{source}` / `nautobot_maps_sync_running{source}` | 1 if the last sync failed / while one runs |
-| `nautobot_maps_open_alerts{level}` | Open device alerts by level |
-| `nautobot_maps_sites{level}` | Sites by level at the last board build |
-| `nautobot_maps_database_up` | The database answered this scrape |
-
-`source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full reconcile) or `librenms_inventory`. Request counts and response times are in the access log. It needs no login, even with `AUTH_REQUIRE_VIEWER=true`, since it holds only counts (no site or device names); set `METRICS_ENABLED=false` if even those should stay private. An example alert, for a sync interval of 5 minutes:
-
-```yaml
-- alert: NautobotMapsInventoryStale
-  expr: time() - nautobot_maps_sync_last_success_timestamp_seconds{source="nautobot_inventory"} > 3 * 300
-  for: 5m
-  annotations:
-    summary: "No successful Nautobot inventory sync for 15 minutes; the alert board shows old data"
-```
-## Database migrations
-
-The container runs `python -m nautobot_maps migrate` before starting the app: each schema change is applied once and recorded in `schema_migrations`, so the app's workers start without migrating. `python -m nautobot_maps schema-version` shows the database's version and the one the release expects (`docker compose exec nautobot-maps python -m nautobot_maps schema-version`).
-
-Rolling back to an older release after its database was migrated is refused at startup ("The database schema is version N, newer than this release…"): run the release the database was migrated with, or restore a backup taken before the upgrade.
-
-## Demo (Mock Nautobot)
-
-No Nautobot instance? Spin up a fully self-contained demo using the mock
-server bundled in `demo/`:
-
-```bash
-# From the repository root – no .env required
-docker compose -f demo/docker-compose.yml up --build
-# → Open http://localhost:5000
-```
-
-The demo pre-loads **9 European locations** (two in Copenhagen, two in London, plus Stockholm,
-Oslo, Amsterdam, Frankfurt, and Paris) with devices, ASNs, and tenants so you
-can explore every feature immediately.  See [`demo/README.md`](demo/README.md)
-for a full description of the seed data and suggested demo scenarios.
-
-## API Endpoints
-
-**API** in the header of every page opens `/docs`, the API explorer: every page and endpoint with its methods, parameters, example body and required role, and **Try it** to send a request and see the status, time and response (with the same request as a `curl` command). Try it runs as you, so your login and role apply and POST/DELETE change data (it asks first). `/api/endpoints` returns the same list as JSON. It is read from the app's routes, so new endpoints appear on their own.
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Map web UI |
-| `GET` | `/alerts` | Alert board web UI |
-| `GET` | `/docs` | API explorer: every endpoint, with Try it |
-| `POST` | `/mcp` | MCP server for AI assistants, when `MCP_ENABLED=true` (see *MCP server*) |
-| `GET` | `/api/endpoints` | Every page and endpoint as JSON: `path`, `methods`, `summary`, `description`, `path_params`, `query_params`, `required_role`, `example_body` |
-| `GET` | `/healthz` | Liveness probe: `200 {"status": "ok"}`, or `503` when the configured persistence database is unreachable. Never calls Nautobot/LibreNMS |
-| `GET` | `/api/alerts` | Alert summary from the persisted inventory snapshot (`?refresh=1` enqueues an incremental background sync of changes since the last sync, `?include_non_operational=1` includes excluded locations). A normal request also starts a sync when one is due. `sync_pending: true` means an inventory sync is running; the board UI re-polls until it clears. `next_update_in_seconds` is the time until the next sync is due (`0` = due now, `null` = unknown or running). `persistence_configured: false` means no database is set, so the board is always empty |
-| `GET` | `/api/locations` | All Nautobot locations with GPS coordinates |
-| `GET` | `/api/locations/<id>/detail` | Devices, ASNs and circuits for a location |
-| `GET` | `/api/location-alerts` | Alert level of every location with an alert (map marker colours) |
-| `GET` | `/api/search?q=<query>` | Locations within 5 km of an address or `lat,lon` |
-| `GET` | `/api/criticality-overrides` | List stored device criticality overrides *(operator when auth enabled)* |
-| `POST` | `/api/criticality-overrides` | Create/update a device criticality override *(operator when auth enabled)* |
-| `DELETE` | `/api/criticality-overrides/<device_id>` | Delete a device criticality override *(operator when auth enabled)* |
-| `GET` | `/api/alert-feed` | What changed on the alert board, newest first: devices going down (`down`, with `down_since`) and back up (`up`), and site severity changes (`severity`, with `from_level`/`to_level`). `?limit=` (default 100, max 500), `?since=` (ISO-8601, only newer entries), `?kinds=down,up,severity` (default all). A site's first build is not a change. Needs the database (`persistence_configured: false` otherwise) |
-| `GET` | `/api/alert-history` | Historical alert incidents/events/cases (filter by `site_id`, `device_id`, `start_at`, `end_at`) *(operator when auth enabled)* |
-| `POST` | `/api/alert-cases` | Attach a case number to the active alerts of one or more devices at a site: `{"site_id", "case_number", "device_ids": [...]}` (single `device_id` also accepted). All-or-nothing: 404 with `missing_device_ids` if any device has no open alert *(operator when auth enabled)* |
-
-The API serves this app only. Nautobot is the source of truth: the app never creates, changes or deletes anything in Nautobot (sites, devices, roles, location types…); make those changes in Nautobot itself. `NAUTOBOT_TOKEN` therefore only needs **read** permission.
-
-## MCP server (AI assistants)
-
-With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/) server at `/mcp`, so an AI assistant (Claude Code, Claude Desktop, or any MCP client) can answer questions like "which sites are down and since when?" and add a case to an alarm.
-
-| Tool | What it does | Role when sign-in is on |
-|---|---|---|
-| `get_alert_board` | Sites with alarms (or one level, or all): level, reason, down devices with IP and role, downtime, cases; filter by tenant or text | viewer\* |
-| `get_site` | One site by id or name | viewer\* |
-| `get_location_detail` | All devices, ASNs and circuits at a location | viewer\* |
-| `search_locations` | Locations within 5 km of an address or `lat,lon` | viewer\* |
-| `get_alert_feed` | Recent changes: devices down/up, level changes | viewer\* |
-| `get_alert_history` | Past and open incidents, downtime, cases | operator |
-| `add_case` | Attach a case number to a site's down devices (all of them by default), like **+ Case** on the board | operator |
-
-\*only with `AUTH_REQUIRE_VIEWER=true`.
-
-The tools run the same code and the same sign-in and role checks as the web pages, so an assistant can never do more than its user could on the board. `add_case` is the only change it can make; nothing is ever written to Nautobot.
-
-Add it to Claude Code:
-
-```bash
-claude mcp add --transport http nautobot-maps https://nautobot-maps.example.com/mcp
-```
-
-With `AUTH_MODE=header`, the MCP client's requests must pass through your sign-in proxy like the browser's do. If your client can't sign in there, keep the MCP server on an internal address only, or leave it off.
-
-Protocol: Streamable HTTP, stateless (any worker answers any request), MCP 2026-07-28 and the earlier `initialize`-based versions (2025-11-25, 2025-06-18, 2025-03-26). A request with an `Origin` header (that is, from a web page) is refused unless the origin is in `MCP_ALLOWED_ORIGINS`, which also stops DNS-rebinding attacks. Each caller may make 120 tool calls a minute per worker; with `CACHE_TYPE=RedisCache` the count is shared, so 120 a minute in total.
-
-## Optional Authentication / RBAC
-
-By default (`AUTH_MODE=disabled`):
-
-- the map, the alert board and the read-only APIs are public
-- adding a case number to an alert works (the board needs it)
-- **changing criticality overrides is refused** (403): it changes which devices count as critical, for everyone. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
-
-To protect administrative actions with real identities, set `AUTH_MODE=header` and place the app
-behind a trusted reverse proxy or SSO gateway that injects identity headers.
-This works well with OIDC or SAML providers when the proxy handles the login
-flow and forwards the authenticated username/groups to Nautobot Maps.
-
-### Roles
-
-- `viewer` — can open the map, the board and the read APIs when `AUTH_REQUIRE_VIEWER=true` (otherwise they are public)
-- `operator` — can manage `/api/criticality-overrides`, view alert history and add cases
-- `admin` — everything an operator can (reserved for future administrative features)
-
-### Example header-based SSO configuration
-
-```dotenv
-AUTH_MODE=header
-AUTH_HEADER_USER=X-Forwarded-User
-AUTH_HEADER_GROUPS=X-Forwarded-Groups
-AUTH_OPERATOR_GROUPS=nautobot-operators
-AUTH_ADMIN_GROUPS=nautobot-admins
-```
-
-### Header mode with Docker
-
-The app trusts `X-Forwarded-User` / `X-Forwarded-Groups` only from the proxy: the direct peer must be in `AUTH_TRUSTED_PROXIES` (default: localhost only) and, if `AUTH_PROXY_SECRET` is set, send it in `X-Auth-Proxy-Secret`. Anything else is treated as anonymous, so a client that reaches the app directly cannot claim to be an admin.
-
-With the proxy (e.g. nginx or oauth2-proxy) as another service in the same compose project, pin the network's subnet and trust it:
-
-```yaml
-# docker-compose.override.yml
-services:
-  nautobot-maps:
-    ports: !reset []          # only the proxy talks to the app
-networks:
-  default:
-    ipam:
-      config:
-        - subnet: 172.30.0.0/24
-```
-
-```dotenv
-AUTH_MODE=header
-AUTH_TRUSTED_PROXIES=172.30.0.0/24
-AUTH_PROXY_SECRET=<long random string>
-```
-
-and in the proxy (nginx):
-
-```nginx
-location / {
-    proxy_pass http://nautobot-maps:5000;
-    proxy_set_header X-Forwarded-User   $authenticated_user;   # from your SSO module
-    proxy_set_header X-Forwarded-Groups $authenticated_groups;
-    proxy_set_header X-Auth-Proxy-Secret "<the same secret>";
-}
-```
-
-The startup log shows which proxies are trusted.
-
-Recommended deployment patterns:
-
-1. **Public read-only mode**: leave `AUTH_MODE=disabled`.
-2. **Protected admin mode**: enable `AUTH_MODE=header` behind an internal reverse proxy.
-3. **Optional SSO mode**: connect your reverse proxy or auth gateway to OIDC/SAML and forward trusted user/group headers to this app.
-
-## Alert lifecycle history and case tracking
-
-When persistence is configured, `/api/alerts` now includes per-site downtime/case context (`current_downtime_seconds`, `historical_downtime_seconds`, `active_cases`, `down_devices`).  
-
-## Alert severity levels
-
-Each site on the alert board gets one level, from its monitored devices (devices with a Nautobot primary IP, after exclusions):
-
-| Level | When |
-|---|---|
-| **Critical** | A core device is down (role matches a critical keyword, or marked critical by an override), or every monitored device is down |
-| **Medium** | More than 25% of the monitored devices are down |
-| **Low** | At least one monitored device is down, 25% or fewer |
-| **No data** | No monitored devices, or the level could not be computed. Not counted as an alert |
-| **OK** | Monitored devices present, none down |
-
-`/api/alerts` returns a count per level in `summary` (`critical`, `medium`, `low`, `no_data`, `ok`, plus `total`), and `non_ok` = Critical + Medium + Low.
-
-## Alert board filtering
-
-`/api/alerts` and `/alerts` only count devices that have a Nautobot primary IP (`primary_ip`, `primary_ip4`, or `primary_ip6`). This keeps access points and other non-alerted devices off the board without removing them from the cached inventory used elsewhere.
-
-Non-operational locations are hidden server-side by default when their location type matches `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` (default: `graveyard,warehouse`). You can also exclude by location status, tag, or fallback name list with the related `ALERT_BOARD_EXCLUDED_LOCATION_*` settings. The UI keeps those locations hidden by default but can request the full dataset with the `include_non_operational=1` query parameter.
-
-### One row per Site
-
-With a location hierarchy such as Region › Country › Site › Building › Floor, set the level the board should show:
-
-```bash
-ALERT_BOARD_SITE_LOCATION_TYPE=Site
-```
-
-Only locations of that type (case-insensitive) get a row. Levels above it (Region, Country) are hidden, and the row shows them as a path, e.g. `EMEA › DNK`. Devices in child locations count towards their Site (device count, severity, downtime), and a down device's row says where it is, e.g. `Bygning A › Etage 2`. Devices below an excluded location (e.g. a Decommissioning building) are left out. A location with devices but no Site above it keeps its own row and is logged once. Changing the setting moves open alerts from building/floor rows to their Site, which restarts their downtime once.
-
-## Automatic updates
-
-An open alert board keeps itself up to date. Next to the Refresh button it shows **"Next update in m:ss"**, the time until the next inventory sync is due (the sooner of `INVENTORY_SYNC_INTERVAL_SECONDS` and `LIBRENMS_SYNC_INTERVAL_SECONDS`). At zero the board reloads in the background, which starts the sync, and the new data appears when it finishes ("Updating…" meanwhile). Refresh syncs immediately and restarts the countdown.
-
-**Wall screen:** open `/alerts?view=wall` on a NOC TV (the board links to it as *Wall view*). It shows only sites with alarms, each with its down devices listed, in large text and with no buttons or filters. It reloads every minute, shows when it last updated, turns that red after 10 minutes without an update, and shows a red banner when it can't load the board (keeping the last board on screen). With `AUTH_REQUIRE_VIEWER=true` the screen's browser needs a login through your proxy like any other viewer.
-
-A background scheduler also runs the due syncs and rebuilds the board with **no page open**, so alert history (downtime, opened/resolved alerts) is recorded around the clock, with start times accurate to about one sync interval. Every app process runs one scheduler thread, and a PostgreSQL lock lets only one of them work at a time, so more workers or containers don't mean more syncs. Set `BACKGROUND_SYNC_ENABLED=false` to turn it off; syncs then only run when pages are loaded.
-Devices can be ignored by status with `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES`: they are not counted as monitored or down and are not listed, so for example a Decommissioning device no longer makes its site Critical. This applies whether or not non-operational locations are shown. In both status settings, `null` matches a missing or empty status:
-
-```bash
-ALERT_BOARD_EXCLUDED_LOCATION_STATUSES=null,decommissioning,planned
-ALERT_BOARD_EXCLUDED_DEVICE_STATUSES=null,decommissioning,planned
-```
-
-## Inventory-backed reads
-
-**The alert board requires PostgreSQL** (`NAUTOBOT_MAPS_DATABASE_URL`); without it the board stays empty, shows a message saying so, and a warning is logged at startup. The map works either way. SQLite is no longer supported: a leftover `NAUTOBOT_MAPS_DB` setting is ignored and logged as an error.
-
-When persistence is configured, Nautobot Maps keeps cached Nautobot locations/devices and LibreNMS device status in the database and prefers those tables as the primary read source for `/api/locations`, `/api/locations/<id>/detail`, and `/api/alerts`. A background sync refreshes Nautobot incrementally with `last_updated__gte=<last_successful_sync>` (device pages are requested with `depth=1` so `primary_ip4`/`primary_ip6` include inline address data), automatically falls back to a full reconcile when the cached extraction/schema version changes, advances the Nautobot watermark only when an incremental pull observes newer upstream `last_updated` values, and uses the sync start time as the fallback watermark only for full reconciles. LibreNMS status refreshes on its own interval, while request handlers continue serving the last persisted snapshot. On `/api/alerts`, `refresh=1|true|yes|refresh` only signals a background sync and never performs live upstream Nautobot/LibreNMS fetches inline. That sync is incremental (only objects changed since the last sync); deleted objects are removed by the scheduled daily full reconcile. On a fresh database, the first `/api/alerts` request starts the initial sync in the background and reports `sync_pending: true`, so the alert board fills in on its own without first opening the map.
-
-## Running Tests
-
-```bash
-pip install -r requirements-dev.txt
-# Database tests need a PostgreSQL the tests may create schemas in
-# (preset in the dev container; skipped without it):
-export TEST_DATABASE_URL=postgresql://nautobot_maps:nautobot_maps@localhost:5432/nautobot_maps_test
-python -m pytest tests/ -v
-ruff check .        # lint (same as CI)
-ruff format --check . # formatting (same as CI); `ruff format .` fixes it
-npm ci && npm run lint:js   # JavaScript lint (same as CI)
-```
-
-The test suite includes:
-
-- **Unit tests** (`tests/test_app.py`) — mock-based, run offline; persistence tests
-  run against PostgreSQL (`TEST_DATABASE_URL`).
-- **Mock-integration tests** (`tests/test_integration.py`) — start a local
-  mock Nautobot server and exercise the full HTTP stack.
-- **Live integration tests** (`tests/test_nautobot_live.py`) — skipped by
-  default; set `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN` to run against a
-  real Nautobot instance.  The `development/` directory contains a
-  `docker-compose.yml` + `seed_nautobot.py` for a real Nautobot 3.x stack
-  (see [`development/README.md`](development/README.md)).
-
-## Nautobot Version Compatibility
-
-The application is tested against **Nautobot 2.x and 3.x**:
-
-| Feature | Nautobot 2.x | Nautobot 3.x |
-|---|---|---|
-| Location GPS coordinates | ✅ | ✅ |
-| Device list (`dcim/devices/`) | ✅ | ✅ |
-| ASN via `ipam/asns/` endpoint | ✅ (built-in) | ⚠️ BGP plugin only |
-| ASN as integer field on Location | — | ✅ |
-| Nested objects include `name`/`label` | ✅ | ⚠️ brief objects (id + url only) |
-
-> **Nautobot 3.x note:** In Nautobot 3.x core the `ipam/asns/` endpoint is
-> not available unless the BGP Models plugin is installed.  ASN numbers are
-> stored as an integer field directly on each Location object and are fetched
-> from there automatically.  Nested sub-objects in list responses may be
-> *brief* (containing only `id` and `url`), so the application resolves
-> human-readable names via dedicated lookup maps built from the relevant
-> endpoints.
-
-## Notes on Nautobot Data
-
-- Only locations with both `latitude` **and** `longitude` fields populated appear on the map.
-- **External services:** by default the map loads tiles from `tile.openstreetmap.org`, and address search asks the public [Nominatim](https://nominatim.org/) (no API key). So viewers' browsers fetch tiles for the areas they look at, and the app sends address queries to OpenStreetMap. On closed networks, or to keep that data inside, point `MAP_TILE_URL` and `GEOCODER_URL` at internal services, or set `GEOCODER_ENABLED=false`. Both public services have usage policies: geocoding results are cached for a day, and the app asks the geocoder at most once per second (a busy search gets "try again in a second").
-
-## Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+| [Configuration](docs/configuration.md) | Every setting |
+| [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, automatic updates, wall view |
+| [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
+| [Sign-in and roles](docs/authentication.md) | SSO proxy setup and what each role can do |
+| [MCP server](docs/mcp.md) | Connecting AI assistants |
+| API | **API** in the app's top bar opens `/docs`: every endpoint with its parameters and a **Try it** button |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests, code layout |
+
+## Nautobot versions
+
+Tested with Nautobot 2.x and 3.x. In 3.x, ASNs are read from the field on each Location (the `ipam/asns/` endpoint needs the BGP Models plugin), and names missing from brief nested objects are looked up separately, so both work without extra setup. Only locations with both latitude and longitude appear on the map.
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE).
