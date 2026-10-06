@@ -991,8 +991,7 @@ thead th:last-child {
 .wall-view .site-tools-row,
 .wall-view .col-tenants,
 .wall-view .col-reason,
-.wall-view .col-action,
-.wall-view .site-address {
+.wall-view .col-action {
   display: none !important;
 }
 
@@ -1048,6 +1047,12 @@ thead th:last-child {
 .wall-view .site-meta,
 .wall-view .device-ip {
   font-size: 1rem;
+}
+
+/* Where to send someone: readable from across the room. */
+.wall-view .site-address {
+  font-size: 1.1rem;
+  color: var(--color-text);
 }
 
 /* Cases stay on the wall: a site with a case has someone on it. */

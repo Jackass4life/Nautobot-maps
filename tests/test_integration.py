@@ -1563,6 +1563,9 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         assert "display: none !important" in hidden
         # Case numbers stay visible: the room can see a site has someone on it.
         assert ".col-cases" not in hidden
+        # The physical address stays too, at a readable size.
+        assert ".site-address" not in hidden
+        assert ".wall-view .site-address {" in css
         assert ".wall-view .case-pill" in css
 
 
