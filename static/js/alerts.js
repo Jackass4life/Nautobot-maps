@@ -676,15 +676,33 @@ function siteTenants(item) {
   return item.tenant ? [item.tenant] : [];
 }
 
+// An (i) that shows *text* on hover or focus (js/tooltip.js, #263).
+function infoTipHtml(text, label) {
+  return `<span class="info-tip" tabindex="0" role="img" aria-label="${escHtml(label)}" data-info-tip="${escHtml(text)}">i</span>`;
+}
+
+// Only the map's own keys: a tenant named "constructor" or "toString" must not
+// pick up an inherited object property.
+function ownDescription(descriptions, name) {
+  return descriptions && Object.hasOwn(descriptions, name) ? descriptions[name] : "";
+}
+
+// A tenant name, with an (i) for its Nautobot description when it has one.
+function tenantName(name, descriptions) {
+  const description = ownDescription(descriptions, name);
+  return description ? `${escHtml(name)}${infoTipHtml(description, `${name}: ${description}`)}` : escHtml(name);
+}
+
 const TENANTS_SHOWN = 3;
 
 // One tenant as text; several get a "N tenants" badge so a multi-customer
 // site stands out when it alarms (#238).
 function tenantCell(item) {
   const tenants = siteTenants(item);
+  const descriptions = item.tenant_descriptions;
   if (!tenants.length) return "—";
-  if (tenants.length === 1) return escHtml(tenants[0]);
-  const shown = tenants.slice(0, TENANTS_SHOWN).map(escHtml).join(", ");
+  if (tenants.length === 1) return tenantName(tenants[0], descriptions);
+  const shown = tenants.slice(0, TENANTS_SHOWN).map((name) => tenantName(name, descriptions)).join(", ");
   const more = tenants.length > TENANTS_SHOWN ? ` +${tenants.length - TENANTS_SHOWN} more` : "";
   return `<span class="multi-tenant-badge" title="${escHtml(tenants.join(", "))}">${tenants.length} tenants</span>`
     + `<div class="tenant-list">${shown}${more}</div>`;

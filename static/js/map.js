@@ -92,6 +92,28 @@ function escHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+// An (i) that shows *text* on hover or focus (js/tooltip.js, #263).
+function infoTipHtml(text, label) {
+  return `<span class="info-tip" tabindex="0" role="img" aria-label="${escHtml(label)}" data-info-tip="${escHtml(text)}">i</span>`;
+}
+
+// Only the map's own keys: a tenant named "constructor" or "toString" must not
+// pick up an inherited object property.
+function ownDescription(descriptions, name) {
+  return descriptions && Object.hasOwn(descriptions, name) ? descriptions[name] : "";
+}
+
+// The Tenant row, with an (i) for the tenant's Nautobot description.
+function tenantRow(loc) {
+  if (!loc.tenant) return "";
+  const description = ownDescription(loc.tenant_descriptions, loc.tenant);
+  const tip = description ? infoTipHtml(description, `${loc.tenant}: ${description}`) : "";
+  return `<div class="inspector-row">
+    <span class="inspector-row-label">Tenant</span>
+    <span class="inspector-row-value">${escHtml(loc.tenant)}${tip}</span>
+  </div>`;
+}
+
 function inspectorRow(label, value) {
   if (!value && value !== 0) return "";
   return `<div class="inspector-row">
@@ -383,7 +405,7 @@ function renderInspectorContent() {
     inspectorRow("Facility", loc.facility),
   ].filter(Boolean).join("");
   const secondaryRows = [
-    inspectorRow("Tenant", loc.tenant),
+    tenantRow(loc),
     inspectorRow("Tenant group", loc.tenant_group),
     inspectorRow("ASN", loc.asn),
     inspectorRow("Time zone", loc.time_zone),

@@ -41,6 +41,10 @@ ALERT_BOARD_SITE_LOCATION_TYPE=Site
 
 Only locations of that type (case-insensitive) get a row. Levels above it are shown as a path, e.g. `EMEA › DNK`. Devices in child locations count towards their Site (device count, level, downtime), and a down device's row says where it is, e.g. `Bygning A › Etage 2`. Devices below an excluded location (e.g. a Decommissioning building) are left out. A location with devices but no Site above it keeps its own row and is logged once. Changing the setting moves open alerts from building/floor rows to their Site, which restarts their downtime once.
 
+## Tenants
+
+The Tenants column lists the site's own tenant and those linked to it by a Nautobot Relationship (`SITE_TENANT_RELATIONSHIPS`). A tenant with a **description** in Nautobot gets an **(i)**: hover over it, or tab to it, to read the description. The map's site panel shows the same (i). Descriptions are read on every sync, so an edit in Nautobot shows up after the next one.
+
 ## Cases, Copy and history
 
 - **+ Case** attaches a case/ticket number to the open alerts of a site's down devices (all selected by default). It shows on the site and on each device until the alert closes.
