@@ -49,7 +49,7 @@ The Tenants column lists the site's own tenant and those linked to it by a Nauto
 
 - **+ Case** attaches a case/ticket number to the open alerts of a site's down devices. The panel shows the site's open cases and each device's case; devices without a case start ticked, those with one unticked. A new number is added next to an existing case, never instead of it, and if the number you type is already on the ticked devices the button says "Already on …". The case shows on the site and on each device until the alert closes.
 - **Copy** puts the site and its down devices (name, IP, role, status, down since, cases, Nautobot link) on the clipboard as plain text, for an ITSM ticket.
-- **History** lists past and open incidents of the site: when each device went down and came back, downtime, events and cases.
+- **History** lists past and open incidents of the site: when each device went down and came back, downtime, events and cases. **Export** at the top downloads them as CSV for the last 7, 30 or 90 days or everything: **Incidents CSV** (one row per time a device went down: device, role, IP, down and up time, minutes, status, level, reason, cases) or **Per-device CSV** (one row per device: times down, total and longest downtime in minutes, last down, down now). Times are UTC; an incident counts when it was down at any point in the period. Role and IP are the device's current ones. Same role as History (`operator` with sign-in on).
 - **Activity** (right-hand panel) lists recent changes: devices down and back up, and site level changes.
 
 With sign-in on, adding cases and history need the `operator` role ([authentication](authentication.md)).

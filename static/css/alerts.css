@@ -802,6 +802,32 @@ thead th:last-child {
   cursor: pointer;
 }
 
+/* Export the site's history as CSV (#277). */
+.history-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.history-export-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.history-export-days {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 3px 6px;
+}
+
 .history-content {
   display: flex;
   flex-direction: column;

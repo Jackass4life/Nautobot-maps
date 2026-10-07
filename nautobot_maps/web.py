@@ -9,12 +9,12 @@ from datetime import UTC
 from urllib.parse import urlsplit
 
 import requests
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import alerts, apidocs, auth, caching, db, inventory, mcp, metrics, settings, timeutil
+from nautobot_maps import alerts, apidocs, auth, caching, db, export, inventory, mcp, metrics, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -746,6 +746,58 @@ def api_alert_history():
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
+
+
+@bp.route("/api/alert-history.csv", methods=["GET"])
+@auth.require_role("operator")
+def api_alert_history_csv():
+    """A site's alert history as a CSV download (#277).
+
+    Query parameters: ``site_id`` (required), ``days`` (``7``, ``30``
+    (default), ``90`` or ``all``) and ``view``: ``incidents`` (default, one row
+    per time a device went down) or ``devices`` (one row per device: times
+    down, total and longest downtime, last down, down now).  Includes every
+    incident that was down at any point in the period.  Times are UTC.
+    """
+    site_id = (request.args.get("site_id") or "").strip()
+    days = (request.args.get("days") or "30").strip().lower()
+    view = (request.args.get("view") or "incidents").strip().lower()
+    if not site_id:
+        return jsonify({"error": "site_id is required"}), 400
+    if view not in export.VIEWS:
+        return jsonify({"error": f"view must be one of: {', '.join(export.VIEWS)}"}), 400
+    now = timeutil.parse_iso_datetime(timeutil.iso_utc_now())
+    try:
+        since = export.period_start(days, now)
+    except ValueError:
+        return jsonify({"error": f"days must be one of: {', '.join(export.PERIOD_DAYS)}"}), 400
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    headers = {"Cache-Control": "no-store"}
+    try:
+        name = export.file_name(export.site_name(conn, site_id), view, days, now)
+        headers["Content-Disposition"] = f'attachment; filename="{name}"'
+        if view == "devices":
+            body = export.devices_csv(export.read_device_summary(conn, site_id, since, now))
+            conn.close()
+            return Response(body, mimetype="text/csv", headers=headers)
+    except Exception as exc:
+        conn.close()
+        logger.exception("Could not export alert history: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+
+    # Incidents are streamed: a site's whole history need not fit in memory.
+    def lines():
+        try:
+            yield from export.incident_lines(export.iter_site_incidents(conn, site_id, since), now)
+        except Exception as exc:
+            # The status line has been sent; the download ends short.
+            logger.exception("Alert history export failed while streaming: %s", exc)
+        finally:
+            conn.close()
+
+    return Response(stream_with_context(lines()), mimetype="text/csv", headers=headers)
 
 
 # Upper bound on devices linked to one case in a single request.
