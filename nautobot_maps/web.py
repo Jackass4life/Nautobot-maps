@@ -9,7 +9,7 @@ from datetime import UTC
 from urllib.parse import urlsplit
 
 import requests
-from flask import Blueprint, Response, current_app, jsonify, render_template, request
+from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
@@ -774,23 +774,30 @@ def api_alert_history_csv():
     conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
+    headers = {"Cache-Control": "no-store"}
     try:
-        incidents = export.read_site_incidents(conn, site_id, since)
-        site_name = inventory.read_location_name_map(conn).get(site_id) or (
-            incidents[0].get("site_name") if incidents else site_id
-        )
+        name = export.file_name(export.site_name(conn, site_id), view, days, now)
+        headers["Content-Disposition"] = f'attachment; filename="{name}"'
+        if view == "devices":
+            body = export.devices_csv(export.read_device_summary(conn, site_id, since, now))
+            conn.close()
+            return Response(body, mimetype="text/csv", headers=headers)
     except Exception as exc:
+        conn.close()
         logger.exception("Could not export alert history: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
-    finally:
-        conn.close()
-    body = export.incidents_csv(incidents, now) if view == "incidents" else export.devices_csv(incidents, now)
-    name = export.file_name(site_name, view, days, now)
-    return Response(
-        body,
-        mimetype="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"},
-    )
+
+    # Incidents are streamed: a site's whole history need not fit in memory.
+    def lines():
+        try:
+            yield from export.incident_lines(export.iter_site_incidents(conn, site_id, since), now)
+        except Exception as exc:
+            # The status line has been sent; the download ends short.
+            logger.exception("Alert history export failed while streaming: %s", exc)
+        finally:
+            conn.close()
+
+    return Response(stream_with_context(lines()), mimetype="text/csv", headers=headers)
 
 
 # Upper bound on devices linked to one case in a single request.

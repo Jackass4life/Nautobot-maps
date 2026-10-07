@@ -10,7 +10,7 @@ import io
 import re
 from datetime import UTC, datetime, timedelta
 
-from nautobot_maps import db, timeutil
+from nautobot_maps import db, inventory, timeutil
 
 # The periods the History panel offers; "all" is everything the database keeps.
 PERIOD_DAYS = {"7": 7, "30": 30, "90": 90, "all": None}
@@ -46,25 +46,84 @@ DEVICE_COLUMNS = (
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
-def read_site_incidents(conn, site_id: str, since: datetime | None) -> list[dict]:
-    """The site's incidents that were down at any point since *since*, newest first."""
+# Role and IP come from the device as it is now; the LibreNMS fallback is
+# reached through the device-cache row, so a device deleted from Nautobot
+# (whose LibreNMS mapping may linger) exports neither (Copilot on #278).
+_FROM = """
+    FROM alert_instances i
+    LEFT JOIN nautobot_device_cache d ON d.device_id = i.device_id
+    LEFT JOIN librenms_device_map m ON m.nautobot_device_id = d.device_id
+    LEFT JOIN librenms_device_status s ON s.device_id = m.librenms_device_id
+"""
+# Rows read from the database at a time while streaming the incidents.
+STREAM_BATCH = 500
+
+
+def _where(since: datetime | None) -> tuple[str, list]:
     p_site, p_since = db.placeholders(2).split(",")
-    period = "" if since is None else f"AND (i.resolved_at IS NULL OR i.resolved_at >= {p_since})"
-    rows = conn.execute(
-        f"""
+    period = "" if since is None else f" AND (i.resolved_at IS NULL OR i.resolved_at >= {p_since})"
+    return f"WHERE i.site_id = {p_site}{period}", ([] if since is None else [since])
+
+
+def iter_site_incidents(conn, site_id: str, since: datetime | None):
+    """The site's incidents that were down at any point since *since*, newest first.
+
+    Read with a server-side cursor, a batch at a time: history is kept
+    forever by default, so a site's export must not be held in memory.
+    """
+    where, params = _where(since)
+    query = f"""
         SELECT i.id, i.site_name, i.device_id, i.device_name, i.alert_level, i.alert_reason, i.status,
                i.down_started_at, i.resolved_at, i.total_downtime_seconds,
                d.role, d.primary_ip, s.ip AS librenms_ip,
                (SELECT string_agg(c.case_number, ';' ORDER BY c.case_number)
                   FROM alert_cases c WHERE c.alert_instance_id = i.id) AS cases
-        FROM alert_instances i
-        LEFT JOIN nautobot_device_cache d ON d.device_id = i.device_id
-        LEFT JOIN librenms_device_map m ON m.nautobot_device_id = i.device_id
-        LEFT JOIN librenms_device_status s ON s.device_id = m.librenms_device_id
-        WHERE i.site_id = {p_site} {period}
+        {_FROM}
+        {where}
         ORDER BY i.down_started_at DESC, i.id DESC
+    """
+    # A named (server-side) cursor needs a transaction; connections autocommit.
+    with conn.transaction(), conn.cursor(name="alert_history_export") as cursor:
+        cursor.itersize = STREAM_BATCH
+        cursor.execute(query, [site_id, *params])
+        for row in cursor:
+            yield db.row_to_dict(row)
+
+
+def site_name(conn, site_id: str) -> str:
+    """For the file name: the site as Nautobot names it now, else as its newest incident did."""
+    name = inventory.read_location_name_map(conn).get(site_id)
+    if name:
+        return name
+    row = conn.execute(
+        f"SELECT site_name FROM alert_instances WHERE site_id = {db.placeholders(1)} ORDER BY id DESC LIMIT 1",
+        (site_id,),
+    ).fetchone()
+    return db.row_to_dict(row).get("site_name") or site_id
+
+
+def read_device_summary(conn, site_id: str, since: datetime | None, now: datetime) -> list[dict]:
+    """One row per device, summed by the database: most often down first."""
+    where, params = _where(since)
+    p_now = db.placeholders(1)
+    seconds = (
+        f"CASE WHEN i.status = 'open' OR i.resolved_at IS NULL "
+        f"THEN GREATEST(0, EXTRACT(EPOCH FROM ({p_now} - i.down_started_at)))::bigint "
+        f"ELSE i.total_downtime_seconds END"
+    )
+    rows = conn.execute(
+        f"""
+        SELECT MAX(i.site_name) AS site_name, i.device_id, MAX(i.device_name) AS device_name,
+               MAX(d.role) AS role, MAX(d.primary_ip) AS primary_ip, MAX(s.ip) AS librenms_ip,
+               COUNT(*) AS times_down, SUM({seconds}) AS total_seconds, MAX({seconds}) AS longest_seconds,
+               MAX(i.down_started_at) AS last_down_at, BOOL_OR(i.status = 'open') AS down_now
+        {_FROM}
+        {where}
+        GROUP BY i.device_id
+        ORDER BY COUNT(*) DESC, SUM({seconds}) DESC, LOWER(MAX(i.device_name))
         """,
-        (site_id,) if since is None else (site_id, since),
+        # In the order the placeholders appear: SELECT (2), WHERE, ORDER BY.
+        [now, now, site_id, *params, now],
     ).fetchall()
     return [db.row_to_dict(row) for row in rows]
 
@@ -105,20 +164,22 @@ def safe_cell(value) -> str:
     return f"'{text}" if text.startswith(_FORMULA_START) else text
 
 
-def _csv(columns: tuple, rows: list[list]) -> str:
+def _line(values) -> str:
     out = io.StringIO()
-    # The byte-order mark makes Excel read UTF-8 (Danish letters and all).
-    out.write("﻿")
-    writer = csv.writer(out, lineterminator="\r\n")
-    writer.writerow(columns)
-    writer.writerows([safe_cell(value) for value in row] for row in rows)
+    csv.writer(out, lineterminator="\r\n").writerow([safe_cell(value) for value in values])
     return out.getvalue()
 
 
-def incidents_csv(incidents: list[dict], now: datetime) -> str:
-    return _csv(
-        INCIDENT_COLUMNS,
-        [
+def _header(columns: tuple) -> str:
+    # The byte-order mark makes Excel read UTF-8 (Danish letters and all).
+    return "\ufeff" + _line(columns)
+
+
+def incident_lines(incidents, now: datetime):
+    """The incidents CSV, a line at a time, so it can be streamed."""
+    yield _header(INCIDENT_COLUMNS)
+    for row in incidents:
+        yield _line(
             [
                 row.get("site_name"),
                 row.get("device_name") or row.get("device_id"),
@@ -132,55 +193,26 @@ def incidents_csv(incidents: list[dict], now: datetime) -> str:
                 row.get("alert_reason"),
                 row.get("cases") or "",
             ]
-            for row in incidents
-        ],
-    )
-
-
-def devices_csv(incidents: list[dict], now: datetime) -> str:
-    """One row per device: how often, how long, and whether it is down now; most often first."""
-    devices: dict[str, dict] = {}
-    for row in incidents:
-        key = row.get("device_id") or row.get("device_name") or ""
-        device = devices.setdefault(
-            key,
-            {
-                "site": row.get("site_name"),
-                "device": row.get("device_name") or row.get("device_id"),
-                "role": row.get("role"),
-                "ip": _ip(row),
-                "times": 0,
-                "total": 0,
-                "longest": 0,
-                "last": None,
-                "down_now": False,
-            },
         )
-        seconds = duration_seconds(row, now)
-        device["times"] += 1
-        device["total"] += seconds
-        device["longest"] = max(device["longest"], seconds)
-        started = _as_datetime(row.get("down_started_at"))
-        if started and (device["last"] is None or started > device["last"]):
-            device["last"] = started
-        device["down_now"] = device["down_now"] or row.get("status") == "open"
-    ordered = sorted(devices.values(), key=lambda d: (-d["times"], -d["total"], str(d["device"]).lower()))
-    return _csv(
-        DEVICE_COLUMNS,
-        [
+
+
+def devices_csv(summary: list[dict]) -> str:
+    """The per-device CSV from ``read_device_summary`` (a row per device: small)."""
+    return _header(DEVICE_COLUMNS) + "".join(
+        _line(
             [
-                d["site"],
-                d["device"],
-                d["role"],
-                d["ip"],
-                d["times"],
-                _minutes(d["total"]),
-                _minutes(d["longest"]),
-                _utc_text(d["last"]),
-                "yes" if d["down_now"] else "no",
+                row.get("site_name"),
+                row.get("device_name") or row.get("device_id"),
+                row.get("role"),
+                _ip(row),
+                row.get("times_down"),
+                _minutes(int(row.get("total_seconds") or 0)),
+                _minutes(int(row.get("longest_seconds") or 0)),
+                _utc_text(row.get("last_down_at")),
+                "yes" if row.get("down_now") else "no",
             ]
-            for d in ordered
-        ],
+        )
+        for row in summary
     )
 
 

@@ -7196,6 +7196,11 @@ class TestAlertHistoryCsv:
                 conn.execute(
                     "INSERT INTO librenms_device_status (device_id, hostname, ip) VALUES (7, 'lon-core', '10.9.9.9')"
                 )
+                # "gone" was deleted from Nautobot, but its LibreNMS mapping lingers.
+                conn.execute("INSERT INTO librenms_device_map VALUES ('gone', 8, 'gone-host')")
+                conn.execute(
+                    "INSERT INTO librenms_device_status (device_id, hostname, ip) VALUES (8, 'gone-host', '10.6.6.6')"
+                )
                 incidents = [
                     # id, device, name, status, down, resolved, seconds, level
                     (1, "d1", "lon-sw01", "resolved", "2026-10-01T08:12:00Z", "2026-10-01T08:40:00Z", 1680, "low"),
@@ -7269,7 +7274,17 @@ class TestAlertHistoryCsv:
             "cases": "INC-1;INC-881",
         }
         assert long_one["ip"] == "10.9.9.9" and long_one["duration_min"] == "54720"
+        # A deleted device exports no role and no IP, even with a lingering LibreNMS mapping.
         assert gone["role"] == "" and gone["ip"] == ""
+
+    def test_incidents_are_streamed_in_batches(self, client, monkeypatch):
+        """A site's whole history is never held in memory (Copilot on #278)."""
+        from nautobot_maps import export
+
+        monkeypatch.setattr(export, "STREAM_BATCH", 2)
+        resp = client.get("/api/alert-history.csv?site_id=loc-lon&days=all")
+        assert resp.is_streamed
+        assert len(self._rows(resp)) == 5
 
     def test_all_and_seven_days(self, client):
         everything = self._rows(client.get("/api/alert-history.csv?site_id=loc-lon&days=all"))
