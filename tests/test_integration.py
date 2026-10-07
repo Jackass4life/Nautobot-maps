@@ -1340,6 +1340,9 @@ class TestSeverityTilesInTheBrowser:
             "hasActiveAlarm",
             "matchesSeverityFilter",
             "setSeverityFilter",
+            "downDeviceList",
+            "siteCaseState",
+            "caseSortRank",
             "formatBoardStatus",
             "siteTenants",
             "getFilteredAlerts",
@@ -1379,6 +1382,7 @@ let allAlerts = [
 ];
 {constants}
 let severityFilter = DEFAULT_SEVERITY_FILTER;
+const WALL_VIEW = false;
 {functions}
 {body}
 """
@@ -1445,7 +1449,14 @@ class TestWallViewInTheBrowser:
         if shutil.which("node") is None:
             pytest.skip("node is required for the browser runtime test")
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = ("hasActiveAlarm", "formatClock", "renderWallStatus", "showWallError")
+        names = (
+            "hasActiveAlarm",
+            "downDeviceList",
+            "siteCaseState",
+            "formatClock",
+            "renderWallStatus",
+            "showWallError",
+        )
         functions = "\n".join(_extract_js_function(js, name) for name in names)
         constants = "\n".join(
             re.search(pattern, js).group(0)
@@ -1487,11 +1498,11 @@ lastLoadedAt = Date.UTC(2026, 9, 5, 14, 5);
 renderWallStatus(lastLoadedAt + 60000);
 const clock = formatClock(lastLoadedAt);
 check(clock.includes("05"), clock);
-check(wallUpdatedEl.textContent === `Updated ${clock} · 2 sites with alarms`, wallUpdatedEl.textContent);
+check(wallUpdatedEl.textContent === `Updated ${clock} · 2 sites with alarms · 2 without case`, wallUpdatedEl.textContent);
 check(!classes.has("wall-stale"), "fresh");
 allAlerts = [{ alert_level: "medium" }];
 renderWallStatus(lastLoadedAt);
-check(wallUpdatedEl.textContent.endsWith("· 1 site with alarms"), wallUpdatedEl.textContent);
+check(wallUpdatedEl.textContent.endsWith("· 1 site with alarms · 1 without case"), wallUpdatedEl.textContent);
 renderWallStatus(lastLoadedAt + WALL_STALE_MS);
 check(wallUpdatedEl.textContent === `NOT UPDATED since ${clock}` && classes.has("wall-stale"), wallUpdatedEl.textContent);
 """)
@@ -1679,6 +1690,97 @@ check(!tenantRow({{ tenant: "constructor", tenant_descriptions: {{}} }}).include
 """
         completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
         assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+class TestWallCaseStateInTheBrowser:
+    """Wall view: which sites someone is on, at a glance (#271)."""
+
+    def _run(self, body, wall_view=True):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = (
+            "escHtml",
+            "hasActiveAlarm",
+            "downDeviceList",
+            "siteCaseState",
+            "caseStateBadge",
+            "caseSortRank",
+            "siteNameHtml",
+            "formatClock",
+            "renderWallStatus",
+        )
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        constants = "\n".join(
+            re.search(pattern, js).group(0)
+            for pattern in (r"const ALARM_LEVELS = \[[^\]]*\];", r"const WALL_STALE_MS = [^;]*;")
+        )
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const WALL_VIEW = {"true" if wall_view else "false"};
+const wallUpdatedEl = {{ textContent: "", classList: {{ toggle() {{}} }} }};
+let lastLoadedAt = null;
+let allAlerts = [];
+const dev = (name, cases) => ({{ device_id: name, device_name: name, case_numbers: cases }});
+{constants}
+{functions}
+{body}
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_case_state_and_badge(self):
+        self._run("""
+const none = { down_devices: [dev("a", []), dev("b", [])] };
+const partly = { down_devices: [dev("a", ["INC-881"]), dev("b", [])] };
+const handled = { down_devices: [dev("a", ["INC-1", "INC-2"]), dev("b", ["INC-1"])] };
+check(siteCaseState(none).state === "none", "none");
+check(JSON.stringify(siteCaseState(partly)) === '{"state":"partly","without":1,"total":2}', JSON.stringify(siteCaseState(partly)));
+check(siteCaseState(handled).state === "handled", "handled");
+// An alarm without listed devices, or devices without the field, never looks handled.
+check(siteCaseState({ alert_level: "critical" }).state === "none", "no devices");
+check(siteCaseState({ down_devices: [{ device_id: "x" }] }).state === "none", "no case_numbers field");
+
+check(caseStateBadge(none).includes(">NO CASE<") && caseStateBadge(none).includes("case-state-none"), caseStateBadge(none));
+check(caseStateBadge(partly).includes(">1 of 2 no case<"), caseStateBadge(partly));
+let badge = caseStateBadge(handled);
+check(badge.includes("case-state-handled") && badge.includes("✓ INC-1, INC-2<"), "each case once: " + badge);
+badge = caseStateBadge({ down_devices: [dev("a", ['<b>"x"'])] });
+check(badge.includes("&lt;b&gt;&quot;x&quot;") && !badge.includes("<b>"), badge);
+""")
+
+    def test_handled_sites_sort_last_and_count_in_the_status(self):
+        self._run("""
+const sites = [
+  { name: "London", alert_level: "medium", down_devices: [dev("a", ["INC-1"])] },
+  { name: "Aarhus", alert_level: "critical", down_devices: [dev("b", [])] },
+  { name: "Oslo", alert_level: "low", down_devices: [dev("c", ["INC-2"]), dev("d", [])] },
+];
+const order = [...sites].sort((a, b) => caseSortRank(a) - caseSortRank(b)).map((s) => s.name).join();
+check(order === "Aarhus,Oslo,London", "handled last, the rest keep their order: " + order);
+allAlerts = sites;
+lastLoadedAt = Date.now();
+renderWallStatus(lastLoadedAt);
+check(wallUpdatedEl.textContent.endsWith("· 3 sites with alarms · 2 without case"), wallUpdatedEl.textContent);
+""")
+
+    def test_wall_site_name_is_plain_text(self):
+        self._run("""
+const site = { id: "loc-1", name: "Aarhus HQ", latitude: 56.1, longitude: 10.2 };
+check(!siteNameHtml(site, false).includes("href") && siteNameHtml(site, false).includes(">Aarhus HQ<"), siteNameHtml(site, false));
+check(siteNameHtml(site).includes('href="/?location_id=loc-1"'), "the board keeps the link");
+""")
+
+    def test_rows_use_it_only_on_the_wall(self):
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        rows = _extract_js_function(js, "renderTableRows")
+        assert "siteNameHtml(item, !WALL_VIEW)" in rows
+        assert '${WALL_VIEW ? caseStateBadge(item) : ""}' in rows
+        assert 'const handled = WALL_VIEW && siteCaseState(item).state === "handled";' in rows
+        assert "WALL_VIEW ? caseSortRank(a) - caseSortRank(b) : 0" in _extract_js_function(js, "getFilteredAlerts")
+        css = (REPO_ROOT / "static" / "css" / "alerts.css").read_text(encoding="utf-8")
+        assert re.search(r"\.wall-view tr\.case-handled > td \{\s*opacity: 0\.45;", css)
+        assert re.search(r"\.wall-view tr\.handled-first > td \{\s*border-top: 2px dashed", css)
 
 
 class TestApiExplorerInTheBrowser:
