@@ -28,16 +28,37 @@ TENANT_GROUPS = {
     "tg-infra": {"id": "tg-infra", "name": "Infrastructure", "slug": "infrastructure"},
 }
 
+# Descriptions show as the tenant (i) on the alert board and the map (#263);
+# EuroIX has none, so it shows how a tenant without one looks.
 TENANTS = {
-    "ten-acme": {"id": "ten-acme", "name": "Acme Corp", "slug": "acme-corp", "tenant_group": TENANT_GROUPS["tg-corp"]},
+    "ten-acme": {
+        "id": "ten-acme",
+        "name": "Acme Corp",
+        "slug": "acme-corp",
+        "description": "Retail bank. 24/7 SLA, 4-hour fix; escalate to the Acme NOC on +45 70 00 00 00",
+        "tenant_group": TENANT_GROUPS["tg-corp"],
+    },
     "ten-nordnet": {
         "id": "ten-nordnet",
         "name": "Nordic Net",
         "slug": "nordic-net",
+        "description": "Regional ISP. Business hours support, next-business-day fix",
         "tenant_group": TENANT_GROUPS["tg-infra"],
     },
-    "ten-euroix": {"id": "ten-euroix", "name": "EuroIX", "slug": "euroix", "tenant_group": TENANT_GROUPS["tg-infra"]},
-    "ten-dcgmbh": {"id": "ten-dcgmbh", "name": "DataCenter GmbH", "slug": "datacenter-gmbh", "tenant_group": None},
+    "ten-euroix": {
+        "id": "ten-euroix",
+        "name": "EuroIX",
+        "slug": "euroix",
+        "description": "",
+        "tenant_group": TENANT_GROUPS["tg-infra"],
+    },
+    "ten-dcgmbh": {
+        "id": "ten-dcgmbh",
+        "name": "DataCenter GmbH",
+        "slug": "datacenter-gmbh",
+        "description": "Colocation provider (Frankfurt). Remote hands via their ticket portal",
+        "tenant_group": None,
+    },
 }
 
 LOCATION_TYPES = {
