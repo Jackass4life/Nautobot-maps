@@ -707,6 +707,14 @@ function isSiteExpanded(item) {
   return allSitesExpanded ? !expandedSiteIds.has(siteId) : expandedSiteIds.has(siteId);
 }
 
+// A time with what it means (#275): "in alarm 3h 40m" for a site (since its
+// first currently-down device went down; one device may be down) and "down
+// 25m" for a device.  A bare "Downtime 24h" read as "the site was down".
+function sinceLabel(what, seconds) {
+  const duration = formatDuration(seconds);
+  return duration === "—" ? "—" : `${what} ${duration}`;
+}
+
 // Seconds since the device went down, or 0 when unknown.
 function deviceDowntimeSeconds(device, now = Date.now()) {
   const since = Date.parse(device.down_started_at || "");
@@ -727,7 +735,7 @@ function renderDownDeviceRows(item, isExpanded, extraClass) {
       </td>
       <td></td>
       <td class="col-tenants"></td>
-      <td>${formatDuration(deviceDowntimeSeconds(device, now))}</td>
+      <td class="since-cell">${sinceLabel("down", deviceDowntimeSeconds(device, now))}</td>
       <td class="cases-cell col-cases">${renderDeviceCases(device)}</td>
       <td class="col-reason"></td>
       <td class="col-action"></td>
@@ -837,7 +845,7 @@ function renderTableRows(alerts, payload) {
       </td>
       <td>${alertBadge(item.alert_level)}${WALL_VIEW ? caseStateBadge(item) : ""}</td>
       <td class="col-tenants">${tenantCell(item)}</td>
-      <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
+      <td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", item.current_downtime_seconds || 0)}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>
       <td class="reason-cell col-reason">${escHtml(item.alert_reason || "No active alert")}</td>
       <td class="col-action">${actionCell(item)}</td>
