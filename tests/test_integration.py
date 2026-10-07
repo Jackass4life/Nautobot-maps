@@ -1599,14 +1599,20 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         """Same sizes as the board (#267): a big screen is sized with the browser's zoom."""
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
         wall = css[css.index("/* Wall-screen view") :]
+        # Every font-size in the wall rules, in any unit (px, em, clamp(), ...).
         sizes = {
-            selectors.strip().splitlines()[-1]: float(size)
-            for selectors, size in re.findall(r"([^{}]+)\{[^}]*?font-size:\s*([\d.]+)rem", wall)
+            selectors.strip().splitlines()[-1]: value.strip()
+            for selectors, value in re.findall(r"([^{}]+)\{[^}]*?font-size:\s*([^;}]+)", wall)
         }
         assert ".wall-view" not in sizes, "no base size: the page's 16 px standard applies"
         for selector in (".wall-view .site-name", ".wall-view .alert-badge", ".wall-view .case-pill"):
             assert selector not in sizes, f"{selector} uses the board's size"
-        assert max(size for selector, size in sizes.items() if "empty-state" not in selector) <= 1.0, sizes
+        for selector, value in sizes.items():
+            if "empty-state" in selector:
+                continue
+            number = re.fullmatch(r"([\d.]+)rem", value)
+            assert number, f"{selector}: font-size {value!r}; use rem, at most 1rem"
+            assert float(number.group(1)) <= 1.0, f"{selector}: {value}"
         assert ".wall-view .case-pill" in css
 
 
