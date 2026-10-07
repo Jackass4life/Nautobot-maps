@@ -828,7 +828,10 @@ class TestCompactActionsInTheBrowser:
 
     FUNCTIONS = (
         "escHtml",
+        "devicesLabel",
         "caseButtonLabel",
+        "deviceCaseList",
+        "syncCaseSelection",
         "downDeviceList",
         "caseDevices",
         "historyButton",
@@ -928,6 +931,53 @@ check(html.includes('<label class="case-input-label" for="case-input">'), "the c
 
 html = renderCaseForm({ id: "s1", down_devices: [{ device_id: "d1", device_name: "sw1" }] });
 check(!html.includes("All down devices"), "no select-all for one device");
+""")
+
+    def test_case_form_shows_existing_cases_and_ticks_the_rest(self):
+        """A second ticket isn't added by mistake (#273)."""
+        self._run("""
+const site = { id: "s1", down_devices: [
+  { device_id: "d1", device_name: "sw1", case_numbers: ["INC-881"] },
+  { device_id: "d2", device_name: "sw2", case_numbers: [] },
+  { device_id: "d3", device_name: "sw3", case_numbers: ["INC-881", "<x>"] }] };
+let html = renderCaseForm(site);
+check(html.includes("Open cases on this site:") && (html.match(/>INC-881</g) || []).length === 3, "site line once + two devices: " + html);
+check(html.includes("&lt;x&gt;") && !html.includes("<x>"), "escaped");
+check(/value="d1" data-cases="INC-881" \\/>/.test(html), "a device with a case starts unticked: " + html);
+check(/value="d2" data-cases="" checked \\/>/.test(html), "a device without one starts ticked");
+check(html.includes("Add case to 1 device<") && !html.includes("Every down device already"), html);
+check(!/case-select-all" checked/.test(html), "select-all is not fully ticked");
+
+html = renderCaseForm({ id: "s2", down_devices: [{ device_id: "d1", device_name: "sw1", case_numbers: ["INC-1"] }] });
+check(html.includes("Every down device already has a case") && html.includes("doesn't replace it"), html);
+check(html.includes("disabled>Select devices<"), "nothing ticked, nothing to save: " + html);
+
+html = renderCaseForm({ id: "s3", down_devices: [{ device_id: "d1", device_name: "sw1" }] });
+check(!html.includes("Open cases") && !html.includes("Every down device"), "no cases: no notes");
+""")
+
+    def test_button_says_when_the_number_is_already_there(self):
+        self._run("""
+check(caseButtonLabel(0) === "Select devices", "none");
+check(caseButtonLabel(2) === "Add case to 2 devices", caseButtonLabel(2));
+check(caseButtonLabel(1, 1) === "Already on 1 device", caseButtonLabel(1, 1));
+check(caseButtonLabel(3, 1) === "Add case to 2 devices (already on 1)", caseButtonLabel(3, 1));
+
+const box = (checked, cases) => ({ checked, dataset: { cases: cases.join("\\n") } });
+const boxes = [box(true, ["INC-881"]), box(true, []), box(false, ["INC-9"])];
+const input = { value: "" };
+const button = { textContent: "", disabled: false };
+const selectAll = { checked: false, indeterminate: false };
+const form = { querySelectorAll: () => boxes, querySelector: (sel) =>
+  sel === ".case-input" ? input : sel === ".case-save-btn" ? button : selectAll };
+syncCaseSelection(form);
+check(button.textContent === "Add case to 2 devices" && !button.disabled && selectAll.indeterminate, button.textContent);
+input.value = " inc-881 ";
+syncCaseSelection(form);
+check(button.textContent === "Add case to 1 device (already on 1)" && !button.disabled, "ignoring case: " + button.textContent);
+boxes[1].checked = false;
+syncCaseSelection(form);
+check(button.textContent === "Already on 1 device" && button.disabled, button.textContent);
 """)
 
     def test_one_panel_at_a_time_and_focus_returns_to_the_row(self):
