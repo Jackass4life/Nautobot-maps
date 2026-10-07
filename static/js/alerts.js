@@ -737,17 +737,28 @@ function isSiteExpanded(item) {
 // A time with what it means (#275): "in alarm 3h 40m" for a site (since its
 // first currently-down device went down; one device may be down) and "down
 // 25m" for a device.  A bare "Downtime 24h" read as "the site was down".
-// *seconds* null: nothing open, "—".  Under a minute is "<1m", not "—",
-// which read as "no alarm" (#279).
+// *seconds*: null when nothing is open ("—"); NaN when something is open but
+// its start time isn't known ("down, time unknown": never a reassuring
+// "<1m", Copilot on #280).  A known time under a minute is "<1m" (#279).
 function sinceLabel(what, seconds) {
-  if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return "—";
+  if (seconds === null || seconds === undefined) return "—";
+  if (Number.isNaN(Number(seconds))) return `${what}, time unknown`;
   return Number(seconds) < 60 ? `${what} <1m` : `${what} ${formatDuration(seconds)}`;
 }
 
-// Seconds since the device went down, or 0 when unknown.
+// Seconds since the device went down, or NaN when its start isn't known.
 function deviceDowntimeSeconds(device, now = Date.now()) {
   const since = Date.parse(device.down_started_at || "");
-  return Number.isNaN(since) ? 0 : Math.max(0, (now - since) / 1000);
+  return Number.isNaN(since) ? NaN : Math.max(0, (now - since) / 1000);
+}
+
+// The site's time in alarm: null with nothing down; NaN when none of its
+// down devices has a known start (e.g. the alert history couldn't be saved).
+function siteAlarmSeconds(item) {
+  const devices = downDeviceList(item);
+  if (!devices.length) return null;
+  const known = devices.some((device) => !Number.isNaN(Date.parse(device.down_started_at || "")));
+  return known ? item.current_downtime_seconds || 0 : NaN;
 }
 
 function renderDownDeviceRows(item, isExpanded, extraClass) {
@@ -880,7 +891,7 @@ function renderTableRows(alerts, payload) {
       </td>
       <td>${alertBadge(item.alert_level)}${WALL_VIEW ? caseStateBadge(item) : ""}</td>
       <td class="col-tenants">${tenantCell(item)}</td>
-      <td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", downDeviceList(item).length ? item.current_downtime_seconds || 0 : null)}</td>
+      <td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", siteAlarmSeconds(item))}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>
       <td class="reason-cell col-reason">${escHtml(item.alert_reason || "No active alert")}</td>
       <td class="col-action">${actionCell(item)}</td>
