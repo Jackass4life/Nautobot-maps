@@ -64,7 +64,7 @@ Syncs are incremental (only what changed in Nautobot since the last one); a dail
 
 ## Wall view
 
-**Wall view** in the top navigation opens `/alerts?view=wall`, for a NOC screen nobody clicks on: sites with alarms only, each with its address, down devices and cases, in large text and with no buttons or filters.
+**Wall view** in the top navigation opens `/alerts?view=wall`, for a NOC screen nobody clicks on: sites with alarms only, each with its address, down devices and cases, with no buttons or filters. Text is the browser's standard size, as on the board; to make it bigger on a TV, use the browser's zoom (Ctrl/⌘ +), which the browser remembers for this site.
 
 - It reloads every minute and shows **"Updated hh:mm"**, which turns red ("NOT UPDATED since …") after 10 minutes without a successful update.
 - When the board can't be loaded it shows a red banner and keeps the last board on screen, so a frozen screen never looks like "all OK".
