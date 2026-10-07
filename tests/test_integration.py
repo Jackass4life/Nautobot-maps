@@ -1864,17 +1864,25 @@ function check(condition, message) {{ if (!condition) throw new Error(message); 
 {functions}
 check(sinceLabel("in alarm", 13200) === "in alarm 3h 40m", sinceLabel("in alarm", 13200));
 check(sinceLabel("down", 1500) === "down 25m", sinceLabel("down", 1500));
-check(sinceLabel("in alarm", 0) === "—", "no open alarm: a dash, no words");
+check(sinceLabel("in alarm", null) === "—", "no open alarm: a dash, no words");
+check(sinceLabel("in alarm", 0) === "in alarm <1m" && sinceLabel("down", 59) === "down <1m", "under a minute is not a dash");
 """
         completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
         assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_no_lone_dash_without_a_path(self):
+        """A site with no location path gets no grey line, not a bare "—" (#279)."""
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        rows = _extract_js_function(js, "renderTableRows")
+        assert '${meta ? `<div class="site-meta">${meta}</div>` : ""}' in rows
+        assert 'meta || "—"' not in rows
 
     def test_rows_and_header(self, integration_client):
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
         rows = _extract_js_function(js, "renderTableRows")
         assert (
-            '<td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", item.current_downtime_seconds || 0)}'
-            in rows
+            '<td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", '
+            "downDeviceList(item).length ? item.current_downtime_seconds || 0 : null)}" in rows
         )
         assert 'sinceLabel("down", deviceDowntimeSeconds(device, now))' in _extract_js_function(
             js, "renderDownDeviceRows"
@@ -2078,7 +2086,12 @@ check(tenantCell({{ tenant: "Acme", tenants: ["Acme"] }}) === "Acme", "one tenan
 let cell = tenantCell({{ tenants: ["Acme", "B&B"] }});
 check(cell.includes(">2 tenants<") && cell.includes("Acme, B&amp;B") && !cell.includes("more"), cell);
 cell = tenantCell({{ tenants: ["A", "B", "C", "D", "E"] }});
-check(cell.includes(">5 tenants<") && cell.includes("A, B, C +2 more") && cell.includes('title="A, B, C, D, E"'), cell);
+check(cell.includes(">5 tenants<") && cell.includes('title="A, B, C, D, E"'), cell);
+// The rest open in place, each with its (i) (#279).
+check(cell.includes('A, B, C<span class="tenant-rest" hidden>, D, E</span> <button class="tenant-more-btn" type="button">+2 more</button>'), cell);
+cell = tenantCell({{ tenants: ["A", "B", "C", "Hidden"], tenant_descriptions: {{ Hidden: "Reach me" }} }});
+check(cell.includes('hidden>, Hidden<span class="info-tip"') && cell.includes('data-info-tip="Reach me"'), cell);
+check(!tenantCell({{ tenants: ["A", "B", "C"] }}).includes("tenant-more-btn"), "three or fewer: nothing to show");
 
 let report = siteReport({{ name: "LON", tenant: "Acme", tenants: ["Acme", "Nordic"], alert_level: "low" }});
 check(report.includes("Tenants (2): Acme, Nordic") && !report.includes("Tenant: "), report);

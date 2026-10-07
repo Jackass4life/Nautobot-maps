@@ -7310,6 +7310,12 @@ class TestAlertHistoryCsv:
         assert rows["lon-core"]["times_down"] == "2" and rows["lon-core"]["down_now"] == "no"
         assert rows["lon-core"]["longest_min"] == "54720"
 
+    def test_history_panel_is_newest_down_first(self, client):
+        """By when the device went down, not by internal id (#279); like the CSV."""
+        instances = client.get("/api/alert-history?site_id=loc-lon").get_json()["instances"]
+        # Inserted as ids 1-5 in a different order than their start times.
+        assert [row["id"] for row in instances] == [2, 5, 1, 3, 4]
+
     def test_bad_requests(self, client):
         assert client.get("/api/alert-history.csv").status_code == 400
         assert client.get("/api/alert-history.csv?site_id=loc-lon&days=14").status_code == 400
