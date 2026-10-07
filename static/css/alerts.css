@@ -1068,8 +1068,17 @@ thead th:last-child {
   color: #fff;
 }
 
-.wall-view tr.case-handled > td {
-  opacity: 0.45;
+/* Quieter, not faded: muted text keeps readable contrast (4.5:1+), and the
+   severity and case badges keep their colours. */
+.wall-view tr.case-handled > td,
+.wall-view tr.case-handled .site-address,
+.wall-view tr.case-handled .device-ip {
+  color: var(--color-text-muted);
+}
+
+.wall-view tr.case-handled .site-name,
+.wall-view tr.case-handled .down-device-name {
+  font-weight: 600;
 }
 
 .wall-view tr.handled-first > td {

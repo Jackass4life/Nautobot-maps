@@ -1779,7 +1779,10 @@ check(siteNameHtml(site).includes('href="/?location_id=loc-1"'), "the board keep
         assert 'const handled = WALL_VIEW && siteCaseState(item).state === "handled";' in rows
         assert "WALL_VIEW ? caseSortRank(a) - caseSortRank(b) : 0" in _extract_js_function(js, "getFilteredAlerts")
         css = (REPO_ROOT / "static" / "css" / "alerts.css").read_text(encoding="utf-8")
-        assert re.search(r"\.wall-view tr\.case-handled > td \{\s*opacity: 0\.45;", css)
+        handled = re.search(r"\.wall-view tr\.case-handled > td,[^{]*\{([^}]*)\}", css)
+        assert handled and "color: var(--color-text-muted)" in handled.group(1)
+        # Quieter by colour, not opacity: text and badges keep readable contrast.
+        assert "case-handled" not in "".join(re.findall(r"[^{}]*\{[^}]*opacity[^}]*\}", css))
         assert re.search(r"\.wall-view tr\.handled-first > td \{\s*border-top: 2px dashed", css)
 
 
