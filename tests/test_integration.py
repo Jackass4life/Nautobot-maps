@@ -632,6 +632,21 @@ class TestAlertBoardWithPersistence:
         assert alerts["loc-ams"]["tenants"] == ["EuroIX", "Acme Corp"]
         assert alerts["loc-sto"]["tenants"] == ["Acme Corp"]
 
+    def test_tenant_descriptions_through_a_real_sync(self, persisted_integration_client):
+        """The demo's tenant (i) (#263, #265): mock descriptions reach the board and the map."""
+        alerts = self._alerts_by_site(persisted_integration_client)
+        london = alerts["loc-lon"]["tenant_descriptions"]
+        assert set(london) == {"Acme Corp", "DataCenter GmbH", "Nordic Net"}  # EuroIX has none
+        assert london["Acme Corp"].startswith("Retail bank")
+        # The board shows three names and "+1 more": the (i) the demo README
+        # points at must be on one of the first three.
+        assert [name for name in alerts["loc-lon"]["tenants"][:3] if name in london] == ["Acme Corp", "DataCenter GmbH"]
+        # What /api/locations serves, read directly: the endpoint would also
+        # queue a background sync that outlives this test's database schema.
+        locations = {loc["id"]: loc for loc in inventory.read_locations()}
+        assert set(locations["loc-cph"]["tenant_descriptions"]) == {"Acme Corp"}
+        assert set(locations["loc-fra"]["tenant_descriptions"]) == {"DataCenter GmbH"}
+
     def test_sites_with_devices_report_device_counts(self, persisted_integration_client):
         alerts = self._alerts_by_site(persisted_integration_client)
         for location_id in mock_nautobot.DEVICES:

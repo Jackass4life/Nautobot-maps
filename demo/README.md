@@ -67,10 +67,11 @@ the board fills in by itself after a few seconds.
 > **Copy** on London HQ, and **Wall view** in the top bar.
 
 ### Scenario 6 – Tenant descriptions
-On the alert board, London HQ has four tenants. Hover over the **(i)** after
-*Acme Corp*, *Nordic Net* or *DataCenter GmbH* to read the tenant's
-description from Nautobot; *EuroIX* has none, so it has no (i). On the map,
-click Copenhagen DC: its tenant has the same (i) in the site panel.
+On the alert board, London HQ has four tenants; the row shows the first three
+and "+1 more". Hover over the **(i)** after *Acme Corp* or *DataCenter GmbH* to
+read the tenant's description from Nautobot; *EuroIX* has none, so it has no
+(i). On the map, click Copenhagen DC: its tenant has the same (i) in the site
+panel.
 
 ## Stopping the demo
 
