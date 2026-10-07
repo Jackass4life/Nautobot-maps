@@ -967,15 +967,12 @@ thead th:last-child {
   opacity: 0.6;
 }
 
-/* Wall-screen view, /alerts?view=wall (#243): read from across the room,
-   nothing to click.  Alarms only, every site open, four columns. */
+/* Wall-screen view, /alerts?view=wall (#243): nothing to click.  Alarms
+   only, every site open, four columns.  Text at the browser standard, the
+   same sizes as the board: a big screen is sized with the browser's zoom. */
 .wall-bar,
 .wall-error {
   display: none;
-}
-
-.wall-view {
-  font-size: 1.05rem;
 }
 
 .wall-view .page-shell {
@@ -1004,7 +1001,7 @@ thead th:last-child {
 }
 
 .wall-updated {
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1026,7 +1023,7 @@ thead th:last-child {
   border-radius: var(--radius);
   background: var(--color-danger);
   color: #fff;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 
@@ -1034,38 +1031,14 @@ thead th:last-child {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.wall-view th,
-.wall-view td {
-  padding: 10px 14px;
-}
-
-.wall-view .site-name {
-  font-size: 1.25rem;
-}
-
-.wall-view .site-summary,
-.wall-view .site-meta,
-.wall-view .device-ip {
-  font-size: 0.9rem;
-}
-
-/* Where to send someone: readable from across the room. */
+/* Where to send someone: in the normal text colour, not grey. */
 .wall-view .site-address {
-  font-size: 1rem;
   color: var(--color-text);
 }
 
 /* Cases stay on the wall: a site with a case has someone on it. */
 .wall-view .case-pill {
-  padding: 3px 10px;
-  font-size: 0.9rem;
   font-weight: 700;
-}
-
-.wall-view .alert-badge {
-  min-width: 100px;
-  padding: 5px 12px;
-  font-size: 0.9rem;
 }
 
 .wall-view table {
@@ -1073,8 +1046,8 @@ thead th:last-child {
 }
 
 .wall-view .empty-state {
-  padding: 48px;
-  font-size: 1.6rem;
+  padding: 40px;
+  font-size: 1.25rem;
 }
 
 .wall-view .empty-state.all-clear {

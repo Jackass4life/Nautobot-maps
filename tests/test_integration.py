@@ -1594,6 +1594,19 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         # The physical address stays too, at a readable size.
         assert ".site-address" not in hidden
         assert ".wall-view .site-address {" in css
+
+    def test_wall_text_is_the_browser_standard(self, integration_client):
+        """Same sizes as the board (#267): a big screen is sized with the browser's zoom."""
+        css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
+        wall = css[css.index("/* Wall-screen view") :]
+        sizes = {
+            selectors.strip().splitlines()[-1]: float(size)
+            for selectors, size in re.findall(r"([^{}]+)\{[^}]*?font-size:\s*([\d.]+)rem", wall)
+        }
+        assert ".wall-view" not in sizes, "no base size: the page's 16 px standard applies"
+        for selector in (".wall-view .site-name", ".wall-view .alert-badge", ".wall-view .case-pill"):
+            assert selector not in sizes, f"{selector} uses the board's size"
+        assert max(size for selector, size in sizes.items() if "empty-state" not in selector) <= 1.0, sizes
         assert ".wall-view .case-pill" in css
 
 
