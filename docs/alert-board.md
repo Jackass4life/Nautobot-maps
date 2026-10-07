@@ -1,6 +1,6 @@
 # The alert board
 
-`/alerts` shows every site's alert level, its down devices, how long they've been down, and the cases attached to them. It opens on **Alarms** (sites at Critical, Medium or Low); the tiles at the top switch to one level or **All sites**.
+`/alerts` shows every site's alert level, its down devices, how long they've been down, and the cases attached to them. The **Since** column says what each time means: a site is **in alarm 3h 40m** (since its first currently-down device went down; that may be one device), a device is **down 25m**. The wall view shows only the devices' times. It opens on **Alarms** (sites at Critical, Medium or Low); the tiles at the top switch to one level or **All sites**.
 
 The board needs PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`); without it the board stays empty, says so, and a warning is logged at startup. The map works either way.
 

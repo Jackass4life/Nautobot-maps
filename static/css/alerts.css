@@ -615,6 +615,11 @@ thead th:last-child {
   color: var(--color-success);
 }
 
+/* "in alarm 3h 40m" / "down 25m" on one line. */
+.since-cell {
+  white-space: nowrap;
+}
+
 .reason-cell {
   min-width: 180px;
   color: var(--color-text-muted);
