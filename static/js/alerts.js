@@ -707,7 +707,6 @@ function isSiteExpanded(item) {
   return allSitesExpanded ? !expandedSiteIds.has(siteId) : expandedSiteIds.has(siteId);
 }
 
-// Seconds since the device went down, or 0 when unknown.
 // A time with what it means (#275): "in alarm 3h 40m" for a site (since its
 // first currently-down device went down; one device may be down) and "down
 // 25m" for a device.  A bare "Downtime 24h" read as "the site was down".
@@ -716,6 +715,7 @@ function sinceLabel(what, seconds) {
   return duration === "—" ? "—" : `${what} ${duration}`;
 }
 
+// Seconds since the device went down, or 0 when unknown.
 function deviceDowntimeSeconds(device, now = Date.now()) {
   const since = Date.parse(device.down_started_at || "");
   return Number.isNaN(since) ? 0 : Math.max(0, (now - since) / 1000);
