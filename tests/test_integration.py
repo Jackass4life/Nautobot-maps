@@ -831,6 +831,8 @@ class TestCompactActionsInTheBrowser:
         "devicesLabel",
         "caseButtonLabel",
         "deviceCaseList",
+        "deviceHasCase",
+        "caseTargetIds",
         "syncCaseSelection",
         "downDeviceList",
         "caseDevices",
@@ -956,6 +958,15 @@ html = renderCaseForm({ id: "s3", down_devices: [{ device_id: "d1", device_name:
 check(!html.includes("Open cases") && !html.includes("Every down device"), "no cases: no notes");
 """)
 
+    def test_the_request_only_sends_devices_without_the_number(self):
+        """Mixed selection: the POST must not re-link a device that has the number (Copilot on #274)."""
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        submit = js[js.index('casePanel?.addEventListener("submit"') :]
+        submit = submit[: submit.index("\n});\n") + 4]
+        assert "const deviceIds = caseTargetIds(form, caseNumber);" in submit
+        assert submit.index("const caseNumber") < submit.index("const deviceIds")
+        assert "device_ids: deviceIds" in submit and ":checked" not in submit
+
     def test_button_says_when_the_number_is_already_there(self):
         self._run("""
 check(caseButtonLabel(0) === "Select devices", "none");
@@ -963,8 +974,8 @@ check(caseButtonLabel(2) === "Add case to 2 devices", caseButtonLabel(2));
 check(caseButtonLabel(1, 1) === "Already on 1 device", caseButtonLabel(1, 1));
 check(caseButtonLabel(3, 1) === "Add case to 2 devices (already on 1)", caseButtonLabel(3, 1));
 
-const box = (checked, cases) => ({ checked, dataset: { cases: cases.join("\\n") } });
-const boxes = [box(true, ["INC-881"]), box(true, []), box(false, ["INC-9"])];
+const box = (checked, cases, value) => ({ checked, value, dataset: { cases: cases.join("\\n") } });
+const boxes = [box(true, ["INC-881"], "d1"), box(true, [], "d2"), box(false, ["INC-9"], "d3")];
 const input = { value: "" };
 const button = { textContent: "", disabled: false };
 const selectAll = { checked: false, indeterminate: false };
@@ -975,6 +986,10 @@ check(button.textContent === "Add case to 2 devices" && !button.disabled && sele
 input.value = " inc-881 ";
 syncCaseSelection(form);
 check(button.textContent === "Add case to 1 device (already on 1)" && !button.disabled, "ignoring case: " + button.textContent);
+// What is sent matches the label: d1 already has it, only d2 gets it.
+check(JSON.stringify(caseTargetIds(form, " inc-881 ")) === '["d2"]', JSON.stringify(caseTargetIds(form, "inc-881")));
+check(JSON.stringify(caseTargetIds(form, "INC-900")) === '["d1","d2"]', "a new number goes to every ticked device");
+check(JSON.stringify(caseTargetIds(form, "")) === '["d1","d2"]', "nothing typed yet");
 boxes[1].checked = false;
 syncCaseSelection(form);
 check(button.textContent === "Already on 1 device" && button.disabled, button.textContent);

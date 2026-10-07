@@ -166,6 +166,21 @@ function deviceCaseList(box) {
   return (box.dataset.cases || "").split("\n").filter(Boolean);
 }
 
+// Whether *box*'s device already has *caseNumber*, ignoring case: "inc-881"
+// next to "INC-881" would be a second ticket by mistake.
+function deviceHasCase(box, caseNumber) {
+  const wanted = (caseNumber || "").trim().toLowerCase();
+  return Boolean(wanted) && deviceCaseList(box).some((value) => value.toLowerCase() === wanted);
+}
+
+// The ticked devices that get *caseNumber*: those that don't have it yet.
+// The button label and the request both use this, so they always agree.
+function caseTargetIds(form, caseNumber) {
+  return Array.from(form.querySelectorAll(".case-device-checkbox"))
+    .filter((box) => box.checked && !deviceHasCase(box, caseNumber))
+    .map((box) => box.value);
+}
+
 function syncCaseSelection(form) {
   const boxes = Array.from(form.querySelectorAll(".case-device-checkbox"));
   const ticked = boxes.filter((box) => box.checked);
@@ -175,12 +190,7 @@ function syncCaseSelection(form) {
     selectAll.checked = selected === boxes.length;
     selectAll.indeterminate = selected > 0 && selected < boxes.length;
   }
-  // Case numbers are compared ignoring case: "inc-881" next to "INC-881"
-  // would be a second ticket by mistake.
-  const typed = (form.querySelector(".case-input")?.value || "").trim().toLowerCase();
-  const already = typed
-    ? ticked.filter((box) => deviceCaseList(box).some((value) => value.toLowerCase() === typed)).length
-    : 0;
+  const already = selected - caseTargetIds(form, form.querySelector(".case-input")?.value).length;
   const button = form.querySelector(".case-save-btn");
   button.textContent = caseButtonLabel(selected, already);
   button.disabled = selected === 0 || already === selected;
@@ -1195,11 +1205,12 @@ casePanel?.addEventListener("submit", async (event) => {
   const siteId = form.dataset.siteId;
   const caseBtn = form.querySelector(".case-save-btn");
   const caseInput = form.querySelector(".case-input");
-  const deviceIds = Array.from(form.querySelectorAll(".case-device-checkbox:checked")).map((box) => box.value);
+  const caseNumber = (caseInput?.value || "").trim();
+  // Not the devices that already have this number (Copilot review on #274).
+  const deviceIds = caseTargetIds(form, caseNumber);
   const deviceNameById = Object.fromEntries(
     Array.from(form.querySelectorAll(".case-device-checkbox")).map((box) => [box.value, box.nextElementSibling.textContent]),
   );
-  const caseNumber = (caseInput?.value || "").trim();
   if (!siteId || !deviceIds.length || !caseNumber) {
     showError("Select at least one device and enter a case number first.");
     return;
