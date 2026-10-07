@@ -47,7 +47,7 @@ The Tenants column lists the site's own tenant and those linked to it by a Nauto
 
 ## Cases, Copy and history
 
-- **+ Case** attaches a case/ticket number to the open alerts of a site's down devices (all selected by default). It shows on the site and on each device until the alert closes.
+- **+ Case** attaches a case/ticket number to the open alerts of a site's down devices. The panel shows the site's open cases and each device's case; devices without a case start ticked, those with one unticked. A new number is added next to an existing case, never instead of it, and if the number you type is already on the ticked devices the button says "Already on …". The case shows on the site and on each device until the alert closes.
 - **Copy** puts the site and its down devices (name, IP, role, status, down since, cases, Nautobot link) on the clipboard as plain text, for an ITSM ticket.
 - **History** lists past and open incidents of the site: when each device went down and came back, downtime, events and cases.
 - **Activity** (right-hand panel) lists recent changes: devices down and back up, and site level changes.

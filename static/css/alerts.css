@@ -962,6 +962,24 @@ thead th:last-child {
   font-weight: 600;
 }
 
+/* Existing cases in the + Case panel (#273). */
+.case-existing,
+.case-note {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.case-note {
+  padding: 6px 8px;
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.case-device-cases {
+  margin-left: auto;
+}
+
 .case-form button:disabled {
   cursor: not-allowed;
   opacity: 0.6;

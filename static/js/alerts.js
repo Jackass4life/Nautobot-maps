@@ -147,22 +147,53 @@ function renderSummary(summary) {
   document.getElementById("summary-total").textContent = summary.total || 0;
 }
 
-function caseButtonLabel(selectedCount) {
+function devicesLabel(count) {
+  return `${count} device${count === 1 ? "" : "s"}`;
+}
+
+// *alreadyCount*: ticked devices that already have the typed case number
+// (#273); saving it there again would change nothing.
+function caseButtonLabel(selectedCount, alreadyCount) {
   if (selectedCount === 0) return "Select devices";
-  return `Add case to ${selectedCount} device${selectedCount === 1 ? "" : "s"}`;
+  const already = alreadyCount || 0;
+  if (already === selectedCount) return `Already on ${devicesLabel(already)}`;
+  if (already) return `Add case to ${devicesLabel(selectedCount - already)} (already on ${already})`;
+  return `Add case to ${devicesLabel(selectedCount)}`;
+}
+
+// A device's open case numbers, as the panel stores them (newline-separated).
+function deviceCaseList(box) {
+  return (box.dataset.cases || "").split("\n").filter(Boolean);
+}
+
+// Whether *box*'s device already has *caseNumber*, ignoring case: "inc-881"
+// next to "INC-881" would be a second ticket by mistake.
+function deviceHasCase(box, caseNumber) {
+  const wanted = (caseNumber || "").trim().toLowerCase();
+  return Boolean(wanted) && deviceCaseList(box).some((value) => value.toLowerCase() === wanted);
+}
+
+// The ticked devices that get *caseNumber*: those that don't have it yet.
+// The button label and the request both use this, so they always agree.
+function caseTargetIds(form, caseNumber) {
+  return Array.from(form.querySelectorAll(".case-device-checkbox"))
+    .filter((box) => box.checked && !deviceHasCase(box, caseNumber))
+    .map((box) => box.value);
 }
 
 function syncCaseSelection(form) {
   const boxes = Array.from(form.querySelectorAll(".case-device-checkbox"));
-  const selected = boxes.filter((box) => box.checked).length;
+  const ticked = boxes.filter((box) => box.checked);
+  const selected = ticked.length;
   const selectAll = form.querySelector(".case-select-all");
   if (selectAll) {
     selectAll.checked = selected === boxes.length;
     selectAll.indeterminate = selected > 0 && selected < boxes.length;
   }
+  const already = selected - caseTargetIds(form, form.querySelector(".case-input")?.value).length;
   const button = form.querySelector(".case-save-btn");
-  button.textContent = caseButtonLabel(selected);
-  button.disabled = selected === 0;
+  button.textContent = caseButtonLabel(selected, already);
+  button.disabled = selected === 0 || already === selected;
 }
 
 // The site's expandable device list: down now, or with an alert still open.
@@ -237,20 +268,33 @@ function caseStateBadge(item) {
 
 function renderCaseForm(item) {
   const devices = caseDevices(item);
+  const casesOf = (d) => (Array.isArray(d.case_numbers) ? d.case_numbers : []);
   // One case often covers several devices (e.g. a whole site down), so every
-  // down device gets a checkbox; all start selected.
-  const deviceChoices = devices.map((d) => `
+  // down device gets a checkbox.  Devices that already have a case start
+  // unticked and show it, so a second ticket isn't added by mistake (#273).
+  const deviceChoices = devices.map((d) => {
+    const cases = casesOf(d);
+    const pills = cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
+    return `
         <label class="case-device-option">
-          <input type="checkbox" class="case-device-checkbox" value="${escHtml(d.device_id)}" checked />
-          <span>${escHtml(d.device_name || d.device_id)}</span>
-        </label>`).join("");
+          <input type="checkbox" class="case-device-checkbox" value="${escHtml(d.device_id)}" data-cases="${escHtml(cases.join("\n"))}"${cases.length ? "" : " checked"} />
+          <span>${escHtml(d.device_name || d.device_id)}</span>${pills ? `<span class="case-device-cases">${pills}</span>` : ""}
+        </label>`;
+  }).join("");
+  const ticked = devices.filter((d) => !casesOf(d).length).length;
+  const siteCases = [...new Set(devices.flatMap(casesOf))];
+  const existing = siteCases.length ? `
+      <p class="case-existing">Open cases on this site: ${siteCases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join(" ")}</p>` : "";
+  const allHaveOne = devices.length > 0 && ticked === 0;
+  const note = allHaveOne ? `
+      <p class="case-note">Every down device already has a case. Ticking a device adds a second case next to it; it doesn't replace it.</p>` : "";
   const selectAll = devices.length > 1 ? `
         <label class="case-device-option case-select-all-option">
-          <input type="checkbox" class="case-select-all" checked />
+          <input type="checkbox" class="case-select-all"${ticked === devices.length ? " checked" : ""} />
           <span>All down devices (${devices.length})</span>
         </label>` : "";
   return `
-    <form class="case-form" data-site-id="${escHtml(item.id || "")}">
+    <form class="case-form" data-site-id="${escHtml(item.id || "")}">${existing}${note}
       <fieldset class="case-devices">
         <legend>Devices for this case</legend>
         ${selectAll}
@@ -258,7 +302,7 @@ function renderCaseForm(item) {
       </fieldset>
       <label class="case-input-label" for="case-input">Case number</label>
       <input id="case-input" class="case-input" type="text" autocomplete="off" placeholder="Case #" />
-      <button class="case-save-btn" type="submit"${devices.length ? "" : " disabled"}>${caseButtonLabel(devices.length)}</button>
+      <button class="case-save-btn" type="submit"${ticked ? "" : " disabled"}>${caseButtonLabel(ticked)}</button>
     </form>
   `;
 }
@@ -295,6 +339,9 @@ function openCasePanel(siteId) {
   if (!casePanel || !item) return;
   caseTitle.textContent = `Add case · ${item.name || siteId}`;
   caseContent.innerHTML = renderCaseForm(item);
+  // Part-ticked select-all can only be set from script.
+  const form = caseContent.querySelector(".case-form");
+  if (form) syncCaseSelection(form);
   openSidePanel(casePanel, `.case-open-btn[data-site-id="${CSS.escape(siteId)}"]`, caseContent.querySelector(".case-input"));
 }
 
@@ -1132,6 +1179,12 @@ casePanel?.addEventListener("change", (event) => {
   if (event.target.matches(".case-select-all, .case-device-checkbox")) syncCaseSelection(form);
 });
 
+// The typed number may already be on the ticked devices (#273).
+casePanel?.addEventListener("input", (event) => {
+  const form = event.target.closest(".case-form");
+  if (form && event.target.classList.contains("case-input")) syncCaseSelection(form);
+});
+
 alertsTableBody.addEventListener("click", async (event) => {
   const toggleBtn = event.target.closest(".site-toggle-btn");
   if (toggleBtn) {
@@ -1190,11 +1243,12 @@ casePanel?.addEventListener("submit", async (event) => {
   const siteId = form.dataset.siteId;
   const caseBtn = form.querySelector(".case-save-btn");
   const caseInput = form.querySelector(".case-input");
-  const deviceIds = Array.from(form.querySelectorAll(".case-device-checkbox:checked")).map((box) => box.value);
+  const caseNumber = (caseInput?.value || "").trim();
+  // Not the devices that already have this number (Copilot review on #274).
+  const deviceIds = caseTargetIds(form, caseNumber);
   const deviceNameById = Object.fromEntries(
     Array.from(form.querySelectorAll(".case-device-checkbox")).map((box) => [box.value, box.nextElementSibling.textContent]),
   );
-  const caseNumber = (caseInput?.value || "").trim();
   if (!siteId || !deviceIds.length || !caseNumber) {
     showError("Select at least one device and enter a case number first.");
     return;
