@@ -7169,3 +7169,168 @@ class TestLibreNMSMappingsAreBatched:
         with patch.object(db, "transaction", side_effect=RuntimeError("db gone")):
             alerts.store_librenms_maps({"dev-1": (1, "sw1")})
         assert "Could not store 1 LibreNMS device mappings" in caplog.text
+
+
+class TestAlertHistoryCsv:
+    """A site's alert history as CSV (#277)."""
+
+    NOW = "2026-10-07T12:00:00Z"
+
+    @pytest.fixture(autouse=True)
+    def _history(self, pg_database, monkeypatch):
+        monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.NOW)
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                for device_id, name, role, ip in (
+                    ("d1", "lon-sw01", "Access Switch", "10.0.8.4/24"),
+                    ("d2", "lon-core", "Core Router", ""),
+                ):
+                    conn.execute(
+                        "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, primary_ip) "
+                        "VALUES (%s, 'loc-lon', %s, %s, %s)",
+                        (device_id, name, role, ip),
+                    )
+                # d2 has no primary IP: the address LibreNMS polls is used.
+                conn.execute("INSERT INTO librenms_device_map VALUES ('d2', 7, 'lon-core')")
+                conn.execute(
+                    "INSERT INTO librenms_device_status (device_id, hostname, ip) VALUES (7, 'lon-core', '10.9.9.9')"
+                )
+                incidents = [
+                    # id, device, name, status, down, resolved, seconds, level
+                    (1, "d1", "lon-sw01", "resolved", "2026-10-01T08:12:00Z", "2026-10-01T08:40:00Z", 1680, "low"),
+                    (2, "d1", "lon-sw01", "open", "2026-10-07T11:30:00Z", None, 0, "medium"),
+                    (
+                        3,
+                        "d2",
+                        "lon-core",
+                        "resolved",
+                        "2026-08-20T10:00:00Z",
+                        "2026-09-27T10:00:00Z",
+                        3283200,
+                        "critical",
+                    ),
+                    (4, "d2", "lon-core", "resolved", "2026-07-01T10:00:00Z", "2026-07-01T11:00:00Z", 3600, "critical"),
+                    # Deleted from Nautobot since; a name that Excel would run as a formula.
+                    (
+                        5,
+                        "gone",
+                        "=HYPERLINK(1)",
+                        "resolved",
+                        "2026-10-05T09:00:00Z",
+                        "2026-10-05T09:10:00Z",
+                        600,
+                        "low",
+                    ),
+                ]
+                for row in incidents:
+                    conn.execute(
+                        "INSERT INTO alert_instances (id, alert_key, site_id, site_name, device_id, device_name, "
+                        "status, down_started_at, last_seen_down_at, resolved_at, total_downtime_seconds, alert_level, "
+                        "alert_reason) VALUES (%s, %s, 'loc-lon', 'London HQ', %s, %s, %s, %s, %s, %s, %s, %s, 'x')",
+                        (row[0], f"k{row[0]}", row[1], row[2], row[3], row[4], row[4], row[5], row[6], row[7]),
+                    )
+                conn.execute(
+                    "INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at) VALUES "
+                    "(1, 'INC-881', '', now()), (1, 'INC-1', '', now()), (2, 'INC-900', '', now())"
+                )
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _rows(resp):
+        import csv as csv_module
+
+        text = resp.get_data(as_text=True)
+        assert text.startswith("﻿"), "BOM for Excel"
+        return list(csv_module.DictReader(text[1:].splitlines()))
+
+    def test_incidents_in_the_last_30_days(self, client):
+        resp = client.get("/api/alert-history.csv?site_id=loc-lon")
+        assert resp.status_code == 200 and resp.mimetype == "text/csv"
+        assert resp.headers["Content-Disposition"] == 'attachment; filename="london-hq-incidents-30d-2026-10-07.csv"'
+        rows = self._rows(resp)
+        # Newest first; #3 started before the period but was still down in it; #4 is older.
+        assert [row["device"] for row in rows] == ["lon-sw01", "'=HYPERLINK(1)", "lon-sw01", "lon-core"]
+        open_row, gone, resolved, long_one = rows
+        assert open_row["up_at_utc"] == "" and open_row["status"] == "open" and open_row["duration_min"] == "30"
+        assert open_row["cases"] == "INC-900" and open_row["ip"] == "10.0.8.4" and open_row["role"] == "Access Switch"
+        assert resolved == {
+            "site": "London HQ",
+            "device": "lon-sw01",
+            "role": "Access Switch",
+            "ip": "10.0.8.4",
+            "down_at_utc": "2026-10-01 08:12",
+            "up_at_utc": "2026-10-01 08:40",
+            "duration_min": "28",
+            "status": "resolved",
+            "level": "low",
+            "reason": "x",
+            "cases": "INC-1;INC-881",
+        }
+        assert long_one["ip"] == "10.9.9.9" and long_one["duration_min"] == "54720"
+        assert gone["role"] == "" and gone["ip"] == ""
+
+    def test_all_and_seven_days(self, client):
+        everything = self._rows(client.get("/api/alert-history.csv?site_id=loc-lon&days=all"))
+        assert len(everything) == 5
+        week = self._rows(client.get("/api/alert-history.csv?site_id=loc-lon&days=7"))
+        assert [row["down_at_utc"] for row in week] == ["2026-10-07 11:30", "2026-10-05 09:00", "2026-10-01 08:12"]
+
+    def test_per_device(self, client):
+        resp = client.get("/api/alert-history.csv?site_id=loc-lon&view=devices&days=all")
+        assert 'filename="london-hq-devices-all-2026-10-07.csv"' in resp.headers["Content-Disposition"]
+        rows = {row["device"]: row for row in self._rows(resp)}
+        assert rows["lon-sw01"] == {
+            "site": "London HQ",
+            "device": "lon-sw01",
+            "role": "Access Switch",
+            "ip": "10.0.8.4",
+            "times_down": "2",
+            "total_down_min": "58",
+            "longest_min": "30",
+            "last_down_at_utc": "2026-10-07 11:30",
+            "down_now": "yes",
+        }
+        assert rows["lon-core"]["times_down"] == "2" and rows["lon-core"]["down_now"] == "no"
+        assert rows["lon-core"]["longest_min"] == "54720"
+
+    def test_bad_requests(self, client):
+        assert client.get("/api/alert-history.csv").status_code == 400
+        assert client.get("/api/alert-history.csv?site_id=loc-lon&days=14").status_code == 400
+        assert client.get("/api/alert-history.csv?site_id=loc-lon&view=json").status_code == 400
+        empty = self._rows(client.get("/api/alert-history.csv?site_id=nowhere"))
+        assert empty == []
+
+    def test_needs_the_operator_role(self, client):
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            assert client.get("/api/alert-history.csv?site_id=loc-lon", headers=viewer).status_code == 403
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            assert client.get("/api/alert-history.csv?site_id=loc-lon", headers=operator).status_code == 200
+
+
+class TestAlertHistoryCsvCells:
+    def test_formula_guard(self):
+        from nautobot_maps import export
+
+        assert [export.safe_cell(v) for v in ("=1+1", "+x", "-3", "@a", "ok", None, 5)] == [
+            "'=1+1",
+            "'+x",
+            "'-3",
+            "'@a",
+            "ok",
+            "",
+            "5",
+        ]
+
+    def test_file_name_is_safe(self):
+        from datetime import UTC, datetime
+
+        from nautobot_maps import export
+
+        now = datetime(2026, 10, 7, tzinfo=UTC)
+        assert (
+            export.file_name('København "DC" / 2', "devices", "90", now) == "k-benhavn-dc-2-devices-90d-2026-10-07.csv"
+        )
+        assert export.file_name("", "incidents", "all", now) == "site-incidents-all-2026-10-07.csv"

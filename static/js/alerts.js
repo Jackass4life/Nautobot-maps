@@ -464,13 +464,40 @@ function formatTimestamp(value) {
   return escHtml(parsed.toLocaleString());
 }
 
+// The site's history as a CSV download (#277).
+function historyExportUrl(siteId, view, days) {
+  return `/api/alert-history.csv?${new URLSearchParams({ site_id: siteId, days, view })}`;
+}
+
+const HISTORY_EXPORT_DEFAULT_DAYS = "30";
+
+function historyExportBar(siteId) {
+  const link = (view, label) =>
+    `<a class="action-btn history-export-link" data-view="${view}" href="${escHtml(historyExportUrl(siteId, view, HISTORY_EXPORT_DEFAULT_DAYS))}" download>${label}</a>`;
+  return `
+    <div class="history-export" data-site-id="${escHtml(siteId)}">
+      <label class="history-export-label">Export
+        <select class="history-export-days" aria-label="Export period">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="all">All</option>
+        </select>
+      </label>
+      ${link("incidents", "Incidents CSV")}
+      ${link("devices", "Per-device CSV")}
+    </div>`;
+}
+
 function renderAlertHistory(siteId, instances) {
   if (!historyPanel || !historyTitle || !historyContent) return;
-  historyTitle.textContent = `History · ${siteId}`;
+  const site = allAlerts.find((alert) => String(alert.id) === siteId);
+  historyTitle.textContent = `History · ${site?.name || siteId}`;
+  const exportBar = historyExportBar(siteId);
   if (!instances.length) {
-    historyContent.innerHTML = `<div class="history-instance"><div class="history-line">No incidents found.</div></div>`;
+    historyContent.innerHTML = `${exportBar}<div class="history-instance"><div class="history-line">No incidents found.</div></div>`;
   } else {
-    historyContent.innerHTML = instances.map((instance) => {
+    historyContent.innerHTML = exportBar + instances.map((instance) => {
       const cases = Array.isArray(instance.cases) ? instance.cases.map((entry) => escHtml(entry.case_number || "")).filter(Boolean) : [];
       const events = Array.isArray(instance.events)
         ? instance.events.map((event) => `${escHtml(event.event_type || "")} @ ${formatTimestamp(event.event_at)}`).join(", ")
@@ -1185,6 +1212,15 @@ casePanel?.addEventListener("change", (event) => {
     });
   }
   if (event.target.matches(".case-select-all, .case-device-checkbox")) syncCaseSelection(form);
+});
+
+// The export period applies to both download links (#277).
+historyPanel?.addEventListener("change", (event) => {
+  if (!event.target.classList.contains("history-export-days")) return;
+  const bar = event.target.closest(".history-export");
+  bar.querySelectorAll(".history-export-link").forEach((link) => {
+    link.href = historyExportUrl(bar.dataset.siteId, link.dataset.view, event.target.value);
+  });
 });
 
 // The typed number may already be on the ticked devices (#273).

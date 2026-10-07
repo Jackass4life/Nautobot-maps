@@ -1883,6 +1883,33 @@ check(sinceLabel("in alarm", 0) === "—", "no open alarm: a dash, no words");
         assert "<th>Since</th>" in html and "<th>Downtime</th>" not in html
 
 
+class TestHistoryExportInTheBrowser:
+    """CSV download links in the History panel (#277)."""
+
+    def test_links(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        functions = "\n".join(
+            _extract_js_function(js, name) for name in ("escHtml", "historyExportUrl", "historyExportBar")
+        )
+        default = re.search(r"const HISTORY_EXPORT_DEFAULT_DAYS = [^;]*;", js).group(0)
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{default}
+{functions}
+check(historyExportUrl("loc 1&x", "devices", "all") === "/api/alert-history.csv?site_id=loc+1%26x&days=all&view=devices",
+  historyExportUrl("loc 1&x", "devices", "all"));
+const bar = historyExportBar('loc"1');
+check(bar.includes('data-site-id="loc&quot;1"'), bar);
+check(bar.includes('href="/api/alert-history.csv?site_id=loc%221&amp;days=30&amp;view=incidents" download>Incidents CSV'), bar);
+check(bar.includes('data-view="devices"') && bar.includes(">Per-device CSV<"), bar);
+check(bar.includes('<option value="30" selected>'), "30 days by default");
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
 class TestApiExplorerInTheBrowser:
     """Try it on the API explorer (#230)."""
 
