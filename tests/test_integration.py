@@ -790,6 +790,13 @@ check(nextUpdateEl.hidden, "hidden when unknown");
 class TestSiteMetaInTheBrowser:
     """The grey line under a site shows only the path above it (#178)."""
 
+    def test_the_row_shows_only_the_path(self):
+        """Not "LATAM › BRA · Active · Site": the row uses siteMeta alone (#269)."""
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        rows = _extract_js_function(js, "renderTableRows")
+        assert "const meta = siteMeta(item);" in rows
+        assert "item.status" not in rows and "item.location_type" not in rows, "status/type are not shown on the row"
+
     def test_site_meta_is_only_the_path(self):
         if shutil.which("node") is None:
             pytest.skip("node is required for the browser runtime test")

@@ -741,8 +741,8 @@ function renderTableRows(alerts, payload) {
     const toggleButton = downDeviceList(item).length
       ? `<button class="site-toggle-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="${isExpanded ? "Collapse" : "Expand"} ${escHtml(item.name || item.id || "site")}">${isExpanded ? "▾" : "▸"}</button>`
       : '<span class="site-toggle-spacer" aria-hidden="true"></span>';
-    // Path above the site, then its status and type (no columns of their own).
-    const meta = [siteMeta(item), escHtml(item.status || ""), escHtml(item.location_type || "")].filter(Boolean).join(" · ");
+    // Only the path above the site, e.g. "LATAM › BRA" (#178): no status or type.
+    const meta = siteMeta(item);
 
     return `
     <tr class="site-row">
