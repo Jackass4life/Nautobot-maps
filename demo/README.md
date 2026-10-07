@@ -59,10 +59,19 @@ Type `Berlin` or `52.52, 13.40` (Berlin).
 > No Nautobot locations are within 5 km of Berlin; the sidebar shows a "no results" message.
 
 ### Scenario 5 – Alert board
-Open the map first (this triggers the initial inventory sync), then go to
-http://localhost:5000/alerts.
-> London HQ is flagged with 2 down devices (`lon-acc-sw01`, `lon-acc-sw02`);
-> every other site is OK and shows its device count.
+Go to http://localhost:5000/alerts. The first visit starts the inventory sync;
+the board fills in by itself after a few seconds.
+> It opens on **Alarms**: London HQ is Medium with 2 down devices
+> (`lon-acc-sw01`, `lon-acc-sw02`), and *Etage 2* (a floor in the Danish
+> hierarchy) is Critical. **All sites** shows every site. Try **+ Case** and
+> **Copy** on London HQ, and **Wall view** in the top bar.
+
+### Scenario 6 – Tenant descriptions
+On the alert board, London HQ has four tenants; the row shows the first three
+and "+1 more". Hover over the **(i)** after *Acme Corp* or *DataCenter GmbH* to
+read the tenant's description from Nautobot; *EuroIX* has none, so it has no
+(i). On the map, click Copenhagen DC: its tenant has the same (i) in the site
+panel.
 
 ## Stopping the demo
 
