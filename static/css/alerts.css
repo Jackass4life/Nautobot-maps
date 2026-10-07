@@ -1063,6 +1063,46 @@ thead th:last-child {
   min-width: 0;
 }
 
+/* Is someone on it? (#271)  A badge next to the severity, with text as well
+   as colour; sites with a case on every down device are faded and sorted
+   below a dashed line, so the bright rows at the top are the work. */
+.case-state {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 9px;
+  border: 2px solid var(--color-text);
+  border-radius: 999px;
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.case-state-handled {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* Quieter, not faded: muted text keeps readable contrast (4.5:1+), and the
+   severity and case badges keep their colours. */
+.wall-view tr.case-handled > td,
+.wall-view tr.case-handled .site-address,
+.wall-view tr.case-handled .device-ip {
+  color: var(--color-text-muted);
+}
+
+.wall-view tr.case-handled .site-name,
+.wall-view tr.case-handled .down-device-name {
+  font-weight: 600;
+}
+
+.wall-view tr.handled-first > td {
+  border-top: 2px dashed var(--color-text-muted);
+}
+
 .wall-view .empty-state {
   padding: 40px;
   font-size: 1.25rem;

@@ -233,12 +233,37 @@ function actionCell(item) {
   `;
 }
 
-// The site name, linked to the site on the map when it has coordinates.
-function siteNameHtml(item) {
+// The site name, linked to the site on the map when it has coordinates;
+// plain text when *linked* is false (the wall view, #271).
+function siteNameHtml(item, linked) {
   const name = escHtml(item.name || item.id || "Unknown site");
   const hasCoordinates = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
-  if (!hasCoordinates || !item.id) return `<span class="site-name">${name}</span>`;
+  if (linked === false || !hasCoordinates || !item.id) return `<span class="site-name">${name}</span>`;
   return `<a class="site-name" href="/?location_id=${encodeURIComponent(item.id)}" title="Show on the map">${name}</a>`;
+}
+
+// Whether someone is on a site (#271): "handled" when every down device has a
+// case, "partly" when some do, "none" otherwise (also with no listed devices,
+// so an alarm never looks handled by accident).
+function siteCaseState(item) {
+  const devices = downDeviceList(item);
+  const withCase = devices.filter((d) => Array.isArray(d.case_numbers) && d.case_numbers.length).length;
+  let state = "none";
+  if (devices.length && withCase === devices.length) state = "handled";
+  else if (withCase) state = "partly";
+  return { state, without: devices.length - withCase, total: devices.length };
+}
+
+// The wall view's case badge, next to the severity: readable at a glance,
+// with text as well as colour.
+function caseStateBadge(item) {
+  const { state, without, total } = siteCaseState(item);
+  if (state === "handled") {
+    const cases = [...new Set(downDeviceList(item).flatMap((d) => d.case_numbers))];
+    return `<span class="case-state case-state-handled">✓ ${escHtml(cases.join(", "))}</span>`;
+  }
+  if (state === "partly") return `<span class="case-state case-state-partly">${without} of ${total} no case</span>`;
+  return '<span class="case-state case-state-none">NO CASE</span>';
 }
 
 function renderCaseForm(item) {
@@ -688,11 +713,11 @@ function deviceDowntimeSeconds(device, now = Date.now()) {
   return Number.isNaN(since) ? 0 : Math.max(0, (now - since) / 1000);
 }
 
-function renderDownDeviceRows(item, isExpanded) {
+function renderDownDeviceRows(item, isExpanded, extraClass) {
   const downDevices = downDeviceList(item);
   if (!downDevices.length) return "";
   const siteLabel = escHtml(item.name || item.id || "site");
-  const hidden = isExpanded ? "" : " hidden";
+  const hidden = `${isExpanded ? "" : " hidden"}${extraClass ? ` ${extraClass}` : ""}`;
   const now = Date.now();
   const rows = downDevices.map((device) => `
     <tr class="down-device-row${hidden}">
@@ -781,7 +806,13 @@ function renderTableRows(alerts, payload) {
     return;
   }
 
+  let handledSeen = false;
   alertsTableBody.innerHTML = alerts.map((item) => {
+    // Wall view: sites someone is on are faded, below a dashed line (#271).
+    const handled = WALL_VIEW && siteCaseState(item).state === "handled";
+    const firstHandled = handled && !handledSeen;
+    if (handled) handledSeen = true;
+    const caseClass = handled ? `case-handled${firstHandled ? " handled-first" : ""}` : "";
     const address = formatLocationAddress(item);
     const isExpanded = isSiteExpanded(item);
     const downCount = item.down_device_count || 0;
@@ -792,26 +823,26 @@ function renderTableRows(alerts, payload) {
     const meta = siteMeta(item);
 
     return `
-    <tr class="site-row">
+    <tr class="site-row${caseClass ? ` ${caseClass}` : ""}">
       <td>
         <div class="site-name-row">
           ${toggleButton}
           <div>
-            ${siteNameHtml(item)}
+            ${siteNameHtml(item, !WALL_VIEW)}
             <div class="site-summary">${downCount} down · ${item.device_count || 0} monitored</div>
           </div>
         </div>
         ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
         <div class="site-meta">${meta || "—"}</div>
       </td>
-      <td>${alertBadge(item.alert_level)}</td>
+      <td>${alertBadge(item.alert_level)}${WALL_VIEW ? caseStateBadge(item) : ""}</td>
       <td class="col-tenants">${tenantCell(item)}</td>
       <td>${formatDuration(item.current_downtime_seconds || 0)}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>
       <td class="reason-cell col-reason">${escHtml(item.alert_reason || "No active alert")}</td>
       <td class="col-action">${actionCell(item)}</td>
     </tr>
-    ${renderDownDeviceRows(item, isExpanded)}
+    ${renderDownDeviceRows(item, isExpanded, handled ? "case-handled" : "")}
   `;
   }).join("");
   formatBoardStatus(payload, alerts.length);
@@ -839,9 +870,14 @@ function getFilteredAlerts() {
     return true;
   });
 
-  filtered.sort((a, b) => compareSites(a, b, sort));
+  // The wall view puts the sites nobody is on first (#271).
+  filtered.sort((a, b) => (WALL_VIEW ? caseSortRank(a) - caseSortRank(b) : 0) || compareSites(a, b, sort));
 
   return filtered;
+}
+
+function caseSortRank(item) {
+  return siteCaseState(item).state === "handled" ? 1 : 0;
 }
 
 function applyFilters(payload) {
@@ -983,12 +1019,14 @@ function renderWallStatus(now = Date.now()) {
     wallUpdatedEl.textContent = "Loading…";
     return;
   }
-  const alarms = allAlerts.filter(hasActiveAlarm).length;
+  const alarmSites = allAlerts.filter(hasActiveAlarm);
+  const alarms = alarmSites.length;
+  const withoutCase = alarmSites.filter((item) => siteCaseState(item).state !== "handled").length;
   const stale = now - lastLoadedAt >= WALL_STALE_MS;
   wallUpdatedEl.classList.toggle("wall-stale", stale);
   wallUpdatedEl.textContent = stale
     ? `NOT UPDATED since ${formatClock(lastLoadedAt)}`
-    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms`;
+    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case`;
 }
 
 function showWallError(message) {
