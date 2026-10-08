@@ -647,7 +647,7 @@ def api_alert_feed():
 def api_alert_history():
     """Return historical alert instances with events and case numbers.
 
-    Newest first, at most 500.  Query parameters filter them: ``site_id``,
+    Newest down first (by when the device went down), at most 500.  Query parameters filter them: ``site_id``,
     ``device_id``, and ``start_at`` / ``end_at``: only incidents created at
     or after / at or before this ISO-8601 time.
     """
@@ -695,7 +695,7 @@ def api_alert_history():
                    total_downtime_seconds, created_at, updated_at
             FROM alert_instances
             {where_clause}
-            ORDER BY id DESC
+            ORDER BY down_started_at DESC, id DESC
             LIMIT 500
             """,
             tuple(params),

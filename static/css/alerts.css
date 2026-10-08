@@ -511,6 +511,21 @@ a.site-name:focus-visible {
   cursor: help;
 }
 
+/* "+2 more" shows the remaining tenants in place (#279). */
+.tenant-more-btn {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tenant-more-btn:hover,
+.tenant-more-btn:focus-visible {
+  text-decoration: underline;
+}
+
 .tenant-list {
   margin-top: 4px;
   color: var(--color-text-muted);
