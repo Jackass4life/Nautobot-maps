@@ -167,6 +167,7 @@ class TestBoard:
         row = build()
         # Without the core: 1 of 2 down is Medium, not Critical.
         assert row["alert_level"] == "medium" and row["down_device_count"] == 1 and row["device_count"] == 2
+        assert row["maintenance_device_count"] == 1, "so the board still offers the panel to end it"
         # The core's open alert is kept, not resolved, and listed as in maintenance.
         assert open_alerts() == {"core": "open", "acc1": "open"}
         core = next(d for d in row["down_devices"] if d["device_id"] == "core")
@@ -317,6 +318,64 @@ class TestCache:
         window(starts_at="2026-10-09T12:10:00Z", duration_minutes=30)
         payload = alerts.build_alert_board_payload(snapshot_only=True)
         assert payload["next_maintenance_change"].startswith("2026-10-09T12:10:00")
+
+
+class TestSiteDevices:
+    def test_monitored_devices_of_a_site(self, site, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                no_ip = {**_snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"), "primary_ip": ""}
+                inventory.write_devices(conn, [no_ip, _snapshot_device("old", "loc-lon", "Access Switch", "Planned")])
+        finally:
+            conn.close()
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned"})
+        devices = alerts.site_monitored_devices("loc-lon")
+        assert [d["id"] for d in devices] == ["acc1", "acc2", "core"], "no primary IP or excluded: not offered"
+        assert devices[2] == {
+            "id": "core",
+            "name": "core",
+            "role": "Core Router",
+            "status": "Offline",
+            "location_path": "",
+        }
+
+    def test_rolled_up_site_includes_devices_below_it(self, site, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                building = {**_snapshot_location("bld-a", "Bygning A", "Building"), "parent_id": "loc-lon"}
+                inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ", "Site"), building])
+                inventory.write_devices(conn, [_snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")])
+        finally:
+            conn.close()
+        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        devices = {d["id"]: d for d in alerts.site_monitored_devices("loc-lon")}
+        assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
+
+    def test_not_below_an_excluded_location_unless_shown_on_the_board(self, site, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                closed = {**_snapshot_location("bld-old", "Old Building", "Building"), "parent_id": "loc-lon"}
+                inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ", "Site"), closed])
+                inventory.write_devices(conn, [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")])
+        finally:
+            conn.close()
+        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", {"old building"})
+        assert "old-sw" not in {d["id"] for d in alerts.site_monitored_devices("loc-lon")}
+        flask_app.app.config["TESTING"] = True
+        with flask_app.app.test_client() as client:
+            body = client.get("/api/maintenance/devices?site_id=loc-lon&include_non_operational=1").get_json()
+        assert "old-sw" in {d["id"] for d in body["devices"]}
+
+    def test_endpoint(self, site):
+        flask_app.app.config["TESTING"] = True
+        with flask_app.app.test_client() as client:
+            assert client.get("/api/maintenance/devices").status_code == 400
+            body = client.get("/api/maintenance/devices?site_id=loc-lon").get_json()
+        assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
 
 
 class TestApi:

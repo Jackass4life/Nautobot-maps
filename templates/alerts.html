@@ -157,6 +157,22 @@
     <div id="case-content"></div>
   </section>
 
+  <!-- Put a site or some of its devices in maintenance (#283). -->
+  <section
+    id="maint-panel"
+    class="history-panel maint-panel hidden"
+    role="dialog"
+    aria-modal="false"
+    aria-labelledby="maint-title"
+    tabindex="-1"
+    aria-hidden="true"
+  >
+    <div class="history-panel-header">
+      <h2 id="maint-title">Maintenance</h2>
+      <button id="maint-close" class="panel-close-btn" type="button">Close</button>
+    </div>
+    <div id="maint-content"></div>
+  </section>
   <!-- Copy a site's details by hand when the browser won't copy them (#227). -->
   <section
     id="copy-panel"
