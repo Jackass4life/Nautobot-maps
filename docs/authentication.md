@@ -6,7 +6,7 @@ With `AUTH_MODE=disabled`:
 
 - the map, the alert board and the read-only APIs are open to anyone who can reach the app;
 - adding a case number to an alert works (the board needs it);
-- **changing criticality overrides is refused** (403): it changes which devices count as critical, for everyone. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
+- **changing criticality overrides and sending test notifications are refused** (403): one changes which devices count as critical for everyone, the other sends real messages to your channels. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
 
 ## With a sign-in proxy
 
@@ -27,7 +27,7 @@ AUTH_ADMIN_GROUPS=nautobot-admins
 |---|---|
 | `viewer` | Open the map, the board and the read APIs, when `AUTH_REQUIRE_VIEWER=true` (otherwise they are open to everyone) |
 | `operator` | Also add cases, view alert history and manage criticality overrides |
-| `admin` | Everything an operator can (reserved for future administrative features) |
+| `admin` | Everything an operator can, and send test notifications (`POST /api/notifications/test`) |
 
 A user's role is the highest one any of their groups maps to, or `AUTH_DEFAULT_ROLE` when none does.
 

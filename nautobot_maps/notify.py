@@ -4,11 +4,13 @@ A level change that crosses ``NOTIFY_MIN_LEVEL`` (a site becomes Critical,
 or drops back below it) is written to ``notification_outbox`` in the same
 transaction that records the change, one row per configured channel.  The
 background scheduler, which runs in one process at a time, sends what is
-due; rows are claimed with ``FOR UPDATE SKIP LOCKED``, so a message goes out
-once per channel even if two senders overlap.  Failures are retried with a
-growing delay and given up after ``MAX_ATTEMPTS``.  More than
-``NOTIFY_SUMMARY_THRESHOLD`` messages due at once for a channel go out as
-one summary.
+due; rows are claimed with ``FOR UPDATE SKIP LOCKED``, so overlapping
+senders never take the same row.  Delivery is at least once: a crash after
+the receiver accepted a message but before "sent" is saved resends it, so
+every event carries a stable ``id`` receivers can use to drop duplicates.
+Failures are retried per row with a growing delay and given up after
+``MAX_ATTEMPTS``.  More than ``NOTIFY_SUMMARY_THRESHOLD`` messages due at
+once for a channel go out as summaries of at most ``SUMMARY_MAX_EVENTS``.
 
 Channels: a generic JSON webhook (optionally signed), a Microsoft Teams
 Workflows webhook (Adaptive Card) and email (SMTP).  Webhook URLs and SMTP
@@ -39,6 +41,8 @@ RETRY_MINUTES = (1, 2, 5, 10, 15, 30)
 SEND_TIMEOUT_SECONDS = 10
 KEEP_DAYS = 30
 MAX_DEVICES_IN_MESSAGE = 20
+# Events per summary message: keeps a backlog within webhook, Teams and mail size limits.
+SUMMARY_MAX_EVENTS = 25
 
 
 # ---------------------------------------------------------------------------
@@ -79,13 +83,16 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
     """What a message says, from the site's board row at the moment of the change."""
     devices = site.get("down_devices") or []
     cases = sorted({case for device in devices for case in (device.get("case_numbers") or [])})
+    site_id = site.get("id") or ""
     return {
+        # The same on every channel and every resend: receivers can drop duplicates.
+        "id": hashlib.sha256(f"{site_id}|{changed_at}|{from_level}|{to_level}".encode()).hexdigest()[:32],
         "type": kind,
         "changed_at": changed_at,
         "level": to_level,
         "previous_level": from_level,
         "site": {
-            "id": site.get("id") or "",
+            "id": site_id,
             "name": site.get("name") or "",
             "path": site.get("ancestor_path") or site.get("parent") or "",
             "address": site.get("physical_address") or site.get("facility") or "",
@@ -366,9 +373,10 @@ def _send_channel(conn, channel: str) -> int:
         if not rows:
             return 0
         rows = [db.row_to_dict(row) for row in rows]
-        # A burst (e.g. a wide outage) is one summary message, not one per site.
+        # A burst (e.g. a wide outage) goes out as summaries, not one message per
+        # site, each small enough for the channel.
         if len(rows) > settings.NOTIFY_SUMMARY_THRESHOLD:
-            batches = [rows]
+            batches = [rows[start : start + SUMMARY_MAX_EVENTS] for start in range(0, len(rows), SUMMARY_MAX_EVENTS)]
         else:
             batches = [[row] for row in rows]
         sent = 0
@@ -379,20 +387,25 @@ def _send_channel(conn, channel: str) -> int:
                 deliver(channel, batch)
             except Exception as exc:
                 error = str(exc) if isinstance(exc, SendError) else type(exc).__name__
-                attempts = max(row["attempts"] for row in batch_rows) + 1
-                failed = attempts >= MAX_ATTEMPTS
-                logger.warning(
-                    "Notification on %s failed (attempt %s%s): %s",
-                    channel,
-                    attempts,
-                    ", giving up" if failed else "",
-                    error,
-                )
-                conn.execute(
-                    "UPDATE notification_outbox SET attempts = %s, last_error = %s, status = %s, "
-                    "next_attempt_at = %s WHERE id = ANY(%s)",
-                    (attempts, error[:300], "failed" if failed else "pending", now + retry_delay(attempts), ids),
-                )
+                logger.warning("Notification on %s failed for %s message(s): %s", channel, len(ids), error)
+                # Each row keeps its own retry count: a fresh row in a summary
+                # with an old one gets all its attempts.
+                for row in batch_rows:
+                    attempts = row["attempts"] + 1
+                    failed = attempts >= MAX_ATTEMPTS
+                    if failed:
+                        logger.warning("Notification %s on %s given up after %s attempts", row["id"], channel, attempts)
+                    conn.execute(
+                        "UPDATE notification_outbox SET attempts = %s, last_error = %s, status = %s, "
+                        "next_attempt_at = %s WHERE id = %s",
+                        (
+                            attempts,
+                            error[:300],
+                            "failed" if failed else "pending",
+                            now + retry_delay(attempts),
+                            row["id"],
+                        ),
+                    )
                 continue
             conn.execute(
                 "UPDATE notification_outbox SET status = 'sent', sent_at = %s, attempts = attempts + 1, "
@@ -406,6 +419,7 @@ def _send_channel(conn, channel: str) -> int:
 def send_test() -> dict[str, str]:
     """Send a test message on every configured channel now; ``{channel: "ok" | error}``."""
     event = {
+        "id": "test",
         "type": "test",
         "changed_at": timeutil.iso_utc_now(),
         "level": "",

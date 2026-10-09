@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
-- **Notifications** when a site's alert level changes: a site reaching `NOTIFY_MIN_LEVEL` (default Critical) and dropping back below it, to a webhook (JSON, optionally HMAC-signed), Microsoft Teams (Workflows webhook) and/or email (SMTP). Optional tenant filter; a burst of changes goes out as one summary. Messages are queued in the same transaction as the level change (`notification_outbox`, schema version 5) and sent once per channel by the background scheduler, with retries; `/metrics` shows pending and failed messages; `POST /api/notifications/test` (admin) sends a test. See `docs/notifications.md` (#282)
+- **Notifications** when a site's alert level changes: a site reaching `NOTIFY_MIN_LEVEL` (default Critical) and dropping back below it, to a webhook (JSON, optionally HMAC-signed), Microsoft Teams (Workflows webhook) and/or email (SMTP). Optional tenant filter; a burst of changes goes out as one summary. Messages are queued in the same transaction as the level change (`notification_outbox`, schema version 5) and sent by the background scheduler at least once (each event has a stable `id` for dropping duplicates), with retries; bursts become summaries of at most 25 sites; `/metrics` shows pending and failed messages; `POST /api/notifications/test` (admin) sends a test. See `docs/notifications.md` (#282)
 
 ## [0.1.0] - 2026-10-09
 

@@ -9,7 +9,7 @@ Nautobot Maps can tell people when a site's alert level changes, so an outage is
 
 `NOTIFY_MIN_LEVEL` is `critical` by default; `medium` or `low` send more. A site's first level after it appears is not a change. With `NOTIFY_TENANTS` set, only sites with one of those tenants are notified.
 
-When more than `NOTIFY_SUMMARY_THRESHOLD` (default 5) messages are due at once on a channel, for example during a wide outage, they go out as **one summary** ("8 sites in alarm, 1 recovered") instead of one per site.
+When more than `NOTIFY_SUMMARY_THRESHOLD` (default 5) messages are due at once on a channel, for example during a wide outage, they go out as **summaries** ("8 sites in alarm, 1 recovered") instead of one per site, at most 25 sites per message so it fits Teams and mail size limits.
 
 Each message has the site, its path, address and tenants, the level before and after, the reason, the down devices (name, IP, role, down since, case) and a link to the board (`NOTIFY_BOARD_URL`, the address people open the app on).
 
@@ -24,7 +24,7 @@ NOTIFY_WEBHOOK_URL=https://example.com/hooks/nautobot-maps
 NOTIFY_WEBHOOK_SECRET=<long random string>   # optional
 ```
 
-A `POST` with a JSON body: one event (`"type": "alarm"` or `"recovery"`) or a summary (`"type": "summary", "events": [...]`). With a secret, the `X-Nautobot-Maps-Signature` header is `sha256=` followed by the HMAC-SHA256 of the raw body with the secret, so the receiver can check the message came from you. Use it for your ITSM system, PagerDuty or Opsgenie (via their webhook integrations) or your own scripts.
+A `POST` with a JSON body: one event (`"type": "alarm"` or `"recovery"`) or a summary (`"type": "summary", "events": [...]`). Every event has an `id` that stays the same on every channel and every resend: use it to ignore duplicates (see *Reliability*). With a secret, the `X-Nautobot-Maps-Signature` header is `sha256=` followed by the HMAC-SHA256 of the raw body with the secret, so the receiver can check the message came from you. Use it for your ITSM system, PagerDuty or Opsgenie (via their webhook integrations) or your own scripts.
 
 ### Microsoft Teams
 
@@ -46,15 +46,16 @@ SMTP_FROM=nautobot-maps@example.com
 SMTP_STARTTLS=true
 ```
 
-Plain text and HTML. Without `SMTP_USERNAME` it sends without logging in (an internal relay).
+Plain text and HTML. Without `SMTP_USERNAME` it sends without logging in (an internal relay). The sender is `SMTP_FROM`, else `SMTP_USERNAME`, else `nautobot-maps@localhost`.
 
 ## Test
 
-`POST /api/notifications/test` (admin role; in the API explorer at `/docs`) sends a test message on every configured channel and returns `{"results": {"webhook": "ok", "email": "error: ..."}}`.
+`POST /api/notifications/test` (admin role; with `AUTH_MODE=disabled` only when `ALLOW_UNAUTHENTICATED_WRITES=true`; in the API explorer at `/docs`) sends a test message on every configured channel and returns `{"results": {"webhook": "ok", "email": "error: ..."}}`.
 
 ## Reliability
 
 - A level change and its messages are saved in the same database transaction (`notification_outbox`), so neither gets lost without the other.
-- The background scheduler sends what is due, within about 30 seconds. Only one app process sends at a time, and each message goes out once per channel. It needs the scheduler: with `BACKGROUND_SYNC_ENABLED=false` nothing is sent.
-- A failed message is retried after 1, 2, 5, 10, 15 and then every 30 minutes, and given up after 10 attempts. Failures are logged without URLs or passwords.
+- The background scheduler sends what is due within about 30 seconds, before and after each sync, so a slow sync doesn't hold messages up. Only one app process sends at a time, and two senders never take the same message. It needs the scheduler: with `BACKGROUND_SYNC_ENABLED=false` nothing is sent.
+- Delivery is **at least once**: if the receiver accepted a message and the app stopped before saving that, the message is sent again. Webhook receivers can drop duplicates by the event `id`.
+- A failed message is retried after 1, 2, 5, 10, 15 and then every 30 minutes, and given up after 10 attempts (each message counts its own attempts, also inside a summary). Failures are logged without URLs or passwords.
 - `/metrics` shows `nautobot_maps_notifications_pending` and `nautobot_maps_notifications_failed` per channel; a growing pending count or any failure means a channel is broken. Sent and failed messages are kept 30 days.

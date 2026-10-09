@@ -76,7 +76,7 @@ See [authentication](authentication.md).
 | `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | IPs/CIDRs of the proxy; identity headers from anywhere else are ignored and logged |
 | `AUTH_PROXY_SECRET` | — | When set, identity headers only count if the proxy also sends it in `X-Auth-Proxy-Secret` |
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
-| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow changing criticality overrides without sign-in (logged as a warning) |
+| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides and sending test notifications (logged as a warning) |
 
 ## Notifications
 
@@ -94,7 +94,7 @@ See [notifications](notifications.md). Each channel is on when its setting is fi
 | `NOTIFY_EMAIL_TO` | — | Email recipients (comma-separated); needs `SMTP_HOST` |
 | `SMTP_HOST` / `SMTP_PORT` | — / `587` | Mail server |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | — | Login; none for an internal relay |
-| `SMTP_FROM` | `SMTP_USERNAME` | Sender address |
+| `SMTP_FROM` | `SMTP_USERNAME`, else `nautobot-maps@localhost` | Sender address |
 | `SMTP_STARTTLS` | `true` | Encrypt the connection with STARTTLS |
 
 ## MCP server

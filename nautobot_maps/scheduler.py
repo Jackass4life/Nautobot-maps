@@ -50,6 +50,10 @@ def tick() -> bool:
     if not callable(release):
         return False  # no database, or another process holds the tick
     try:
+        # Level changes queue notifications, also from board builds that a
+        # page request ran; only this (locked) tick sends them (#282).  Send
+        # first, so a slow or failing sync below doesn't hold them up.
+        send_notifications()
         prune_alert_history_if_due()
         worked = inventory.ensure_snapshot(wait=True)
         if worked:
@@ -57,9 +61,8 @@ def tick() -> bool:
             # history is recorded even if nobody opens the board.
             payload = alerts.build_alert_board_payload(snapshot_only=True)
             caching.set("alert-board-data:v3", payload, timeout=settings.CACHE_TTL)
-        # Level changes queue notifications, also from board builds that a
-        # page request ran; only this (locked) tick sends them (#282).
-        send_notifications()
+            # ...and send what that build queued right away.
+            send_notifications()
         return worked
     finally:
         release()

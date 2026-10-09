@@ -771,11 +771,14 @@ def api_notifications_test():
     """
     channels = notify.configured_channels()
     if not channels:
-        return jsonify(
-            {
-                "error": "No notification channel configured (NOTIFY_WEBHOOK_URL, NOTIFY_TEAMS_WEBHOOK_URL, NOTIFY_EMAIL_TO)"
-            }
-        ), 400
+        if settings.NOTIFY_EMAIL_TO and not settings.SMTP_HOST:
+            error = "NOTIFY_EMAIL_TO is set, but SMTP_HOST is not: email needs a mail server"
+        else:
+            error = (
+                "No notification channel configured: set NOTIFY_WEBHOOK_URL, NOTIFY_TEAMS_WEBHOOK_URL, "
+                "or NOTIFY_EMAIL_TO together with SMTP_HOST"
+            )
+        return jsonify({"error": error}), 400
     results = notify.send_test()
     status = 200 if all(value == "ok" for value in results.values()) else 502
     return jsonify({"results": results}), status

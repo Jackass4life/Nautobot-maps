@@ -208,6 +208,53 @@ class TestOutbox:
         assert len(webhook) == 1 and webhook[0]["type"] == "summary" and len(webhook[0]["events"]) == 3
         assert channels["mails"][0]["Subject"] == "Nautobot Maps: 3 sites in alarm"
 
+    def test_summaries_are_bounded(self, channels, monkeypatch):
+        """A backlog becomes several summaries of at most SUMMARY_MAX_EVENTS (Copilot on #302)."""
+        monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 2)
+        monkeypatch.setattr(notify, "SUMMARY_MAX_EVENTS", 3)
+        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
+        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        sites = {f"loc-{n}": site(f"loc-{n}", f"Site {n}") for n in range(7)}
+        change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
+        assert notify.send_pending() == 7
+        bodies = [json.loads(post["body"]) for post in channels["posts"]]
+        # A single site left over goes out as a normal, detailed message.
+        assert [len(body["events"]) if body["type"] == "summary" else 1 for body in bodies] == [3, 3, 1]
+        assert [body["type"] for body in bodies] == ["summary", "summary", "alarm"]
+
+    def test_each_row_counts_its_own_attempts(self, channels, monkeypatch):
+        """A fresh row in a summary with an old one keeps its retries (Copilot on #302)."""
+        monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 1)
+        monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
+        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
+        sites = {f"loc-{n}": site(f"loc-{n}") for n in range(2)}
+        change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
+        conn = db.get_conn()
+        try:
+            conn.execute(
+                "UPDATE notification_outbox SET attempts = %s WHERE site_id = 'loc-0'", (notify.MAX_ATTEMPTS - 1,)
+            )
+        finally:
+            conn.close()
+
+        class Bad:
+            status_code = 503
+
+        monkeypatch.setattr(notify.requests, "post", lambda url, **kwargs: Bad())
+        notify.send_pending()
+        by_site = {row["site_id"]: row for row in outbox()}
+        assert by_site["loc-0"]["status"] == "failed" and by_site["loc-0"]["attempts"] == notify.MAX_ATTEMPTS
+        assert by_site["loc-1"]["status"] == "pending" and by_site["loc-1"]["attempts"] == 1
+
+    def test_event_id_is_stable_across_channels(self, channels):
+        """Delivery is at least once; receivers drop duplicates by id (Copilot on #302)."""
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
+        ids = {json.loads(row["payload_json"])["id"] for row in outbox()}
+        assert len(ids) == 1 and len(next(iter(ids))) == 32
+        same = notify.build_event("alarm", "ok", "critical", site(), NOW)["id"]
+        assert ids == {same}
+        assert notify.build_event("recovery", "critical", "ok", site(), NOW)["id"] != same
+
     def test_failures_retry_then_give_up_without_leaking_secrets(self, channels, monkeypatch, caplog):
         monkeypatch.setattr(settings, "NOTIFY_TEAMS_WEBHOOK_URL", "")
         monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
@@ -273,6 +320,28 @@ class TestScheduler:
         assert scheduler.tick() is False
         assert calls == ["sent"]
 
+    def test_sends_before_a_slow_or_failing_sync_and_after_a_rebuild(self, monkeypatch):
+        """Copilot on #302: a sync must not hold messages up."""
+        calls = []
+        monkeypatch.setattr(scheduler.db, "try_advisory_lock", lambda name: lambda: None)
+        monkeypatch.setattr(scheduler, "prune_alert_history_if_due", lambda: None)
+        monkeypatch.setattr(scheduler.notify, "send_pending", lambda: calls.append("send"))
+
+        def failing_sync(**kwargs):
+            calls.append("sync")
+            raise RuntimeError("Nautobot down")
+
+        monkeypatch.setattr(scheduler.inventory, "ensure_snapshot", failing_sync)
+        with pytest.raises(RuntimeError):
+            scheduler.tick()
+        assert calls == ["send", "sync"]
+
+        calls.clear()
+        monkeypatch.setattr(scheduler.inventory, "ensure_snapshot", lambda **kwargs: calls.append("sync") or True)
+        monkeypatch.setattr(scheduler.alerts, "build_alert_board_payload", lambda **kwargs: calls.append("build") or {})
+        assert scheduler.tick() is True
+        assert calls == ["send", "sync", "build", "send"]
+
     def test_a_sending_error_does_not_stop_the_tick(self, monkeypatch, caplog):
         monkeypatch.setattr(scheduler.notify, "send_pending", lambda: 1 / 0)
         caplog.set_level(logging.WARNING)
@@ -316,4 +385,8 @@ class TestTestEndpoint:
         monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
         for name in ("NOTIFY_WEBHOOK_URL", "NOTIFY_TEAMS_WEBHOOK_URL", "SMTP_HOST"):
             monkeypatch.setattr(settings, name, "")
-        assert client.post("/api/notifications/test").status_code == 400
+        resp = client.post("/api/notifications/test")
+        assert resp.status_code == 400 and "NOTIFY_EMAIL_TO together with SMTP_HOST" in resp.get_json()["error"]
+        monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", ["noc@example.com"])
+        resp = client.post("/api/notifications/test")
+        assert resp.get_json()["error"] == "NOTIFY_EMAIL_TO is set, but SMTP_HOST is not: email needs a mail server"
