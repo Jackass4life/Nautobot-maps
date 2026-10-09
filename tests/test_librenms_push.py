@@ -173,7 +173,7 @@ class TestPush:
             return stale
 
         monkeypatch.setattr(librenms, "fetch_inventory", fetch_inventory_while_a_push_comes)
-        # The sync's clock is read before its fetch, so the push is newer.
+        # The sync's observation number is taken before its fetch, so the push is newer.
         inventory.sync_librenms(force=True)
         statuses = {d["device_id"]: d["status"] for d in inventory.read_librenms_devices()}
         assert statuses == {1000: 1, 1001: 1, 1002: 1}

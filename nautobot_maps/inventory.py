@@ -751,34 +751,38 @@ def librenms_polled_ip(device: dict) -> str:
     return ""
 
 
-def database_clock(conn) -> str:
-    """The database's current time: one clock for every process."""
-    return db.row_to_dict(conn.execute("SELECT clock_timestamp() AS t").fetchone())["t"]
+def librenms_observation(conn) -> int:
+    """A number for a LibreNMS request, taken before it is sent: a higher one
+    is a newer answer (#284)."""
+    return db.row_to_dict(conn.execute("SELECT nextval('librenms_observation_seq') AS n").fetchone())["n"]
 
 
-def write_librenms_devices(conn, devices: list, observed_at: str | None = None) -> set:
+def write_librenms_devices(conn, devices: list, observation: int | None = None) -> set:
     """Store LibreNMS device statuses; returns the device ids written.
 
-    ``synced_at`` is when LibreNMS was asked (*observed_at*, taken from
-    ``database_clock`` before the request; default now).  A row is only
-    replaced by an answer at least as new, so a slow sync or push can't
-    overwrite a newer status from another one (#284).
+    *observation* is from ``librenms_observation``, taken before the
+    LibreNMS request (default: a new one now).  A row is only replaced by a
+    newer answer, so a slow sync or push can't overwrite a status from a
+    later request (#284).
     """
     written = set()
     for device in devices:
         row = conn.execute(
             """
             INSERT INTO librenms_device_status
-                (device_id, hostname, ip, status, status_raw, status_reason, synced_at)
-            VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s::timestamptz, CURRENT_TIMESTAMP))
+                (device_id, hostname, ip, status, status_raw, status_reason, synced_at, observed_seq)
+            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP,
+                    COALESCE(%s::bigint, nextval('librenms_observation_seq')))
             ON CONFLICT(device_id) DO UPDATE SET
                 hostname = excluded.hostname,
                 ip = excluded.ip,
                 status = excluded.status,
                 status_raw = excluded.status_raw,
                 status_reason = excluded.status_reason,
-                synced_at = excluded.synced_at
-            WHERE librenms_device_status.synced_at <= excluded.synced_at
+                synced_at = excluded.synced_at,
+                observed_seq = excluded.observed_seq
+            WHERE librenms_device_status.observed_seq IS NULL
+               OR librenms_device_status.observed_seq < excluded.observed_seq
             RETURNING device_id
             """,
             (
@@ -788,7 +792,7 @@ def write_librenms_devices(conn, devices: list, observed_at: str | None = None) 
                 device.get("status"),
                 str(device.get("status", "")),
                 device.get("status_reason", "") or "",
-                observed_at,
+                observation,
             ),
         ).fetchone()
         if row is not None:
@@ -811,12 +815,12 @@ def librenms_push_refresh(device: str) -> dict:
     if conn is None:
         raise RuntimeError("Persistence DB not configured")
     try:
-        observed_at = database_clock(conn)
+        observation = librenms_observation(conn)
         found = librenms.fetch_device(device)
         if found is None or found.get("device_id") is None:
             return {"updated": False, "device": None}
         with db.transaction(conn):
-            written = write_librenms_devices(conn, [found], observed_at)
+            written = write_librenms_devices(conn, [found], observation)
             if written:
                 conn.execute(
                     "UPDATE librenms_device_status SET pushed_at = clock_timestamp(), "
@@ -1006,7 +1010,7 @@ def sync_librenms(force: bool = False) -> None:
                 status="running",
                 error_message="",
             )
-        observed_at = database_clock(conn)
+        observation = librenms_observation(conn)
         devices = librenms.fetch_inventory()
         existing_count = conn.execute("SELECT COUNT(*) AS device_count FROM librenms_device_status").fetchone()
         existing_count = int(db.row_to_dict(existing_count).get("device_count") or 0)
@@ -1016,10 +1020,11 @@ def sync_librenms(force: bool = False) -> None:
             completed_at = timeutil.iso_utc_now()
             # Not "delete everything": a push stored after this fetch is
             # newer, and keeps its status and pending rebuild (#284).
-            write_librenms_devices(conn, devices, observed_at)
+            write_librenms_devices(conn, devices, observation)
             conn.execute(
-                "DELETE FROM librenms_device_status WHERE synced_at < %s::timestamptz AND NOT (device_id = ANY(%s))",
-                (observed_at, [d.get("device_id") for d in devices if d.get("device_id") is not None]),
+                "DELETE FROM librenms_device_status "
+                "WHERE (observed_seq IS NULL OR observed_seq < %s) AND NOT (device_id = ANY(%s))",
+                (observation, [d.get("device_id") for d in devices if d.get("device_id") is not None]),
             )
             record_sync_state(
                 conn,

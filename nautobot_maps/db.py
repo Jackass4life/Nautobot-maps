@@ -504,8 +504,14 @@ def add_librenms_push_columns(conn) -> None:
 def librenms_push_seq(conn) -> None:
     """LibreNMS pushes (#284) after review: a sequence number per refresh, so a
     board rebuild acknowledges exactly what it was built from (replaces
-    push_pending), and an index for pushes that name a hostname."""
+    push_pending); an observation number per LibreNMS request, so an older
+    answer never overwrites a newer one; an index for pushes that name a
+    hostname."""
     conn.execute("CREATE SEQUENCE IF NOT EXISTS librenms_push_seq")
+    # Which LibreNMS answer is newer: numbered before each request (a clock
+    # can tie or step back; a sequence can't).
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS librenms_observation_seq")
+    conn.execute("ALTER TABLE librenms_device_status ADD COLUMN IF NOT EXISTS observed_seq BIGINT")
     conn.execute("ALTER TABLE librenms_device_status ADD COLUMN IF NOT EXISTS push_seq BIGINT")
     # Pushes still waiting for their rebuild keep waiting.
     conn.execute("UPDATE librenms_device_status SET push_seq = nextval('librenms_push_seq') WHERE push_pending")

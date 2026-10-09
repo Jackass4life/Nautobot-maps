@@ -4126,8 +4126,8 @@ class TestInventoryCacheSync:
                 self.queries.append((query, params))
                 if "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query:
                     return _FakeResult([{"device_count": 1}])
-                if "clock_timestamp()" in query:
-                    return _FakeResult([{"t": "2026-01-01T00:00:00Z"}])
+                if "librenms_observation_seq" in query and "nextval" in query and "INSERT" not in query:
+                    return _FakeResult([{"n": 1}])
                 return _FakeResult()
 
             def close(self):
