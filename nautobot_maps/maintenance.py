@@ -39,22 +39,41 @@ def _when(value, name: str) -> datetime:
 
 
 def read_active(conn, at: datetime) -> dict:
-    """``{"sites": {site_id: window}, "devices": {device_id: window}}`` active at *at*.
+    """``{"sites": {site_id: window}, "devices": {device_id: window}, "next_change": iso | None}``.
 
-    With several windows for the same site or device, the one ending last wins.
+    The windows active at *at* (with several for the same site or device,
+    the one ending last wins), and when the next one starts or ends: a
+    cached board or map must not outlive that.
     """
     rows = conn.execute(
         "SELECT id, site_id, device_id, starts_at, ends_at, reason, created_by FROM maintenance_windows "
         "WHERE ended_at IS NULL AND starts_at <= %s AND ends_at > %s ORDER BY ends_at",
         (at, at),
     ).fetchall()
-    active = {"sites": {}, "devices": {}}
+    next_change = conn.execute(
+        "SELECT LEAST("
+        "  (SELECT MIN(starts_at) FROM maintenance_windows WHERE ended_at IS NULL AND starts_at > %s),"
+        "  (SELECT MIN(ends_at) FROM maintenance_windows WHERE ended_at IS NULL AND ends_at > %s)"
+        ") AS next_change",
+        (at, at),
+    ).fetchone()
+    active = {"sites": {}, "devices": {}, "next_change": db.row_to_dict(next_change).get("next_change")}
     for window in map(db.row_to_dict, rows):
         if window["device_id"]:
             active["devices"][window["device_id"]] = window
         else:
             active["sites"][window["site_id"]] = window
     return active
+
+
+def cache_seconds(next_change: str | None, default: int) -> int:
+    """How long a cached board or map may live: until *next_change* (the next
+    window start or end, from ``read_active``), at most *default*."""
+    upcoming = timeutil.parse_iso_datetime(next_change) if next_change else None
+    if upcoming is None:
+        return default
+    # At least 1: a cache timeout of 0 means "never expires".
+    return max(1, min(default, int((upcoming - now()).total_seconds()) + 1))
 
 
 def list_windows(conn, site_id: str = "", include_past: bool = False, at: datetime | None = None) -> list[dict]:
@@ -114,6 +133,9 @@ def create(conn, body: dict, created_by: str) -> list[dict]:
         minutes = body["duration_minutes"]
         if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
             raise WindowError("duration_minutes must be a positive whole number")
+        # Checked before building the timedelta: a huge number would overflow it.
+        if minutes > MAX_DURATION.total_seconds() / 60:
+            raise WindowError(f"A window can last at most {MAX_DURATION.days} days")
         ends = starts + timedelta(minutes=minutes)
     else:
         raise WindowError("ends_at or duration_minutes is required")

@@ -98,6 +98,8 @@ class TestWindows:
             ({"site_id": "s", "reason": "x", "duration_minutes": 15 * 24 * 60}, "at most 14 days"),
             ({"site_id": "s", "reason": "x", "duration_minutes": 60, "device_ids": "core"}, "device_ids"),
             ({"site_id": "s", "reason": "x" * 201, "duration_minutes": 60}, "longer than 200"),
+            # Would overflow a timedelta: a clean 400, not a 500 (Copilot on #303).
+            ({"site_id": "s", "reason": "x", "duration_minutes": 10**100}, "at most 14 days"),
         ],
     )
     def test_invalid_requests(self, body, error):
@@ -189,6 +191,44 @@ class TestBoard:
             row["down_devices"][0]["role"] == "Access Switch" and row["down_devices"][0]["maintenance_reason"] == "Swap"
         )
 
+    def test_unreadable_windows_write_nothing(self, site, monkeypatch):
+        """Copilot on #303: don't treat "couldn't read" as "no windows"."""
+        build()
+        build()
+
+        def broken(conn, at):
+            raise RuntimeError("permission denied")
+
+        monkeypatch.setattr(maintenance, "read_active", broken)
+        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+        set_devices(core="Active", acc1="Active", acc2="Active")  # everything recovered
+        build()
+        assert open_alerts() == {"core": "open", "acc1": "open"}, "nothing resolved"
+        assert outbox_kinds() == [], "no level change recorded, nothing notified"
+
+    def test_a_device_gone_from_the_inventory_keeps_its_frozen_alert(self, site):
+        """Copilot on #303: frozen ids come from the windows, not the inventory."""
+        build()
+        conn = db.get_conn()
+        try:
+            maintenance.create(
+                conn, {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60, "device_ids": ["core"]}, "olga"
+            )
+            conn.execute("DELETE FROM nautobot_device_cache WHERE device_id = 'core'")
+        finally:
+            conn.close()
+        build()
+        assert open_alerts()["core"] == "open"
+
+    def test_healthy_sites_write_no_history(self, site, monkeypatch):
+        """The bulk read decides who needs a write (#149); a maintenance check once broke that."""
+        set_devices(core="Active", acc1="Active", acc2="Active")
+        build()
+        calls = []
+        monkeypatch.setattr(alerts, "upsert_alert_lifecycle_for_site", lambda *a, **k: calls.append(1) or True)
+        build()
+        assert calls == []
+
     def test_map_shows_maintenance(self, site):
         window(duration_minutes=30)
         levels = alerts.build_location_alert_levels()["levels"]
@@ -211,6 +251,29 @@ class TestNotifications:
         assert build()["alert_level"] == "critical"
         assert outbox_kinds() == [("alarm", "maintenance", "critical")], "still Critical when it ends"
 
+    def test_a_device_window_that_lowers_the_level_is_quiet(self, site, monkeypatch):
+        """Copilot on #303: the only failed devices going into maintenance is no "recovery"."""
+        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+        set_devices(core="Offline", acc1="Active", acc2="Active")
+        build()
+        build()
+        conn = db.get_conn()
+        try:
+            (created,) = maintenance.create(
+                conn, {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60, "device_ids": ["core"]}, "olga"
+            )
+        finally:
+            conn.close()
+        assert build()["alert_level"] == "ok"
+        assert outbox_kinds() == [], "planned, not a recovery"
+        conn = db.get_conn()
+        try:
+            maintenance.end(conn, created["id"], "olga")
+        finally:
+            conn.close()
+        build()
+        assert outbox_kinds() == [("alarm", "ok", "critical")], "still down when it ends"
+
     def test_rule(self, monkeypatch):
         monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
         assert notify.event_kind("critical", "maintenance") is None
@@ -229,6 +292,31 @@ def outbox_kinds() -> list:
         return result
     finally:
         conn.close()
+
+
+class TestCache:
+    def test_cache_expires_at_the_next_window_change(self, pg_database, clock):
+        """Copilot on #303: a planned window shows when it starts, not up to CACHE_TTL later."""
+
+        def next_change():
+            conn = db.get_conn()
+            try:
+                return maintenance.read_active(conn, maintenance.now())["next_change"]
+            finally:
+                conn.close()
+
+        assert maintenance.cache_seconds(next_change(), 300) == 300, "no windows"
+        window(starts_at="2026-10-09T12:01:30Z", ends_at="2026-10-09T13:00:00Z")
+        assert maintenance.cache_seconds(next_change(), 300) == 91
+        clock["now"] = "2026-10-09T12:59:59Z"
+        assert maintenance.cache_seconds(next_change(), 300) == 2, "until it ends"
+        clock["now"] = "2026-10-09T14:00:00Z"
+        assert maintenance.cache_seconds(next_change(), 300) == 300
+
+    def test_the_board_carries_the_next_change(self, site):
+        window(starts_at="2026-10-09T12:10:00Z", duration_minutes=30)
+        payload = alerts.build_alert_board_payload(snapshot_only=True)
+        assert payload["next_maintenance_change"].startswith("2026-10-09T12:10:00")
 
 
 class TestApi:

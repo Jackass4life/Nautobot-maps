@@ -131,14 +131,24 @@ def board_url() -> str:
     return f"{settings.NOTIFY_BOARD_URL}/alerts" if settings.NOTIFY_BOARD_URL else ""
 
 
-def enqueue_change(conn, site_id: str, from_level: str, to_level: str, site: dict | None, changed_at: str) -> int:
+def enqueue_change(
+    conn,
+    site_id: str,
+    from_level: str,
+    to_level: str,
+    site: dict | None,
+    changed_at: str,
+    quiet_recovery: bool = False,
+) -> int:
     """Queue messages for one level change, inside the caller's transaction.
 
+    *quiet_recovery*: the level dropped because devices went into
+    maintenance (#283), which is planned, not a recovery to announce.
     Returns how many rows were queued (one per configured channel).
     """
     channels = configured_channels()
     kind = event_kind(from_level, to_level)
-    if not channels or kind is None:
+    if not channels or kind is None or (quiet_recovery and kind == "recovery"):
         return 0
     site = site or {"id": site_id}
     if not tenant_matches(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])):

@@ -15,7 +15,20 @@ from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
-from nautobot_maps import alerts, auth, caching, db, inventory, librenms, nautobot, scheduler, settings, timeutil, web
+from nautobot_maps import (
+    alerts,
+    auth,
+    caching,
+    db,
+    inventory,
+    librenms,
+    maintenance,
+    nautobot,
+    scheduler,
+    settings,
+    timeutil,
+    web,
+)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -1178,6 +1191,8 @@ class TestAlertBoard:
             ),
             patch.object(alerts, "nautobot_inventory_primary_ip_backfill_pending", return_value=False),
             patch.object(db, "get_conn", side_effect=fake_get_db_conn),
+            # Connection handling only: no maintenance windows (#283).
+            patch.object(maintenance, "read_active", return_value={"sites": {}, "devices": {}, "next_change": None}),
             patch.object(alerts, "upsert_alert_lifecycle_for_site", side_effect=fake_upsert),
             patch.object(alerts, "read_alert_context", side_effect=fake_context),
         ):
@@ -1209,6 +1224,8 @@ class TestAlertBoard:
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(db, "get_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn,
+            # Connection handling only: no maintenance windows (#283).
+            patch.object(maintenance, "read_active", return_value={"sites": {}, "devices": {}, "next_change": None}),
             patch.object(alerts, "upsert_alert_lifecycle_for_site") as upsert,
             patch.object(alerts, "read_alert_context") as get_context,
         ):
@@ -1239,6 +1256,8 @@ class TestAlertBoard:
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(db, "get_conn", return_value=_FakeConn()),
+            # Connection handling only: no maintenance windows (#283).
+            patch.object(maintenance, "read_active", return_value={"sites": {}, "devices": {}, "next_change": None}),
             patch.object(
                 inventory,
                 "get_sync_state",
