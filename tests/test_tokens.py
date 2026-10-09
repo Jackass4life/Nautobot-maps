@@ -1,6 +1,7 @@
 """API tokens (#297): Bearer sign-in for scripts, LibreNMS and MCP clients."""
 
 import logging
+import threading
 
 import pytest
 
@@ -97,6 +98,33 @@ class TestTokens:
                 tokens.create(conn, {"name": "librenms", "role": "viewer"}, "")
         finally:
             conn.close()
+
+    def test_two_creates_with_the_same_name_at_once(self, pg_database, clock):
+        """The second create waits on the first's uncommitted row, then is a TokenError, not a database error."""
+        outcome = {}
+
+        def second():
+            try:
+                outcome["token"] = make("race")
+            except Exception as exc:  # noqa: BLE001 - the test inspects what it was
+                outcome["error"] = exc
+
+        first = db.get_conn()
+        try:
+            with db.transaction(first):
+                first.execute(
+                    "INSERT INTO api_tokens (name, token_hash, prefix, role) VALUES ('race', 'h', 'nmt_x', 'viewer')"
+                )
+                thread = threading.Thread(target=second)
+                thread.start()
+                thread.join(timeout=1)
+                assert thread.is_alive(), "the second create waits for the first to commit"
+        finally:
+            first.close()
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+        assert isinstance(outcome.get("error"), tokens.TokenError), outcome
+        assert "already exists" in outcome["error"].message
 
     def test_verify_expiry_revocation_and_last_used(self, pg_database, clock):
         secret = make(expires_in_days=1)["token"]
