@@ -319,6 +319,47 @@ class TestCache:
         assert payload["next_maintenance_change"].startswith("2026-10-09T12:10:00")
 
 
+class TestSiteDevices:
+    def test_monitored_devices_of_a_site(self, site, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                no_ip = {**_snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"), "primary_ip": ""}
+                inventory.write_devices(conn, [no_ip, _snapshot_device("old", "loc-lon", "Access Switch", "Planned")])
+        finally:
+            conn.close()
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned"})
+        devices = alerts.site_monitored_devices("loc-lon")
+        assert [d["id"] for d in devices] == ["acc1", "acc2", "core"], "no primary IP or excluded: not offered"
+        assert devices[2] == {
+            "id": "core",
+            "name": "core",
+            "role": "Core Router",
+            "status": "Offline",
+            "location_path": "",
+        }
+
+    def test_rolled_up_site_includes_devices_below_it(self, site, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                building = {**_snapshot_location("bld-a", "Bygning A", "Building"), "parent_id": "loc-lon"}
+                inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ", "Site"), building])
+                inventory.write_devices(conn, [_snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")])
+        finally:
+            conn.close()
+        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        devices = {d["id"]: d for d in alerts.site_monitored_devices("loc-lon")}
+        assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
+
+    def test_endpoint(self, site):
+        flask_app.app.config["TESTING"] = True
+        with flask_app.app.test_client() as client:
+            assert client.get("/api/maintenance/devices").status_code == 400
+            body = client.get("/api/maintenance/devices?site_id=loc-lon").get_json()
+        assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
+
+
 class TestApi:
     @pytest.fixture
     def client(self, site):

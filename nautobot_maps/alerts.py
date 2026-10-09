@@ -1740,6 +1740,43 @@ def build_alert_board_payload(
     }
 
 
+def site_monitored_devices(site_id: str) -> list[dict]:
+    """The devices the board counts for the row *site_id*, for choosing what
+    goes into maintenance (#283): with a primary IP, not of an excluded
+    status, including devices below the site when rows are rolled up."""
+    devices = inventory.read_devices()
+    if settings.ALERT_BOARD_SITE_LOCATION_TYPE:
+        devices_by_location: dict[str, list] = {}
+        for device in devices:
+            devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
+        locations = inventory.get_locations(include_without_coordinates=True, snapshot_only=True)
+        _, devices_by_row = roll_up_to_site_locations(
+            locations, devices_by_location, settings.ALERT_BOARD_SITE_LOCATION_TYPE, include_non_operational=True
+        )
+        devices = devices_by_row.get(site_id, [])
+    else:
+        devices = [device for device in devices if (device.get("location_id") or "") == site_id]
+    monitored = [
+        device
+        for device in devices
+        if device_has_primary_ip(device)
+        and not status_is_excluded(device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
+    ]
+    return sorted(
+        (
+            {
+                "id": device.get("id") or "",
+                "name": device.get("name") or "",
+                "role": device.get("role") or "",
+                "status": device.get("status") or "",
+                "location_path": device.get("location_path") or "",
+            }
+            for device in monitored
+        ),
+        key=lambda device: device["name"].lower(),
+    )
+
+
 def get_alert_board_data(
     force_refresh: bool = False,
     include_non_operational: bool = False,

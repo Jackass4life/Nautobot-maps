@@ -863,6 +863,7 @@ class TestCompactActionsInTheBrowser:
         "downDeviceList",
         "caseDevices",
         "historyButton",
+        "maintenanceButton",
         "actionCell",
         "siteNameHtml",
         "renderCaseForm",
@@ -1282,6 +1283,7 @@ class TestCopySiteInTheBrowser:
             "downDeviceList",
             "caseDevices",
             "historyButton",
+            "maintenanceButton",
             "actionCell",
             "formatLocationAddress",
             "formatReportTime",
@@ -2007,6 +2009,97 @@ check(caseSortRank({{ alert_level: "maintenance", down_devices: [] }}) === 2, "m
         assert 'if (level === "maintenance") return ICONS.maintenance;' in _extract_js_function(
             map_js, "iconForLocation"
         )
+
+
+class TestMaintenancePanelInTheBrowser:
+    """Managing maintenance windows from the board (#283)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = (
+            "escHtml",
+            "formatFeedTime",
+            "maintenanceWindowItem",
+            "renderMaintenancePanel",
+            "maintenanceRequestBody",
+        )
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        durations = re.search(r"const MAINTENANCE_DURATIONS = \[[^\]]*\];", js).group(0)
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{durations}
+{functions}
+{body}
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=REPO_ROOT,
+            env={**os.environ, "TZ": "Europe/Copenhagen"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_request_body(self):
+        self._run("""
+const base = { siteId: "loc-1", scope: "site", deviceIds: [], when: "now", duration: "120", reason: " Core upgrade " };
+let body = maintenanceRequestBody(base);
+check(JSON.stringify(body) === '{"site_id":"loc-1","reason":"Core upgrade","duration_minutes":120}', JSON.stringify(body));
+check(maintenanceRequestBody({ ...base, reason: " " }).error === "Enter a reason.", "reason");
+check(maintenanceRequestBody({ ...base, scope: "devices" }).error.startsWith("Tick at least one device"), "devices");
+body = maintenanceRequestBody({ ...base, scope: "devices", deviceIds: ["d1", "d2"] });
+check(JSON.stringify(body.device_ids) === '["d1","d2"]', JSON.stringify(body));
+// Planned: the browser's local time (Copenhagen, +02:00 in October) is sent as UTC.
+body = maintenanceRequestBody({ ...base, when: "planned", start: "2026-10-09T22:00", end: "2026-10-10T02:00" });
+check(body.starts_at === "2026-10-09T20:00:00.000Z" && body.ends_at === "2026-10-10T00:00:00.000Z", JSON.stringify(body));
+check(!("duration_minutes" in body), "planned has no duration");
+check(maintenanceRequestBody({ ...base, when: "planned", start: "2026-10-09T22:00" }).error === "Enter both From and To.", "both");
+check(maintenanceRequestBody({ ...base, when: "planned", start: "2026-10-10T02:00", end: "2026-10-09T22:00" }).error === "To must be after From.", "order");
+""")
+
+    def test_panel(self):
+        self._run("""
+const devices = [{ id: "d1", name: "sw<1>", role: "Access", status: "Active", location_path: "Bygning A" }];
+const windows = [
+  { id: 7, state: "active", device_id: "", ends_at: "2026-10-09T14:00:00Z", reason: "Core <upgrade>", created_by: "olga" },
+  { id: 8, state: "upcoming", device_id: "d1", starts_at: "2026-10-09T20:00:00Z", ends_at: "2026-10-10T00:00:00Z", reason: "PSU" },
+];
+let html = renderMaintenancePanel({ id: "loc-1" }, windows, devices);
+check(html.includes("ACTIVE") && html.includes("<strong>Whole site</strong> · until ") && html.includes("Core &lt;upgrade&gt; · by olga"), html);
+check(html.includes('data-window-id="7">End now<') && html.includes('data-window-id="8">Cancel<'), "end vs cancel");
+check(html.includes("PLANNED") && html.includes("<strong>sw&lt;1&gt;</strong>"), "device window named");
+check(html.includes('class="maint-device" value="d1"') && html.includes("Bygning A · Access · Active"), "device choice");
+check(html.includes('<option value="120" selected>2 hours</option>') && html.includes('<option value="60">1 hour</option>'), "durations");
+check(html.includes('<form class="maint-form" data-site-id="loc-1">'), "form");
+html = renderMaintenancePanel({ id: "loc-2" }, [], []);
+check(html.includes("No maintenance now or planned.") && html.includes("No monitored devices."), html);
+""")
+
+    def test_button_only_where_there_is_something_to_maintain(self):
+        self._run_button("""
+check(maintenanceButton({ id: "a", name: "A", device_count: 3 }).includes('data-site-id="a"'), "monitored");
+check(maintenanceButton({ id: "b", name: "B", device_count: 0 }) === "", "nothing to maintain");
+check(maintenanceButton({ id: "c", name: "C", device_count: 0, maintenance: { id: 1 } }) !== "", "a window can still be ended");
+""")
+
+    def _run_button(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        functions = "\n".join(_extract_js_function(js, name) for name in ("escHtml", "maintenanceButton"))
+        script = f"function check(c, m) {{ if (!c) throw new Error(m); }}\n{functions}\n{body}"
+        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_board_has_the_panel_and_rows_the_button(self, integration_client):
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        assert 'id="maint-panel"' in html and 'id="maint-content"' in html
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        cell = _extract_js_function(js, "actionCell")
+        assert cell.count("maintenanceButton(item)") == 2, "with and without down devices"
 
 
 class TestApiExplorerInTheBrowser:

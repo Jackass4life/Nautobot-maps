@@ -1044,6 +1044,107 @@ thead th:last-child {
   margin-left: auto;
 }
 
+/* The maintenance panel (#283). */
+.maint-panel {
+  width: min(460px, calc(100vw - 48px));
+}
+
+.maint-windows {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.maint-window {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.85rem;
+}
+
+.maint-window-text {
+  flex: 1;
+}
+
+.maint-empty {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.maint-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.maint-fieldset {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.maint-fieldset legend {
+  padding: 0 4px;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.maint-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.maint-devices,
+.maint-planned {
+  flex-basis: 100%;
+}
+
+.maint-planned {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.maint-planned[hidden],
+.maint-devices[hidden] {
+  display: none;
+}
+
+.maint-device-meta {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.maint-form select,
+.maint-form input[type="datetime-local"] {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 4px 6px;
+}
+
+.maint-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.maint-error[hidden] {
+  display: none;
+}
+
 .case-form button:disabled {
   cursor: not-allowed;
   opacity: 0.6;

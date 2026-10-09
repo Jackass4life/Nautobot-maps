@@ -50,7 +50,9 @@ Planned work is not an alarm. A **maintenance window** covers a whole site or so
 - While a window is active, the alert history is **frozen** for what it covers: nothing opens, and open alerts are neither updated nor closed.
 - **Notifications:** none when a site goes into maintenance. When the window ends and the site is still Critical, the normal message is sent.
 
-Windows are managed through the API (operator role): `POST /api/maintenance` with `site_id`, `reason`, optional `device_ids`, optional `starts_at`, and `ends_at` or `duration_minutes` (at most 14 days); `GET /api/maintenance` lists active and upcoming ones; `POST /api/maintenance/<id>/end` ends one now or cancels an upcoming one. Changes show on the board at once; a planned window starts showing within one board refresh of its start time.
+**On the board:** the **Maint.** button on a site's row (shown when it has monitored devices) opens its maintenance panel: the site's active and planned windows, each with **End now** (active) or **Cancel** (planned), and a form for a new one: the whole site or ticked devices, now for 1–8 hours or planned with From and To (in your browser's time zone), and a reason. Anyone can open it; starting, ending and cancelling need the operator role.
+
+**Through the API** (operator role): `POST /api/maintenance` with `site_id`, `reason`, optional `device_ids`, optional `starts_at`, and `ends_at` or `duration_minutes` (at most 14 days); `GET /api/maintenance` lists active and upcoming ones (`?all=true` also past ones), `GET /api/maintenance/devices?site_id=` the devices that can be put in maintenance; `POST /api/maintenance/<id>/end` ends one now or cancels an upcoming one. Changes show on the board at once; a planned window starts showing within one board refresh of its start time.
 
 ## Tenants
 
