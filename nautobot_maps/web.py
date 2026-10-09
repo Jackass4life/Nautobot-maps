@@ -808,7 +808,7 @@ def api_maintenance_create():
     try:
         windows = maintenance.create(conn, body, auth.get_current_user().get("username") or "")
     except maintenance.WindowError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": exc.message}), 400
     finally:
         conn.close()
     _maintenance_changed()

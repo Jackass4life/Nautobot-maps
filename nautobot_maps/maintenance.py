@@ -18,7 +18,11 @@ MAX_DEVICES = 200
 
 
 class WindowError(ValueError):
-    """A request that can't become a window; the message says why."""
+    """A request that can't become a window; ``message`` says why (written here, safe to show)."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 def now() -> datetime:
