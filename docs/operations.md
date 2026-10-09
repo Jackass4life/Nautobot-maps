@@ -8,7 +8,7 @@
 # docker-compose.override.yml
 services:
   nautobot-maps:
-    image: ghcr.io/jackass4life/nautobot-maps:1.0.0   # the version to run
+    image: ghcr.io/jackass4life/nautobot-maps:0.1.0   # the version to run
     build: !reset null
 ```
 
