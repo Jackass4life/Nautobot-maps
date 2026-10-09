@@ -501,6 +501,18 @@ def add_librenms_push_columns(conn) -> None:
     )
 
 
+def librenms_push_seq(conn) -> None:
+    """LibreNMS pushes (#284) after review: a sequence number per refresh, so a
+    board rebuild acknowledges exactly what it was built from (replaces
+    push_pending), and an index for pushes that name a hostname."""
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS librenms_push_seq")
+    conn.execute("ALTER TABLE librenms_device_status ADD COLUMN IF NOT EXISTS push_seq BIGINT")
+    conn.execute("ALTER TABLE librenms_device_status DROP COLUMN IF EXISTS push_pending")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS librenms_device_status_hostname_lower ON librenms_device_status (lower(hostname))"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -513,6 +525,7 @@ MIGRATIONS = (
     (6, "maintenance_windows", add_maintenance_windows),
     (7, "api_tokens", add_api_tokens),
     (8, "librenms_device_status push columns", add_librenms_push_columns),
+    (9, "librenms_push_seq", librenms_push_seq),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

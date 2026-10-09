@@ -56,13 +56,14 @@ def tick() -> bool:
         send_notifications()
         prune_alert_history_if_due()
         worked = inventory.ensure_snapshot(wait=True)
-        # A LibreNMS push (#284) whose own rebuild didn't get the lock.
-        pushed = librenms_push_pending()
-        if worked or pushed:
+        # LibreNMS pushes (#284) whose own rebuild didn't get the lock.
+        pushes = pending_librenms_pushes()
+        if worked or pushes:
             # The syncs invalidated the cached board; rebuild it now so alert
             # history is recorded even if nobody opens the board.
             rebuild_board()
-        return worked or pushed
+            ack_librenms_pushes(pushes)  # only after the rebuild succeeded
+        return worked or bool(pushes)
     finally:
         release()
 
@@ -78,15 +79,27 @@ def rebuild_board() -> None:
     send_notifications()
 
 
-def librenms_push_pending() -> bool:
+def pending_librenms_pushes() -> list[int]:
     conn = db.get_conn()
     if conn is None:
-        return False
+        return []
     try:
-        return inventory.take_librenms_push_pending(conn)
+        return inventory.pending_librenms_pushes(conn)
     except Exception as exc:
-        logger.warning("Reading LibreNMS push marks failed: %s", exc, exc_info=True)
-        return False
+        logger.warning("Reading pending LibreNMS pushes failed: %s", exc, exc_info=True)
+        return []
+    finally:
+        conn.close()
+
+
+def ack_librenms_pushes(seqs: list[int]) -> None:
+    if not seqs:
+        return
+    conn = db.get_conn()
+    if conn is None:
+        return
+    try:
+        inventory.ack_librenms_pushes(conn, seqs)
     finally:
         conn.close()
 
@@ -100,8 +113,14 @@ def rebuild_after_push() -> None:
         if not callable(release):
             return
         try:
-            if librenms_push_pending():
+            # Again while pushes arrived during the rebuild (bounded: the
+            # tick picks up anything left).
+            for _ in range(5):
+                pushes = pending_librenms_pushes()
+                if not pushes:
+                    break
                 rebuild_board()
+                ack_librenms_pushes(pushes)
         except Exception as exc:
             logger.warning("Rebuild after a LibreNMS push failed: %s", exc, exc_info=True)
         finally:

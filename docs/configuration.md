@@ -60,7 +60,7 @@ Without pushes, a device going down shows on the board after LibreNMS has polled
 3. Attach the transport to your device-down rules (e.g. "Devices up/down"), with **recovery** alerts on, so a device coming back is pushed too.
 4. Use LibreNMS's **Test** button on the transport: the app answers `{"updated": true, ...}` with the device's status. If the body variable isn't filled in by your LibreNMS version, check its [alert template variables](https://docs.librenms.org/Alerting/Templates/) (`hostname` works as well as `device_id`).
 
-What a push does: the app asks the LibreNMS API for that one device and stores its status; the push only says *which* device, so duplicate, late or non-device-down alerts can't set a wrong status. Several pushes for one device within 5 seconds ask LibreNMS once. A device LibreNMS doesn't know is answered `{"updated": false}` (not an error, so LibreNMS doesn't keep retrying). The parameters can also be sent as a form or in the query string (`?device_id=42`).
+What a push does: the app asks the LibreNMS API for that one device and stores its status; the push only says *which* device, so duplicate, late or non-device-down alerts can't set a wrong status. Pushes for the same device are handled one at a time, in the order they arrive, so a quick down and up end in the right state; a repeated push just refreshes again. A device LibreNMS doesn't know is answered `{"updated": false}` (not an error, so LibreNMS doesn't keep retrying). The parameters can also be sent as a form or in the query string (`?device_id=42`).
 
 ## Alert board
 

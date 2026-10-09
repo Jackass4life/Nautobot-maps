@@ -888,7 +888,7 @@ def api_librenms_alert():
         # Only the exception type: the message can hold the LibreNMS URL.
         logger.warning("LibreNMS push for %r: asking LibreNMS failed: %s", device, type(exc).__name__)
         return jsonify({"error": "Could not ask LibreNMS for the device"}), 502
-    if result["updated"] and not result["deduplicated"]:
+    if result["updated"]:
         caching.invalidate_alert_board()
         scheduler.rebuild_after_push()
     return jsonify(result)
