@@ -788,14 +788,20 @@ def api_maintenance_list():
 def api_maintenance_devices():
     """The devices that can be put in maintenance at a site (#283).
 
-    Query parameter: ``site_id`` (a row of the alert board).  The devices the
-    board counts there: with a primary IP, not of an excluded status, and
-    those below the site when rows are rolled up to a location type.
+    Query parameters: ``site_id`` (a row of the alert board) and
+    ``include_non_operational=1`` (as on the board).  The devices the board
+    counts there: with a primary IP, not of an excluded status, and those
+    below the site when rows are rolled up to a location type.
     """
     site_id = (request.args.get("site_id") or "").strip()
     if not site_id:
         return jsonify({"error": "site_id is required"}), 400
-    return jsonify({"devices": alerts.site_monitored_devices(site_id)})
+    include_non_operational = (request.args.get("include_non_operational") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    return jsonify({"devices": alerts.site_monitored_devices(site_id, include_non_operational=include_non_operational)})
 
 
 def _maintenance_changed() -> None:

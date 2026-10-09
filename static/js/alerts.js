@@ -226,7 +226,7 @@ function historyButton(item) {
 // Opens the maintenance panel (#283); on every row, also a site in maintenance (to end it).
 function maintenanceButton(item) {
   // Nothing to put in maintenance without monitored devices (still shown while a window is on).
-  if (!item.device_count && !item.maintenance) return "";
+  if (!item.device_count && !item.maintenance_device_count && !item.maintenance) return "";
   const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
   return `<button class="action-btn maint-open-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-haspopup="dialog" title="Maintenance window">Maint.${siteLabel}</button>`;
 }
@@ -353,19 +353,28 @@ async function openMaintenancePanel(siteId) {
   await refreshMaintenancePanel(item);
 }
 
+// Bumped by every panel load: a slower answer for a site opened before must
+// not fill the panel of the one open now.
+let maintenanceRequestSeq = 0;
+
 async function refreshMaintenancePanel(item) {
-  const query = `site_id=${encodeURIComponent(item.id)}`;
+  const seq = ++maintenanceRequestSeq;
+  const params = new URLSearchParams({ site_id: item.id });
+  const devicesParams = new URLSearchParams(params);
+  if (toggleNonOperational?.checked) devicesParams.set("include_non_operational", "1");
   try {
     const [windowsResp, devicesResp] = await Promise.all([
-      fetch(`/api/maintenance?${query}`, { cache: "no-store" }),
-      fetch(`/api/maintenance/devices?${query}`, { cache: "no-store" }),
+      fetch(`/api/maintenance?${params}`, { cache: "no-store" }),
+      fetch(`/api/maintenance/devices?${devicesParams}`, { cache: "no-store" }),
     ]);
     const windows = await readJsonResponse(windowsResp);
     const devices = await readJsonResponse(devicesResp);
+    if (seq !== maintenanceRequestSeq) return;
     if (!windowsResp.ok || windows.error) throw new Error(windows.error || `HTTP ${windowsResp.status}`);
     if (!devicesResp.ok || devices.error) throw new Error(devices.error || `HTTP ${devicesResp.status}`);
     maintContent.innerHTML = renderMaintenancePanel(item, windows.windows || [], devices.devices || []);
   } catch (err) {
+    if (seq !== maintenanceRequestSeq) return;
     maintContent.innerHTML = `<p class="maint-error">Could not load maintenance: ${escHtml(err.message)}</p>`;
   }
 }

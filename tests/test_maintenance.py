@@ -167,6 +167,7 @@ class TestBoard:
         row = build()
         # Without the core: 1 of 2 down is Medium, not Critical.
         assert row["alert_level"] == "medium" and row["down_device_count"] == 1 and row["device_count"] == 2
+        assert row["maintenance_device_count"] == 1, "so the board still offers the panel to end it"
         # The core's open alert is kept, not resolved, and listed as in maintenance.
         assert open_alerts() == {"core": "open", "acc1": "open"}
         core = next(d for d in row["down_devices"] if d["device_id"] == "core")
@@ -351,6 +352,23 @@ class TestSiteDevices:
         monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
         devices = {d["id"]: d for d in alerts.site_monitored_devices("loc-lon")}
         assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
+
+    def test_not_below_an_excluded_location_unless_shown_on_the_board(self, site, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                closed = {**_snapshot_location("bld-old", "Old Building", "Building"), "parent_id": "loc-lon"}
+                inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ", "Site"), closed])
+                inventory.write_devices(conn, [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")])
+        finally:
+            conn.close()
+        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", {"old building"})
+        assert "old-sw" not in {d["id"] for d in alerts.site_monitored_devices("loc-lon")}
+        flask_app.app.config["TESTING"] = True
+        with flask_app.app.test_client() as client:
+            body = client.get("/api/maintenance/devices?site_id=loc-lon&include_non_operational=1").get_json()
+        assert "old-sw" in {d["id"] for d in body["devices"]}
 
     def test_endpoint(self, site):
         flask_app.app.config["TESTING"] = True

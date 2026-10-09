@@ -2083,6 +2083,7 @@ check(html.includes("No maintenance now or planned.") && html.includes("No monit
 check(maintenanceButton({ id: "a", name: "A", device_count: 3 }).includes('data-site-id="a"'), "monitored");
 check(maintenanceButton({ id: "b", name: "B", device_count: 0 }) === "", "nothing to maintain");
 check(maintenanceButton({ id: "c", name: "C", device_count: 0, maintenance: { id: 1 } }) !== "", "a window can still be ended");
+check(maintenanceButton({ id: "d", name: "D", device_count: 0, maintenance_device_count: 2 }) !== "", "all devices in windows");
 """)
 
     def _run_button(self, body):
