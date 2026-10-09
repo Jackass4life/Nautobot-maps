@@ -107,6 +107,21 @@ services:
       - METRICS_ENABLED=${METRICS_ENABLED:-}
       # MCP server for AI assistants at /mcp (optional; default off)
       - MCP_ENABLED=${MCP_ENABLED:-}
+      # Notifications when a site's level changes (optional; see docs/notifications.md)
+      - NOTIFY_MIN_LEVEL=${NOTIFY_MIN_LEVEL:-}
+      - NOTIFY_TENANTS=${NOTIFY_TENANTS:-}
+      - NOTIFY_BOARD_URL=${NOTIFY_BOARD_URL:-}
+      - NOTIFY_SUMMARY_THRESHOLD=${NOTIFY_SUMMARY_THRESHOLD:-}
+      - NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-}
+      - NOTIFY_WEBHOOK_SECRET=${NOTIFY_WEBHOOK_SECRET:-}
+      - NOTIFY_TEAMS_WEBHOOK_URL=${NOTIFY_TEAMS_WEBHOOK_URL:-}
+      - NOTIFY_EMAIL_TO=${NOTIFY_EMAIL_TO:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_STARTTLS=${SMTP_STARTTLS:-}
       - MCP_ALLOWED_ORIGINS=${MCP_ALLOWED_ORIGINS:-}
       # PostgreSQL connect and statement timeouts (optional; defaults 5 s / 60 s)
       - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-}

@@ -9,6 +9,7 @@ Run with:
     python -m pytest tests/test_integration.py -v
 """
 
+import json
 import os
 import pathlib
 import re
@@ -646,6 +647,31 @@ class TestAlertBoardWithPersistence:
         locations = {loc["id"]: loc for loc in inventory.read_locations()}
         assert set(locations["loc-cph"]["tenant_descriptions"]) == {"Acme Corp"}
         assert set(locations["loc-fra"]["tenant_descriptions"]) == {"DataCenter GmbH"}
+
+    def test_a_level_change_notifies_through_a_real_board_build(self, persisted_integration_client, monkeypatch):
+        """End to end (#282): a real sync and board build queue and send a notification."""
+        from nautobot_maps import alerts, db, notify, settings
+
+        posts = []
+
+        class Accepted:
+            status_code = 202
+
+        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "medium")
+        monkeypatch.setattr(notify.requests, "post", lambda url, data=None, **kw: posts.append(data) or Accepted())
+        alerts.build_alert_board_payload(snapshot_only=True)  # records every site's level
+        conn = db.get_conn()
+        try:
+            conn.execute("UPDATE site_alert_levels SET alert_level = 'ok' WHERE site_id = 'loc-lon'")
+        finally:
+            conn.close()
+        alerts.build_alert_board_payload(snapshot_only=True)  # London: OK -> Medium
+        assert notify.send_pending() == 1
+        (body,) = [json.loads(data) for data in posts]
+        assert body["type"] == "alarm" and body["previous_level"] == "ok" and body["level"] == "medium"
+        assert body["site"]["name"] == "London HQ" and "Nordic Net" in body["site"]["tenants"]
+        assert sorted(device["name"] for device in body["down_devices"]) == ["lon-acc-sw01", "lon-acc-sw02"]
 
     def test_sites_with_devices_report_device_counts(self, persisted_integration_client):
         alerts = self._alerts_by_site(persisted_integration_client)

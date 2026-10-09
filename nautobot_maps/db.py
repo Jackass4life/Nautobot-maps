@@ -426,6 +426,30 @@ def add_tenant_cache(conn) -> None:
     )
 
 
+def add_notification_outbox(conn) -> None:
+    """Messages waiting to be sent, one row per channel (#282)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notification_outbox (
+            id              BIGSERIAL PRIMARY KEY,
+            channel         TEXT NOT NULL,
+            kind            TEXT NOT NULL,
+            site_id         TEXT NOT NULL DEFAULT '',
+            payload_json    TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            attempts        INTEGER NOT NULL DEFAULT 0,
+            last_error      TEXT NOT NULL DEFAULT '',
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            sent_at         TIMESTAMPTZ
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS notification_outbox_due ON notification_outbox (channel, status, next_attempt_at)"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -434,6 +458,7 @@ MIGRATIONS = (
     (2, "inventory_sync_state.last_succeeded_at", add_sync_last_succeeded_at),
     (3, "nautobot_location_tenant_cache", add_location_tenant_cache),
     (4, "nautobot_tenant_cache", add_tenant_cache),
+    (5, "notification_outbox", add_notification_outbox),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

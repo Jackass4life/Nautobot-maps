@@ -102,6 +102,22 @@ def collect(conn) -> str:
         "Sites by alert level at the last board build.",
         [({"level": row["alert_level"]}, row["n"]) for row in map(db.row_to_dict, sites)],
     )
+    # Notifications (#282): a growing pending count or failures mean a channel is broken.
+    outbox = conn.execute(
+        "SELECT channel, status, count(*) AS n FROM notification_outbox "
+        "WHERE status IN ('pending', 'failed') GROUP BY channel, status"
+    ).fetchall()
+    outbox = [db.row_to_dict(row) for row in outbox]
+    out.gauge(
+        "nautobot_maps_notifications_pending",
+        "Notifications waiting to be sent, by channel.",
+        [({"channel": row["channel"]}, row["n"]) for row in outbox if row["status"] == "pending"],
+    )
+    out.gauge(
+        "nautobot_maps_notifications_failed",
+        "Notifications given up after all retries (kept 30 days), by channel.",
+        [({"channel": row["channel"]}, row["n"]) for row in outbox if row["status"] == "failed"],
+    )
     return out.render()
 
 

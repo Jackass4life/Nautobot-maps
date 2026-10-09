@@ -78,6 +78,25 @@ See [authentication](authentication.md).
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
 | `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow changing criticality overrides without sign-in (logged as a warning) |
 
+## Notifications
+
+See [notifications](notifications.md). Each channel is on when its setting is filled in.
+
+| Variable | Default | Description |
+|---|---|---|
+| `NOTIFY_MIN_LEVEL` | `critical` | `low`, `medium` or `critical`: notify when a site reaches it (or gets worse above it) and when it drops below it |
+| `NOTIFY_TENANTS` | — | Only sites with one of these tenants (comma-separated) |
+| `NOTIFY_BOARD_URL` | — | The app's address, for the link in messages, e.g. `https://nautobot-maps.example.com` |
+| `NOTIFY_SUMMARY_THRESHOLD` | `5` | More messages due at once on a channel go out as one summary |
+| `NOTIFY_WEBHOOK_URL` | — | Webhook: JSON `POST` to this URL |
+| `NOTIFY_WEBHOOK_SECRET` | — | Signs the webhook body (`X-Nautobot-Maps-Signature: sha256=…`) |
+| `NOTIFY_TEAMS_WEBHOOK_URL` | — | Microsoft Teams Workflows webhook URL |
+| `NOTIFY_EMAIL_TO` | — | Email recipients (comma-separated); needs `SMTP_HOST` |
+| `SMTP_HOST` / `SMTP_PORT` | — / `587` | Mail server |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | — | Login; none for an internal relay |
+| `SMTP_FROM` | `SMTP_USERNAME` | Sender address |
+| `SMTP_STARTTLS` | `true` | Encrypt the connection with STARTTLS |
+
 ## MCP server
 
 See [MCP server](mcp.md).
