@@ -108,6 +108,26 @@ ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "")
 # Prometheus metrics at /metrics (#200); "false" turns the endpoint off.
 METRICS_ENABLED = _flag("METRICS_ENABLED", True)
 
+# Notifications when a site's level changes (#282): a site reaching
+# NOTIFY_MIN_LEVEL, and dropping back below it.  A channel is on when its
+# URL / address is set.
+NOTIFY_MIN_LEVEL = os.getenv("NOTIFY_MIN_LEVEL", "").strip().lower() or "critical"
+if NOTIFY_MIN_LEVEL not in ("low", "medium", "critical"):
+    raise RuntimeError(f"Invalid NOTIFY_MIN_LEVEL {NOTIFY_MIN_LEVEL!r}: expected low, medium or critical")
+NOTIFY_TENANTS = parse_csv_set(os.getenv("NOTIFY_TENANTS", ""))
+NOTIFY_BOARD_URL = os.getenv("NOTIFY_BOARD_URL", "").strip().rstrip("/")
+NOTIFY_SUMMARY_THRESHOLD = int(os.getenv("NOTIFY_SUMMARY_THRESHOLD", "").strip() or 5)
+NOTIFY_WEBHOOK_URL = os.getenv("NOTIFY_WEBHOOK_URL", "").strip()
+NOTIFY_WEBHOOK_SECRET = os.getenv("NOTIFY_WEBHOOK_SECRET", "").strip()
+NOTIFY_TEAMS_WEBHOOK_URL = os.getenv("NOTIFY_TEAMS_WEBHOOK_URL", "").strip()
+NOTIFY_EMAIL_TO = [item.strip() for item in re.split(r"[;,]", os.getenv("NOTIFY_EMAIL_TO", "")) if item.strip()]
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "").strip() or 587)
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "").strip()
+SMTP_STARTTLS = _flag("SMTP_STARTTLS", True)
+
 # MCP server at /mcp for AI assistants (#250); off unless "true".
 MCP_ENABLED = _flag("MCP_ENABLED", False)
 # Browser origins (scheme://host[:port]) allowed to call /mcp; MCP clients send

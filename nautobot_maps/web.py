@@ -14,7 +14,20 @@ from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import alerts, apidocs, auth, caching, db, export, inventory, mcp, metrics, settings, timeutil
+from nautobot_maps import (
+    alerts,
+    apidocs,
+    auth,
+    caching,
+    db,
+    export,
+    inventory,
+    mcp,
+    metrics,
+    notify,
+    settings,
+    timeutil,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -746,6 +759,29 @@ def api_alert_history():
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
+
+
+@bp.route("/api/notifications/test", methods=["POST"])
+@auth.require_role("admin")
+def api_notifications_test():
+    """Send a test message on every configured notification channel now (#282).
+
+    Returns ``{"results": {"webhook": "ok", "email": "error: ..."}}``; errors
+    never include a URL or password.  400 when no channel is configured.
+    """
+    channels = notify.configured_channels()
+    if not channels:
+        if settings.NOTIFY_EMAIL_TO and not settings.SMTP_HOST:
+            error = "NOTIFY_EMAIL_TO is set, but SMTP_HOST is not: email needs a mail server"
+        else:
+            error = (
+                "No notification channel configured: set NOTIFY_WEBHOOK_URL, NOTIFY_TEAMS_WEBHOOK_URL, "
+                "or NOTIFY_EMAIL_TO together with SMTP_HOST"
+            )
+        return jsonify({"error": error}), 400
+    results = notify.send_test()
+    status = 200 if all(value == "ok" for value in results.values()) else 502
+    return jsonify({"results": results}), status
 
 
 @bp.route("/api/alert-history.csv", methods=["GET"])

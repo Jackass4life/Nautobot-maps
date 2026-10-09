@@ -15,6 +15,7 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating.
 - **Cases and ITSM**: attach a case number to down devices, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
 - **LibreNMS** status (optional) next to Nautobot's.
+- **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers.
 - **Sign-in and roles** through your SSO proxy (viewer, operator, admin).
 - **MCP server** (optional) so AI assistants can read the board and add cases.
 - **Read-only towards Nautobot**: the app never changes anything there, so a read-only API token is enough.
@@ -55,6 +56,7 @@ Without Docker (for development): `pip install -r requirements.txt`, then `pytho
 | [Configuration](docs/configuration.md) | Every setting |
 | [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, automatic updates, wall view |
 | [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
+| [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
 | [Sign-in and roles](docs/authentication.md) | SSO proxy setup and what each role can do |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
 | API | **API** in the app's top bar opens `/docs`: every endpoint with its parameters and a **Try it** button |

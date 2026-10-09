@@ -6,7 +6,7 @@ Called as ``scheduler.function()`` so tests can replace it on this module.
 import logging
 import threading
 
-from nautobot_maps import alerts, caching, db, inventory, settings
+from nautobot_maps import alerts, caching, db, inventory, notify, settings
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +50,29 @@ def tick() -> bool:
     if not callable(release):
         return False  # no database, or another process holds the tick
     try:
+        # Level changes queue notifications, also from board builds that a
+        # page request ran; only this (locked) tick sends them (#282).  Send
+        # first, so a slow or failing sync below doesn't hold them up.
+        send_notifications()
         prune_alert_history_if_due()
-        if not inventory.ensure_snapshot(wait=True):
-            return False
-        # The syncs invalidated the cached board; rebuild it now so alert
-        # history is recorded even if nobody opens the board.
-        payload = alerts.build_alert_board_payload(snapshot_only=True)
-        caching.set("alert-board-data:v3", payload, timeout=settings.CACHE_TTL)
-        return True
+        worked = inventory.ensure_snapshot(wait=True)
+        if worked:
+            # The syncs invalidated the cached board; rebuild it now so alert
+            # history is recorded even if nobody opens the board.
+            payload = alerts.build_alert_board_payload(snapshot_only=True)
+            caching.set("alert-board-data:v3", payload, timeout=settings.CACHE_TTL)
+            # ...and send what that build queued right away.
+            send_notifications()
+        return worked
     finally:
         release()
+
+
+def send_notifications() -> None:
+    try:
+        notify.send_pending()
+    except Exception as exc:
+        logger.warning("Sending notifications failed: %s", exc, exc_info=True)
 
 
 def loop() -> None:

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import requests
 
-from nautobot_maps import caching, db, inventory, librenms, nautobot, settings, timeutil
+from nautobot_maps import caching, db, inventory, librenms, nautobot, notify, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -1189,12 +1189,15 @@ def read_alert_board_data(conn) -> dict:
     }
 
 
-def record_site_level_changes(levels: dict[str, tuple[str, str]], checked_at: str) -> int:
+def record_site_level_changes(
+    levels: dict[str, tuple[str, str]], checked_at: str, sites: dict[str, dict] | None = None
+) -> int:
     """Remember each site's alert level and log the changes, for the alert feed (#180).
 
     *levels* maps site id to ``(site_name, alert_level)``.  A site seen for the
     first time only gets its level stored: a new database or a newly added site
-    is not a change.  The rows are locked in site order, so two builds running
+    is not a change.  A change that should be notified is queued in the same
+    transaction (*sites*: each site's board row, for the message; #282).  The rows are locked in site order, so two builds running
     at once neither deadlock nor log the same change twice.  Returns the number
     of changes logged.
     """
@@ -1230,6 +1233,9 @@ def record_site_level_changes(levels: dict[str, tuple[str, str]], checked_at: st
                         "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
                         "VALUES (%s, %s, %s, %s, %s)",
                         (site_id, site_name, previous[site_id], level, checked_at),
+                    )
+                    notify.enqueue_change(
+                        conn, site_id, previous[site_id], level, (sites or {}).get(site_id), checked_at
                     )
                     changes += 1
     finally:
@@ -1369,6 +1375,8 @@ def build_alert_board_payload(
     summary = dict.fromkeys(ALERT_LEVEL_ORDER, 0)
     # Site levels this build actually observed, for the alert feed (#180).
     observed_levels: dict[str, tuple[str, str]] = {}
+    # Each observed site's row, for the notification of a level change (#282).
+    observed_sites: dict[str, dict] = {}
     lnms_devices = None
     lnms_id_map = None
     lnms_index = None
@@ -1601,6 +1609,8 @@ def build_alert_board_payload(
                     "down_devices": merged_down_devices,
                 }
             )
+            if observation_succeeded and site_id:
+                observed_sites[site_id] = alerts[-1]
     finally:
         if write_conn is not None:
             write_conn.close()
@@ -1609,7 +1619,7 @@ def build_alert_board_payload(
 
     if not persistence_unavailable:
         try:
-            record_site_level_changes(observed_levels, timeutil.iso_utc_now())
+            record_site_level_changes(observed_levels, timeutil.iso_utc_now(), observed_sites)
         except Exception as exc:
             logger.warning("Could not record site alert level changes: %s", exc, exc_info=True)
 
