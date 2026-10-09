@@ -507,7 +507,9 @@ def librenms_push_seq(conn) -> None:
     push_pending), and an index for pushes that name a hostname."""
     conn.execute("CREATE SEQUENCE IF NOT EXISTS librenms_push_seq")
     conn.execute("ALTER TABLE librenms_device_status ADD COLUMN IF NOT EXISTS push_seq BIGINT")
-    conn.execute("ALTER TABLE librenms_device_status DROP COLUMN IF EXISTS push_pending")
+    # Pushes still waiting for their rebuild keep waiting.
+    conn.execute("UPDATE librenms_device_status SET push_seq = nextval('librenms_push_seq') WHERE push_pending")
+    conn.execute("ALTER TABLE librenms_device_status DROP COLUMN push_pending")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS librenms_device_status_hostname_lower ON librenms_device_status (lower(hostname))"
     )

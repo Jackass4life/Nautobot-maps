@@ -135,20 +135,10 @@ class TestPush:
             assert client.post("/api/librenms/alert", json={"device_id": 1000}, headers=auth_headers).status_code == 200
         assert lnms.calls == ["devices/1000", "devices/1000"]
 
-    def test_id_and_hostname_are_one_lock_key(self, lnms):
-        conn = db.get_conn()
-        try:
-            keys = {
-                inventory._librenms_push_key(conn, name) for name in ("1000", "sw0.corp.example", "SW0.corp.example")
-            }
-            assert keys == {"1000"}
-            assert inventory._librenms_push_key(conn, "New.Example") == "host:new.example"
-        finally:
-            conn.close()
-
-    def test_concurrent_pushes_are_written_in_order(self, lnms, monkeypatch):
+    def test_an_older_answer_never_overwrites_a_newer_one(self, lnms, monkeypatch):
         """The first push's LibreNMS answer (down) is slow; meanwhile the device
-        recovers and a second push comes.  The second waits, so up wins."""
+        recovers and a second push (by hostname) stores up.  The first one's
+        late answer is older, so it is not written: up stays."""
         first_asked, release_first = threading.Event(), threading.Event()
         real_get = lnms.get
 
@@ -161,19 +151,38 @@ class TestPush:
 
         lnms.devices[1000]["status"] = 0
         monkeypatch.setattr(librenms, "get", slow_first)
-        first = threading.Thread(target=inventory.librenms_push_refresh, args=("1000",))
+        results = {}
+        first = threading.Thread(target=lambda: results.update(first=inventory.librenms_push_refresh("1000")))
         first.start()
         assert first_asked.wait(10)
         lnms.devices[1000]["status"] = 1
-        second = threading.Thread(target=inventory.librenms_push_refresh, args=("sw0.corp.example",))
-        second.start()
-        second.join(0.5)
-        assert second.is_alive(), "the second push waits for the first"
-        assert len(lnms.calls) == 1
+        second = inventory.librenms_push_refresh("sw0.corp.example")
+        assert second["updated"] and second["device"]["status"] == "up"
         release_first.set()
         first.join(10)
-        second.join(10)
+        assert results["first"]["updated"] is False
         assert inventory.read_librenms_devices()[0]["status"] == 1
+
+    def test_a_sync_does_not_overwrite_a_newer_push(self, lnms, monkeypatch):
+        """The sync fetched its inventory (sw0 down) before a push stored sw0 up."""
+        stale = [dict(device) for device in lnms.devices.values()]
+        stale[0]["status"] = 0
+
+        def fetch_inventory_while_a_push_comes():
+            inventory.librenms_push_refresh("1000")  # LibreNMS says up
+            return stale
+
+        monkeypatch.setattr(librenms, "fetch_inventory", fetch_inventory_while_a_push_comes)
+        # The sync's clock is read before its fetch, so the push is newer.
+        inventory.sync_librenms(force=True)
+        statuses = {d["device_id"]: d["status"] for d in inventory.read_librenms_devices()}
+        assert statuses == {1000: 1, 1001: 1, 1002: 1}
+        assert pending(), "and its rebuild is still pending"
+
+    def test_a_sync_removes_devices_gone_from_librenms(self, lnms, monkeypatch):
+        monkeypatch.setattr(librenms, "fetch_inventory", lambda: [lnms.devices[1000], lnms.devices[1001]])
+        inventory.sync_librenms(force=True)
+        assert sorted(d["device_id"] for d in inventory.read_librenms_devices()) == [1000, 1001]
 
     def test_hostname_lookups_have_an_index(self, lnms):
         conn = db.get_conn()
@@ -307,3 +316,18 @@ class TestRebuild:
         monkeypatch.setattr(scheduler.threading, "Thread", InlineThread)
         scheduler.rebuild_after_push()
         assert ran == []
+
+
+def test_migration_9_keeps_pending_pushes(pg_database):
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            conn.execute("ALTER TABLE librenms_device_status ADD COLUMN push_pending BOOLEAN NOT NULL DEFAULT FALSE")
+            conn.execute(
+                "INSERT INTO librenms_device_status (device_id, hostname, push_pending) VALUES (1, 'a', TRUE), (2, 'b', FALSE)"
+            )
+            db.librenms_push_seq(conn)
+        rows = conn.execute("SELECT device_id FROM librenms_device_status WHERE push_seq IS NOT NULL").fetchall()
+    finally:
+        conn.close()
+    assert [db.row_to_dict(row)["device_id"] for row in rows] == [1]
