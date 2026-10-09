@@ -805,11 +805,12 @@ def librenms_push_refresh(device: str) -> dict:
 
     The push only says which device to look at; its status comes from the
     LibreNMS API, so a duplicate, late or non-device-down push can't set a
-    wrong one.  The answer is stored only if no newer one is (see
-    ``write_librenms_devices``), and then gets a ``push_seq`` for the board
-    rebuild to acknowledge.  Returns ``{"updated": bool, "device": {...} |
-    None}``: not updated when LibreNMS doesn't know the device or a newer
-    answer was already stored.  Raises when LibreNMS can't be asked.
+    wrong one.  The answer is stored only for a device already in the cache
+    and only if no newer one is (see ``write_librenms_devices``), and then
+    gets a ``push_seq`` for the board rebuild to acknowledge.  Returns
+    ``{"updated": bool, "device": {...} | None}``: not updated when LibreNMS
+    doesn't know the device, it isn't cached yet, or a newer answer was
+    already stored.  Raises when LibreNMS can't be asked.
     """
     conn = db.get_conn()
     if conn is None:
@@ -819,15 +820,26 @@ def librenms_push_refresh(device: str) -> dict:
         found = librenms.fetch_device(device)
         if found is None or found.get("device_id") is None:
             return {"updated": False, "device": None}
+        # Only devices already cached: an insert could bring back a device a
+        # newer sync removed.  A device new in LibreNMS comes with the next sync.
         with db.transaction(conn):
-            written = write_librenms_devices(conn, [found], observation)
-            if written:
-                conn.execute(
-                    "UPDATE librenms_device_status SET pushed_at = clock_timestamp(), "
-                    "push_seq = nextval('librenms_push_seq') WHERE device_id = %s",
-                    (found["device_id"],),
-                )
-        return {"updated": bool(written), "device": _pushed_device(found)}
+            row = conn.execute(
+                "UPDATE librenms_device_status SET hostname = %s, ip = %s, status = %s, status_raw = %s, "
+                "status_reason = %s, synced_at = CURRENT_TIMESTAMP, observed_seq = %s, "
+                "pushed_at = clock_timestamp(), push_seq = nextval('librenms_push_seq') "
+                "WHERE device_id = %s AND (observed_seq IS NULL OR observed_seq < %s) RETURNING device_id",
+                (
+                    found.get("hostname", ""),
+                    librenms_polled_ip(found),
+                    found.get("status"),
+                    str(found.get("status", "")),
+                    found.get("status_reason", "") or "",
+                    observation,
+                    found["device_id"],
+                    observation,
+                ),
+            ).fetchone()
+        return {"updated": row is not None, "device": _pushed_device(found)}
     finally:
         conn.close()
 

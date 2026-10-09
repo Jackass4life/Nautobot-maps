@@ -179,6 +179,33 @@ class TestPush:
         assert statuses == {1000: 1, 1001: 1, 1002: 1}
         assert pending(), "and its rebuild is still pending"
 
+    def test_a_device_not_cached_yet_is_left_to_the_sync(self, lnms):
+        lnms.devices[1003] = {"device_id": 1003, "hostname": "new.corp.example", "status": 0}
+        assert inventory.librenms_push_refresh("1003")["updated"] is False
+        assert 1003 not in {d["device_id"] for d in inventory.read_librenms_devices()}
+
+    def test_a_slow_push_does_not_bring_back_a_device_a_newer_sync_removed(self, lnms, monkeypatch):
+        asked, release = threading.Event(), threading.Event()
+        real_get = lnms.get
+
+        def slow(path, params=None):
+            answer = real_get(path, params)
+            asked.set()
+            release.wait(10)
+            return answer
+
+        monkeypatch.setattr(librenms, "get", slow)
+        results = {}
+        push = threading.Thread(target=lambda: results.update(push=inventory.librenms_push_refresh("1002")))
+        push.start()
+        assert asked.wait(10)
+        monkeypatch.setattr(librenms, "fetch_inventory", lambda: [lnms.devices[1000], lnms.devices[1001]])
+        inventory.sync_librenms(force=True)  # 1002 is gone from LibreNMS
+        release.set()
+        push.join(10)
+        assert results["push"]["updated"] is False
+        assert sorted(d["device_id"] for d in inventory.read_librenms_devices()) == [1000, 1001]
+
     def test_a_sync_removes_devices_gone_from_librenms(self, lnms, monkeypatch):
         monkeypatch.setattr(librenms, "fetch_inventory", lambda: [lnms.devices[1000], lnms.devices[1001]])
         inventory.sync_librenms(force=True)
