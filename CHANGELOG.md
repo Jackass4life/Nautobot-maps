@@ -6,104 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-### Removed
-- `FLASK_SECRET_KEY`: the app never used it (no sessions or signed cookies), yet it was presented as a required secret with insecure defaults (`change-me`). A value left in `.env` is ignored (#199)
-- **Breaking:** the Nautobot pass-through API: `GET/POST /api/roles`, `DELETE /api/roles/<id>`, `GET/POST /api/location-types` and `DELETE /api/location-types/<id>`. The app never writes to Nautobot any more: Nautobot is the source of truth, and sites, devices, roles and location types are changed there. The UI never used these endpoints, and `NAUTOBOT_TOKEN` now only needs read permission (#188)
-- **Breaking:** SQLite support. PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`) is the only persistence database; `NAUTOBOT_MAPS_DB` is ignored and logged as an error at startup. There is no data migration: move to PostgreSQL before upgrading (the bundled `docker-compose.yml` already uses it) (#153)
+## [0.1.0] - 2026-10-09
 
-### Changed
-- Alert board: the Downtime column is now **Since**, and each time says what it means: a site is "in alarm 3h 40m" (since its first currently-down device went down), a device "down 25m". The wall view shows only the devices' times. "Downtime 24h" on a site read as "the whole site was down for a day" (#275)
-- Alert board: fewer controls, and it opens on **Alarms** (sites at Critical, Medium or Low). The summary tiles are now the severity filter (Alarms, each level, All sites), replacing the quick-filter buttons, the severity dropdown and the All sites / Alarms only choice. Search, tenant and sort share one line; status, type and *Show non-operational sites* are under **More filters**. Sort offers newest down first, severity and site (a removed sort that was remembered falls back to newest down first). The table has 7 columns instead of 11 (status, type and device counts are gone; the counts are in "N down · M monitored", and the line under the site name stays only its location path, #269). The site name links to the map; rows keep **+ Case** and **Copy**, and **History** is under the site's down devices, which now show how long each has been down (#242)
-- Alert board: sorted by **newest down first** by default: the site whose device went down most recently is at the top, sites with nothing down follow by severity. Severity and the other sorts stay in the Sort menu, and the board remembers the choice (Reset goes back to newest first). `/api/alerts` now gives each site `latest_down_at` and each down device `down_started_at` (#228)
-- Database schema changes are versioned: the current schema is version 1, each later change is a numbered step applied once and recorded in a new `schema_migrations` table. The container runs `python -m nautobot_maps migrate` before gunicorn, so workers start with a single query instead of re-running the schema setup; a database newer than the release (e.g. after a rollback) is refused at startup. Existing databases are recorded as version 1 on upgrade, without changes (#201)
-- **Breaking:** with `AUTH_MODE=disabled` (the default), changing criticality overrides now returns 403. Reads and adding cases are unchanged. Set `AUTH_MODE=header`, or `ALLOW_UNAUTHENTICATED_WRITES=true` to keep the old behaviour. New `AUTH_REQUIRE_VIEWER=true` (header mode) makes every page and API need the `viewer` role (#188)
-- Dependencies: Flask 3.1.3, requests 2.34.2, python-dotenv 1.2.3 and redis 6.4.0 (which no longer pulls in PyJWT) fix 20 known vulnerabilities. `requirements.txt` / `requirements-dev.txt` are now hashed lock files compiled from `requirements.in` / `requirements-dev.in`; the image installs with `--require-hashes`. CI runs `pip-audit`, `npm audit`, a lock-file check and a Trivy scan of the image, and Dependabot proposes updates weekly (#186)
-- Alert board: the line under a site shows only its Nautobot location path, e.g. `EMEA › DNK` (region › country code), instead of country, path and tenant group; the tenant keeps its own column. The path is now built for every row, with or without `ALERT_BOARD_SITE_LOCATION_TYPE`, and the site search matches it (#178)
-- Alert board: the Action column is one line of small buttons (**+ Case**, **History**, **Map**); + Case opens the case form in a side panel, and Enter saves. Only one side panel is open at a time; Escape closes it and focus returns to the button that opened it (#179)
-- The web routes and error handlers moved to `nautobot_maps/web.py` (a Flask blueprint) and authentication to `nautobot_maps/auth.py`. `app.py` is now a ~60-line entry point; splitting `app.py` is complete (last step). No behaviour change, URLs unchanged (#165)
-- The alert logic moved from `app.py` to `nautobot_maps/alerts.py` and the background scheduler to `nautobot_maps/scheduler.py` (fifth step of splitting `app.py`); no behaviour change. Their log lines now show `nautobot_maps.alerts` / `nautobot_maps.scheduler` instead of `app` (#165)
-- The inventory sync moved from `app.py` to `nautobot_maps/inventory.py`, and the time helpers to `nautobot_maps/timeutil.py` (fourth step of splitting `app.py`); no behaviour change. Tests now fail if a module touches the database when imported, or if the startup log loses its database lines (#165)
-- The Nautobot and LibreNMS API clients and the response cache moved from `app.py` to `nautobot_maps/nautobot.py`, `nautobot_maps/librenms.py` and `nautobot_maps/caching.py` (third step of splitting `app.py`); no behaviour change (#165)
-- PostgreSQL connections, schema and migrations moved from `app.py` to `nautobot_maps/db.py` (second step of splitting `app.py`); no behaviour change. Their two startup log lines now show `nautobot_maps.db` instead of `app` (#165)
-- Settings read from the environment moved from `app.py` to `nautobot_maps/settings.py` (first step of splitting `app.py`); no behaviour change. A test guard fails any test that still sets a setting on `app` (#165)
-- Alert levels: **Low** (at least one device down, 25% or fewer), **No data** (no monitored devices, or the level could not be computed; replaces Unknown and is not counted in `non_ok`), and every monitored device down is now **Critical**. Sites with no monitored devices or a single down access switch no longer show as OK. The board and map show the new levels; `/api/alerts` `summary` has `low` and `no_data` instead of `unknown` (#124)
-- Tests run against PostgreSQL (one throwaway schema per test, `TEST_DATABASE_URL`); CI's `test` job and the demo stack use a PostgreSQL 16 service, and the dev container includes one. `_init_db` migrations only look at the current schema (#153)
-- Alert board builds read devices, criticality overrides and alert history for all sites in a few queries, and share one write connection (replaced after a failure). With 2,000 sites a build opens 5 database connections instead of about 6,000; the board output is unchanged (#149)
-- Alert board Refresh (`/api/alerts?refresh=1`) now runs an incremental sync of changes since the last sync instead of a full inventory reconcile (#135)
+The first release: Nautobot sites on a map, and an alert board that shows which sites are down, since when, and who has a case on them. The story behind each feature is in the referenced issues and pull requests.
 
-### Fixed
-- Alert board: History lists incidents newest down first (it went by internal id); tenants hidden behind "+N more" can be shown in place, with their (i); a site without a location path no longer shows a bare "—" line; a site or device that went down less than a minute ago shows "in alarm <1m" / "down <1m" instead of "—", which read as no alarm; when the start time is not known it says "time unknown" (#279)
-- The Docker image now installs Debian's security updates at build time, instead of only those already in `python:3.12-slim`. It had a HIGH vulnerability in `libpcre2` (CVE-2026-103111) that Debian had already fixed. Rebuild with `docker compose build --pull --no-cache` so a cached layer doesn't keep the old packages (#246)
-- Alert board with LibreNMS: the board could fail with a bare "Internal Server Error" page. Every device newly matched to LibreNMS by hostname or IP was saved on its own new database connection, one after another, so on a real inventory the build ran past gunicorn's 120 s timeout. New matches are now saved in one transaction at the end of the build, and the LibreNMS look-ups are built once per build instead of once per site (#240)
-- PostgreSQL connections had no timeouts: a database that dropped packets made every request (and `/healthz`) hang until the operating system gave up. Connecting now gives up after `DB_CONNECT_TIMEOUT_SECONDS` (default 5; `/healthz` 2, inside Docker's probe timeout) and statements are cancelled after `DB_STATEMENT_TIMEOUT_SECONDS` (default 60; startup migrations exempt). Options already in the database URL are kept (#190)
-- `AUTH_MODE=header` did not work in Docker: gunicorn listened on `127.0.0.1` inside the container, so nothing could reach it while the health check still passed. Gunicorn now always listens on `0.0.0.0:5000`, and identity headers are only trusted from `AUTH_TRUSTED_PROXIES` (default: localhost) and, if set, with `AUTH_PROXY_SECRET` in `X-Auth-Proxy-Secret`; headers from anywhere else are ignored and logged (#187)
-- One transient upstream error (e.g. a 502 while Nautobot restarts) aborted a whole inventory sync. Nautobot and LibreNMS GET requests are now retried up to 3 times with backoff (1, 2, 4 s) on connection errors and 429/502/503/504, honouring `Retry-After` (capped at 30 s); writes are not retried. Connections are reused between pages instead of a new TLS handshake per request (#192)
-- `LIBRENMS_VERIFY_SSL` could not take a CA bundle path (it was silently treated as `true`), so a LibreNMS signed by an internal CA only worked with verification off. It now accepts `true`, `false` or a path, like `NAUTOBOT_VERIFY_SSL`; both also accept `yes`/`no`/`1`/`0`, and a path that doesn't exist is logged as an error at startup (#191)
-- The inventory sync could be served Nautobot pages from the response cache (up to `CACHE_TTL` old) instead of asking Nautobot, so a sync could miss recent changes; a sync now always reads Nautobot directly, and no longer stores its pages in Redis. Creating a role now also clears the cached role listings (#185)
-- The inventory sync could be served Nautobot pages from the response cache (up to `CACHE_TTL` old) instead of asking Nautobot, so a sync could miss recent changes; a sync now always reads Nautobot directly, and no longer stores its pages in Redis. (#185)
-- An alert started when the app first saw the device down, not when it went down: new alerts now start at the device's Nautobot `last_updated` when its Nautobot status makes it down and that is earlier; devices only LibreNMS reports down keep the time they were seen. Open alerts are moved earlier once on their next board build, and a start time never moves later (#166)
-- App crashed at startup (`NameError: _build_alert_key`) when open alerts had to be migrated to the new alert key (#163): the migration runs while `app.py` is still loading and used a helper defined further down. The data was not changed (the migration's transaction was rolled back) (#169)
-- Alert downtime restarted when a site's severity changed (e.g. Medium → Critical): alerts are now identified by site + device, so a severity change updates the open alert (recorded as an `updated` event) and its downtime keeps running. Open alerts are migrated once at startup (#163)
-- `NAUTOBOT_API_VERSION` and `GUNICORN_WORKERS` / `GUNICORN_TIMEOUT` / `GUNICORN_BIND` in `.env` had no effect with `docker compose`; an empty `CACHE_TTL` or `GUNICORN_*` value now means the default instead of crashing at startup. A test now fails when a setting is missing from `docker-compose.yml` (#159)
-- `INVENTORY_SYNC_INTERVAL_SECONDS` / `LIBRENMS_SYNC_INTERVAL_SECONDS` in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them (#152)
-- `ALERT_BOARD_EXCLUDED_*` settings in `.env` had no effect with `docker compose`: `docker-compose.yml` did not pass them to the container (#151)
-- Alert board without a persistence database showed an unexplained empty table: `/api/alerts` now reports `persistence_configured`, the board explains which setting is missing, and a warning is logged at startup (#136)
-- Docker demo could not start: `.dockerignore` excluded `demo/`, so the mock server was missing from the image; it is now mounted into the mock container (#131)
-- `NAUTOBOT_MAPS_DB` was defined twice in `docker-compose.yml` (#131)
-- CI no longer relies on a fixed `sleep 2` for the mock server to start (#131)
-- Alert board Refresh button never triggered a sync (it sent `refresh=<timestamp>`), and a fresh database showed an empty board until the map page was opened: the first `/api/alerts` request now starts the initial sync in the background, responses report `sync_pending`, and the board re-polls until the sync finishes. Adding a case now shows it immediately and no longer triggers a full sync (#121)
-- Location detail returned 502 on Nautobot 3.x without the BGP Models plugin: a 404 from `ipam/asns/` now falls back to the location's own `asn` field, while other upstream errors still fail (#126)
-- Demo alert board showed every site as OK with 0 devices: mock Nautobot devices now include a `location` reference and a `primary_ip4`, and the demo stack enables SQLite persistence so the alert board has a snapshot to read (#119)
-- Alert board Action column (case form, History, Open map) was clipped and unreachable at desktop widths; the table now scrolls horizontally with the Action column pinned, and fits without scrolling at 1440px and wider (#122)
+### Map
+- Every Nautobot location with coordinates on an OpenStreetMap map, coloured by alert level as soon as it loads (#234); clustering for large inventories and co-located sites grouped in one marker.
+- Filters by status, location type, parent, tenant and tenant group; search by address or `lat,lon` for sites within 5 km.
+- Site panel with devices, ASNs, circuits (#235), and each tenant's Nautobot description behind an (i) (#263).
+- Tiles and address search can point at internal services (`MAP_TILE_URL`, `GEOCODER_URL`, `GEOCODER_ENABLED`) (#197).
 
-### Added
-- Export a site's alert history as CSV from its History panel: **Incidents CSV** (one row per time a device went down) or **Per-device CSV** (times down, total and longest downtime, last down, down now) for the last 7, 30 or 90 days or everything. `GET /api/alert-history.csv?site_id=…&days=7|30|90|all&view=incidents|devices`, operator role like History; UTF-8 for Excel, times in UTC (#277)
-- **+ Case** shows the site's open cases and each device's case. Devices without a case start ticked and those with one unticked (with a note that a new number is added next to the existing case, not instead of it), and the button says "Already on N devices" when the typed number (ignoring upper/lower case) is already there (#273)
-- Alert board wall view: see at a glance whether someone is on a site. Next to the level: **NO CASE**, **"1 of 2 no case"**, or a blue **✓ INC-1234** when every down device has a case. Sites with a case on every device turn grey and are sorted below a dashed line, and the top line counts the sites without one. The site name is plain text on the wall view (#271)
-- Tenant **(i)**: on the alert board's Tenants column and the map's site panel, a tenant with a description in Nautobot gets an (i) that shows it on hover or keyboard focus. Tenants and their descriptions are synced into a new `nautobot_tenant_cache` table (schema version 4, applied at startup); `/api/locations` and `/api/alerts` give each site `tenant_descriptions` (#263)
-- MCP server at `/mcp` for AI assistants (Claude Code, Claude Desktop, other MCP clients), off unless `MCP_ENABLED=true`. Tools: `get_alert_board`, `get_site`, `get_location_detail`, `search_locations`, `get_alert_feed`, `get_alert_history` and `add_case`; each runs the matching API route with the caller's sign-in and roles, so it can do no more than the web UI. Stateless Streamable HTTP; MCP 2026-07-28 and the earlier `initialize`-based versions (#250)
-- Alert board wall view: text at the browser's standard size, the same as the board (site names 16 px instead of 20 px); size a big screen with the browser's zoom, which it remembers for the site (#267)
-- **Wall view** is in the top navigation of every page (Map · Alert Board · API · Wall view) instead of the alert board's toolbar (#254)
-- Alert board wall view: each site shows its physical address under its name, readable from across the room (#252)
-- Alert board wall view: the **Cases** column is shown, in large type, so the room can see which sites already have a case (#248)
-- Alert board wall-screen view at `/alerts?view=wall` (linked as **Wall view**): sites with alarms and their down devices, large text, no controls. It reloads every minute, shows when it last updated (in red after 10 minutes without an update), and a red banner when the board can't be loaded, keeping the last board on screen (#243)
-- Alert board: the **Tenants** column lists every tenant of a site, the location's own tenant first, then those linked to it by a Nautobot Relationship between Location and Tenant. A site with several shows an **N tenants** badge, so you can see at once whether an alarm hits one customer or several. The tenant filter matches any of a site's tenants, Copy for ITSM lists them all, and `/api/alerts` and `/api/locations` give each site `tenants`. Every inventory sync re-reads the relationships, because changing one does not change the location's `last_updated`. By default every Location ↔ Tenant relationship counts; `SITE_TENANT_RELATIONSHIPS` (keys or labels) narrows it. Schema version 3 adds the `nautobot_location_tenant_cache` table (#238)
-- Map: markers show their alert level (yellow, orange, red) as soon as the map loads, without clicking the site first, and update every minute; a site that recovers goes back to its status colour. Co-located stacks and zoomed-out clusters take the worst level inside them, and markers keep their colour when the map re-renders. New `GET /api/location-alerts` returns the level of every location with an alert, scored from the inventory snapshot like the site panel. The legend now includes the low (yellow) level (#234)
-- Map site panel: a **Circuits** section lists every Nautobot circuit terminating at the location, with circuit ID (linked to Nautobot), provider, type, status, side, speed, commit rate, cross-connect and patch panel. `/api/locations/<id>/detail` returns `circuits` and `circuits_error`; if the circuits call fails, the rest of the panel still loads (#235)
-- API explorer: **API** in the header of every page opens `/docs`, listing every page and endpoint with its methods, description, path and query parameters, example JSON body and required role. **Try it** sends the request (as you; writes ask first) and shows the status, time, response (pretty-printed JSON) and the same request as `curl`. `/api/endpoints` serves the list as JSON. It is read from the app's routes, so new endpoints appear without editing the page (#230)
-- Alert board: **All sites / Alarms only**. Alarms only hides every site without an active alarm (Critical, Medium or Low; No data is not an alarm), and the status line says "(alarms only)". It works with the other filters and sorts, is remembered per browser, and Reset goes back to All sites (#232)
-- Alert board: **Copy** on a site with down devices copies it as plain text for an ITSM ticket: the site (location path, address, tenant, severity, reason, cases, Nautobot link) and one line per down device with name, IP, role, status, location, down since (with its UTC offset) and case numbers, newest down first. Where the browser won't copy (e.g. the board served over plain HTTP and the fallback refused), the text opens in a panel, selected, to copy by hand (#227)
-- Release process: pushing a `vX.Y.Z` tag publishes `ghcr.io/jackass4life/nautobot-maps:X.Y.Z` (plus `X.Y`, `latest`) with provenance and an SBOM, and a GitHub Release with that version's changelog section; the same build runs without publishing on pull requests that touch the image. The README explains deploying and rolling back a released version with `docker-compose.override.yml`, CONTRIBUTING how to cut a release. GitHub Actions are pinned by commit SHA (#195)
-- Browser security headers on every response: a Content-Security-Policy (only the app's own scripts; images also from the `MAP_TILE_URL` host; no framing), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: strict-origin-when-cross-origin`. Headers a reverse proxy sets on the response are left alone (#198)
-- `MAP_TILE_URL` / `MAP_TILE_ATTRIBUTION` and `GEOCODER_URL` / `GEOCODER_USER_AGENT` / `GEOCODER_ENABLED`: the map tiles and address search no longer have to use the public OpenStreetMap services (closed networks, or keeping data inside). Geocoding results are cached for a day and the geocoder is asked at most once per second (429 "try again"), as the public Nominatim requires. The map page passes its settings as data attributes instead of an inline script (#197)
-- Logging: unexpected errors that return 500 or abort a sync, board build or scheduler tick are logged with their stack trace; gunicorn writes an access log (client, user from the auth proxy, request, status, size, response time; successful `/healthz` probes left out); `LOG_LEVEL` (default `INFO`) and `LOG_FORMAT=json` for one JSON object per line; `docker-compose.yml` caps each container's log at 5 × 10 MB (#193)
-- `ALERT_HISTORY_RETENTION_DAYS`: once a day the scheduler deletes, in batches, resolved alerts (with their events and cases) and site severity changes older than that; open alerts are never deleted. Off by default (keeps everything). The README has a new "Backup and restore" section: what must be backed up, `pg_dump`/`pg_restore` commands for the bundled PostgreSQL, and how to upgrade it to a new major version (#194)
-- Monitoring: `/metrics` (Prometheus) with the last successful sync, last attempt, duration and failure state per source, open alerts by level and sites by level, read from the database at scrape time (`METRICS_ENABLED=false` turns it off). `/healthz` also reports `inventory_sync_age_seconds` without failing on it. `inventory_sync_state` gets a `last_succeeded_at` column (schema migration 2, backfilled), because a failed sync overwrote the only completion time (#200)
-- Alert board **Activity** panel: devices going down and back up, and site severity changes (e.g. `OK → Critical`), newest first, with Down / Up / Severity filters. It starts hidden below 1,700 px wide so the table keeps its room ("Show activity" in the toolbar); Hide/Show is remembered. `GET /api/alert-feed?limit=&since=&kinds=` serves it. Two new tables, created automatically: `site_alert_levels` and `site_level_changes`; a site's first build after upgrading is not logged as a change (#180)
-- ESLint for `static/js` in CI's `lint` job, the pre-commit hook and the dev container, with versions pinned in `package-lock.json`; fixed its findings (unused assignments, a duplicate `L` global) (#164)
-- Background scheduler: due syncs run and the alert board is rebuilt with no page open, so alert history is recorded around the clock. One thread per app process, a PostgreSQL lock lets only one work at a time; `BACKGROUND_SYNC_ENABLED=false` turns it off (#154)
-- `ALERT_BOARD_SITE_LOCATION_TYPE` (e.g. `Site`): one alert-board row per location of that type, with devices from child locations (buildings, floors) rolled up into it; the row shows its path (`EMEA › DNK`) and down devices show where they are (`Bygning A › Etage 2`). The location cache stores `parent_id` (one automatic full resync after upgrading) (#158)
-- Alert board updates itself: a normal `/api/alerts` request starts an inventory sync once one is due, and the board shows "Next update in m:ss" and reloads in the background at zero (`next_update_in_seconds` in the API) (#152)
-- `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` ignores devices by status on the alert board (not counted as monitored or down, not listed), and `null` in the location/device status settings matches an empty status (#151)
-- `ruff format` applied repo-wide (layout only) and checked in CI and the pre-commit hook; the formatting commit is listed in `.git-blame-ignore-revs` (#144)
-- Dev container (`.devcontainer/`) with Python 3.11, Node, GitHub CLI and the dev tools preinstalled; documented in `CONTRIBUTING.md` (#145)
-- `ruff` linting in CI (`lint` job), `pyproject.toml` configuration, pinned dev tools in `requirements-dev.txt`, and an optional pre-commit hook; fixed all existing findings (#143)
-- README documents `docker-compose.override.yml` for local Docker settings; the file is git-ignored and excluded from the image (#141)
-- The LibreNMS cache stores each device's polled IP (`overwrite_ip`, else `ip`), so the alert board's device-IP fallback also works for devices added to LibreNMS by hostname; existing databases gain the column automatically (#137)
-- Alert board: attach one case number to several down devices at once (checkbox list, all selected by default); `POST /api/alert-cases` accepts `device_ids` and is all-or-nothing (#133)
-- `GET /healthz` liveness endpoint and Docker `HEALTHCHECK`; the container now runs as a non-root user; new `docker-smoke` CI job builds the image and runs the demo stack (#131)
-- Alert board summary tiles show an (i) glyph with the tier definition on hover and keyboard focus, sourced from one `ALERT_STATUS_TIER_DEFINITIONS` constant (#117)
-- Alert board device rows show each device's IP address (Nautobot primary IP, falling back to the LibreNMS hostname when LibreNMS polls by IP) (#117)
-- Initial public release
-- Interactive OpenStreetMap visualization of Nautobot locations
-- Color-coded markers by location status (Active, Planned, Other)
-- Filtering by status, location type, parent, tenant, and tenant group
-- Click-to-view location details with devices, ASNs, and tenant info
-- Address and GPS coordinate search with 5 km proximity matching
-- Grid-based marker clustering for large deployments
-- Co-located site grouping with tabbed popups
-- Server-side caching to reduce Nautobot API load
-- Docker and Docker Compose deployment support
-- Demo mode with mock data
-- Support for Nautobot v2.x and v3.x APIs
-- Comprehensive test suite (unit, integration, and live tests)
+### Alert board
+- One row per site with its level, worked out from the monitored devices (those with a primary IP): **Critical** (a core device down, or all of them), **Medium** (more than 25% down), **Low**, **No data**, **OK** (#124). Core devices come from role keywords (`CRITICAL_ROLE_KEYWORDS`, `CRITICALITY_RULES_FILE`) and per-device overrides.
+- Opens on **Alarms**; the summary tiles filter by level; search, tenant and sort (newest down first by default) on one line, status, type and non-operational sites under **More filters** (#242, #228).
+- Device status from Nautobot and, optionally, LibreNMS, including the IP LibreNMS polls when Nautobot has none (#137).
+- **Since** column: a site is "in alarm 3h 40m", a device "down 25m" (#275, #279).
+- One row per Site with buildings and floors rolled up (`ALERT_BOARD_SITE_LOCATION_TYPE`), the location path under the name (#158, #178, #269).
+- Every tenant of a site, including those linked by Nautobot Relationships, with "+N more" (#238, #279).
+- Hide sites by location type, status, tag or name, and ignore devices by status (`ALERT_BOARD_EXCLUDED_*`) (#151).
+- Updates itself: a background scheduler syncs and records history with no page open, and an open board reloads when the next sync is due (#154, #152).
+- **Activity** panel: devices down and up, and site level changes (#180).
+
+### Wall view
+- `/alerts?view=wall` (**Wall view** in the top bar) for a NOC screen: sites with alarms and their down devices, address and cases, no controls (#243, #252, #248, #254).
+- At a glance who is on it: **NO CASE**, **"1 of 2 no case"** or **✓ INC-1234**; sites with a case on every device turn grey and move below a dashed line (#271).
+- Shows when it last updated, turns red after 10 minutes without an update, and keeps the last board under a red banner when it can't load (#243).
+- Browser-standard text size; size a big screen with the browser's zoom (#267).
+
+### Cases, history and export
+- **+ Case** attaches a case number to a site's down devices; it shows existing cases and won't add the same number twice (#133, #273).
+- **Copy** puts a site and its down devices on the clipboard for an ITSM ticket (#227).
+- Alert history per device with downtime and cases; an alert starts when the device went down in Nautobot, and a level change doesn't restart it (#163, #166).
+- **History** panel and CSV export per site for the last 7, 30 or 90 days or everything: one row per incident or per device (#277).
+- `ALERT_HISTORY_RETENTION_DAYS` deletes old resolved history (#194).
+
+### Integrations
+- **MCP server** at `/mcp` for AI assistants, off unless `MCP_ENABLED=true`; its tools use the same sign-in and roles as the web UI (#250).
+- **API explorer** at `/docs` with every endpoint and **Try it** (#230).
+- Nautobot 2.x and 3.x; the app only reads from Nautobot, so a read-only token is enough (#188).
+
+### Sign-in and roles
+- Optional sign-in through a reverse proxy or SSO gateway (`AUTH_MODE=header`) with viewer, operator and admin roles from groups; identity headers are trusted only from `AUTH_TRUSTED_PROXIES`, optionally with a shared secret (#187, #188).
+- Without sign-in the board works, but changing criticality overrides is refused unless `ALLOW_UNAUTHENTICATED_WRITES=true` (#188).
+
+### Operations
+- Docker image (`ghcr.io/jackass4life/nautobot-maps`) running as a non-root user, with a health check, Debian security updates installed at build time, and PostgreSQL in `docker-compose.yml` (#131, #246, #153).
+- Versioned database migrations, applied once before the app starts; a database newer than the release is refused (#201).
+- `/healthz` and Prometheus `/metrics` (sync state, open alerts and sites by level) (#200).
+- Logging with stack traces for unexpected errors, an access log, and `LOG_FORMAT=json` (#193).
+- Database connect and statement timeouts (#190); retries with backoff for Nautobot and LibreNMS (#192).
+- Browser security headers, including a Content-Security-Policy that runs only the app's own scripts (#198).
+- Hashed dependency lock files, and CI with tests against PostgreSQL, ruff, ESLint, `pip-audit`, `npm audit`, CodeQL and a Trivy scan of the image (#186).
+- Documentation in `docs/`: configuration, the alert board, running in production (released images, backup and restore, upgrades), sign-in, MCP (#256).
+
+### Upgrading from an earlier `main`
+Only for installations that ran unreleased code from `main`:
+- SQLite is no longer supported: move to PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`) first; `NAUTOBOT_MAPS_DB` is ignored (#153).
+- The Nautobot pass-through API (`/api/roles`, `/api/location-types`) was removed (#188).
+- With `AUTH_MODE=disabled`, changing criticality overrides returns 403 unless `ALLOW_UNAUTHENTICATED_WRITES=true` (#188).
+- `FLASK_SECRET_KEY` is ignored (#199).
+- Database migrations run automatically at startup; take a backup first.
