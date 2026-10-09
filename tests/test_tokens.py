@@ -118,6 +118,34 @@ class TestTokens:
         finally:
             conn.close()
 
+    def test_requests_that_all_saw_it_stale_write_once(self, pg_database, clock, monkeypatch):
+        secret = make()["token"]
+        real_get_conn = db.get_conn
+
+        class OtherRequestFirst:
+            """Another request writes last_used_at between our read and our write."""
+
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __getattr__(self, name):
+                return getattr(self.conn, name)
+
+            def execute(self, sql, params=()):
+                if sql.startswith("UPDATE api_tokens SET last_used_at"):
+                    other = real_get_conn()
+                    try:
+                        with db.transaction(other):
+                            other.execute("UPDATE api_tokens SET last_used_at = '2026-10-09T11:58:00Z'")
+                    finally:
+                        other.close()
+                return self.conn.execute(sql, params)
+
+        monkeypatch.setattr(db, "get_conn", lambda *args, **kwargs: OtherRequestFirst(real_get_conn()))
+        assert tokens.verify(secret) is not None
+        monkeypatch.setattr(db, "get_conn", real_get_conn)
+        assert raw_rows()[0]["last_used_at"].startswith("2026-10-09T11:58:00")
+
     def test_revoke(self, pg_database, clock):
         created = make()
         conn = db.get_conn()

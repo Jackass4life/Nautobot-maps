@@ -88,13 +88,14 @@ def create(conn, body: dict, created_by: str) -> dict:
 
     token = PREFIX + secrets.token_urlsafe(32)
     with db.transaction(conn):
-        if conn.execute("SELECT 1 FROM api_tokens WHERE name = %s", (name,)).fetchone() is not None:
-            raise TokenError("A token with this name already exists (revoked ones keep their name)")
+        # The unique name is the check, so two creates at once can't both pass it.
         row = conn.execute(
             "INSERT INTO api_tokens (name, token_hash, prefix, role, created_by, created_at, expires_at) "
-            f"VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {COLUMNS}",
+            f"VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (name) DO NOTHING RETURNING {COLUMNS}",
             (name, hash_token(token), token[:SHOWN_CHARACTERS], role, created_by, current, expires_at),
         ).fetchone()
+    if row is None:
+        raise TokenError("A token with this name already exists (revoked ones keep their name)")
     logger.info("API token %r created (role %s) by %s", name, role, created_by or "unknown")
     return {**_with_state(db.row_to_dict(row), current), "token": token}
 
@@ -142,8 +143,13 @@ def verify(token: str) -> dict | None:
         if not found:
             return None
         if found["stale"]:
+            # The same condition again: of requests that all saw it stale, one writes.
             with db.transaction(conn):
-                conn.execute("UPDATE api_tokens SET last_used_at = %s WHERE id = %s", (current, found["id"]))
+                conn.execute(
+                    "UPDATE api_tokens SET last_used_at = %s "
+                    "WHERE id = %s AND (last_used_at IS NULL OR last_used_at < %s)",
+                    (current, found["id"], current - LAST_USED_INTERVAL),
+                )
         return {"name": found["name"], "role": found["role"]}
     finally:
         conn.close()
