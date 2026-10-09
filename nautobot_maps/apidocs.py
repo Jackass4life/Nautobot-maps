@@ -32,6 +32,8 @@ EXAMPLE_BODIES = {
         "reason": "Core switch upgrade",
     },
     "web.api_maintenance_end": {},
+    "web.api_tokens_create": {"name": "librenms", "role": "operator", "expires_in_days": 365},
+    "web.api_tokens_revoke": {},
     "web.api_add_alert_case": {
         "site_id": "<site id>",
         "device_ids": ["<device uuid>"],

@@ -471,6 +471,27 @@ def add_maintenance_windows(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS maintenance_windows_time ON maintenance_windows (ends_at, starts_at)")
 
 
+def add_api_tokens(conn) -> None:
+    """Named API tokens for scripts and MCP clients; only a hash is kept (#297)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id           BIGSERIAL PRIMARY KEY,
+            name         TEXT NOT NULL UNIQUE,
+            token_hash   TEXT NOT NULL UNIQUE,
+            prefix       TEXT NOT NULL,
+            role         TEXT NOT NULL,
+            created_by   TEXT NOT NULL DEFAULT '',
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at   TIMESTAMPTZ,
+            last_used_at TIMESTAMPTZ,
+            revoked_at   TIMESTAMPTZ,
+            revoked_by   TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -481,6 +502,7 @@ MIGRATIONS = (
     (4, "nautobot_tenant_cache", add_tenant_cache),
     (5, "notification_outbox", add_notification_outbox),
     (6, "maintenance_windows", add_maintenance_windows),
+    (7, "api_tokens", add_api_tokens),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
