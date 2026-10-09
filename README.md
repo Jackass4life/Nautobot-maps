@@ -17,7 +17,7 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 - **LibreNMS** status (optional) next to Nautobot's.
 - **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers.
 - **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm.
-- **Sign-in and roles** through your SSO proxy (viewer, operator, admin).
+- **Sign-in and roles** through your SSO proxy (viewer, operator, admin), and **API tokens** for scripts and MCP clients.
 - **MCP server** (optional) so AI assistants can read the board and add cases.
 - **Read-only towards Nautobot**: the app never changes anything there, so a read-only API token is enough.
 
@@ -58,7 +58,7 @@ Without Docker (for development): `pip install -r requirements.txt`, then `pytho
 | [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, automatic updates, wall view |
 | [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
 | [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
-| [Sign-in and roles](docs/authentication.md) | SSO proxy setup and what each role can do |
+| [Sign-in and roles](docs/authentication.md) | SSO proxy setup, what each role can do, API tokens |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
 | API | **API** in the app's top bar opens `/docs`: every endpoint with its parameters and a **Try it** button |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |

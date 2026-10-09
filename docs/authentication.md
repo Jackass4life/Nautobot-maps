@@ -6,7 +6,7 @@ With `AUTH_MODE=disabled`:
 
 - the map, the alert board and the read-only APIs are open to anyone who can reach the app;
 - adding a case number to an alert works (the board needs it);
-- **changing criticality overrides, managing maintenance windows and sending test notifications are refused** (403): they change what alarms for everyone, or send real messages to your channels. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone.
+- **changing criticality overrides, managing maintenance windows and sending test notifications are refused** (403): they change what alarms for everyone, or send real messages to your channels. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone; for scripts, an operator [API token](#api-tokens) is the safer way.
 
 ## With a sign-in proxy
 
@@ -27,7 +27,7 @@ AUTH_ADMIN_GROUPS=nautobot-admins
 |---|---|
 | `viewer` | Open the map, the board and the read APIs, when `AUTH_REQUIRE_VIEWER=true` (otherwise they are open to everyone) |
 | `operator` | Also add cases, view alert history, manage maintenance windows and criticality overrides |
-| `admin` | Everything an operator can, and send test notifications (`POST /api/notifications/test`) |
+| `admin` | Everything an operator can, send test notifications (`POST /api/notifications/test`) and manage API tokens |
 
 A user's role is the highest one any of their groups maps to, or `AUTH_DEFAULT_ROLE` when none does.
 
@@ -68,4 +68,36 @@ location / {
 
 ### Requiring sign-in everywhere
 
-`AUTH_REQUIRE_VIEWER=true` makes every page and API need at least the `viewer` role, except `/healthz` and `/metrics` (probes and Prometheus send no identity; `/metrics` holds only counts). This includes a wall screen's browser and MCP clients: they must sign in through the proxy too.
+`AUTH_REQUIRE_VIEWER=true` makes every page and API need at least the `viewer` role, except `/healthz` and `/metrics` (probes and Prometheus send no identity; `/metrics` holds only counts). This includes a wall screen's browser and MCP clients: they sign in through the proxy, or with an API token.
+
+## API tokens
+
+Scripts, LibreNMS and MCP clients that can't log in through SSO use a named **API token** with a role (and optionally an expiry):
+
+```
+Authorization: Bearer nmt_...
+```
+
+- It works with `AUTH_MODE=disabled` and `header`, from any address (the token is the secret; `AUTH_TRUSTED_PROXIES` doesn't apply). With `disabled`, an operator token can make changes without `ALLOW_UNAUTHENTICATED_WRITES`.
+- Changes made with it are recorded as `token:<name>` (e.g. on cases and maintenance windows).
+- A wrong, expired or revoked token gets **401** on every request, so a script notices.
+- Only the token's SHA-256 is stored. The token itself is shown once, when it is created.
+- Other `Bearer` values (not starting with `nmt_`, e.g. an access token your proxy forwards) are ignored; sign-in then works as without a token.
+
+### Creating and revoking
+
+On the command line (this is how the first admin token is made):
+
+```sh
+docker compose exec nautobot-maps python -m nautobot_maps token create librenms --role operator --expires-days 365
+docker compose exec nautobot-maps python -m nautobot_maps token list
+docker compose exec nautobot-maps python -m nautobot_maps token revoke 3
+```
+
+Or through the API (admin role; also in the API explorer at `/docs`): `POST /api/tokens` with `{"name": "librenms", "role": "operator", "expires_in_days": 365}` returns the token once; `GET /api/tokens` lists them (name, first characters, role, expiry, last use, state; never the secret); `POST /api/tokens/<id>/revoke` revokes one from the next request on.
+
+### Behind a sign-in proxy
+
+The request must reach the app with its `Authorization` header. If the proxy requires SSO on every path, let requests with a token past it, e.g. oauth2-proxy's `--skip-auth-route` for the API paths your scripts use (`--skip-jwt-bearer-tokens` doesn't help: these tokens are not JWTs). The app checks the token itself.
+
+On routes the proxy doesn't authenticate, it must still **remove or overwrite** `X-Forwarded-User` and `X-Forwarded-Groups` from the client (nginx: `proxy_set_header X-Forwarded-User "";`). Otherwise a client without a token could send them through the trusted proxy and claim any user.

@@ -1,7 +1,9 @@
 """Optional header-based authentication and roles (#165).
 
 A trusted reverse proxy sets the user and group headers (AUTH_MODE=header);
-``@auth.require_role("operator")`` protects write endpoints.
+``@auth.require_role("operator")`` protects write endpoints.  An API token
+(``Authorization: Bearer nmt_...``, #297) signs in as ``token:<name>`` with
+the token's role, in either mode and from any address.
 """
 
 import hmac
@@ -12,7 +14,7 @@ from functools import wraps
 
 from flask import g, jsonify, request
 
-from nautobot_maps import settings
+from nautobot_maps import settings, tokens
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +80,41 @@ def role_from_groups(groups: list[str]) -> str:
     return settings.AUTH_DEFAULT_ROLE
 
 
+def bearer_token() -> str:
+    """The API token in ``Authorization: Bearer``, or "" (also for a Bearer
+    value that isn't ours, e.g. a proxy's own access token)."""
+    scheme, _, value = request.headers.get("Authorization", "").strip().partition(" ")
+    value = value.strip()
+    return value if scheme.lower() == "bearer" and tokens.is_token(value) else ""
+
+
+def _token_user(token: str) -> dict:
+    found = None
+    try:
+        found = tokens.verify(token)
+    except Exception as exc:  # the database; never log the token
+        logger.warning("API token check failed: %s", type(exc).__name__)
+    return {
+        "is_authenticated": found is not None,
+        "username": f"token:{found['name']}" if found else "",
+        "groups": [],
+        "role": found["role"] if found else "",
+        "auth_mode": settings.AUTH_MODE,
+        "token": found["name"] if found else "",
+        "token_rejected": found is None,
+    }
+
+
 def get_current_user() -> dict:
     """Return the current authenticated user context for the request."""
     current = getattr(g, "_current_user", None)
     if current is not None:
         return current
+
+    token = bearer_token()
+    if token:
+        g._current_user = _token_user(token)
+        return g._current_user
 
     current = {
         "is_authenticated": False,
@@ -131,7 +163,8 @@ def require_role(required_role: str, open_when_disabled: bool = False):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            if settings.AUTH_MODE == "disabled":
+            # A token is checked like a signed-in user, also with AUTH_MODE=disabled.
+            if settings.AUTH_MODE == "disabled" and not get_current_user().get("token"):
                 if disabled_mode_allows(request.method, open_when_disabled):
                     return func(*args, **kwargs)
                 return jsonify(
@@ -172,9 +205,15 @@ PUBLIC_PATHS = {"/healthz", "/metrics"}
 
 def check_viewer():
     """``before_request`` hook: with AUTH_REQUIRE_VIEWER in header mode, every
-    page and API needs at least the viewer role (#188).  Returns a response
-    to stop the request, or None."""
-    if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER or request.path in PUBLIC_PATHS:
+    page and API needs at least the viewer role (#188), and a rejected API
+    token is a 401 (#297).  Returns a response to stop the request, or None."""
+    if request.path in PUBLIC_PATHS:
+        return None
+    # A wrong, expired or revoked token is refused everywhere, also where
+    # anyone may read: a script should learn its token stopped working.
+    if bearer_token() and get_current_user().get("token_rejected"):
+        return jsonify({"error": "Invalid, expired or revoked API token"}), 401
+    if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER:
         return None
     current_user = get_current_user()
     if not current_user["is_authenticated"]:
