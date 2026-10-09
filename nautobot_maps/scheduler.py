@@ -56,20 +56,58 @@ def tick() -> bool:
         send_notifications()
         prune_alert_history_if_due()
         worked = inventory.ensure_snapshot(wait=True)
-        if worked:
+        # A LibreNMS push (#284) whose own rebuild didn't get the lock.
+        pushed = librenms_push_pending()
+        if worked or pushed:
             # The syncs invalidated the cached board; rebuild it now so alert
             # history is recorded even if nobody opens the board.
-            payload = alerts.build_alert_board_payload(snapshot_only=True)
-            caching.set(
-                "alert-board-data:v3",
-                payload,
-                timeout=maintenance.cache_seconds(payload.get("next_maintenance_change"), settings.CACHE_TTL),
-            )
-            # ...and send what that build queued right away.
-            send_notifications()
-        return worked
+            rebuild_board()
+        return worked or pushed
     finally:
         release()
+
+
+def rebuild_board() -> None:
+    """Build the board from the cache, store it, and send what the build queued."""
+    payload = alerts.build_alert_board_payload(snapshot_only=True)
+    caching.set(
+        "alert-board-data:v3",
+        payload,
+        timeout=maintenance.cache_seconds(payload.get("next_maintenance_change"), settings.CACHE_TTL),
+    )
+    send_notifications()
+
+
+def librenms_push_pending() -> bool:
+    conn = db.get_conn()
+    if conn is None:
+        return False
+    try:
+        return inventory.take_librenms_push_pending(conn)
+    except Exception as exc:
+        logger.warning("Reading LibreNMS push marks failed: %s", exc, exc_info=True)
+        return False
+    finally:
+        conn.close()
+
+
+def rebuild_after_push() -> None:
+    """Rebuild the board now for a LibreNMS push (#284), in a thread.  If
+    another process holds the scheduler lock, its next tick does it."""
+
+    def run() -> None:
+        release = db.try_advisory_lock("background_scheduler")
+        if not callable(release):
+            return
+        try:
+            if librenms_push_pending():
+                rebuild_board()
+        except Exception as exc:
+            logger.warning("Rebuild after a LibreNMS push failed: %s", exc, exc_info=True)
+        finally:
+            release()
+
+    threading.Thread(target=run, name="librenms-push-rebuild", daemon=True).start()
 
 
 def send_notifications() -> None:

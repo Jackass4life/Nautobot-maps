@@ -14,7 +14,7 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 - **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, downtime, and case numbers. It opens on sites with alarms and updates itself.
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating.
 - **Cases and ITSM**: attach a case number to down devices, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
-- **LibreNMS** status (optional) next to Nautobot's.
+- **LibreNMS** status (optional) next to Nautobot's, pushed within seconds by LibreNMS alerts.
 - **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers.
 - **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm.
 - **Sign-in and roles** through your SSO proxy (viewer, operator, admin), and **API tokens** for scripts and MCP clients.

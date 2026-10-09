@@ -492,6 +492,15 @@ def add_api_tokens(conn) -> None:
     )
 
 
+def add_librenms_push_columns(conn) -> None:
+    """A LibreNMS alert push (#284): when it last refreshed a device, and
+    whether the board still has to be rebuilt for it."""
+    conn.execute("ALTER TABLE librenms_device_status ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMPTZ")
+    conn.execute(
+        "ALTER TABLE librenms_device_status ADD COLUMN IF NOT EXISTS push_pending BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -503,6 +512,7 @@ MIGRATIONS = (
     (5, "notification_outbox", add_notification_outbox),
     (6, "maintenance_windows", add_maintenance_windows),
     (7, "api_tokens", add_api_tokens),
+    (8, "librenms_device_status push columns", add_librenms_push_columns),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
