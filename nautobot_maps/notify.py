@@ -33,7 +33,14 @@ from nautobot_maps import db, settings, timeutil
 logger = logging.getLogger(__name__)
 
 LEVEL_RANK = {"ok": 0, "no_data": 0, "low": 1, "medium": 2, "critical": 3}
-LEVEL_LABEL = {"ok": "OK", "no_data": "No data", "low": "Low", "medium": "Medium", "critical": "Critical"}
+LEVEL_LABEL = {
+    "ok": "OK",
+    "no_data": "No data",
+    "low": "Low",
+    "medium": "Medium",
+    "critical": "Critical",
+    "maintenance": "Maintenance",
+}
 CHANNELS = ("webhook", "teams", "email")
 MAX_ATTEMPTS = 10
 # Delay before attempt n+1 (minutes), capped at the last value.
@@ -64,6 +71,10 @@ def configured_channels() -> list[str]:
 def event_kind(from_level: str, to_level: str) -> str | None:
     """ "alarm" when a site reaches the minimum level or worse (or gets worse
     above it), "recovery" when it drops below it, otherwise None."""
+    # Going into maintenance is planned (#283): no message.  Coming out of it
+    # counts from "nothing": still Critical when it ends is an alarm.
+    if to_level == "maintenance":
+        return None
     minimum = LEVEL_RANK[settings.NOTIFY_MIN_LEVEL]
     before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
     if after >= minimum and after > before:
@@ -120,14 +131,24 @@ def board_url() -> str:
     return f"{settings.NOTIFY_BOARD_URL}/alerts" if settings.NOTIFY_BOARD_URL else ""
 
 
-def enqueue_change(conn, site_id: str, from_level: str, to_level: str, site: dict | None, changed_at: str) -> int:
+def enqueue_change(
+    conn,
+    site_id: str,
+    from_level: str,
+    to_level: str,
+    site: dict | None,
+    changed_at: str,
+    quiet_recovery: bool = False,
+) -> int:
     """Queue messages for one level change, inside the caller's transaction.
 
+    *quiet_recovery*: the level dropped because devices went into
+    maintenance (#283), which is planned, not a recovery to announce.
     Returns how many rows were queued (one per configured channel).
     """
     channels = configured_channels()
     kind = event_kind(from_level, to_level)
-    if not channels or kind is None:
+    if not channels or kind is None or (quiet_recovery and kind == "recovery"):
         return 0
     site = site or {"id": site_id}
     if not tenant_matches(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])):

@@ -15,7 +15,20 @@ from markupsafe import escape
 from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
-from nautobot_maps import alerts, auth, caching, db, inventory, librenms, nautobot, scheduler, settings, timeutil, web
+from nautobot_maps import (
+    alerts,
+    auth,
+    caching,
+    db,
+    inventory,
+    librenms,
+    maintenance,
+    nautobot,
+    scheduler,
+    settings,
+    timeutil,
+    web,
+)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -696,6 +709,7 @@ class TestAlertBoard:
             "no_data": 0,
             "ok": 1,
             "non_ok": 2,
+            "maintenance": 0,
         }
         assert [item["id"] for item in data["alerts"]] == ["loc-1", "loc-2", "loc-3"]
         assert data["alerts"][0]["down_device_count"] == 1
@@ -1158,7 +1172,7 @@ class TestAlertBoard:
             opened_conns.append(conn)
             return conn
 
-        def fake_upsert(site, devices, alert, checked_at, conn=None):
+        def fake_upsert(site, devices, alert, checked_at, conn=None, frozen_device_ids=None):
             upsert_conns.append(conn)
             return site["id"] != "loc-2"  # the write for loc-2 fails
 
@@ -1177,6 +1191,8 @@ class TestAlertBoard:
             ),
             patch.object(alerts, "nautobot_inventory_primary_ip_backfill_pending", return_value=False),
             patch.object(db, "get_conn", side_effect=fake_get_db_conn),
+            # Connection handling only: no maintenance windows (#283).
+            patch.object(maintenance, "read_active", return_value={"sites": {}, "devices": {}, "next_change": None}),
             patch.object(alerts, "upsert_alert_lifecycle_for_site", side_effect=fake_upsert),
             patch.object(alerts, "read_alert_context", side_effect=fake_context),
         ):
@@ -1208,6 +1224,8 @@ class TestAlertBoard:
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(db, "get_conn", side_effect=RuntimeError("connection is closed")) as get_db_conn,
+            # Connection handling only: no maintenance windows (#283).
+            patch.object(maintenance, "read_active", return_value={"sites": {}, "devices": {}, "next_change": None}),
             patch.object(alerts, "upsert_alert_lifecycle_for_site") as upsert,
             patch.object(alerts, "read_alert_context") as get_context,
         ):
@@ -1238,6 +1256,8 @@ class TestAlertBoard:
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
             patch.object(db, "get_conn", return_value=_FakeConn()),
+            # Connection handling only: no maintenance windows (#283).
+            patch.object(maintenance, "read_active", return_value={"sites": {}, "devices": {}, "next_change": None}),
             patch.object(
                 inventory,
                 "get_sync_state",
@@ -5703,6 +5723,7 @@ class TestSeverityTiers:
             "no_data": 1,
             "ok": 1,
             "non_ok": 3,  # No data is not an alert
+            "maintenance": 0,
         }
         assert "unknown" not in summary
 

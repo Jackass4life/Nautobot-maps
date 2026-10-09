@@ -1185,6 +1185,7 @@ body.inspector-open #loading-overlay {
 .dot-low      { background: #eab308; }
 .dot-medium   { background: #ff8c00; }
 .dot-critical { background: var(--color-danger); }
+.dot-maintenance { background: #2563eb; }
 
 /* =========================================================
    Responsive (collapse sidebar on small screens)

@@ -144,6 +144,7 @@ function renderSummary(summary) {
   document.getElementById("summary-low").textContent = summary.low || 0;
   document.getElementById("summary-no_data").textContent = summary.no_data || 0;
   document.getElementById("summary-ok").textContent = summary.ok || 0;
+  document.getElementById("summary-maintenance").textContent = summary.maintenance || 0;
   document.getElementById("summary-total").textContent = summary.total || 0;
 }
 
@@ -246,7 +247,8 @@ function siteNameHtml(item, linked) {
 // case, "partly" when some do, "none" otherwise (also with no listed devices,
 // so an alarm never looks handled by accident).
 function siteCaseState(item) {
-  const devices = downDeviceList(item);
+  // Devices in maintenance are planned work, not waiting for a case (#283).
+  const devices = downDeviceList(item).filter((d) => !d.maintenance_until);
   const withCase = devices.filter((d) => Array.isArray(d.case_numbers) && d.case_numbers.length).length;
   let state = "none";
   if (devices.length && withCase === devices.length) state = "handled";
@@ -679,6 +681,12 @@ function alertBadge(level) {
   return `<span class="alert-badge alert-${escHtml(value)}">${escHtml(label)}</span>`;
 }
 
+// "until 14:00 · core switch upgrade" for a maintenance window (#283).
+function maintenanceNote(until, reason) {
+  const when = formatFeedTime(until);
+  return [when ? `until ${when}` : "", reason || ""].filter(Boolean).map(escHtml).join(" · ");
+}
+
 function formatLocationAddress(item) {
   return item.physical_address || item.facility || "";
 }
@@ -755,7 +763,8 @@ function deviceDowntimeSeconds(device, now = Date.now()) {
 // The site's time in alarm: null with nothing down; NaN when none of its
 // down devices has a known start (e.g. the alert history couldn't be saved).
 function siteAlarmSeconds(item) {
-  const devices = downDeviceList(item);
+  if (item.alert_level === "maintenance") return null;
+  const devices = downDeviceList(item).filter((d) => !d.maintenance_until);
   if (!devices.length) return null;
   const known = devices.some((device) => !Number.isNaN(Date.parse(device.down_started_at || "")));
   return known ? item.current_downtime_seconds || 0 : NaN;
@@ -772,6 +781,7 @@ function renderDownDeviceRows(item, isExpanded, extraClass) {
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
         <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}</div>
         <div class="site-meta">${[device.location_path, device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+        ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
       </td>
       <td></td>
       <td class="col-tenants"></td>
@@ -861,9 +871,16 @@ function renderTableRows(alerts, payload) {
   }
 
   let handledSeen = false;
+  let maintenanceSeen = false;
   alertsTableBody.innerHTML = alerts.map((item) => {
+    const inMaintenance = item.alert_level === "maintenance";
+    // Wall view: sites in maintenance are listed last, under a heading (#283).
+    const maintenanceHeading = WALL_VIEW && inMaintenance && !maintenanceSeen
+      ? '<tr class="maintenance-heading"><td colspan="7">In maintenance</td></tr>'
+      : "";
+    if (inMaintenance) maintenanceSeen = true;
     // Wall view: sites someone is on are faded, below a dashed line (#271).
-    const handled = WALL_VIEW && siteCaseState(item).state === "handled";
+    const handled = WALL_VIEW && !inMaintenance && siteCaseState(item).state === "handled";
     const firstHandled = handled && !handledSeen;
     if (handled) handledSeen = true;
     const caseClass = handled ? `case-handled${firstHandled ? " handled-first" : ""}` : "";
@@ -876,8 +893,9 @@ function renderTableRows(alerts, payload) {
     // Only the path above the site, e.g. "LATAM › BRA" (#178): no status or type.
     const meta = siteMeta(item);
 
-    return `
-    <tr class="site-row${caseClass ? ` ${caseClass}` : ""}">
+    const maintenanceClass = inMaintenance ? " in-maintenance" : "";
+    return `${maintenanceHeading}
+    <tr class="site-row${caseClass ? ` ${caseClass}` : ""}${maintenanceClass}">
       <td>
         <div class="site-name-row">
           ${toggleButton}
@@ -889,14 +907,14 @@ function renderTableRows(alerts, payload) {
         ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
         ${meta ? `<div class="site-meta">${meta}</div>` : ""}
       </td>
-      <td>${alertBadge(item.alert_level)}${WALL_VIEW ? caseStateBadge(item) : ""}</td>
+      <td>${alertBadge(item.alert_level)}${WALL_VIEW && !inMaintenance ? caseStateBadge(item) : ""}${item.maintenance ? `<div class="maintenance-note">${maintenanceNote(item.maintenance.until, item.maintenance.reason)}</div>` : ""}</td>
       <td class="col-tenants">${tenantCell(item)}</td>
       <td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", siteAlarmSeconds(item))}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>
       <td class="reason-cell col-reason">${escHtml(item.alert_reason || "No active alert")}</td>
       <td class="col-action">${actionCell(item)}</td>
     </tr>
-    ${renderDownDeviceRows(item, isExpanded, handled ? "case-handled" : "")}
+    ${WALL_VIEW && inMaintenance ? "" : renderDownDeviceRows(item, isExpanded, handled ? "case-handled" : "")}
   `;
   }).join("");
   formatBoardStatus(payload, alerts.length);
@@ -916,7 +934,8 @@ function getFilteredAlerts() {
       formatLocationAddress(item),
       item.country,
     ].join(" ").toLowerCase();
-    if (!matchesSeverityFilter(item)) return false;
+    // The wall view also lists sites in maintenance, at the bottom (#283).
+    if (!matchesSeverityFilter(item) && !(WALL_VIEW && item.alert_level === "maintenance")) return false;
     if (siteNeedle && !searchableText.includes(siteNeedle)) return false;
     if (status && item.status !== status) return false;
     if (type && item.location_type !== type) return false;
@@ -930,7 +949,9 @@ function getFilteredAlerts() {
   return filtered;
 }
 
+// Wall view order: nobody on it, someone on it, then planned maintenance (#283).
 function caseSortRank(item) {
+  if (item.alert_level === "maintenance") return 2;
   return siteCaseState(item).state === "handled" ? 1 : 0;
 }
 
@@ -1076,11 +1097,13 @@ function renderWallStatus(now = Date.now()) {
   const alarmSites = allAlerts.filter(hasActiveAlarm);
   const alarms = alarmSites.length;
   const withoutCase = alarmSites.filter((item) => siteCaseState(item).state !== "handled").length;
+  const planned = allAlerts.filter((item) => item.alert_level === "maintenance").length;
   const stale = now - lastLoadedAt >= WALL_STALE_MS;
   wallUpdatedEl.classList.toggle("wall-stale", stale);
   wallUpdatedEl.textContent = stale
     ? `NOT UPDATED since ${formatClock(lastLoadedAt)}`
-    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case`;
+    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case`
+      + (planned ? ` · ${planned} in maintenance` : "");
 }
 
 function showWallError(message) {

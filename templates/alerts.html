@@ -35,7 +35,7 @@
     </header>
     <!-- The tiles are the severity filter; the board opens on Alarms. -->
     <section class="summary-grid" role="group" aria-label="Show sites">
-      {%- for key, label in [("alarms", "Alarms"), ("critical", "Critical"), ("medium", "Medium"), ("low", "Low"), ("no_data", "No data"), ("ok", "OK"), ("total", "All sites")] %}
+      {%- for key, label in [("alarms", "Alarms"), ("critical", "Critical"), ("medium", "Medium"), ("low", "Low"), ("no_data", "No data"), ("ok", "OK"), ("maintenance", "Maintenance"), ("total", "All sites")] %}
       <div class="summary-card summary-{{ key | replace('_', '-') }}">
         <button class="summary-filter" type="button" data-severity-filter="{{ 'all' if key == 'total' else key }}" aria-pressed="{{ 'true' if key == 'alarms' else 'false' }}">
           <span class="summary-label">{{ label }}</span>

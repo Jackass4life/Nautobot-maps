@@ -6,7 +6,7 @@ Called as ``scheduler.function()`` so tests can replace it on this module.
 import logging
 import threading
 
-from nautobot_maps import alerts, caching, db, inventory, notify, settings
+from nautobot_maps import alerts, caching, db, inventory, maintenance, notify, settings
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,11 @@ def tick() -> bool:
             # The syncs invalidated the cached board; rebuild it now so alert
             # history is recorded even if nobody opens the board.
             payload = alerts.build_alert_board_payload(snapshot_only=True)
-            caching.set("alert-board-data:v3", payload, timeout=settings.CACHE_TTL)
+            caching.set(
+                "alert-board-data:v3",
+                payload,
+                timeout=maintenance.cache_seconds(payload.get("next_maintenance_change"), settings.CACHE_TTL),
+            )
             # ...and send what that build queued right away.
             send_notifications()
         return worked
