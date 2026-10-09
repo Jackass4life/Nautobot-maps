@@ -778,6 +778,65 @@ def write_librenms_devices(conn, devices: list) -> None:
         )
 
 
+# A LibreNMS push for a device refreshed less than this ago is answered from
+# that refresh: an alert storm doesn't ask LibreNMS for the same device again.
+PUSH_DEDUPE_SECONDS = 5
+
+
+def librenms_push_refresh(device: str) -> dict:
+    """Refresh one device's LibreNMS status after an alert push (#284).
+
+    The push only says which device to look at; its status comes from the
+    LibreNMS API, so a duplicate, late or non-device-down push can't set a
+    wrong one.  Returns ``{"updated": bool, "device": {...} | None,
+    "deduplicated": bool}``; raises when LibreNMS can't be asked.
+    """
+    conn = db.get_conn()
+    if conn is None:
+        raise RuntimeError("Persistence DB not configured")
+    try:
+        recent = conn.execute(
+            "SELECT device_id, hostname, status FROM librenms_device_status "
+            "WHERE (device_id::text = %s OR lower(hostname) = lower(%s)) "
+            "AND pushed_at > now() - make_interval(secs => %s) LIMIT 1",
+            (device, device, PUSH_DEDUPE_SECONDS),
+        ).fetchone()
+        if recent is not None:
+            return {"updated": True, "device": _pushed_device(db.row_to_dict(recent)), "deduplicated": True}
+        found = librenms.fetch_device(device)
+        if found is None or found.get("device_id") is None:
+            return {"updated": False, "device": None, "deduplicated": False}
+        with db.transaction(conn):
+            write_librenms_devices(conn, [found])
+            conn.execute(
+                "UPDATE librenms_device_status SET pushed_at = now(), push_pending = TRUE WHERE device_id = %s",
+                (found["device_id"],),
+            )
+        return {"updated": True, "device": _pushed_device(found), "deduplicated": False}
+    finally:
+        conn.close()
+
+
+def _pushed_device(device: dict) -> dict:
+    status = device.get("status")
+    up = str(status).strip().lower() in ("1", "true")
+    return {
+        "device_id": device.get("device_id"),
+        "hostname": device.get("hostname") or "",
+        "status": "up" if up else "down",
+    }
+
+
+def take_librenms_push_pending(conn) -> bool:
+    """Whether a push is waiting for a board rebuild; clears the marks (a push
+    during the rebuild that follows sets them again)."""
+    with db.transaction(conn):
+        rows = conn.execute(
+            "UPDATE librenms_device_status SET push_pending = FALSE WHERE push_pending RETURNING device_id"
+        ).fetchall()
+    return bool(rows)
+
+
 def sync_nautobot(force: bool = False) -> None:
     conn = db.get_conn()
     if conn is None or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:

@@ -26,6 +26,7 @@ from nautobot_maps import (
     mcp,
     metrics,
     notify,
+    scheduler,
     settings,
     timeutil,
     tokens,
@@ -851,6 +852,46 @@ def api_maintenance_end(window_id: int):
         return jsonify({"error": "No such maintenance window"}), 404
     _maintenance_changed()
     return jsonify({"window": window})
+
+
+@bp.route("/api/librenms/alert", methods=["POST"])
+@auth.require_role("operator")
+def api_librenms_alert():
+    """A LibreNMS alert push (#284): refresh one device's status now.
+
+    For LibreNMS's API alert transport, with an operator API token.  The
+    device is ``device_id`` (LibreNMS id) or ``hostname``, in a JSON body,
+    a form or the query string.  Its status is read from the LibreNMS API
+    (the push only says which device), and the board is rebuilt within
+    seconds.  A device LibreNMS doesn't know is ``{"updated": false}``, not
+    an error, so LibreNMS doesn't keep retrying.
+    """
+    if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
+        return jsonify({"error": "LibreNMS is not configured (LIBRENMS_URL, LIBRENMS_API_TOKEN)"}), 409
+    if not db.dialect():
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    body = request.get_json(silent=True)
+    values = body if isinstance(body, dict) else {}
+    device = ""
+    for name in ("device_id", "hostname"):
+        value = values.get(name)
+        if value is None:
+            value = request.form.get(name) or request.args.get(name)
+        device = str(value).strip() if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
+        if device:
+            break
+    if not device or len(device) > 255:
+        return jsonify({"error": "device_id or hostname is required"}), 400
+    try:
+        result = inventory.librenms_push_refresh(device)
+    except Exception as exc:
+        # Only the exception type: the message can hold the LibreNMS URL.
+        logger.warning("LibreNMS push for %r: asking LibreNMS failed: %s", device, type(exc).__name__)
+        return jsonify({"error": "Could not ask LibreNMS for the device"}), 502
+    if result["updated"] and not result["deduplicated"]:
+        caching.invalidate_alert_board()
+        scheduler.rebuild_after_push()
+    return jsonify(result)
 
 
 @bp.route("/api/tokens", methods=["GET"])

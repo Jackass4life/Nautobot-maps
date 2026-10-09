@@ -4,7 +4,9 @@ Called as ``librenms.function()`` so tests can replace it on this module.
 """
 
 import warnings
+from urllib.parse import quote
 
+import requests
 from urllib3.exceptions import InsecureRequestWarning
 
 from nautobot_maps import http, settings
@@ -29,6 +31,18 @@ def get(path: str, params: dict | None = None) -> dict:
         )
     response.raise_for_status()
     return response.json()
+
+
+def fetch_device(device: str) -> dict | None:
+    """One device by LibreNMS id or hostname (#284); None when LibreNMS doesn't know it."""
+    try:
+        data = get(f"devices/{quote(device, safe='')}")
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return None
+        raise
+    devices = data.get("devices") or []
+    return devices[0] if devices else None
 
 
 def fetch_inventory() -> list:

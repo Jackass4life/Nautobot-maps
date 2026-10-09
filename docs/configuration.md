@@ -46,6 +46,22 @@ Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to take device up/down status f
 
 For a LibreNMS signed by an internal CA, mount the CA certificate into the container and point the setting at it (e.g. `LIBRENMS_VERIFY_SSL=/certs/internal-ca.pem`). `false` skips verification and should be a last resort, since the API token travels over that connection. A path that doesn't exist is logged as an error at startup.
 
+### Near-real-time status: LibreNMS alert pushes
+
+Without pushes, a device going down shows on the board after LibreNMS has polled it **and** the next LibreNMS sync here (`LIBRENMS_SYNC_INTERVAL_SECONDS`, default 300 s). With an alert transport, LibreNMS tells the app right away, and the board shows it within seconds. The periodic sync keeps running as the safety net.
+
+1. Create an [API token](authentication.md#api-tokens) with the `operator` role:
+   `docker compose exec nautobot-maps python -m nautobot_maps token create librenms --role operator`
+2. In LibreNMS: **Alerts → Alert Transports → Create**, type **API**:
+   - API Method: `POST`
+   - API URL: `https://<nautobot-maps>/api/librenms/alert`
+   - Headers: `Authorization=Bearer nmt_...` (the token)
+   - Body: `{"device_id": "{{ $device_id }}"}`
+3. Attach the transport to your device-down rules (e.g. "Devices up/down"), with **recovery** alerts on, so a device coming back is pushed too.
+4. Use LibreNMS's **Test** button on the transport: the app answers `{"updated": true, ...}` with the device's status. If the body variable isn't filled in by your LibreNMS version, check its [alert template variables](https://docs.librenms.org/Alerting/Templates/) (`hostname` works as well as `device_id`).
+
+What a push does: the app asks the LibreNMS API for that one device and stores its status; the push only says *which* device, so duplicate, late or non-device-down alerts can't set a wrong status. Several pushes for one device within 5 seconds ask LibreNMS once. A device LibreNMS doesn't know is answered `{"updated": false}` (not an error, so LibreNMS doesn't keep retrying). The parameters can also be sent as a form or in the query string (`?device_id=42`).
+
 ## Alert board
 
 What these do is explained in [the alert board guide](alert-board.md). List settings take comma- or semicolon-separated values; in the status settings, `null` matches an empty status.
