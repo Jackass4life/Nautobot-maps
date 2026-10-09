@@ -41,6 +41,17 @@ ALERT_BOARD_SITE_LOCATION_TYPE=Site
 
 Only locations of that type (case-insensitive) get a row. Levels above it are shown as a path, e.g. `EMEA › DNK`. Devices in child locations count towards their Site (device count, level, downtime), and a down device's row says where it is, e.g. `Bygning A › Etage 2`. Devices below an excluded location (e.g. a Decommissioning building) are left out. A location with devices but no Site above it keeps its own row and is logged once. Changing the setting moves open alerts from building/floor rows to their Site, which restarts their downtime once.
 
+## Maintenance windows
+
+Planned work is not an alarm. A **maintenance window** covers a whole site or some of its devices, from a start (now, or planned ahead) to an end, with a reason.
+
+- **A site in maintenance** shows a blue **MAINTENANCE** badge with "until 14:00 · reason" instead of its level. It is not counted as an alarm (the **Maintenance** tile counts it), and on the wall view it is listed at the bottom under **In maintenance**. On the map it is blue.
+- **A device in maintenance** is left out when the site's level is worked out; if it is down, its row says "MAINTENANCE until 14:00 · reason".
+- While a window is active, the alert history is **frozen** for what it covers: nothing opens, and open alerts are neither updated nor closed.
+- **Notifications:** none when a site goes into maintenance. When the window ends and the site is still Critical, the normal message is sent.
+
+Windows are managed through the API (operator role): `POST /api/maintenance` with `site_id`, `reason`, optional `device_ids`, optional `starts_at`, and `ends_at` or `duration_minutes` (at most 14 days); `GET /api/maintenance` lists active and upcoming ones; `POST /api/maintenance/<id>/end` ends one now or cancels an upcoming one. Changes show on the board at once; a planned window starts showing within one board refresh of its start time.
+
 ## Tenants
 
 The Tenants column lists the site's own tenant and those linked to it by a Nautobot Relationship (`SITE_TENANT_RELATIONSHIPS`). A tenant with a **description** in Nautobot gets an **(i)**: hover over it, or tab to it, to read the description. The map's site panel shows the same (i). Descriptions are read on every sync, so an edit in Nautobot shows up after the next one.

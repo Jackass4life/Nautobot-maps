@@ -26,6 +26,12 @@ EXAMPLE_BODIES = {
         "params": {"name": "get_alert_board", "arguments": {"filter": "alarms", "limit": 5}},
     },
     "web.api_notifications_test": {},
+    "web.api_maintenance_create": {
+        "site_id": "<site id>",
+        "duration_minutes": 120,
+        "reason": "Core switch upgrade",
+    },
+    "web.api_maintenance_end": {},
     "web.api_add_alert_case": {
         "site_id": "<site id>",
         "device_ids": ["<device uuid>"],

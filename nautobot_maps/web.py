@@ -22,6 +22,7 @@ from nautobot_maps import (
     db,
     export,
     inventory,
+    maintenance,
     mcp,
     metrics,
     notify,
@@ -759,6 +760,76 @@ def api_alert_history():
         return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
+
+
+@bp.route("/api/maintenance", methods=["GET"])
+def api_maintenance_list():
+    """Maintenance windows (#283): active and upcoming, soonest first.
+
+    Query parameters: ``site_id`` (one site) and ``all=1`` (also ended and
+    cancelled ones).  Each has a ``state``: active, upcoming, ended or
+    cancelled; ``device_id`` is empty for a whole site.
+    """
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    try:
+        windows = maintenance.list_windows(
+            conn,
+            site_id=(request.args.get("site_id") or "").strip(),
+            include_past=(request.args.get("all") or "").strip().lower() in {"1", "true", "yes"},
+        )
+        return jsonify({"windows": windows})
+    finally:
+        conn.close()
+
+
+def _maintenance_changed() -> None:
+    """The board and the map show maintenance: drop their cached copies."""
+    caching.invalidate_alert_board()  # also the map's marker colours
+
+
+@bp.route("/api/maintenance", methods=["POST"])
+@auth.require_role("operator")
+def api_maintenance_create():
+    """Put a site, or some of its devices, in maintenance (#283).
+
+    JSON body: ``site_id``, ``reason``, optional ``device_ids`` (leave it out
+    for the whole site), optional ``starts_at`` (ISO-8601 with a time zone;
+    default now), and ``ends_at`` or ``duration_minutes``.  At most 14 days.
+    """
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        conn.close()
+        return jsonify({"error": "Expected a JSON object"}), 400
+    try:
+        windows = maintenance.create(conn, body, auth.get_current_user().get("username") or "")
+    except maintenance.WindowError as exc:
+        return jsonify({"error": str(exc)}), 400
+    finally:
+        conn.close()
+    _maintenance_changed()
+    return jsonify({"windows": windows}), 201
+
+
+@bp.route("/api/maintenance/<int:window_id>/end", methods=["POST"])
+@auth.require_role("operator")
+def api_maintenance_end(window_id: int):
+    """End a maintenance window now, or cancel an upcoming one (#283)."""
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    try:
+        window = maintenance.end(conn, window_id, auth.get_current_user().get("username") or "")
+    finally:
+        conn.close()
+    if window is None:
+        return jsonify({"error": "No such maintenance window"}), 404
+    _maintenance_changed()
+    return jsonify({"window": window})
 
 
 @bp.route("/api/notifications/test", methods=["POST"])

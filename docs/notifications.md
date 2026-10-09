@@ -7,7 +7,7 @@ Nautobot Maps can tell people when a site's alert level changes, so an outage is
 - A site **reaches** `NOTIFY_MIN_LEVEL` or gets worse above it: "🔴 London HQ is Critical".
 - A site **drops below** it again: "✅ London HQ recovered (now OK)" (or "now Medium" if it is still in alarm).
 
-`NOTIFY_MIN_LEVEL` is `critical` by default; `medium` or `low` send more. A site's first level after it appears is not a change. With `NOTIFY_TENANTS` set, only sites with one of those tenants are notified.
+`NOTIFY_MIN_LEVEL` is `critical` by default; `medium` or `low` send more. A site going into a maintenance window sends nothing; if it is still in alarm when the window ends, that is sent then. A site's first level after it appears is not a change. With `NOTIFY_TENANTS` set, only sites with one of those tenants are notified.
 
 When more than `NOTIFY_SUMMARY_THRESHOLD` (default 5) messages are due at once on a channel, for example during a wide outage, they go out as **summaries** ("8 sites in alarm, 1 recovered") instead of one per site, at most 25 sites per message so it fits Teams and mail size limits.
 

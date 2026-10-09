@@ -696,6 +696,7 @@ class TestAlertBoard:
             "no_data": 0,
             "ok": 1,
             "non_ok": 2,
+            "maintenance": 0,
         }
         assert [item["id"] for item in data["alerts"]] == ["loc-1", "loc-2", "loc-3"]
         assert data["alerts"][0]["down_device_count"] == 1
@@ -1158,7 +1159,7 @@ class TestAlertBoard:
             opened_conns.append(conn)
             return conn
 
-        def fake_upsert(site, devices, alert, checked_at, conn=None):
+        def fake_upsert(site, devices, alert, checked_at, conn=None, frozen_device_ids=None):
             upsert_conns.append(conn)
             return site["id"] != "loc-2"  # the write for loc-2 fails
 
@@ -5703,6 +5704,7 @@ class TestSeverityTiers:
             "no_data": 1,
             "ok": 1,
             "non_ok": 3,  # No data is not an alert
+            "maintenance": 0,
         }
         assert "unknown" not in summary
 

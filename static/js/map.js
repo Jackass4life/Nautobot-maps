@@ -46,6 +46,7 @@ const ICONS = {
   low:      makeIcon("#eab308"),
   medium:   makeIcon("#ff8c00"),
   critical: makeIcon("#e74c3c", true),
+  maintenance: makeIcon("#2563eb"),
 };
 
 // Alert levels that change a marker or show a banner, least to most severe.
@@ -63,6 +64,8 @@ function worstAlertLevel(locIds) {
 // A marker shows its alert level when it has one, else its Nautobot status (#234).
 function iconForLocation(loc) {
   const level = locationAlerts[loc.id];
+  // Planned work (#283): blue, instead of the level or the status colour.
+  if (level === "maintenance") return ICONS.maintenance;
   return ALERT_RANK[level] ? ICONS[level] : iconForStatus(loc.status);
 }
 
@@ -768,6 +771,8 @@ function openLocationFromQuery() {
 }
 
 function updateMarkerForAlert(locId, alertLevel) {
+  // The site panel scores live; a site in maintenance stays blue (#283).
+  if (locationAlerts[locId] === "maintenance") return;
   locationAlerts[locId] = alertLevel;
   refreshMarkerIcon(locId);
 }

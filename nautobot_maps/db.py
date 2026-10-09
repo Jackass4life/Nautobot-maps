@@ -450,6 +450,27 @@ def add_notification_outbox(conn) -> None:
     )
 
 
+def add_maintenance_windows(conn) -> None:
+    """Planned work: a whole site (device_id '') or one device, from-to (#283)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maintenance_windows (
+            id          BIGSERIAL PRIMARY KEY,
+            site_id     TEXT NOT NULL,
+            device_id   TEXT NOT NULL DEFAULT '',
+            starts_at   TIMESTAMPTZ NOT NULL,
+            ends_at     TIMESTAMPTZ NOT NULL,
+            reason      TEXT NOT NULL DEFAULT '',
+            created_by  TEXT NOT NULL DEFAULT '',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ended_at    TIMESTAMPTZ,
+            ended_by    TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS maintenance_windows_time ON maintenance_windows (ends_at, starts_at)")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -459,6 +480,7 @@ MIGRATIONS = (
     (3, "nautobot_location_tenant_cache", add_location_tenant_cache),
     (4, "nautobot_tenant_cache", add_tenant_cache),
     (5, "notification_outbox", add_notification_outbox),
+    (6, "maintenance_windows", add_maintenance_windows),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

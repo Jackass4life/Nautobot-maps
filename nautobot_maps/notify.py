@@ -33,7 +33,14 @@ from nautobot_maps import db, settings, timeutil
 logger = logging.getLogger(__name__)
 
 LEVEL_RANK = {"ok": 0, "no_data": 0, "low": 1, "medium": 2, "critical": 3}
-LEVEL_LABEL = {"ok": "OK", "no_data": "No data", "low": "Low", "medium": "Medium", "critical": "Critical"}
+LEVEL_LABEL = {
+    "ok": "OK",
+    "no_data": "No data",
+    "low": "Low",
+    "medium": "Medium",
+    "critical": "Critical",
+    "maintenance": "Maintenance",
+}
 CHANNELS = ("webhook", "teams", "email")
 MAX_ATTEMPTS = 10
 # Delay before attempt n+1 (minutes), capped at the last value.
@@ -64,6 +71,10 @@ def configured_channels() -> list[str]:
 def event_kind(from_level: str, to_level: str) -> str | None:
     """ "alarm" when a site reaches the minimum level or worse (or gets worse
     above it), "recovery" when it drops below it, otherwise None."""
+    # Going into maintenance is planned (#283): no message.  Coming out of it
+    # counts from "nothing": still Critical when it ends is an alarm.
+    if to_level == "maintenance":
+        return None
     minimum = LEVEL_RANK[settings.NOTIFY_MIN_LEVEL]
     before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
     if after >= minimum and after > before:

@@ -76,7 +76,7 @@ See [authentication](authentication.md).
 | `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | IPs/CIDRs of the proxy; identity headers from anywhere else are ignored and logged |
 | `AUTH_PROXY_SECRET` | — | When set, identity headers only count if the proxy also sends it in `X-Auth-Proxy-Secret` |
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
-| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides and sending test notifications (logged as a warning) |
+| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows and sending test notifications (logged as a warning) |
 
 ## Notifications
 

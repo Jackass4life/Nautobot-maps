@@ -1866,8 +1866,8 @@ check(siteNameHtml(site).includes('href="/?location_id=loc-1"'), "the board keep
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
         rows = _extract_js_function(js, "renderTableRows")
         assert "siteNameHtml(item, !WALL_VIEW)" in rows
-        assert '${WALL_VIEW ? caseStateBadge(item) : ""}' in rows
-        assert 'const handled = WALL_VIEW && siteCaseState(item).state === "handled";' in rows
+        assert '${WALL_VIEW && !inMaintenance ? caseStateBadge(item) : ""}' in rows
+        assert 'const handled = WALL_VIEW && !inMaintenance && siteCaseState(item).state === "handled";' in rows
         assert "WALL_VIEW ? caseSortRank(a) - caseSortRank(b) : 0" in _extract_js_function(js, "getFilteredAlerts")
         css = (REPO_ROOT / "static" / "css" / "alerts.css").read_text(encoding="utf-8")
         handled = re.search(r"\.wall-view tr\.case-handled > td,[^{]*\{([^}]*)\}", css)
@@ -1948,6 +1948,65 @@ check(bar.includes('<option value="30" selected>'), "30 days by default");
 """
         completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
         assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+class TestMaintenanceInTheBrowser:
+    """Maintenance on the board and the wall view (#283)."""
+
+    def test_helpers(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        names = (
+            "escHtml",
+            "alertBadge",
+            "formatFeedTime",
+            "maintenanceNote",
+            "downDeviceList",
+            "siteCaseState",
+            "caseSortRank",
+            "siteAlarmSeconds",
+        )
+        functions = "\n".join(_extract_js_function(js, name) for name in names)
+        script = f"""
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
+{functions}
+check(alertBadge("maintenance").includes('class="alert-badge alert-maintenance">MAINTENANCE<'), alertBadge("maintenance"));
+const note = maintenanceNote("2026-10-09T14:00:00Z", "Core <upgrade>");
+check(note.startsWith("until ") && note.endsWith(" · Core &lt;upgrade&gt;"), note);
+check(maintenanceNote("", "x") === "x", "no time: just the reason");
+
+// A device in maintenance doesn't need a case and doesn't count for "in alarm".
+const site = {{ alert_level: "medium", current_downtime_seconds: 600, down_devices: [
+  {{ device_id: "core", down_started_at: "2026-10-09T11:00:00Z", maintenance_until: "2026-10-09T14:00:00Z", case_numbers: [] }},
+  {{ device_id: "acc1", down_started_at: "2026-10-09T11:50:00Z", case_numbers: ["INC-1"] }} ] }};
+check(siteCaseState(site).state === "handled", JSON.stringify(siteCaseState(site)));
+check(siteAlarmSeconds(site) === 600, "known start from the other device");
+check(siteAlarmSeconds({{ alert_level: "maintenance", down_devices: site.down_devices }}) === null, "maintenance: no time");
+
+// Wall order: nobody on it, someone on it, maintenance.
+check(caseSortRank({{ alert_level: "critical", down_devices: [{{ case_numbers: [] }}] }}) === 0, "none");
+check(caseSortRank(site) === 1, "handled");
+check(caseSortRank({{ alert_level: "maintenance", down_devices: [] }}) === 2, "maintenance last");
+"""
+        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_rows_and_wall(self, integration_client):
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        rows = _extract_js_function(js, "renderTableRows")
+        assert '<tr class="maintenance-heading"><td colspan="7">In maintenance</td></tr>' in rows
+        assert "maintenanceNote(item.maintenance.until, item.maintenance.reason)" in rows
+        assert '!(WALL_VIEW && item.alert_level === "maintenance")' in _extract_js_function(js, "getFilteredAlerts")
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        assert 'data-severity-filter="maintenance"' in html and 'id="summary-maintenance"' in html
+        map_js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        assert 'if (locationAlerts[locId] === "maintenance") return;' in _extract_js_function(
+            map_js, "updateMarkerForAlert"
+        )
+        assert 'if (level === "maintenance") return ICONS.maintenance;' in _extract_js_function(
+            map_js, "iconForLocation"
+        )
 
 
 class TestApiExplorerInTheBrowser:

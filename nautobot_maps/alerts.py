@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import requests
 
-from nautobot_maps import caching, db, inventory, librenms, nautobot, notify, settings, timeutil
+from nautobot_maps import caching, db, inventory, librenms, maintenance, nautobot, notify, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ ALERT_STATUS_TIER_DEFINITIONS = {
     "no_data": ("The site has no monitored devices, or its state could not be computed. Not counted as an alert."),
     "ok": "The site has monitored devices and none of them is down.",
     "total": ("All sites on the board. Only devices with a Nautobot primary IP are monitored."),
+    "maintenance": "Sites in a maintenance window: planned work, not an alarm. Nothing is notified until it ends.",
 }
 
 # Board order, most severe first (#124).
@@ -647,10 +648,13 @@ def upsert_alert_lifecycle_for_site(
     alert: dict,
     checked_at: str,
     conn=None,
+    frozen_device_ids: set[str] | None = None,
 ) -> bool:
     """Record the site's down devices as alert instances and resolve recovered ones.
 
-    Returns ``False`` when the write failed (the caller should not reuse *conn*).
+    Open alerts of *frozen_device_ids* (devices in maintenance, #283) are left
+    as they are: not updated and not resolved.  Returns ``False`` when the
+    write failed (the caller should not reuse *conn*).
     """
     owns_conn = conn is None
     if conn is None:
@@ -662,7 +666,7 @@ def upsert_alert_lifecycle_for_site(
         if owns_conn:
             conn.close()
         return True
-    open_alert_keys: set[str] = set()
+    open_alert_keys: set[str] = {db.build_alert_key(site_id, device_id) for device_id in frozen_device_ids or ()}
     try:
         with db.transaction(conn):
             for device in devices:
@@ -1401,6 +1405,8 @@ def build_alert_board_payload(
     persistence_unavailable = False
     board_data = None
     read_conn = None
+    # Active maintenance windows (#283): whole sites, and single devices.
+    in_maintenance = {"sites": {}, "devices": {}}
     try:
         read_conn = db.get_conn()
     except Exception as exc:
@@ -1412,6 +1418,10 @@ def build_alert_board_payload(
             board_data = read_alert_board_data(read_conn)
         except Exception as exc:
             logger.warning("Could not bulk-read alert board data; reading per site instead: %s", exc, exc_info=True)
+        try:
+            in_maintenance = maintenance.read_active(read_conn, maintenance.now())
+        except Exception as exc:
+            logger.warning("Could not read maintenance windows: %s", exc, exc_info=True)
         finally:
             read_conn.close()
 
@@ -1476,6 +1486,16 @@ def build_alert_board_payload(
                 devices = []
                 alert = {"level": "no_data", "reason": "Could not compute alert state"}
 
+            # Devices in maintenance are left out of the site's level; their
+            # open alerts stay as they are (#283).
+            maintenance_devices = [d for d in devices if (d.get("id") or "") in in_maintenance["devices"]]
+            if maintenance_devices:
+                devices = [d for d in devices if (d.get("id") or "") not in in_maintenance["devices"]]
+                alert = compute_alert_level(
+                    devices, loc.get("location_type") or None, override_map=bulk_kwargs.get("override_map")
+                )
+            frozen_device_ids = {d.get("id") for d in maintenance_devices}
+            site_window = in_maintenance["sites"].get(site_id)
             down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
             checked_at = timeutil.iso_utc_now()
             alert_context = empty_alert_context()
@@ -1487,6 +1507,9 @@ def build_alert_board_payload(
                     and not primary_ip_backfill_pending
                     and (bool(down_devices) or site_id in board_data["open_rows_by_site"])
                 )
+            # A site in maintenance: its history is frozen (read, not written).
+            if site_window is not None:
+                needs_write = False
             else:
                 primary_ip_backfill_pending = None  # read per site below
                 needs_write = True
@@ -1508,7 +1531,14 @@ def build_alert_board_payload(
                             )
                         if observation_succeeded and not primary_ip_backfill_pending:
                             if (
-                                upsert_alert_lifecycle_for_site(loc, devices, alert, checked_at, conn=write_conn)
+                                upsert_alert_lifecycle_for_site(
+                                    loc,
+                                    devices,
+                                    alert,
+                                    checked_at,
+                                    conn=write_conn,
+                                    frozen_device_ids=frozen_device_ids,
+                                )
                                 is False
                             ):
                                 raise RuntimeError("alert lifecycle write failed")
@@ -1539,7 +1569,8 @@ def build_alert_board_payload(
                     "down_devices": [],
                 }
             device_ip_by_key = {
-                (device.get("id") or device.get("name") or ""): device_display_ip(device) for device in devices
+                (device.get("id") or device.get("name") or ""): device_display_ip(device)
+                for device in devices + maintenance_devices
             }
             current_down_devices = [
                 {
@@ -1552,15 +1583,29 @@ def build_alert_board_payload(
                     # Only with ALERT_BOARD_SITE_LOCATION_TYPE, for devices below the site (#158).
                     **({"location_path": device["location_path"]} if device.get("location_path") else {}),
                 }
+                # Down devices in maintenance are listed (marked below) but not counted (#283).
                 for device in down_devices
+                + [d for d in maintenance_devices if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
             ]
             current_down_device_map = {item["device_id"] or item["device_name"]: item for item in current_down_devices}
+            # Details of every device in maintenance, also one back up whose
+            # alert is kept open (frozen), so its row isn't blank (#283).
+            maintenance_details = {
+                (device.get("id") or ""): {
+                    "device_id": device.get("id") or "",
+                    "device_name": device.get("name") or "Unknown",
+                    "status": device.get("status") or "",
+                    "role": device.get("role") or "",
+                    **({"location_path": device["location_path"]} if device.get("location_path") else {}),
+                }
+                for device in maintenance_devices
+            }
             merged_down_devices = []
             seen_down_device_keys: set[str] = set()
             for item in alert_context["down_devices"]:
                 item_key = item.get("device_id") or item.get("device_name") or ""
                 merged = dict(item)
-                current_item = current_down_device_map.get(item_key, {})
+                current_item = current_down_device_map.get(item_key) or maintenance_details.get(item_key, {})
                 merged.update(
                     {
                         "device_id": current_item.get("device_id", merged.get("device_id", "")),
@@ -1585,7 +1630,14 @@ def build_alert_board_payload(
                 merged_down_devices.append(item)
                 if item_key:
                     seen_down_device_keys.add(item_key)
+            for item in merged_down_devices:
+                window = in_maintenance["devices"].get(item.get("device_id") or "")
+                if window is not None:
+                    item["maintenance_until"] = window["ends_at"]
+                    item["maintenance_reason"] = window["reason"]
             level = (alert.get("level") or "ok").lower()
+            if site_window is not None:
+                level = "maintenance"
             summary[level] = summary.get(level, 0) + 1
             if observation_succeeded and site_id:
                 observed_levels[site_id] = (loc.get("name") or "", level)
@@ -1607,6 +1659,17 @@ def build_alert_board_payload(
                     ),
                     "active_cases": alert_context["active_cases"],
                     "down_devices": merged_down_devices,
+                    **(
+                        {
+                            "maintenance": {
+                                "until": site_window["ends_at"],
+                                "reason": site_window["reason"],
+                                "by": site_window["created_by"],
+                            }
+                        }
+                        if site_window is not None
+                        else {}
+                    ),
                 }
             )
             if observation_succeeded and site_id:
@@ -1637,6 +1700,8 @@ def build_alert_board_payload(
         "summary": {
             "total": len(alerts),
             **{level: summary.get(level, 0) for level in ALERT_LEVEL_ORDER},
+            # Planned work (#283); not an alarm, not in non_ok.
+            "maintenance": summary.get("maintenance", 0),
             # No data is not an alert (#124).
             "non_ok": sum(summary.get(level, 0) for level in ALERT_LEVELS_NON_OK),
         },
@@ -1695,10 +1760,15 @@ def build_location_alert_levels() -> dict:
     locations = inventory.get_locations(snapshot_only=True)
     devices_by_location: dict[str, list] = {}
     override_map: dict = {}
+    in_maintenance = {"sites": {}, "devices": {}}
     conn = db.get_conn()
     if conn is not None:
         try:
+            # Devices in maintenance don't count, like on the board (#283).
+            in_maintenance = maintenance.read_active(conn, maintenance.now())
             for device in inventory.read_devices(conn=conn):
+                if (device.get("id") or "") in in_maintenance["devices"]:
+                    continue
                 devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
             override_map = read_criticality_overrides(conn)
         finally:
@@ -1733,6 +1803,9 @@ def build_location_alert_levels() -> dict:
         if alert["level"] in ALERT_LEVELS_NON_OK:
             levels[location_id] = {"level": alert["level"], "reason": alert.get("reason", "")}
     store_librenms_maps(new_librenms_maps)
+    # A site in maintenance shows that instead of its level (#283).
+    for site_id, window in in_maintenance["sites"].items():
+        levels[site_id] = {"level": "maintenance", "reason": window["reason"], "until": window["ends_at"]}
     return {"checked_at": timeutil.iso_utc_now(), "levels": levels}
 
 

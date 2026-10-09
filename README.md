@@ -16,6 +16,7 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 - **Cases and ITSM**: attach a case number to down devices, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
 - **LibreNMS** status (optional) next to Nautobot's.
 - **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers.
+- **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm.
 - **Sign-in and roles** through your SSO proxy (viewer, operator, admin).
 - **MCP server** (optional) so AI assistants can read the board and add cases.
 - **Read-only towards Nautobot**: the app never changes anything there, so a read-only API token is enough.

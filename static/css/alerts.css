@@ -131,7 +131,7 @@ html, body {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -623,6 +623,24 @@ thead th:last-child {
 .alert-no_data {
   background: rgba(142, 148, 166, 0.18);
   color: var(--color-text-muted);
+}
+
+/* Planned work (#283): blue, like "someone is on it", never a warning colour. */
+.alert-maintenance {
+  background: rgba(37, 99, 235, 0.16);
+  color: var(--color-primary);
+}
+
+.maintenance-note {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.maintenance-note .alert-badge {
+  min-width: 0;
+  padding: 1px 6px;
+  font-size: 0.65rem;
 }
 
 .alert-ok {
@@ -1147,6 +1165,21 @@ thead th:last-child {
 
 .wall-view tr.handled-first > td {
   border-top: 2px dashed var(--color-text-muted);
+}
+
+/* "In maintenance" at the bottom of the wall view (#283). */
+.wall-view .maintenance-heading td {
+  padding-top: 18px;
+  border-top: 2px dashed var(--color-text-muted);
+  color: var(--color-text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.8rem;
+}
+
+.wall-view tr.in-maintenance > td {
+  color: var(--color-text-muted);
 }
 
 .wall-view .empty-state {
