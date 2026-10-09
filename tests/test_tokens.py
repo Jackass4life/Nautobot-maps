@@ -1,6 +1,7 @@
 """API tokens (#297): Bearer sign-in for scripts, LibreNMS and MCP clients."""
 
 import logging
+import threading
 
 import pytest
 
@@ -98,6 +99,33 @@ class TestTokens:
         finally:
             conn.close()
 
+    def test_two_creates_with_the_same_name_at_once(self, pg_database, clock):
+        """The second create waits on the first's uncommitted row, then is a TokenError, not a database error."""
+        outcome = {}
+
+        def second():
+            try:
+                outcome["token"] = make("race")
+            except Exception as exc:  # noqa: BLE001 - the test inspects what it was
+                outcome["error"] = exc
+
+        first = db.get_conn()
+        try:
+            with db.transaction(first):
+                first.execute(
+                    "INSERT INTO api_tokens (name, token_hash, prefix, role) VALUES ('race', 'h', 'nmt_x', 'viewer')"
+                )
+                thread = threading.Thread(target=second)
+                thread.start()
+                thread.join(timeout=1)
+                assert thread.is_alive(), "the second create waits for the first to commit"
+        finally:
+            first.close()
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+        assert isinstance(outcome.get("error"), tokens.TokenError), outcome
+        assert "already exists" in outcome["error"].message
+
     def test_verify_expiry_revocation_and_last_used(self, pg_database, clock):
         secret = make(expires_in_days=1)["token"]
         assert tokens.verify(secret) == {"name": "script", "role": "operator"}
@@ -117,6 +145,34 @@ class TestTokens:
             assert tokens.list_tokens(conn)[0]["state"] == "expired"
         finally:
             conn.close()
+
+    def test_requests_that_all_saw_it_stale_write_once(self, pg_database, clock, monkeypatch):
+        secret = make()["token"]
+        real_get_conn = db.get_conn
+
+        class OtherRequestFirst:
+            """Another request writes last_used_at between our read and our write."""
+
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __getattr__(self, name):
+                return getattr(self.conn, name)
+
+            def execute(self, sql, params=()):
+                if sql.startswith("UPDATE api_tokens SET last_used_at"):
+                    other = real_get_conn()
+                    try:
+                        with db.transaction(other):
+                            other.execute("UPDATE api_tokens SET last_used_at = '2026-10-09T11:58:00Z'")
+                    finally:
+                        other.close()
+                return self.conn.execute(sql, params)
+
+        monkeypatch.setattr(db, "get_conn", lambda *args, **kwargs: OtherRequestFirst(real_get_conn()))
+        assert tokens.verify(secret) is not None
+        monkeypatch.setattr(db, "get_conn", real_get_conn)
+        assert raw_rows()[0]["last_used_at"].startswith("2026-10-09T11:58:00")
 
     def test_revoke(self, pg_database, clock):
         created = make()

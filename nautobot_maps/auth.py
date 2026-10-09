@@ -209,8 +209,9 @@ def check_viewer():
     token is a 401 (#297).  Returns a response to stop the request, or None."""
     if request.path in PUBLIC_PATHS:
         return None
-    # A wrong, expired or revoked token is refused everywhere, also where
-    # anyone may read: a script should learn its token stopped working.
+    # A wrong, expired or revoked token is refused on every path but the
+    # public ones above, also where anyone may read: a script should learn
+    # its token stopped working.
     if bearer_token() and get_current_user().get("token_rejected"):
         return jsonify({"error": "Invalid, expired or revoked API token"}), 401
     if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER:
