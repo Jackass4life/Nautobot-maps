@@ -224,25 +224,30 @@ def report(conn, month: str | None = None, basis: str | None = None, sites: list
     site_windows, device_windows = read_maintenance(conn, start, end)
 
     rows: dict[str, dict] = {}
+    # Every board site's name and tenants, also for one listed only because of its history.
+    known: dict[str, dict] = {}
     for site in sites or []:
+        if not site.get("id"):
+            continue
+        known[site["id"]] = {
+            "site_id": site["id"],
+            "name": site.get("name") or "",
+            "tenants": list(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])),
+            "downtime_seconds": 0,
+            "incidents": 0,
+        }
         # A site without monitored devices has no availability to speak of
         # (it is listed if its history has something in the month).
-        monitored = site.get("device_count", 1) or site.get("maintenance_device_count")
-        if site.get("id") and monitored:
-            rows[site["id"]] = {
-                "site_id": site["id"],
-                "name": site.get("name") or "",
-                "tenants": list(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])),
-                "downtime_seconds": 0,
-                "incidents": 0,
-            }
+        if site.get("device_count", 1) or site.get("maintenance_device_count"):
+            rows[site["id"]] = known[site["id"]]
 
     # The incidents count, and list a site only in the history, whatever the basis.
     incidents = read_incidents(conn, start, end, at)
     for site_id, data in incidents.items():
         row = rows.setdefault(
             site_id,
-            {"site_id": site_id, "name": data["name"], "tenants": [], "downtime_seconds": 0, "incidents": 0},
+            known.get(site_id)
+            or {"site_id": site_id, "name": data["name"], "tenants": [], "downtime_seconds": 0, "incidents": 0},
         )
         row["incidents"] = data["incidents"]
     if basis == "any_down":
