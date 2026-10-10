@@ -6,7 +6,7 @@ Called as ``alerts.function()`` so tests can replace it on this module.
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -649,10 +649,20 @@ def seconds_between(start: str, end: str) -> float:
     return (end_at - start_at).total_seconds() if start_at and end_at else 0.0
 
 
+# A device_states row no build has seen down for this long is dropped.
+DEVICE_STATE_RETENTION = timedelta(days=7)
+
+
 def read_device_states(conn) -> dict:
-    """``{device_id: {"state", "since"}}`` from ``device_states`` (#286)."""
-    rows = conn.execute("SELECT device_id, state, since FROM device_states").fetchall()
-    return {row["device_id"]: {"state": row["state"], "since": row["since"]} for row in map(db.row_to_dict, rows)}
+    """``{device_id: {"state", "since", "updated_at"}}`` from ``device_states`` (#286)."""
+    rows = conn.execute("SELECT device_id, state, since, updated_at FROM device_states").fetchall()
+    return {row["device_id"]: row for row in map(db.row_to_dict, rows)}
+
+
+def read_alarmed_device_ids(conn) -> set:
+    """Devices with an open alert: never hidden by the alert delay (#286)."""
+    rows = conn.execute("SELECT DISTINCT device_id FROM alert_instances WHERE status = 'open'").fetchall()
+    return {db.row_to_dict(row)["device_id"] for row in rows}
 
 
 def write_device_states(conn, down: dict, up: set, stored: dict) -> None:
@@ -675,8 +685,9 @@ def write_device_states(conn, down: dict, up: set, stored: dict) -> None:
         if recovered:
             conn.execute("DELETE FROM device_states WHERE device_id = ANY(%s)", (recovered,))
         conn.execute(
-            "DELETE FROM device_states WHERE updated_at < now() - interval '7 days' AND NOT (device_id = ANY(%s))",
-            (list(down),),
+            "DELETE FROM device_states WHERE updated_at < %s::timestamptz - make_interval(secs => %s) "
+            "AND NOT (device_id = ANY(%s))",
+            (timeutil.iso_utc_now(), DEVICE_STATE_RETENTION.total_seconds(), list(down)),
         )
 
 
@@ -1491,6 +1502,7 @@ def build_alert_board_payload(
     quiet_sites: set[str] = set()
     # Since when each device is down (#286): read once, written once after the loop.
     device_states = None
+    alarmed_device_ids: set[str] = set()
     observed_down: dict[str, tuple[str, str]] = {}
     observed_up: set[str] = set()
     try:
@@ -1506,6 +1518,7 @@ def build_alert_board_payload(
             logger.warning("Could not bulk-read alert board data; reading per site instead: %s", exc, exc_info=True)
         try:
             device_states = read_device_states(read_conn)
+            alarmed_device_ids = read_alarmed_device_ids(read_conn)
         except Exception as exc:
             device_states = None
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
@@ -1620,17 +1633,12 @@ def build_alert_board_payload(
             # shown, counted or recorded; if it comes back, it never happened.
             pending_devices = []
             if settings.ALERT_DELAY_SECONDS and device_states is not None:
-                alarmed = (
-                    {row.get("device_id") for row in board_data["open_rows_by_site"].get(site_id, [])}
-                    if board_data is not None
-                    else set()
-                )
                 pending_devices = [
                     d
                     for d in devices
                     if (d.get("status") or "").lower().strip() in DOWN_STATUSES
                     and d.get("first_seen_down_at")
-                    and (d.get("id") or "") not in alarmed
+                    and (d.get("id") or "") not in alarmed_device_ids
                     and seconds_between(d["first_seen_down_at"], checked_at) < settings.ALERT_DELAY_SECONDS
                 ]
                 if pending_devices:
@@ -1826,6 +1834,12 @@ def build_alert_board_payload(
                 or _aware(stored["since"]) != _aware(since)
                 for device_id, (_, since) in observed_down.items()
             ) or bool(observed_up & device_states.keys())
+            # ...or rows of devices gone from the inventory to drop.
+            expired_before = _aware(timeutil.iso_utc_now()) - DEVICE_STATE_RETENTION
+            changed = changed or any(
+                device_id not in observed_down and (_aware(state.get("updated_at")) or expired_before) < expired_before
+                for device_id, state in device_states.items()
+            )
             if changed:
                 try:
                     if write_conn is None:

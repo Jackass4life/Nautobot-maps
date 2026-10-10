@@ -109,6 +109,20 @@ class TestDelay:
         assert row["down_device_count"] == 1
         assert rows("SELECT status FROM alert_instances") == [{"status": "open"}]
 
+    def test_an_open_alarm_stays_also_when_the_bulk_read_fails(self, site, clock, monkeypatch):
+        monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 0)
+        set_devices(core=("Active", LONG_AGO), acc1=("Offline", NOW), acc2=("Active", LONG_AGO))
+        build()
+
+        def broken(conn):
+            raise RuntimeError("bulk read failed")
+
+        monkeypatch.setattr(alerts, "read_alert_board_data", broken)
+        monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
+        clock["now"] = "2026-10-10T12:01:00Z"
+        assert build()["down_device_count"] == 1
+        assert rows("SELECT status FROM alert_instances") == [{"status": "open"}]
+
     def test_off_alarms_at_once(self, site, clock, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 0)
         set_devices(core=("Active", LONG_AGO), acc1=("Offline", NOW), acc2=("Active", LONG_AGO))
@@ -122,6 +136,22 @@ class TestDelay:
         clock["now"] = "2026-10-10T12:06:00Z"
         build()
         assert alerts.build_location_alert_levels()["levels"]["loc-lon"]["level"] == "critical"
+
+
+class TestCleanup:
+    def test_rows_of_devices_gone_for_a_week_are_dropped(self, site, clock):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                conn.execute(
+                    "INSERT INTO device_states (device_id, site_id, state, since, updated_at) "
+                    "VALUES ('gone', 'loc-lon', 'down', %s, %s), ('recent', 'loc-lon', 'down', %s, %s)",
+                    ("2026-09-01T00:00:00Z", "2026-10-02T00:00:00Z", "2026-10-09T00:00:00Z", "2026-10-09T00:00:00Z"),
+                )
+        finally:
+            conn.close()
+        build()  # nothing else changed
+        assert rows("SELECT device_id FROM device_states") == [{"device_id": "recent"}]
 
 
 class TestFirstSeenDown:
