@@ -1,6 +1,12 @@
 # The alert board
 
-`/alerts` shows every site's alert level, its down devices, how long they've been down, and the cases attached to them. The **Since** column says what each time means: a site is **in alarm 3h 40m** (since its first currently-down device went down; that may be one device), a device is **down 25m**. The wall view shows only the devices' times. It opens on **Alarms** (sites at Critical, Medium or Low); the tiles at the top switch to one level or **All sites**.
+`/alerts` shows every site's alert level, its down devices, how long they've been down, and the cases attached to them. The **Since** column says what each time means: a site is **in alarm 3h 40m** (since its first currently-down device went down; that may be one device), a device is **down 25m**. The wall view shows only the devices' times. Times over two days are shown in days.
+
+The board shows what is needed to decide and act (#311):
+
+- **One line at the top** says what is wrong ("2 alarms · 1 critical · 1 medium"; the (i) explains the levels). The chips next to it choose which sites are listed: **Alarms** (Critical, Medium or Low; the board opens here), **All sites**, **No data** and **Maintenance**, each with its count.
+- **Each row:** the site, how many devices are down of how many monitored, its tenants (the first, and **+N** for the rest), the path above it or its address; the level (hover it for the reason, e.g. "2/7 devices offline (29%)"); since when; the cases; and **+ Case**. The row's other actions (**Copy**, **Maint.** and **History**) are behind **⋯**.
+- **Filters:** search and tenant; **More filters** has the sort, status, location type and non-operational sites. **Reset** appears when a filter is in use.
 
 The board needs PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`); without it the board stays empty, says so, and a warning is logged at startup. The map works either way.
 
@@ -61,23 +67,23 @@ When it has been steady for 30 minutes, the incident closes at the time it came 
 
 Planned work is not an alarm. A **maintenance window** covers a whole site or some of its devices, from a start (now, or planned ahead) to an end, with a reason.
 
-- **A site in maintenance** shows a blue **MAINTENANCE** badge with "until 14:00 · reason" instead of its level. It is not counted as an alarm (the **Maintenance** tile counts it), and on the wall view it is listed at the bottom under **In maintenance**. On the map it is blue.
+- **A site in maintenance** shows a blue **MAINTENANCE** badge with "until 14:00 · reason" instead of its level. It is not counted as an alarm (the **Maintenance** chip counts it), and on the wall view it is listed at the bottom under **In maintenance**. On the map it is blue.
 - **A device in maintenance** is left out when the site's level is worked out; if it is down, its row says "MAINTENANCE until 14:00 · reason".
 - While a window is active, the alert history is **frozen** for what it covers: nothing opens, and open alerts are neither updated nor closed.
 - **Notifications:** none when a site goes into maintenance. When the window ends and the site is still Critical, the normal message is sent.
 
-**On the board:** the **Maint.** button on a site's row (shown when it has monitored devices) opens its maintenance panel: the site's active and planned windows, each with **End now** (active) or **Cancel** (planned), and a form for a new one: the whole site or ticked devices, now for 1–8 hours or planned with From and To (in your browser's time zone), and a reason. Anyone can open it; starting, ending and cancelling need the operator role.
+**On the board:** **Maint.** in a site's **⋯** menu (shown when it has monitored devices) opens its maintenance panel: the site's active and planned windows, each with **End now** (active) or **Cancel** (planned), and a form for a new one: the whole site or ticked devices, now for 1–8 hours or planned with From and To (in your browser's time zone), and a reason. Anyone can open it; starting, ending and cancelling need the operator role.
 
 **Through the API** (operator role): `POST /api/maintenance` with `site_id`, `reason`, optional `device_ids`, optional `starts_at`, and `ends_at` or `duration_minutes` (at most 14 days); `GET /api/maintenance` lists active and upcoming ones (`?all=true` also past ones), `GET /api/maintenance/devices?site_id=` the devices that can be put in maintenance; `POST /api/maintenance/<id>/end` ends one now or cancels an upcoming one. Changes show on the board at once; a planned window starts showing within one board refresh of its start time.
 
 ## Tenants
 
-The Tenants column lists the site's own tenant and those linked to it by a Nautobot Relationship (`SITE_TENANT_RELATIONSHIPS`). A tenant with a **description** in Nautobot gets an **(i)**: hover over it, or tab to it, to read the description. The map's site panel shows the same (i). Descriptions are read on every sync, so an edit in Nautobot shows up after the next one.
+The line under each site's name lists the site's own tenant and those linked to it by a Nautobot Relationship (`SITE_TENANT_RELATIONSHIPS`). A tenant with a **description** in Nautobot gets an **(i)**: hover over it, or tab to it, to read the description. The map's site panel shows the same (i). Descriptions are read on every sync, so an edit in Nautobot shows up after the next one.
 
 ## Cases, Copy and history
 
 - **+ Case** attaches a case/ticket number to the open alerts of a site's down devices. The panel shows the site's open cases and each device's case; devices without a case start ticked, those with one unticked. A new number is added next to an existing case, never instead of it, and if the number you type is already on the ticked devices the button says "Already on …". The case shows on the site and on each device until the alert closes.
-- **Copy** puts the site and its down devices (name, IP, role, status, down since, cases, Nautobot link) on the clipboard as plain text, for an ITSM ticket.
+- **Copy** (in the row's **⋯** menu) puts the site and its down devices (name, IP, role, status, down since, cases, Nautobot link) on the clipboard as plain text, for an ITSM ticket.
 - **History** lists past and open incidents of the site: when each device went down and came back, downtime, events and cases. **Export** at the top downloads them as CSV for the last 7, 30 or 90 days or everything: **Incidents CSV** (one row per time a device went down: device, role, IP, down and up time, minutes, status, level, reason, cases) or **Per-device CSV** (one row per device: times down, total and longest downtime in minutes, last down, down now). Times are UTC; an incident counts when it was down at any point in the period. Role and IP are the device's current ones. Same role as History (`operator` with sign-in on).
 - **Activity** (right-hand panel) lists recent changes: devices down and back up, and site level changes.
 
@@ -85,7 +91,7 @@ With sign-in on, adding cases and history need the `operator` role ([authenticat
 
 ## Automatic updates
 
-An open board keeps itself up to date. Next to **Refresh** it shows **"Next update in m:ss"**: the time until the next sync is due (the sooner of `INVENTORY_SYNC_INTERVAL_SECONDS` and `LIBRENMS_SYNC_INTERVAL_SECONDS`). At zero the board reloads in the background and the new data appears when the sync finishes. **Refresh** syncs immediately.
+An open board keeps itself up to date. Next to the **↻** (update now) button it shows **"Next update in m:ss"**: the time until the next sync is due (the sooner of `INVENTORY_SYNC_INTERVAL_SECONDS` and `LIBRENMS_SYNC_INTERVAL_SECONDS`). At zero the board reloads in the background and the new data appears when the sync finishes. **↻** syncs immediately. When the data may be out of date, the status line says so in orange.
 
 A background scheduler also runs due syncs with **no page open**, so alert history is recorded around the clock, with start times accurate to about one sync interval. Every app process runs one scheduler thread, and a PostgreSQL lock lets only one work at a time, so more workers or containers don't mean more syncs. `BACKGROUND_SYNC_ENABLED=false` turns it off; syncs then only run when pages are loaded.
 
