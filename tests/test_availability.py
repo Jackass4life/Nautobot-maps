@@ -140,10 +140,14 @@ class TestReport:
                 )
             window(conn, "s1", "", t(10, 1), t(10, 3))  # one of those Critical hours was maintenance
 
+            # A site only in the history, never Critical: listed, with its incident.
+            incident(conn, "s3", "d1", t(4), t(4, 1))
+
         write(setup)
         sites = {row["site_id"]: row for row in run(basis="critical")["sites"]}
         assert sites["s1"]["downtime_seconds"] == 6 * 3600 + 3600
         assert sites["s2"]["downtime_seconds"] == 2 * 86400
+        assert (sites["s3"]["downtime_seconds"], sites["s3"]["incidents"]) == (0, 1)
 
     def test_at_critical_without_a_recorded_change(self, pg_database, clock):
         """A site's first level is not a change: Critical since first seen, or until a later change."""

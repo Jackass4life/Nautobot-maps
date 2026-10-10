@@ -237,18 +237,21 @@ def report(conn, month: str | None = None, basis: str | None = None, sites: list
                 "incidents": 0,
             }
 
+    # The incidents count, and list a site only in the history, whatever the basis.
+    incidents = read_incidents(conn, start, end, at)
+    for site_id, data in incidents.items():
+        row = rows.setdefault(
+            site_id,
+            {"site_id": site_id, "name": data["name"], "tenants": [], "downtime_seconds": 0, "incidents": 0},
+        )
+        row["incidents"] = data["incidents"]
     if basis == "any_down":
-        for site_id, data in read_incidents(conn, start, end, at).items():
+        for site_id, data in incidents.items():
             down = []
             for device_id, intervals in data["devices"].items():
                 down += subtract(intervals, device_windows.get(device_id, []))
             down = subtract(clip(down, start, end), site_windows.get(site_id, []))
-            row = rows.setdefault(
-                site_id,
-                {"site_id": site_id, "name": data["name"], "tenants": [], "downtime_seconds": 0, "incidents": 0},
-            )
-            row["downtime_seconds"] = seconds(down)
-            row["incidents"] = data["incidents"]
+            rows[site_id]["downtime_seconds"] = seconds(down)
     else:
         for site_id, data in read_critical(conn, start, end).items():
             down = subtract(clip(data["intervals"], start, end), site_windows.get(site_id, []))
