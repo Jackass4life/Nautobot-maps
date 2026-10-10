@@ -1130,10 +1130,20 @@ def _acknowledge(clear: bool):
     if not isinstance(body, dict):
         return jsonify({"error": "Expected a JSON object"}), 400
     site_id = body.get("site_id").strip() if isinstance(body.get("site_id"), str) else ""
-    raw_ids = body.get("device_ids") or []
-    if not isinstance(raw_ids, list) or not all(isinstance(value, str) for value in raw_ids):
-        return jsonify({"error": "device_ids must be a list of device ID strings"}), 400
-    device_ids = [value.strip() for value in raw_ids if value.strip()]
+    # Left out (or null): every open alert of the site.  Anything else must
+    # be a non-empty list of IDs, so bad input never means "everything".
+    raw_ids = body.get("device_ids")
+    device_ids: list[str] = []
+    if raw_ids is not None:
+        if (
+            not isinstance(raw_ids, list)
+            or not raw_ids
+            or not all(isinstance(value, str) and value.strip() for value in raw_ids)
+        ):
+            return jsonify(
+                {"error": "device_ids must be a non-empty list of device IDs (leave it out for every device)"}
+            ), 400
+        device_ids = [value.strip() for value in raw_ids]
     note = body.get("note") or ""
     if not isinstance(note, str):
         return jsonify({"error": "note must be text"}), 400

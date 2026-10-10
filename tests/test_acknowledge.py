@@ -65,6 +65,15 @@ class TestAcknowledge:
         assert all(a is None for a in acked(build()).values())
         assert events() == [("acc1", "acknowledged"), ("acc1", "unacknowledged")]
 
+    def test_acknowledging_again_keeps_the_first_owner(self, site):
+        build()
+        ack(["acc1"], note="Mine", by="olga")
+        assert ack(by="vera", note="Me too")["changed"] == ["core"], "only the one not acknowledged yet"
+        by_name = acked(build())
+        assert (by_name["acc1"]["by"], by_name["acc1"]["note"]) == ("olga", "Mine")
+        assert by_name["core"]["by"] == "vera"
+        assert sorted(events()) == [("acc1", "acknowledged"), ("core", "acknowledged")], "no duplicate event"
+
     def test_it_ends_with_the_alarm(self, site):
         build()
         ack(["acc1"])
@@ -95,7 +104,10 @@ class TestApi:
     def test_bad_requests(self, client):
         assert client.post("/api/alert-acks", data="x").status_code == 400
         assert client.post("/api/alert-acks", json={}).status_code == 400
-        assert client.post("/api/alert-acks", json={"site_id": "loc-lon", "device_ids": "acc1"}).status_code == 400
+        for bad in ("acc1", "", 0, False, [], ["  "], [1]):
+            resp = client.post("/api/alert-acks", json={"site_id": "loc-lon", "device_ids": bad})
+            assert resp.status_code == 400, bad
+        assert events() == [], "bad input never acknowledges everything"
         resp = client.post("/api/alert-acks", json={"site_id": "loc-lon", "device_ids": ["acc2"]})
         assert resp.status_code == 404 and resp.get_json()["missing_device_ids"] == ["acc2"], "acc2 is up"
 

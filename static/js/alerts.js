@@ -1671,6 +1671,7 @@ casePanel?.addEventListener("click", async (event) => {
     restorePanelFocus();
   } catch (err) {
     showError(`Could not acknowledge: ${err.message}`);
+    restorePanelFocus();
   } finally {
     button.disabled = false;
   }
