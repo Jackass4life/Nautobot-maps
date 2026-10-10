@@ -93,7 +93,8 @@ class TestApi:
             yield test_client
 
     def test_acknowledge_and_remove(self, client):
-        resp = client.post("/api/alert-acks", json={"site_id": "loc-lon", "note": "On it"})
+        # What the row's one-click Acknowledge sends: device_ids null.
+        resp = client.post("/api/alert-acks", json={"site_id": "loc-lon", "device_ids": None, "note": "On it"})
         assert resp.status_code == 200 and sorted(resp.get_json()["changed"]) == ["acc1", "core"]
         board = client.get("/api/alerts").get_json()
         row = next(a for a in board["alerts"] if a["id"] == "loc-lon")
@@ -135,7 +136,16 @@ class TestInTheBrowser:
         if shutil.which("node") is None:
             pytest.skip("node is required")
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = ("escHtml", "downDeviceList", "caseDevices", "ackNote", "ackButton", "siteCaseState", "caseStateBadge")
+        names = (
+            "escHtml",
+            "downDeviceList",
+            "caseDevices",
+            "ackNote",
+            "ackButton",
+            "siteCaseState",
+            "caseStateBadge",
+            "ackRequestBody",
+        )
         script = (
             "function check(c, m) { if (!c) throw new Error(m); }\n"
             + "\n".join(_extract_js_function(js, name) for name in names)
@@ -160,4 +170,7 @@ check(ackButton(site).includes(">Acknowledge<"), "one device isn't acknowledged:
 site.down_devices[1].acknowledged = ack;
 check(ackButton(site).includes("unack-btn") && ackButton(site).includes(">Remove ack<"), ackButton(site));
 check(ackButton({ id: "s2", down_devices: [{ device_id: "", device_name: "ghost" }] }) === "", "nothing to acknowledge");
+// One click = every device: null, which the API accepts (an empty list it refuses).
+check(JSON.stringify(ackRequestBody("s1", [], "")) === '{"site_id":"s1","device_ids":null,"note":""}', "all");
+check(ackRequestBody("s1", ["d1"], "x").device_ids[0] === "d1", "some");
 """)

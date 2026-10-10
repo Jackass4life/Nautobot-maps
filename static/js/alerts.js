@@ -1631,12 +1631,18 @@ alertsTableBody.addEventListener("click", async (event) => {
   }
 });
 
-// Acknowledge (#288) or remove it; reloads the board. *deviceIds*: [] = every down device.
+// The acknowledge request (#288): *deviceIds* empty = every down device, sent
+// as null; the API refuses an empty list, so bad input never means "all".
+function ackRequestBody(siteId, deviceIds, note) {
+  return { site_id: siteId, device_ids: deviceIds && deviceIds.length ? deviceIds : null, note: note || "" };
+}
+
+// Acknowledge (#288) or remove it; reloads the board.
 async function sendAck(siteId, deviceIds, note, remove) {
   const resp = await fetch(remove ? "/api/alert-acks/remove" : "/api/alert-acks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ site_id: siteId, device_ids: deviceIds, note: note || "" }),
+    body: JSON.stringify(ackRequestBody(siteId, deviceIds, note)),
   });
   const payload = await readJsonResponse(resp);
   if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
