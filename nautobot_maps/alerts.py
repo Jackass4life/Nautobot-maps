@@ -693,7 +693,9 @@ def acknowledge(conn, site_id: str, device_ids: list | None, by: str, note: str 
     with db.transaction(conn):
         rows = conn.execute(
             "SELECT id, device_id, device_name, site_name, alert_level, alert_reason, acknowledged_at "
-            "FROM alert_instances WHERE site_id = %s AND status = 'open' ORDER BY id",
+            # Locked: a board build resolving one meanwhile waits, so an
+            # acknowledgement never lands on an alarm that just ended.
+            "FROM alert_instances WHERE site_id = %s AND status = 'open' ORDER BY id FOR UPDATE",
             (site_id,),
         ).fetchall()
         by_device = {row["device_id"]: row for row in map(db.row_to_dict, rows)}
@@ -704,7 +706,8 @@ def acknowledge(conn, site_id: str, device_ids: list | None, by: str, note: str 
         changed = []
         for device_id in wanted:
             row = by_device[device_id]
-            if clear and row.get("acknowledged_at") is None:
+            # Idempotent both ways: the first acknowledgement keeps its owner.
+            if (row.get("acknowledged_at") is None) == clear:
                 continue
             if clear:
                 conn.execute(
@@ -963,6 +966,7 @@ def upsert_alert_lifecycle_for_site(
     frozen_device_ids: set[str] | None = None,
     resolved_at_by_device: dict[str, str] | None = None,
     probable_causes: dict[str, str] | None = None,
+    core_device_ids: set[str] | None = None,
 ) -> bool:
     """Record the site's down devices as alert instances and resolve recovered ones.
 
@@ -1007,16 +1011,16 @@ def upsert_alert_lifecycle_for_site(
                 ).fetchone()
                 if latest_row is None:
                     now_sql = db.sql_now()
-                    p = db.placeholders(11).split(",")
+                    p = db.placeholders(12).split(",")
                     conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
                     inserted = conn.execute(
                         f"""
                         INSERT INTO alert_instances
                             (alert_key, site_id, site_name, device_id, device_name, alert_level, alert_reason,
                              status, down_started_at, last_seen_down_at, resolved_at, total_downtime_seconds,
-                             created_at, updated_at, probable_cause)
+                             created_at, updated_at, probable_cause, is_core)
                         VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]},
-                                NULL, 0, {now_sql}, {now_sql}, {p[10]})
+                                NULL, 0, {now_sql}, {now_sql}, {p[10]}, {p[11]})
                         {conflict_sql}
                         RETURNING id
                         """,
@@ -1032,6 +1036,7 @@ def upsert_alert_lifecycle_for_site(
                             down_since(device, checked_at),
                             checked_at,
                             (probable_causes or {}).get(device_id, ""),
+                            device_id in (core_device_ids or ()),
                         ),
                     ).fetchone()
                     inserted_id = db.row_to_dict(inserted).get("id")
@@ -1066,7 +1071,7 @@ def upsert_alert_lifecycle_for_site(
                         continue
                 current = db.row_to_dict(latest_row)
                 now_sql = db.sql_now()
-                p = db.placeholders(8).split(",")
+                p = db.placeholders(9).split(",")
                 # down_started_at only ever moves earlier: this also corrects
                 # alerts opened before #166 on their next build.
                 conn.execute(
@@ -1079,8 +1084,9 @@ def upsert_alert_lifecycle_for_site(
                         last_seen_down_at = {p[4]},
                         down_started_at = LEAST(down_started_at, {p[5]}::timestamptz),
                         probable_cause = {p[6]},
+                        is_core = {p[7]},
                         updated_at = {now_sql}
-                    WHERE id = {p[7]}
+                    WHERE id = {p[8]}
                     """,
                     (
                         site.get("name") or "",
@@ -1090,6 +1096,7 @@ def upsert_alert_lifecycle_for_site(
                         checked_at,
                         down_since(device, checked_at),
                         (probable_causes or {}).get(device_id, ""),
+                        device_id in (core_device_ids or ()),
                         current["id"],
                     ),
                 )
@@ -1207,6 +1214,7 @@ def summarize_alert_context(
                 "case_numbers": case_numbers,
                 # Kept for when a build can't observe the site (#285).
                 "stored_probable_cause": data.get("probable_cause") or "",
+                "stored_core": bool(data.get("is_core")),
                 # Someone is on it (#288).
                 **(
                     {
@@ -1237,7 +1245,7 @@ def read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     site_marker = db.placeholders(1)
     rows = conn.execute(
         f"""
-        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds, probable_cause,
+        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds, probable_cause, is_core,
                acknowledged_at, acknowledged_by, ack_note
         FROM alert_instances
         WHERE site_id = {site_marker}
@@ -1490,7 +1498,7 @@ def read_alert_board_data(conn) -> dict:
     open_rows_by_site: dict[str, list[dict]] = {}
     for row in conn.execute(
         """
-        SELECT id, site_id, device_id, device_name, down_started_at, probable_cause,
+        SELECT id, site_id, device_id, device_name, down_started_at, probable_cause, is_core,
                acknowledged_at, acknowledged_by, ack_note
         FROM alert_instances
         WHERE status = 'open'
@@ -1992,6 +2000,7 @@ def build_alert_board_payload(
                                     frozen_device_ids=frozen_device_ids,
                                     resolved_at_by_device=flapping_ended,
                                     probable_causes=probable_causes,
+                                    core_device_ids=core_ids,
                                 )
                                 is False
                             ):
@@ -2091,13 +2100,16 @@ def build_alert_board_payload(
                     seen_down_device_keys.add(item_key)
             for item in merged_down_devices:
                 stored_cause = item.pop("stored_probable_cause", "")
+                stored_core = item.pop("stored_core", False)
                 window = in_maintenance["devices"].get(item.get("device_id") or "")
                 if window is not None:
                     item["maintenance_until"] = window["ends_at"]
                     item["maintenance_reason"] = window["reason"]
                 elif not observation_succeeded:
                     # Nothing observed this build: keep what the history says.
-                    if stored_cause:
+                    if stored_core:
+                        item["core"] = True
+                    elif stored_cause:
                         item["probable_cause"] = stored_cause
                 elif item.get("device_id") in core_ids:
                     item["core"] = True
