@@ -84,6 +84,16 @@ class TestFlapping:
         (instance,) = rows("SELECT resolved_at FROM alert_instances WHERE id = (SELECT max(id) FROM alert_instances)")
         assert instance["resolved_at"].startswith("2026-10-10T12:14:00")
 
+    def test_seen_down_last_and_back_up_long_before_the_next_build(self, flapping, clock):
+        for minute, status in ((0, "Offline"), (2, "Active"), (4, "Offline"), (6, "Active"), (8, "Offline")):
+            at(clock, minute, status)
+        # Back up in Nautobot at 12:10; no build until 12:50, after a whole steady window.
+        clock["now"] = "2026-10-10T12:50:00Z"
+        set_devices(core=("Active", LONG_AGO), acc1=("Active", "2026-10-10T12:10:00Z"), acc2=("Active", LONG_AGO))
+        assert acc1(build()) is None
+        (instance,) = rows("SELECT resolved_at FROM alert_instances WHERE id = (SELECT max(id) FROM alert_instances)")
+        assert instance["resolved_at"].startswith("2026-10-10T12:10:00")
+
     def test_blips_under_the_alert_delay_add_up_to_flapping(self, flapping, clock, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 300)
         for minute, status in ((0, "Offline"), (1, "Active"), (2, "Offline")):

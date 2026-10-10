@@ -1784,7 +1784,7 @@ def build_alert_board_payload(
                             recompute = True
                     elif stored and stored.get("flapping_since") and not is_down:
                         # Resolved when it came back up, not when the steady window ended.
-                        flapping_ended[device_id] = stored["since"] if stored["state"] == "up" else checked_at
+                        flapping_ended[device_id] = stored["since"] if stored["state"] == "up" else since
                     updated.append(device)
                 devices = [d for d in updated if d.get("id") not in in_window or not d.get("id")]
                 maintenance_devices = [d for d in updated if d.get("id") and d.get("id") in in_window]
