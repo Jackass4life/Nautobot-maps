@@ -610,8 +610,9 @@ class TestAlertBoard:
         assert b"Filter by site, address, or country" in resp.data
         assert b"Sort: newest down first" in resp.data
         assert b"Show non-operational sites" in resp.data
-        assert b"Collapse all" in resp.data
-        assert b"Expand all" in resp.data
+        assert b'id="summary-line-text"' in resp.data
+        # Each row has its own toggle (#311).
+        assert b"Collapse all" not in resp.data and b"Expand all" not in resp.data
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
         caching.cache.clear()
@@ -4634,24 +4635,20 @@ class TestAuthConfiguration:
 # Tests: alert-board tier definitions and per-device IP (#117)
 # ---------------------------------------------------------------------------
 class TestAlertBoardTierDefinitions:
-    def test_alerts_page_renders_info_glyph_per_tile(self, client):
+    def test_alerts_page_explains_the_levels_and_chips(self, client):
+        """One (i) by the summary line explains the levels; each chip says what it shows (#311)."""
         resp = client.get("/alerts")
         assert resp.status_code == 200
         html = resp.get_data(as_text=True)
         assert html.lstrip().startswith("<!DOCTYPE html>")
-        assert html.count('class="tier-info"') == len(alerts.ALERT_STATUS_TIER_DEFINITIONS)
-        for label, key in [
-            ("Critical", "critical"),
-            ("Medium", "medium"),
-            ("Low", "low"),
-            ("No data", "no_data"),
-            ("OK", "ok"),
-            ("All sites", "total"),
-            ("Alarms", "alarms"),
-        ]:
-            definition = escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])
-            assert f'aria-label="{label}: {definition}"' in html
-            assert f'data-tooltip="{definition}"' in html
+        assert html.count('class="info-tip"') == 1  # the shared tooltip: hover, focus and touch
+        levels = " ".join(
+            f"{label}: {escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])}"
+            for label, key in (("Critical", "critical"), ("Medium", "medium"), ("Low", "low"))
+        )
+        assert f'data-info-tip="{levels}"' in html
+        for key in ("alarms", "total", "no_data", "maintenance"):
+            assert f'title="{escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])}"' in html
 
     def test_medium_definition_matches_scoring_threshold(self):
         threshold = f"{alerts.MEDIUM_DOWN_RATIO:.0%}"

@@ -15,8 +15,6 @@ const moreFiltersToggle = document.getElementById("more-filters-toggle");
 const moreFilters = document.getElementById("more-filters");
 const clearAlertFiltersBtn = document.getElementById("clear-alert-filters");
 const toggleNonOperational = document.getElementById("toggle-non-operational");
-const collapseAllSitesBtn = document.getElementById("collapse-all-sites");
-const expandAllSitesBtn = document.getElementById("expand-all-sites");
 const themeToggle = document.getElementById("theme-toggle");
 const historyPanel = document.getElementById("history-panel");
 const historyTitle = document.getElementById("history-title");
@@ -142,14 +140,24 @@ function populateFilters(alerts) {
   );
 }
 
+// "2 alarms · 1 critical · 1 medium": only what is wrong, only levels that
+// aren't 0 (#311).
+function summaryText(summary) {
+  const alarms = summary.non_ok ?? ALARM_LEVELS.reduce((sum, level) => sum + (summary[level] || 0), 0);
+  if (!alarms) return "No alarms";
+  const levels = ALARM_LEVELS.filter((level) => summary[level]).map((level) => `${summary[level]} ${level}`);
+  return [`${alarms} alarm${alarms === 1 ? "" : "s"}`, ...levels].join(" · ");
+}
+
 function renderSummary(summary) {
   const alarms = summary.non_ok ?? ALARM_LEVELS.reduce((sum, level) => sum + (summary[level] || 0), 0);
+  const line = document.getElementById("summary-line-text");
+  if (line) {
+    line.textContent = summaryText(summary);
+    line.classList.toggle("has-alarms", alarms > 0);
+  }
   document.getElementById("summary-alarms").textContent = alarms;
-  document.getElementById("summary-critical").textContent = summary.critical || 0;
-  document.getElementById("summary-medium").textContent = summary.medium || 0;
-  document.getElementById("summary-low").textContent = summary.low || 0;
   document.getElementById("summary-no_data").textContent = summary.no_data || 0;
-  document.getElementById("summary-ok").textContent = summary.ok || 0;
   document.getElementById("summary-maintenance").textContent = summary.maintenance || 0;
   document.getElementById("summary-total").textContent = summary.total || 0;
 }
@@ -231,22 +239,30 @@ function maintenanceButton(item) {
   return `<button class="action-btn maint-open-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-haspopup="dialog" title="Maintenance window">Maint.${siteLabel}</button>`;
 }
 
+// The rest of a row's actions behind "⋯" (#311): a native <details>, so it
+// opens without script; choosing an action, Escape or a click elsewhere closes it.
+function rowMenu(item, buttons) {
+  const items = buttons.filter(Boolean);
+  if (!items.length) return "";
+  const label = `More actions for ${escHtml(item.name || item.id || "site")}`;
+  return `<details class="row-menu"><summary class="row-menu-btn" aria-label="${label}" title="More actions">⋯</summary>`
+    + `<div class="row-menu-items">${items.join("")}</div></details>`;
+}
+
+// One visible action per row (#311): "+ Case" when something is down; the
+// rest (Copy, Maint., History) in the menu.
 function actionCell(item) {
   const siteId = escHtml(item.id || "");
   const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
-  if (!downDeviceList(item).length) return `<div class="action-row">${historyButton(item)}${maintenanceButton(item)}</div>`;
+  if (!downDeviceList(item).length) {
+    return `<div class="action-row">${rowMenu(item, [historyButton(item), maintenanceButton(item)])}</div>`;
+  }
   const caseButton = caseDevices(item).length
     ? `<button class="action-btn case-open-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">+ Case${siteLabel}</button>`
     : "";
   // Copy the site and its down devices as text for an ITSM ticket (#227).
   const copyButton = `<button class="action-btn copy-site-btn" type="button" data-site-id="${siteId}" title="Copy the site and its down devices as text">Copy${siteLabel}</button>`;
-  return `
-    <div class="action-row">
-      ${caseButton}
-      ${copyButton}
-      ${maintenanceButton(item)}
-    </div>
-  `;
+  return `<div class="action-row">${caseButton}${rowMenu(item, [copyButton, maintenanceButton(item), historyButton(item)])}</div>`;
 }
 
 // One window in the panel: what, when, why, and End now / Cancel.
@@ -478,7 +494,11 @@ function openSidePanel(panel, triggerSelector, focusTarget) {
 function restorePanelFocus() {
   const trigger = panelTriggerSelector && document.querySelector(panelTriggerSelector);
   panelTriggerSelector = null;
-  if (trigger) trigger.focus();
+  if (!trigger) return;
+  // Opened from a row's "⋯" menu, now closed: back to the menu button (#311).
+  const menu = trigger.closest("details.row-menu");
+  if (menu && !menu.open) menu.querySelector("summary")?.focus();
+  else trigger.focus();
 }
 
 function closeSidePanel(panel) {
@@ -606,6 +626,8 @@ function formatDuration(seconds) {
   if (!Number.isFinite(total) || total <= 0) return "—";
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
+  // "283 days", not "6787h 44m" (#311); hours stop mattering after two days.
+  if (hours >= 48) return `${Math.floor(hours / 24)} days`;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
@@ -816,20 +838,27 @@ function setSeverityFilter(value) {
 }
 
 function formatBoardStatus(payload, visibleCount, alarmsOnly = severityFilter === "alarms") {
+  // One short line (#311): how many, and when; "stale" only when it is.
   const checkedAt = payload.checked_at ? new Date(payload.checked_at) : null;
-  const timestamp = checkedAt && !Number.isNaN(checkedAt.valueOf())
-    ? checkedAt.toLocaleString()
+  const time = checkedAt && !Number.isNaN(checkedAt.valueOf())
+    ? checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "unknown";
-  const staleText = payload.stale ? "stale" : "fresh";
+  const staleText = payload.stale ? " · data may be out of date" : "";
   const syncText = payload.sync_pending ? " · inventory sync in progress…" : "";
-  const scopeText = alarmsOnly ? " (alarms only)" : "";
-  boardStatus.textContent = `${visibleCount} site${visibleCount !== 1 ? "s" : ""} shown${scopeText} · last checked ${timestamp} · ${staleText}${syncText}`;
+  const scopeText = alarmsOnly ? " with alarms" : "";
+  boardStatus.textContent = `${visibleCount} site${visibleCount !== 1 ? "s" : ""}${scopeText} · updated ${time}${staleText}${syncText}`;
+  boardStatus.classList.toggle("board-stale", Boolean(payload.stale));
 }
 
-function alertBadge(level) {
+// *reason*, e.g. "2/7 devices offline (29%)" (#311): shown on hover and on
+// keyboard focus (the shared tooltip), and in the badge's accessible name.
+function alertBadge(level, reason) {
   const value = level || "no_data";
   const label = value === "no_data" ? "NO DATA" : value.toUpperCase();
-  return `<span class="alert-badge alert-${escHtml(value)}">${escHtml(label)}</span>`;
+  const tip = reason
+    ? ` tabindex="0" role="img" aria-label="${escHtml(`${label}: ${reason}`)}" data-info-tip="${escHtml(reason)}"`
+    : "";
+  return `<span class="alert-badge alert-${escHtml(value)}"${tip}>${escHtml(label)}</span>`;
 }
 
 // "until 14:00 · core switch upgrade" for a maintenance window (#283).
@@ -943,19 +972,12 @@ function renderDownDeviceRows(item, isExpanded, extraClass) {
         ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
       </td>
       <td></td>
-      <td class="col-tenants"></td>
       <td class="since-cell">${sinceLabel("down", deviceDowntimeSeconds(device, now))}</td>
       <td class="cases-cell col-cases">${renderDeviceCases(device)}</td>
-      <td class="col-reason"></td>
       <td class="col-action"></td>
     </tr>
   `).join("");
-  // The site's history, under its devices.
-  return `${rows}
-    <tr class="down-device-row site-tools-row${hidden}">
-      <td class="site-tools-cell" colspan="7">${historyButton(item)}</td>
-    </tr>
-  `;
+  return rows;
 }
 
 // Every tenant of the site: its own, then those linked by a Nautobot
@@ -982,28 +1004,21 @@ function tenantName(name, descriptions) {
   return description ? `${escHtml(name)}${infoTipHtml(description, `${name}: ${description}`)}` : escHtml(name);
 }
 
-const TENANTS_SHOWN = 3;
-
-// One tenant as text; several get a "N tenants" badge so a multi-customer
-// site stands out when it alarms (#238).
-function tenantCell(item) {
+// The site's tenants on one line under its name (#311): the first, and
+// "+N" that shows the rest in place, each with its (i) (#238, #279).
+function tenantLine(item) {
   const tenants = siteTenants(item);
   const descriptions = item.tenant_descriptions;
-  if (!tenants.length) return "—";
-  if (tenants.length === 1) return tenantName(tenants[0], descriptions);
-  const shown = tenants.slice(0, TENANTS_SHOWN).map((name) => tenantName(name, descriptions)).join(", ");
-  // The rest are in the row, hidden until "+N more" shows them in place,
-  // each with its (i) (#279).
-  const rest = tenants.slice(TENANTS_SHOWN);
+  if (!tenants.length) return "";
+  const rest = tenants.slice(1);
   const more = rest.length
     ? `<span class="tenant-rest" hidden>, ${rest.map((name) => tenantName(name, descriptions)).join(", ")}</span>`
-      + ` <button class="tenant-more-btn" type="button">+${rest.length} more</button>`
+      + ` <button class="tenant-more-btn" type="button" title="${escHtml(rest.join(", "))}">+${rest.length}</button>`
     : "";
-  return `<span class="multi-tenant-badge" title="${escHtml(tenants.join(", "))}">${tenants.length} tenants</span>`
-    + `<div class="tenant-list">${shown}${more}</div>`;
+  return `<div class="site-tenants">${tenantName(tenants[0], descriptions)}${more}</div>`;
 }
 
-// Only the path above the site, e.g. "NORAM › GRL" (#178); the tenant has its own column.
+// Only the path above the site, e.g. "NORAM › GRL" (#178).
 function siteMeta(item) {
   // With ALERT_BOARD_SITE_LOCATION_TYPE the full path above the site (#158).
   return escHtml(item.ancestor_path || item.parent || "");
@@ -1024,7 +1039,7 @@ function renderTableRows(alerts, payload) {
         : "No site has an active alarm. Choose All sites to see every site.";
       emptyClass = "empty-state all-clear";
     }
-    alertsTableBody.innerHTML = `<tr><td colspan="7" class="${emptyClass}">${emptyText}</td></tr>`;
+    alertsTableBody.innerHTML = `<tr><td colspan="5" class="${emptyClass}">${emptyText}</td></tr>`;
     formatBoardStatus(payload, 0);
     return;
   }
@@ -1035,7 +1050,7 @@ function renderTableRows(alerts, payload) {
     const inMaintenance = item.alert_level === "maintenance";
     // Wall view: sites in maintenance are listed last, under a heading (#283).
     const maintenanceHeading = WALL_VIEW && inMaintenance && !maintenanceSeen
-      ? '<tr class="maintenance-heading"><td colspan="7">In maintenance</td></tr>'
+      ? '<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>'
       : "";
     if (inMaintenance) maintenanceSeen = true;
     // Wall view: sites someone is on are faded, below a dashed line (#271).
@@ -1061,16 +1076,15 @@ function renderTableRows(alerts, payload) {
           <div>
             ${siteNameHtml(item, !WALL_VIEW)}
             <div class="site-summary">${downCount} down · ${item.device_count || 0} monitored</div>
+            ${tenantLine(item)}
           </div>
         </div>
         ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
         ${meta ? `<div class="site-meta">${meta}</div>` : ""}
       </td>
-      <td>${alertBadge(item.alert_level)}${WALL_VIEW && !inMaintenance ? caseStateBadge(item) : ""}${item.maintenance ? `<div class="maintenance-note">${maintenanceNote(item.maintenance.until, item.maintenance.reason)}</div>` : ""}</td>
-      <td class="col-tenants">${tenantCell(item)}</td>
+      <td>${alertBadge(item.alert_level, item.alert_reason)}${WALL_VIEW && !inMaintenance ? caseStateBadge(item) : ""}${item.maintenance ? `<div class="maintenance-note">${maintenanceNote(item.maintenance.until, item.maintenance.reason)}</div>` : ""}</td>
       <td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", siteAlarmSeconds(item))}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>
-      <td class="reason-cell col-reason">${escHtml(item.alert_reason || "No active alert")}</td>
       <td class="col-action">${actionCell(item)}</td>
     </tr>
     ${WALL_VIEW && inMaintenance ? "" : renderDownDeviceRows(item, isExpanded, handled ? "case-handled" : "")}
@@ -1118,11 +1132,24 @@ function applyFilters(payload) {
   const filtered = getFilteredAlerts();
   renderTableRows(filtered, payload);
   renderMoreFiltersLabel();
+  if (clearAlertFiltersBtn) clearAlertFiltersBtn.hidden = !filtersInUse();
+}
+
+// Reset is shown only when there is something to reset (#311).
+function filtersInUse() {
+  return Boolean(
+    filterSite.value.trim()
+      || filterTenant.value
+      || moreFiltersInUse()
+      || sortBy.value !== DEFAULT_SORT
+      || severityFilter !== DEFAULT_SEVERITY_FILTER
+  );
 }
 
 // "More filters (2)": the hidden filters say when they are in use.
 function moreFiltersInUse() {
-  return [filterStatus?.value, filterType?.value, toggleNonOperational?.checked].filter(Boolean).length;
+  const sorted = sortBy.value !== DEFAULT_SORT;
+  return [filterStatus?.value, filterType?.value, toggleNonOperational?.checked, sorted].filter(Boolean).length;
 }
 
 function renderMoreFiltersLabel() {
@@ -1192,8 +1219,6 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     boardStatus.textContent = "Loading alert board…";
     refreshBtn.disabled = true;
     if (toggleNonOperational) toggleNonOperational.disabled = true;
-    if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = true;
-    if (expandAllSitesBtn) expandAllSitesBtn.disabled = true;
   }
   try {
     const params = new URLSearchParams();
@@ -1228,7 +1253,7 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
       showWallError(err.message);
       if (lastLoadedAt !== null) return;
     }
-    alertsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
+    alertsTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
     boardStatus.textContent = "Alert board unavailable";
     showError(`Failed to load alert board: ${err.message}`);
   } finally {
@@ -1236,8 +1261,6 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     if (seq === loadSeq) {
       refreshBtn.disabled = false;
       if (toggleNonOperational) toggleNonOperational.disabled = false;
-      if (collapseAllSitesBtn) collapseAllSitesBtn.disabled = false;
-      if (expandAllSitesBtn) expandAllSitesBtn.disabled = false;
     }
   }
 }
@@ -1331,24 +1354,6 @@ if (toggleNonOperational) {
     expandedSiteIds = new Set();
     allSitesExpanded = false;
     loadAlertBoard(false);
-  });
-}
-
-if (collapseAllSitesBtn) {
-  collapseAllSitesBtn.addEventListener("click", () => {
-    if (refreshBtn.disabled) return;
-    allSitesExpanded = false;
-    expandedSiteIds = new Set();
-    applyFilters(latestPayload);
-  });
-}
-
-if (expandAllSitesBtn) {
-  expandAllSitesBtn.addEventListener("click", () => {
-    if (refreshBtn.disabled) return;
-    allSitesExpanded = true;
-    expandedSiteIds = new Set();
-    applyFilters(latestPayload);
   });
 }
 
@@ -1455,8 +1460,39 @@ maintPanel?.addEventListener("click", async (event) => {
     endBtn.disabled = false;
   }
 });
+// The row's "⋯" menu (#311): one open at a time; it closes when an action
+// is chosen, on a click elsewhere, and with Escape (before any side panel).
+function closeRowMenus(except) {
+  document.querySelectorAll("details.row-menu[open]").forEach((menu) => {
+    if (menu !== except) menu.open = false;
+  });
+}
+
+// Capture phase: the menu closes and focus goes to its button before the
+// chosen action runs, so a panel it opens can still take focus.
+document.addEventListener(
+  "click",
+  (event) => {
+    const menu = event.target.closest("details.row-menu");
+    if (menu && event.target.closest(".row-menu-items button")) {
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+      return;
+    }
+    closeRowMenus(menu);
+  },
+  true,
+);
+
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  const openMenu = document.querySelector("details.row-menu[open]");
+  if (openMenu) {
+    event.preventDefault();
+    openMenu.open = false;
+    openMenu.querySelector("summary")?.focus();
+    return;
+  }
   const openPanel = sidePanels.find((panel) => !panel.classList.contains("hidden"));
   if (!openPanel) return;
   event.preventDefault();
