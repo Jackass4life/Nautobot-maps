@@ -21,23 +21,38 @@ Map markers, the alert board's rows and their hierarchy.
 |---|---|---|---|---|
 | `id` | string | yes | id | — |
 | `name` | string | yes | name | "Unknown" when empty |
+| `display` | string or null |  | — | a parent's name when name is empty |
+| `slug` | string or null |  | slug | — |
 | `status` | object, string or null | yes | status | label, name or display; else extras/statuses by id |
 | `status.id` | string |  | — | — |
+| `status.label` | string or null |  | — | — |
+| `status.name` | string or null |  | — | — |
+| `status.display` | string or null |  | — | — |
 | `location_type` | object, string or null | yes | location_type | name or display; else dcim/location-types by id |
 | `location_type.id` | string |  | — | — |
+| `location_type.name` | string or null |  | — | — |
+| `location_type.display` | string or null |  | — | — |
 | `parent` | object or null | yes | parent, parent_id | parent_id = parent.id; parent = its name, or the name of that location |
 | `parent.id` | string |  | — | — |
+| `parent.name` | string or null |  | — | — |
+| `parent.display` | string or null |  | — | — |
 | `tenant` | object or null | yes | tenant, tenant_id, tenant_group | name or display; else tenancy/tenants by id; tenant_group from the tenant |
 | `tenant.id` | string |  | — | — |
+| `tenant.name` | string or null |  | — | — |
+| `tenant.display` | string or null |  | — | — |
 | `latitude` | number, string or null | yes | latitude | float; a location without both coordinates has no map marker |
 | `longitude` | number, string or null | yes | longitude | float |
 | `physical_address` | string or null |  | physical_address | trimmed |
 | `country` | object, string or null |  | country | name, display or label; else country_name; else the last part of physical_address |
+| `country.name` | string or null |  | — | — |
+| `country.display` | string or null |  | — | — |
+| `country.label` | string or null |  | — | — |
+| `country_name` | string or null |  | country | — |
 | `description` | string or null |  | description | — |
 | `facility` | string or null |  | facility | — |
 | `time_zone` | string or null |  | time_zone | — |
 | `asn` | integer or null |  | asn | — |
-| `tags` | array or null |  | tags | tag names; else extras/tags by id |
+| `tags` | array or null |  | tags | each tag's name or display; else extras/tags by id |
 | `url` | string or null |  | url | — |
 | `last_updated` | string | yes | last_updated | the incremental sync's watermark (last_updated__gte) |
 
@@ -54,16 +69,45 @@ The devices a site's alert level is computed from.
 | `name` | string or null | yes | name | "Unknown" when empty |
 | `status` | object, string or null | yes | status | label, name or display; else extras/statuses by id; decides up or down |
 | `status.id` | string |  | — | — |
+| `status.label` | string or null |  | — | — |
+| `status.name` | string or null |  | — | — |
+| `status.display` | string or null |  | — | — |
 | `role` | object, string or null | yes | role | name or display; else extras/roles by id; decides criticality |
 | `role.id` | string |  | — | — |
+| `role.name` | string or null |  | — | — |
+| `role.display` | string or null |  | — | — |
 | `location` | object or null | yes | location_id | location.id |
 | `location.id` | string | yes | — | — |
 | `primary_ip4` | object, string or null | yes | primary_ip | host, address, display or name of primary_ip4, else primary_ip6, else primary_ip; a device without one is not monitored |
+| `primary_ip4.host` | string or null |  | — | — |
+| `primary_ip4.address` | string or null |  | — | — |
+| `primary_ip4.display` | string or null |  | — | — |
+| `primary_ip4.name` | string or null |  | — | — |
 | `primary_ip6` | object, string or null |  | — | — |
+| `primary_ip6.host` | string or null |  | — | — |
+| `primary_ip6.address` | string or null |  | — | — |
+| `primary_ip6.display` | string or null |  | — | — |
+| `primary_ip6.name` | string or null |  | — | — |
+| `primary_ip` | object, string or null |  | — | older Nautobot |
+| `primary_ip.host` | string or null |  | — | — |
+| `primary_ip.address` | string or null |  | — | — |
+| `primary_ip.display` | string or null |  | — | — |
+| `primary_ip.name` | string or null |  | — | — |
 | `device_type` | object or null | yes | device_type, manufacturer | model or display, manufacturer name; else dcim/device-types and dcim/manufacturers by id |
 | `device_type.id` | string |  | — | — |
+| `device_type.model` | string or null |  | — | — |
+| `device_type.display` | string or null |  | — | — |
+| `device_type.manufacturer` | object or null |  | — | — |
+| `device_type.manufacturer.id` | string |  | — | — |
+| `device_type.manufacturer.name` | string or null |  | — | — |
+| `device_type.manufacturer.display` | string or null |  | — | — |
 | `platform` | object, string or null |  | platform | name or display |
+| `platform.name` | string or null |  | — | — |
+| `platform.display` | string or null |  | — | — |
 | `tenant` | object or null |  | tenant | name or display; else tenancy/tenants by id |
+| `tenant.id` | string |  | — | — |
+| `tenant.name` | string or null |  | — | — |
+| `tenant.display` | string or null |  | — | — |
 | `serial` | string or null |  | serial | — |
 | `last_updated` | string | yes | last_updated | the incremental sync's watermark |
 
@@ -77,9 +121,15 @@ Tenant names, descriptions (tooltip) and tenant groups.
 | Field | Type | Required | Becomes | Rule |
 |---|---|---|---|---|
 | `id` | string | yes | tenant_id | — |
-| `name` | string | yes | name | — |
+| `name` | string | yes | name | name, else display (label, slug in lookups) |
+| `display` | string or null |  | — | — |
+| `label` | string or null |  | — | — |
+| `slug` | string or null |  | — | — |
 | `description` | string or null |  | description | trimmed |
 | `tenant_group` | object or null |  | tenant_group (of a location) | name or display; else tenancy/tenant-groups by id |
+| `tenant_group.id` | string |  | — | — |
+| `tenant_group.name` | string or null |  | — | — |
+| `tenant_group.display` | string or null |  | — | — |
 
 ### `extras/relationships/`
 
@@ -92,8 +142,11 @@ Which Relationships link locations and tenants.
 | `id` | string | yes | — | to read its associations |
 | `source_type` | string | yes | — | kept when source and destination are "dcim.location" and "tenancy.tenant" |
 | `destination_type` | string | yes | — | — |
-| `key` | string or null |  | relationship | matched against SITE_TENANT_RELATIONSHIPS |
+| `key` | string or null |  | relationship | key, else slug; matched against SITE_TENANT_RELATIONSHIPS |
+| `slug` | string or null |  | — | — |
 | `label` | string or null |  | relationship | label, name or display, else key |
+| `name` | string or null |  | — | — |
+| `display` | string or null |  | — | — |
 
 ### `extras/relationship-associations/`
 
@@ -118,6 +171,8 @@ Status names when a nested status is brief.
 | `id` | string | yes | — | key of the lookup |
 | `name` | string or null |  | — | the first of name, display, label or slug that is set |
 | `display` | string or null |  | — | — |
+| `label` | string or null |  | — | — |
+| `slug` | string or null |  | — | — |
 
 ### `extras/roles/`
 
@@ -130,6 +185,8 @@ Device role names when a nested role is brief.
 | `id` | string | yes | — | key of the lookup |
 | `name` | string or null |  | — | the first of name, display, label or slug that is set |
 | `display` | string or null |  | — | — |
+| `label` | string or null |  | — | — |
+| `slug` | string or null |  | — | — |
 
 ### `dcim/location-types/`
 
@@ -142,6 +199,8 @@ Location type names when nested ones are brief.
 | `id` | string | yes | — | key of the lookup |
 | `name` | string or null |  | — | the first of name, display, label or slug that is set |
 | `display` | string or null |  | — | — |
+| `label` | string or null |  | — | — |
+| `slug` | string or null |  | — | — |
 
 ### `extras/tags/`
 
@@ -154,6 +213,8 @@ Tag names when nested tags are brief.
 | `id` | string | yes | — | key of the lookup |
 | `name` | string or null |  | — | the first of name, display, label or slug that is set |
 | `display` | string or null |  | — | — |
+| `label` | string or null |  | — | — |
+| `slug` | string or null |  | — | — |
 
 ### `dcim/manufacturers/`
 
@@ -166,6 +227,8 @@ Manufacturer names when nested ones are brief.
 | `id` | string | yes | — | key of the lookup |
 | `name` | string or null |  | — | the first of name, display, label or slug that is set |
 | `display` | string or null |  | — | — |
+| `label` | string or null |  | — | — |
+| `slug` | string or null |  | — | — |
 
 ### `tenancy/tenant-groups/`
 
@@ -178,6 +241,8 @@ Tenant group names when nested ones are brief.
 | `id` | string | yes | — | key of the lookup |
 | `name` | string or null |  | — | the first of name, display, label or slug that is set |
 | `display` | string or null |  | — | — |
+| `label` | string or null |  | — | — |
+| `slug` | string or null |  | — | — |
 
 ### `dcim/device-types/`
 
@@ -189,7 +254,11 @@ Model and manufacturer when a device's device_type is brief.
 |---|---|---|---|---|
 | `id` | string | yes | — | key of the lookup |
 | `model` | string or null |  | device_type | model, else display |
+| `display` | string or null |  | — | — |
 | `manufacturer` | object or null |  | manufacturer | name or display; else dcim/manufacturers by id |
+| `manufacturer.id` | string |  | — | — |
+| `manufacturer.name` | string or null |  | — | — |
+| `manufacturer.display` | string or null |  | — | — |
 
 ## LibreNMS
 

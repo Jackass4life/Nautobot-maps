@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
-# (3: locations store parent_id, #158).
-CACHE_VERSION = "3"
+# (3: locations store parent_id, #158; 4: and country, #309).
+CACHE_VERSION = "4"
 sync_lock = threading.Lock()
 
 
@@ -358,7 +358,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             """
             SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                    description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                   time_zone, tags_json, url
+                   time_zone, tags_json, url, country
             FROM nautobot_location_cache
             ORDER BY name ASC
             """
@@ -387,6 +387,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
                     "longitude": lon,
                     "description": data.get("description", ""),
                     "physical_address": data.get("physical_address", ""),
+                    "country": data.get("country", ""),
                     "facility": data.get("facility", ""),
                     "tenant": data.get("tenant", ""),
                     "tenant_id": data.get("tenant_id", ""),
@@ -588,14 +589,14 @@ def coalesce_text(value):
 
 
 def write_locations(conn, locations: list) -> None:
-    placeholders = db.placeholders(20).split(",")
+    placeholders = db.placeholders(21).split(",")
     for loc in locations:
         conn.execute(
             f"""
             INSERT INTO nautobot_location_cache
                 (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                 time_zone, tags_json, url, last_updated, synced_at)
+                 time_zone, tags_json, url, last_updated, country, synced_at)
             VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
@@ -617,6 +618,7 @@ def write_locations(conn, locations: list) -> None:
                 tags_json = excluded.tags_json,
                 url = excluded.url,
                 last_updated = excluded.last_updated,
+                country = excluded.country,
                 synced_at = excluded.synced_at
             """,
             (
@@ -640,6 +642,7 @@ def write_locations(conn, locations: list) -> None:
                 json.dumps(loc.get("tags", []), separators=(",", ":"), sort_keys=True),
                 coalesce_text(loc.get("url", "")),
                 loc.get("last_updated") or None,
+                coalesce_text(loc.get("country", "")),
             ),
         )
 

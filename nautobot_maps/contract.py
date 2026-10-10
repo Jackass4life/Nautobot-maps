@@ -46,15 +46,23 @@ class Endpoint:
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 
-def _lookup(path: str, used_for: str, name_keys: str = "name, display, label or slug") -> Endpoint:
+def _names(parent: str, *keys: str) -> tuple[Field, ...]:
+    """The keys a nested object's name is read from, in that order (a brief
+    object has none of them: the name then comes from a lookup by id)."""
+    return tuple(Field(f"{parent}.{key}", ("string", "null")) for key in keys)
+
+
+def _lookup(path: str, used_for: str) -> Endpoint:
     return Endpoint(
         NAUTOBOT,
         path,
         used_for,
         (
             Field("id", ("string",), required=True, rule="key of the lookup"),
-            Field("name", ("string", "null"), rule=f"the first of {name_keys} that is set"),
+            Field("name", ("string", "null"), rule="the first of name, display, label or slug that is set"),
             Field("display", ("string", "null")),
+            Field("label", ("string", "null")),
+            Field("slug", ("string", "null")),
         ),
         request="all pages",
     )
@@ -94,6 +102,8 @@ CONTRACT: tuple[Endpoint, ...] = (
         (
             Field("id", ("string",), required=True, becomes="id"),
             Field("name", ("string",), required=True, becomes="name", rule='"Unknown" when empty'),
+            Field("display", ("string", "null"), rule="a parent's name when name is empty"),
+            Field("slug", ("string", "null"), becomes="slug"),
             Field(
                 "status",
                 NESTED + ("string",),
@@ -102,6 +112,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="label, name or display; else extras/statuses by id",
             ),
             Field("status.id", ("string",)),
+            *_names("status", "label", "name", "display"),
             Field(
                 "location_type",
                 NESTED + ("string",),
@@ -110,6 +121,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="name or display; else dcim/location-types by id",
             ),
             Field("location_type.id", ("string",)),
+            *_names("location_type", "name", "display"),
             Field(
                 "parent",
                 NESTED,
@@ -118,6 +130,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="parent_id = parent.id; parent = its name, or the name of that location",
             ),
             Field("parent.id", ("string",)),
+            *_names("parent", "name", "display"),
             Field(
                 "tenant",
                 NESTED,
@@ -126,6 +139,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="name or display; else tenancy/tenants by id; tenant_group from the tenant",
             ),
             Field("tenant.id", ("string",)),
+            *_names("tenant", "name", "display"),
             Field(
                 "latitude",
                 ("number", "string", "null"),
@@ -141,11 +155,13 @@ CONTRACT: tuple[Endpoint, ...] = (
                 becomes="country",
                 rule="name, display or label; else country_name; else the last part of physical_address",
             ),
+            *_names("country", "name", "display", "label"),
+            Field("country_name", ("string", "null"), becomes="country"),
             Field("description", ("string", "null"), becomes="description"),
             Field("facility", ("string", "null"), becomes="facility"),
             Field("time_zone", ("string", "null"), becomes="time_zone"),
             Field("asn", ("integer", "null"), becomes="asn"),
-            Field("tags", ("array", "null"), becomes="tags", rule="tag names; else extras/tags by id"),
+            Field("tags", ("array", "null"), becomes="tags", rule="each tag's name or display; else extras/tags by id"),
             Field("url", ("string", "null"), becomes="url"),
             Field(
                 "last_updated",
@@ -173,6 +189,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="label, name or display; else extras/statuses by id; decides up or down",
             ),
             Field("status.id", ("string",)),
+            *_names("status", "label", "name", "display"),
             Field(
                 "role",
                 NESTED + ("string",),
@@ -181,6 +198,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="name or display; else extras/roles by id; decides criticality",
             ),
             Field("role.id", ("string",)),
+            *_names("role", "name", "display"),
             Field("location", NESTED, required=True, becomes="location_id", rule="location.id"),
             Field("location.id", ("string",), required=True),
             Field(
@@ -190,7 +208,11 @@ CONTRACT: tuple[Endpoint, ...] = (
                 becomes="primary_ip",
                 rule="host, address, display or name of primary_ip4, else primary_ip6, else primary_ip; a device without one is not monitored",
             ),
+            *_names("primary_ip4", "host", "address", "display", "name"),
             Field("primary_ip6", ("object", "string", "null")),
+            *_names("primary_ip6", "host", "address", "display", "name"),
+            Field("primary_ip", ("object", "string", "null"), rule="older Nautobot"),
+            *_names("primary_ip", "host", "address", "display", "name"),
             Field(
                 "device_type",
                 NESTED,
@@ -199,8 +221,15 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="model or display, manufacturer name; else dcim/device-types and dcim/manufacturers by id",
             ),
             Field("device_type.id", ("string",)),
+            *_names("device_type", "model", "display"),
+            Field("device_type.manufacturer", NESTED),
+            Field("device_type.manufacturer.id", ("string",)),
+            *_names("device_type.manufacturer", "name", "display"),
             Field("platform", NESTED + ("string",), becomes="platform", rule="name or display"),
+            *_names("platform", "name", "display"),
             Field("tenant", NESTED, becomes="tenant", rule="name or display; else tenancy/tenants by id"),
+            Field("tenant.id", ("string",)),
+            *_names("tenant", "name", "display"),
             Field("serial", ("string", "null"), becomes="serial"),
             Field(
                 "last_updated",
@@ -219,7 +248,12 @@ CONTRACT: tuple[Endpoint, ...] = (
         "Tenant names, descriptions (tooltip) and tenant groups",
         (
             Field("id", ("string",), required=True, becomes="tenant_id"),
-            Field("name", ("string",), required=True, becomes="name"),
+            Field(
+                "name", ("string",), required=True, becomes="name", rule="name, else display (label, slug in lookups)"
+            ),
+            Field("display", ("string", "null")),
+            Field("label", ("string", "null")),
+            Field("slug", ("string", "null")),
             Field("description", ("string", "null"), becomes="description", rule="trimmed"),
             Field(
                 "tenant_group",
@@ -227,6 +261,8 @@ CONTRACT: tuple[Endpoint, ...] = (
                 becomes="tenant_group (of a location)",
                 rule="name or display; else tenancy/tenant-groups by id",
             ),
+            Field("tenant_group.id", ("string",)),
+            *_names("tenant_group", "name", "display"),
         ),
         request="all pages",
         stored_in="nautobot_tenant_cache",
@@ -244,8 +280,16 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule='kept when source and destination are "dcim.location" and "tenancy.tenant"',
             ),
             Field("destination_type", ("string",), required=True),
-            Field("key", ("string", "null"), becomes="relationship", rule="matched against SITE_TENANT_RELATIONSHIPS"),
+            Field(
+                "key",
+                ("string", "null"),
+                becomes="relationship",
+                rule="key, else slug; matched against SITE_TENANT_RELATIONSHIPS",
+            ),
+            Field("slug", ("string", "null")),
             Field("label", ("string", "null"), becomes="relationship", rule="label, name or display, else key"),
+            Field("name", ("string", "null")),
+            Field("display", ("string", "null")),
         ),
         request="all pages",
     ),
@@ -266,7 +310,7 @@ CONTRACT: tuple[Endpoint, ...] = (
         request="all pages, relationship=<id>",
         stored_in="nautobot_location_tenant_cache",
     ),
-    _lookup("extras/statuses/", "Status names when a nested status is brief", "name, display, label or slug"),
+    _lookup("extras/statuses/", "Status names when a nested status is brief"),
     _lookup("extras/roles/", "Device role names when a nested role is brief"),
     _lookup("dcim/location-types/", "Location type names when nested ones are brief"),
     _lookup("extras/tags/", "Tag names when nested tags are brief"),
@@ -279,9 +323,12 @@ CONTRACT: tuple[Endpoint, ...] = (
         (
             Field("id", ("string",), required=True, rule="key of the lookup"),
             Field("model", ("string", "null"), becomes="device_type", rule="model, else display"),
+            Field("display", ("string", "null")),
             Field(
                 "manufacturer", NESTED, becomes="manufacturer", rule="name or display; else dcim/manufacturers by id"
             ),
+            Field("manufacturer.id", ("string",)),
+            *_names("manufacturer", "name", "display"),
         ),
         request="all pages",
     ),
@@ -360,12 +407,12 @@ def check(spec: Endpoint, records: list) -> dict:
             note("(record)", f"is {json_type(record)}, expected object")
             continue
         for item in spec.fields:
-            parent_path, _, key = item.path.rpartition(".")
+            *parents, key = item.path.split(".")
             container = record
-            if parent_path:
-                container = record.get(parent_path)
-                if not isinstance(container, dict):
-                    continue  # checked with the parent
+            for parent in parents:
+                container = container.get(parent) if isinstance(container, dict) else None
+            if not isinstance(container, dict):
+                continue  # checked with the parent
             if key not in container:
                 if item.required:
                     note(item.path, "missing")
@@ -378,12 +425,18 @@ def check(spec: Endpoint, records: list) -> dict:
 
 def check_and_record(source: str, path: str, records: list) -> dict:
     """Check *records* fetched from *path*, log what doesn't match (once per
-    call), and store the result for /metrics and /api/contract.  Never raises."""
+    call), and store the result for /metrics and /api/contract.  Never raises.
+
+    No records (an incremental sync with no changes) proves nothing: the
+    previous result stays.
+    """
     try:
         result = check(endpoint(source, path), records)
     except Exception as exc:  # the contract must never stop a sync
         logger.warning("Data contract check for %s %s failed: %s", source, path, exc, exc_info=True)
         return {"records": 0, "mismatches": []}
+    if not records:
+        return result
     if result["mismatches"]:
         details = "; ".join(f"{m['field']} {m['problem']} ({m['count']})" for m in result["mismatches"][:10])
         more = len(result["mismatches"]) - 10
@@ -400,11 +453,14 @@ def check_and_record(source: str, path: str, records: list) -> dict:
 
 
 def _store(source: str, path: str, result: dict) -> None:
-    conn = db.get_conn()
-    if conn is None:
-        return
+    conn = None
     try:
+        conn = db.get_conn()
+        if conn is None:
+            return
         with db.transaction(conn):
+            # One writer per endpoint at a time (e.g. LibreNMS pushes at once).
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (db.advisory_lock_key(f"contract:{source}:{path}"),))
             previous = conn.execute(
                 "SELECT count(*) AS n FROM contract_checks WHERE source = %s AND endpoint = %s AND field <> ''",
                 (source, path),
@@ -427,7 +483,8 @@ def _store(source: str, path: str, result: dict) -> None:
     except Exception as exc:
         logger.warning("Could not store the data contract check for %s %s: %s", source, path, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def latest_checks(conn) -> list[dict]:

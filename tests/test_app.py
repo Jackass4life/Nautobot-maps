@@ -3297,6 +3297,7 @@ class TestInventoryCacheSync:
                 "longitude": 2.0,
                 "description": "",
                 "physical_address": "",
+                "country": "",
                 "facility": "",
                 "tenant": "",
                 "tenant_id": "",

@@ -537,7 +537,16 @@ def add_contract_checks(conn) -> None:
         )
         """
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS contract_checks_endpoint ON contract_checks (source, endpoint)")
+    # One row per endpoint (field '') and per mismatch: the last check only.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS contract_checks_row ON contract_checks (source, endpoint, field, problem)"
+    )
+
+
+def add_location_country(conn) -> None:
+    """The location's country was worked out on every sync but not stored:
+    the map's Country row and the board's country filter were empty (#309)."""
+    conn.execute("ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT ''")
 
 
 # Numbered schema changes, each applied once, in order, and recorded in
@@ -554,6 +563,7 @@ MIGRATIONS = (
     (8, "librenms_device_status push columns", add_librenms_push_columns),
     (9, "librenms_push_seq", librenms_push_seq),
     (10, "contract_checks", add_contract_checks),
+    (11, "nautobot_location_cache.country", add_location_country),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

@@ -211,3 +211,167 @@ class TestRecorded:
         monkeypatch.setattr(contract, "check", lambda spec, records: 1 / 0)
         assert contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", [{}]) == {"records": 0, "mismatches": []}
         assert "Data contract check for nautobot dcim/devices/ failed" in caplog.text
+
+
+class Tracked(dict):
+    """A record that notes every key read from it (dotted for nested objects)."""
+
+    def __init__(self, data, seen, prefix=""):
+        super().__init__()
+        self.seen, self.prefix = seen, prefix
+        for key, value in data.items():
+            dict.__setitem__(self, key, Tracked(value, seen, f"{prefix}{key}.") if isinstance(value, dict) else value)
+
+    def _note(self, key):
+        self.seen.add(f"{self.prefix}{key}")
+
+    def get(self, key, default=None):
+        self._note(key)
+        return dict.get(self, key, default)
+
+    def __getitem__(self, key):
+        self._note(key)
+        return dict.__getitem__(self, key)
+
+    def __contains__(self, key):
+        self._note(key)
+        return dict.__contains__(self, key)
+
+
+def brief(record: dict) -> dict:
+    """Nested objects as Nautobot 3.x sends them at depth 0: only an id, so
+    every fallback key gets read."""
+    return {key: {"id": "x"} if isinstance(value, dict) else value for key, value in record.items()}
+
+
+class TestEveryFieldReadIsDeclared:
+    """Each key the sync code reads from an upstream record is in the contract,
+    so drift in any of them is reported (and documented)."""
+
+    def _assert_declared(self, source, path, seen):
+        declared = {f.path for f in contract.endpoint(source, path).fields}
+        assert seen - declared == set(), f"{path}: read but not in contract.py"
+
+    def _records(self, data, seen):
+        return [Tracked(record, seen) for record in data] + [Tracked(brief(record), seen) for record in data]
+
+    def test_locations(self, monkeypatch):
+        monkeypatch.setattr(nautobot, "id_name_map", lambda endpoint: {})
+        monkeypatch.setattr(nautobot, "tenant_group_map", lambda: {})
+        seen = set()
+        extra = {**mock_nautobot.LOCATIONS[0], "country": {"id": "c"}, "physical_address": ""}
+        inventory.normalize_locations(
+            self._records([*mock_nautobot.LOCATIONS, extra], seen), include_without_coordinates=True
+        )
+        self._assert_declared(contract.NAUTOBOT, "dcim/locations/", seen)
+
+    def test_devices(self):
+        seen = set()
+        devices = [d for group in mock_nautobot.DEVICES.values() for d in group]
+        no_ip = {**devices[0], "primary_ip4": None}
+        nested_manufacturer = {**devices[0], "device_type": {"id": "t", "manufacturer": {"id": "m"}}}
+        inventory.normalize_devices(self._records([*devices, no_ip, nested_manufacturer], seen), lookup_maps={})
+        self._assert_declared(contract.NAUTOBOT, "dcim/devices/", seen)
+
+    def test_tenants_relationships_and_lookups(self, monkeypatch):
+        seen = {}
+
+        def fake_fetch(endpoint, params=None, **kwargs):
+            records = {
+                "tenancy/tenants/": [{"id": "t1", "name": "", "tenant_group": {"id": "g"}}, {"id": "t2", "name": "A"}],
+                "extras/relationships/": [
+                    {"id": "r1", "source_type": "dcim.location", "destination_type": "tenancy.tenant", "key": ""},
+                ],
+                "extras/relationship-associations/": [{"source_id": "l1", "destination_id": "t1"}],
+                "dcim/device-types/": [{"id": "dt", "model": "", "manufacturer": {"id": "m"}}],
+            }.get(endpoint, [{"id": "x"}])
+            return [Tracked(record, seen.setdefault(endpoint, set())) for record in records]
+
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fake_fetch)
+        monkeypatch.setattr(contract, "check_and_record", lambda *args: None)
+        inventory.fetch_tenants()
+        inventory.fetch_location_tenant_links()
+        nautobot.tenant_group_map()
+        nautobot.device_type_maps()
+        for path in inventory.LOOKUP_ENDPOINTS:
+            if path != "dcim/device-types/":  # read by device_type_maps above
+                nautobot.id_name_map(path)
+        for path, keys in seen.items():
+            self._assert_declared(contract.NAUTOBOT, path, keys)
+
+    def test_librenms_devices(self):
+        seen = set()
+
+        class FakeConn:
+            def execute(self, sql, params=()):
+                return type("Result", (), {"fetchone": lambda self: None})()
+
+        devices = [{"device_id": 1, "hostname": "a", "status": 1, "ip": "10.0.0.1"}]
+        tracked = [Tracked(device, seen) for device in devices]
+        inventory.write_librenms_devices(FakeConn(), tracked, 1)
+        inventory._pushed_device(tracked[0])
+        self._assert_declared(contract.LIBRENMS, "devices?type=all", seen)
+
+
+class TestCountry:
+    """The location's country is stored and read back (#309: the contract
+    showed it was worked out but dropped)."""
+
+    def test_round_trip(self, pg_database):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_locations(
+                    conn,
+                    [{"id": "l1", "name": "Oslo", "latitude": 59.9, "longitude": 10.7, "country": "Norway"}],
+                )
+        finally:
+            conn.close()
+        (location,) = inventory.read_locations()
+        assert location["country"] == "Norway"
+
+
+class TestStorage:
+    def test_no_records_keep_the_previous_result(self, pg_database):
+        drifted = [{"id": 1}]
+        contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", drifted)
+        contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", [])  # an incremental sync, no changes
+        conn = db.get_conn()
+        try:
+            (check,) = contract.latest_checks(conn)
+        finally:
+            conn.close()
+        assert check["records"] == 1 and check["mismatches"]
+
+    def test_no_database_connection_never_stops_a_sync(self, monkeypatch, caplog):
+        def refused(*args, **kwargs):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(db, "get_conn", refused)
+        result = contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", [{"id": 1}])
+        assert result["mismatches"] and "Could not store the data contract check" in caplog.text
+
+    def test_concurrent_writers_leave_one_result(self, pg_database):
+        import threading
+
+        threads = [
+            threading.Thread(
+                target=contract.check_and_record,
+                args=(
+                    contract.LIBRENMS,
+                    "devices/<id or hostname>",
+                    [{"device_id": "x", "hostname": "a", "status": 1}],
+                ),
+            )
+            for _ in range(8)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        conn = db.get_conn()
+        try:
+            rows = conn.execute("SELECT field FROM contract_checks ORDER BY field").fetchall()
+        finally:
+            conn.close()
+        assert [db.row_to_dict(row)["field"] for row in rows] == ["", "device_id"]
