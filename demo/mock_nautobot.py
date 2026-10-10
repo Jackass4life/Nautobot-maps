@@ -511,9 +511,17 @@ DEVICES["loc-aar-bld-a-f2"] = [
 DEVICES_WITHOUT_PRIMARY_IP = {"dev-lon-7"}
 
 
+# Nautobot returns last_updated on every object; the incremental sync and the
+# data contract (docs/data-contract.md) rely on it.
+MOCK_LAST_UPDATED = "2026-01-01T00:00:00Z"
+
+
 def _attach_location_and_primary_ip() -> None:
+    for location in LOCATIONS:
+        location.setdefault("last_updated", MOCK_LAST_UPDATED)
     for loc_index, (location_id, devices) in enumerate(DEVICES.items(), start=1):
         for dev_index, device in enumerate(devices, start=1):
+            device.setdefault("last_updated", MOCK_LAST_UPDATED)
             device["location"] = {
                 "id": location_id,
                 "url": f"http://mock-nautobot:8080/api/dcim/locations/{location_id}/",

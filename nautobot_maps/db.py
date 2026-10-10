@@ -521,6 +521,34 @@ def librenms_push_seq(conn) -> None:
     )
 
 
+def add_contract_checks(conn) -> None:
+    """The last data contract check per upstream endpoint (#309): one row
+    with field '' per endpoint, plus one per mismatch."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS contract_checks (
+            source      TEXT NOT NULL,
+            endpoint    TEXT NOT NULL,
+            field       TEXT NOT NULL DEFAULT '',
+            problem     TEXT NOT NULL DEFAULT '',
+            mismatched  INTEGER NOT NULL DEFAULT 0,
+            records     INTEGER NOT NULL DEFAULT 0,
+            checked_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    # One row per endpoint (field '') and per mismatch: the last check only.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS contract_checks_row ON contract_checks (source, endpoint, field, problem)"
+    )
+
+
+def add_location_country(conn) -> None:
+    """The location's country was worked out on every sync but not stored:
+    the map's Country row and the board's country filter were empty (#309)."""
+    conn.execute("ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT ''")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -534,6 +562,8 @@ MIGRATIONS = (
     (7, "api_tokens", add_api_tokens),
     (8, "librenms_device_status push columns", add_librenms_push_columns),
     (9, "librenms_push_seq", librenms_push_seq),
+    (10, "contract_checks", add_contract_checks),
+    (11, "nautobot_location_cache.country", add_location_country),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

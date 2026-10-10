@@ -59,6 +59,7 @@ Without Docker (for development): `pip install -r requirements.txt`, then `pytho
 | [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
 | [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
 | [Sign-in and roles](docs/authentication.md) | SSO proxy setup, what each role can do, API tokens |
+| [Data contract](docs/data-contract.md) | What is read from Nautobot and LibreNMS, and what it becomes |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
 | API | **API** in the app's top bar opens `/docs`: every endpoint with its parameters and a **Try it** button |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |

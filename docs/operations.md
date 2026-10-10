@@ -16,7 +16,7 @@ services:
 docker compose pull nautobot-maps && docker compose up -d
 ```
 
-To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`.
+To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`. After upgrading Nautobot or LibreNMS, check the log for "Data contract" warnings or `GET /api/contract`: they name any field that no longer looks as the app expects ([data contract](data-contract.md)).
 
 ## Local overrides (ports, volumes, …)
 
@@ -103,6 +103,7 @@ Rolling back to an older release after its database was migrated is refused at s
 | `nautobot_maps_sites{level}` | Sites by level at the last board build |
 | `nautobot_maps_database_up` | The database answered this scrape |
 | `nautobot_maps_notifications_pending{channel}` / `nautobot_maps_notifications_failed{channel}` | Notifications waiting to be sent / given up ([notifications](notifications.md)) |
+| `nautobot_maps_contract_mismatches{source,endpoint,field}` | Records of the last sync whose field didn't match the [data contract](data-contract.md); 0 series when all match |
 
 `source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full sync) or `librenms_inventory`. Request counts and response times are in the access log. `/metrics` needs no sign-in, even with `AUTH_REQUIRE_VIEWER=true`, since it holds only counts (no site or device names); set `METRICS_ENABLED=false` if even those should stay private.
 

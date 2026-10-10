@@ -11,14 +11,14 @@ import logging
 import threading
 from datetime import UTC, datetime
 
-from nautobot_maps import caching, db, librenms, nautobot, settings, timeutil
+from nautobot_maps import caching, contract, db, librenms, nautobot, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
 FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
-# (3: locations store parent_id, #158).
-CACHE_VERSION = "3"
+# (3: locations store parent_id, #158; 4: and country, #309).
+CACHE_VERSION = "4"
 sync_lock = threading.Lock()
 
 
@@ -171,6 +171,7 @@ def fetch_location_tenant_links() -> list[dict] | None:
     """
     try:
         relationships = nautobot.fetch_all_pages("extras/relationships/", use_cache=False)
+        contract.check_and_record(contract.NAUTOBOT, "extras/relationships/", relationships)
         selected = []
         for rel in relationships:
             if {rel.get("source_type"), rel.get("destination_type")} != {LOCATION_TYPE, TENANT_TYPE}:
@@ -185,10 +186,12 @@ def fetch_location_tenant_links() -> list[dict] | None:
             return []
         tenant_names = nautobot.id_name_map("tenancy/tenants/")
         links = {}
+        all_associations = []
         for rel, label in selected:
             associations = nautobot.fetch_all_pages(
                 "extras/relationship-associations/", {"relationship": rel.get("id")}, use_cache=False
             )
+            all_associations += associations
             location_side = "source" if rel.get("source_type") == LOCATION_TYPE else "destination"
             tenant_side = "destination" if location_side == "source" else "source"
             for assoc in associations:
@@ -202,6 +205,7 @@ def fetch_location_tenant_links() -> list[dict] | None:
                     "tenant": tenant_names.get(tenant_id, ""),
                     "relationship": label,
                 }
+        contract.check_and_record(contract.NAUTOBOT, "extras/relationship-associations/", all_associations)
         return list(links.values())
     except Exception as exc:
         logger.warning("Could not read location tenant relationships from Nautobot: %s", exc)
@@ -219,6 +223,7 @@ def fetch_tenants() -> list[dict] | None:
     except Exception as exc:
         logger.warning("Could not read tenants from Nautobot: %s", exc)
         return None
+    contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", tenants)
     return [
         {
             "tenant_id": str(tenant.get("id") or ""),
@@ -353,7 +358,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             """
             SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                    description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                   time_zone, tags_json, url
+                   time_zone, tags_json, url, country
             FROM nautobot_location_cache
             ORDER BY name ASC
             """
@@ -382,6 +387,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
                     "longitude": lon,
                     "description": data.get("description", ""),
                     "physical_address": data.get("physical_address", ""),
+                    "country": data.get("country", ""),
                     "facility": data.get("facility", ""),
                     "tenant": data.get("tenant", ""),
                     "tenant_id": data.get("tenant_id", ""),
@@ -583,14 +589,14 @@ def coalesce_text(value):
 
 
 def write_locations(conn, locations: list) -> None:
-    placeholders = db.placeholders(20).split(",")
+    placeholders = db.placeholders(21).split(",")
     for loc in locations:
         conn.execute(
             f"""
             INSERT INTO nautobot_location_cache
                 (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                 time_zone, tags_json, url, last_updated, synced_at)
+                 time_zone, tags_json, url, last_updated, country, synced_at)
             VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
@@ -612,6 +618,7 @@ def write_locations(conn, locations: list) -> None:
                 tags_json = excluded.tags_json,
                 url = excluded.url,
                 last_updated = excluded.last_updated,
+                country = excluded.country,
                 synced_at = excluded.synced_at
             """,
             (
@@ -635,6 +642,7 @@ def write_locations(conn, locations: list) -> None:
                 json.dumps(loc.get("tags", []), separators=(",", ":"), sort_keys=True),
                 coalesce_text(loc.get("url", "")),
                 loc.get("last_updated") or None,
+                coalesce_text(loc.get("country", "")),
             ),
         )
 
@@ -818,6 +826,8 @@ def librenms_push_refresh(device: str) -> dict:
     try:
         observation = librenms_observation(conn)
         found = librenms.fetch_device(device)
+        if found is not None:
+            contract.check_and_record(contract.LIBRENMS, "devices/<id or hostname>", [found])
         if found is None or found.get("device_id") is None:
             return {"updated": False, "device": None}
         # Only devices already cached: an insert could bring back a device a
@@ -869,6 +879,29 @@ def ack_librenms_pushes(conn, seqs: list[int]) -> None:
         conn.execute("UPDATE librenms_device_status SET push_seq = NULL WHERE push_seq = ANY(%s)", (list(seqs),))
 
 
+LOOKUP_ENDPOINTS = (
+    "extras/statuses/",
+    "extras/roles/",
+    "dcim/location-types/",
+    "extras/tags/",
+    "dcim/manufacturers/",
+    "tenancy/tenant-groups/",
+    "dcim/device-types/",
+)
+
+
+def check_lookup_endpoints() -> None:
+    """Check the name-lookup endpoints against the data contract (#309): the
+    pages the sync just read, from the response cache."""
+    for path in LOOKUP_ENDPOINTS:
+        try:
+            records = nautobot.fetch_all_pages(path)
+        except Exception as exc:
+            logger.debug("Contract check: could not read %s: %s", path, exc)
+            continue
+        contract.check_and_record(contract.NAUTOBOT, path, records)
+
+
 def sync_nautobot(force: bool = False) -> None:
     conn = db.get_conn()
     if conn is None or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
@@ -914,6 +947,9 @@ def sync_nautobot(force: bool = False) -> None:
         device_params = dict(params)
         device_params["depth"] = 1
         raw_devices = nautobot.fetch_all_pages("dcim/devices/", device_params or None, use_cache=False)
+        incremental = bool(params)
+        contract.check_and_record(contract.NAUTOBOT, "dcim/locations/", raw_locations, incremental)
+        contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", raw_devices, incremental)
         if full_reconcile:
             existing_counts = conn.execute(
                 """
@@ -941,6 +977,7 @@ def sync_nautobot(force: bool = False) -> None:
             existing_location_name_map=existing_location_name_map,
         )
         devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
+        check_lookup_endpoints()
         tenant_links = fetch_location_tenant_links()
         tenants = fetch_tenants()
         completed_at = timeutil.iso_utc_now()
@@ -1024,6 +1061,7 @@ def sync_librenms(force: bool = False) -> None:
             )
         observation = librenms_observation(conn)
         devices = librenms.fetch_inventory()
+        contract.check_and_record(contract.LIBRENMS, "devices?type=all", devices)
         existing_count = conn.execute("SELECT COUNT(*) AS device_count FROM librenms_device_status").fetchone()
         existing_count = int(db.row_to_dict(existing_count).get("device_count") or 0)
         if existing_count > 0 and not devices:

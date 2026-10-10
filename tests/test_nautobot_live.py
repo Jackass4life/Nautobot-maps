@@ -19,7 +19,7 @@ import os
 import pytest
 
 import app as flask_app
-from nautobot_maps import caching, settings
+from nautobot_maps import caching, contract, nautobot, settings
 
 # ---------------------------------------------------------------------------
 # Skip entire module when no live Nautobot is available
@@ -294,3 +294,28 @@ class TestLiveEndToEnd:
         nearby = search_resp.get_json()
         assert nearby["count"] >= 1
         assert any(loc["name"] == "Copenhagen DC" for loc in nearby["locations"])
+
+
+# ---------------------------------------------------------------------------
+# 6. Data contract (#309): a real Nautobot answers as docs/data-contract.md says
+# ---------------------------------------------------------------------------
+
+LIVE_CONTRACT_PATHS = [e.path for e in contract.CONTRACT if e.source == contract.NAUTOBOT and e.checked]
+
+
+class TestLiveDataContract:
+    @pytest.mark.parametrize("path", LIVE_CONTRACT_PATHS)
+    def test_endpoint_matches_the_contract(self, live_client, path):
+        # Requested as the sync does: devices at depth 1, the rest at depth 0.
+        params = {"depth": 1} if path == "dcim/devices/" else None
+        records = nautobot.fetch_all_pages(path, params, use_cache=False)
+        result = contract.check(contract.endpoint(contract.NAUTOBOT, path), records)
+        assert result["mismatches"] == [], (
+            f"Nautobot {path} no longer matches docs/data-contract.md "
+            f"({result['records']} records): {result['mismatches']}. "
+            "Adapt the sync and nautobot_maps/contract.py, then regenerate the docs."
+        )
+
+    def test_the_seeded_data_covers_the_main_endpoints(self, live_client):
+        for path in ("dcim/locations/", "dcim/devices/", "tenancy/tenants/", "extras/statuses/"):
+            assert nautobot.fetch_all_pages(path, use_cache=False), f"no {path} in the seeded Nautobot"
