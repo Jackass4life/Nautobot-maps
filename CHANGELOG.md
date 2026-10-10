@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Case numbers link to their ticket** (#289) with `CASE_URL_TEMPLATE` (e.g. `https://itsm.example.com/ticket/{case}`): on the board, wall, + Case and History panels (new tab); Copy and notifications add the URL; the incidents CSV has a `case_urls` column
 - **Acknowledge** an alarm without a case number (#288): one click in the row's ⋯ menu (or, with a note or for some devices, in the + Case panel); shown as "ACK olga · note", counted as handled on the wall view, ended with the alarm, recorded in the history; `POST /api/alert-acks`, `POST /api/alert-acks/remove`. Schema version 15
 - **Availability report** (#287): `/availability` (in the navigation), `GET /api/availability` and `GET /api/availability.csv` give the availability per site and tenant for a month: downtime is the time any monitored device was down (`AVAILABILITY_BASIS=any_down`, default) or the time the site was at Critical (`critical`), maintenance windows excluded; a tenant is the average of its sites. See `docs/availability.md`
 - **Likely cause** within a site (#285): with a core device down, the site's other down devices are marked "Likely caused by <core>", and the core device is listed first with a CORE label, on the board and the wall, in Copy, in notifications and in the history (panel and a `probable_cause` column in the incidents CSV). Schema version 14 (`alert_instances.probable_cause`)

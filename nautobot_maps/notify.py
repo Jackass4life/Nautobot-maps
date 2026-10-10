@@ -28,7 +28,7 @@ from email.message import EmailMessage
 
 import requests
 
-from nautobot_maps import db, settings, timeutil
+from nautobot_maps import db, itsm, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -244,10 +244,18 @@ def detail_lines(event: dict) -> list[str]:
             if device["cases"]:
                 parts.append(f"case {', '.join(device['cases'])}")
             lines.append("- " + " | ".join(part for part in parts if part))
-        lines.append(f"Cases: {', '.join(event['cases'])}" if event["cases"] else "Cases: none yet")
+        lines.append(
+            f"Cases: {', '.join(_case_text(case) for case in event['cases'])}" if event["cases"] else "Cases: none yet"
+        )
     if event["board_url"]:
         lines.append(f"Board: {event['board_url']}")
     return lines
+
+
+def _case_text(case: str) -> str:
+    """ "INC-1 (https://itsm…/INC-1)" with CASE_URL_TEMPLATE (#289), else the number."""
+    url = itsm.case_url(case)
+    return f"{case} ({url})" if url else case
 
 
 def likely_cause_text(event: dict) -> str:

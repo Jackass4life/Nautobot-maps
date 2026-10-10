@@ -10,7 +10,7 @@ import io
 import re
 from datetime import UTC, datetime, timedelta
 
-from nautobot_maps import db, inventory, timeutil
+from nautobot_maps import db, inventory, itsm, timeutil
 
 # The periods the History panel offers; "all" is everything the database keeps.
 PERIOD_DAYS = {"7": 7, "30": 30, "90": 90, "all": None}
@@ -29,6 +29,7 @@ INCIDENT_COLUMNS = (
     "reason",
     "cases",
     "probable_cause",
+    "case_urls",
 )
 DEVICE_COLUMNS = (
     "site",
@@ -195,6 +196,7 @@ def incident_lines(incidents, now: datetime):
                 row.get("alert_reason"),
                 row.get("cases") or "",
                 row.get("probable_cause") or "",
+                ";".join(filter(None, (itsm.case_url(case) for case in (row.get("cases") or "").split(";")))),
             ]
         )
 

@@ -38,6 +38,8 @@ const MAINTENANCE_DURATIONS = [60, 120, 240, 480];
 // Settings from the server (templates/alerts.html).
 const APP_CONFIG = document.getElementById("app-config")?.dataset || {};
 const NAUTOBOT_URL = APP_CONFIG.nautobotUrl || "";
+// "https://itsm.example.com/ticket/{case}" (#289); "" when not set.
+const CASE_URL_TEMPLATE = APP_CONFIG.caseUrlTemplate || "";
 const COPIED_LABEL_MS = 2000;
 const boardLayout = document.getElementById("board-layout");
 const feedPanel = document.getElementById("feed-panel");
@@ -460,7 +462,7 @@ function renderCaseForm(item) {
   // unticked and show it, so a second ticket isn't added by mistake (#273).
   const deviceChoices = devices.map((d) => {
     const cases = casesOf(d);
-    const pills = cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
+    const pills = cases.map((value) => casePill(value)).join("");
     return `
         <label class="case-device-option">
           <input type="checkbox" class="case-device-checkbox" value="${escHtml(d.device_id)}" data-cases="${escHtml(cases.join("\n"))}"${cases.length ? "" : " checked"} />
@@ -470,7 +472,7 @@ function renderCaseForm(item) {
   const ticked = devices.filter((d) => !casesOf(d).length).length;
   const siteCases = [...new Set(devices.flatMap(casesOf))];
   const existing = siteCases.length ? `
-      <p class="case-existing">Open cases on this site: ${siteCases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join(" ")}</p>` : "";
+      <p class="case-existing">Open cases on this site: ${siteCases.map((value) => casePill(value)).join(" ")}</p>` : "";
   const allHaveOne = devices.length > 0 && ticked === 0;
   const note = allHaveOne ? `
       <p class="case-note">Every down device already has a case. Ticking a device adds a second case next to it; it doesn't replace it.</p>` : "";
@@ -555,6 +557,12 @@ function formatReportTime(value) {
 
 // A site and its down devices as plain text, for pasting into an ITSM
 // ticket (#227): one line per device, newest down first.
+// "INC-1 (https://itsm…/INC-1)" in plain text (#289); the number alone without a template.
+function caseWithUrl(value) {
+  const url = caseUrl(value);
+  return url ? `${value} (${url})` : value;
+}
+
 function siteReport(item, nautobotUrl = "") {
   const level = item.alert_level || "no_data";
   const lines = [`Site: ${item.name || item.id || "Unknown site"}`];
@@ -567,7 +575,7 @@ function siteReport(item, nautobotUrl = "") {
   else if (tenants.length) lines.push(`Tenant: ${tenants[0]}`);
   lines.push(`Severity: ${level === "no_data" ? "NO DATA" : level.toUpperCase()} (${item.down_device_count || 0} of ${item.device_count || 0} devices down)`);
   if (item.alert_reason) lines.push(`Reason: ${item.alert_reason}`);
-  if (Array.isArray(item.active_cases) && item.active_cases.length) lines.push(`Cases: ${item.active_cases.join(", ")}`);
+  if (Array.isArray(item.active_cases) && item.active_cases.length) lines.push(`Cases: ${item.active_cases.map(caseWithUrl).join(", ")}`);
   if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotUrl.replace(/\/+$/, "")}/dcim/locations/${encodeURIComponent(item.id)}/`);
 
   // The likely cause first (#285), then newest down first.
@@ -590,7 +598,7 @@ function siteReport(item, nautobotUrl = "") {
       `Status ${device.status || "—"}`,
       device.location_path ? `Location ${device.location_path}` : "",
       since ? `Down since ${since}` : "",
-      cases.length ? `Case ${cases.join(", ")}` : "",
+      cases.length ? `Case ${cases.map(caseWithUrl).join(", ")}` : "",
       device.core ? "Core device" : "",
       device.probable_cause ? `Likely caused by ${device.probable_cause}` : "",
     ];
@@ -704,7 +712,7 @@ function renderAlertHistory(siteId, instances) {
     historyContent.innerHTML = `${exportBar}<div class="history-instance"><div class="history-line">No incidents found.</div></div>`;
   } else {
     historyContent.innerHTML = exportBar + instances.map((instance) => {
-      const cases = Array.isArray(instance.cases) ? instance.cases.map((entry) => escHtml(entry.case_number || "")).filter(Boolean) : [];
+      const cases = Array.isArray(instance.cases) ? instance.cases.map((entry) => entry.case_number || "").filter(Boolean) : [];
       const events = Array.isArray(instance.events)
         ? instance.events.map((event) => `${escHtml(event.event_type || "")} @ ${formatTimestamp(event.event_at)}`).join(", ")
         : "";
@@ -713,7 +721,7 @@ function renderAlertHistory(siteId, instances) {
           <div><strong>${escHtml(instance.device_name || instance.device_id || "Unknown device")}</strong> · ${escHtml(instance.status || "unknown")} · ${escHtml(instance.alert_level || "unknown")}</div>
           <div class="history-line">Downtime: ${formatDuration(instance.total_downtime_seconds || 0)}</div>
           <div class="history-line">Opened: ${formatTimestamp(instance.down_started_at)} · Resolved: ${formatTimestamp(instance.resolved_at)}</div>
-          <div class="history-line">Cases: ${cases.length ? cases.join(", ") : "—"}</div>
+          <div class="history-line">Cases: ${cases.length ? cases.map((value) => casePill(value)).join(" ") : "—"}</div>
           ${instance.probable_cause ? `<div class="history-line">Likely caused by: ${escHtml(instance.probable_cause)}</div>` : ""}
           <div class="history-line">Events: ${events || "—"}</div>
         </article>
@@ -739,13 +747,26 @@ async function readJsonResponse(resp) {
 function renderCases(item) {
   const cases = Array.isArray(item.active_cases) ? item.active_cases : [];
   if (!cases.length) return "—";
-  return cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
+  return cases.map((value) => casePill(value)).join("");
+}
+
+// A case number's ticket (#289): the template with the encoded number, or "".
+function caseUrl(value, template = CASE_URL_TEMPLATE) {
+  return template && value ? template.split("{case}").join(encodeURIComponent(value)) : "";
+}
+
+// A case number as a pill: a link to its ticket when there is a template.
+function casePill(value, template = CASE_URL_TEMPLATE) {
+  const url = caseUrl(value, template);
+  return url
+    ? `<a class="case-pill" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer" title="Open the ticket">${escHtml(value)}</a>`
+    : `<span class="case-pill">${escHtml(value)}</span>`;
 }
 
 function renderDeviceCases(device) {
   const cases = Array.isArray(device.case_numbers) ? device.case_numbers : [];
   if (!cases.length) return "—";
-  return cases.map((value) => `<span class="case-pill">${escHtml(value)}</span>`).join("");
+  return cases.map((value) => casePill(value)).join("");
 }
 
 // Today: the time only; otherwise the date too.

@@ -66,9 +66,9 @@ def test_the_csv_has_the_cause(site):
         lines = list(export.incident_lines(export.iter_site_incidents(conn, "loc-lon", None), datetime.now(UTC)))
     finally:
         conn.close()
-    assert lines[0].rstrip().endswith(",probable_cause")
+    assert lines[0].rstrip().endswith(",probable_cause,case_urls")
     acc1 = next(line for line in lines if line.startswith("London HQ,acc1"))
-    assert acc1.rstrip().endswith(",core")
+    assert acc1.rstrip().endswith(",core,")
 
 
 def test_the_notification_names_the_likely_cause(site):

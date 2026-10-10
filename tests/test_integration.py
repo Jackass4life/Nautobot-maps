@@ -869,6 +869,8 @@ class TestCompactActionsInTheBrowser:
         "ackButton",
         "actionCell",
         "siteNameHtml",
+        "caseUrl",
+        "casePill",
         "renderCaseForm",
         "hideSidePanel",
         "openSidePanel",
@@ -902,6 +904,7 @@ function fakeElement(name) {{
   }};
 }}
 const buttons = {{}};
+const CASE_URL_TEMPLATE = "";
 const document = {{ querySelector: (selector) => buttons[selector] || null }};
 const historyPanel = fakeElement("history-panel");
 const casePanel = fakeElement("case-panel");
@@ -1307,12 +1310,15 @@ class TestCopySiteInTheBrowser:
             "formatLocationAddress",
             "formatReportTime",
             "siteTenants",
+            "caseUrl",
+            "caseWithUrl",
             "siteReport",
             "copyText",
         )
         functions = "\n".join(_extract_js_function(js, name) for name in names)
         script = f"""
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
+const CASE_URL_TEMPLATE = "";
 {functions}
 {body}
 """

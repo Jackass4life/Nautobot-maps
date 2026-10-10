@@ -7310,6 +7310,7 @@ class TestAlertHistoryCsv:
             "reason": "x",
             "cases": "INC-1;INC-881",
             "probable_cause": "",  # no core device was down (#285)
+            "case_urls": "",  # no CASE_URL_TEMPLATE (#289)
         }
         assert long_one["ip"] == "10.9.9.9" and long_one["duration_min"] == "54720"
         # A deleted device exports no role and no IP, even with a lingering LibreNMS mapping.

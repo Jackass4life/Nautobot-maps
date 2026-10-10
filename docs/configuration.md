@@ -74,6 +74,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | — | Nautobot tag names hidden from the board |
 | `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | — | Location names hidden from the board (fallback) |
 | `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | — | Device statuses ignored: not counted, not listed |
+| `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`) |
 | `AVAILABILITY_BASIS` | `any_down` | What the [availability report](availability.md) counts as downtime: `any_down` (any monitored device of the site down) or `critical` (the site at Critical) |
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |
