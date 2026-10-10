@@ -1146,6 +1146,8 @@ def summarize_alert_context(
                 # When it went down, for "Newest down first" and Copy (#227, #228).
                 "down_started_at": data.get("down_started_at") or None,
                 "case_numbers": case_numbers,
+                # Kept for when a build can't observe the site (#285).
+                "stored_probable_cause": data.get("probable_cause") or "",
             }
         )
     return {
@@ -1164,7 +1166,7 @@ def read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     site_marker = db.placeholders(1)
     rows = conn.execute(
         f"""
-        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds
+        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds, probable_cause
         FROM alert_instances
         WHERE site_id = {site_marker}
         ORDER BY id DESC
@@ -1416,7 +1418,7 @@ def read_alert_board_data(conn) -> dict:
     open_rows_by_site: dict[str, list[dict]] = {}
     for row in conn.execute(
         """
-        SELECT id, site_id, device_id, device_name, down_started_at
+        SELECT id, site_id, device_id, device_name, down_started_at, probable_cause
         FROM alert_instances
         WHERE status = 'open'
         ORDER BY id DESC
@@ -2015,14 +2017,30 @@ def build_alert_board_payload(
                 if item_key:
                     seen_down_device_keys.add(item_key)
             for item in merged_down_devices:
+                stored_cause = item.pop("stored_probable_cause", "")
                 window = in_maintenance["devices"].get(item.get("device_id") or "")
                 if window is not None:
                     item["maintenance_until"] = window["ends_at"]
                     item["maintenance_reason"] = window["reason"]
+                elif not observation_succeeded:
+                    # Nothing observed this build: keep what the history says.
+                    if stored_cause:
+                        item["probable_cause"] = stored_cause
                 elif item.get("device_id") in core_ids:
                     item["core"] = True
                 elif item.get("device_id") in probable_causes:
                     item["probable_cause"] = probable_causes[item["device_id"]]
+            if not observation_succeeded:
+                # The cores are the devices the others are likely caused by.
+                named = {
+                    name.strip()
+                    for item in merged_down_devices
+                    for name in (item.get("probable_cause") or "").split(",")
+                    if name.strip()
+                }
+                for item in merged_down_devices:
+                    if item.get("device_name") in named and not item.get("maintenance_until"):
+                        item["core"] = True
             # The cause first, then what is behind it (#285).
             merged_down_devices.sort(key=lambda item: not item.get("core"))
             level = (alert.get("level") or "ok").lower()

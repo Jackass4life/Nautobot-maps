@@ -94,6 +94,13 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
     """What a message says, from the site's board row at the moment of the change."""
     devices = site.get("down_devices") or []
     cases = sorted({case for device in devices for case in (device.get("case_numbers") or [])})
+    # From every device, before the list is cut to MAX_DEVICES_IN_MESSAGE (#285).
+    likely_cause = {
+        "cores": [
+            device.get("device_name") or device.get("device_id") or "" for device in devices if device.get("core")
+        ],
+        "behind": sum(1 for device in devices if device.get("probable_cause")),
+    }
     site_id = site.get("id") or ""
     return {
         # The same on every channel and every resend: receivers can drop duplicates.
@@ -126,6 +133,7 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
             for device in devices[:MAX_DEVICES_IN_MESSAGE]
         ],
         "cases": cases,
+        "likely_cause": likely_cause,
         "board_url": board_url(),
     }
 
@@ -222,8 +230,12 @@ def detail_lines(event: dict) -> list[str]:
         lines.append(f"Reason: {event['reason']}")
     if event["type"] == "alarm":
         lines.append(f"Down: {event['down_device_count']} of {event['device_count']} monitored devices")
-        cores = [device["name"] for device in event["down_devices"] if device.get("core")]
-        behind = sum(1 for device in event["down_devices"] if device.get("probable_cause"))
+        # Counted from every device when the event was made (older queued events: the listed ones).
+        likely_cause = event.get("likely_cause") or {
+            "cores": [device["name"] for device in event["down_devices"] if device.get("core")],
+            "behind": sum(1 for device in event["down_devices"] if device.get("probable_cause")),
+        }
+        cores, behind = likely_cause["cores"], likely_cause["behind"]
         if cores and behind:
             lines.append(
                 f"Likely cause: {', '.join(cores)} down; {behind} other device{'s' if behind != 1 else ''} probably behind it"

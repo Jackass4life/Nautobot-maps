@@ -79,3 +79,29 @@ def test_the_notification_names_the_likely_cause(site):
     assert "| core |" in text or text.count("core") >= 2
     acc1 = next(line for line in text.splitlines() if line.startswith("- acc1"))
     assert "| likely caused by core" in acc1
+
+
+def test_a_failed_observation_keeps_the_cause_from_the_history(site, monkeypatch):
+    from nautobot_maps import alerts
+
+    build()
+
+    def unreadable(*args, **kwargs):
+        raise RuntimeError("Nautobot unreachable")
+
+    monkeypatch.setattr(alerts, "get_location_devices_and_alert", unreadable)
+    row = build()
+    by_name = {d["device_name"]: d for d in row["down_devices"]}
+    assert by_name["acc1"]["probable_cause"] == "core"
+    assert by_name["core"].get("core") is True and row["down_devices"][0]["device_name"] == "core"
+
+
+def test_the_notification_counts_every_device_behind_the_core():
+    devices = [{"device_name": "core", "core": True}] + [
+        {"device_name": f"acc{n}", "probable_cause": "core"} for n in range(30)
+    ]
+    site = {"id": "s", "name": "S", "down_devices": devices, "down_device_count": 31, "device_count": 40}
+    event = notify.build_event("alarm", "ok", "critical", site, "2026-10-09T12:00:00Z")
+    assert len(event["down_devices"]) == notify.MAX_DEVICES_IN_MESSAGE
+    assert event["likely_cause"] == {"cores": ["core"], "behind": 30}
+    assert "Likely cause: core down; 30 other devices probably behind it" in "\n".join(notify.detail_lines(event))
