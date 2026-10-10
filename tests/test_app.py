@@ -4641,12 +4641,12 @@ class TestAlertBoardTierDefinitions:
         assert resp.status_code == 200
         html = resp.get_data(as_text=True)
         assert html.lstrip().startswith("<!DOCTYPE html>")
-        assert html.count('class="tier-info"') == 1
+        assert html.count('class="info-tip"') == 1  # the shared tooltip: hover, focus and touch
         levels = " ".join(
             f"{label}: {escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])}"
             for label, key in (("Critical", "critical"), ("Medium", "medium"), ("Low", "low"))
         )
-        assert f'data-tooltip="{levels}"' in html
+        assert f'data-info-tip="{levels}"' in html
         for key in ("alarms", "total", "no_data", "maintenance"):
             assert f'title="{escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])}"' in html
 

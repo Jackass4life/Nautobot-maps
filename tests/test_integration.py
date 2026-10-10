@@ -922,8 +922,8 @@ check(html.includes('class="action-btn case-open-btn"') && html.includes("+ Case
 const menuAt = html.indexOf('<details class="row-menu">');
 check(menuAt > html.indexOf("case-open-btn") && html.indexOf("copy-site-btn") > menuAt, html);
 check(html.includes('aria-label="More actions for Aarhus &lt;HQ&gt;"'), html);
-// History is under the down devices and the map is the site name: only the triage actions here.
-check(!html.includes("history-btn") && !html.includes("href"), html);
+// Copy, Maint. and History are all in the menu; the map is the site name.
+check(html.indexOf("history-btn") > menuAt && !html.includes("href"), html);
 check(html.includes("for Aarhus &lt;HQ&gt;"), "screen readers hear the site: " + html);
 // The whole case form is gone from the row.
 check(!html.includes("case-form") && !html.includes("checkbox") && !html.includes("<input"), html);
@@ -937,10 +937,10 @@ html = actionCell({ id: "s3", name: "Bergen", down_devices: [] });
 check(html.includes('class="action-btn history-btn"') && !html.includes("copy-site-btn"), html);
 check(html.indexOf("history-btn") > html.indexOf('<details class="row-menu">'), html);
 
-// An open alert kept after a failed observation: nothing down now, but there
-// is a list to expand, so History is under it, as for any other expandable site.
+// An open alert kept after a failed observation: nothing down now, but a
+// list to expand: the same actions as any site with down devices.
 html = actionCell({ id: "s4", name: "Kiel", down_device_count: 0, down_devices: [{ device_id: "d9", device_name: "sw9" }] });
-check(!html.includes("history-btn") && html.includes("copy-site-btn"), html);
+check(html.includes("history-btn") && html.includes("copy-site-btn"), html);
 """)
 
     def test_toggle_and_history_use_the_same_list(self):
@@ -1726,7 +1726,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
         hidden = css[css.index(".wall-view .page-header,") :]
         hidden = hidden[: hidden.index("}")]
-        for selector in (".toolbar", ".summary-bar", ".feed-panel", ".col-action", ".site-tenants", ".site-tools-row"):
+        for selector in (".toolbar", ".summary-bar", ".feed-panel", ".col-action", ".site-tenants"):
             assert f".wall-view {selector}" in hidden
         assert "display: none !important" in hidden
         # Case numbers stay visible: the room can see a site has someone on it.
@@ -2363,6 +2363,7 @@ check(formatDuration(600) === "10m", "minutes");
     def test_the_reason_is_the_badge_hover_text(self):
         self._run("""
 const html = alertBadge("medium", "2/7 devices <offline>");
-check(html === '<span class="alert-badge alert-medium" title="2/7 devices &lt;offline&gt;">MEDIUM</span>', html);
-check(!alertBadge("ok").includes("title="), "no reason: no title");
+// Hover and keyboard focus (the shared tooltip), and the accessible name.
+check(html === '<span class="alert-badge alert-medium" tabindex="0" role="img" aria-label="MEDIUM: 2/7 devices &lt;offline&gt;" data-info-tip="2/7 devices &lt;offline&gt;">MEDIUM</span>', html);
+check(!alertBadge("ok").includes("tabindex"), "no reason: nothing to focus");
 """)

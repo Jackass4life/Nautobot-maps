@@ -262,7 +262,7 @@ function actionCell(item) {
     : "";
   // Copy the site and its down devices as text for an ITSM ticket (#227).
   const copyButton = `<button class="action-btn copy-site-btn" type="button" data-site-id="${siteId}" title="Copy the site and its down devices as text">Copy${siteLabel}</button>`;
-  return `<div class="action-row">${caseButton}${rowMenu(item, [copyButton, maintenanceButton(item)])}</div>`;
+  return `<div class="action-row">${caseButton}${rowMenu(item, [copyButton, maintenanceButton(item), historyButton(item)])}</div>`;
 }
 
 // One window in the panel: what, when, why, and End now / Cancel.
@@ -850,12 +850,15 @@ function formatBoardStatus(payload, visibleCount, alarmsOnly = severityFilter ==
   boardStatus.classList.toggle("board-stale", Boolean(payload.stale));
 }
 
-// *reason*, e.g. "2/7 devices offline (29%)", is the hover text (#311).
+// *reason*, e.g. "2/7 devices offline (29%)" (#311): shown on hover and on
+// keyboard focus (the shared tooltip), and in the badge's accessible name.
 function alertBadge(level, reason) {
   const value = level || "no_data";
   const label = value === "no_data" ? "NO DATA" : value.toUpperCase();
-  const title = reason ? ` title="${escHtml(reason)}"` : "";
-  return `<span class="alert-badge alert-${escHtml(value)}"${title}>${escHtml(label)}</span>`;
+  const tip = reason
+    ? ` tabindex="0" role="img" aria-label="${escHtml(`${label}: ${reason}`)}" data-info-tip="${escHtml(reason)}"`
+    : "";
+  return `<span class="alert-badge alert-${escHtml(value)}"${tip}>${escHtml(label)}</span>`;
 }
 
 // "until 14:00 · core switch upgrade" for a maintenance window (#283).
@@ -974,12 +977,7 @@ function renderDownDeviceRows(item, isExpanded, extraClass) {
       <td class="col-action"></td>
     </tr>
   `).join("");
-  // The site's history, under its devices.
-  return `${rows}
-    <tr class="down-device-row site-tools-row${hidden}">
-      <td class="site-tools-cell" colspan="5">${historyButton(item)}</td>
-    </tr>
-  `;
+  return rows;
 }
 
 // Every tenant of the site: its own, then those linked by a Nautobot
@@ -1470,14 +1468,21 @@ function closeRowMenus(except) {
   });
 }
 
-document.addEventListener("click", (event) => {
-  const menu = event.target.closest("details.row-menu");
-  if (menu && event.target.closest(".row-menu-items button")) {
-    menu.open = false;
-    return;
-  }
-  closeRowMenus(menu);
-});
+// Capture phase: the menu closes and focus goes to its button before the
+// chosen action runs, so a panel it opens can still take focus.
+document.addEventListener(
+  "click",
+  (event) => {
+    const menu = event.target.closest("details.row-menu");
+    if (menu && event.target.closest(".row-menu-items button")) {
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+      return;
+    }
+    closeRowMenus(menu);
+  },
+  true,
+);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;

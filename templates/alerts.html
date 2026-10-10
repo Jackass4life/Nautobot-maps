@@ -35,7 +35,7 @@
     <section class="summary-bar" aria-label="Summary">
       <p class="summary-line">
         <span id="summary-line-text">Loading…</span>
-        <span class="tier-info" tabindex="0" role="img" aria-label="Alert levels: Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}" data-tooltip="Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}">i</span>
+        <span class="info-tip" tabindex="0" role="img" aria-label="Alert levels: Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}" data-info-tip="Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}">i</span>
       </p>
       <div class="severity-chips" role="group" aria-label="Show sites">
         {%- for key, filter, label in [("alarms", "alarms", "Alarms"), ("total", "all", "All sites"), ("no_data", "no_data", "No data"), ("maintenance", "maintenance", "Maintenance")] %}
