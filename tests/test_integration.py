@@ -2198,6 +2198,9 @@ const detailCache = new Map([["loc-a", {{}}], ["loc-open", {{}}]]);
 const selectedLocationId = "loc-open";
 const redrawn = [];
 function refreshMarkerIcon(id) {{ redrawn.push(id); }}
+let locationAlertsLoaded = false;
+const notes = [];
+function setAlertLevelsNote(show) {{ notes.push(show); }}
 let payload = {{ levels: {{ "loc-a": {{ level: "critical" }}, "loc-same": {{ level: "low" }} }} }};
 globalThis.fetch = async () => ({{ ok: true, json: async () => payload }});
 {functions}
@@ -2216,10 +2219,17 @@ globalThis.fetch = async () => ({{ ok: true, json: async () => payload }});
   check(worstAlertLevel(["loc-fine", "loc-planned-work"]) === "maintenance", "maintenance beats OK");
   check(worstAlertLevel(["loc-planned-work", "loc-same"]) === "low", "an alarm beats maintenance");
 
+  check(notes.join() === "false", "loaded: no note");
   globalThis.fetch = async () => {{ throw new Error("offline"); }};
   console.warn = () => {{}};
   await loadLocationAlerts();
   check(locationAlerts["loc-a"] === "critical", "a failed refresh keeps the colours");
+  check(notes.join() === "false", "after a first load, a failed refresh adds no note");
+
+  // Never loaded: grey would read as "no data", so the page says so (#311).
+  locationAlertsLoaded = false;
+  await loadLocationAlerts();
+  check(notes.join() === "false,true", "first load failed: note: " + notes);
 }})().catch((err) => {{ console.error(err.message); process.exit(1); }});
 """
         completed = subprocess.run(

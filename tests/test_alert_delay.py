@@ -128,6 +128,21 @@ class TestDelay:
         set_devices(core=("Active", LONG_AGO), acc1=("Offline", NOW), acc2=("Active", LONG_AGO))
         assert build()["down_device_count"] == 1
 
+    def test_a_site_whose_only_device_is_pending_is_ok_on_the_map_not_no_data(self, site, clock):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_locations(conn, [_snapshot_location("loc-one", "One Device")])
+                inventory.write_devices(
+                    conn, [{**_snapshot_device("solo", "loc-one", "Access Switch", "Offline"), "last_updated": NOW}]
+                )
+        finally:
+            conn.close()
+        caching.cache.clear()
+        alerts.build_alert_board_payload(snapshot_only=True)  # records since when solo is down
+        assert rows("SELECT device_id FROM device_states") == [{"device_id": "solo"}]
+        assert alerts.build_location_alert_levels()["levels"]["loc-one"] == {"level": "ok", "reason": ""}
+
     def test_the_map_leaves_pending_devices_out_too(self, site, clock):
         set_devices(core=("Offline", NOW), acc1=("Active", LONG_AGO), acc2=("Active", LONG_AGO))
         build()  # records since when the core is down

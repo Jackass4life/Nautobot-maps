@@ -748,6 +748,14 @@ function refreshMarkerIcon(locId) {
 
 // Alert levels of every location, so markers are coloured without a click (#234).
 const ALERT_REFRESH_MS = 60 * 1000;
+// Until the levels have loaded once, a location without one isn't known to
+// have no data (#311).
+let locationAlertsLoaded = false;
+
+function setAlertLevelsNote(show) {
+  const note = document.getElementById("alert-levels-note");
+  if (note) note.hidden = !show;
+}
 
 async function loadLocationAlerts() {
   let data;
@@ -757,9 +765,13 @@ async function loadLocationAlerts() {
     data = await resp.json();
   } catch (err) {
     // Markers keep their last colours; a click still loads the site's level.
+    // Never loaded: grey would read as "no data", so say so (#311).
     console.warn("Could not load location alert levels:", err);
+    if (!locationAlertsLoaded) setAlertLevelsNote(true);
     return;
   }
+  locationAlertsLoaded = true;
+  setAlertLevelsNote(false);
   const levels = data.levels || {};
   const changed = new Set();
   for (const id of Object.keys(locationAlerts)) {
