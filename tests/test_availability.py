@@ -176,7 +176,11 @@ class TestReport:
         assert run()["period"]["seconds"] == PERIOD
 
     def test_every_board_site_is_listed_and_tenants_average(self, pg_database, clock):
-        write(lambda conn: incident(conn, "s1", "d1", t(2), t(4)))  # two days of twenty: 90 %
+        def setup(conn):
+            incident(conn, "s1", "d1", t(2), t(4))  # two days of twenty: 90 %
+            incident(conn, "s5", "d9", t(5), t(6), name="history name")  # one day: 95 %
+
+        write(setup)
         sites = [
             {"id": "s1", "name": "Oslo", "tenants": ["Acme", "Nordic"], "device_count": 3},
             {"id": "s2", "name": "Bergen", "tenants": ["Acme"], "device_count": 1},
@@ -184,12 +188,18 @@ class TestReport:
             # also when the site is in maintenance.
             {"id": "s3", "name": "Empty", "tenants": ["Acme"], "device_count": 0},
             {"id": "s4", "name": "Planned", "tenants": ["Acme"], "device_count": 0, "maintenance": {"until": "x"}},
+            # Unmonitored now, but down in the month: listed, with its board tenants.
+            {"id": "s5", "name": "Gone quiet", "tenants": ["Nordic"], "device_count": 0},
         ]
         data = run(sites=sites)
-        assert [(r["name"], r["availability"]) for r in data["sites"]] == [("Oslo", 90.0), ("Bergen", 100.0)]
+        assert [(r["name"], r["availability"]) for r in data["sites"]] == [
+            ("Oslo", 90.0),
+            ("Gone quiet", 95.0),
+            ("Bergen", 100.0),
+        ]
         assert {r["tenant"]: (r["availability"], r["sites"]) for r in data["tenants"]} == {
             "Acme": (95.0, 2),
-            "Nordic": (90.0, 1),
+            "Nordic": (92.5, 2),
         }
         assert data["period"] == {
             "start": "2026-10-01T00:00:00Z",
