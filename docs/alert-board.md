@@ -41,6 +41,12 @@ ALERT_BOARD_SITE_LOCATION_TYPE=Site
 
 Only locations of that type (case-insensitive) get a row. Levels above it are shown as a path, e.g. `EMEA › DNK`. Devices in child locations count towards their Site (device count, level, downtime), and a down device's row says where it is, e.g. `Bygning A › Etage 2`. Devices below an excluded location (e.g. a Decommissioning building) are left out. A location with devices but no Site above it keeps its own row and is logged once. Changing the setting moves open alerts from building/floor rows to their Site, which restarts their downtime once.
 
+## Alert delay
+
+With `ALERT_DELAY_SECONDS` (default `0`: off), a device must be down that long before it alarms. Until then it is not shown, not counted in the site's level, not recorded in the history and not notified; if it comes back sooner, it never happened. When it does alarm, its incident starts when it went down, so the downtime is right.
+
+The app sees a device's state when the board is built (after every sync, or at once with [LibreNMS alert pushes](configuration.md#near-real-time-status-librenms-alert-pushes)), so the delay is counted in those steps. LibreNMS has its own alert delay: set one or the other, not both.
+
 ## Maintenance windows
 
 Planned work is not an alarm. A **maintenance window** covers a whole site or some of its devices, from a start (now, or planned ahead) to an end, with a reason.

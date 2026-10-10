@@ -194,6 +194,9 @@ ALERT_BOARD_EXCLUDED_LOCATION_STATUSES = parse_csv_set(os.getenv("ALERT_BOARD_EX
 ALERT_BOARD_EXCLUDED_LOCATION_TAGS = parse_csv_set(os.getenv("ALERT_BOARD_EXCLUDED_LOCATION_TAGS", ""))
 ALERT_BOARD_EXCLUDED_LOCATION_NAMES = parse_csv_set(os.getenv("ALERT_BOARD_EXCLUDED_LOCATION_NAMES", ""))
 ALERT_BOARD_EXCLUDED_DEVICE_STATUSES = parse_csv_set(os.getenv("ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", ""))
+# A device must be down this long before it alarms; shorter blips are not
+# shown, counted or recorded (#286).  0: alarm at once.
+ALERT_DELAY_SECONDS = max(0, int(os.getenv("ALERT_DELAY_SECONDS", "").strip() or 0))
 # Location type whose locations are the alert-board rows (e.g. "Site"); devices
 # in descendant locations roll up into them (#158).  Empty: one row per location.
 ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()
