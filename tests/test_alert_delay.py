@@ -81,7 +81,7 @@ class TestDelay:
         assert rows("SELECT id FROM alert_instances") == []
         assert rows("SELECT id FROM site_level_changes") == []
         assert rows("SELECT id FROM notification_outbox") == []
-        assert rows("SELECT device_id FROM device_states") == [], "back up: forgotten"
+        assert rows("SELECT device_id FROM device_states WHERE state = 'down'") == [], "back up"
 
     def test_a_real_outage_alarms_after_the_delay_from_when_it_began(self, site, clock):
         set_devices(core=("Active", LONG_AGO), acc1=("Offline", NOW), acc2=("Active", LONG_AGO))

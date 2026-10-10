@@ -197,6 +197,10 @@ ALERT_BOARD_EXCLUDED_DEVICE_STATUSES = parse_csv_set(os.getenv("ALERT_BOARD_EXCL
 # A device must be down this long before it alarms; shorter blips are not
 # shown, counted or recorded (#286).  0: alarm at once.
 ALERT_DELAY_SECONDS = max(0, int(os.getenv("ALERT_DELAY_SECONDS", "").strip() or 0))
+# A device that went up or down this many times within 30 minutes is
+# flapping: one incident, a FLAPPING label, a steady site level (#286).
+# 0: off.
+FLAP_CHANGES = max(0, int(os.getenv("FLAP_CHANGES", "").strip() or 4))
 # Location type whose locations are the alert-board rows (e.g. "Site"); devices
 # in descendant locations roll up into them (#158).  Empty: one row per location.
 ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()

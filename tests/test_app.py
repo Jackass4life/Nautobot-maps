@@ -1173,7 +1173,9 @@ class TestAlertBoard:
             opened_conns.append(conn)
             return conn
 
-        def fake_upsert(site, devices, alert, checked_at, conn=None, frozen_device_ids=None):
+        def fake_upsert(
+            site, devices, alert, checked_at, conn=None, frozen_device_ids=None, resolved_at_by_device=None
+        ):
             upsert_conns.append(conn)
             return site["id"] != "loc-2"  # the write for loc-2 fails
 

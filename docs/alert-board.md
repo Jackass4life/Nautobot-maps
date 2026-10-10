@@ -47,6 +47,16 @@ With `ALERT_DELAY_SECONDS` (default `0`: off), a device must be down that long b
 
 The app sees a device's state when the board is built (after every sync, or at once with [LibreNMS alert pushes](configuration.md#near-real-time-status-librenms-alert-pushes)), so the delay is counted in those steps. LibreNMS has its own alert delay: set one or the other, not both.
 
+## Flapping
+
+A device that goes up or down `FLAP_CHANGES` times (default `4`; `0`: off) within 30 minutes is **flapping**: it is unstable rather than dead, which usually means a link, power or a loop rather than the device itself. While it flaps:
+
+- it is listed with a **FLAPPING** label (hover it for how many times), also when it is up for a moment;
+- it stays **one incident** in the history and the CSV, and keeps its case;
+- it counts as down, so the site's level doesn't bounce and nothing is notified again and again.
+
+When it has been steady for 30 minutes, the incident closes at the time it came back up. Short blips under the [alert delay](#alert-delay) count too: a device that keeps blipping shows as flapping instead of staying hidden.
+
 ## Maintenance windows
 
 Planned work is not an alarm. A **maintenance window** covers a whole site or some of its devices, from a start (now, or planned ahead) to an end, with a reason.

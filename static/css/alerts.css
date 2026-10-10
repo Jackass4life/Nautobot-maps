@@ -631,6 +631,21 @@ thead th:last-child {
   color: var(--color-primary);
 }
 
+/* Flapping (#286): unstable, not dead; a small warning-coloured pill by the name. */
+.flap-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(240, 165, 0, 0.18);
+  color: var(--color-warning);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+  cursor: help;
+}
+
 .maintenance-note {
   margin-top: 4px;
   color: var(--color-text-muted);
