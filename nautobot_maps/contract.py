@@ -423,19 +423,19 @@ def check(spec: Endpoint, records: list) -> dict:
     return {"records": len(records), "mismatches": list(mismatches.values())}
 
 
-def check_and_record(source: str, path: str, records: list) -> dict:
+def check_and_record(source: str, path: str, records: list, incremental: bool = False) -> dict:
     """Check *records* fetched from *path*, log what doesn't match (once per
     call), and store the result for /metrics and /api/contract.  Never raises.
 
-    No records (an incremental sync with no changes) proves nothing: the
-    previous result stays.
+    An *incremental* fetch with no records (nothing changed) proves nothing:
+    the previous result stays.  A full fetch is the whole truth, also empty.
     """
     try:
         result = check(endpoint(source, path), records)
     except Exception as exc:  # the contract must never stop a sync
         logger.warning("Data contract check for %s %s failed: %s", source, path, exc, exc_info=True)
         return {"records": 0, "mismatches": []}
-    if not records:
+    if incremental and not records:
         return result
     if result["mismatches"]:
         details = "; ".join(f"{m['field']} {m['problem']} ({m['count']})" for m in result["mismatches"][:10])

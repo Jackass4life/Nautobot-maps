@@ -332,16 +332,24 @@ class TestCountry:
 
 
 class TestStorage:
-    def test_no_records_keep_the_previous_result(self, pg_database):
-        drifted = [{"id": 1}]
-        contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", drifted)
-        contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", [])  # an incremental sync, no changes
+    def _check(self, path):
         conn = db.get_conn()
         try:
-            (check,) = contract.latest_checks(conn)
+            return next(c for c in contract.latest_checks(conn) if c["endpoint"] == path)
         finally:
             conn.close()
+
+    def test_an_empty_incremental_fetch_keeps_the_previous_result(self, pg_database):
+        contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", [{"id": 1}])
+        contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", [], incremental=True)  # nothing changed
+        check = self._check("dcim/devices/")
         assert check["records"] == 1 and check["mismatches"]
+
+    def test_an_empty_full_fetch_is_the_truth(self, pg_database):
+        contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", [{"id": 1}])
+        contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", [])  # the bad tenant was deleted
+        check = self._check("tenancy/tenants/")
+        assert check["records"] == 0 and check["mismatches"] == []
 
     def test_no_database_connection_never_stops_a_sync(self, monkeypatch, caplog):
         def refused(*args, **kwargs):

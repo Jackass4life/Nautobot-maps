@@ -947,8 +947,9 @@ def sync_nautobot(force: bool = False) -> None:
         device_params = dict(params)
         device_params["depth"] = 1
         raw_devices = nautobot.fetch_all_pages("dcim/devices/", device_params or None, use_cache=False)
-        contract.check_and_record(contract.NAUTOBOT, "dcim/locations/", raw_locations)
-        contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", raw_devices)
+        incremental = bool(params)
+        contract.check_and_record(contract.NAUTOBOT, "dcim/locations/", raw_locations, incremental)
+        contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", raw_devices, incremental)
         if full_reconcile:
             existing_counts = conn.execute(
                 """
