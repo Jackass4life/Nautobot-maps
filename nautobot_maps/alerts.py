@@ -2170,7 +2170,7 @@ def build_location_alert_levels() -> dict:
     in_maintenance = {"sites": {}, "devices": {}, "next_change": None}
     # Locations with devices held back by the alert delay: they have
     # monitored devices, so they are OK even with no others (#311).
-    held_back: set[str] = set()
+    held_back: dict[str, int] = {}
     conn = db.get_conn()
     if conn is not None:
         try:
@@ -2181,7 +2181,8 @@ def build_location_alert_levels() -> dict:
             flapping = flapping_device_ids(conn, timeutil.iso_utc_now())
             for device in inventory.read_devices(conn=conn):
                 if (device.get("id") or "") in pending:
-                    held_back.add(device.get("location_id") or "")
+                    location = device.get("location_id") or ""
+                    held_back[location] = held_back.get(location, 0) + 1
                     continue
                 if (device.get("id") or "") in in_maintenance["devices"]:
                     continue
@@ -2213,14 +2214,17 @@ def build_location_alert_levels() -> dict:
         location_id = loc.get("id") or ""
         row = board_rows.get(location_id)
         if row is not None:
+            # Every level the row has, "no data" and maintenance too: the panel
+            # must not score a row itself (#316).
             level = (row.get("alert_level") or "no_data").lower()
-            if level in ALERT_LEVELS_NON_OK or level == "ok":
-                levels[location_id] = {
-                    "level": level,
-                    "reason": row.get("alert_reason", ""),
-                    "down": row.get("down_device_count", 0),
-                    "monitored": row.get("device_count", 0),
-                }
+            window = row.get("maintenance") or {}
+            levels[location_id] = {
+                "level": level,
+                "reason": window.get("reason", "") if level == "maintenance" else row.get("alert_reason", ""),
+                "down": row.get("down_device_count", 0),
+                "monitored": row.get("device_count", 0),
+                **({"until": window["until"]} if level == "maintenance" and window.get("until") else {}),
+            }
             continue
         # Not a board row (below a rolled-up site, or a location the board
         # hides): its own devices, by the board's rule.
@@ -2245,15 +2249,21 @@ def build_location_alert_levels() -> dict:
                 "level": alert["level"],
                 "reason": alert.get("reason", ""),
                 "down": sum((d.get("status") or "").lower().strip() in DOWN_STATUSES for d in counted),
-                "monitored": len(counted),
+                # Devices within the alert delay are monitored, as on the board.
+                "monitored": len(counted) + held_back.get(location_id, 0),
             }
     store_librenms_maps(new_librenms_maps)
-    for location_id in held_back - set(levels) - set(board_rows):
-        if location_id:
-            levels[location_id] = {"level": "ok", "reason": ""}
+    for location_id, count in held_back.items():
+        if location_id and location_id not in levels and location_id not in board_rows:
+            levels[location_id] = {"level": "ok", "reason": "", "down": 0, "monitored": count}
     # A site in maintenance shows that instead of its level (#283).
     for site_id, window in in_maintenance["sites"].items():
-        levels[site_id] = {"level": "maintenance", "reason": window["reason"], "until": window["ends_at"]}
+        levels[site_id] = {
+            **levels.get(site_id, {}),  # the counts stay
+            "level": "maintenance",
+            "reason": window["reason"],
+            "until": window["ends_at"],
+        }
     return {
         "checked_at": timeutil.iso_utc_now(),
         "levels": levels,
@@ -2319,8 +2329,25 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     devices, _ = get_location_devices_and_alert(location_id, location_type)
     # The level the board and the map show (#316); without a database (map
     # only), the same rule on the devices read now.
+    in_window: dict = {}
+    pending: set = set()
+    conn = db.get_conn() if db.dialect() else None
+    if conn is not None:
+        try:
+            in_window = maintenance.read_active(conn, maintenance.now())["devices"]
+            pending = pending_device_ids(conn, timeutil.iso_utc_now())
+        except Exception as exc:
+            logger.warning("Could not read maintenance and alert delay for the site panel: %s", exc)
+        finally:
+            conn.close()
     for device in devices:
         device["not_monitored"] = not_monitored_reason(device)
+        # Monitored, but left out of the counts for now: say why (#316).
+        window = in_window.get(device.get("id") or "")
+        if window is not None and not device["not_monitored"]:
+            device["maintenance_until"] = window["ends_at"]
+        if (device.get("id") or "") in pending and not device["not_monitored"]:
+            device["alert_pending"] = True
     level = get_location_alert_levels()["levels"].get(location_id) if db.dialect() else None
     if level is not None:
         alert = {"level": level["level"], "reason": level.get("reason", "")}

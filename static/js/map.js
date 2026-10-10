@@ -471,7 +471,7 @@ function renderInspectorContent() {
             ${device.platform ? `<div class="device-meta device-platform">Software: ${escHtml(device.platform)}</div>` : ""}
             ${device.serial ? `<div class="device-meta">Serial: ${escHtml(device.serial)}</div>` : ""}
             ${device.tenant ? `<div class="device-meta">Tenant: ${escHtml(device.tenant)}</div>` : ""}
-            ${device.not_monitored ? `<div class="device-meta device-not-monitored">Not monitored: ${escHtml(device.not_monitored)}</div>` : ""}
+            ${deviceCountNote(device)}
           </div>
         </li>`;
       })
@@ -800,6 +800,39 @@ async function loadLocationAlerts() {
     if (id !== selectedLocationId) detailCache.delete(id);
   }
   for (const id of changed) refreshMarkerIcon(id);
+  applyLevelToOpenPanel(levels);
+}
+
+// Why a device isn't in the site's "N down · M monitored", if it isn't (#316).
+function deviceCountNote(device) {
+  let text = "";
+  if (device.not_monitored) {
+    text = `Not monitored: ${device.not_monitored}`;
+  } else if (device.maintenance_until) {
+    const until = new Date(device.maintenance_until);
+    const when = Number.isNaN(until.valueOf())
+      ? ""
+      : ` until ${until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    text = `In maintenance${when}: not counted`;
+  } else if (device.alert_pending) {
+    text = "Down less than the alert delay: not an alarm yet";
+  }
+  return text ? `<div class="device-meta device-not-monitored">${escHtml(text)}</div>` : "";
+}
+
+// The open panel follows a refreshed level (#316); it is re-drawn only on a
+// change, so a search being typed in it isn't reset every minute.
+function applyLevelToOpenPanel(levels) {
+  if (!selectedLocationId || !selectedDetail || inspectorLoading || inspectorError) return;
+  const level = levels[selectedLocationId] || { level: "no_data", reason: "No monitored devices" };
+  const counts = Number.isFinite(level.monitored) ? { down: level.down || 0, monitored: level.monitored } : selectedDetail.counts;
+  const alert = { level: level.level, reason: level.reason || "" };
+  const old = selectedDetail;
+  if (old.alert?.level === alert.level && old.alert?.reason === alert.reason
+    && old.counts?.down === counts?.down && old.counts?.monitored === counts?.monitored) return;
+  selectedDetail = { ...old, alert, counts };
+  detailCache.set(selectedLocationId, selectedDetail);
+  renderInspectorContent();
 }
 
 function startLocationAlertRefresh() {

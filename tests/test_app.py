@@ -6716,6 +6716,8 @@ class TestLocationAlertLevels:
             "loc-core": {"level": "critical", "reason": "Core device(s) offline: core-1", "down": 1, "monitored": 2},
             "loc-few": {"level": "low", "reason": "1/5 devices offline (20%)", "down": 1, "monitored": 5},
             "loc-ok": {"level": "ok", "reason": "", "down": 0, "monitored": 1},
+            # Grey, as on the board: copied too, so the panel doesn't score it itself.
+            "loc-empty": {"level": "no_data", "reason": "No monitored devices", "down": 0, "monitored": 0},
         }
 
     def test_matches_the_site_panel(self, client):
