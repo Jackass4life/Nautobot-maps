@@ -146,3 +146,35 @@ def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, 
     caching.cache.clear()
     _, levels = three_views()
     assert levels["loc-aar-bld-a-f2"] == {"level": "ok", "reason": "", "down": 0, "monitored": 1}
+
+
+def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, monkeypatch):
+    """Its state row can outlive its IP; the board's rule still applies."""
+    from nautobot_maps import db, timeutil
+
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            conn.execute(
+                "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
+                "WHERE location_id = 'loc-aar-bld-a-f2'"
+            )
+            conn.execute(
+                "UPDATE nautobot_device_cache SET last_updated = %s WHERE device_id = 'dev-aar-2'",
+                (timeutil.iso_utc_now(),),
+            )
+    finally:
+        conn.close()
+    monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+    monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
+    caching.cache.clear()
+    three_views()  # the board records that dev-aar-2 is pending
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            conn.execute("UPDATE nautobot_device_cache SET primary_ip = '' WHERE device_id = 'dev-aar-2'")
+    finally:
+        conn.close()
+    caching.cache.clear()
+    _, levels = three_views()
+    assert "loc-aar-bld-a-f2" not in levels, "no monitored device: no data"

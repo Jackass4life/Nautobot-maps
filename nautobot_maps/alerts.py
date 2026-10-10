@@ -2181,8 +2181,10 @@ def build_location_alert_levels() -> dict:
             flapping = flapping_device_ids(conn, timeutil.iso_utc_now())
             for device in inventory.read_devices(conn=conn):
                 if (device.get("id") or "") in pending:
-                    location = device.get("location_id") or ""
-                    held_back[location] = held_back.get(location, 0) + 1
+                    # Only a device the board counts (its state row can outlive its IP).
+                    if not not_monitored_reason(device):
+                        location = device.get("location_id") or ""
+                        held_back[location] = held_back.get(location, 0) + 1
                     continue
                 if (device.get("id") or "") in in_maintenance["devices"]:
                     continue

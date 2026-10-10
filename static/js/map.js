@@ -831,8 +831,18 @@ function applyLevelToOpenPanel(levels) {
   if (old.alert?.level === alert.level && old.alert?.reason === alert.reason
     && old.counts?.down === counts?.down && old.counts?.monitored === counts?.monitored) return;
   selectedDetail = { ...old, alert, counts };
-  detailCache.set(selectedLocationId, selectedDetail);
   renderInspectorContent();
+  // The devices' notes (maintenance, not monitored) may have changed too:
+  // reload them; the search and filter stay as they are.
+  const locId = selectedLocationId;
+  detailCache.delete(locId);
+  loadLocationDetail(locId)
+    .then((detail) => {
+      if (selectedLocationId !== locId || inspectorLoading) return;
+      selectedDetail = detail;
+      renderInspectorContent();
+    })
+    .catch((err) => console.warn("Could not reload the site panel:", err));
 }
 
 function startLocationAlertRefresh() {

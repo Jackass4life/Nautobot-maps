@@ -2402,9 +2402,14 @@ class TestMapPanelSameLevelInTheBrowser:
 function check(c, m) {{ if (!c) throw new Error(m); }}
 let selectedLocationId = "loc-lon", inspectorLoading = false, inspectorError = "";
 let selectedDetail = {{ devices: [], alert: {{ level: "medium", reason: "2/7" }}, counts: {{ down: 2, monitored: 7 }} }};
-const detailCache = new Map();
+const detailCache = new Map([["loc-lon", {{ stale: true }}]]);
 let renders = 0;
 function renderInspectorContent() {{ renders += 1; }}
+const loads = [];
+async function loadLocationDetail(id) {{
+  loads.push(id);
+  return {{ devices: [{{ name: "sw1", maintenance_until: "2026-10-10T21:00:00Z" }}], alert: {{ level: "critical" }}, counts: {{ down: 3, monitored: 7 }} }};
+}}
 {functions}
 {body}
 """
@@ -2423,11 +2428,14 @@ check(deviceCountNote({ not_monitored: "<x>" }).includes("&lt;x&gt;"), "escaped"
 
     def test_the_open_panel_follows_a_refresh_only_when_it_changes(self):
         self._run("""
+(async () => {
 applyLevelToOpenPanel({ "loc-lon": { level: "medium", reason: "2/7", down: 2, monitored: 7 } });
-check(renders === 0, "nothing changed: not re-drawn (a search being typed stays)");
+check(renders === 0 && loads.length === 0, "nothing changed: not re-drawn or reloaded (a search being typed stays)");
 applyLevelToOpenPanel({ "loc-lon": { level: "critical", reason: "Core down", down: 3, monitored: 7 } });
 check(renders === 1 && selectedDetail.alert.level === "critical" && selectedDetail.counts.down === 3, JSON.stringify(selectedDetail));
-check(detailCache.get("loc-lon") === selectedDetail, "the cache holds it too");
-applyLevelToOpenPanel({});
-check(selectedDetail.alert.level === "no_data", "gone from the levels: no data");
+// ...and the devices' notes are reloaded (not the stale cache).
+check(loads.join() === "loc-lon" && !detailCache.has("loc-lon"), "reloaded: " + loads);
+await new Promise((resolve) => setTimeout(resolve, 0));
+check(renders === 2 && selectedDetail.devices[0].maintenance_until, JSON.stringify(selectedDetail));
+})().catch((err) => { console.error(err.message); process.exit(1); });
 """)
