@@ -1125,6 +1125,63 @@ def api_alert_history_csv():
 MAX_CASE_DEVICES = 200
 
 
+def _acknowledge(clear: bool):
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+    site_id = body.get("site_id").strip() if isinstance(body.get("site_id"), str) else ""
+    raw_ids = body.get("device_ids") or []
+    if not isinstance(raw_ids, list) or not all(isinstance(value, str) for value in raw_ids):
+        return jsonify({"error": "device_ids must be a list of device ID strings"}), 400
+    device_ids = [value.strip() for value in raw_ids if value.strip()]
+    note = body.get("note") or ""
+    if not isinstance(note, str):
+        return jsonify({"error": "note must be text"}), 400
+    if not site_id:
+        return jsonify({"error": "site_id is required"}), 400
+    if len(device_ids) > MAX_CASE_DEVICES:
+        return jsonify({"error": f"At most {MAX_CASE_DEVICES} devices per request"}), 400
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    by = (auth.get_current_user().get("username") or "").strip()
+    try:
+        result = alerts.acknowledge(conn, site_id, device_ids, by, note, clear=clear)
+    finally:
+        conn.close()
+    if result["missing"]:
+        return (
+            jsonify(
+                {
+                    "error": "No active alert for some devices; nothing was changed",
+                    "missing_device_ids": result["missing"],
+                }
+            ),
+            404,
+        )
+    caching.invalidate_alert_board()
+    return jsonify({"site_id": site_id, "changed": result["changed"]})
+
+
+@bp.route("/api/alert-acks", methods=["POST"])
+@auth.require_role("operator", open_when_disabled=True)
+def api_acknowledge():
+    """Acknowledge a site's alarm (#288): someone is on it, without a case number.
+
+    JSON body: ``site_id``, optional ``device_ids`` (default: every device
+    with an open alert at the site) and ``note``.  Shown on the board and the
+    wall until the alarm ends; recorded in the history.
+    """
+    return _acknowledge(clear=False)
+
+
+@bp.route("/api/alert-acks/remove", methods=["POST"])
+@auth.require_role("operator", open_when_disabled=True)
+def api_unacknowledge():
+    """Remove an acknowledgement (#288): ``site_id``, optional ``device_ids``."""
+    return _acknowledge(clear=True)
+
+
 @bp.route("/api/alert-cases", methods=["POST"])
 @auth.require_role("operator", open_when_disabled=True)
 def api_add_alert_case():
