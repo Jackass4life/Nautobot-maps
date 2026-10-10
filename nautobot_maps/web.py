@@ -18,6 +18,7 @@ from nautobot_maps import (
     alerts,
     apidocs,
     auth,
+    availability,
     caching,
     contract,
     db,
@@ -854,6 +855,75 @@ def api_maintenance_end(window_id: int):
         return jsonify({"error": "No such maintenance window"}), 404
     _maintenance_changed()
     return jsonify({"window": window})
+
+
+def _availability_report() -> tuple[dict | None, str, int]:
+    """``(report, error, status)`` for the month and basis in the query string (#287)."""
+    conn = db.get_conn()
+    if conn is None:
+        return None, "The availability report needs the PostgreSQL database (NAUTOBOT_MAPS_DATABASE_URL).", 503
+    try:
+        return (
+            availability.report(
+                conn,
+                (request.args.get("month") or "").strip() or None,
+                (request.args.get("basis") or "").strip() or None,
+                availability.board_sites(),
+            ),
+            "",
+            200,
+        )
+    except availability.ReportError as exc:
+        return None, exc.message, 400
+    finally:
+        conn.close()
+
+
+@bp.route("/availability")
+def availability_page():
+    """Availability per site and tenant for a month (#287); ``?month=2026-10&basis=any_down``."""
+    report, error, status = _availability_report()
+    this_month = availability.current_month(availability.now())
+    return (
+        render_template(
+            "availability.html",
+            report=report,
+            error=error,
+            month=(report or {}).get("month") or (request.args.get("month") or this_month),
+            basis=(report or {}).get("basis") or settings.AVAILABILITY_BASIS,
+            this_month=this_month,
+        ),
+        status,
+    )
+
+
+@bp.route("/api/availability")
+def api_availability():
+    """Availability per site and tenant for a month (#287).
+
+    Query parameters: ``month`` (``2026-10``; default the current month, up
+    to now) and ``basis``: ``any_down`` (any monitored device of the site
+    down) or ``critical`` (the site at Critical); default
+    ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
+    """
+    report, error, status = _availability_report()
+    return (jsonify(report), 200) if report is not None else (jsonify({"error": error}), status)
+
+
+@bp.route("/api/availability.csv")
+def api_availability_csv():
+    """The availability report as CSV (#287): ``view=sites`` (default) or ``tenants``; same ``month`` and ``basis``."""
+    view = (request.args.get("view") or "sites").strip()
+    if view not in ("sites", "tenants"):
+        return jsonify({"error": "view must be sites or tenants"}), 400
+    report, error, status = _availability_report()
+    if report is None:
+        return jsonify({"error": error}), status
+    return Response(
+        availability.to_csv(report, view),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="availability-{view}-{report["month"]}.csv"'},
+    )
 
 
 @bp.route("/api/contract")

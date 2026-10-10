@@ -1727,7 +1727,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         ]
         assert "view=wall" not in toolbar, "the link is in the top navigation, not the toolbar"
 
-    @pytest.mark.parametrize("path", ["/", "/alerts", "/docs"])
+    @pytest.mark.parametrize("path", ["/", "/alerts", "/docs", "/availability"])
     def test_every_page_has_wall_view_in_the_top_navigation(self, integration_client, path):
         html = integration_client.get(path).get_data(as_text=True)
         start = html.index('class="app-nav"')
@@ -1735,7 +1735,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         end = min(i for i in (html.find("</nav>", start), html.find("</div>", start)) if i != -1)
         nav = html[start:end]
         links = re.findall(r'href="([^"]+)"', nav)
-        assert links == ["/", "/alerts", "/docs", "/alerts?view=wall"], links
+        assert links == ["/", "/alerts", "/availability", "/docs", "/alerts?view=wall"], links
 
     def test_wall_css_hides_the_controls(self, integration_client):
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)

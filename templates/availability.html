@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Availability · Nautobot Maps</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Nautobot Maps</p>
+        <h1>Availability</h1>
+      </div>
+      <nav class="app-nav" aria-label="Primary">
+        <a class="app-nav-link" href="/">Map</a>
+        <a class="app-nav-link" href="/alerts">Alert Board</a>
+        <a class="app-nav-link active" href="/availability" aria-current="page">Availability</a>
+        <a class="app-nav-link" href="/docs" title="Every endpoint, with Try it">API</a>
+        <a class="app-nav-link" href="/alerts?view=wall" title="For a wall screen: alarms only, no controls">Wall view</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
+      </nav>
+    </header>
+
+    <!-- A month and what counts as down; a plain form, no script needed (#287). -->
+    <form class="toolbar availability-form" method="get" action="/availability">
+      <label for="availability-month">Month</label>
+      <input id="availability-month" name="month" type="month" value="{{ month }}" max="{{ this_month }}" required />
+      <label for="availability-basis">Downtime</label>
+      <select id="availability-basis" name="basis">
+        <option value="any_down"{% if basis == "any_down" %} selected{% endif %}>Any monitored device down</option>
+        <option value="critical"{% if basis == "critical" %} selected{% endif %}>Site at Critical</option>
+      </select>
+      <button class="secondary-filter-btn" type="submit">Show</button>
+    </form>
+
+    {%- if error %}
+    <p class="availability-note" role="alert">{{ error }}</p>
+    {%- else %}
+    <p class="availability-note">
+      {{ report.period.start[:10] }} to {{ report.period.end[:16] | replace("T", " ") }} UTC{% if not report.period.complete %} (so far){% endif %}.
+      Time in maintenance windows is not downtime.
+      Download CSV: <a href="/api/availability.csv?month={{ month }}&amp;basis={{ basis }}&amp;view=sites">sites</a>,
+      <a href="/api/availability.csv?month={{ month }}&amp;basis={{ basis }}&amp;view=tenants">tenants</a>.
+    </p>
+
+    <section class="table-shell availability-section" aria-labelledby="availability-tenants">
+      <h2 id="availability-tenants" class="availability-heading">Tenants</h2>
+      <table>
+        <thead><tr><th>Tenant</th><th>Availability</th><th>Sites</th><th>Downtime</th></tr></thead>
+        <tbody>
+          {%- for row in report.tenants %}
+          <tr>
+            <td>{{ row.tenant }}</td>
+            <td class="availability-pct{% if row.availability < 99.9 %} is-below{% endif %}">{{ "%.3f" | format(row.availability) }} %</td>
+            <td>{{ row.sites }}</td>
+            <td>{{ (row.downtime_seconds / 60) | round | int }} min</td>
+          </tr>
+          {%- else %}
+          <tr><td colspan="4" class="empty-state">No tenants.</td></tr>
+          {%- endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="table-shell availability-section" aria-labelledby="availability-sites">
+      <h2 id="availability-sites" class="availability-heading">Sites</h2>
+      <table>
+        <thead><tr><th>Site</th><th>Availability</th><th>Downtime</th><th>Incidents</th><th>Tenants</th></tr></thead>
+        <tbody>
+          {%- for row in report.sites %}
+          <tr>
+            <td>{{ row.name or row.site_id }}</td>
+            <td class="availability-pct{% if row.availability < 99.9 %} is-below{% endif %}">{{ "%.3f" | format(row.availability) }} %</td>
+            <td>{{ (row.downtime_seconds / 60) | round | int }} min</td>
+            <td>{{ row.incidents }}</td>
+            <td>{{ row.tenants | join(", ") }}</td>
+          </tr>
+          {%- else %}
+          <tr><td colspan="5" class="empty-state">No sites.</td></tr>
+          {%- endfor %}
+        </tbody>
+      </table>
+    </section>
+    {%- endif %}
+  </div>
+  <script src="{{ url_for('static', filename='js/availability.js') }}"></script>
+</body>
+</html>
