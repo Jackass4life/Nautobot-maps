@@ -105,3 +105,16 @@ def test_the_notification_counts_every_device_behind_the_core():
     assert len(event["down_devices"]) == notify.MAX_DEVICES_IN_MESSAGE
     assert event["likely_cause"] == {"cores": ["core"], "behind": 30}
     assert "Likely cause: core down; 30 other devices probably behind it" in "\n".join(notify.detail_lines(event))
+
+
+def test_a_batched_summary_names_the_likely_cause_too():
+    """A wide outage goes out as a summary (NOTIFY_SUMMARY_THRESHOLD); it says the cause too."""
+    devices = [{"device_name": "core", "core": True}, {"device_name": "acc1", "probable_cause": "core"}]
+    site = {"id": "s", "name": "London HQ", "down_devices": devices, "down_device_count": 2, "device_count": 7}
+    alarm = notify.build_event("alarm", "ok", "critical", site, "2026-10-09T12:00:00Z")
+    plain = notify.build_event(
+        "alarm", "ok", "low", {"id": "t", "name": "Oslo", "down_device_count": 1}, "2026-10-09T12:00:00Z"
+    )
+    lines = notify.summary_lines([alarm, plain])
+    assert lines[0] == "🔴 London HQ: Critical (2 down; likely cause: core down; 1 other device probably behind it)"
+    assert lines[1] == "🔴 Oslo: Low (1 down)"

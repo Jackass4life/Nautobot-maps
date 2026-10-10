@@ -230,16 +230,9 @@ def detail_lines(event: dict) -> list[str]:
         lines.append(f"Reason: {event['reason']}")
     if event["type"] == "alarm":
         lines.append(f"Down: {event['down_device_count']} of {event['device_count']} monitored devices")
-        # Counted from every device when the event was made (older queued events: the listed ones).
-        likely_cause = event.get("likely_cause") or {
-            "cores": [device["name"] for device in event["down_devices"] if device.get("core")],
-            "behind": sum(1 for device in event["down_devices"] if device.get("probable_cause")),
-        }
-        cores, behind = likely_cause["cores"], likely_cause["behind"]
-        if cores and behind:
-            lines.append(
-                f"Likely cause: {', '.join(cores)} down; {behind} other device{'s' if behind != 1 else ''} probably behind it"
-            )
+        cause = likely_cause_text(event)
+        if cause:
+            lines.append(f"Likely cause: {cause}")
         for device in event["down_devices"]:
             parts = [device["name"], device["ip"], device["role"]]
             if device.get("core"):
@@ -257,13 +250,33 @@ def detail_lines(event: dict) -> list[str]:
     return lines
 
 
+def likely_cause_text(event: dict) -> str:
+    """ "core-rt01 down; 2 other devices probably behind it", or "" (#285)."""
+    # Counted from every device when the event was made (older queued events: the listed ones).
+    likely_cause = event.get("likely_cause") or {
+        "cores": [device["name"] for device in event["down_devices"] if device.get("core")],
+        "behind": sum(1 for device in event["down_devices"] if device.get("probable_cause")),
+    }
+    cores, behind = likely_cause["cores"], likely_cause["behind"]
+    if not cores or not behind:
+        return ""
+    return f"{', '.join(cores)} down; {behind} other device{'s' if behind != 1 else ''} probably behind it"
+
+
 def summary_lines(events: list[dict]) -> list[str]:
     lines = []
     for event in events:
         site = event["site"]["name"] or event["site"]["id"]
         level = LEVEL_LABEL.get(event["level"], event["level"])
         mark = "✅" if event["type"] == "recovery" else "🔴"
-        extra = f" ({event['down_device_count']} down)" if event["type"] == "alarm" else ""
+        extra = ""
+        if event["type"] == "alarm":
+            cause = likely_cause_text(event)
+            extra = (
+                f" ({event['down_device_count']} down; likely cause: {cause})"
+                if cause
+                else f" ({event['down_device_count']} down)"
+            )
         lines.append(f"{mark} {site}: {level}{extra}")
     url = next((event["board_url"] for event in events if event["board_url"]), "")
     if url:
