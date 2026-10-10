@@ -62,6 +62,26 @@ ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
 ALERT_LEVELS_NON_OK = ("critical", "medium", "low")
 
 
+def board_device_rules() -> dict:
+    """Which devices count, wherever a level is worked out (#316): those with
+    a primary IP, not of an excluded status.  The board, the map's marker
+    colours and the site panel all use this."""
+    return {
+        "require_primary_ip": True,
+        "excluded_device_statuses": settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
+    }
+
+
+def not_monitored_reason(device: dict) -> str:
+    """Why *device* doesn't count towards its site's level ("" when it does), for the site panel (#316)."""
+    if not device_has_primary_ip(device):
+        return "no primary IP"
+    status = (device.get("status") or "").strip()
+    if status_is_excluded(status, settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES):
+        return f"status {status or 'empty'} is excluded"
+    return ""
+
+
 def device_has_primary_ip(device: dict) -> bool:
     return bool((device.get("primary_ip") or "").strip())
 
@@ -1711,8 +1731,7 @@ def build_alert_board_payload(
                     lnms_index=lnms_index,
                     new_librenms_maps=new_librenms_maps,
                     snapshot_only=snapshot_only,
-                    require_primary_ip=True,
-                    excluded_device_statuses=settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
+                    **board_device_rules(),
                     **bulk_kwargs,
                 )
             except Exception as exc:
@@ -1808,6 +1827,10 @@ def build_alert_board_payload(
                 alert = compute_alert_level(
                     devices, loc.get("location_type") or None, override_map=bulk_kwargs.get("override_map")
                 )
+                if not devices and pending_devices:
+                    # Only devices still within the delay: monitored, and OK so
+                    # far; not "no data" (#316).
+                    alert = {"level": "ok", "reason": ""}
             down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
             alert_context = empty_alert_context()
             if board_data is not None:
@@ -2147,7 +2170,7 @@ def build_location_alert_levels() -> dict:
     in_maintenance = {"sites": {}, "devices": {}, "next_change": None}
     # Locations with devices held back by the alert delay: they have
     # monitored devices, so they are OK even with no others (#311).
-    held_back: set[str] = set()
+    held_back: dict[str, int] = {}
     conn = db.get_conn()
     if conn is not None:
         try:
@@ -2158,7 +2181,10 @@ def build_location_alert_levels() -> dict:
             flapping = flapping_device_ids(conn, timeutil.iso_utc_now())
             for device in inventory.read_devices(conn=conn):
                 if (device.get("id") or "") in pending:
-                    held_back.add(device.get("location_id") or "")
+                    # Only a device the board counts (its state row can outlive its IP).
+                    if not not_monitored_reason(device):
+                        location = device.get("location_id") or ""
+                        held_back[location] = held_back.get(location, 0) + 1
                     continue
                 if (device.get("id") or "") in in_maintenance["devices"]:
                     continue
@@ -2177,13 +2203,37 @@ def build_location_alert_levels() -> dict:
         lnms_id_map = load_librenms_id_map()
         lnms_index = librenms_index(lnms_devices)
 
+    # The board's rows are the truth (#316): a site has the same level, the
+    # same "N down · M monitored", on the board, on the map and in its panel.
+    board_rows: dict[str, dict] = {}
+    try:
+        board_rows = {str(item.get("id")): item for item in cached_alert_board().get("alerts") or [] if item.get("id")}
+    except Exception as exc:
+        logger.warning("Could not read the alert board for the map; scoring locations alone: %s", exc)
+
     levels = {}
     for loc in locations:
         location_id = loc.get("id") or ""
+        row = board_rows.get(location_id)
+        if row is not None:
+            # Every level the row has, "no data" and maintenance too: the panel
+            # must not score a row itself (#316).
+            level = (row.get("alert_level") or "no_data").lower()
+            window = row.get("maintenance") or {}
+            levels[location_id] = {
+                "level": level,
+                "reason": window.get("reason", "") if level == "maintenance" else row.get("alert_reason", ""),
+                "down": row.get("down_device_count", 0),
+                "monitored": row.get("device_count", 0),
+                **({"until": window["until"]} if level == "maintenance" and window.get("until") else {}),
+            }
+            continue
+        # Not a board row (below a rolled-up site, or a location the board
+        # hides): its own devices, by the board's rule.
         devices = devices_by_location.get(location_id)
         if not location_id or not devices:
             continue
-        _, alert = get_location_devices_and_alert(
+        counted, alert = get_location_devices_and_alert(
             location_id,
             loc.get("location_type") or None,
             devices_data=devices,
@@ -2194,21 +2244,48 @@ def build_location_alert_levels() -> dict:
             new_librenms_maps=new_librenms_maps,
             snapshot_only=True,
             override_map=override_map,
+            **board_device_rules(),
         )
         if alert["level"] in ALERT_LEVELS_NON_OK or alert["level"] == "ok":
-            levels[location_id] = {"level": alert["level"], "reason": alert.get("reason", "")}
+            levels[location_id] = {
+                "level": alert["level"],
+                "reason": alert.get("reason", ""),
+                "down": sum((d.get("status") or "").lower().strip() in DOWN_STATUSES for d in counted),
+                # Devices within the alert delay are monitored, as on the board.
+                "monitored": len(counted) + held_back.get(location_id, 0),
+            }
     store_librenms_maps(new_librenms_maps)
-    for location_id in held_back - set(levels):
-        if location_id:
-            levels[location_id] = {"level": "ok", "reason": ""}
+    for location_id, count in held_back.items():
+        if location_id and location_id not in levels and location_id not in board_rows:
+            levels[location_id] = {"level": "ok", "reason": "", "down": 0, "monitored": count}
     # A site in maintenance shows that instead of its level (#283).
     for site_id, window in in_maintenance["sites"].items():
-        levels[site_id] = {"level": "maintenance", "reason": window["reason"], "until": window["ends_at"]}
+        levels[site_id] = {
+            **levels.get(site_id, {}),  # the counts stay
+            "level": "maintenance",
+            "reason": window["reason"],
+            "until": window["ends_at"],
+        }
     return {
         "checked_at": timeutil.iso_utc_now(),
         "levels": levels,
         "next_maintenance_change": in_maintenance["next_change"],
     }
+
+
+def cached_alert_board() -> dict:
+    """The alert board as cached, built and cached when it isn't; starts no sync."""
+    cached = caching.get("alert-board-data:v3")
+    if cached is not None:
+        return cached
+    payload = build_alert_board_payload(snapshot_only=True)
+    if payload.get("alerts") or inventory.snapshot_initialized():
+        caching.set(
+            "alert-board-data:v3",
+            payload,
+            timeout=maintenance.cache_seconds(payload.get("next_maintenance_change"), settings.CACHE_TTL),
+        )
+    return payload
 
 
 def get_location_alert_levels() -> dict:
@@ -2251,7 +2328,39 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     is a 404 from ``ipam/asns/``: that endpoint does not exist on Nautobot 3.x
     without the BGP Models plugin, so the location's own ``asn`` field is used.
     """
-    devices, alert = get_location_devices_and_alert(location_id, location_type)
+    devices, _ = get_location_devices_and_alert(location_id, location_type)
+    # The level the board and the map show (#316); without a database (map
+    # only), the same rule on the devices read now.
+    in_window: dict = {}
+    pending: set = set()
+    conn = db.get_conn() if db.dialect() else None
+    if conn is not None:
+        try:
+            in_window = maintenance.read_active(conn, maintenance.now())["devices"]
+            pending = pending_device_ids(conn, timeutil.iso_utc_now())
+        except Exception as exc:
+            logger.warning("Could not read maintenance and alert delay for the site panel: %s", exc)
+        finally:
+            conn.close()
+    for device in devices:
+        device["not_monitored"] = not_monitored_reason(device)
+        # Monitored, but left out of the counts for now: say why (#316).
+        window = in_window.get(device.get("id") or "")
+        if window is not None and not device["not_monitored"]:
+            device["maintenance_until"] = window["ends_at"]
+        if (device.get("id") or "") in pending and not device["not_monitored"]:
+            device["alert_pending"] = True
+    level = get_location_alert_levels()["levels"].get(location_id) if db.dialect() else None
+    if level is not None:
+        alert = {"level": level["level"], "reason": level.get("reason", "")}
+        counts = {key: level[key] for key in ("down", "monitored") if key in level}
+    else:
+        monitored = [device for device in devices if not device["not_monitored"]]
+        alert = compute_alert_level(monitored, location_type)
+        counts = {
+            "down": sum((d.get("status") or "").lower().strip() in DOWN_STATUSES for d in monitored),
+            "monitored": len(monitored),
+        }
     try:
         asns_data = nautobot.fetch_all_pages("ipam/asns/", {"location_id": location_id})
     except requests.HTTPError as exc:
@@ -2271,6 +2380,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     return {
         "devices": devices,
         "alert": alert,
+        "counts": counts,
         "asns": asns,
         "circuits": circuits,
         "circuits_error": circuits_error,

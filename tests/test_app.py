@@ -2102,6 +2102,8 @@ class TestLocationDetailWithLocationType:
                     "device_type": {"model": "PA-220", "manufacturer": {"name": "Palo Alto"}},
                     "role": {"name": "Firewall"},
                     "status": {"label": "offline"},
+                    # Monitored: only devices with a primary IP count (#316).
+                    "primary_ip4": {"address": "10.0.0.1/24"},
                     "platform": None,
                     "serial": "",
                     "tenant": None,
@@ -6709,10 +6711,13 @@ class TestLocationAlertLevels:
             resp = client.get("/api/location-alerts")
         assert resp.status_code == 200
         levels = resp.get_json()["levels"]
+        # With the counts the board shows, "N down · M monitored" (#316).
         assert levels == {
-            "loc-core": {"level": "critical", "reason": "Core device(s) offline: core-1"},
-            "loc-few": {"level": "low", "reason": "1/5 devices offline (20%)"},
-            "loc-ok": {"level": "ok", "reason": ""},
+            "loc-core": {"level": "critical", "reason": "Core device(s) offline: core-1", "down": 1, "monitored": 2},
+            "loc-few": {"level": "low", "reason": "1/5 devices offline (20%)", "down": 1, "monitored": 5},
+            "loc-ok": {"level": "ok", "reason": "", "down": 0, "monitored": 1},
+            # Grey, as on the board: copied too, so the panel doesn't score it itself.
+            "loc-empty": {"level": "no_data", "reason": "No monitored devices", "down": 0, "monitored": 0},
         }
 
     def test_matches_the_site_panel(self, client):
@@ -7169,6 +7174,8 @@ class TestLibreNMSMappingsAreBatched:
         assert mappings["dev-7"] == 1007
 
     def test_map_levels_store_mappings_in_one_batch(self):
+        # The map reads the board's rows (#316); the scheduler keeps it cached.
+        alerts.cached_alert_board()
         counter, patched = self._count_connections()
         with patched:
             levels = alerts.build_location_alert_levels()["levels"]

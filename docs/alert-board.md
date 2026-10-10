@@ -26,6 +26,8 @@ A device is **core** when its role matches a critical keyword, or when it's mark
 
 Down/up status comes from Nautobot's device status, and from LibreNMS when it's configured.
 
+**The map shows the same level** (#316): a site's marker colour and its panel ("MEDIUM · 2 down · 7 monitored") come from its board row, so maintenance, the alert delay, flapping and roll-up apply there too. A mapped location that isn't a board row (below a rolled-up site, or hidden from the board) is scored from its own devices by the same rule. The panel still lists every device; one that doesn't count says why ("Not monitored: no primary IP", or an excluded status).
+
 ## Hiding sites and devices
 
 Non-operational locations are hidden by default: those whose type is in `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` (default `graveyard,warehouse`), or whose status, tag or name is in the matching `ALERT_BOARD_EXCLUDED_LOCATION_*` setting. **More filters → Show non-operational sites** shows them anyway.

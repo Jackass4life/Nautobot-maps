@@ -412,9 +412,16 @@ function renderInspectorContent() {
     alertPill = `<span class="inspector-pill">${escHtml("Alert status unavailable")}</span>`;
   } else if (alert && ALERT_RANK[alert.level]) {
     alertPill = `<span class="inspector-pill inspector-alert-pill is-${escHtml(alert.level)}">${escHtml(alert.level.toUpperCase())}</span>`;
+  } else if (alert && alert.level === "maintenance") {
+    alertPill = `<span class="inspector-pill inspector-alert-pill is-maintenance">MAINTENANCE</span>`;
   } else if (alert && alert.level === "no_data") {
     alertPill = `<span class="inspector-pill">${escHtml("No monitored devices")}</span>`;
   }
+  // The board's count (#316): the devices that decide the level.
+  const counts = !inspectorLoading && !inspectorError && selectedDetail && selectedDetail.counts;
+  const countsLine = counts && Number.isFinite(counts.monitored)
+    ? `<span class="inspector-counts">${counts.down || 0} down · ${counts.monitored} monitored</span>`
+    : "";
 
   inspectorTitle.textContent = loc.name || "Location inspector";
   inspectorSubtitle.textContent = selectedGroupIds.length > 1
@@ -464,6 +471,7 @@ function renderInspectorContent() {
             ${device.platform ? `<div class="device-meta device-platform">Software: ${escHtml(device.platform)}</div>` : ""}
             ${device.serial ? `<div class="device-meta">Serial: ${escHtml(device.serial)}</div>` : ""}
             ${device.tenant ? `<div class="device-meta">Tenant: ${escHtml(device.tenant)}</div>` : ""}
+            ${deviceCountNote(device)}
           </div>
         </li>`;
       })
@@ -515,6 +523,7 @@ function renderInspectorContent() {
         <div class="inspector-status-group">
           <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
           ${alertPill}
+          ${countsLine}
         </div>
       </div>
       ${buildAlertBanner(alert)}
@@ -791,6 +800,49 @@ async function loadLocationAlerts() {
     if (id !== selectedLocationId) detailCache.delete(id);
   }
   for (const id of changed) refreshMarkerIcon(id);
+  applyLevelToOpenPanel(levels);
+}
+
+// Why a device isn't in the site's "N down · M monitored", if it isn't (#316).
+function deviceCountNote(device) {
+  let text = "";
+  if (device.not_monitored) {
+    text = `Not monitored: ${device.not_monitored}`;
+  } else if (device.maintenance_until) {
+    const until = new Date(device.maintenance_until);
+    const when = Number.isNaN(until.valueOf())
+      ? ""
+      : ` until ${until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    text = `In maintenance${when}: not counted`;
+  } else if (device.alert_pending) {
+    text = "Down less than the alert delay: not an alarm yet";
+  }
+  return text ? `<div class="device-meta device-not-monitored">${escHtml(text)}</div>` : "";
+}
+
+// The open panel follows a refreshed level (#316); it is re-drawn only on a
+// change, so a search being typed in it isn't reset every minute.
+function applyLevelToOpenPanel(levels) {
+  if (!selectedLocationId || !selectedDetail || inspectorLoading || inspectorError) return;
+  const level = levels[selectedLocationId] || { level: "no_data", reason: "No monitored devices" };
+  const counts = Number.isFinite(level.monitored) ? { down: level.down || 0, monitored: level.monitored } : selectedDetail.counts;
+  const alert = { level: level.level, reason: level.reason || "" };
+  const old = selectedDetail;
+  if (old.alert?.level === alert.level && old.alert?.reason === alert.reason
+    && old.counts?.down === counts?.down && old.counts?.monitored === counts?.monitored) return;
+  selectedDetail = { ...old, alert, counts };
+  renderInspectorContent();
+  // The devices' notes (maintenance, not monitored) may have changed too:
+  // reload them; the search and filter stay as they are.
+  const locId = selectedLocationId;
+  detailCache.delete(locId);
+  loadLocationDetail(locId)
+    .then((detail) => {
+      if (selectedLocationId !== locId || inspectorLoading) return;
+      selectedDetail = detail;
+      renderInspectorContent();
+    })
+    .catch((err) => console.warn("Could not reload the site panel:", err));
 }
 
 function startLocationAlertRefresh() {

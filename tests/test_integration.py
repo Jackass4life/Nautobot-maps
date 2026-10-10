@@ -2201,6 +2201,7 @@ function refreshMarkerIcon(id) {{ redrawn.push(id); }}
 let locationAlertsLoaded = false;
 const notes = [];
 function setAlertLevelsNote(show) {{ notes.push(show); }}
+function applyLevelToOpenPanel() {{}}
 let payload = {{ levels: {{ "loc-a": {{ level: "critical" }}, "loc-same": {{ level: "low" }} }} }};
 globalThis.fetch = async () => ({{ ok: true, json: async () => payload }});
 {functions}
@@ -2384,4 +2385,57 @@ const html = alertBadge("medium", "2/7 devices <offline>");
 // Hover and keyboard focus (the shared tooltip), and the accessible name.
 check(html === '<span class="alert-badge alert-medium" tabindex="0" role="img" aria-label="MEDIUM: 2/7 devices &lt;offline&gt;" data-info-tip="2/7 devices &lt;offline&gt;">MEDIUM</span>', html);
 check(!alertBadge("ok").includes("tabindex"), "no reason: nothing to focus");
+""")
+
+
+class TestMapPanelSameLevelInTheBrowser:
+    """The site panel shows the board's level and count, and why a device isn't counted (#316)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        functions = "\n".join(
+            _extract_js_function(js, name) for name in ("escHtml", "deviceCountNote", "applyLevelToOpenPanel")
+        )
+        script = f"""
+function check(c, m) {{ if (!c) throw new Error(m); }}
+let selectedLocationId = "loc-lon", inspectorLoading = false, inspectorError = "";
+let selectedDetail = {{ devices: [], alert: {{ level: "medium", reason: "2/7" }}, counts: {{ down: 2, monitored: 7 }} }};
+const detailCache = new Map([["loc-lon", {{ stale: true }}]]);
+let renders = 0;
+function renderInspectorContent() {{ renders += 1; }}
+const loads = [];
+async function loadLocationDetail(id) {{
+  loads.push(id);
+  return {{ devices: [{{ name: "sw1", maintenance_until: "2026-10-10T21:00:00Z" }}], alert: {{ level: "critical" }}, counts: {{ down: 3, monitored: 7 }} }};
+}}
+{functions}
+{body}
+"""
+        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_device_notes(self):
+        self._run("""
+check(deviceCountNote({}) === "", "counted: no note");
+check(deviceCountNote({ not_monitored: "no primary IP" }).includes(">Not monitored: no primary IP<"), "no IP");
+const m = deviceCountNote({ maintenance_until: "2026-10-10T21:43:00Z" });
+check(m.includes("In maintenance until ") && m.includes(": not counted"), m);
+check(deviceCountNote({ alert_pending: true }).includes("not an alarm yet"), "pending");
+check(deviceCountNote({ not_monitored: "<x>" }).includes("&lt;x&gt;"), "escaped");
+""")
+
+    def test_the_open_panel_follows_a_refresh_only_when_it_changes(self):
+        self._run("""
+(async () => {
+applyLevelToOpenPanel({ "loc-lon": { level: "medium", reason: "2/7", down: 2, monitored: 7 } });
+check(renders === 0 && loads.length === 0, "nothing changed: not re-drawn or reloaded (a search being typed stays)");
+applyLevelToOpenPanel({ "loc-lon": { level: "critical", reason: "Core down", down: 3, monitored: 7 } });
+check(renders === 1 && selectedDetail.alert.level === "critical" && selectedDetail.counts.down === 3, JSON.stringify(selectedDetail));
+// ...and the devices' notes are reloaded (not the stale cache).
+check(loads.join() === "loc-lon" && !detailCache.has("loc-lon"), "reloaded: " + loads);
+await new Promise((resolve) => setTimeout(resolve, 0));
+check(renders === 2 && selectedDetail.devices[0].maintenance_until, JSON.stringify(selectedDetail));
+})().catch((err) => { console.error(err.message); process.exit(1); });
 """)
