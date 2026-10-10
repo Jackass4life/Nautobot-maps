@@ -141,7 +141,13 @@ class TestDelay:
         caching.cache.clear()
         alerts.build_alert_board_payload(snapshot_only=True)  # records since when solo is down
         assert rows("SELECT device_id FROM device_states") == [{"device_id": "solo"}]
-        assert alerts.build_location_alert_levels()["levels"]["loc-one"] == {"level": "ok", "reason": ""}
+        # As on the board: OK, "0 down · 1 monitored" (#316).
+        assert alerts.build_location_alert_levels()["levels"]["loc-one"] == {
+            "level": "ok",
+            "reason": "",
+            "down": 0,
+            "monitored": 1,
+        }
 
     def test_the_map_leaves_pending_devices_out_too(self, site, clock):
         set_devices(core=("Offline", NOW), acc1=("Active", LONG_AGO), acc2=("Active", LONG_AGO))

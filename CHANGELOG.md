@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **A simpler map** (#311): markers are coloured by alert level only (green OK, yellow Low, orange Medium, red Critical, blue Maintenance, grey No data), the same in pins, stacks and clusters; before, orange and red each had two meanings (Planned / >25% down, search result / core down). The searched point is a ring. The status dropdown moved into Advanced filters (the All / Active / Planned buttons stay). The site panel has no Health summary tiles (the equipment chips show the same counts) and no Pinned button. `/api/location-alerts` also returns `ok` for locations with monitored devices
 
 ### Fixed
+- **The map and the alert board showed different levels** for a site with unmonitored devices (#316): the map's marker colours and its site panel counted every device, the board only those with a primary IP and not of an excluded status (and the panel ignored maintenance, the alert delay and flapping). Both now take a site's level from its board row ("2 down · 7 monitored" in the panel too); the panel marks devices that don't count and says why. A site whose only down devices are within the alert delay is OK on the board, not "no data"
 - A location's **country** was worked out on every sync but not stored, so with PostgreSQL the map's Country row, the alert board's country filter and MCP's search by country found nothing. It is stored now (schema version 11); the first sync after the upgrade is a full one that fills it in (#309)
 
 ## [0.1.0] - 2026-10-09

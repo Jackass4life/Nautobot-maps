@@ -412,9 +412,16 @@ function renderInspectorContent() {
     alertPill = `<span class="inspector-pill">${escHtml("Alert status unavailable")}</span>`;
   } else if (alert && ALERT_RANK[alert.level]) {
     alertPill = `<span class="inspector-pill inspector-alert-pill is-${escHtml(alert.level)}">${escHtml(alert.level.toUpperCase())}</span>`;
+  } else if (alert && alert.level === "maintenance") {
+    alertPill = `<span class="inspector-pill inspector-alert-pill is-maintenance">MAINTENANCE</span>`;
   } else if (alert && alert.level === "no_data") {
     alertPill = `<span class="inspector-pill">${escHtml("No monitored devices")}</span>`;
   }
+  // The board's count (#316): the devices that decide the level.
+  const counts = !inspectorLoading && !inspectorError && selectedDetail && selectedDetail.counts;
+  const countsLine = counts && Number.isFinite(counts.monitored)
+    ? `<span class="inspector-counts">${counts.down || 0} down · ${counts.monitored} monitored</span>`
+    : "";
 
   inspectorTitle.textContent = loc.name || "Location inspector";
   inspectorSubtitle.textContent = selectedGroupIds.length > 1
@@ -464,6 +471,7 @@ function renderInspectorContent() {
             ${device.platform ? `<div class="device-meta device-platform">Software: ${escHtml(device.platform)}</div>` : ""}
             ${device.serial ? `<div class="device-meta">Serial: ${escHtml(device.serial)}</div>` : ""}
             ${device.tenant ? `<div class="device-meta">Tenant: ${escHtml(device.tenant)}</div>` : ""}
+            ${device.not_monitored ? `<div class="device-meta device-not-monitored">Not monitored: ${escHtml(device.not_monitored)}</div>` : ""}
           </div>
         </li>`;
       })
@@ -515,6 +523,7 @@ function renderInspectorContent() {
         <div class="inspector-status-group">
           <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
           ${alertPill}
+          ${countsLine}
         </div>
       </div>
       ${buildAlertBanner(alert)}
