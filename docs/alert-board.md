@@ -5,7 +5,7 @@
 The board shows what is needed to decide and act (#311):
 
 - **One line at the top** says what is wrong ("2 alarms · 1 critical · 1 medium"; the (i) explains the levels). The chips next to it choose which sites are listed: **Alarms** (Critical, Medium or Low; the board opens here), **All sites**, **No data** and **Maintenance**, each with its count.
-- **Each row:** the site, how many devices are down of how many monitored, its tenants (the first, and **+N** for the rest), the path above it or its address; the level (hover it for the reason, e.g. "2/7 devices offline (29%)"); since when; the cases; and **+ Case**. The row's other actions (**Copy**, **Maint.**, and **History** for a site with nothing down) are behind **⋯**.
+- **Each row:** the site, how many devices are down of how many monitored, its tenants (the first, and **+N** for the rest), the path above it or its address; the level (hover it for the reason, e.g. "2/7 devices offline (29%)"); since when; the cases; and **+ Case**. The row's other actions (**Copy**, **Maint.** and **History**) are behind **⋯**.
 - **Filters:** search and tenant; **More filters** has the sort, status, location type and non-operational sites. **Reset** appears when a filter is in use.
 
 The board needs PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`); without it the board stays empty, says so, and a warning is logged at startup. The map works either way.
