@@ -78,7 +78,7 @@ class TestIntervals:
         assert availability.month_bounds("2026-10", at) == (OCT, at), "the current month: up to now"
         assert availability.month_bounds("2026-09", at) == (datetime(2026, 9, 1, tzinfo=UTC), OCT)
         assert availability.month_bounds("2025-12", at)[1] == datetime(2026, 1, 1, tzinfo=UTC)
-        for bad in ("2026-13", "26-10", "oct", ""):
+        for bad in ("2026-13", "26-10", "oct", "", "0000-01", "9999-12"):
             with pytest.raises(availability.ReportError, match="2026-10"):
                 availability.month_bounds(bad, at)
         with pytest.raises(availability.ReportError, match="hasn't started"):
@@ -145,13 +145,41 @@ class TestReport:
         assert sites["s1"]["downtime_seconds"] == 6 * 3600 + 3600
         assert sites["s2"]["downtime_seconds"] == 2 * 86400
 
+    def test_at_critical_without_a_recorded_change(self, pg_database, clock):
+        """A site's first level is not a change: Critical since first seen, or until a later change."""
+
+        def setup(conn):
+            conn.execute(
+                "INSERT INTO site_alert_levels (site_id, site_name, alert_level, updated_at) VALUES "
+                "('always', 'Always', 'critical', %s), ('since', 'Since', 'critical', %s), ('fine', 'Fine', 'ok', %s)",
+                (OCT - timedelta(days=3), t(15), OCT - timedelta(days=3)),
+            )
+            conn.execute(
+                "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
+                "VALUES ('later', 'Later', 'critical', 'ok', %s)",
+                (t(25),),  # after the period: it was Critical all along
+            )
+
+        write(setup)
+        sites = {row["site_id"]: row["downtime_seconds"] for row in run(basis="critical")["sites"]}
+        assert sites == {"always": PERIOD, "since": 6 * 86400, "later": PERIOD}
+
+    def test_months_with_deleted_history_are_refused(self, pg_database, clock, monkeypatch):
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
+        with pytest.raises(availability.ReportError, match="History before 2026-10-11 is deleted"):
+            run()
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
+        assert run()["period"]["seconds"] == PERIOD
+
     def test_every_board_site_is_listed_and_tenants_average(self, pg_database, clock):
         write(lambda conn: incident(conn, "s1", "d1", t(2), t(4)))  # two days of twenty: 90 %
         sites = [
             {"id": "s1", "name": "Oslo", "tenants": ["Acme", "Nordic"], "device_count": 3},
             {"id": "s2", "name": "Bergen", "tenants": ["Acme"], "device_count": 1},
-            # No monitored devices and no history: no availability to speak of.
+            # No monitored devices and no history: no availability to speak of,
+            # also when the site is in maintenance.
             {"id": "s3", "name": "Empty", "tenants": ["Acme"], "device_count": 0},
+            {"id": "s4", "name": "Planned", "tenants": ["Acme"], "device_count": 0, "maintenance": {"until": "x"}},
         ]
         data = run(sites=sites)
         assert [(r["name"], r["availability"]) for r in data["sites"]] == [("Oslo", 90.0), ("Bergen", 100.0)]

@@ -19,4 +19,4 @@ The figures add up with the history: in `any_down`, a site's downtime is the inc
 
 Both are readable like the board: with `AUTH_REQUIRE_VIEWER=true`, the viewer role.
 
-History older than `ALERT_HISTORY_RETENTION_DAYS` is deleted, so months before that can't be reported.
+History older than `ALERT_HISTORY_RETENTION_DAYS` is deleted: a month that starts before that is refused, rather than shown with its deleted outages missing. With `critical`, a site's level before its first recorded change is the one that change came from; a site that has never changed level counts from when it was first seen.

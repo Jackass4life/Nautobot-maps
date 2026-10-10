@@ -16,7 +16,7 @@ availability is the average of its sites' (each site counts the same).
 import csv
 import io
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from nautobot_maps import alerts, settings, timeutil
 
@@ -44,10 +44,11 @@ def month_bounds(month: str, at: datetime) -> tuple[datetime, datetime]:
     if not match:
         raise ReportError("month must look like 2026-10")
     year, number = int(match.group(1)), int(match.group(2))
-    if not 1 <= number <= 12:
-        raise ReportError("month must look like 2026-10")
-    start = datetime(year, number, 1, tzinfo=UTC)
-    end = datetime(year + (number == 12), number % 12 + 1, 1, tzinfo=UTC)
+    try:
+        start = datetime(year, number, 1, tzinfo=UTC)
+        end = datetime(year + (number == 12), number % 12 + 1, 1, tzinfo=UTC)
+    except ValueError:  # month 13, year 0, the month after 9999-12
+        raise ReportError("month must look like 2026-10") from None
     if start >= at:
         raise ReportError("That month hasn't started yet")
     return start, min(end, at)
@@ -154,21 +155,33 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
     """``{site_id: {"name", "intervals"}}``: when each site was at Critical in the period.
 
     The level at the start is the one the last earlier change set; with no
-    earlier change, the one the first change came from.
+    earlier change, the one the first (also later) change came from; with
+    no change at all, the site's level since it was first seen
+    (``site_alert_levels``: a site's first level is not a change).
     """
     rows = conn.execute(
         "SELECT site_id, site_name, from_level, to_level, changed_at FROM site_level_changes "
-        "WHERE changed_at < %s ORDER BY site_id, changed_at, id",
-        (end,),
+        "ORDER BY site_id, changed_at, id"
     ).fetchall()
     by_site: dict[str, list] = {}
     for row in rows:
         by_site.setdefault(row["site_id"], []).append(row)
     sites = {}
+    for row in conn.execute("SELECT site_id, site_name, alert_level, updated_at FROM site_alert_levels").fetchall():
+        if row["site_id"] in by_site or row["alert_level"] != "critical":
+            continue
+        # Critical since it was first seen, never changed.
+        seen = max(_dt(row["updated_at"]) or start, start)
+        if seen < end:
+            sites[row["site_id"]] = {"name": row["site_name"] or "", "intervals": [(seen, end)]}
     for site_id, changes in by_site.items():
         before = [c for c in changes if _dt(c["changed_at"]) <= start]
-        during = [c for c in changes if _dt(c["changed_at"]) > start]
-        level = before[-1]["to_level"] if before else (during[0]["from_level"] if during else "ok")
+        during = [c for c in changes if start < _dt(c["changed_at"]) < end]
+        after = [c for c in changes if _dt(c["changed_at"]) >= end]
+        if before:
+            level = before[-1]["to_level"]
+        else:
+            level = (during or after)[0]["from_level"]
         intervals = []
         since = start
         for change in during:
@@ -199,6 +212,14 @@ def report(conn, month: str | None = None, basis: str | None = None, sites: list
     if basis not in BASES:
         raise ReportError(f"basis must be one of: {', '.join(BASES)}")
     start, end = month_bounds(month, at)
+    if settings.ALERT_HISTORY_RETENTION_DAYS > 0:
+        # Deleted history would read as no downtime: refuse rather than guess.
+        kept_from = at - timedelta(days=settings.ALERT_HISTORY_RETENTION_DAYS)
+        if start < kept_from:
+            raise ReportError(
+                f"History before {kept_from:%Y-%m-%d} is deleted (ALERT_HISTORY_RETENTION_DAYS="
+                f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {month} can't be reported in full"
+            )
     period = int((end - start).total_seconds())
     site_windows, device_windows = read_maintenance(conn, start, end)
 
@@ -206,7 +227,7 @@ def report(conn, month: str | None = None, basis: str | None = None, sites: list
     for site in sites or []:
         # A site without monitored devices has no availability to speak of
         # (it is listed if its history has something in the month).
-        monitored = site.get("device_count", 1) or site.get("maintenance_device_count") or site.get("maintenance")
+        monitored = site.get("device_count", 1) or site.get("maintenance_device_count")
         if site.get("id") and monitored:
             rows[site["id"]] = {
                 "site_id": site["id"],
