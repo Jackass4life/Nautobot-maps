@@ -2137,13 +2137,17 @@ def build_location_alert_levels() -> dict:
 
     The same scoring as the map's site panel (``get_location_detail``): each
     location's own devices, criticality overrides and the LibreNMS status,
-    read for all locations at once.  Makes no upstream calls.  Only
-    locations with an alert (critical, medium, low) are returned.
+    read for all locations at once.  Makes no upstream calls.  Locations
+    with monitored devices are returned (critical, medium, low or ok; #311:
+    the map tells OK from no data), and sites in maintenance.
     """
     locations = inventory.get_locations(snapshot_only=True)
     devices_by_location: dict[str, list] = {}
     override_map: dict = {}
     in_maintenance = {"sites": {}, "devices": {}, "next_change": None}
+    # Locations with devices held back by the alert delay: they have
+    # monitored devices, so they are OK even with no others (#311).
+    held_back: set[str] = set()
     conn = db.get_conn()
     if conn is not None:
         try:
@@ -2153,7 +2157,10 @@ def build_location_alert_levels() -> dict:
             pending = pending_device_ids(conn, timeutil.iso_utc_now())
             flapping = flapping_device_ids(conn, timeutil.iso_utc_now())
             for device in inventory.read_devices(conn=conn):
-                if (device.get("id") or "") in in_maintenance["devices"] or (device.get("id") or "") in pending:
+                if (device.get("id") or "") in pending:
+                    held_back.add(device.get("location_id") or "")
+                    continue
+                if (device.get("id") or "") in in_maintenance["devices"]:
                     continue
                 if (device.get("id") or "") in flapping:
                     device = {**device, "status": "Flapping"}  # counts as down, like on the board (#286)
@@ -2188,9 +2195,12 @@ def build_location_alert_levels() -> dict:
             snapshot_only=True,
             override_map=override_map,
         )
-        if alert["level"] in ALERT_LEVELS_NON_OK:
+        if alert["level"] in ALERT_LEVELS_NON_OK or alert["level"] == "ok":
             levels[location_id] = {"level": alert["level"], "reason": alert.get("reason", "")}
     store_librenms_maps(new_librenms_maps)
+    for location_id in held_back - set(levels):
+        if location_id:
+            levels[location_id] = {"level": "ok", "reason": ""}
     # A site in maintenance shows that instead of its level (#283).
     for site_id, window in in_maintenance["sites"].items():
         levels[site_id] = {"level": "maintenance", "reason": window["reason"], "until": window["ends_at"]}

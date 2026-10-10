@@ -132,8 +132,7 @@ body.inspector-open #map {
 }
 
 .inspector-kicker,
-.inspector-section-title,
-.inspector-summary-label {
+.inspector-section-title {
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -213,7 +212,6 @@ body.inspector-open #map {
 }
 
 .inspector-meta,
-.inspector-summary-grid,
 .inspector-device-list {
   margin-top: 14px;
 }
@@ -250,27 +248,10 @@ body.inspector-open #map {
   border-top: none;
 }
 
-.inspector-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.inspector-summary-card,
 .device-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface-2);
-}
-
-.inspector-summary-card {
-  padding: 12px;
-}
-
-.inspector-summary-value {
-  margin-top: 4px;
-  font-size: 1.1rem;
-  font-weight: 700;
 }
 
 .inspector-row {
@@ -706,6 +687,15 @@ body.inspector-open #map {
   border-bottom: 1px solid var(--color-border);
 }
 
+.alert-levels-note {
+  margin: 0 16px 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.14);
+  color: var(--color-warning);
+  font-size: 0.8rem;
+}
+
 #legend {
   padding: 12px 16px;
   margin-top: auto;
@@ -737,10 +727,20 @@ body.inspector-open #map {
   flex-shrink: 0;
 }
 
-.dot-active   { background: var(--color-success); }
-.dot-planned  { background: var(--color-warning); }
-.dot-other    { background: #888; }
-.dot-search   { background: var(--color-danger); }
+.dot-ok       { background: #2ecc71; }
+.dot-no-data  { background: #94a3b8; }
+/* The searched point is a ring, not a colour (#311). */
+.dot-search   { background: transparent; border: 3px solid #334155; box-sizing: border-box; }
+
+.search-point-marker {
+  width: 22px;
+  height: 22px;
+  border: 4px solid #334155;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 2px #fff, 0 0 6px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
 
 /* =========================================================
    Loading overlay
@@ -1184,7 +1184,7 @@ body.inspector-open #loading-overlay {
 /* Alert legend dots */
 .dot-low      { background: #eab308; }
 .dot-medium   { background: #ff8c00; }
-.dot-critical { background: var(--color-danger); }
+.dot-critical { background: #e74c3c; }
 .dot-maintenance { background: #2563eb; }
 
 /* =========================================================

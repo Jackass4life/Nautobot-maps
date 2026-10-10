@@ -2035,9 +2035,8 @@ check(caseSortRank({{ alert_level: "maintenance", down_devices: [] }}) === 2, "m
         assert 'if (locationAlerts[locId] === "maintenance") return;' in _extract_js_function(
             map_js, "updateMarkerForAlert"
         )
-        assert 'if (level === "maintenance") return ICONS.maintenance;' in _extract_js_function(
-            map_js, "iconForLocation"
-        )
+        # Maintenance has its own colour in the one scale of pins, stacks and clusters (#311).
+        assert 'maintenance: "#2563eb"' in map_js and "return ICONS[displayLevel(loc.id)];" in map_js
 
 
 class TestMaintenancePanelInTheBrowser:
@@ -2187,15 +2186,21 @@ class TestMapAlertColoursInTheBrowser:
         if shutil.which("node") is None:
             pytest.skip("node is required for the browser runtime test")
         js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        functions = "\n".join(_extract_js_function(js, name) for name in ("worstAlertLevel", "loadLocationAlerts"))
+        functions = "\n".join(
+            _extract_js_function(js, name) for name in ("displayLevel", "worstAlertLevel", "loadLocationAlerts")
+        )
+        rank = re.search(r"const DISPLAY_RANK = \{[^}]*\};", js).group(0)
         script = f"""
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const ALERT_RANK = {{ low: 1, medium: 2, critical: 3 }};
+{rank}
 const locationAlerts = {{ "loc-old": "medium", "loc-same": "low" }};
 const detailCache = new Map([["loc-a", {{}}], ["loc-open", {{}}]]);
 const selectedLocationId = "loc-open";
 const redrawn = [];
 function refreshMarkerIcon(id) {{ redrawn.push(id); }}
+let locationAlertsLoaded = false;
+const notes = [];
+function setAlertLevelsNote(show) {{ notes.push(show); }}
 let payload = {{ levels: {{ "loc-a": {{ level: "critical" }}, "loc-same": {{ level: "low" }} }} }};
 globalThis.fetch = async () => ({{ ok: true, json: async () => payload }});
 {functions}
@@ -2206,12 +2211,25 @@ globalThis.fetch = async () => ({{ ok: true, json: async () => payload }});
   check(redrawn.sort().join() === "loc-a,loc-old", "only changed markers are redrawn: " + redrawn);
   check(!detailCache.has("loc-a") && detailCache.has("loc-open"), "old site details are dropped, the open one kept");
   check(worstAlertLevel(["loc-same", "loc-a", "loc-none"]) === "critical", "worst level");
-  check(worstAlertLevel(["loc-none"]) === "ok", "no alert is ok");
+  // Without a level a location has no monitored devices: grey, not green (#311).
+  check(worstAlertLevel(["loc-none"]) === "no_data" && displayLevel("loc-none") === "no_data", "no data");
+  locationAlerts["loc-fine"] = "ok";
+  check(worstAlertLevel(["loc-none", "loc-fine"]) === "ok", "OK beats no data in a cluster");
+  locationAlerts["loc-planned-work"] = "maintenance";
+  check(worstAlertLevel(["loc-fine", "loc-planned-work"]) === "maintenance", "maintenance beats OK");
+  check(worstAlertLevel(["loc-planned-work", "loc-same"]) === "low", "an alarm beats maintenance");
 
+  check(notes.join() === "false", "loaded: no note");
   globalThis.fetch = async () => {{ throw new Error("offline"); }};
   console.warn = () => {{}};
   await loadLocationAlerts();
   check(locationAlerts["loc-a"] === "critical", "a failed refresh keeps the colours");
+  check(notes.join() === "false", "after a first load, a failed refresh adds no note");
+
+  // Never loaded: grey would read as "no data", so the page says so (#311).
+  locationAlertsLoaded = false;
+  await loadLocationAlerts();
+  check(notes.join() === "false,true", "first load failed: note: " + notes);
 }})().catch((err) => {{ console.error(err.message); process.exit(1); }});
 """
         completed = subprocess.run(

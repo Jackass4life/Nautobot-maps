@@ -65,15 +65,16 @@
         <button class="quick-filter-btn" type="button" data-quick-status="Active" aria-pressed="false">Active</button>
         <button class="quick-filter-btn" type="button" data-quick-status="Planned" aria-pressed="false">Planned</button>
       </div>
-      <select id="filter-status" title="Filter by status">
-        <option value="">All statuses</option>
-      </select>
       <select id="filter-type" title="Filter by location type">
         <option value="">All types</option>
       </select>
       <details class="advanced-filters">
         <summary>Advanced filters</summary>
         <div class="advanced-filter-grid">
+          <!-- Every status; the buttons above are the common ones (#311). -->
+          <select id="filter-status" title="Filter by status">
+            <option value="">All statuses</option>
+          </select>
           <select id="filter-parent" title="Filter by parent location">
             <option value="">All parents</option>
           </select>
@@ -91,32 +92,33 @@
     </div>
 
     <div id="location-count"></div>
+    <div id="alert-levels-note" class="alert-levels-note" role="status" hidden>
+      Alert levels could not be loaded: markers are grey until they can be.
+    </div>
 
     <div id="legend">
       <div class="legend-title">Legend</div>
+      <!-- One meaning per colour: the alert level, as on the board (#311). -->
       <div class="legend-item">
-        <span class="legend-dot dot-active"></span> Active location
+        <span class="legend-dot dot-critical"></span> Critical: a core device or every device down
       </div>
       <div class="legend-item">
-        <span class="legend-dot dot-planned"></span> Planned location
+        <span class="legend-dot dot-medium"></span> Medium: more than 25% of devices down
       </div>
       <div class="legend-item">
-        <span class="legend-dot dot-other"></span> Other status
+        <span class="legend-dot dot-low"></span> Low: a device down
       </div>
       <div class="legend-item">
-        <span class="legend-dot dot-search"></span> Search result
+        <span class="legend-dot dot-ok"></span> OK
       </div>
       <div class="legend-item">
-        <span class="legend-dot dot-low"></span> Alert: a device down (25% or fewer)
+        <span class="legend-dot dot-maintenance"></span> Maintenance
       </div>
       <div class="legend-item">
-        <span class="legend-dot dot-medium"></span> Alert: &gt;25% devices down
+        <span class="legend-dot dot-no-data"></span> No data (no monitored devices)
       </div>
       <div class="legend-item">
-        <span class="legend-dot dot-critical"></span> Alert: Core device offline
-      </div>
-      <div class="legend-item">
-        <span class="legend-dot dot-maintenance"></span> Maintenance (planned work)
+        <span class="legend-dot dot-search"></span> Searched point
       </div>
     </div>
   </div>
@@ -136,7 +138,6 @@
           <div id="inspector-subtitle" class="inspector-subtitle">Click a map marker to inspect a location.</div>
         </div>
         <div class="inspector-toolbar">
-          <button id="inspector-pin" class="secondary-btn" type="button" aria-pressed="true" aria-label="Unpin location inspector">Pinned</button>
           <button id="inspector-close" class="inspector-close" type="button" aria-label="Close location inspector">&times;</button>
         </div>
       </div>
