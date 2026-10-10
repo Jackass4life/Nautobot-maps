@@ -340,8 +340,6 @@ def to_csv(data: dict, view: str) -> str:
 
 
 def board_sites() -> list[dict]:
-    """The board's rows, for the site list and tenants; [] without a board."""
-    try:
-        return alerts.cached_alert_board().get("alerts") or []
-    except Exception:
-        return []
+    """The board's rows, for the site list and tenants.  Raises when the board
+    can't be read: a report without them would miss sites and tenants."""
+    return alerts.cached_alert_board().get("alerts") or []

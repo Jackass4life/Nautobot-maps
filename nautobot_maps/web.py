@@ -863,12 +863,18 @@ def _availability_report() -> tuple[dict | None, str, int]:
     if conn is None:
         return None, "The availability report needs the PostgreSQL database (NAUTOBOT_MAPS_DATABASE_URL).", 503
     try:
+        try:
+            sites = availability.board_sites()
+        except Exception as exc:
+            # Without the board's sites and tenants the figures would be wrong.
+            logger.warning("Availability report: could not read the alert board: %s", exc, exc_info=True)
+            return None, "The alert board could not be read, so the report would miss sites; try again shortly.", 503
         return (
             availability.report(
                 conn,
                 (request.args.get("month") or "").strip() or None,
                 (request.args.get("basis") or "").strip() or None,
-                availability.board_sites(),
+                sites,
             ),
             "",
             200,

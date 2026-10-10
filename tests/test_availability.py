@@ -222,6 +222,15 @@ class TestPages:
         tenants = client.get("/api/availability.csv?view=tenants&month=2026-10").get_data(as_text=True)
         assert "2026-10,any_down,Acme,1,90.0,2880" in tenants
 
+    def test_an_unreadable_board_is_a_503_not_a_partial_report(self, client, monkeypatch):
+        def broken():
+            raise RuntimeError("board build failed")
+
+        monkeypatch.setattr(availability, "board_sites", broken)
+        resp = client.get("/api/availability")
+        assert resp.status_code == 503 and "would miss sites" in resp.get_json()["error"]
+        assert client.get("/availability").status_code == 503
+
     def test_bad_input(self, client):
         assert client.get("/api/availability?month=2026-13").status_code == 400
         assert client.get("/availability?month=2027-01").status_code == 400
