@@ -1,6 +1,3 @@
-{% macro tier_info(label, key) -%}
-<span class="tier-info" tabindex="0" role="img" aria-label="{{ label }}: {{ tier_definitions[key] }}" data-tooltip="{{ tier_definitions[key] }}">i</span>
-{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -33,17 +30,18 @@
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
       </nav>
     </header>
-    <!-- The tiles are the severity filter; the board opens on Alarms. -->
-    <section class="summary-grid" role="group" aria-label="Show sites">
-      {%- for key, label in [("alarms", "Alarms"), ("critical", "Critical"), ("medium", "Medium"), ("low", "Low"), ("no_data", "No data"), ("ok", "OK"), ("maintenance", "Maintenance"), ("total", "All sites")] %}
-      <div class="summary-card summary-{{ key | replace('_', '-') }}">
-        <button class="summary-filter" type="button" data-severity-filter="{{ 'all' if key == 'total' else key }}" aria-pressed="{{ 'true' if key == 'alarms' else 'false' }}">
-          <span class="summary-label">{{ label }}</span>
-          <strong id="summary-{{ key }}">0</strong>
-        </button>
-        {{ tier_info(label, key) }}
+    <!-- One line of what is wrong, and the chips that choose which sites
+         are listed; the board opens on Alarms (#311). -->
+    <section class="summary-bar" aria-label="Summary">
+      <p class="summary-line">
+        <span id="summary-line-text">Loading…</span>
+        <span class="tier-info" tabindex="0" role="img" aria-label="Alert levels: Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}" data-tooltip="Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}">i</span>
+      </p>
+      <div class="severity-chips" role="group" aria-label="Show sites">
+        {%- for key, filter, label in [("alarms", "alarms", "Alarms"), ("total", "all", "All sites"), ("no_data", "no_data", "No data"), ("maintenance", "maintenance", "Maintenance")] %}
+        <button class="severity-chip" type="button" data-severity-filter="{{ filter }}" aria-pressed="{{ 'true' if key == 'alarms' else 'false' }}" title="{{ tier_definitions[key] }}">{{ label }} <strong id="summary-{{ key }}">0</strong></button>
+        {%- endfor %}
       </div>
-      {%- endfor %}
     </section>
     <section class="toolbar" aria-label="Filters">
       <div class="toolbar-row">
@@ -51,15 +49,15 @@
         <select id="filter-tenant" aria-label="Tenant">
           <option value="">All tenants</option>
         </select>
+        <button id="more-filters-toggle" class="secondary-filter-btn" type="button" aria-expanded="false" aria-controls="more-filters">More filters</button>
+        <button class="secondary-filter-btn" type="button" id="clear-alert-filters" hidden>Reset</button>
+      </div>
+      <div id="more-filters" class="more-filters" hidden>
         <select id="sort-by" aria-label="Sort">
           <option value="newest" selected>Sort: newest down first</option>
           <option value="severity">Sort: severity</option>
           <option value="site">Sort: site</option>
         </select>
-        <button id="more-filters-toggle" class="secondary-filter-btn" type="button" aria-expanded="false" aria-controls="more-filters">More filters</button>
-        <button class="secondary-filter-btn" type="button" id="clear-alert-filters">Reset</button>
-      </div>
-      <div id="more-filters" class="more-filters" hidden>
         <select id="filter-status" aria-label="Status">
           <option value="">All statuses</option>
         </select>
@@ -74,10 +72,8 @@
       <div class="toolbar-meta">
         <span id="board-status">Loading alert board…</span>
         <span id="next-update" class="next-update" hidden></span>
-        <button class="secondary-filter-btn" type="button" id="collapse-all-sites">Collapse all</button>
-        <button class="secondary-filter-btn" type="button" id="expand-all-sites">Expand all</button>
         <button id="feed-show" class="secondary-filter-btn" type="button" aria-controls="feed-panel" hidden>Show activity</button>
-        <button id="refresh-alerts" type="button">Refresh</button>
+        <button id="refresh-alerts" type="button" title="Update now" aria-label="Update now">↻</button>
       </div>
     </section>
     <div id="board-layout" class="board-layout">
@@ -87,16 +83,14 @@
           <tr>
             <th>Location</th>
             <th>Alert</th>
-            <th class="col-tenants">Tenants</th>
             <th>Since</th>
             <th class="col-cases">Cases</th>
-            <th class="col-reason">Reason</th>
-            <th class="col-action">Action</th>
+            <th class="col-action"><span class="visually-hidden">Actions</span></th>
           </tr>
         </thead>
         <tbody id="alerts-table-body">
           <tr>
-            <td colspan="7" class="empty-state">Loading alerts…</td>
+            <td colspan="5" class="empty-state">Loading alerts…</td>
           </tr>
         </tbody>
       </table>

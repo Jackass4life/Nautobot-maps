@@ -283,7 +283,8 @@ class TestAlertBoardUI:
         rules = self._css_rules(css, "thead th:last-child")
         assert any("position: sticky" in body and "right: 0" in body for body in rules)
         page = integration_client.get("/alerts").get_data(as_text=True)
-        assert page.rstrip().count(">Action</th>") == 1
+        # No visible heading: the buttons say what they do (#311).
+        assert page.rstrip().count('<th class="col-action"><span class="visually-hidden">Actions</span></th>') == 1
 
 
 # ---------------------------------------------------------------------------
@@ -864,6 +865,7 @@ class TestCompactActionsInTheBrowser:
         "caseDevices",
         "historyButton",
         "maintenanceButton",
+        "rowMenu",
         "actionCell",
         "siteNameHtml",
         "renderCaseForm",
@@ -893,6 +895,9 @@ function fakeElement(name) {{
     }},
     setAttribute(key, value) {{ this.attrs[key] = value; }},
     focus() {{ focused.push(name); }},
+    // A button in a row's "⋯" menu (#311) is found in its menu.
+    menu: null,
+    closest(selector) {{ return selector === "details.row-menu" ? this.menu : null; }},
   }};
 }}
 const buttons = {{}};
@@ -913,7 +918,10 @@ const site = { id: "s1", name: "Aarhus <HQ>", latitude: 56.1, longitude: 10.2,
   down_devices: [{ device_id: "d1", device_name: "sw01" }, { device_id: "", device_name: "ghost" }] };
 let html = actionCell(site);
 check(html.includes('class="action-btn case-open-btn"') && html.includes("+ Case"), html);
-check(html.includes('class="action-btn copy-site-btn"'), html);
+// One visible action (#311): + Case first, Copy and Maint. in the "⋯" menu after it.
+const menuAt = html.indexOf('<details class="row-menu">');
+check(menuAt > html.indexOf("case-open-btn") && html.indexOf("copy-site-btn") > menuAt, html);
+check(html.includes('aria-label="More actions for Aarhus &lt;HQ&gt;"'), html);
 // History is under the down devices and the map is the site name: only the triage actions here.
 check(!html.includes("history-btn") && !html.includes("href"), html);
 check(html.includes("for Aarhus &lt;HQ&gt;"), "screen readers hear the site: " + html);
@@ -924,9 +932,10 @@ check(!html.includes("case-form") && !html.includes("checkbox") && !html.include
 html = actionCell({ id: "s2", name: "Oslo", down_devices: [{ device_id: "", device_name: "ghost" }] });
 check(!html.includes("case-open-btn") && html.includes("copy-site-btn"), html);
 
-// Nothing down: nothing to expand, so History stays in the row.
+// Nothing down: nothing to expand, so History is in the row's menu.
 html = actionCell({ id: "s3", name: "Bergen", down_devices: [] });
 check(html.includes('class="action-btn history-btn"') && !html.includes("copy-site-btn"), html);
+check(html.indexOf("history-btn") > html.indexOf('<details class="row-menu">'), html);
 
 // An open alert kept after a failed observation: nothing down now, but there
 // is a list to expand, so History is under it, as for any other expandable site.
@@ -937,7 +946,7 @@ check(!html.includes("history-btn") && html.includes("copy-site-btn"), html);
     def test_toggle_and_history_use_the_same_list(self):
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
         assert "const toggleButton = downDeviceList(item).length" in js
-        assert "if (!downDeviceList(item).length) return" in _extract_js_function(js, "actionCell")
+        assert "if (!downDeviceList(item).length)" in _extract_js_function(js, "actionCell")
         assert "const downDevices = downDeviceList(item);" in _extract_js_function(js, "renderDownDeviceRows")
 
     def test_site_name_links_to_the_map(self):
@@ -1044,6 +1053,16 @@ check(casePanel.classList.contains("hidden"), "case panel closed");
 check(focused.at(-1) === "case s1 (re-rendered)", focused.join());
 closeSidePanel(casePanel);
 check(focused.length === 3, "closing a closed panel does nothing");
+
+// Opened from a row's "⋯" menu, closed since: focus goes to the menu button (#311).
+const menuButton = fakeElement("menu s1");
+const menu = { open: false, querySelector: () => menuButton };
+const copyButton = fakeElement("copy s1");
+copyButton.menu = menu;
+buttons['.copy-site-btn[data-site-id="s1"]'] = copyButton;
+openSidePanel(casePanel, '.copy-site-btn[data-site-id="s1"]');
+closeSidePanel(casePanel);
+check(focused.at(-1) === "menu s1", focused.join());
 
 // The row is gone (e.g. the site recovered): focus is not moved.
 openSidePanel(historyPanel, '.history-btn[data-site-id="gone"]');
@@ -1176,14 +1195,11 @@ check(buildAlertBanner({{ level: "medium" }}).includes("alert-medium"), "medium 
 
     def test_board_page_has_low_and_no_data_tiles_and_filters(self, integration_client):
         html = integration_client.get("/alerts").get_data(as_text=True)
-        for needle in (
-            'id="summary-low"',
-            'id="summary-no_data"',
-            'data-severity-filter="low"',
-            'data-severity-filter="no_data"',
-        ):
+        for needle in ('id="summary-no_data"', 'data-severity-filter="no_data"'):
             assert needle in html
-        assert 'id="summary-unknown"' not in html
+        # One chip per choice that leads somewhere; the levels are in the summary line (#311).
+        for gone in ('id="summary-unknown"', 'id="summary-low"', 'data-severity-filter="low"', 'id="summary-ok"'):
+            assert gone not in html
 
 
 class TestNewestDownSortInTheBrowser:
@@ -1284,6 +1300,7 @@ class TestCopySiteInTheBrowser:
             "caseDevices",
             "historyButton",
             "maintenanceButton",
+            "rowMenu",
             "actionCell",
             "formatLocationAddress",
             "formatReportTime",
@@ -1449,6 +1466,7 @@ class TestSeverityTilesInTheBrowser:
                 r"const SEVERITY_ORDER = \[[^\]]*\];",
                 r"const DEFAULT_SEVERITY_FILTER = [^;]*;",
                 r"const ALARM_LEVELS = \[[^\]]*\];",
+                r"const DEFAULT_SORT = [^;]*;",
             )
         )
         script = f"""
@@ -1465,7 +1483,7 @@ const filterSite = field(), filterStatus = field(), filterType = field(), filter
 const toggleNonOperational = {{ checked: false }};
 const moreFiltersToggle = {{ textContent: "" }};
 const sortBy = field("severity");
-const boardStatus = {{ textContent: "" }};
+const boardStatus = {{ textContent: "", stale: false, classList: {{ toggle(name, on) {{ boardStatus.stale = on; }} }} }};
 let allAlerts = [
   {{ name: "Oslo", alert_level: "ok" }},
   {{ name: "Aarhus", alert_level: "critical", down_device_count: 3 }},
@@ -1500,35 +1518,46 @@ check(severityFilter === "alarms" && pressed() === "alarms", "unknown value: Ala
 
     def test_status_line_says_when_limited(self):
         self._run("""
+// One short line (#311).
 formatBoardStatus({ checked_at: null, stale: false }, 3);
-check(boardStatus.textContent.startsWith("3 sites shown (alarms only) · last checked"), boardStatus.textContent);
+check(boardStatus.textContent === "3 sites with alarms · updated unknown", boardStatus.textContent);
 setSeverityFilter("all");
 formatBoardStatus({ checked_at: null, stale: false }, 1);
-check(boardStatus.textContent.startsWith("1 site shown · last checked"), boardStatus.textContent);
+check(boardStatus.textContent === "1 site · updated unknown" && !boardStatus.stale, boardStatus.textContent);
+// "Stale" only when it is, and in the warning colour.
+formatBoardStatus({ checked_at: null, stale: true }, 1);
+check(boardStatus.textContent.endsWith("· data may be out of date") && boardStatus.stale, boardStatus.textContent);
 """)
 
     def test_more_filters_says_when_in_use(self):
         self._run("""
+sortBy.value = DEFAULT_SORT;
 renderMoreFiltersLabel();
 check(moreFiltersToggle.textContent === "More filters", moreFiltersToggle.textContent);
 filterStatus.value = "Active";
 toggleNonOperational.checked = true;
 renderMoreFiltersLabel();
 check(moreFiltersToggle.textContent === "More filters (2)", moreFiltersToggle.textContent);
+// Sort is behind More filters too (#311): another order counts.
+sortBy.value = "site";
+renderMoreFiltersLabel();
+check(moreFiltersToggle.textContent === "More filters (3)", moreFiltersToggle.textContent);
 """)
 
     def test_board_page_has_the_tiles_and_more_filters(self, integration_client):
         html = integration_client.get("/alerts").get_data(as_text=True)
         assert 'data-severity-filter="alarms" aria-pressed="true"' in html
-        tiles = html[html.index('<section class="summary-grid"') : html.index('<section class="toolbar"')]
-        assert tiles.count('aria-pressed="true"') == 1
+        chips = html[html.index('<div class="severity-chips"') : html.index('<section class="toolbar"')]
+        assert chips.count('aria-pressed="true"') == 1 and chips.count("data-severity-filter=") == 4
         assert 'data-severity-filter="all" aria-pressed="false"' in html
         assert 'id="summary-alarms"' in html
         # Status, type and non-operational are behind More filters, closed by default.
         more = html[html.index('<div id="more-filters"') :]
         assert more.startswith('<div id="more-filters" class="more-filters" hidden>')
-        for needle in ('id="filter-status"', 'id="filter-type"', 'id="toggle-non-operational"'):
+        for needle in ('id="sort-by"', 'id="filter-status"', 'id="filter-type"', 'id="toggle-non-operational"'):
             assert needle in more[: more.index("</div>")]
+        # Reset only appears when a filter is in use (#311).
+        assert 'id="clear-alert-filters" hidden>' in html
         assert 'aria-controls="more-filters"' in html
         # Gone: the duplicate severity controls.
         for gone in ("data-quick-severity", 'id="filter-severity"', 'name="site-scope"', "page-subtitle"):
@@ -1697,7 +1726,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
         hidden = css[css.index(".wall-view .page-header,") :]
         hidden = hidden[: hidden.index("}")]
-        for selector in (".toolbar", ".summary-grid", ".feed-panel", ".col-action", ".col-reason", ".site-tools-row"):
+        for selector in (".toolbar", ".summary-bar", ".feed-panel", ".col-action", ".site-tenants", ".site-tools-row"):
             assert f".wall-view {selector}" in hidden
         assert "display: none !important" in hidden
         # Case numbers stay visible: the room can see a site has someone on it.
@@ -1997,7 +2026,7 @@ check(caseSortRank({{ alert_level: "maintenance", down_devices: [] }}) === 2, "m
     def test_rows_and_wall(self, integration_client):
         js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
         rows = _extract_js_function(js, "renderTableRows")
-        assert '<tr class="maintenance-heading"><td colspan="7">In maintenance</td></tr>' in rows
+        assert '<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>' in rows
         assert "maintenanceNote(item.maintenance.until, item.maintenance.reason)" in rows
         assert '!(WALL_VIEW && item.alert_level === "maintenance")' in _extract_js_function(js, "getFilteredAlerts")
         html = integration_client.get("/alerts").get_data(as_text=True)
@@ -2239,7 +2268,7 @@ check(html.includes("device-status-active") && html.includes(">10 Gbps<"), html)
 
 
 class TestSiteTenantsInTheBrowser:
-    """The Tenants column and Copy for ITSM show every tenant of a site (#238)."""
+    """The tenants line under the site name and Copy for ITSM show every tenant of a site (#238, #311)."""
 
     def test_tenant_cell_and_report(self):
         if shutil.which("node") is None:
@@ -2253,7 +2282,7 @@ class TestSiteTenantsInTheBrowser:
                 "infoTipHtml",
                 "ownDescription",
                 "tenantName",
-                "tenantCell",
+                "tenantLine",
                 "formatLocationAddress",
                 "formatReportTime",
                 "siteReport",
@@ -2261,22 +2290,18 @@ class TestSiteTenantsInTheBrowser:
         )
         script = f"""
 function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const TENANTS_SHOWN = 3;
 {functions}
 
-check(tenantCell({{}}) === "—", "no tenant");
-check(tenantCell({{ tenant: "Acme" }}) === "Acme", "a board cached before #238 has only tenant");
-check(tenantCell({{ tenant: "Acme", tenants: ["Acme"] }}) === "Acme", "one tenant is plain text");
+const line = (inner) => `<div class="site-tenants">${{inner}}</div>`;
+check(tenantLine({{}}) === "", "no tenant: no line");
+check(tenantLine({{ tenant: "Acme" }}) === line("Acme"), "a board cached before #238 has only tenant");
+check(tenantLine({{ tenant: "Acme", tenants: ["Acme"] }}) === line("Acme"), "one tenant");
 
-let cell = tenantCell({{ tenants: ["Acme", "B&B"] }});
-check(cell.includes(">2 tenants<") && cell.includes("Acme, B&amp;B") && !cell.includes("more"), cell);
-cell = tenantCell({{ tenants: ["A", "B", "C", "D", "E"] }});
-check(cell.includes(">5 tenants<") && cell.includes('title="A, B, C, D, E"'), cell);
-// The rest open in place, each with its (i) (#279).
-check(cell.includes('A, B, C<span class="tenant-rest" hidden>, D, E</span> <button class="tenant-more-btn" type="button">+2 more</button>'), cell);
-cell = tenantCell({{ tenants: ["A", "B", "C", "Hidden"], tenant_descriptions: {{ Hidden: "Reach me" }} }});
-check(cell.includes('hidden>, Hidden<span class="info-tip"') && cell.includes('data-info-tip="Reach me"'), cell);
-check(!tenantCell({{ tenants: ["A", "B", "C"] }}).includes("tenant-more-btn"), "three or fewer: nothing to show");
+// The first one, and "+N" that shows the rest in place, each with its (i) (#279).
+let cell = tenantLine({{ tenants: ["Acme", "B&B"] }});
+check(cell === line('Acme<span class="tenant-rest" hidden>, B&amp;B</span> <button class="tenant-more-btn" type="button" title="B&amp;B">+1</button>'), cell);
+cell = tenantLine({{ tenants: ["A", "B", "C", "Hidden"], tenant_descriptions: {{ Hidden: "Reach me" }} }});
+check(cell.includes(">+3</button>") && cell.includes('hidden>, B, C, Hidden<span class="info-tip"') && cell.includes('data-info-tip="Reach me"'), cell);
 
 let report = siteReport({{ name: "LON", tenant: "Acme", tenants: ["Acme", "Nordic"], alert_level: "low" }});
 check(report.includes("Tenants (2): Acme, Nordic") && !report.includes("Tenant: "), report);
@@ -2284,16 +2309,16 @@ report = siteReport({{ name: "STO", tenant: "Acme", alert_level: "ok" }});
 check(report.includes("Tenant: Acme"), report);
 
 // The (i) only for tenants with a description (#263), escaped.
-cell = tenantCell({{ tenant: "Acme", tenants: ["Acme"], tenant_descriptions: {{ Acme: 'Bank <"VIP">' }} }});
-check(cell.startsWith('Acme<span class="info-tip"'), cell);
+cell = tenantLine({{ tenant: "Acme", tenants: ["Acme"], tenant_descriptions: {{ Acme: 'Bank <"VIP">' }} }});
+check(cell.startsWith('<div class="site-tenants">Acme<span class="info-tip"'), cell);
 check(cell.includes('data-info-tip="Bank &lt;&quot;VIP&quot;&gt;"') && !cell.includes('<"VIP">'), cell);
 check(cell.includes('aria-label="Acme: Bank') && cell.includes('tabindex="0"'), cell);
-cell = tenantCell({{ tenants: ["Acme", "Nordic"], tenant_descriptions: {{ Nordic: "Shared rack" }} }});
-check(cell.includes("Acme, Nordic<span") && (cell.match(/info-tip"/g) || []).length === 1, cell);
-check(tenantCell({{ tenant: "Acme", tenant_descriptions: {{}} }}) === "Acme", "no description: no (i)");
+cell = tenantLine({{ tenants: ["Acme", "Nordic"], tenant_descriptions: {{ Nordic: "Shared rack" }} }});
+check(cell.includes("Acme<span") && cell.includes(", Nordic<span") && (cell.match(/info-tip"/g) || []).length === 1, cell);
+check(tenantLine({{ tenant: "Acme", tenant_descriptions: {{}} }}) === line("Acme"), "no description: no (i)");
 // Inherited object properties are not descriptions (Copilot review on #264).
-check(tenantCell({{ tenant: "constructor", tenant_descriptions: {{}} }}) === "constructor", "constructor");
-check(tenantCell({{ tenants: ["toString", "hasOwnProperty"] }}).indexOf("info-tip") === -1, "toString");
+check(tenantLine({{ tenant: "constructor", tenant_descriptions: {{}} }}) === line("constructor"), "constructor");
+check(tenantLine({{ tenants: ["toString", "hasOwnProperty"] }}).indexOf("info-tip") === -1, "toString");
 """
         completed = subprocess.run(
             ["node", "-e", script],
@@ -2303,3 +2328,41 @@ check(tenantCell({{ tenants: ["toString", "hasOwnProperty"] }}).indexOf("info-ti
             check=False,
         )
         assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+class TestSimplerBoardInTheBrowser:
+    """Only what is needed to decide (#311)."""
+
+    def _run(self, body):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+        functions = "\n".join(
+            _extract_js_function(js, name) for name in ("escHtml", "summaryText", "formatDuration", "alertBadge")
+        )
+        levels = re.search(r"const ALARM_LEVELS = \[[^\]]*\];", js).group(0)
+        script = f"function check(c, m) {{ if (!c) throw new Error(m); }}\n{levels}\n{functions}\n{body}"
+        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
+    def test_one_summary_line_only_with_what_is_wrong(self):
+        self._run("""
+check(summaryText({ non_ok: 2, critical: 1, medium: 1, low: 0, ok: 7 }) === "2 alarms · 1 critical · 1 medium", "levels at 0 left out");
+check(summaryText({ non_ok: 1, low: 1 }) === "1 alarm · 1 low", "singular");
+check(summaryText({ non_ok: 0, ok: 9, no_data: 4 }) === "No alarms", "nothing wrong");
+""")
+
+    def test_long_times_in_days(self):
+        self._run("""
+check(formatDuration(6787 * 3600 + 44 * 60) === "282 days", formatDuration(6787 * 3600));
+check(formatDuration(47 * 3600 + 5 * 60) === "47h 5m", "under two days: hours");
+check(formatDuration(48 * 3600) === "2 days", "two days");
+check(formatDuration(600) === "10m", "minutes");
+""")
+
+    def test_the_reason_is_the_badge_hover_text(self):
+        self._run("""
+const html = alertBadge("medium", "2/7 devices <offline>");
+check(html === '<span class="alert-badge alert-medium" title="2/7 devices &lt;offline&gt;">MEDIUM</span>', html);
+check(!alertBadge("ok").includes("title="), "no reason: no title");
+""")
