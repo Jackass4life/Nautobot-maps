@@ -32,7 +32,8 @@ def status_is_excluded(status: str | None, excluded: set[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 # Device statuses that count as "down" for alert purposes
-DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning"})
+# "flapping": a device flapping (#286) counts as down while momentarily up.
+DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning", "flapping"})
 
 # A site is "medium" when more than this share of its monitored devices is down.
 MEDIUM_DOWN_RATIO = 0.25
@@ -566,7 +567,11 @@ def resolve_open_alert_instances_for_site(
     site_id: str,
     open_alert_keys: set[str],
     checked_at: str,
+    resolved_at_by_device: dict[str, str] | None = None,
 ) -> None:
+    """Resolve the site's open alerts not in *open_alert_keys* at *checked_at*,
+    or, for a device in *resolved_at_by_device* (flapping ended, #286), when
+    it came back up."""
     marker = db.placeholders(1)
     open_rows = conn.execute(
         f"""
@@ -581,8 +586,16 @@ def resolve_open_alert_instances_for_site(
         alert_key = row_data.get("alert_key", "")
         if alert_key in open_alert_keys:
             continue
+        resolved_at = checked_at
+        came_up = (resolved_at_by_device or {}).get(row_data.get("device_id") or "")
+        if (
+            came_up
+            and _aware(row_data.get("down_started_at"))
+            and _aware(came_up) >= _aware(row_data["down_started_at"])
+        ):
+            resolved_at = came_up
         started = timeutil.parse_iso_datetime(row_data.get("down_started_at"))
-        resolved = timeutil.parse_iso_datetime(checked_at)
+        resolved = timeutil.parse_iso_datetime(resolved_at)
         elapsed = 0
         if started and resolved:
             elapsed = max(0, int((resolved - started).total_seconds()))
@@ -597,7 +610,7 @@ def resolve_open_alert_instances_for_site(
                 updated_at = {now_sql}
             WHERE id = {p2} AND status = 'open' AND down_started_at <= {p3}
             """,
-            (checked_at, elapsed, row_data["id"], checked_at),
+            (resolved_at, elapsed, row_data["id"], resolved_at),
         )
         if cur.rowcount == 0:
             continue
@@ -605,7 +618,7 @@ def resolve_open_alert_instances_for_site(
             conn=conn,
             instance_id=row_data["id"],
             event_type="resolved",
-            event_at=checked_at,
+            event_at=resolved_at,
             alert_level="ok",
             alert_reason="Recovered",
             snapshot={
@@ -653,10 +666,21 @@ def seconds_between(start: str, end: str) -> float:
 DEVICE_STATE_RETENTION = timedelta(days=7)
 
 
+# Flapping (#286): FLAP_CHANGES up/down changes within this window; it ends
+# after a whole window without a change.
+FLAP_WINDOW = timedelta(minutes=30)
+
+
 def read_device_states(conn) -> dict:
-    """``{device_id: {"state", "since", "updated_at"}}`` from ``device_states`` (#286)."""
-    rows = conn.execute("SELECT device_id, state, since, updated_at FROM device_states").fetchall()
-    return {row["device_id"]: row for row in map(db.row_to_dict, rows)}
+    """``{device_id: {"state", "since", "changes", "flapping_since", "updated_at"}}`` (#286)."""
+    rows = conn.execute(
+        "SELECT device_id, state, since, changes, flapping_since, updated_at FROM device_states"
+    ).fetchall()
+    states = {}
+    for row in map(db.row_to_dict, rows):
+        row["changes"] = [db.serialize_value(change) for change in row.get("changes") or []]
+        states[row["device_id"]] = row
+    return states
 
 
 def read_alarmed_device_ids(conn) -> set:
@@ -665,30 +689,99 @@ def read_alarmed_device_ids(conn) -> set:
     return {db.row_to_dict(row)["device_id"] for row in rows}
 
 
-def write_device_states(conn, down: dict, up: set, stored: dict) -> None:
-    """Store what this build saw, in one transaction, only what changed:
-    *down* ``{device_id: (site_id, since)}``, *up* device ids.  Rows of
-    devices no build has seen down for a week (gone from the inventory)
-    are dropped."""
+def _recent(changes: list, now: str) -> list:
+    window_start = _aware(now) - FLAP_WINDOW
+    return [change for change in changes if (_aware(change) or window_start) > window_start]
+
+
+def next_device_state(stored: dict | None, is_down: bool, since_down: str | None, now: str) -> dict | None:
+    """A device's state after this build (#286); None: up and steady, no row.
+
+    ``since`` is when it entered its state (for down: *since_down*).  Each
+    up/down change is kept for FLAP_WINDOW; with FLAP_CHANGES of them it is
+    flapping, until a whole window passes without a change.
+    """
+    previous = stored["state"] if stored else "up"
+    state = "down" if is_down else "up"
+    if state == "down":
+        since = since_down or now
+    else:
+        since = stored["since"] if stored and previous == "up" else now
+    changes = list(stored.get("changes") or []) if stored else []
+    flapping_since = stored.get("flapping_since") if stored else None
+    if settings.FLAP_CHANGES:
+        if state != previous:
+            changes.append(since if state == "down" else now)
+        changes = _recent(changes, now)
+        if len(changes) >= settings.FLAP_CHANGES:
+            flapping_since = flapping_since or now
+        elif not changes:
+            flapping_since = None
+    else:
+        changes, flapping_since = [], None
+    if state == "up" and not changes and not flapping_since:
+        return None
+    return {"state": state, "since": since, "changes": changes, "flapping_since": flapping_since}
+
+
+def _same_state(stored: dict, row: dict, now: str) -> bool:
+    return (
+        stored["state"] == row["state"]
+        and _aware(stored["since"]) == _aware(row["since"])
+        and _aware(stored.get("flapping_since")) == _aware(row["flapping_since"])
+        and [_aware(c) for c in _recent(stored.get("changes") or [], now)] == [_aware(c) for c in row["changes"]]
+    )
+
+
+def device_states_to_write(next_states: dict, stored: dict, now: str) -> bool:
+    """Whether this build has anything to store: a changed row, a row to
+    drop, or rows of devices gone for DEVICE_STATE_RETENTION."""
+    for device_id, (_, row) in next_states.items():
+        previous = stored.get(device_id)
+        if (row is None and previous) or (row is not None and (not previous or not _same_state(previous, row, now))):
+            return True
+    expired_before = _aware(now) - DEVICE_STATE_RETENTION
+    return any(
+        device_id not in next_states and (_aware(state.get("updated_at")) or expired_before) < expired_before
+        for device_id, state in stored.items()
+    )
+
+
+def write_device_states(conn, next_states: dict, stored: dict, now: str) -> None:
+    """Store *next_states* ``{device_id: (site_id, row or None)}`` in one
+    transaction, only what changed; drop rows of devices no build has seen
+    for DEVICE_STATE_RETENTION (gone from the inventory)."""
     with db.transaction(conn):
-        for device_id, (site_id, since) in down.items():
+        dropped = []
+        for device_id, (site_id, row) in next_states.items():
             previous = stored.get(device_id)
-            if previous and previous["state"] == "down" and _aware(previous["since"]) == _aware(since):
+            if row is None:
+                if previous:
+                    dropped.append(device_id)
+                continue
+            if previous and _same_state(previous, row, now):
                 continue
             conn.execute(
-                "INSERT INTO device_states (device_id, site_id, state, since) VALUES (%s, %s, 'down', %s) "
-                "ON CONFLICT (device_id) DO UPDATE SET site_id = excluded.site_id, state = 'down', "
-                "since = excluded.since, updated_at = CURRENT_TIMESTAMP",
-                (device_id, site_id, since),
+                "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since) "
+                "VALUES (%s, %s, %s, %s, %s::timestamptz[], %s) "
+                "ON CONFLICT (device_id) DO UPDATE SET site_id = excluded.site_id, state = excluded.state, "
+                "since = excluded.since, changes = excluded.changes, flapping_since = excluded.flapping_since, "
+                "updated_at = CURRENT_TIMESTAMP",
+                (device_id, site_id, row["state"], row["since"], row["changes"], row["flapping_since"]),
             )
-        recovered = [device_id for device_id in up if device_id in stored]
-        if recovered:
-            conn.execute("DELETE FROM device_states WHERE device_id = ANY(%s)", (recovered,))
+        if dropped:
+            conn.execute("DELETE FROM device_states WHERE device_id = ANY(%s)", (dropped,))
         conn.execute(
             "DELETE FROM device_states WHERE updated_at < %s::timestamptz - make_interval(secs => %s) "
             "AND NOT (device_id = ANY(%s))",
-            (timeutil.iso_utc_now(), DEVICE_STATE_RETENTION.total_seconds(), list(down)),
+            (now, DEVICE_STATE_RETENTION.total_seconds(), list(next_states)),
         )
+
+
+def flapping_device_ids(conn) -> set:
+    """Devices flapping now (#286): they count as down."""
+    rows = conn.execute("SELECT device_id FROM device_states WHERE flapping_since IS NOT NULL").fetchall()
+    return {db.row_to_dict(row)["device_id"] for row in rows}
 
 
 def pending_device_ids(conn, now: str) -> set:
@@ -705,7 +798,7 @@ def pending_device_ids(conn, now: str) -> set:
 
 
 def _down_since(device: dict, checked_at: str) -> str:
-    if device.get("down_source") == "librenms":
+    if device.get("down_source") in ("librenms", "flapping"):
         return checked_at
     changed = timeutil.parse_iso_datetime(device.get("last_updated"))
     observed = timeutil.parse_iso_datetime(checked_at)
@@ -727,6 +820,7 @@ def upsert_alert_lifecycle_for_site(
     checked_at: str,
     conn=None,
     frozen_device_ids: set[str] | None = None,
+    resolved_at_by_device: dict[str, str] | None = None,
 ) -> bool:
     """Record the site's down devices as alert instances and resolve recovered ones.
 
@@ -870,7 +964,7 @@ def upsert_alert_lifecycle_for_site(
                             "status": status,
                         },
                     )
-            resolve_open_alert_instances_for_site(conn, site_id, open_alert_keys, checked_at)
+            resolve_open_alert_instances_for_site(conn, site_id, open_alert_keys, checked_at, resolved_at_by_device)
         return True
     except Exception as exc:
         logger.warning("Could not persist alert lifecycle for site %s: %s", site_id, exc, exc_info=True)
@@ -1503,8 +1597,8 @@ def build_alert_board_payload(
     # Since when each device is down (#286): read once, written once after the loop.
     device_states = None
     alarmed_device_ids: set[str] = set()
-    observed_down: dict[str, tuple[str, str]] = {}
-    observed_up: set[str] = set()
+    # {device_id: (site_id, state row or None)} as this build saw them.
+    next_device_states: dict[str, tuple[str, dict | None]] = {}
     try:
         read_conn = db.get_conn()
     except Exception as exc:
@@ -1613,22 +1707,48 @@ def build_alert_board_payload(
             }
             site_window = in_maintenance["sites"].get(site_id)
             checked_at = timeutil.iso_utc_now()
-            # Since when each device is down, also before it alarms (#286).
+            # Since when each device is down, also before it alarms, and
+            # whether it is flapping (#286).
+            flapping_ended: dict[str, str] = {}  # device_id: when it came back up
+            recompute = False
             if observation_succeeded and device_states is not None:
+                in_window = {d.get("id") for d in maintenance_devices}
+                updated = []
                 for device in devices + maintenance_devices:
                     device_id = device.get("id") or ""
                     if not device_id:
-                        continue
-                    if (device.get("status") or "").lower().strip() not in DOWN_STATUSES:
-                        observed_up.add(device_id)
+                        updated.append(device)
                         continue
                     stored = device_states.get(device_id)
-                    since = earliest_time(
-                        down_since(device, checked_at),
-                        stored["since"] if stored and stored["state"] == "down" else None,
-                    )
-                    device["first_seen_down_at"] = since
-                    observed_down[device_id] = (site_id, since)
+                    is_down = (device.get("status") or "").lower().strip() in DOWN_STATUSES
+                    since_down = None
+                    if is_down:
+                        since_down = earliest_time(
+                            down_since(device, checked_at),
+                            stored["since"] if stored and stored["state"] == "down" else None,
+                        )
+                    row = next_device_state(stored, is_down, since_down, checked_at)
+                    next_device_states[device_id] = (site_id, row)
+                    device = dict(device)  # never change the (cached) inventory's dicts
+                    if is_down:
+                        device["first_seen_down_at"] = row["since"]
+                    if row and row["flapping_since"] and device_id not in in_window:
+                        # One incident, a steady level: it counts as down while up.
+                        device["flapping"] = True
+                        device["flap_changes"] = len(row["changes"])
+                        if not is_down:
+                            device["status"] = "Flapping"
+                            # Down since its first change in the window, not since
+                            # Nautobot's last edit: the status is ours.
+                            device["down_source"] = "flapping"
+                            device["first_seen_down_at"] = (row["changes"] or [row["flapping_since"]])[0]
+                            recompute = True
+                    elif stored and stored.get("flapping_since") and not is_down:
+                        # Resolved when it came back up, not when the steady window ended.
+                        flapping_ended[device_id] = stored["since"] if stored["state"] == "up" else checked_at
+                    updated.append(device)
+                devices = [d for d in updated if d.get("id") not in in_window or not d.get("id")]
+                maintenance_devices = [d for d in updated if d.get("id") and d.get("id") in in_window]
             # Down for less than ALERT_DELAY_SECONDS and not alarmed yet: not
             # shown, counted or recorded; if it comes back, it never happened.
             pending_devices = []
@@ -1638,14 +1758,17 @@ def build_alert_board_payload(
                     for d in devices
                     if (d.get("status") or "").lower().strip() in DOWN_STATUSES
                     and d.get("first_seen_down_at")
+                    and not d.get("flapping")
                     and (d.get("id") or "") not in alarmed_device_ids
                     and seconds_between(d["first_seen_down_at"], checked_at) < settings.ALERT_DELAY_SECONDS
                 ]
                 if pending_devices:
                     devices = [d for d in devices if d not in pending_devices]
-                    alert = compute_alert_level(
-                        devices, loc.get("location_type") or None, override_map=bulk_kwargs.get("override_map")
-                    )
+                    recompute = True
+            if recompute:
+                alert = compute_alert_level(
+                    devices, loc.get("location_type") or None, override_map=bulk_kwargs.get("override_map")
+                )
             down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
             alert_context = empty_alert_context()
             if board_data is not None:
@@ -1688,6 +1811,7 @@ def build_alert_board_payload(
                                     checked_at,
                                     conn=write_conn,
                                     frozen_device_ids=frozen_device_ids,
+                                    resolved_at_by_device=flapping_ended,
                                 )
                                 is False
                             ):
@@ -1732,6 +1856,8 @@ def build_alert_board_payload(
                     "case_numbers": [],
                     # Only with ALERT_BOARD_SITE_LOCATION_TYPE, for devices below the site (#158).
                     **({"location_path": device["location_path"]} if device.get("location_path") else {}),
+                    # Up and down FLAP_CHANGES times or more within 30 minutes (#286).
+                    **({"flapping": True, "flap_changes": device["flap_changes"]} if device.get("flapping") else {}),
                 }
                 # Down devices in maintenance are listed (marked below) but not counted (#283).
                 for device in down_devices
@@ -1766,6 +1892,9 @@ def build_alert_board_payload(
                 )
                 if current_item.get("location_path"):
                     merged["location_path"] = current_item["location_path"]
+                if current_item.get("flapping"):
+                    merged["flapping"] = True
+                    merged["flap_changes"] = current_item["flap_changes"]
                 merged["device_ip"] = device_ip_by_key.get(item_key, "")
                 merged.setdefault("status", "")
                 merged.setdefault("role", "")
@@ -1827,27 +1956,19 @@ def build_alert_board_payload(
             if observation_succeeded and site_id:
                 observed_sites[site_id] = alerts[-1]
         # Every device state this build saw, in one write, only when changed (#286).
-        if device_states is not None and not persistence_unavailable:
-            changed = any(
-                not (stored := device_states.get(device_id))
-                or stored["state"] != "down"
-                or _aware(stored["since"]) != _aware(since)
-                for device_id, (_, since) in observed_down.items()
-            ) or bool(observed_up & device_states.keys())
-            # ...or rows of devices gone from the inventory to drop.
-            expired_before = _aware(timeutil.iso_utc_now()) - DEVICE_STATE_RETENTION
-            changed = changed or any(
-                device_id not in observed_down and (_aware(state.get("updated_at")) or expired_before) < expired_before
-                for device_id, state in device_states.items()
-            )
-            if changed:
-                try:
-                    if write_conn is None:
-                        write_conn = db.get_conn()
-                    if write_conn is not None:
-                        write_device_states(write_conn, observed_down, observed_up, device_states)
-                except Exception as exc:
-                    logger.warning("Could not store device states: %s", exc, exc_info=True)
+        now = timeutil.iso_utc_now()
+        if (
+            device_states is not None
+            and not persistence_unavailable
+            and device_states_to_write(next_device_states, device_states, now)
+        ):
+            try:
+                if write_conn is None:
+                    write_conn = db.get_conn()
+                if write_conn is not None:
+                    write_device_states(write_conn, next_device_states, device_states, now)
+            except Exception as exc:
+                logger.warning("Could not store device states: %s", exc, exc_info=True)
     finally:
         if write_conn is not None:
             write_conn.close()
@@ -1991,9 +2112,12 @@ def build_location_alert_levels() -> dict:
             # nor ones down for less than the alert delay (#286).
             in_maintenance = maintenance.read_active(conn, maintenance.now())
             pending = pending_device_ids(conn, timeutil.iso_utc_now())
+            flapping = flapping_device_ids(conn)
             for device in inventory.read_devices(conn=conn):
                 if (device.get("id") or "") in in_maintenance["devices"] or (device.get("id") or "") in pending:
                     continue
+                if (device.get("id") or "") in flapping:
+                    device = {**device, "status": "Flapping"}  # counts as down, like on the board (#286)
                 devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
             override_map = read_criticality_overrides(conn)
         finally:

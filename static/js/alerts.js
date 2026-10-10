@@ -921,6 +921,13 @@ function siteAlarmSeconds(item) {
   return known ? item.current_downtime_seconds || 0 : NaN;
 }
 
+// A device going up and down (#286): one label; the count is in the hover text.
+function flappingBadge(device) {
+  if (!device.flapping) return "";
+  const changes = Number(device.flap_changes) || 0;
+  return ` <span class="flap-badge" title="Up and down ${changes} times in the last 30 minutes">FLAPPING</span>`;
+}
+
 function renderDownDeviceRows(item, isExpanded, extraClass) {
   const downDevices = downDeviceList(item);
   if (!downDevices.length) return "";
@@ -930,8 +937,8 @@ function renderDownDeviceRows(item, isExpanded, extraClass) {
   const rows = downDevices.map((device) => `
     <tr class="down-device-row${hidden}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
-        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}</div>
-        <div class="site-meta">${[device.location_path, device.role, device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}${flappingBadge(device)}</div>
+        <div class="site-meta">${[device.location_path, device.role, device.flapping ? "" : device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
         ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
       </td>
       <td></td>

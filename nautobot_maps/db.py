@@ -566,6 +566,11 @@ def add_device_states(conn) -> None:
     )
 
 
+def add_device_flapping(conn) -> None:
+    """Since when a device is flapping (#286); NULL when it isn't."""
+    conn.execute("ALTER TABLE device_states ADD COLUMN IF NOT EXISTS flapping_since TIMESTAMPTZ")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -582,6 +587,7 @@ MIGRATIONS = (
     (10, "contract_checks", add_contract_checks),
     (11, "nautobot_location_cache.country", add_location_country),
     (12, "device_states", add_device_states),
+    (13, "device_states.flapping_since", add_device_flapping),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
