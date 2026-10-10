@@ -549,6 +549,23 @@ def add_location_country(conn) -> None:
     conn.execute("ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT ''")
 
 
+def add_device_states(conn) -> None:
+    """Since when each device is down (#286), also when only LibreNMS says so
+    and before it alarms: for the alert delay and flap detection."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_states (
+            device_id   TEXT PRIMARY KEY,
+            site_id     TEXT NOT NULL DEFAULT '',
+            state       TEXT NOT NULL,
+            since       TIMESTAMPTZ NOT NULL,
+            changes     TIMESTAMPTZ[] NOT NULL DEFAULT '{}',
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -564,6 +581,7 @@ MIGRATIONS = (
     (9, "librenms_push_seq", librenms_push_seq),
     (10, "contract_checks", add_contract_checks),
     (11, "nautobot_location_cache.country", add_location_country),
+    (12, "device_states", add_device_states),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
