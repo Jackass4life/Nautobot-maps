@@ -19,6 +19,7 @@ from nautobot_maps import (
     apidocs,
     auth,
     caching,
+    contract,
     db,
     export,
     inventory,
@@ -852,6 +853,24 @@ def api_maintenance_end(window_id: int):
         return jsonify({"error": "No such maintenance window"}), 404
     _maintenance_changed()
     return jsonify({"window": window})
+
+
+@bp.route("/api/contract")
+def api_contract():
+    """The data contract with Nautobot and LibreNMS (#309) and the last check.
+
+    ``contract``: per upstream endpoint, the fields read, their types and what
+    each becomes.  ``checks``: per endpoint, when the last sync checked it,
+    how many records, and the fields that didn't match.
+    """
+    conn = db.get_conn()
+    checks = []
+    if conn is not None:
+        try:
+            checks = contract.latest_checks(conn)
+        finally:
+            conn.close()
+    return jsonify({"contract": contract.as_json(), "checks": checks})
 
 
 @bp.route("/api/librenms/alert", methods=["POST"])

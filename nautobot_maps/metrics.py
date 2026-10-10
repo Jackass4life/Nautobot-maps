@@ -7,7 +7,7 @@ are in the access log (#193).
 
 from datetime import UTC, datetime
 
-from nautobot_maps import db, timeutil
+from nautobot_maps import contract, db, timeutil
 
 SYNC_SOURCES = ("nautobot_inventory", "nautobot_inventory_reconcile", "librenms_inventory")
 
@@ -117,6 +117,17 @@ def collect(conn) -> str:
         "nautobot_maps_notifications_failed",
         "Notifications given up after all retries (kept 30 days), by channel.",
         [({"channel": row["channel"]}, row["n"]) for row in outbox if row["status"] == "failed"],
+    )
+    mismatches: dict[tuple, int] = {}
+    for check in contract.latest_checks(conn):
+        for mismatch in check["mismatches"]:
+            key = (check["source"], check["endpoint"], mismatch["field"])
+            mismatches[key] = mismatches.get(key, 0) + mismatch["count"]
+    out.gauge(
+        "nautobot_maps_contract_mismatches",
+        "Records of the last sync that did not match the data contract (docs/data-contract.md), "
+        "by upstream endpoint and field.",
+        [({"source": s, "endpoint": e, "field": f}, n) for (s, e, f), n in sorted(mismatches.items())],
     )
     return out.render()
 

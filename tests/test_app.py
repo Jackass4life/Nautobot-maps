@@ -19,6 +19,7 @@ from nautobot_maps import (
     alerts,
     auth,
     caching,
+    contract,
     db,
     inventory,
     librenms,
@@ -4145,6 +4146,8 @@ class TestInventoryCacheSync:
                 return_value=[{"device_id": 1, "hostname": "router01", "status": 1, "status_reason": ""}],
             ),
             patch.object(caching.cache, "delete") as cache_delete,
+            # Records on its own connection; tested in test_contract.py.
+            patch.object(contract, "check_and_record"),
         ):
             inventory.sync_librenms()
 

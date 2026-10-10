@@ -5,6 +5,8 @@ migrations never run inside worker startup (gunicorn's timeout and the
 health check's start period).  ``schema-version`` prints the database's
 version and the one this release expects.
 
+``contract-docs`` prints docs/data-contract.md from the data contract (#309).
+
 ``token create NAME --role operator [--expires-days N]``, ``token list`` and
 ``token revoke ID`` manage API tokens (#297); ``create`` is how the first
 admin token is made (``docker compose exec app python -m nautobot_maps ...``).
@@ -14,7 +16,7 @@ import argparse
 import logging
 import sys
 
-from nautobot_maps import db, tokens
+from nautobot_maps import contract, db, tokens
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("migrate", help="apply database migrations")
     commands.add_parser("schema-version", help="print the database's schema version")
+    commands.add_parser("contract-docs", help="print docs/data-contract.md from the data contract")
     token = commands.add_parser("token", help="manage API tokens")
     token_commands = token.add_subparsers(dest="token_command", required=True)
     create = token_commands.add_parser("create", help="create a token and print it (shown once)")
@@ -70,6 +73,9 @@ def token_command(conn, args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "contract-docs":
+        sys.stdout.write(contract.render_markdown())
+        return 0
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     if not db.dialect():
