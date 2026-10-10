@@ -119,6 +119,9 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
                 "role": device.get("role") or "",
                 "down_since": device.get("down_started_at") or "",
                 "cases": device.get("case_numbers") or [],
+                # The likely cause (#285): a core device, or what one is behind.
+                "core": bool(device.get("core")),
+                "probable_cause": device.get("probable_cause") or "",
             }
             for device in devices[:MAX_DEVICES_IN_MESSAGE]
         ],
@@ -219,8 +222,18 @@ def detail_lines(event: dict) -> list[str]:
         lines.append(f"Reason: {event['reason']}")
     if event["type"] == "alarm":
         lines.append(f"Down: {event['down_device_count']} of {event['device_count']} monitored devices")
+        cores = [device["name"] for device in event["down_devices"] if device.get("core")]
+        behind = sum(1 for device in event["down_devices"] if device.get("probable_cause"))
+        if cores and behind:
+            lines.append(
+                f"Likely cause: {', '.join(cores)} down; {behind} other device{'s' if behind != 1 else ''} probably behind it"
+            )
         for device in event["down_devices"]:
             parts = [device["name"], device["ip"], device["role"]]
+            if device.get("core"):
+                parts.append("core")
+            if device.get("probable_cause"):
+                parts.append(f"likely caused by {device['probable_cause']}")
             if device["down_since"]:
                 parts.append(f"down since {readable_time(device['down_since'])}")
             if device["cases"]:

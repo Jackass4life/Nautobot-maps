@@ -28,6 +28,7 @@ INCIDENT_COLUMNS = (
     "level",
     "reason",
     "cases",
+    "probable_cause",
 )
 DEVICE_COLUMNS = (
     "site",
@@ -74,6 +75,7 @@ def iter_site_incidents(conn, site_id: str, since: datetime | None):
     where, params = _where(since)
     query = f"""
         SELECT i.id, i.site_name, i.device_id, i.device_name, i.alert_level, i.alert_reason, i.status,
+               i.probable_cause,
                i.down_started_at, i.resolved_at, i.total_downtime_seconds,
                d.role, d.primary_ip, s.ip AS librenms_ip,
                (SELECT string_agg(c.case_number, ';' ORDER BY c.case_number)
@@ -192,6 +194,7 @@ def incident_lines(incidents, now: datetime):
                 row.get("alert_level"),
                 row.get("alert_reason"),
                 row.get("cases") or "",
+                row.get("probable_cause") or "",
             ]
         )
 

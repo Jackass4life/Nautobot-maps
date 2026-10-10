@@ -1338,6 +1338,21 @@ const site = {
 };
 """
 
+    def test_report_names_the_likely_cause_first(self):
+        """The down core device first, the devices behind it say so (#285)."""
+        self._run(
+            self.SITE
+            + """
+site.down_devices[1].core = true;
+site.down_devices[0].probable_cause = "core01";
+const text = siteReport(site, "");
+check(text.includes("Likely cause: core01 down; 1 other device probably behind it"), text);
+const lines = text.split("\\n").filter((line) => line.startsWith("- "));
+check(lines[0].startsWith("- core01") && lines[0].includes("| Core device"), lines.join("\\n"));
+check(lines[1].startsWith("- acc01") && lines[1].endsWith("| Likely caused by core01"), lines.join("\\n"));
+"""
+        )
+
     def test_report_lists_the_site_and_every_down_device(self):
         self._run(
             self.SITE

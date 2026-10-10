@@ -710,7 +710,7 @@ def api_alert_history():
             f"""
             SELECT id, alert_key, site_id, site_name, device_id, device_name, alert_level,
                    alert_reason, status, down_started_at, last_seen_down_at, resolved_at,
-                   total_downtime_seconds, created_at, updated_at
+                   total_downtime_seconds, created_at, updated_at, probable_cause
             FROM alert_instances
             {where_clause}
             ORDER BY down_started_at DESC, id DESC
