@@ -38,42 +38,44 @@ function makeIcon(color, pulse) {
   });
 }
 
-const ICONS = {
-  active:   makeIcon("#2ecc71"),
-  planned:  makeIcon("#f0a500"),
-  other:    makeIcon("#888888"),
-  search:   makeIcon("#e74c3c"),
-  low:      makeIcon("#eab308"),
-  medium:   makeIcon("#ff8c00"),
-  critical: makeIcon("#e74c3c", true),
-  maintenance: makeIcon("#2563eb"),
+// One colour scale for pins, stacks and clusters: the alert level only
+// (#311). Status (Active, Planned) is a filter, not a colour.
+const LEVEL_COLORS = {
+  critical: "#e74c3c",
+  medium: "#ff8c00",
+  low: "#eab308",
+  maintenance: "#2563eb",
+  ok: "#2ecc71",
+  no_data: "#94a3b8",
 };
+
+const ICONS = Object.fromEntries(
+  Object.entries(LEVEL_COLORS).map(([level, color]) => [level, makeIcon(color, level === "critical")]),
+);
 
 // Alert levels that change a marker or show a banner, least to most severe.
 // "ok" and "no_data" are not alerts (#124).
 const ALERT_RANK = { low: 1, medium: 2, critical: 3 };
 
-// Worst alert level among *locIds*, or "ok".
+// What a stack or cluster shows: its worst member (#234, #311).
+const DISPLAY_RANK = { no_data: 0, ok: 1, maintenance: 2, low: 3, medium: 4, critical: 5 };
+
+// A location's level for its colour; without one it has no monitored devices.
+function displayLevel(locId) {
+  const level = locationAlerts[locId];
+  return level in DISPLAY_RANK ? level : "no_data";
+}
+
+// Worst level among *locIds*, for a stack or cluster.
 function worstAlertLevel(locIds) {
   return locIds.reduce((highest, id) => {
-    const level = locationAlerts[id] || "ok";
-    return (ALERT_RANK[level] || 0) > (ALERT_RANK[highest] || 0) ? level : highest;
-  }, "ok");
+    const level = displayLevel(id);
+    return DISPLAY_RANK[level] > DISPLAY_RANK[highest] ? level : highest;
+  }, "no_data");
 }
 
-// A marker shows its alert level when it has one, else its Nautobot status (#234).
 function iconForLocation(loc) {
-  const level = locationAlerts[loc.id];
-  // Planned work (#283): blue, instead of the level or the status colour.
-  if (level === "maintenance") return ICONS.maintenance;
-  return ALERT_RANK[level] ? ICONS[level] : iconForStatus(loc.status);
-}
-
-function iconForStatus(status) {
-  const s = (status || "").toLowerCase();
-  if (s === "active") return ICONS.active;
-  if (s === "planned") return ICONS.planned;
-  return ICONS.other;
+  return ICONS[displayLevel(loc.id)];
 }
 
 function badgeClass(status) {
@@ -236,11 +238,9 @@ function groupByCoords(locations) {
   return groups;
 }
 
-const CLUSTER_COLORS = { critical: "#e74c3c", medium: "#ff8c00", low: "#eab308" };
-
 // Zoomed-out cluster bubble, coloured by the worst alert inside it (#234).
 function makeClusterIcon(count, alertLevel) {
-  const color = CLUSTER_COLORS[alertLevel] || "#3388ff";
+  const color = LEVEL_COLORS[alertLevel] || LEVEL_COLORS.no_data;
   const cls = alertLevel === "critical" ? "marker-pulse" : "";
   return L.divIcon({
     html: `<div class="${cls}" style="width:40px;height:40px;background:${color};color:white;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 0 8px rgba(0,0,0,.4)">${count}</div>`,
@@ -251,10 +251,7 @@ function makeClusterIcon(count, alertLevel) {
 }
 
 function makeStackedIcon(count, alertLevel) {
-  const color = alertLevel === "critical" ? "#e74c3c"
-              : alertLevel === "medium"   ? "#ff8c00"
-              : alertLevel === "low"      ? "#eab308"
-              : "#3388ff";
+  const color = LEVEL_COLORS[alertLevel] || LEVEL_COLORS.no_data;
   const pulse = alertLevel === "critical";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36">
     <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24S24 21 24 12C24 5.373 18.627 0 12 0z"
@@ -295,18 +292,15 @@ const inspectorTabs = document.getElementById("inspector-site-tabs");
 const inspectorState = document.getElementById("inspector-state");
 const inspectorContent = document.getElementById("inspector-content");
 const inspectorCloseButton = document.getElementById("inspector-close");
-const inspectorPinButton = document.getElementById("inspector-pin");
 
 let selectedLocationId = null;
 let selectedGroupIds = [];
 let selectedDetail = null;
 let inspectorError = "";
 let inspectorLoading = false;
-let inspectorPinned = true;
 let inspectorDeviceFilter = "all";
 let inspectorDeviceSearch = "";
 let lastInspectorTrigger = null;
-let suppressNextMapClickClose = false;
 let pendingLocationOpen = null;
 let resizeAnimationFrame = null;
 
@@ -321,16 +315,6 @@ function syncInspectorBackdrop() {
 
 function isInspectorOpen() {
   return !inspector.classList.contains("hidden");
-}
-
-function setInspectorPinned(pinned) {
-  inspectorPinned = Boolean(pinned);
-  inspectorPinButton.textContent = inspectorPinned ? "Pinned" : "Unpinned";
-  inspectorPinButton.setAttribute("aria-pressed", inspectorPinned ? "true" : "false");
-  inspectorPinButton.setAttribute(
-    "aria-label",
-    inspectorPinned ? "Unpin location inspector" : "Pin location inspector"
-  );
 }
 
 function updateLocationQuery(locId) {
@@ -525,13 +509,6 @@ function renderInspectorContent() {
   }
   const circuitCount = !inspectorLoading && !inspectorError && circuits.length > 0 ? ` (${circuits.length})` : "";
 
-  const loadingSummary = inspectorLoading
-    ? `<div class="inspector-empty">Loading health summary…</div>`
-    : "";
-  const errorSummary = !inspectorLoading && inspectorError
-    ? `<div class="inspector-empty">Health summary unavailable until details load successfully.</div>`
-    : "";
-
   inspectorContent.innerHTML = `
     <div class="inspector-section">
       <div class="inspector-header-row">
@@ -545,29 +522,6 @@ function renderInspectorContent() {
         ${buildNautobotLink(loc)}
       </div>
     </div>
-
-    <section class="inspector-section" aria-labelledby="inspector-health-title">
-      <div id="inspector-health-title" class="inspector-section-title">Health summary</div>
-      ${loadingSummary || errorSummary || `
-        <div class="inspector-summary-grid">
-          <div class="inspector-summary-card">
-            <div class="inspector-summary-label">Total</div>
-            <div class="inspector-summary-value">${summary.total}</div>
-          </div>
-          <div class="inspector-summary-card">
-            <div class="inspector-summary-label">Active</div>
-            <div class="inspector-summary-value">${summary.active}</div>
-          </div>
-          <div class="inspector-summary-card">
-            <div class="inspector-summary-label">Down</div>
-            <div class="inspector-summary-value">${summary.down}</div>
-          </div>
-          <div class="inspector-summary-card">
-            <div class="inspector-summary-label">Unknown</div>
-            <div class="inspector-summary-value">${summary.unknown}</div>
-          </div>
-        </div>`}
-    </section>
 
     <section class="inspector-section inspector-meta" aria-labelledby="inspector-meta-title">
       <div id="inspector-meta-title" class="inspector-section-title">Location metadata</div>
@@ -696,10 +650,6 @@ function scheduleMapResize() {
 }
 
 function handleMarkerActivation(marker, locId, groupIds, focusElement) {
-  suppressNextMapClickClose = true;
-  setTimeout(() => {
-    suppressNextMapClickClose = false;
-  }, 0);
   map.panTo(marker.getLatLng());
   openInspectorForLocation(locId, { groupIds, focusElement, focusInspector: true });
 }
@@ -891,10 +841,11 @@ function renderMarkers(locations, searchMarker) {
 
   if (searchMarker) {
     const { lat, lon } = searchMarker;
+    // A ring, not a colour (#311): no pin colour means "searched here".
     const searchIcon = L.divIcon({
-      html: `<div style="width:18px;height:18px;background:#e74c3c;border:3px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,.5)"></div>`,
-      iconSize: [18, 18],
-      iconAnchor: [9, 9],
+      html: '<div class="search-point-marker"></div>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
       className: "",
     });
     L.marker([lat, lon], { icon: searchIcon })
@@ -903,8 +854,8 @@ function renderMarkers(locations, searchMarker) {
 
     L.circle([lat, lon], {
       radius: 5000,
-      color: "#e74c3c",
-      fillColor: "#e74c3c",
+      color: "#334155",
+      fillColor: "#334155",
       fillOpacity: 0.05,
       weight: 2,
       dashArray: "6 4",
@@ -1029,11 +980,6 @@ map.on("zoomend", () => {
   }
 });
 
-map.on("click", () => {
-  if (!isInspectorOpen() || inspectorPinned || suppressNextMapClickClose) return;
-  closeInspector({ restoreFocus: false });
-});
-
 window.addEventListener("resize", () => {
   if (resizeAnimationFrame != null) return;
   resizeAnimationFrame = window.requestAnimationFrame(() => {
@@ -1043,10 +989,9 @@ window.addEventListener("resize", () => {
 });
 
 inspectorCloseButton.addEventListener("click", () => closeInspector());
-inspectorPinButton.addEventListener("click", () => setInspectorPinned(!inspectorPinned));
-inspectorBackdrop.addEventListener("click", () => {
-  if (!inspectorPinned) closeInspector({ restoreFocus: false });
-});
+// The panel stays open while the map is used; × or Escape closes it, and on a
+// phone so does a tap on the dimmed map behind it (#311).
+inspectorBackdrop.addEventListener("click", () => closeInspector({ restoreFocus: false }));
 inspectorTabs.addEventListener("click", (event) => {
   const button = event.target.closest("[data-location-id]");
   if (!button) return;
@@ -1090,7 +1035,6 @@ document.addEventListener("keydown", (event) => {
     closeInspector();
   }
 });
-setInspectorPinned(true);
 renderInspectorContent();
 
 // ---------------------------------------------------------------------------

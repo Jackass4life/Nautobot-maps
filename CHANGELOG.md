@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Changed
 - **A simpler alert board** (#311): one summary line ("2 alarms · 1 critical · 1 medium") and four chips (Alarms, All sites, No data, Maintenance) instead of eight tiles; no Tenants or Reason columns (tenants are under the site name, the reason is the level badge's hover text); one visible action per row (**+ Case**), Copy, Maint. and History behind **⋯** (the History row under the down devices is gone); Sort moved into More filters, Reset shown only when a filter is in use, Collapse/Expand all removed, a short status line and an **↻** button; times over two days in days
 
+- **A simpler map** (#311): markers are coloured by alert level only (green OK, yellow Low, orange Medium, red Critical, blue Maintenance, grey No data), the same in pins, stacks and clusters; before, orange and red each had two meanings (Planned / >25% down, search result / core down). The searched point is a ring. The status dropdown moved into Advanced filters (the All / Active / Planned buttons stay). The site panel has no Health summary tiles (the equipment chips show the same counts) and no Pinned button. `/api/location-alerts` also returns `ok` for locations with monitored devices
+
 ### Fixed
 - A location's **country** was worked out on every sync but not stored, so with PostgreSQL the map's Country row, the alert board's country filter and MCP's search by country found nothing. It is stored now (schema version 11); the first sync after the upgrade is a full one that fills it in (#309)
 

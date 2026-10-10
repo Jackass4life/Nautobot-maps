@@ -2137,8 +2137,9 @@ def build_location_alert_levels() -> dict:
 
     The same scoring as the map's site panel (``get_location_detail``): each
     location's own devices, criticality overrides and the LibreNMS status,
-    read for all locations at once.  Makes no upstream calls.  Only
-    locations with an alert (critical, medium, low) are returned.
+    read for all locations at once.  Makes no upstream calls.  Locations
+    with monitored devices are returned (critical, medium, low or ok; #311:
+    the map tells OK from no data), and sites in maintenance.
     """
     locations = inventory.get_locations(snapshot_only=True)
     devices_by_location: dict[str, list] = {}
@@ -2188,7 +2189,7 @@ def build_location_alert_levels() -> dict:
             snapshot_only=True,
             override_map=override_map,
         )
-        if alert["level"] in ALERT_LEVELS_NON_OK:
+        if alert["level"] in ALERT_LEVELS_NON_OK or alert["level"] == "ok":
             levels[location_id] = {"level": alert["level"], "reason": alert.get("reason", "")}
     store_librenms_maps(new_librenms_maps)
     # A site in maintenance shows that instead of its level (#283).

@@ -132,7 +132,7 @@ class TestDelay:
         set_devices(core=("Offline", NOW), acc1=("Active", LONG_AGO), acc2=("Active", LONG_AGO))
         build()  # records since when the core is down
         caching.cache.clear()
-        assert "loc-lon" not in alerts.build_location_alert_levels()["levels"]
+        assert alerts.build_location_alert_levels()["levels"]["loc-lon"]["level"] == "ok"
         clock["now"] = "2026-10-10T12:06:00Z"
         build()
         assert alerts.build_location_alert_levels()["levels"]["loc-lon"]["level"] == "critical"

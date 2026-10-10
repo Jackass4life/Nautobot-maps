@@ -331,7 +331,8 @@ def api_location_detail(location_id: str):
 
 @bp.route("/api/location-alerts")
 def api_location_alerts():
-    """Alert level of every map location with an alert, for the marker colours (#234)."""
+    """Alert level (critical, medium, low, ok, maintenance) of every map location with
+    monitored devices, for the marker colours (#234, #311); a location missing has no data."""
     try:
         return jsonify(alerts.get_location_alert_levels())
     except Exception as exc:

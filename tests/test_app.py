@@ -1586,9 +1586,9 @@ class TestIndex:
 
     def test_index_contains_inspector_actions(self, client):
         resp = client.get("/")
-        assert b'id="inspector-pin"' in resp.data
+        # No Pinned button: the panel stays open while the map is used (#311).
+        assert b'id="inspector-pin"' not in resp.data
         assert b'id="inspector-close"' in resp.data
-        assert b'aria-label="Unpin location inspector"' in resp.data
         assert b'aria-label="Close location inspector"' in resp.data
 
     @staticmethod
@@ -6703,7 +6703,8 @@ class TestLocationAlertLevels:
             conn.close()
         caching.cache.clear()
 
-    def test_returns_only_locations_with_an_alert(self, client):
+    def test_returns_every_location_with_monitored_devices(self, client):
+        """OK too, so the map tells OK (green) from no data (grey) (#311)."""
         with patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("no upstream calls")):
             resp = client.get("/api/location-alerts")
         assert resp.status_code == 200
@@ -6711,6 +6712,7 @@ class TestLocationAlertLevels:
         assert levels == {
             "loc-core": {"level": "critical", "reason": "Core device(s) offline: core-1"},
             "loc-few": {"level": "low", "reason": "1/5 devices offline (20%)"},
+            "loc-ok": {"level": "ok", "reason": ""},
         }
 
     def test_matches_the_site_panel(self, client):
@@ -6734,14 +6736,14 @@ class TestLocationAlertLevels:
         assert client.get("/api/location-alerts").get_json()["levels"]["loc-few"]["level"] == "critical"
 
     def test_cached_until_a_sync_invalidates_it(self, client):
-        assert "loc-ok" not in client.get("/api/location-alerts").get_json()["levels"]
+        assert client.get("/api/location-alerts").get_json()["levels"]["loc-ok"]["level"] == "ok"
         conn = db.get_conn()
         try:
             with conn:
                 conn.execute("UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'ok-1'")
         finally:
             conn.close()
-        assert "loc-ok" not in client.get("/api/location-alerts").get_json()["levels"]
+        assert client.get("/api/location-alerts").get_json()["levels"]["loc-ok"]["level"] == "ok", "cached"
         caching.invalidate_alert_board()
         assert client.get("/api/location-alerts").get_json()["levels"]["loc-ok"]["level"] == "critical"
 
