@@ -925,7 +925,8 @@ function siteAlarmSeconds(item) {
 function flappingBadge(device) {
   if (!device.flapping) return "";
   const changes = Number(device.flap_changes) || 0;
-  return ` <span class="flap-badge" title="Up and down ${changes} times in the last 30 minutes">FLAPPING</span>`;
+  const times = changes === 1 ? "1 time" : `${changes} times`;
+  return ` <span class="flap-badge" title="Up and down ${times} in the last 30 minutes">FLAPPING</span>`;
 }
 
 function renderDownDeviceRows(item, isExpanded, extraClass) {

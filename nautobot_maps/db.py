@@ -567,8 +567,10 @@ def add_device_states(conn) -> None:
 
 
 def add_device_flapping(conn) -> None:
-    """Since when a device is flapping (#286); NULL when it isn't."""
+    """Since when a device is flapping (#286), NULL when it isn't; and what
+    said it is down ('nautobot', 'librenms'), for when it came back up."""
     conn.execute("ALTER TABLE device_states ADD COLUMN IF NOT EXISTS flapping_since TIMESTAMPTZ")
+    conn.execute("ALTER TABLE device_states ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT ''")
 
 
 # Numbered schema changes, each applied once, in order, and recorded in

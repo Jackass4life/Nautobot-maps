@@ -73,6 +73,17 @@ class TestFlapping:
         (instance,) = rows("SELECT down_started_at FROM alert_instances")
         assert instance["down_started_at"].startswith("2026-10-10T12:00:00")
 
+    def test_resolved_when_nautobot_says_it_came_back_not_when_a_build_saw_it(self, flapping, clock):
+        for minute, status in ((0, "Offline"), (2, "Active"), (4, "Offline"), (6, "Active"), (8, "Offline")):
+            at(clock, minute, status)
+        # Back up in Nautobot at 12:14; the next build is at 12:20.
+        clock["now"] = "2026-10-10T12:20:00Z"
+        set_devices(core=("Active", LONG_AGO), acc1=("Active", "2026-10-10T12:14:00Z"), acc2=("Active", LONG_AGO))
+        build()
+        at_same(clock, "2026-10-10T12:44:01Z")
+        (instance,) = rows("SELECT resolved_at FROM alert_instances WHERE id = (SELECT max(id) FROM alert_instances)")
+        assert instance["resolved_at"].startswith("2026-10-10T12:14:00")
+
     def test_blips_under_the_alert_delay_add_up_to_flapping(self, flapping, clock, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 300)
         for minute, status in ((0, "Offline"), (1, "Active"), (2, "Offline")):
@@ -110,8 +121,14 @@ class TestNextDeviceState:
     def test_changes_older_than_the_window_are_forgotten(self, monkeypatch):
         monkeypatch.setattr(settings, "FLAP_CHANGES", 2)
         stored = {"state": "up", "since": "2026-10-10T11:00:00Z", "changes": ["2026-10-10T11:00:00Z"]}
-        row = alerts.next_device_state(stored, True, self.NOW, self.NOW)
-        assert row == {"state": "down", "since": self.NOW, "changes": [self.NOW], "flapping_since": None}
+        row = alerts.next_device_state(stored, True, self.NOW, self.NOW, source="librenms")
+        assert row == {
+            "state": "down",
+            "since": self.NOW,
+            "changes": [self.NOW],
+            "flapping_since": None,
+            "source": "librenms",
+        }
 
     def test_flapping_lasts_until_a_whole_window_without_a_change(self, monkeypatch):
         monkeypatch.setattr(settings, "FLAP_CHANGES", 2)
@@ -122,6 +139,47 @@ class TestNextDeviceState:
         later = alerts.next_device_state(row, False, None, "2026-10-10T12:29:00Z")
         assert later["flapping_since"] == self.NOW
         assert alerts.next_device_state(later, False, None, "2026-10-10T12:30:01Z") is None
+
+
+class TestCameUpAt:
+    NOW = "2026-10-10T12:20:00Z"
+
+    def test_nautobot_edit_after_the_outage_began(self):
+        stored = {"state": "down", "since": "2026-10-10T12:00:00Z", "source": "nautobot"}
+        assert alerts.came_up_at({"last_updated": "2026-10-10T12:14:00Z"}, stored, self.NOW) == "2026-10-10T12:14:00Z"
+
+    def test_otherwise_when_seen(self):
+        down = {"state": "down", "since": "2026-10-10T12:00:00Z", "source": "nautobot"}
+        edit = {"last_updated": "2026-10-10T12:14:00Z"}
+        assert alerts.came_up_at(edit, {**down, "source": "librenms"}, self.NOW) == self.NOW, "LibreNMS said so"
+        assert alerts.came_up_at({"last_updated": "2026-10-09T00:00:00Z"}, down, self.NOW) == self.NOW, "edit before"
+        assert alerts.came_up_at(edit, None, self.NOW) == self.NOW
+        assert alerts.came_up_at(edit, {**down, "state": "up"}, self.NOW) == self.NOW
+
+
+class TestMapWindow:
+    def test_flapping_ends_with_the_window_also_before_a_board_build(self, flapping, clock):
+        from nautobot_maps import db
+
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                conn.execute(
+                    "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since) VALUES "
+                    "('quiet', 'loc-lon', 'up', %s, ARRAY[%s]::timestamptz[], %s), "
+                    "('busy', 'loc-lon', 'up', %s, ARRAY[%s]::timestamptz[], %s)",
+                    (
+                        "2026-10-10T11:00:00Z",
+                        "2026-10-10T11:00:00Z",
+                        "2026-10-10T10:50:00Z",
+                        "2026-10-10T11:50:00Z",
+                        "2026-10-10T11:50:00Z",
+                        "2026-10-10T11:40:00Z",
+                    ),
+                )
+            assert alerts.flapping_device_ids(conn, "2026-10-10T12:00:00Z") == {"busy"}
+        finally:
+            conn.close()
 
 
 class TestLabel:
@@ -138,4 +196,5 @@ class TestLabel:
 check(flappingBadge({}) === "", "not flapping");
 const html = flappingBadge({ flapping: true, flap_changes: 5 });
 check(html.includes(">FLAPPING<") && html.includes('title="Up and down 5 times in the last 30 minutes"'), html);
+check(flappingBadge({ flapping: true, flap_changes: 1 }).includes('title="Up and down 1 time in the last 30 minutes"'), "singular");
 """)

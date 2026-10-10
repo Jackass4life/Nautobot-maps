@@ -674,7 +674,7 @@ FLAP_WINDOW = timedelta(minutes=30)
 def read_device_states(conn) -> dict:
     """``{device_id: {"state", "since", "changes", "flapping_since", "updated_at"}}`` (#286)."""
     rows = conn.execute(
-        "SELECT device_id, state, since, changes, flapping_since, updated_at FROM device_states"
+        "SELECT device_id, state, since, changes, flapping_since, source, updated_at FROM device_states"
     ).fetchall()
     states = {}
     for row in map(db.row_to_dict, rows):
@@ -694,24 +694,25 @@ def _recent(changes: list, now: str) -> list:
     return [change for change in changes if (_aware(change) or window_start) > window_start]
 
 
-def next_device_state(stored: dict | None, is_down: bool, since_down: str | None, now: str) -> dict | None:
+def next_device_state(stored: dict | None, is_down: bool, since: str | None, now: str, source: str = "") -> dict | None:
     """A device's state after this build (#286); None: up and steady, no row.
 
-    ``since`` is when it entered its state (for down: *since_down*).  Each
-    up/down change is kept for FLAP_WINDOW; with FLAP_CHANGES of them it is
+    *since*: when it entered the state it is in now, if that is new (else
+    the stored time stays); *source*: what says it is down.  Each up/down
+    change is kept for FLAP_WINDOW; with FLAP_CHANGES of them it is
     flapping, until a whole window passes without a change.
     """
     previous = stored["state"] if stored else "up"
     state = "down" if is_down else "up"
     if state == "down":
-        since = since_down or now
+        since = since or now
     else:
-        since = stored["since"] if stored and previous == "up" else now
+        since = stored["since"] if stored and previous == "up" else (since or now)
     changes = list(stored.get("changes") or []) if stored else []
     flapping_since = stored.get("flapping_since") if stored else None
     if settings.FLAP_CHANGES:
         if state != previous:
-            changes.append(since if state == "down" else now)
+            changes.append(since)
         changes = _recent(changes, now)
         if len(changes) >= settings.FLAP_CHANGES:
             flapping_since = flapping_since or now
@@ -721,12 +722,19 @@ def next_device_state(stored: dict | None, is_down: bool, since_down: str | None
         changes, flapping_since = [], None
     if state == "up" and not changes and not flapping_since:
         return None
-    return {"state": state, "since": since, "changes": changes, "flapping_since": flapping_since}
+    return {
+        "state": state,
+        "since": since,
+        "changes": changes,
+        "flapping_since": flapping_since,
+        "source": source if state == "down" else "",
+    }
 
 
 def _same_state(stored: dict, row: dict, now: str) -> bool:
     return (
         stored["state"] == row["state"]
+        and (stored.get("source") or "") == row["source"]
         and _aware(stored["since"]) == _aware(row["since"])
         and _aware(stored.get("flapping_since")) == _aware(row["flapping_since"])
         and [_aware(c) for c in _recent(stored.get("changes") or [], now)] == [_aware(c) for c in row["changes"]]
@@ -762,12 +770,20 @@ def write_device_states(conn, next_states: dict, stored: dict, now: str) -> None
             if previous and _same_state(previous, row, now):
                 continue
             conn.execute(
-                "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since) "
-                "VALUES (%s, %s, %s, %s, %s::timestamptz[], %s) "
+                "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since, source) "
+                "VALUES (%s, %s, %s, %s, %s::timestamptz[], %s, %s) "
                 "ON CONFLICT (device_id) DO UPDATE SET site_id = excluded.site_id, state = excluded.state, "
                 "since = excluded.since, changes = excluded.changes, flapping_since = excluded.flapping_since, "
-                "updated_at = CURRENT_TIMESTAMP",
-                (device_id, site_id, row["state"], row["since"], row["changes"], row["flapping_since"]),
+                "source = excluded.source, updated_at = CURRENT_TIMESTAMP",
+                (
+                    device_id,
+                    site_id,
+                    row["state"],
+                    row["since"],
+                    row["changes"],
+                    row["flapping_since"],
+                    row["source"],
+                ),
             )
         if dropped:
             conn.execute("DELETE FROM device_states WHERE device_id = ANY(%s)", (dropped,))
@@ -778,9 +794,29 @@ def write_device_states(conn, next_states: dict, stored: dict, now: str) -> None
         )
 
 
-def flapping_device_ids(conn) -> set:
-    """Devices flapping now (#286): they count as down."""
-    rows = conn.execute("SELECT device_id FROM device_states WHERE flapping_since IS NOT NULL").fetchall()
+def came_up_at(device: dict, stored: dict | None, now: str) -> str:
+    """When a device that was down came back up, as far as we can tell (#286).
+
+    Nautobot's status was changed at or before its ``last_updated``: use
+    that when Nautobot said it was down and the edit is after the outage
+    began.  When LibreNMS said so (or nothing is known): *now*.
+    """
+    if not stored or stored["state"] != "down" or (stored.get("source") or "") != "nautobot":
+        return now
+    edited, began, observed = _aware(device.get("last_updated")), _aware(stored["since"]), _aware(now)
+    if edited and began and observed and began < edited <= observed:
+        return device["last_updated"]
+    return now
+
+
+def flapping_device_ids(conn, now: str) -> set:
+    """Devices flapping now (#286): they count as down.  Flapping ends after a
+    whole window without a change, also before a board build clears the row."""
+    rows = conn.execute(
+        "SELECT device_id FROM device_states WHERE flapping_since IS NOT NULL "
+        "AND EXISTS (SELECT 1 FROM unnest(changes) AS change WHERE change > %s::timestamptz - make_interval(secs => %s))",
+        (now, FLAP_WINDOW.total_seconds()),
+    ).fetchall()
     return {db.row_to_dict(row)["device_id"] for row in rows}
 
 
@@ -1721,13 +1757,16 @@ def build_alert_board_payload(
                         continue
                     stored = device_states.get(device_id)
                     is_down = (device.get("status") or "").lower().strip() in DOWN_STATUSES
-                    since_down = None
                     if is_down:
-                        since_down = earliest_time(
+                        since = earliest_time(
                             down_since(device, checked_at),
                             stored["since"] if stored and stored["state"] == "down" else None,
                         )
-                    row = next_device_state(stored, is_down, since_down, checked_at)
+                    else:
+                        since = came_up_at(device, stored, checked_at)
+                    row = next_device_state(
+                        stored, is_down, since, checked_at, source=device.get("down_source") or "nautobot"
+                    )
                     next_device_states[device_id] = (site_id, row)
                     device = dict(device)  # never change the (cached) inventory's dicts
                     if is_down:
@@ -2112,7 +2151,7 @@ def build_location_alert_levels() -> dict:
             # nor ones down for less than the alert delay (#286).
             in_maintenance = maintenance.read_active(conn, maintenance.now())
             pending = pending_device_ids(conn, timeutil.iso_utc_now())
-            flapping = flapping_device_ids(conn)
+            flapping = flapping_device_ids(conn, timeutil.iso_utc_now())
             for device in inventory.read_devices(conn=conn):
                 if (device.get("id") or "") in in_maintenance["devices"] or (device.get("id") or "") in pending:
                     continue
