@@ -118,3 +118,17 @@ def test_a_batched_summary_names_the_likely_cause_too():
     lines = notify.summary_lines([alarm, plain])
     assert lines[0] == "🔴 London HQ: Critical (2 down; likely cause: core down; 1 other device probably behind it)"
     assert lines[1] == "🔴 Oslo: Low (1 down)"
+
+
+def test_a_failed_observation_keeps_core_devices_also_with_nothing_behind_them(site, monkeypatch):
+    from nautobot_maps import alerts
+
+    set_devices(core="Offline", acc1="Active", acc2="Active")
+    build()
+
+    def unreadable(*args, **kwargs):
+        raise RuntimeError("Nautobot unreachable")
+
+    monkeypatch.setattr(alerts, "get_location_devices_and_alert", unreadable)
+    (core,) = build()["down_devices"]
+    assert core["device_name"] == "core" and core.get("core") is True, "stored with the incident"

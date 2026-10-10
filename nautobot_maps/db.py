@@ -574,8 +574,10 @@ def add_device_flapping(conn) -> None:
 
 
 def add_probable_cause(conn) -> None:
-    """The down core device(s) an incident is likely caused by (#285)."""
+    """The down core device(s) an incident is likely caused by, and whether
+    the incident's device is a core device (#285)."""
     conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS probable_cause TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS is_core BOOLEAN NOT NULL DEFAULT FALSE")
 
 
 # Numbered schema changes, each applied once, in order, and recorded in
