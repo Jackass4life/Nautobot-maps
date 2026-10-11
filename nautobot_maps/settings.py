@@ -103,8 +103,9 @@ LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 LIBRENMS_VERIFY_SSL = _verify_ssl(os.getenv("LIBRENMS_VERIFY_SSL", "true"))
 
 # Delete resolved alerts (with their events and cases) and site severity
-# changes older than this many days, once a day (#194).  0 keeps everything.
-ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "").strip() or 0)
+# changes older than this many days, once a day (#194).  Unset or empty: two
+# years (#298); 0 keeps everything.
+ALERT_HISTORY_RETENTION_DAYS = int(os.getenv("ALERT_HISTORY_RETENTION_DAYS", "").strip() or 730)
 
 # Prometheus metrics at /metrics (#200); "false" turns the endpoint off.
 METRICS_ENABLED = _flag("METRICS_ENABLED", True)

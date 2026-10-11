@@ -76,7 +76,7 @@ Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
 3. Change the image in `docker-compose.yml` (or `docker-compose.override.yml`).
 4. `docker compose up -d postgres`, restore the dump as above, then `docker compose up -d`.
 
-**Growth:** alert history is kept forever unless you set `ALERT_HISTORY_RETENTION_DAYS` (e.g. `730`). The scheduler then prunes once a day: resolved alerts with their events and cases, and site level changes. Open alerts are never pruned.
+**Growth:** alert history is kept for two years by default (`ALERT_HISTORY_RETENTION_DAYS=730`; `0` keeps it forever). The scheduler prunes once a day: resolved alerts with their events and cases, and site level changes. Open alerts are never pruned.
 
 | What | On disk, with indexes |
 |---|---|
@@ -87,6 +87,7 @@ Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
 These figures were measured on PostgreSQL 17 with 20,000 incidents. Notes, cases and longer reasons add a little. A flapping device is one incident (#286), not one per change.
 
 How to choose:
+- **Upgrading from a version that kept everything:** the first daily prune deletes history older than two years. To keep it, set `ALERT_HISTORY_RETENTION_DAYS=0` (or a longer period) before upgrading, or back up first.
 - The [availability report](availability.md) refuses months older than the retention, so keep at least as long as you report on, e.g. two years for year-on-year.
 - Back up before lowering it: pruning deletes for good.
 
