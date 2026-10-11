@@ -132,6 +132,10 @@ class TestReport:
                 ("s1", "low", "critical", t(10)),
                 ("s1", "critical", "ok", t(10, 2)),
                 ("s2", "critical", "ok", t(3)),  # no earlier change: it was critical from the start
+                # Several changes before the month: the last one decides (critical all month).
+                ("s4", "ok", "critical", OCT - timedelta(days=30)),
+                ("s4", "critical", "low", OCT - timedelta(days=20)),
+                ("s4", "low", "critical", OCT - timedelta(days=10)),
             ):
                 conn.execute(
                     "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
@@ -147,6 +151,7 @@ class TestReport:
         sites = {row["site_id"]: row for row in run(basis="critical")["sites"]}
         assert sites["s1"]["downtime_seconds"] == 6 * 3600 + 3600
         assert sites["s2"]["downtime_seconds"] == 2 * 86400
+        assert sites["s4"]["downtime_seconds"] == PERIOD
         assert (sites["s3"]["downtime_seconds"], sites["s3"]["incidents"]) == (0, 1)
 
     def test_at_critical_without_a_recorded_change(self, pg_database, clock):
