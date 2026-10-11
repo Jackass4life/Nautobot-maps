@@ -19,7 +19,8 @@ def page_scripts():
     """Every script the templates load from static/js, by its path there."""
     scripts = set()
     for template in (REPO_ROOT / "templates").glob("*.html"):
-        for tag in re.findall(r"<script[^>]*>", template.read_text(encoding="utf-8")):
+        # Any case: a <SCRIPT> tag must not slip past the check (CodeQL).
+        for tag in re.findall(r"<script\b[^>]*>", template.read_text(encoding="utf-8"), re.IGNORECASE):
             match = re.search(r"filename='js/([^']+)'", tag)
             if match:
                 assert 'type="module"' in tag, f"{template.name}: {tag}"
