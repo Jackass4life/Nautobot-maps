@@ -19,6 +19,7 @@ MAX_TICK_SECONDS = 30
 _started = False
 _start_lock = threading.Lock()
 _stop = threading.Event()
+PUSH_REBUILD_THREAD_NAME = "librenms-push-rebuild"
 
 
 def tick_seconds() -> int:
@@ -140,7 +141,7 @@ def rebuild_after_push(always: bool = False) -> None:
         finally:
             release()
 
-    threading.Thread(target=run, name="librenms-push-rebuild", daemon=True).start()
+    threading.Thread(target=run, name=PUSH_REBUILD_THREAD_NAME, daemon=True).start()
 
 
 def pending_webhook_alerts():
