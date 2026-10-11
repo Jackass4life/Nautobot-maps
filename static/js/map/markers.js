@@ -16,8 +16,10 @@ const ATTENTION_Z = { critical: 4000, medium: 3000, low: 2000, maintenance: 1000
 let activateMarker = () => {};
 // Redraw every marker: main.js sets it (filters.applyFilters).
 let redrawAll = () => {};
-// The sites drawn as their own pins at the last draw.
+// The sites drawn as their own pins at the last draw, and whether that draw
+// was search results (all pins, no clusters: nothing crosses a line there).
 let drawnAttention = new Set();
+let drawnSearch = false;
 
 export function onMarkerActivate(handler) {
   activateMarker = handler;
@@ -181,8 +183,10 @@ export function renderMarkers(locations, searchMarker) {
     drawSearchPoint(searchMarker);
     for (const group of Object.values(groups)) markerForGroup(group, false, true).addTo(state.markerLayer);
     drawnAttention = new Set(locations.map((loc) => loc.id));
+    drawnSearch = true;
     return;
   }
+  drawnSearch = false;
   const { attention, quiet } = splitGroups(groups);
   drawnAttention = new Set();
   for (const group of attention) {
@@ -197,7 +201,8 @@ export function renderMarkers(locations, searchMarker) {
 // and the clusters, which takes a full redraw.
 export function crossesClusterLine(locId) {
   const marker = markerByLocId[locId];
-  if (!marker) return false;
+  // Search results are all pins: a redraw would throw the search away (review on #336).
+  if (!marker || drawnSearch) return false;
   const ids = marker.options.locIds || [locId];
   return ids.some((id) => drawnAttention.has(id)) !== ids.some((id) => needsAttention(displayLevel(id)));
 }
@@ -215,7 +220,13 @@ export function refreshMarkerIcon(locId) {
     return;
   }
   const ids = marker.options.locIds || [locId];
-  marker.setIcon(iconForGroup(ids, ids.some((id) => drawnAttention.has(id))));
+  const asPin = ids.some((id) => drawnAttention.has(id));
+  marker.setIcon(iconForGroup(ids, asPin));
+  // Worst on top, also after a pin's level changed (critical -> low; review on #336).
+  if (asPin && !drawnSearch) {
+    const level = ids.length === 1 ? displayLevel(ids[0]) : worstAlertLevel(ids);
+    marker.setZIndexOffset(ATTENTION_Z[level] || 0);
+  }
   // A quiet site turning from No data to OK (or back) recolours its cluster.
   if (state.clusterLayer?.hasLayer(marker)) state.clusterLayer.refreshClusters(marker);
 }

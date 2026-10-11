@@ -1837,6 +1837,7 @@ setGlobal("L", {
       on() { return this; }, bindPopup() { return this; }, getElement: () => null, getLatLng: () => latlng,
       addTo(layer) { layer.addLayer(this); return this; },
       setIcon(icon) { this.icon = icon; this.iconSets += 1; },
+      setZIndexOffset(z) { this.options.zIndexOffset = z; },
     };
     made.push(marker);
     return marker;
@@ -1966,6 +1967,39 @@ check(quietCluster([["a"], ["b"]], (id) => (id === "b" ? "ok" : "no_data")).leve
 // Search results are all pins: a search finds few.
 renderMarkers(sites.slice(0, 5), { lat: 40, lon: -5 });
 check(state.clusterLayer.held.size === 0, "no clusters in a search");
+"""
+        )
+
+    def test_level_changes_keep_the_search_and_the_order(self):
+        """Review on #336: an OK search result must not redraw the map; a pin's order follows its level."""
+        run_js(
+            MAP_FAKES
+            + """
+import { onRedrawNeeded, refreshMarkerIcon, renderMarkers, updateMarkerForAlert } from "@js/map/markers.js";
+import { locationAlerts, markerByLocId, state } from "@js/map/state.js";
+
+state.markerLayer = fakeLayer();
+state.clusterLayer = fakeLayer();
+let redraws = 0;
+onRedrawNeeded(() => { redraws += 1; });
+const sites = [site("a", 1, 1), site("b", 2, 2), site("c", 3, 3)];
+Object.assign(locationAlerts, { a: "critical", b: "medium" });
+
+// A search: opening an OK result (its panel reports "ok") keeps the search on the map.
+renderMarkers(sites, { lat: 1, lon: 1 });
+updateMarkerForAlert("c", "ok");
+locationAlerts.a = "ok";
+refreshMarkerIcon("a");
+check(redraws === 0, "no redraw in a search: " + redraws);
+
+// The map: critical -> low moves the pin below the medium one.
+Object.assign(locationAlerts, { a: "critical", b: "medium", c: undefined });
+renderMarkers(sites);
+check(markerByLocId.a.options.zIndexOffset > markerByLocId.b.options.zIndexOffset, "critical above medium");
+locationAlerts.a = "low";
+refreshMarkerIcon("a");
+check(redraws === 0, "still a pin: no redraw");
+check(markerByLocId.a.options.zIndexOffset < markerByLocId.b.options.zIndexOffset, "low below medium now");
 """
         )
 
