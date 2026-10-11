@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from nautobot_maps import alerts, auth, settings, status
+from nautobot_maps import alerts, auth, inventory, settings, status
 from tests import test_tokens
 from tests.test_app import auth_config
 from tests.test_integration import REPO_ROOT, _extract_js_function
@@ -111,10 +111,16 @@ class TestAccess:
             assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
             assert client.get("/api/status/Other%20Co", headers=bearer(viewer)).status_code == 200
 
-    def test_open_like_the_board_without_require_viewer(self, client, board):
+    def test_open_like_the_board_without_require_viewer(self, client, board, monkeypatch):
         response = client.get("/api/status/Acme%20Corp")
         assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
         assert client.get("/api/status/Nobody").status_code == 404
+
+    def test_before_the_first_sync_it_is_a_503_not_no_sites(self, client, monkeypatch):
+        monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: {"alerts": []})
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
+        assert client.get("/api/status/Acme%20Corp").status_code == 503
 
     def test_the_page_escapes_the_tenant(self, client, board):
         page = client.get("/status/%3Cscript%3Ex")
