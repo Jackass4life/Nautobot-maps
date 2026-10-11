@@ -1049,7 +1049,8 @@ def _webhook_alerts(parse):
         conn.close()
     if events:
         caching.invalidate_alert_board()
-        scheduler.rebuild_after_push()
+        # History and notifications now, not at the next tick.
+        scheduler.rebuild_after_push(always=True)
     firing = sum(1 for event in events if event["status"] == "down")
     return jsonify(
         {

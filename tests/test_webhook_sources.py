@@ -196,6 +196,38 @@ class TestTheBoard:
             conn.close()
 
 
+class TestRebuild:
+    def test_a_webhook_rebuilds_once_without_a_librenms_push(self, client, monkeypatch):
+        from nautobot_maps import scheduler
+
+        calls = []
+        monkeypatch.setattr(scheduler, "rebuild_after_push", lambda **kwargs: calls.append(kwargs))
+        token = make("am", "operator")["token"]
+        client.post("/api/device-status", json={"device": "acc1", "status": "down"}, headers=bearer(token))
+        assert calls == [{"always": True}]
+
+    def test_always_rebuilds_once(self, site, monkeypatch):
+        from nautobot_maps import scheduler
+
+        ran = []
+        monkeypatch.setattr(scheduler, "rebuild_board", lambda: ran.append(True))
+        monkeypatch.setattr(scheduler, "pending_librenms_pushes", lambda: [])
+        monkeypatch.setattr(db, "try_advisory_lock", lambda name: lambda: None)
+
+        class InlineThread:
+            def __init__(self, target, **kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        monkeypatch.setattr(scheduler.threading, "Thread", InlineThread)
+        scheduler.rebuild_after_push()
+        assert ran == [], "no push pending: nothing to do"
+        scheduler.rebuild_after_push(always=True)
+        assert ran == [True]
+
+
 class TestAccess:
     def test_operator_only(self, client, monkeypatch):
         viewer = make("reader", "viewer")["token"]

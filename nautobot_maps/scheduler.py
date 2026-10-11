@@ -104,9 +104,13 @@ def ack_librenms_pushes(seqs: list[int]) -> None:
         conn.close()
 
 
-def rebuild_after_push() -> None:
+def rebuild_after_push(always: bool = False) -> None:
     """Rebuild the board now for a LibreNMS push (#284), in a thread.  If
-    another process holds the scheduler lock, its next tick does it."""
+    another process holds the scheduler lock, its next tick does it.
+
+    *always*: at least once, also without a pending LibreNMS push (an
+    Alertmanager or webhook alert, #292).
+    """
 
     def run() -> None:
         release = db.try_advisory_lock("background_scheduler")
@@ -115,12 +119,13 @@ def rebuild_after_push() -> None:
         try:
             # Again while pushes arrived during the rebuild (bounded: the
             # tick picks up anything left).
-            for _ in range(5):
+            for attempt in range(5):
                 pushes = pending_librenms_pushes()
-                if not pushes:
+                if not pushes and not (always and attempt == 0):
                     break
                 rebuild_board()
-                ack_librenms_pushes(pushes)
+                if pushes:
+                    ack_librenms_pushes(pushes)
         except Exception as exc:
             logger.warning("Rebuild after a LibreNMS push failed: %s", exc, exc_info=True)
         finally:
