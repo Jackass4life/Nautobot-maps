@@ -201,6 +201,11 @@ ALERT_DELAY_SECONDS = max(0, int(os.getenv("ALERT_DELAY_SECONDS", "").strip() or
 # flapping: one incident, a FLAPPING label, a steady site level (#286).
 # 0: off.
 FLAP_CHANGES = max(0, int(os.getenv("FLAP_CHANGES", "").strip() or 4))
+# What counts as downtime in the availability report (#287): "any_down" (any
+# monitored device of the site down) or "critical" (the site at Critical).
+AVAILABILITY_BASIS = os.getenv("AVAILABILITY_BASIS", "").strip().lower() or "any_down"
+if AVAILABILITY_BASIS not in ("any_down", "critical"):
+    AVAILABILITY_BASIS = "any_down"
 # Location type whose locations are the alert-board rows (e.g. "Site"); devices
 # in descendant locations roll up into them (#158).  Empty: one row per location.
 ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()

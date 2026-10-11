@@ -1491,9 +1491,9 @@ def record_site_level_changes(
                 site_name, level = levels[site_id]
                 if site_id not in previous:
                     conn.execute(
-                        "INSERT INTO site_alert_levels (site_id, site_name, alert_level, updated_at) "
-                        "VALUES (%s, %s, %s, %s) ON CONFLICT (site_id) DO NOTHING",
-                        (site_id, site_name, level, checked_at),
+                        "INSERT INTO site_alert_levels (site_id, site_name, alert_level, updated_at, first_seen_at) "
+                        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (site_id) DO NOTHING",
+                        (site_id, site_name, level, checked_at, checked_at),
                     )
                 elif previous[site_id] != level:
                     conn.execute(

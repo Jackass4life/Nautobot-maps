@@ -1301,3 +1301,55 @@ tbody td:last-child:has(details.row-menu[open]) {
 .wall-view .empty-state.all-clear {
   color: var(--color-success);
 }
+
+/* Availability report (#287). */
+.availability-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.availability-form label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.availability-form input,
+.availability-form select {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font: inherit;
+  color-scheme: light dark;
+}
+
+.availability-note a {
+  color: var(--color-primary);
+}
+
+.availability-note {
+  margin: 14px 0;
+  color: var(--color-text-muted);
+}
+
+.availability-section {
+  margin-bottom: 22px;
+}
+
+.availability-heading {
+  margin: 0;
+  padding: 14px 16px 6px;
+  font-size: 1rem;
+}
+
+.availability-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.availability-pct.is-below {
+  color: var(--color-danger);
+}
