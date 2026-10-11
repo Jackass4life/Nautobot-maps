@@ -62,6 +62,16 @@ Without pushes, a device going down shows on the board after LibreNMS has polled
 
 What a push does: the app asks the LibreNMS API for that one device and stores its status; the push only says *which* device, so duplicate, late or non-device-down alerts can't set a wrong status. Each stored status remembers which LibreNMS request it came from, and an older answer never overwrites a newer one (from another push or from the periodic sync), so a quick down and up end in the right state; a repeated push just refreshes again. `{"updated": false}` means nothing changed: LibreNMS doesn't know the device, a newer answer was already stored, or the device was added to LibreNMS after the last sync here (the next sync picks it up) (not an error, so LibreNMS doesn't keep retrying). The parameters can also be sent as a form or in the query string (`?device_id=42`).
 
+## Other monitoring tools (optional)
+
+Prometheus Alertmanager and any tool that can call a webhook can mark devices down. See [other monitoring sources](sources.md).
+
+| Variable | Default | Description |
+|---|---|---|
+| `ALERTMANAGER_DEVICE_LABELS` | `instance,hostname,host,device` | Alert labels that name the device; the first one an alert has is used (a port or URL is stripped) |
+| `ALERTMANAGER_ALERTNAMES` | — | Only alerts with these `alertname`s; empty: every alert Alertmanager sends here |
+| `WEBHOOK_ALERT_TTL_HOURS` | `24` | A firing alert that isn't repeated for this long stops counting, in case its "resolved" was lost. Keep Alertmanager's `repeat_interval` below it |
+
 ## Alert board
 
 What these do is explained in [the alert board guide](alert-board.md). List settings take comma- or semicolon-separated values; in the status settings, `null` matches an empty status.

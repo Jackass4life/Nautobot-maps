@@ -616,6 +616,25 @@ def add_token_tenant(conn) -> None:
     conn.execute("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS tenant TEXT")
 
 
+def add_webhook_device_alerts(conn) -> None:
+    """Firing alerts from Alertmanager and the generic webhook (#292)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS webhook_device_alerts (
+            source      TEXT NOT NULL,
+            alert_key   TEXT NOT NULL,
+            device_key  TEXT NOT NULL,
+            summary     TEXT NOT NULL DEFAULT '',
+            started_at  TIMESTAMPTZ NOT NULL,
+            updated_at  TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (source, alert_key)
+        )
+        """
+    )
+    # The TTL: read and prune by updated_at.
+    conn.execute("CREATE INDEX IF NOT EXISTS webhook_device_alerts_updated ON webhook_device_alerts (updated_at)")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -638,6 +657,7 @@ MIGRATIONS = (
     (16, "alert_instances acknowledgements", add_acknowledgements),
     (17, "nautobot_location_cache.tier", add_location_tier),
     (18, "api_tokens.tenant", add_token_tenant),
+    (19, "webhook_device_alerts", add_webhook_device_alerts),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

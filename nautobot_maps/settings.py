@@ -204,6 +204,16 @@ ALERT_DELAY_SECONDS = max(0, int(os.getenv("ALERT_DELAY_SECONDS", "").strip() or
 FLAP_CHANGES = max(0, int(os.getenv("FLAP_CHANGES", "").strip() or 4))
 # What counts as downtime in the availability report (#287): "any_down" (any
 # monitored device of the site down) or "critical" (the site at Critical).
+# Other monitoring tools (#292).  Alertmanager: the labels that name the
+# device, the first one present wins; only these alert names (empty: all).
+ALERTMANAGER_DEVICE_LABELS = [
+    label.strip()
+    for label in (os.getenv("ALERTMANAGER_DEVICE_LABELS", "").strip() or "instance,hostname,host,device").split(",")
+    if label.strip()
+]
+ALERTMANAGER_ALERTNAMES = parse_csv_set(os.getenv("ALERTMANAGER_ALERTNAMES", ""))
+# A firing webhook alert not refreshed for this long stops counting (a lost "resolved").
+WEBHOOK_ALERT_TTL_HOURS = max(1, int(os.getenv("WEBHOOK_ALERT_TTL_HOURS", "").strip() or 24))
 # Severity thresholds (#293): more than ALERT_MEDIUM_PERCENT of a site's
 # monitored devices down is Medium; ALERT_CRITICAL_PERCENT or more is Critical
 # (100: only when all are down).
