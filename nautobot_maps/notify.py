@@ -68,20 +68,30 @@ def configured_channels() -> list[str]:
     return channels
 
 
-def event_kind(from_level: str, to_level: str) -> str | None:
+def event_kind(from_level: str, to_level: str, tier: str = "") -> str | None:
     """ "alarm" when a site reaches the minimum level or worse (or gets worse
-    above it), "recovery" when it drops below it, otherwise None."""
+    above it), "recovery" when it drops below it, otherwise None.  The
+    minimum is NOTIFY_MIN_LEVEL, or the site's tier's (#293)."""
     # Going into maintenance is planned (#283): no message.  Coming out of it
     # counts from "nothing": still Critical when it ends is an alarm.
     if to_level == "maintenance":
         return None
-    minimum = LEVEL_RANK[settings.NOTIFY_MIN_LEVEL]
+    minimum = LEVEL_RANK[settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)]
     before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
     if after >= minimum and after > before:
         return "alarm"
     if before >= minimum > after:
         return "recovery"
     return None
+
+
+def dropped_below_minimum(from_level: str, to_level: str, tier: str = "") -> bool:
+    """The level went down and is below the site's minimum now, but was below it before too."""
+    if to_level == "maintenance":
+        return False
+    minimum = LEVEL_RANK[settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)]
+    before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
+    return after < before and before < minimum
 
 
 def tenant_matches(tenants: list[str]) -> bool:
@@ -117,6 +127,7 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
             "tenants": site.get("tenants") or ([site["tenant"]] if site.get("tenant") else []),
         },
         "reason": site.get("alert_reason") or "",
+        "tier": site.get("tier") or "",
         "down_device_count": site.get("down_device_count") or len(devices),
         "device_count": site.get("device_count") or 0,
         "down_devices": [
@@ -158,7 +169,16 @@ def enqueue_change(
     Returns how many rows were queued (one per configured channel).
     """
     channels = configured_channels()
-    kind = event_kind(from_level, to_level)
+    tier = (site or {}).get("tier") or ""
+    kind = event_kind(from_level, to_level, tier)
+    if channels and kind is None and site_id and dropped_below_minimum(from_level, to_level, tier):
+        # The alarm went out under another threshold (the site's tier changed
+        # since, #293): its end is still a recovery.
+        row = conn.execute(
+            "SELECT kind FROM notification_outbox WHERE site_id = %s ORDER BY id DESC LIMIT 1", (site_id,)
+        ).fetchone()
+        if row is not None and row["kind"] == "alarm":
+            kind = "recovery"
     if not channels or kind is None or (quiet_recovery and kind == "recovery"):
         return 0
     site = site or {"id": site_id}
@@ -226,6 +246,8 @@ def detail_lines(event: dict) -> list[str]:
         f"Level: {LEVEL_LABEL.get(event['previous_level'], event['previous_level'])} → "
         f"{LEVEL_LABEL.get(event['level'], event['level'])}"
     )
+    if event.get("tier"):
+        lines.append(f"Tier: {event['tier'].capitalize()}")
     if event["reason"]:
         lines.append(f"Reason: {event['reason']}")
     if event["type"] == "alarm":
@@ -285,7 +307,8 @@ def summary_lines(events: list[dict]) -> list[str]:
                 if cause
                 else f" ({event['down_device_count']} down)"
             )
-        lines.append(f"{mark} {site}: {level}{extra}")
+        tier = f" [{event['tier'].capitalize()}]" if event.get("tier") else ""
+        lines.append(f"{mark} {site}{tier}: {level}{extra}")
     url = next((event["board_url"] for event in events if event["board_url"]), "")
     if url:
         lines.append(f"Board: {url}")

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Configurable severity and an importance tier** (#293): `ALERT_MEDIUM_PERCENT` (default 25) and `ALERT_CRITICAL_PERCENT` (default 100); a site tier from a Nautobot custom field (`SITE_TIER_FIELD`, `SITE_TIERS`), shown by the site name and sorting important sites first within a level; `NOTIFY_MIN_LEVEL_BY_TIER` (e.g. `gold:low`). Schema version 17 (`nautobot_location_cache.tier`), one full resync
 - **Wall view sound** (#290): "Sound on" (per screen, remembered) plays a chime and shows a browser notification once when a site becomes Critical or a site in alarm has nobody on it; not on every refresh
 - **Case numbers link to their ticket** (#289) with `CASE_URL_TEMPLATE` (e.g. `https://itsm.example.com/ticket/{case}`): on the board, wall, + Case and History panels (new tab); Copy and notifications add the URL; the incidents CSV has a `case_urls` column
 - **Acknowledge** an alarm without a case number (#288): one click in the row's ⋯ menu (or, with a note or for some devices, in the + Case panel); shown as "ACK olga · note", counted as handled on the wall view, ended with the alarm, recorded in the history; `POST /api/alert-acks`, `POST /api/alert-acks/remove`. Schema version 16

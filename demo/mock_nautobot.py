@@ -192,6 +192,7 @@ LOCATIONS = [
         "asn": 65040,
         "time_zone": "Europe/Paris",
         "url": "http://mock-nautobot:8080/api/dcim/locations/loc-par/",
+        "custom_fields": {"tier": "silver"},
     },
     {
         "id": "loc-lon",
@@ -208,6 +209,7 @@ LOCATIONS = [
         "asn": 65050,
         "time_zone": "Europe/London",
         "url": "http://mock-nautobot:8080/api/dcim/locations/loc-lon/",
+        "custom_fields": {"tier": "gold"},
     },
     {
         "id": "loc-lon2",

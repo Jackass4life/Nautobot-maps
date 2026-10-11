@@ -623,6 +623,37 @@ tbody td:last-child:has(details.row-menu[open]) {
   color: var(--color-primary);
 }
 
+/* Importance tier (#293), by the site name. */
+/* The name and its tier pill on one line. */
+.site-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.site-title .site-name {
+  display: inline;
+}
+
+.tier-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+}
+
+/* Gold border; the text in the normal color, readable on both themes. */
+.tier-pill.tier-top {
+  border-color: #b8860b;
+  color: var(--color-text);
+}
+
 /* The likely cause (#285): the down core device, and what is behind it. */
 .core-badge {
   display: inline-block;

@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
-# (3: locations store parent_id, #158; 4: and country, #309).
-CACHE_VERSION = "4"
+# (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293).
+CACHE_VERSION = "5"
 sync_lock = threading.Lock()
 
 
@@ -151,9 +151,22 @@ def normalize_locations(
                 "tags": tag_names,
                 "url": loc.get("url", ""),
                 "last_updated": loc.get("last_updated") or "",
+                # Importance (#293): the custom field SITE_TIER_FIELD, as given.
+                "tier": location_tier(loc),
             }
         )
     return locations
+
+
+def location_tier(location: dict) -> str:
+    """The location's value of the SITE_TIER_FIELD custom field, lowercased, or "" (#293)."""
+    if not settings.SITE_TIER_FIELD:
+        return ""
+    fields = location.get("custom_fields")
+    value = fields.get(settings.SITE_TIER_FIELD) if isinstance(fields, dict) else None
+    if isinstance(value, dict):  # a select field can come as {"value": ..., "label": ...}
+        value = value.get("value") or value.get("label")
+    return str(value).strip().lower() if isinstance(value, (str, int)) and str(value).strip() else ""
 
 
 LOCATION_TYPE = "dcim.location"
@@ -358,7 +371,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             """
             SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                    description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                   time_zone, tags_json, url, country
+                   time_zone, tags_json, url, country, tier
             FROM nautobot_location_cache
             ORDER BY name ASC
             """
@@ -388,6 +401,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
                     "description": data.get("description", ""),
                     "physical_address": data.get("physical_address", ""),
                     "country": data.get("country", ""),
+                    "tier": data.get("tier", ""),
                     "facility": data.get("facility", ""),
                     "tenant": data.get("tenant", ""),
                     "tenant_id": data.get("tenant_id", ""),
@@ -589,14 +603,14 @@ def coalesce_text(value):
 
 
 def write_locations(conn, locations: list) -> None:
-    placeholders = db.placeholders(21).split(",")
+    placeholders = db.placeholders(22).split(",")
     for loc in locations:
         conn.execute(
             f"""
             INSERT INTO nautobot_location_cache
                 (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                 time_zone, tags_json, url, last_updated, country, synced_at)
+                 time_zone, tags_json, url, last_updated, country, tier, synced_at)
             VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
@@ -619,6 +633,7 @@ def write_locations(conn, locations: list) -> None:
                 url = excluded.url,
                 last_updated = excluded.last_updated,
                 country = excluded.country,
+                tier = excluded.tier,
                 synced_at = excluded.synced_at
             """,
             (
@@ -643,6 +658,7 @@ def write_locations(conn, locations: list) -> None:
                 coalesce_text(loc.get("url", "")),
                 loc.get("last_updated") or None,
                 coalesce_text(loc.get("country", "")),
+                coalesce_text(loc.get("tier", "")),
             ),
         )
 

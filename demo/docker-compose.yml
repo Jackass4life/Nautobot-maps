@@ -39,6 +39,8 @@ services:
       NAUTOBOT_TOKEN: demo-token
       FLASK_DEBUG: "false"
       CACHE_TTL: "60"
+      # The mock gives London HQ and Paris PoP an importance tier.
+      SITE_TIER_FIELD: tier
       # The alert board reads from the persisted inventory snapshot, so the
       # demo needs a database (throwaway: no volume).
       NAUTOBOT_MAPS_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@postgres:5432/nautobot_maps

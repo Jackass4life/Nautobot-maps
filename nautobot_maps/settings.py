@@ -204,6 +204,27 @@ ALERT_DELAY_SECONDS = max(0, int(os.getenv("ALERT_DELAY_SECONDS", "").strip() or
 FLAP_CHANGES = max(0, int(os.getenv("FLAP_CHANGES", "").strip() or 4))
 # What counts as downtime in the availability report (#287): "any_down" (any
 # monitored device of the site down) or "critical" (the site at Critical).
+# Severity thresholds (#293): more than ALERT_MEDIUM_PERCENT of a site's
+# monitored devices down is Medium; ALERT_CRITICAL_PERCENT or more is Critical
+# (100: only when all are down).
+ALERT_MEDIUM_PERCENT = min(99, max(1, int(os.getenv("ALERT_MEDIUM_PERCENT", "").strip() or 25)))
+ALERT_CRITICAL_PERCENT = min(
+    100, max(ALERT_MEDIUM_PERCENT + 1, int(os.getenv("ALERT_CRITICAL_PERCENT", "").strip() or 100))
+)
+# Site importance (#293): a Nautobot custom field on the location, and its
+# values, most important first.
+SITE_TIER_FIELD = os.getenv("SITE_TIER_FIELD", "").strip()
+SITE_TIERS = [
+    t.strip().lower() for t in (os.getenv("SITE_TIERS", "").strip() or "gold,silver,bronze").split(",") if t.strip()
+]
+# "gold:low,silver:medium": NOTIFY_MIN_LEVEL for those tiers.
+NOTIFY_MIN_LEVEL_BY_TIER = {
+    tier.strip().lower(): level.strip().lower()
+    for tier, _, level in (
+        item.partition(":") for item in os.getenv("NOTIFY_MIN_LEVEL_BY_TIER", "").split(",") if ":" in item
+    )
+    if tier.strip() and level.strip().lower() in ("low", "medium", "critical")
+}
 # A case number's ticket in the ITSM system (#289): "https://itsm.example.com/ticket/{case}".
 # Only http(s) templates with {case} are used.
 CASE_URL_TEMPLATE = os.getenv("CASE_URL_TEMPLATE", "").strip()

@@ -16,9 +16,9 @@ Each site gets one level, from its **monitored devices**: devices with a Nautobo
 
 | Level | When |
 |---|---|
-| **Critical** | A core device is down, or every monitored device is down |
-| **Medium** | More than 25% of the monitored devices are down |
-| **Low** | At least one monitored device is down, 25% or fewer |
+| **Critical** | A core device is down, or at least `ALERT_CRITICAL_PERCENT` of the monitored devices are down (default 100: all of them) |
+| **Medium** | More than `ALERT_MEDIUM_PERCENT` of the monitored devices are down (default 25%) |
+| **Low** | At least one monitored device is down, `ALERT_MEDIUM_PERCENT` or fewer |
 | **No data** | No monitored devices, or the level could not be computed. Not an alarm |
 | **OK** | Monitored devices, none down |
 
@@ -48,6 +48,10 @@ ALERT_BOARD_SITE_LOCATION_TYPE=Site
 ```
 
 Only locations of that type (case-insensitive) get a row. Levels above it are shown as a path, e.g. `EMEA › DNK`. Devices in child locations count towards their Site (device count, level, downtime), and a down device's row says where it is, e.g. `Bygning A › Etage 2`. Devices below an excluded location (e.g. a Decommissioning building) are left out. A location with devices but no Site above it keeps its own row and is logged once. Changing the setting moves open alerts from building/floor rows to their Site, which restarts their downtime once.
+
+## Importance tier
+
+Not every site matters the same (#293). With `SITE_TIER_FIELD` set to a Nautobot custom field on the location (e.g. `tier`, with values `gold`, `silver`, `bronze`), each site shows its tier by its name (the most important one accented). Among sites at the same level, the more important come first, on the board and the wall. `SITE_TIERS` lists the values, most important first (default `gold,silver,bronze`); other values count as no tier. `NOTIFY_MIN_LEVEL_BY_TIER` can make important sites notify sooner ([notifications](notifications.md)).
 
 ## Likely cause
 

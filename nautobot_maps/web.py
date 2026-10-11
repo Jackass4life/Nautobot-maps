@@ -262,7 +262,7 @@ def alert_board():
         "alerts.html",
         nautobot_url=settings.NAUTOBOT_URL,
         case_url_template=settings.CASE_URL_TEMPLATE,
-        tier_definitions=alerts.ALERT_STATUS_TIER_DEFINITIONS,
+        tier_definitions=alerts.alert_level_definitions(),
         wall_view=request.args.get("view") == "wall",
     )
 
