@@ -21,7 +21,7 @@ The alert board needs PostgreSQL; the map works without it. The bundled `docker-
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `nautobot_maps` | Credentials of the bundled PostgreSQL (Docker only). Its port is not published, but set your own password **before the first start**: it is fixed when the data volume is created |
 | `DB_CONNECT_TIMEOUT_SECONDS` | `5` | Give up connecting after this long (`/healthz` uses 2 s), instead of waiting for the operating system when the database drops packets |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | `60` | Cancel any single SQL statement after this long, so a runaway query can't hold a worker (migrations at startup are exempt) |
-| `ALERT_HISTORY_RETENTION_DAYS` | `0` (keep all) | Once a day, delete resolved alerts (with their events and cases) and site level changes older than this many days. Open alerts are never deleted |
+| `ALERT_HISTORY_RETENTION_DAYS` | `730` (two years) | Once a day, delete resolved alerts (with their events and cases) and site level changes older than this many days. `0` keeps everything. Open alerts are never deleted |
 
 ## Syncing and caching
 
