@@ -22,6 +22,11 @@ MAX_ALERTS = 1000
 MAX_KEY_LENGTH = 255
 MAX_SUMMARY_LENGTH = 500
 SOURCE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
+# When alerts last arrived, and up to when a board build has taken them in:
+# the scheduler's tick rebuilds while one is newer, so a rebuild that lost
+# the lock to another process isn't lost (inventory_sync_state rows).
+RECEIVED_STATE = "webhook_alerts_received"
+REBUILT_STATE = "webhook_alerts_rebuilt"
 
 
 class WebhookError(ValueError):
@@ -92,8 +97,8 @@ def parse_alertmanager(body) -> tuple[list[dict], int]:
         if not device or state is None:
             skipped += 1
             continue
-        key = _text(alert.get("fingerprint"), MAX_KEY_LENGTH)
-        if not key:
+        key = alert.get("fingerprint").strip() if isinstance(alert.get("fingerprint"), str) else ""
+        if not key or len(key) > MAX_KEY_LENGTH:
             key = hashlib.sha256(json.dumps(labels, sort_keys=True, default=str).encode()).hexdigest()
         annotations = alert.get("annotations") if isinstance(alert.get("annotations"), dict) else {}
         summary = _text(annotations.get("summary"), MAX_SUMMARY_LENGTH) or _text(
@@ -135,13 +140,16 @@ def parse_generic(body) -> list[dict]:
         key = item.get("id", device)
         if not isinstance(key, (str, int)) or isinstance(key, bool) or not str(key).strip():
             raise WebhookError(f"{where}id must be a string or number")
+        # Refused, not cut: two long IDs must not become one alert.
+        if len(str(key).strip()) > MAX_KEY_LENGTH:
+            raise WebhookError(f"{where}id: at most {MAX_KEY_LENGTH} characters")
         started = item.get("started_at")
         if started is not None and _time(started) is None:
             raise WebhookError(f"{where}started_at must be an ISO 8601 time")
         events.append(
             {
                 "source": source.strip().lower(),
-                "key": str(key).strip()[:MAX_KEY_LENGTH],
+                "key": str(key).strip(),
                 "device": device,
                 "status": state,
                 "summary": _text(item.get("summary"), MAX_SUMMARY_LENGTH),
@@ -151,10 +159,20 @@ def parse_generic(body) -> list[dict]:
     return events
 
 
+def cutoff(now: datetime) -> datetime:
+    """Alerts not refreshed since then no longer count (a lost "resolved")."""
+    return now - timedelta(hours=settings.WEBHOOK_ALERT_TTL_HOURS)
+
+
 def store(conn, events: list[dict]) -> None:
-    """A firing alert is stored or refreshed; a resolved one is removed."""
+    """A firing alert is stored or refreshed; a resolved one is removed.
+
+    Expired alerts are deleted first, so one firing again later starts anew
+    (its own start time) and the table doesn't grow with lost resolves.
+    """
     now = timeutil.parse_iso_datetime(timeutil.iso_utc_now())
     with db.transaction(conn):
+        conn.execute("DELETE FROM webhook_device_alerts WHERE updated_at <= %s", (cutoff(now),))
         for event in events:
             if event["status"] == "up":
                 conn.execute(
@@ -171,6 +189,29 @@ def store(conn, events: list[dict]) -> None:
                 "started_at = COALESCE(webhook_device_alerts.started_at, excluded.started_at)",
                 (event["source"], event["key"], event["device"], event["summary"], event["started_at"] or now, now),
             )
+        if events:
+            inventory.record_sync_state(conn, RECEIVED_STATE, last_completed_at=timeutil.iso_utc_now())
+
+
+def _state_time(source: str, conn) -> datetime | None:
+    value = inventory.get_sync_state(source, conn=conn).get("last_completed_at")
+    parsed = timeutil.parse_iso_datetime(str(value)) if value else None
+    return parsed.replace(tzinfo=UTC) if parsed is not None and parsed.tzinfo is None else parsed
+
+
+def pending_rebuild(conn) -> datetime | None:
+    """When alerts arrived that no board build has taken in yet, else None."""
+    received = _state_time(RECEIVED_STATE, conn)
+    rebuilt = _state_time(REBUILT_STATE, conn)
+    return received if received is not None and (rebuilt is None or received > rebuilt) else None
+
+
+def mark_rebuilt(conn, received: datetime) -> None:
+    """A build that started after *received* has taken those alerts in."""
+    with db.transaction(conn):
+        inventory.record_sync_state(
+            conn, REBUILT_STATE, last_completed_at=received.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        )
 
 
 def _keys(device: str) -> tuple[str, str]:
@@ -182,11 +223,10 @@ def _keys(device: str) -> tuple[str, str]:
 
 def read_index(conn) -> dict:
     """``{"by_host": {...}, "by_ip": {...}}`` of the current alerts; per device the earliest."""
-    cutoff = timeutil.parse_iso_datetime(timeutil.iso_utc_now()) - timedelta(hours=settings.WEBHOOK_ALERT_TTL_HOURS)
     rows = conn.execute(
         "SELECT source, device_key, summary, started_at FROM webhook_device_alerts "
         "WHERE updated_at > %s ORDER BY started_at, source, alert_key",
-        (cutoff,),
+        (cutoff(timeutil.parse_iso_datetime(timeutil.iso_utc_now())),),
     ).fetchall()
     index: dict = {"by_host": {}, "by_ip": {}}
     for row in map(db.row_to_dict, rows):
