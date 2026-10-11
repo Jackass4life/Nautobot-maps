@@ -580,6 +580,17 @@ def add_probable_cause(conn) -> None:
     conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS is_core BOOLEAN NOT NULL DEFAULT FALSE")
 
 
+def add_site_first_seen(conn) -> None:
+    """When a site was first seen (#287): the availability report's start for
+    a site's first level, which updated_at forgets at the first change.
+    Known for sites that never changed level; for the others it stays NULL."""
+    conn.execute("ALTER TABLE site_alert_levels ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ")
+    conn.execute(
+        "UPDATE site_alert_levels l SET first_seen_at = l.updated_at WHERE first_seen_at IS NULL "
+        "AND NOT EXISTS (SELECT 1 FROM site_level_changes c WHERE c.site_id = l.site_id)"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -598,6 +609,7 @@ MIGRATIONS = (
     (12, "device_states", add_device_states),
     (13, "device_states.flapping_since", add_device_flapping),
     (14, "alert_instances.probable_cause", add_probable_cause),
+    (15, "site_alert_levels.first_seen_at", add_site_first_seen),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
