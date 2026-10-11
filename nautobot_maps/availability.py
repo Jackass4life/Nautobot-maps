@@ -179,23 +179,31 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
     for row in rows:
         by_site.setdefault(row["site_id"], []).append(row)
     sites = {}
-    for row in conn.execute("SELECT site_id, site_name, alert_level, updated_at FROM site_alert_levels").fetchall():
+    first_seen = {}
+    for row in conn.execute(
+        "SELECT site_id, site_name, alert_level, updated_at, first_seen_at FROM site_alert_levels"
+    ).fetchall():
+        first_seen[row["site_id"]] = _dt(row["first_seen_at"])
         if row["site_id"] in by_site or row["alert_level"] != "critical":
             continue
         # Critical since it was first seen, never changed.
-        seen = max(_dt(row["updated_at"]) or start, start)
+        seen = max(_dt(row["first_seen_at"]) or _dt(row["updated_at"]) or start, start)
         if seen < end:
             sites[row["site_id"]] = {"name": row["site_name"] or "", "intervals": [(seen, end)]}
     for site_id, changes in by_site.items():
         before = [c for c in changes if _dt(c["changed_at"]) <= start]
         during = [c for c in changes if start < _dt(c["changed_at"]) < end]
         after = [c for c in changes if _dt(c["changed_at"]) >= end]
+        intervals = []
+        since = start
         if before:
             level = before[-1]["to_level"]
         else:
+            # The level the first change came from, since the site was first
+            # seen (not before it existed here).
             level = (during or after)[0]["from_level"]
-        intervals = []
-        since = start
+            if first_seen.get(site_id) and first_seen[site_id] > start:
+                since = min(first_seen[site_id], end)
         for change in during:
             at = _dt(change["changed_at"])
             if level == "critical":
