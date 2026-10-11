@@ -170,6 +170,9 @@ const site = { id: "s1", name: "Oslo", down_devices: [
 check(siteCaseState(site).state === "handled", "a case or an ack: someone is on it");
 check(caseStateBadge(site).includes("✓ INC-1 · ACK"), caseStateBadge(site));
 check(ackButton(site).includes(">Acknowledge<"), "one device isn't acknowledged: Acknowledge");
+// One acknowledged and one untouched: "1 of 2 no case or ack", not "no case".
+const partly = { id: "s3", down_devices: [{ device_id: "a", acknowledged: ack }, { device_id: "b" }] };
+check(caseStateBadge(partly).includes(">1 of 2 no case or ack<"), caseStateBadge(partly));
 site.down_devices[1].acknowledged = ack;
 check(ackButton(site).includes("unack-btn") && ackButton(site).includes(">Remove ack<"), ackButton(site));
 check(ackButton({ id: "s2", down_devices: [{ device_id: "", device_name: "ghost" }] }) === "", "nothing to acknowledge");
