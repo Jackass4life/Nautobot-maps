@@ -1637,11 +1637,11 @@ lastLoadedAt = Date.UTC(2026, 9, 5, 14, 5);
 renderWallStatus(lastLoadedAt + 60000);
 const clock = formatClock(lastLoadedAt);
 check(clock.includes("05"), clock);
-check(wallUpdatedEl.textContent === `Updated ${clock} · 2 sites with alarms · 2 without case`, wallUpdatedEl.textContent);
+check(wallUpdatedEl.textContent === `Updated ${clock} · 2 sites with alarms · 2 without case or ack`, wallUpdatedEl.textContent);
 check(!classes.has("wall-stale"), "fresh");
 allAlerts = [{ alert_level: "medium" }];
 renderWallStatus(lastLoadedAt);
-check(wallUpdatedEl.textContent.endsWith("· 1 site with alarms · 1 without case"), wallUpdatedEl.textContent);
+check(wallUpdatedEl.textContent.endsWith("· 1 site with alarms · 1 without case or ack"), wallUpdatedEl.textContent);
 renderWallStatus(lastLoadedAt + WALL_STALE_MS);
 check(wallUpdatedEl.textContent === `NOT UPDATED since ${clock}` && classes.has("wall-stale"), wallUpdatedEl.textContent);
 """)
@@ -1881,7 +1881,7 @@ check(siteCaseState({ alert_level: "critical" }).state === "none", "no devices")
 check(siteCaseState({ down_devices: [{ device_id: "x" }] }).state === "none", "no case_numbers field");
 
 check(caseStateBadge(none).includes(">NO CASE<") && caseStateBadge(none).includes("case-state-none"), caseStateBadge(none));
-check(caseStateBadge(partly).includes(">1 of 2 no case<"), caseStateBadge(partly));
+check(caseStateBadge(partly).includes(">1 of 2 no case or ack<"), caseStateBadge(partly));
 let badge = caseStateBadge(handled);
 check(badge.includes("case-state-handled") && badge.includes("✓ INC-1, INC-2<"), "each case once: " + badge);
 badge = caseStateBadge({ down_devices: [dev("a", ['<b>"x"'])] });
@@ -1900,7 +1900,7 @@ check(order === "Aarhus,Oslo,London", "handled last, the rest keep their order: 
 allAlerts = sites;
 lastLoadedAt = Date.now();
 renderWallStatus(lastLoadedAt);
-check(wallUpdatedEl.textContent.endsWith("· 3 sites with alarms · 2 without case"), wallUpdatedEl.textContent);
+check(wallUpdatedEl.textContent.endsWith("· 3 sites with alarms · 2 without case or ack"), wallUpdatedEl.textContent);
 """)
 
     def test_wall_site_name_is_plain_text(self):
