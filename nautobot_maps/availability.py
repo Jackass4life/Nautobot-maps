@@ -18,7 +18,7 @@ import io
 import re
 from datetime import UTC, datetime, timedelta
 
-from nautobot_maps import alerts, settings, timeutil
+from nautobot_maps import alerts, inventory, settings, timeutil
 
 BASES = ("any_down", "critical")
 MONTH_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
@@ -136,8 +136,9 @@ def read_incidents(conn, start: datetime, end: datetime, at: datetime) -> dict:
     down at any point in the period; an open one is down until *at*."""
     rows = conn.execute(
         "SELECT site_id, site_name, device_id, down_started_at, resolved_at FROM alert_instances "
-        "WHERE down_started_at < %s AND (resolved_at IS NULL OR resolved_at > %s)",
-        (end, start),
+        # The same expression as idx_alert_instances_period.
+        "WHERE COALESCE(resolved_at, 'infinity'::timestamptz) > %s AND down_started_at < %s",
+        (start, end),
     ).fetchall()
     sites: dict[str, dict] = {}
     for row in rows:
@@ -369,5 +370,9 @@ def to_csv(data: dict, view: str) -> str:
 
 def board_sites() -> list[dict]:
     """The board's rows, for the site list and tenants.  Raises when the board
-    can't be read: a report without them would miss sites and tenants."""
-    return alerts.cached_alert_board().get("alerts") or []
+    can't be read: a report without them would miss sites and tenants.  So
+    is an empty board before the first inventory sync has finished."""
+    rows = alerts.cached_alert_board().get("alerts") or []
+    if not rows and not inventory.snapshot_initialized():
+        raise RuntimeError("the inventory snapshot is not ready yet")
+    return rows
