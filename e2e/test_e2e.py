@@ -121,3 +121,58 @@ def test_a_tenant_status_page(page):
         page.wait_for_timeout(100)
     assert "operational" in headline.inner_text().lower() or "affected" in headline.inner_text().lower()
     assert page.locator(".status-site").count() > 0
+
+
+def test_the_map_at_scale(page):
+    """1,200 sites, 25 in alarm, 3 in maintenance (#334): every one of those is its
+    own pin at the first zoom, the rest are a few quiet clusters, and a site
+    inside a cluster opens from a link."""
+    sites = [
+        {
+            "id": f"s{i}",
+            "name": f"Site {i:04d}",
+            "latitude": 40 + (i % 40) * 0.5,
+            "longitude": -5 + (i // 40) * 0.8,
+            "status": "Active",
+            "location_type": "Site",
+        }
+        for i in range(1200)
+    ]
+    levels = {f"s{i}": {"level": "ok", "down": 0, "monitored": 8} for i in range(1200)}
+    for n in range(25):
+        levels[f"s{n * 40}"] = {"level": ("critical", "medium", "low")[n % 3], "reason": "x", "down": 2, "monitored": 8}
+    for n in range(3):
+        levels[f"s{n * 40 + 7}"] = {"level": "maintenance", "down": 0, "monitored": 8}
+    page.route("**/api/locations", lambda route: route.fulfill(json={"locations": sites}))
+    page.route("**/api/location-alerts", lambda route: route.fulfill(json={"levels": levels}))
+    page.route(
+        "**/api/locations/*/detail*", lambda route: route.fulfill(json={"devices": [], "asns": [], "circuits": []})
+    )
+    page.route("https://*.tile.openstreetmap.org/**", lambda route: route.abort())
+
+    started = time.monotonic()
+    page.goto(f"{BASE_URL}/")
+    page.locator("#location-count", has_text="1200 locations").wait_for(timeout=20000)
+    alarm_pins = page.locator(".leaflet-marker-icon:has(svg)")
+    # The 28 pins come once the levels are in; the clusters are the rest.
+    for _ in range(100):
+        if alarm_pins.count() == 28:
+            break
+        page.wait_for_timeout(100)
+    loaded = time.monotonic() - started
+    clusters = page.locator(".leaflet-marker-icon:has(.quiet-cluster)")
+    assert alarm_pins.count() == 28, alarm_pins.count()
+    assert 0 < clusters.count() < 60, f"{clusters.count()} clusters at the first zoom"
+    assert loaded < 10, f"{loaded:.1f} s to show 1,200 sites"
+    # No cluster wears an alarm colour: the alarms are the pins.
+    for colour in ("#e74c3c", "#ff8c00", "#eab308"):
+        assert (
+            page.locator(
+                f".leaflet-marker-icon:has(.quiet-cluster[style*='{colour}'], .quiet-dot[style*='{colour}'])"
+            ).count()
+            == 0
+        ), colour
+
+    # A quiet site inside a cluster opens from a link: the map zooms to it.
+    page.goto(f"{BASE_URL}/?location_id=s613")
+    page.locator("#inspector-title", has_text="Site 0613").wait_for(timeout=20000)

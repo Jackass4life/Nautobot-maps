@@ -1,6 +1,6 @@
 // Alert levels of every location, so markers are coloured without a click (#234).
 import { applyLevelToOpenPanel } from "./inspector.js";
-import { refreshMarkerIcon } from "./markers.js";
+import { crossesClusterLine, redrawMarkers, refreshMarkerIcon } from "./markers.js";
 import { detailCache, els, locationAlerts, state } from "./state.js";
 
 const ALERT_REFRESH_MS = 60 * 1000;
@@ -45,12 +45,15 @@ export async function loadLocationAlerts() {
   for (const id of detailCache.keys()) {
     if (id !== state.selectedLocationId) detailCache.delete(id);
   }
-  for (const id of changed) refreshMarkerIcon(id);
+  // A site that started or stopped needing attention: one redraw for all.
+  if ([...changed].some(crossesClusterLine)) redrawMarkers();
+  else for (const id of changed) refreshMarkerIcon(id);
   applyLevelToOpenPanel(levels);
 }
 
-export function startLocationAlertRefresh() {
-  loadLocationAlerts();
+// Every minute while the tab is visible; *loadNow*: also now.
+export function startLocationAlertRefresh({ loadNow = true } = {}) {
+  if (loadNow) loadLocationAlerts();
   setInterval(() => {
     if (!document.hidden) loadLocationAlerts();
   }, ALERT_REFRESH_MS);

@@ -10,7 +10,7 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 
 ## Features
 
-- **Map** of every Nautobot location with coordinates, coloured by alert level, with clustering for large inventories. Click a site for its devices, ASNs and circuits; search by address or `lat,lon` for sites within 5 km.
+- **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom. Click a site for its devices, ASNs and circuits; search by address or `lat,lon` for sites within 5 km.
 - **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, downtime, and case numbers. It opens on sites with alarms and updates itself.
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating.
 - **Cases and ITSM**: attach a case number to down devices, or copy a site as text for a ticket. History and an activity feed show what went down and came back.

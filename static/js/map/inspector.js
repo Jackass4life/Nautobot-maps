@@ -16,7 +16,6 @@ import {
   tenantRow,
 } from "./panel.js";
 import {
-  clusterByLocId,
   colocGroupByLocId,
   detailCache,
   els,
@@ -396,32 +395,21 @@ export function handleMarkerActivation(marker, locId, groupIds, focusElement) {
   openInspectorForLocation(locId, { groupIds, focusElement, focusInspector: true });
 }
 
-// Fly to *locId* and open its panel.  Inside a cluster or a stack not yet
-// drawn, zoom in first; the map's zoomend opens it (state.pendingLocationOpen).
+// From this zoom nothing is clustered (map/main.js), so a site is its own marker.
+export const UNCLUSTERED_ZOOM = 15;
+
+// Show *locId* on the map and open its panel; false when it isn't drawn
+// (filtered out).  A quiet site in a cluster: zoom in until it is its own
+// marker.  (Not markercluster's zoomToShowLayer: a redraw while it zooms
+// would leave it waiting on a removed marker.)
 export function openLocationById(locId, options = {}) {
-  const { map } = state;
   const loc = getLocationById(locId);
-  if (!loc) return false;
-  const expectedGroupIds = getColocatedLocationIds(locId);
-  const shouldResolveColocatedGroup = expectedGroupIds.length > 1 && map.getZoom() < 8;
-  if (shouldResolveColocatedGroup) {
-    state.pendingLocationOpen = { locId, options };
-    map.flyTo([loc.latitude, loc.longitude], Math.max(map.getZoom(), 8), { duration: 0.8 });
-    return false;
-  }
-
   const marker = markerByLocId[locId];
-  if (!marker) {
-    const clusterMarker = clusterByLocId[locId];
-    if (!clusterMarker) return false;
-    state.pendingLocationOpen = { locId, options };
-    map.flyTo(clusterMarker.getLatLng(), Math.max(map.getZoom(), 8), { duration: 0.8 });
-    return false;
-  }
-
-  map.flyTo([loc.latitude, loc.longitude], Math.max(map.getZoom(), 13), { duration: 0.8 });
+  if (!loc || !marker) return false;
+  const zoom = state.clusterLayer?.hasLayer(marker) ? UNCLUSTERED_ZOOM : 13;
+  state.map.flyTo([loc.latitude, loc.longitude], Math.max(state.map.getZoom(), zoom), { duration: 0.8 });
   openInspectorForLocation(locId, {
-    groupIds: colocGroupByLocId[locId] || expectedGroupIds,
+    groupIds: colocGroupByLocId[locId] || getColocatedLocationIds(locId),
     focusElement: options.focusElement || marker.getElement(),
     focusInspector: options.focusInspector,
   });
