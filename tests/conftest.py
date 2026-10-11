@@ -13,6 +13,7 @@ dev container and CI do).  Without it those tests are skipped, except in CI
 
 import os
 import sys
+import threading
 import uuid
 from urllib.parse import quote
 
@@ -189,6 +190,24 @@ def _moved_names_are_not_set_on_app():
     assert not stray, f"set these on their nautobot_maps module, not on app: {stray}"
 
 
+def join_background_threads(timeout: float = 15.0) -> None:
+    """Wait for background syncs and rebuilds a test started, so none runs
+    into the next test (whose schema is another, or already dropped).  Not
+    the scheduler's endless loop (#299)."""
+    from nautobot_maps import inventory, scheduler
+
+    names = {inventory.SYNC_THREAD_NAME, scheduler.PUSH_REBUILD_THREAD_NAME}
+    for thread in threading.enumerate():
+        if thread.name in names and thread is not threading.current_thread():
+            thread.join(timeout)
+
+
+@pytest.fixture(autouse=True)
+def _no_background_threads_left():
+    yield
+    join_background_threads()
+
+
 def _with_search_path(url: str, schema: str) -> str:
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}options={quote(f'-csearch_path={schema}')}"
@@ -232,6 +251,8 @@ def pg_database(monkeypatch):
     try:
         yield TestDatabase(url)
     finally:
+        # Before the schema goes: a sync still running would fail in the next test.
+        join_background_threads()
         caching.cache.clear()
         with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA "{schema}" CASCADE')

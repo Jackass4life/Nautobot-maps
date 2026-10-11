@@ -13,3 +13,8 @@ select = ["E", "W", "F", "B", "I", "UP"]
 # Line length is the formatter's job; the few lines it cannot wrap (long
 # strings, URLs) are fine as they are.
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+# A background thread that outlives its test fails in the next one (#299):
+# conftest waits for them; this keeps it that way.
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]

@@ -20,6 +20,7 @@ FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293).
 CACHE_VERSION = "5"
 sync_lock = threading.Lock()
+SYNC_THREAD_NAME = "inventory-sync"
 
 
 def json_load_list(value) -> list:
@@ -1179,7 +1180,8 @@ def ensure_snapshot(force: bool = False, wait: bool = False, full: bool | None =
         return _run_with_lock()
     if not sync_lock.acquire(blocking=False):
         return False
-    threading.Thread(target=_run_with_lock, daemon=True).start()
+    # Named, so tests can wait for it before dropping their schema (#299).
+    threading.Thread(target=_run_with_lock, name=SYNC_THREAD_NAME, daemon=True).start()
     return True
 
 
