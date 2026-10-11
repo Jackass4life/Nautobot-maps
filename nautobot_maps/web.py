@@ -964,6 +964,9 @@ def api_status(tenant: str):
         logger.warning("Status page unavailable: %s", type(exc).__name__)
         return jsonify({"error": "Status unavailable, try again shortly"}), 503
     if result is None:
+        # Before the first sync the board is empty: that's not "no sites".
+        if not inventory.snapshot_initialized():
+            return jsonify({"error": "Status unavailable, try again shortly"}), 503
         return jsonify({"error": "No sites for this tenant"}), 404
     response = jsonify(result)
     response.headers["Cache-Control"] = "no-store"
