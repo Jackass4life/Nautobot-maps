@@ -1,7 +1,7 @@
 """Case numbers link to the ITSM ticket (#289)."""
 
+import json
 import os
-import shutil
 import subprocess
 import sys
 
@@ -9,7 +9,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import itsm, notify, settings
-from tests.test_integration import REPO_ROOT, _extract_js_function
+from tests.js_modules import REPO_ROOT, run_js
 
 TEMPLATE = "https://itsm.example.com/ticket/{case}"
 
@@ -107,13 +107,13 @@ def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
 
 class TestInTheBrowser:
     def _run(self, body, template=TEMPLATE):
-        if shutil.which("node") is None:
-            pytest.skip("node is required")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(_extract_js_function(js, n) for n in ("escHtml", "caseUrl", "casePill", "caseWithUrl"))
-        script = f'function check(c, m) {{ if (!c) throw new Error(m); }}\nconst CASE_URL_TEMPLATE = "{template}";\n{functions}\n{body}'
-        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+        run_js(
+            f"""
+import {{ casePill, caseWithUrl, setCaseUrlTemplate }} from "@js/lib/cases.js";
+setCaseUrlTemplate({json.dumps(template)});
+"""
+            + body
+        )
 
     def test_a_link_to_the_ticket(self):
         self._run("""

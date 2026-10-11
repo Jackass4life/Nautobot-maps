@@ -1,13 +1,12 @@
 """Configurable severity thresholds and a site importance tier (#293)."""
 
-import shutil
 import subprocess
 
 import pytest
 
 from nautobot_maps import alerts, inventory, notify, settings
 from tests import test_maintenance
-from tests.test_integration import REPO_ROOT, _extract_js_function
+from tests.js_modules import run_js
 from tests.test_maintenance import build
 
 clock = test_maintenance.clock
@@ -105,19 +104,10 @@ class TestNotifications:
 
 
 def test_the_tier_label_and_sort():
-    if shutil.which("node") is None:
-        pytest.skip("node is required")
-    js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-    import re
-
-    order = re.search(r"const SEVERITY_ORDER = \[[^\]]*\];", js).group(0)
-    names = ("escHtml", "tierPill", "severityWeight", "compareText", "latestDownTime", "compareSites")
-    script = (
-        "function check(c, m) { if (!c) throw new Error(m); }\n"
-        + order
-        + "\n"
-        + "\n".join(_extract_js_function(js, n) for n in names)
-        + """
+    run_js(
+        """
+import { compareSites } from "@js/alerts/filters.js";
+import { tierPill } from "@js/alerts/rows.js";
 check(tierPill({ tier: "gold", tier_rank: 0 }).includes('class="tier-pill tier-top"') && tierPill({ tier: "gold", tier_rank: 0 }).includes(">GOLD<"), "top tier");
 check(tierPill({ tier: "silver", tier_rank: 1 }).includes('class="tier-pill"'), "other tier");
 check(tierPill({}) === "", "none");
@@ -130,8 +120,6 @@ sites.sort((a, b) => compareSites(a, b, "severity"));
 check(sites.map((s) => s.name).join() === "Hospital,Office,Depot", sites.map((s) => s.name).join());
 """
     )
-    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-    assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
 class TestTierChangesDuringAnAlarm:

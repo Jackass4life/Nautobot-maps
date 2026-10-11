@@ -2,6 +2,7 @@
   "name": "nautobot-maps-dev-tools",
   "private": true,
   "description": "Development tools only (linting of static/js); the app itself is Python.",
+  "type": "module",
   "scripts": {
     "lint:js": "eslint static/js"
   },

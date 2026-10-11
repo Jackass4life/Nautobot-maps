@@ -10,7 +10,6 @@ Run with:
 """
 
 import json
-import os
 import pathlib
 import re
 import shutil
@@ -23,6 +22,7 @@ from werkzeug.serving import make_server
 
 import app as flask_app
 from nautobot_maps import caching, inventory, settings
+from tests.js_modules import run_js
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -708,7 +708,7 @@ class TestAlertBoardColdStart:
         assert london["down_device_count"] == 2
 
     def test_refresh_button_sends_a_value_the_server_accepts(self, integration_client):
-        js = integration_client.get("/static/js/alerts.js").get_data(as_text=True)
+        js = integration_client.get("/static/js/alerts/board.js").get_data(as_text=True)
         assert 'params.set("refresh", "1")' in js
         assert "persistence_configured === false" in js
         # #121: a timestamp as the refresh value was silently ignored.  Date.now()
@@ -741,27 +741,20 @@ class TestMultiDeviceCaseFlow:
 
 
 class TestAlertBoardCountdown:
-    """Runtime checks of the next-update countdown in alerts.js (#152)."""
+    """Runtime checks of the next-update countdown on the board (#152)."""
 
     def test_countdown_formats_and_triggers_one_background_update(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the countdown runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name) for name in ("formatCountdown", "setNextUpdate", "renderNextUpdate")
-        )
-        script = f"""
-const AUTO_UPDATE_MIN_GAP_MS = 30000;
-let nextUpdateDueAt = null;
-let lastAutoUpdateAt = 0;
-let syncPollTimer = null;
-let latestPayload = {{ sync_pending: false }};
-const refreshBtn = {{ disabled: false }};
-const nextUpdateEl = {{ textContent: "", hidden: true }};
+        run_js("""
+import { formatCountdown } from "@js/lib/format.js";
+import { renderNextUpdate, setNextUpdate } from "@js/alerts/board.js";
+import { els, state } from "@js/alerts/state.js";
+
+// The board's reloads are counted, and never answered.
 const loads = [];
-function loadAlertBoard(force, options) {{ loads.push([force, options]); }}
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{functions}
+globalThis.fetch = (url) => { loads.push(url); return new Promise(() => {}); };
+els.refreshBtn = element("refresh");
+els.nextUpdateEl = element("next-update", { hidden: true });
+const nextUpdateEl = els.nextUpdateEl;
 
 check(formatCountdown(0) === "0:00", formatCountdown(0));
 check(formatCountdown(59.2) === "1:00", formatCountdown(59.2));
@@ -770,44 +763,37 @@ check(formatCountdown(3725) === "1:02:05", formatCountdown(3725));
 check(formatCountdown(-5) === "0:00", formatCountdown(-5));
 
 // Counting down.
-setNextUpdate({{ next_update_in_seconds: 222 }}, 1000000);
+setNextUpdate({ next_update_in_seconds: 222 }, 1000000);
 check(!nextUpdateEl.hidden && nextUpdateEl.textContent === "Next update in 3:42", nextUpdateEl.textContent);
 renderNextUpdate(1000000 + 22000);
 check(nextUpdateEl.textContent === "Next update in 3:20", nextUpdateEl.textContent);
 check(loads.length === 0, "no update before zero");
 
-// At zero: exactly one background reload, then none until the gap has passed.
+// At zero: exactly one background reload (no refresh), then none until the gap has passed.
 renderNextUpdate(1000000 + 222000);
 check(nextUpdateEl.textContent === "Updating…", nextUpdateEl.textContent);
-check(loads.length === 1 && loads[0][0] === false && loads[0][1].background === true, JSON.stringify(loads));
+check(loads.length === 1 && loads[0] === "/api/alerts", JSON.stringify(loads));
+check(!els.refreshBtn.disabled, "a background reload leaves the Refresh button alone");
 renderNextUpdate(1000000 + 223000);
 renderNextUpdate(1000000 + 240000);
 check(loads.length === 1, "reloaded again inside the gap");
 renderNextUpdate(1000000 + 252001);
 check(loads.length === 2, "should retry after the gap");
 
-// Not while sync polling is already running.
-syncPollTimer = 1;
+// Not while the operator's own load runs.
+els.refreshBtn.disabled = true;
 renderNextUpdate(1000000 + 400000);
-check(loads.length === 2, "must not reload while sync polling runs");
-syncPollTimer = null;
+check(loads.length === 2, "must not reload while a load runs");
+els.refreshBtn.disabled = false;
 
 // A running sync shows Updating…; an unknown schedule hides the countdown.
-latestPayload = {{ sync_pending: true }};
-setNextUpdate({{ next_update_in_seconds: null }}, 2000000);
+state.latestPayload = { sync_pending: true };
+setNextUpdate({ next_update_in_seconds: null }, 2000000);
 check(!nextUpdateEl.hidden && nextUpdateEl.textContent === "Updating…", "sync pending");
-latestPayload = {{ sync_pending: false }};
+state.latestPayload = { sync_pending: false };
 renderNextUpdate(2000000);
 check(nextUpdateEl.hidden, "hidden when unknown");
-"""
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+""")
 
     def test_board_template_has_countdown_element(self, integration_client):
         html = integration_client.get("/alerts").data.decode()
@@ -819,102 +805,54 @@ class TestSiteMetaInTheBrowser:
 
     def test_the_row_shows_only_the_path(self):
         """Not "LATAM › BRA · Active · Site": the row uses siteMeta alone (#269)."""
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        rows = _extract_js_function(js, "renderTableRows")
-        assert "const meta = siteMeta(item);" in rows
-        assert "item.status" not in rows and "item.location_type" not in rows, "status/type are not shown on the row"
+        run_js("""
+import { siteRowsHtml } from "@js/alerts/rows.js";
+const site = { id: "s1", name: "Rio", ancestor_path: "LATAM › BRA", status: "Active", location_type: "Site Type X" };
+const html = siteRowsHtml([site], { wallView: false, isExpanded: () => false });
+check(html.includes('<div class="site-meta">LATAM › BRA</div>'), html);
+check(!html.includes("Active") && !html.includes("Site Type X"), "status/type are not shown on the row: " + html);
+""")
 
     def test_site_meta_is_only_the_path(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(_extract_js_function(js, name) for name in ("escHtml", "siteMeta"))
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{functions}
-
-const site = {{ ancestor_path: "EMEA › DNK", parent: "DNK", country: "Denmark", tenant: "Acme", tenant_group: "JM" }};
+        run_js("""
+import { siteMeta } from "@js/alerts/rows.js";
+const site = { ancestor_path: "EMEA › DNK", parent: "DNK", country: "Denmark", tenant: "Acme", tenant_group: "JM" };
 let meta = siteMeta(site);
 check(meta === "EMEA › DNK", meta);
-meta = siteMeta({{ parent: "R&D", country: "Denmark", tenant: "Acme" }});
+meta = siteMeta({ parent: "R&D", country: "Denmark", tenant: "Acme" });
 check(meta === "R&amp;D", meta);
-check(siteMeta({{ tenant: "Acme" }}) === "", "empty without a path");
-"""
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+check(siteMeta({ tenant: "Acme" }) === "", "empty without a path");
+""")
 
 
 class TestCompactActionsInTheBrowser:
     """One line of small buttons per row; the case form is in a side panel (#179)."""
 
-    FUNCTIONS = (
-        "escHtml",
-        "devicesLabel",
-        "caseButtonLabel",
-        "deviceCaseList",
-        "deviceHasCase",
-        "caseTargetIds",
-        "syncCaseSelection",
-        "downDeviceList",
-        "caseDevices",
-        "historyButton",
-        "maintenanceButton",
-        "rowMenu",
-        "ackButton",
-        "actionCell",
-        "siteNameHtml",
-        "caseUrl",
-        "casePill",
-        "renderCaseForm",
-        "hideSidePanel",
-        "openSidePanel",
-        "restorePanelFocus",
-        "closeSidePanel",
-    )
+    IMPORTS = """
+import { caseButtonLabel, caseTargetIds, renderCaseForm, syncCaseSelection } from "@js/alerts/case-panel.js";
+import { closeSidePanel, openSidePanel } from "@js/alerts/panels.js";
+import { actionCell, siteNameHtml } from "@js/alerts/rows.js";
+import { els } from "@js/alerts/state.js";
+
+// Panels start hidden; the row buttons that open them are looked up again on close.
+function panel(name) {
+  const el = element(name);
+  el.classList.add("hidden");
+  return el;
+}
+const buttons = {};
+document.querySelector = (selector) => buttons[selector] || null;
+const historyPanel = panel("history-panel");
+const casePanel = panel("case-panel");
+Object.assign(els, { historyPanel, casePanel });
+// A button in a row's "⋯" menu (#311) is found in its menu.
+function rowButton(name, menu = null) {
+  return element(name, { closest: (selector) => (selector === "details.row-menu" ? menu : null) });
+}
+"""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(_extract_js_function(js, name) for name in self.FUNCTIONS)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const focused = [];
-function fakeElement(name) {{
-  const classes = new Set(["hidden"]);
-  return {{
-    name,
-    attrs: {{}},
-    classList: {{
-      add: (c) => classes.add(c),
-      remove: (c) => classes.delete(c),
-      contains: (c) => classes.has(c),
-    }},
-    setAttribute(key, value) {{ this.attrs[key] = value; }},
-    focus() {{ focused.push(name); }},
-    // A button in a row's "⋯" menu (#311) is found in its menu.
-    menu: null,
-    closest(selector) {{ return selector === "details.row-menu" ? this.menu : null; }},
-  }};
-}}
-const buttons = {{}};
-const CASE_URL_TEMPLATE = "";
-const document = {{ querySelector: (selector) => buttons[selector] || null }};
-const historyPanel = fakeElement("history-panel");
-const casePanel = fakeElement("case-panel");
-const sidePanels = [historyPanel, casePanel];
-let panelTriggerSelector = null;
-{functions}
-{body}
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+        run_js(self.IMPORTS + body)
 
     def test_action_cell_is_one_line_of_buttons(self):
         self._run("""
@@ -947,11 +885,17 @@ html = actionCell({ id: "s4", name: "Kiel", down_device_count: 0, down_devices: 
 check(html.includes("history-btn") && html.includes("copy-site-btn"), html);
 """)
 
-    def test_toggle_and_history_use_the_same_list(self):
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        assert "const toggleButton = downDeviceList(item).length" in js
-        assert "if (!downDeviceList(item).length)" in _extract_js_function(js, "actionCell")
-        assert "const downDevices = downDeviceList(item);" in _extract_js_function(js, "renderDownDeviceRows")
+    def test_toggle_and_rows_use_the_same_list(self):
+        """The toggle, the actions and the device rows all follow down_devices, not the count."""
+        self._run("""
+import { renderDownDeviceRows, siteRowsHtml } from "@js/alerts/rows.js";
+const kept = { id: "s4", name: "Kiel", down_device_count: 0, down_devices: [{ device_id: "d9", device_name: "sw9" }] };
+const html = siteRowsHtml([kept], { wallView: false, isExpanded: () => true });
+check(html.includes('class="site-toggle-btn"') && html.includes("sw9"), html);
+check(renderDownDeviceRows(kept, true).includes("sw9"), "device rows");
+const none = siteRowsHtml([{ id: "s5", name: "Oslo", down_device_count: 3 }], { wallView: false, isExpanded: () => true });
+check(!none.includes("site-toggle-btn") && none.includes("site-toggle-spacer"), none);
+""")
 
     def test_site_name_links_to_the_map(self):
         self._run("""
@@ -1000,12 +944,31 @@ check(!html.includes("Open cases") && !html.includes("Every down device"), "no c
 
     def test_the_request_only_sends_devices_without_the_number(self):
         """Mixed selection: the POST must not re-link a device that has the number (Copilot on #274)."""
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        submit = js[js.index('casePanel?.addEventListener("submit"') :]
-        submit = submit[: submit.index("\n});\n") + 4]
-        assert "const deviceIds = caseTargetIds(form, caseNumber);" in submit
-        assert submit.index("const caseNumber") < submit.index("const deviceIds")
-        assert "device_ids: deviceIds" in submit and ":checked" not in submit
+        self._run("""
+import { initCasePanel } from "@js/alerts/case-panel.js";
+const sent = [];
+globalThis.fetch = async (url, options) => {
+  sent.push(JSON.parse(options.body));
+  return { ok: false, status: 500, json: async () => ({ error: "stop here" }) };
+};
+const errors = [];
+document.getElementById = (id) => (id === "error-toast" ? element("toast") : null);
+const listeners = {};
+casePanel.addEventListener = (type, listener) => { listeners[type] = listener; };
+initCasePanel();
+
+const box = (checked, cases, value) => ({ checked, value, dataset: { cases: cases.join("\\n") }, nextElementSibling: { textContent: value } });
+const boxes = [box(true, ["INC-881"], "d1"), box(true, [], "d2"), box(false, [], "d3")];
+const form = element("form", {
+  dataset: { siteId: "s1" },
+  querySelectorAll: () => boxes,
+  querySelector: (sel) => (sel === ".case-input" ? { value: " INC-881 " } : sel === ".case-save-btn" ? element("save") : null),
+});
+listeners.submit({ target: { closest: () => form }, preventDefault() {} });
+await new Promise((resolve) => setTimeout(resolve, 0));
+check(sent.length === 1, JSON.stringify(sent));
+check(JSON.stringify(sent[0]) === '{"site_id":"s1","device_ids":["d2"],"case_number":"INC-881"}', JSON.stringify(sent[0]));
+""")
 
     def test_button_says_when_the_number_is_already_there(self):
         self._run("""
@@ -1037,21 +1000,21 @@ check(button.textContent === "Already on 1 device" && button.disabled, button.te
 
     def test_one_panel_at_a_time_and_focus_returns_to_the_row(self):
         self._run("""
-buttons['.history-btn[data-site-id="s1"]'] = fakeElement("history s1");
-buttons['.case-open-btn[data-site-id="s1"]'] = fakeElement("case s1");
+buttons['.history-btn[data-site-id="s1"]'] = rowButton("history s1");
+buttons['.case-open-btn[data-site-id="s1"]'] = rowButton("case s1");
 
-openSidePanel(historyPanel, '.history-btn[data-site-id="s1"]', fakeElement("history close"));
+openSidePanel(historyPanel, '.history-btn[data-site-id="s1"]', element("history close"));
 check(!historyPanel.classList.contains("hidden") && historyPanel.attrs["aria-hidden"] === "false", "history open");
 check(focused.at(-1) === "history close", "focus moves into the panel");
 
 // Opening the case panel closes History.
-openSidePanel(casePanel, '.case-open-btn[data-site-id="s1"]', fakeElement("case input"));
+openSidePanel(casePanel, '.case-open-btn[data-site-id="s1"]', element("case input"));
 check(historyPanel.classList.contains("hidden") && historyPanel.attrs["aria-hidden"] === "true", "history closed");
 check(focused.at(-1) === "case input", "focus in the case field");
 
 // Closing (Close button or Escape) returns focus to the + Case button,
 // looked up again because the board may have re-rendered meanwhile.
-buttons['.case-open-btn[data-site-id="s1"]'] = fakeElement("case s1 (re-rendered)");
+buttons['.case-open-btn[data-site-id="s1"]'] = rowButton("case s1 (re-rendered)");
 closeSidePanel(casePanel);
 check(casePanel.classList.contains("hidden"), "case panel closed");
 check(focused.at(-1) === "case s1 (re-rendered)", focused.join());
@@ -1059,11 +1022,9 @@ closeSidePanel(casePanel);
 check(focused.length === 3, "closing a closed panel does nothing");
 
 // Opened from a row's "⋯" menu, closed since: focus goes to the menu button (#311).
-const menuButton = fakeElement("menu s1");
+const menuButton = element("menu s1");
 const menu = { open: false, querySelector: () => menuButton };
-const copyButton = fakeElement("copy s1");
-copyButton.menu = menu;
-buttons['.copy-site-btn[data-site-id="s1"]'] = copyButton;
+buttons['.copy-site-btn[data-site-id="s1"]'] = rowButton("copy s1", menu);
 openSidePanel(casePanel, '.copy-site-btn[data-site-id="s1"]');
 closeSidePanel(casePanel);
 check(focused.at(-1) === "menu s1", focused.join());
@@ -1085,27 +1046,14 @@ class TestAlertFeedInTheBrowser:
     """The activity panel beside the board (#180)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = ("escHtml", "alertBadge", "formatFeedTime", "renderFeedEvent", "renderFeed", "feedStartsCollapsed")
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        width = re.search(r"const FEED_OPEN_MIN_WIDTH_PX = \d+;", js).group(0)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{width}
-{functions}
-{body}
+        run_js(
+            """
+import { formatFeedTime } from "@js/lib/format.js";
+import { feedStartsCollapsed, renderFeed, renderFeedEvent } from "@js/alerts/feed.js";
 """
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            env={**os.environ, "TZ": "UTC"},
-            capture_output=True,
-            text=True,
-            check=False,
+            + body,
+            tz="UTC",
         )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
 
     def test_entries(self):
         self._run("""
@@ -1163,31 +1111,26 @@ check(feedStartsCollapsed("1", 1920) === true, "hidden by the user stays hidden"
 class TestSeverityTiersInTheBrowser:
     """Low and No data on the board and the map (#124)."""
 
-    def test_board_and_map_render_the_new_levels(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        board = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        map_js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        rank = re.search(r"const ALERT_RANK = \{[^}]*\};", map_js).group(0)
-        order = re.search(r"const SEVERITY_ORDER = \[[^\]]*\];", board).group(0)
-        functions = "\n".join(
-            [
-                _extract_js_function(board, "escHtml"),
-                _extract_js_function(board, "severityWeight"),
-                _extract_js_function(board, "alertBadge"),
-                _extract_js_function(map_js, "buildAlertBanner"),
-            ]
-        )
-        script = f"""
-{rank}
-{order}
-{functions}
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
+    def test_board_renders_the_new_levels(self):
+        run_js("""
+import { alertBadge, severityWeight } from "@js/alerts/rows.js";
 const sorted = ["ok", "no_data", "low", "medium", "critical"].sort((a, b) => severityWeight(a) - severityWeight(b));
 check(sorted.join() === "critical,medium,low,no_data,ok", sorted.join());
 check(alertBadge("no_data").includes(">NO DATA<") && alertBadge("no_data").includes("alert-no_data"), alertBadge("no_data"));
 check(alertBadge("low").includes(">LOW<"), alertBadge("low"));
 check(alertBadge(undefined).includes("NO DATA"), "missing level shows as No data");
+""")
+
+    def test_map_renders_the_new_levels(self):
+        if shutil.which("node") is None:
+            pytest.skip("node is required for the browser runtime test")
+        map_js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
+        rank = re.search(r"const ALERT_RANK = \{[^}]*\};", map_js).group(0)
+        functions = "\n".join(_extract_js_function(map_js, name) for name in ("escHtml", "buildAlertBanner"))
+        script = f"""
+{rank}
+{functions}
+function check(condition, message) {{ if (!condition) throw new Error(message); }}
 check(buildAlertBanner({{ level: "no_data", reason: "No monitored devices" }}) === "", "no banner for No data");
 check(buildAlertBanner({{ level: "ok" }}) === "", "no banner for OK");
 const low = buildAlertBanner({{ level: "low", reason: "1/20 devices offline (5%)" }});
@@ -1210,35 +1153,13 @@ class TestNewestDownSortInTheBrowser:
     """The board lists the site with the newest down device first (#228)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "severityWeight",
-            "formatLocationAddress",
-            "compareText",
-            "latestDownTime",
-            "compareSites",
-            "restoreSort",
-            "rememberSort",
-        )
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        constants = "\n".join(
-            re.search(pattern, js).group(0)
-            for pattern in (
-                r"const SEVERITY_ORDER = \[[^\]]*\];",
-                r"const SORT_KEY = [^;]*;",
-                r"const DEFAULT_SORT = [^;]*;",
-            )
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{constants}
-{functions}
-{body}
+        run_js(
+            """
+import { compareSites, rememberSort, restoreSort } from "@js/alerts/filters.js";
+import { SORT_KEY, els } from "@js/alerts/state.js";
 """
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+            + body
+        )
 
     def test_newest_down_first_then_severity(self):
         self._run("""
@@ -1260,12 +1181,13 @@ check(order("site").startsWith("An hour ago | Down, no alert yet | Healthy"), or
     def test_the_choice_is_remembered_and_reset(self):
         self._run("""
 const store = {};
-let localStorage = {
+setGlobal("localStorage", {
   getItem: (key) => (key in store ? store[key] : null),
   setItem: (key, value) => { store[key] = String(value); },
   removeItem: (key) => { delete store[key]; },
-};
+});
 const sortBy = { value: "", options: ["newest", "severity", "site"].map((value) => ({ value })) };
+els.sortBy = sortBy;
 
 restoreSort();
 check(sortBy.value === "newest", "default: " + sortBy.value);
@@ -1277,7 +1199,7 @@ check(!(SORT_KEY in store), "choosing the default forgets the choice");
 store[SORT_KEY] = "gone";
 restoreSort();
 check(sortBy.value === "newest", "an option that no longer exists falls back to the default");
-localStorage = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+setGlobal("localStorage", { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } });
 restoreSort();
 rememberSort("site");
 check(sortBy.value === "newest", "blocked storage keeps the default");
@@ -1295,42 +1217,15 @@ class TestCopySiteInTheBrowser:
     """Copy a site and its down devices as text for an ITSM ticket (#227)."""
 
     def _run(self, body, tz="Europe/Copenhagen"):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "escHtml",
-            "downDeviceList",
-            "caseDevices",
-            "historyButton",
-            "maintenanceButton",
-            "rowMenu",
-            "ackButton",
-            "actionCell",
-            "formatLocationAddress",
-            "formatReportTime",
-            "siteTenants",
-            "caseUrl",
-            "caseWithUrl",
-            "siteReport",
-            "copyText",
-        )
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const CASE_URL_TEMPLATE = "";
-{functions}
-{body}
+        run_js(
+            """
+import { formatReportTime } from "@js/lib/format.js";
+import { copyText, siteReport } from "@js/alerts/panels.js";
+import { actionCell } from "@js/alerts/rows.js";
 """
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            env={**os.environ, "TZ": tz},
-            capture_output=True,
-            text=True,
-            check=False,
+            + body,
+            tz=tz,
         )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
 
     SITE = """
 const site = {
@@ -1423,31 +1318,24 @@ check(!html.includes("copy-site-btn"), html);
         self._run("""
 const calls = [];
 let execResult = true;
-const body = { appendChild: (el) => calls.push(["append", el.className, el.value]) };
-const document = {
-  body,
-  createElement: () => ({ setAttribute() {}, select() { calls.push(["select"]); }, remove() { calls.push(["remove"]); } }),
-  execCommand: (command) => { calls.push(["exec", command]); return execResult; },
-};
-const window = { isSecureContext: false };
-const navigator = { clipboard: { writeText: () => { throw new Error("must not use the API over HTTP"); } } };
-(async () => {
-  check(await copyText("hello") === true, "copied with the fallback");
-  check(JSON.stringify(calls) === JSON.stringify([["append", "clipboard-buffer", "hello"], ["select"], ["exec", "copy"], ["remove"]]), JSON.stringify(calls));
-  execResult = false;
-  check(await copyText("hello") === false, "reports failure so the panel opens");
-})().catch((err) => { console.error(err); process.exit(1); });
+document.body = { appendChild: (el) => calls.push(["append", el.className, el.value]) };
+document.createElement = () => ({ setAttribute() {}, select() { calls.push(["select"]); }, remove() { calls.push(["remove"]); } });
+document.execCommand = (command) => { calls.push(["exec", command]); return execResult; };
+setGlobal("window", { isSecureContext: false });
+setGlobal("navigator", { clipboard: { writeText: () => { throw new Error("must not use the API over HTTP"); } } });
+check(await copyText("hello") === true, "copied with the fallback");
+check(JSON.stringify(calls) === JSON.stringify([["append", "clipboard-buffer", "hello"], ["select"], ["exec", "copy"], ["remove"]]), JSON.stringify(calls));
+execResult = false;
+check(await copyText("hello") === false, "reports failure so the panel opens");
 """)
 
     def test_secure_pages_use_the_clipboard_api(self):
         self._run("""
 const written = [];
-const window = { isSecureContext: true };
-const navigator = { clipboard: { writeText: async (text) => { written.push(text); } } };
-const document = { createElement: () => { throw new Error("no fallback needed"); } };
-(async () => {
-  check(await copyText("site text") === true && written[0] === "site text", JSON.stringify(written));
-})().catch((err) => { console.error(err); process.exit(1); });
+setGlobal("window", { isSecureContext: true });
+setGlobal("navigator", { clipboard: { writeText: async (text) => { written.push(text); } } });
+document.createElement = () => { throw new Error("no fallback needed"); };
+check(await copyText("site text") === true && written[0] === "site text", JSON.stringify(written));
 """)
 
     def test_board_page_has_the_copy_panel_and_config(self, integration_client):
@@ -1461,67 +1349,31 @@ class TestSeverityTilesInTheBrowser:
     """The summary tiles filter the board; it opens on Alarms (#232)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "severityWeight",
-            "formatLocationAddress",
-            "compareText",
-            "latestDownTime",
-            "compareSites",
-            "hasActiveAlarm",
-            "matchesSeverityFilter",
-            "setSeverityFilter",
-            "downDeviceList",
-            "siteCaseState",
-            "caseSortRank",
-            "formatBoardStatus",
-            "siteTenants",
-            "getFilteredAlerts",
-            "moreFiltersInUse",
-            "renderMoreFiltersLabel",
-        )
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        constants = "\n".join(
-            re.search(pattern, js).group(0)
-            for pattern in (
-                r"const SEVERITY_ORDER = \[[^\]]*\];",
-                r"const DEFAULT_SEVERITY_FILTER = [^;]*;",
-                r"const ALARM_LEVELS = \[[^\]]*\];",
-                r"const DEFAULT_SORT = [^;]*;",
-            )
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const button = (value) => ({{
-  dataset: {{ severityFilter: value }},
-  attrs: {{}},
-  setAttribute(key, v) {{ this.attrs[key] = v; }},
-}});
-const severityFilterButtons = ["alarms", "critical", "medium", "low", "no_data", "ok", "all"].map(button);
-const pressed = () => severityFilterButtons.filter((b) => b.attrs["aria-pressed"] === "true").map((b) => b.dataset.severityFilter).join();
-const field = (value = "") => ({{ value }});
-const filterSite = field(), filterStatus = field(), filterType = field(), filterTenant = field();
-const toggleNonOperational = {{ checked: false }};
-const moreFiltersToggle = {{ textContent: "" }};
-const sortBy = field("severity");
-const boardStatus = {{ textContent: "", stale: false, classList: {{ toggle(name, on) {{ boardStatus.stale = on; }} }} }};
-let allAlerts = [
-  {{ name: "Oslo", alert_level: "ok" }},
-  {{ name: "Aarhus", alert_level: "critical", down_device_count: 3 }},
-  {{ name: "Bergen", alert_level: "no_data" }},
-  {{ name: "London", alert_level: "low", down_device_count: 1, tenant: "Acme" }},
-  {{ name: "Paris", alert_level: "medium", down_device_count: 2 }},
+        run_js(
+            """
+import { formatBoardStatus } from "@js/alerts/board.js";
+import { getFilteredAlerts, renderMoreFiltersLabel, setSeverityFilter } from "@js/alerts/filters.js";
+import { DEFAULT_SORT, els, state } from "@js/alerts/state.js";
+
+const button = (value) => element(value, { dataset: { severityFilter: value } });
+els.severityFilterButtons = ["alarms", "critical", "medium", "low", "no_data", "ok", "all"].map(button);
+const pressed = () => els.severityFilterButtons.filter((b) => b.attrs["aria-pressed"] === "true").map((b) => b.dataset.severityFilter).join();
+const [filterSite, filterStatus, filterType, filterTenant] = ["site", "status", "type", "tenant"].map((name) => element(name));
+const toggleNonOperational = element("non-operational");
+const moreFiltersToggle = element("more-filters");
+const sortBy = element("sort-by", { value: "severity" });
+const boardStatus = element("board-status");
+Object.assign(els, { filterSite, filterStatus, filterType, filterTenant, toggleNonOperational, moreFiltersToggle, sortBy, boardStatus });
+state.allAlerts = [
+  { name: "Oslo", alert_level: "ok" },
+  { name: "Aarhus", alert_level: "critical", down_device_count: 3 },
+  { name: "Bergen", alert_level: "no_data" },
+  { name: "London", alert_level: "low", down_device_count: 1, tenant: "Acme" },
+  { name: "Paris", alert_level: "medium", down_device_count: 2 },
 ];
-{constants}
-let severityFilter = DEFAULT_SEVERITY_FILTER;
-const WALL_VIEW = false;
-{functions}
-{body}
 """
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+            + body
+        )
 
     def test_opens_on_alarms_and_each_tile_filters(self):
         self._run("""
@@ -1536,7 +1388,7 @@ setSeverityFilter("alarms");
 filterTenant.value = "Acme";
 check(names() === "London", "with a tenant filter: " + names());
 setSeverityFilter("nonsense");
-check(severityFilter === "alarms" && pressed() === "alarms", "unknown value: Alarms");
+check(state.severityFilter === "alarms" && pressed() === "alarms", "unknown value: Alarms");
 """)
 
     def test_status_line_says_when_limited(self):
@@ -1546,10 +1398,10 @@ formatBoardStatus({ checked_at: null, stale: false }, 3);
 check(boardStatus.textContent === "3 sites with alarms · updated unknown", boardStatus.textContent);
 setSeverityFilter("all");
 formatBoardStatus({ checked_at: null, stale: false }, 1);
-check(boardStatus.textContent === "1 site · updated unknown" && !boardStatus.stale, boardStatus.textContent);
+check(boardStatus.textContent === "1 site · updated unknown" && !boardStatus.classList.contains("board-stale"), boardStatus.textContent);
 // "Stale" only when it is, and in the warning colour.
 formatBoardStatus({ checked_at: null, stale: true }, 1);
-check(boardStatus.textContent.endsWith("· data may be out of date") && boardStatus.stale, boardStatus.textContent);
+check(boardStatus.textContent.endsWith("· data may be out of date") && boardStatus.classList.contains("board-stale"), boardStatus.textContent);
 """)
 
     def test_more_filters_says_when_in_use(self):
@@ -1591,134 +1443,86 @@ class TestWallViewInTheBrowser:
     """The wall-screen view, /alerts?view=wall (#243)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "hasActiveAlarm",
-            "downDeviceList",
-            "siteCaseState",
-            "formatClock",
-            "renderWallStatus",
-            "showWallError",
-        )
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        constants = "\n".join(
-            re.search(pattern, js).group(0)
-            for pattern in (
-                r"const ALARM_LEVELS = \[[^\]]*\];",
-                r"const WALL_STALE_MS = [^;]*;",
-            )
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const classes = new Set();
-const wallUpdatedEl = {{ textContent: "", classList: {{ toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) }} }};
-const wallErrorEl = {{ textContent: "", hidden: true }};
-let lastLoadedAt = null;
-let allAlerts = [
-  {{ name: "Aarhus", alert_level: "critical" }},
-  {{ name: "Bergen", alert_level: "no_data" }},
-  {{ name: "London", alert_level: "low" }},
+        run_js(
+            """
+import { formatClock } from "@js/lib/format.js";
+import { loadAlertBoard } from "@js/alerts/board.js";
+import { config, els, state } from "@js/alerts/state.js";
+import { renderWallStatus, showWallError } from "@js/alerts/wall.js";
+
+const WALL_STALE_MS = 10 * 60000;
+els.wallUpdatedEl = element("wall-updated");
+els.wallErrorEl = element("wall-error", { hidden: true });
+const { wallUpdatedEl, wallErrorEl } = els;
+state.allAlerts = [
+  { name: "Aarhus", alert_level: "critical" },
+  { name: "Bergen", alert_level: "no_data" },
+  { name: "London", alert_level: "low" },
 ];
-{constants}
-{functions}
-{body}
 """
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            env={**os.environ, "TZ": "UTC"},
-            capture_output=True,
-            text=True,
-            check=False,
+            + body,
+            tz="UTC",
         )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
 
     def test_status_says_when_it_last_updated_and_when_it_is_stale(self):
         self._run("""
 renderWallStatus();
 check(wallUpdatedEl.textContent === "Loading…", wallUpdatedEl.textContent);
-lastLoadedAt = Date.UTC(2026, 9, 5, 14, 5);
-renderWallStatus(lastLoadedAt + 60000);
-const clock = formatClock(lastLoadedAt);
+state.lastLoadedAt = Date.UTC(2026, 9, 5, 14, 5);
+renderWallStatus(state.lastLoadedAt + 60000);
+const clock = formatClock(state.lastLoadedAt);
 check(clock.includes("05"), clock);
 check(wallUpdatedEl.textContent === `Updated ${clock} · 2 sites with alarms · 2 without case or ack`, wallUpdatedEl.textContent);
-check(!classes.has("wall-stale"), "fresh");
-allAlerts = [{ alert_level: "medium" }];
-renderWallStatus(lastLoadedAt);
+check(!wallUpdatedEl.classList.contains("wall-stale"), "fresh");
+state.allAlerts = [{ alert_level: "medium" }];
+renderWallStatus(state.lastLoadedAt);
 check(wallUpdatedEl.textContent.endsWith("· 1 site with alarms · 1 without case or ack"), wallUpdatedEl.textContent);
-renderWallStatus(lastLoadedAt + WALL_STALE_MS);
-check(wallUpdatedEl.textContent === `NOT UPDATED since ${clock}` && classes.has("wall-stale"), wallUpdatedEl.textContent);
+renderWallStatus(state.lastLoadedAt + WALL_STALE_MS);
+check(wallUpdatedEl.textContent === `NOT UPDATED since ${clock}` && wallUpdatedEl.classList.contains("wall-stale"), wallUpdatedEl.textContent);
 """)
 
     def test_error_banner_keeps_the_last_board(self):
         self._run("""
 showWallError("HTTP 502");
 check(!wallErrorEl.hidden && wallErrorEl.textContent === "Alert board not updating: HTTP 502.", wallErrorEl.textContent);
-lastLoadedAt = Date.UTC(2026, 9, 5, 9, 30);
+state.lastLoadedAt = Date.UTC(2026, 9, 5, 9, 30);
 showWallError("HTTP 502");
-check(wallErrorEl.textContent.endsWith(`Showing the board from ${formatClock(lastLoadedAt)}.`), wallErrorEl.textContent);
+check(wallErrorEl.textContent.endsWith(`Showing the board from ${formatClock(state.lastLoadedAt)}.`), wallErrorEl.textContent);
 """)
 
     def test_loads_newest_wins_and_failures_keep_an_empty_board(self):
         """Copilot review on #245: overlapping loads, and an empty last-good board."""
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        # The shared helper stops at the destructured `{ background }` parameter.
-        start = js.index("async function loadAlertBoard(")
-        body_start = js.index(") {", start) + 2
-        body = _extract_js_function("function body() " + js[body_start:], "body")
-        load = js[start:body_start] + body[len("function body() ") :]
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const WALL_VIEW = true;
-let loadSeq = 0, lastLoadedAt = null, latestPayload = null, allAlerts = [], syncPollAttempts = 0;
-const shown = [], errors = [];
-const alertsTableBody = {{ innerHTML: "board" }};
-const boardStatus = {{ textContent: "" }};
-const refreshBtn = {{ disabled: false }};
-const toggleNonOperational = null, collapseAllSitesBtn = null, expandAllSitesBtn = null;
-const wallErrorEl = {{ hidden: true }};
-const noop = () => {{}};
-const populateFilters = noop, renderSummary = noop, scheduleSyncPoll = noop, setNextUpdate = noop;
-const loadFeed = noop, renderWallStatus = noop, stopSyncPolling = noop, showError = noop;
-const announceNewAlarms = noop;
-const applyFilters = (payload) => shown.push(payload.tag);
-const showWallError = (message) => errors.push(message);
-const escHtml = (value) => String(value);
-const readJsonResponse = (resp) => resp.json();
+        self._run("""
+config.wallView = true;
+state.allAlerts = [];
+const names = ["boardStatus", "alertsTableBody", "refreshBtn", "filterSite", "filterStatus", "filterType",
+  "filterTenant", "sortBy", "summaryAlarms", "summaryNoData", "summaryMaintenance", "summaryTotal"];
+names.forEach((name) => { els[name] = element(name); });
+els.sortBy.value = "newest";
 const pending = [];
-const fetch = () => new Promise((resolve) => pending.push(resolve));
+globalThis.fetch = () => new Promise((resolve) => pending.push(resolve));
 const reply = (index, body, ok = true) =>
-  pending[index]({{ ok, status: ok ? 200 : 502, statusText: "", json: async () => body }});
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-{load}
+  pending[index]({ ok, status: ok ? 200 : 502, statusText: "", headers: { get: () => "application/json" }, json: async () => body });
 
-;(async () => {{
-  // Two loads overlap; the older answers last and must be ignored.
-  const first = loadAlertBoard(false, {{ background: true }});
-  const second = loadAlertBoard(false, {{ background: true }});
-  reply(1, {{ tag: "new", alerts: [] }});
-  await second;
-  reply(0, {{ tag: "old", alerts: [{{ name: "Stale" }}] }});
-  await first;
-  check(shown.join() === "new", "only the newest load renders: " + shown.join());
-  check(allAlerts.length === 0 && lastLoadedAt !== null, "the empty board was loaded");
+// Two loads overlap; the older answers last and must be ignored.
+const first = loadAlertBoard(false, { background: true });
+const second = loadAlertBoard(false, { background: true });
+reply(1, { alerts: [] });
+await second;
+reply(0, { alerts: [{ id: "s1", name: "Stale", alert_level: "critical" }] });
+await first;
+check(els.alertsTableBody.innerHTML.includes("No active alarms.") && !els.alertsTableBody.innerHTML.includes("Stale"),
+  "only the newest load renders: " + els.alertsTableBody.innerHTML);
+check(state.allAlerts.length === 0 && state.lastLoadedAt !== null, "the empty board was loaded");
 
-  // The board is empty but loaded: a failure keeps it and shows the banner.
-  alertsTableBody.innerHTML = "No active alarms.";
-  const failing = loadAlertBoard(false, {{ background: true }});
-  reply(2, {{ error: "upstream down" }}, false);
-  await failing;
-  await settle();
-  check(errors.join() === "upstream down", "banner: " + errors.join());
-  check(alertsTableBody.innerHTML === "No active alarms.", "kept: " + alertsTableBody.innerHTML);
-}})().catch((err) => {{ console.error(err.message); process.exit(1); }});
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+// The board is empty but loaded: a failure keeps it and shows the banner.
+const board = els.alertsTableBody.innerHTML;
+const failing = loadAlertBoard(false, { background: true });
+reply(2, { error: "upstream down" }, false);
+await failing;
+check(!wallErrorEl.hidden && wallErrorEl.textContent.startsWith("Alert board not updating: upstream down."), wallErrorEl.textContent);
+check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.innerHTML);
+""")
 
     def test_wall_page(self, integration_client):
         html = integration_client.get("/alerts?view=wall").get_data(as_text=True)
@@ -1815,7 +1619,8 @@ check(at.top === 692, "above when there is no room below: " + JSON.stringify(at)
             html = integration_client.get(path).get_data(as_text=True)
             assert 'src="/static/js/tooltip.js"' in html and 'href="/static/css/tooltip.css"' in html, path
             # Before the page script, which renders the (i).
-            assert html.index("js/tooltip.js") < html.index("js/map.js" if path == "/" else "js/alerts.js")
+            page_script = "js/map.js" if path == "/" else "js/alerts/main.js"
+            assert html.index("js/tooltip.js") < html.index(f'src="/static/{page_script}"')
 
     def test_map_tenant_row(self):
         if shutil.which("node") is None:
@@ -1841,39 +1646,18 @@ check(!tenantRow({{ tenant: "constructor", tenant_descriptions: {{}} }}).include
 class TestWallCaseStateInTheBrowser:
     """Wall view: which sites someone is on, at a glance (#271)."""
 
-    def _run(self, body, wall_view=True):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "escHtml",
-            "hasActiveAlarm",
-            "downDeviceList",
-            "siteCaseState",
-            "caseStateBadge",
-            "caseSortRank",
-            "siteNameHtml",
-            "formatClock",
-            "renderWallStatus",
-        )
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        constants = "\n".join(
-            re.search(pattern, js).group(0)
-            for pattern in (r"const ALARM_LEVELS = \[[^\]]*\];", r"const WALL_STALE_MS = [^;]*;")
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-const WALL_VIEW = {"true" if wall_view else "false"};
-const wallUpdatedEl = {{ textContent: "", classList: {{ toggle() {{}} }} }};
-let lastLoadedAt = null;
-let allAlerts = [];
-const dev = (name, cases) => ({{ device_id: name, device_name: name, case_numbers: cases }});
-{constants}
-{functions}
-{body}
+    def _run(self, body):
+        run_js(
+            """
+import { caseSortRank, filterSites } from "@js/alerts/filters.js";
+import { caseStateBadge, siteCaseState, siteNameHtml, siteRowsHtml } from "@js/alerts/rows.js";
+import { els, state } from "@js/alerts/state.js";
+import { renderWallStatus } from "@js/alerts/wall.js";
+els.wallUpdatedEl = element("wall-updated");
+const dev = (name, cases) => ({ device_id: name, device_name: name, case_numbers: cases });
 """
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+            + body
+        )
 
     def test_case_state_and_badge(self):
         self._run("""
@@ -1904,10 +1688,10 @@ const sites = [
 ];
 const order = [...sites].sort((a, b) => caseSortRank(a) - caseSortRank(b)).map((s) => s.name).join();
 check(order === "Aarhus,Oslo,London", "handled last, the rest keep their order: " + order);
-allAlerts = sites;
-lastLoadedAt = Date.now();
-renderWallStatus(lastLoadedAt);
-check(wallUpdatedEl.textContent.endsWith("· 3 sites with alarms · 2 without case or ack"), wallUpdatedEl.textContent);
+state.allAlerts = sites;
+state.lastLoadedAt = Date.now();
+renderWallStatus(state.lastLoadedAt);
+check(els.wallUpdatedEl.textContent.endsWith("· 3 sites with alarms · 2 without case or ack"), els.wallUpdatedEl.textContent);
 """)
 
     def test_wall_site_name_is_plain_text(self):
@@ -1918,12 +1702,22 @@ check(siteNameHtml(site).includes('href="/?location_id=loc-1"'), "the board keep
 """)
 
     def test_rows_use_it_only_on_the_wall(self):
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        rows = _extract_js_function(js, "renderTableRows")
-        assert "siteNameHtml(item, !WALL_VIEW)" in rows
-        assert '${WALL_VIEW && !inMaintenance ? caseStateBadge(item) : ""}' in rows
-        assert 'const handled = WALL_VIEW && !inMaintenance && siteCaseState(item).state === "handled";' in rows
-        assert "WALL_VIEW ? caseSortRank(a) - caseSortRank(b) : 0" in _extract_js_function(js, "getFilteredAlerts")
+        self._run("""
+const sites = [
+  { id: "l", name: "London", alert_level: "medium", latitude: 1, longitude: 2, down_devices: [dev("a", ["INC-1"])] },
+  { id: "a", name: "Aarhus", alert_level: "critical", latitude: 1, longitude: 2, down_devices: [dev("b", [])] },
+];
+const criteria = { sort: "site", severityFilter: "alarms" };
+check(filterSites(sites, { ...criteria, wallView: true }).map((s) => s.name).join() === "Aarhus,London", "wall: nobody on it first");
+check(filterSites(sites, { ...criteria, wallView: false }).map((s) => s.name).join() === "Aarhus,London", "board: by the sort");
+check(filterSites([sites[0], sites[1]], { ...criteria, sort: "newest", wallView: false })[0].name === "Aarhus", "severity");
+
+const wall = siteRowsHtml(sites, { wallView: true, isExpanded: () => true });
+check(!wall.includes("href=") && wall.includes("case-state-handled") && wall.includes("case-state-none"), wall);
+check(wall.includes('class="site-row case-handled handled-first"'), "handled rows are faded under a line: " + wall);
+const board = siteRowsHtml(sites, { wallView: false, isExpanded: () => true });
+check(board.includes('href="/?location_id=l"') && !board.includes("case-state") && !board.includes("case-handled"), board);
+""")
         css = (REPO_ROOT / "static" / "css" / "alerts.css").read_text(encoding="utf-8")
         handled = re.search(r"\.wall-view tr\.case-handled > td,[^{]*\{([^}]*)\}", css)
         assert handled and "color: var(--color-text-muted)" in handled.group(1)
@@ -1936,44 +1730,41 @@ class TestSinceWordingInTheBrowser:
     """Times say what they mean: "in alarm" for a site, "down" for a device (#275)."""
 
     def test_labels(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name)
-            for name in ("formatDuration", "sinceLabel", "downDeviceList", "deviceDowntimeSeconds", "siteAlarmSeconds")
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{functions}
+        run_js("""
+import { deviceDowntimeSeconds, siteAlarmSeconds, sinceLabel } from "@js/alerts/rows.js";
 check(sinceLabel("in alarm", 13200) === "in alarm 3h 40m", sinceLabel("in alarm", 13200));
 check(sinceLabel("down", 1500) === "down 25m", sinceLabel("down", 1500));
 check(sinceLabel("in alarm", null) === "—", "no open alarm: a dash, no words");
 check(sinceLabel("in alarm", 0) === "in alarm <1m" && sinceLabel("down", 59) === "down <1m", "under a minute is not a dash");
 // An unknown start is said, never shown as "<1m" (Copilot on #280).
 check(sinceLabel("down", NaN) === "down, time unknown", sinceLabel("down", NaN));
-check(Number.isNaN(deviceDowntimeSeconds({{}}, 0)) && deviceDowntimeSeconds({{ down_started_at: "1970-01-01T00:00:30Z" }}, 90000) === 60, "device");
-check(siteAlarmSeconds({{ down_devices: [] }}) === null, "nothing down");
-check(Number.isNaN(siteAlarmSeconds({{ current_downtime_seconds: 0, down_devices: [{{ device_id: "a" }}] }})), "unknown start");
-check(siteAlarmSeconds({{ current_downtime_seconds: 30, down_devices: [{{ down_started_at: "2026-10-07T12:00:00Z" }}] }}) === 30, "known");
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+check(Number.isNaN(deviceDowntimeSeconds({}, 0)) && deviceDowntimeSeconds({ down_started_at: "1970-01-01T00:00:30Z" }, 90000) === 60, "device");
+check(siteAlarmSeconds({ down_devices: [] }) === null, "nothing down");
+check(Number.isNaN(siteAlarmSeconds({ current_downtime_seconds: 0, down_devices: [{ device_id: "a" }] })), "unknown start");
+check(siteAlarmSeconds({ current_downtime_seconds: 30, down_devices: [{ down_started_at: "2026-10-07T12:00:00Z" }] }) === 30, "known");
+""")
 
     def test_no_lone_dash_without_a_path(self):
         """A site with no location path gets no grey line, not a bare "—" (#279)."""
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        rows = _extract_js_function(js, "renderTableRows")
-        assert '${meta ? `<div class="site-meta">${meta}</div>` : ""}' in rows
-        assert 'meta || "—"' not in rows
+        run_js("""
+import { siteRowsHtml } from "@js/alerts/rows.js";
+const html = siteRowsHtml([{ id: "s1", name: "Oslo" }], { wallView: false, isExpanded: () => false });
+const nameCell = html.slice(html.indexOf("<td>"), html.indexOf("</td>"));
+check(!nameCell.includes("site-meta") && !nameCell.includes("—"), nameCell);
+""")
 
     def test_rows_and_header(self, integration_client):
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        rows = _extract_js_function(js, "renderTableRows")
-        assert '<td class="since-cell">${WALL_VIEW ? "" : sinceLabel("in alarm", siteAlarmSeconds(item))}' in rows
-        assert 'sinceLabel("down", deviceDowntimeSeconds(device, now))' in _extract_js_function(
-            js, "renderDownDeviceRows"
-        )
+        run_js("""
+import { siteRowsHtml } from "@js/alerts/rows.js";
+const started = new Date(Date.now() - 25 * 60000 - 5000).toISOString();
+const site = { id: "s1", name: "Oslo", alert_level: "low", current_downtime_seconds: 13200,
+  down_devices: [{ device_id: "d1", device_name: "sw1", down_started_at: started }] };
+const since = (html) => html.match(/<td class="since-cell">([^<]*)<\\/td>/g).join(" ");
+let html = siteRowsHtml([site], { wallView: false, isExpanded: () => true });
+check(since(html) === '<td class="since-cell">in alarm 3h 40m</td> <td class="since-cell">down 25m</td>', since(html));
+html = siteRowsHtml([site], { wallView: true, isExpanded: () => true });
+check(since(html).startsWith('<td class="since-cell"></td>'), "the wall shows no site time: " + since(html));
+""")
         html = integration_client.get("/alerts").get_data(as_text=True)
         assert "<th>Since</th>" in html and "<th>Downtime</th>" not in html
 
@@ -1982,17 +1773,8 @@ class TestHistoryExportInTheBrowser:
     """CSV download links in the History panel (#277)."""
 
     def test_links(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name) for name in ("escHtml", "historyExportUrl", "historyExportBar")
-        )
-        default = re.search(r"const HISTORY_EXPORT_DEFAULT_DAYS = [^;]*;", js).group(0)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{default}
-{functions}
+        run_js("""
+import { historyExportBar, historyExportUrl } from "@js/alerts/panels.js";
 check(historyExportUrl("loc 1&x", "devices", "all") === "/api/alert-history.csv?site_id=loc+1%26x&days=all&view=devices",
   historyExportUrl("loc 1&x", "devices", "all"));
 const bar = historyExportBar('loc"1');
@@ -2000,59 +1782,48 @@ check(bar.includes('data-site-id="loc&quot;1"'), bar);
 check(bar.includes('href="/api/alert-history.csv?site_id=loc%221&amp;days=30&amp;view=incidents" download>Incidents CSV'), bar);
 check(bar.includes('data-view="devices"') && bar.includes(">Per-device CSV<"), bar);
 check(bar.includes('<option value="30" selected>'), "30 days by default");
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+""")
 
 
 class TestMaintenanceInTheBrowser:
     """Maintenance on the board and the wall view (#283)."""
 
     def test_helpers(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "escHtml",
-            "alertBadge",
-            "formatFeedTime",
-            "maintenanceNote",
-            "downDeviceList",
-            "siteCaseState",
-            "caseSortRank",
-            "siteAlarmSeconds",
-        )
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{functions}
+        run_js("""
+import { caseSortRank } from "@js/alerts/filters.js";
+import { alertBadge, maintenanceNote, siteAlarmSeconds, siteCaseState } from "@js/alerts/rows.js";
 check(alertBadge("maintenance").includes('class="alert-badge alert-maintenance">MAINTENANCE<'), alertBadge("maintenance"));
 const note = maintenanceNote("2026-10-09T14:00:00Z", "Core <upgrade>");
 check(note.startsWith("until ") && note.endsWith(" · Core &lt;upgrade&gt;"), note);
 check(maintenanceNote("", "x") === "x", "no time: just the reason");
 
 // A device in maintenance doesn't need a case and doesn't count for "in alarm".
-const site = {{ alert_level: "medium", current_downtime_seconds: 600, down_devices: [
-  {{ device_id: "core", down_started_at: "2026-10-09T11:00:00Z", maintenance_until: "2026-10-09T14:00:00Z", case_numbers: [] }},
-  {{ device_id: "acc1", down_started_at: "2026-10-09T11:50:00Z", case_numbers: ["INC-1"] }} ] }};
+const site = { alert_level: "medium", current_downtime_seconds: 600, down_devices: [
+  { device_id: "core", down_started_at: "2026-10-09T11:00:00Z", maintenance_until: "2026-10-09T14:00:00Z", case_numbers: [] },
+  { device_id: "acc1", down_started_at: "2026-10-09T11:50:00Z", case_numbers: ["INC-1"] } ] };
 check(siteCaseState(site).state === "handled", JSON.stringify(siteCaseState(site)));
 check(siteAlarmSeconds(site) === 600, "known start from the other device");
-check(siteAlarmSeconds({{ alert_level: "maintenance", down_devices: site.down_devices }}) === null, "maintenance: no time");
+check(siteAlarmSeconds({ alert_level: "maintenance", down_devices: site.down_devices }) === null, "maintenance: no time");
 
 // Wall order: nobody on it, someone on it, maintenance.
-check(caseSortRank({{ alert_level: "critical", down_devices: [{{ case_numbers: [] }}] }}) === 0, "none");
+check(caseSortRank({ alert_level: "critical", down_devices: [{ case_numbers: [] }] }) === 0, "none");
 check(caseSortRank(site) === 1, "handled");
-check(caseSortRank({{ alert_level: "maintenance", down_devices: [] }}) === 2, "maintenance last");
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+check(caseSortRank({ alert_level: "maintenance", down_devices: [] }) === 2, "maintenance last");
+""")
 
     def test_rows_and_wall(self, integration_client):
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        rows = _extract_js_function(js, "renderTableRows")
-        assert '<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>' in rows
-        assert "maintenanceNote(item.maintenance.until, item.maintenance.reason)" in rows
-        assert '!(WALL_VIEW && item.alert_level === "maintenance")' in _extract_js_function(js, "getFilteredAlerts")
+        run_js("""
+import { filterSites } from "@js/alerts/filters.js";
+import { siteRowsHtml } from "@js/alerts/rows.js";
+const planned = { id: "m", name: "Bergen", alert_level: "maintenance", maintenance: { until: "", reason: "Core <upgrade>" } };
+const alarm = { id: "a", name: "Aarhus", alert_level: "critical" };
+const criteria = { sort: "newest", severityFilter: "alarms" };
+check(filterSites([planned, alarm], { ...criteria, wallView: true }).map((s) => s.name).join() === "Aarhus,Bergen", "the wall lists maintenance last");
+check(filterSites([planned, alarm], { ...criteria, wallView: false }).map((s) => s.name).join() === "Aarhus", "the board's Alarms don't");
+const wall = siteRowsHtml([alarm, planned], { wallView: true, isExpanded: () => true });
+check(wall.includes('<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>'), wall);
+check(wall.indexOf("maintenance-heading") > wall.indexOf("Aarhus") && wall.includes("Core &lt;upgrade&gt;"), wall);
+""")
         html = integration_client.get("/alerts").get_data(as_text=True)
         assert 'data-severity-filter="maintenance"' in html and 'id="summary-maintenance"' in html
         map_js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
@@ -2067,33 +1838,14 @@ class TestMaintenancePanelInTheBrowser:
     """Managing maintenance windows from the board (#283)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "escHtml",
-            "formatFeedTime",
-            "maintenanceWindowItem",
-            "renderMaintenancePanel",
-            "maintenanceRequestBody",
-        )
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        durations = re.search(r"const MAINTENANCE_DURATIONS = \[[^\]]*\];", js).group(0)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{durations}
-{functions}
-{body}
+        run_js(
+            """
+import { maintenanceRequestBody, renderMaintenancePanel } from "@js/alerts/maintenance.js";
+import { actionCell, maintenanceButton } from "@js/alerts/rows.js";
 """
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            env={**os.environ, "TZ": "Europe/Copenhagen"},
-            capture_output=True,
-            text=True,
-            check=False,
+            + body,
+            tz="Europe/Copenhagen",
         )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
 
     def test_request_body(self):
         self._run("""
@@ -2131,28 +1883,19 @@ check(html.includes("No maintenance now or planned.") && html.includes("No monit
 """)
 
     def test_button_only_where_there_is_something_to_maintain(self):
-        self._run_button("""
+        self._run("""
 check(maintenanceButton({ id: "a", name: "A", device_count: 3 }).includes('data-site-id="a"'), "monitored");
 check(maintenanceButton({ id: "b", name: "B", device_count: 0 }) === "", "nothing to maintain");
 check(maintenanceButton({ id: "c", name: "C", device_count: 0, maintenance: { id: 1 } }) !== "", "a window can still be ended");
 check(maintenanceButton({ id: "d", name: "D", device_count: 0, maintenance_device_count: 2 }) !== "", "all devices in windows");
+// In the row's menu with and without down devices.
+check(actionCell({ id: "e", name: "E", device_count: 3 }).includes("maint-open-btn"), "nothing down");
+check(actionCell({ id: "f", name: "F", device_count: 3, down_devices: [{ device_id: "x" }] }).includes("maint-open-btn"), "down");
 """)
 
-    def _run_button(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(_extract_js_function(js, name) for name in ("escHtml", "maintenanceButton"))
-        script = f"function check(c, m) {{ if (!c) throw new Error(m); }}\n{functions}\n{body}"
-        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
-
-    def test_board_has_the_panel_and_rows_the_button(self, integration_client):
+    def test_board_has_the_panel(self, integration_client):
         html = integration_client.get("/alerts").get_data(as_text=True)
         assert 'id="maint-panel"' in html and 'id="maint-content"' in html
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        cell = _extract_js_function(js, "actionCell")
-        assert cell.count("maintenanceButton(item)") == 2, "with and without down devices"
 
 
 class TestApiExplorerInTheBrowser:
@@ -2314,79 +2057,51 @@ class TestSiteTenantsInTheBrowser:
     """The tenants line under the site name and Copy for ITSM show every tenant of a site (#238, #311)."""
 
     def test_tenant_cell_and_report(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name)
-            for name in (
-                "escHtml",
-                "siteTenants",
-                "infoTipHtml",
-                "ownDescription",
-                "tenantName",
-                "tenantLine",
-                "formatLocationAddress",
-                "formatReportTime",
-                "siteReport",
-            )
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{functions}
+        run_js("""
+import { siteReport } from "@js/alerts/panels.js";
+import { tenantLine } from "@js/alerts/rows.js";
 
-const line = (inner) => `<div class="site-tenants">${{inner}}</div>`;
-check(tenantLine({{}}) === "", "no tenant: no line");
-check(tenantLine({{ tenant: "Acme" }}) === line("Acme"), "a board cached before #238 has only tenant");
-check(tenantLine({{ tenant: "Acme", tenants: ["Acme"] }}) === line("Acme"), "one tenant");
+const line = (inner) => `<div class="site-tenants">${inner}</div>`;
+check(tenantLine({}) === "", "no tenant: no line");
+check(tenantLine({ tenant: "Acme" }) === line("Acme"), "a board cached before #238 has only tenant");
+check(tenantLine({ tenant: "Acme", tenants: ["Acme"] }) === line("Acme"), "one tenant");
 
 // The first one, and "+N" that shows the rest in place, each with its (i) (#279).
-let cell = tenantLine({{ tenants: ["Acme", "B&B"] }});
+let cell = tenantLine({ tenants: ["Acme", "B&B"] });
 check(cell === line('Acme<span class="tenant-rest" hidden>, B&amp;B</span> <button class="tenant-more-btn" type="button" title="B&amp;B">+1</button>'), cell);
-cell = tenantLine({{ tenants: ["A", "B", "C", "Hidden"], tenant_descriptions: {{ Hidden: "Reach me" }} }});
+cell = tenantLine({ tenants: ["A", "B", "C", "Hidden"], tenant_descriptions: { Hidden: "Reach me" } });
 check(cell.includes(">+3</button>") && cell.includes('hidden>, B, C, Hidden<span class="info-tip"') && cell.includes('data-info-tip="Reach me"'), cell);
 
-let report = siteReport({{ name: "LON", tenant: "Acme", tenants: ["Acme", "Nordic"], alert_level: "low" }});
+let report = siteReport({ name: "LON", tenant: "Acme", tenants: ["Acme", "Nordic"], alert_level: "low" });
 check(report.includes("Tenants (2): Acme, Nordic") && !report.includes("Tenant: "), report);
-report = siteReport({{ name: "STO", tenant: "Acme", alert_level: "ok" }});
+report = siteReport({ name: "STO", tenant: "Acme", alert_level: "ok" });
 check(report.includes("Tenant: Acme"), report);
 
 // The (i) only for tenants with a description (#263), escaped.
-cell = tenantLine({{ tenant: "Acme", tenants: ["Acme"], tenant_descriptions: {{ Acme: 'Bank <"VIP">' }} }});
+cell = tenantLine({ tenant: "Acme", tenants: ["Acme"], tenant_descriptions: { Acme: 'Bank <"VIP">' } });
 check(cell.startsWith('<div class="site-tenants">Acme<span class="info-tip"'), cell);
 check(cell.includes('data-info-tip="Bank &lt;&quot;VIP&quot;&gt;"') && !cell.includes('<"VIP">'), cell);
 check(cell.includes('aria-label="Acme: Bank') && cell.includes('tabindex="0"'), cell);
-cell = tenantLine({{ tenants: ["Acme", "Nordic"], tenant_descriptions: {{ Nordic: "Shared rack" }} }});
+cell = tenantLine({ tenants: ["Acme", "Nordic"], tenant_descriptions: { Nordic: "Shared rack" } });
 check(cell.includes("Acme<span") && cell.includes(", Nordic<span") && (cell.match(/info-tip"/g) || []).length === 1, cell);
-check(tenantLine({{ tenant: "Acme", tenant_descriptions: {{}} }}) === line("Acme"), "no description: no (i)");
+check(tenantLine({ tenant: "Acme", tenant_descriptions: {} }) === line("Acme"), "no description: no (i)");
 // Inherited object properties are not descriptions (Copilot review on #264).
-check(tenantLine({{ tenant: "constructor", tenant_descriptions: {{}} }}) === line("constructor"), "constructor");
-check(tenantLine({{ tenants: ["toString", "hasOwnProperty"] }}).indexOf("info-tip") === -1, "toString");
-"""
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+check(tenantLine({ tenant: "constructor", tenant_descriptions: {} }) === line("constructor"), "constructor");
+check(tenantLine({ tenants: ["toString", "hasOwnProperty"] }).indexOf("info-tip") === -1, "toString");
+""")
 
 
 class TestSimplerBoardInTheBrowser:
     """Only what is needed to decide (#311)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name) for name in ("escHtml", "summaryText", "formatDuration", "alertBadge")
+        run_js(
+            """
+import { formatDuration } from "@js/lib/format.js";
+import { alertBadge, summaryText } from "@js/alerts/rows.js";
+"""
+            + body
         )
-        levels = re.search(r"const ALARM_LEVELS = \[[^\]]*\];", js).group(0)
-        script = f"function check(c, m) {{ if (!c) throw new Error(m); }}\n{levels}\n{functions}\n{body}"
-        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
 
     def test_one_summary_line_only_with_what_is_wrong(self):
         self._run("""

@@ -1,16 +1,12 @@
 """Acknowledge an alarm, separate from a case number (#288)."""
 
-import os
-import shutil
-import subprocess
-
 import pytest
 
 import app as flask_app
 from nautobot_maps import alerts, caching, db
 from tests import test_maintenance
+from tests.js_modules import run_js
 from tests.test_app import auth_config
-from tests.test_integration import REPO_ROOT, _extract_js_function
 from tests.test_maintenance import build, set_devices
 
 # London HQ: core and acc1 down, acc2 up (#283's fixture).
@@ -136,27 +132,13 @@ class TestApi:
 
 class TestInTheBrowser:
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        names = (
-            "escHtml",
-            "downDeviceList",
-            "caseDevices",
-            "ackNote",
-            "ackButton",
-            "siteCaseState",
-            "caseStateBadge",
-            "ackRequestBody",
-        )
-        script = (
-            "function check(c, m) { if (!c) throw new Error(m); }\n"
-            + "\n".join(_extract_js_function(js, name) for name in names)
-            + "\n"
+        run_js(
+            """
+import { ackRequestBody } from "@js/alerts/case-panel.js";
+import { ackButton, ackNote, caseStateBadge, siteCaseState } from "@js/alerts/rows.js";
+"""
             + body
         )
-        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False, env=os.environ)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
 
     def test_ack_counts_as_someone_on_it(self):
         self._run("""
