@@ -6,7 +6,7 @@ Called as ``scheduler.function()`` so tests can replace it on this module.
 import logging
 import threading
 
-from nautobot_maps import alerts, caching, db, inventory, maintenance, notify, settings
+from nautobot_maps import alerts, caching, db, inventory, notify, settings
 
 logger = logging.getLogger(__name__)
 
@@ -69,15 +69,19 @@ def tick() -> bool:
         release()
 
 
-def rebuild_board() -> None:
+def rebuild_board(trigger: str = "scheduler") -> None:
     """Build the board from the cache, store it, and send what the build queued."""
-    payload = alerts.build_alert_board_payload(snapshot_only=True)
-    caching.set(
-        "alert-board-data:v3",
-        payload,
-        timeout=maintenance.cache_seconds(payload.get("next_maintenance_change"), settings.CACHE_TTL),
-    )
+    alerts.board(trigger, rebuild=True)
     send_notifications()
+
+
+def board_changed() -> None:
+    """A case, acknowledgement or maintenance window changed what the board
+    shows: drop it, and with the scheduler running rebuild it now in the
+    background, so the next page load finds it ready (#295)."""
+    caching.invalidate_alert_board()
+    if _started:
+        rebuild_after_push(always=True, trigger="change")
 
 
 def pending_librenms_pushes() -> list[int]:
@@ -105,7 +109,7 @@ def ack_librenms_pushes(seqs: list[int]) -> None:
         conn.close()
 
 
-def rebuild_after_push(always: bool = False) -> None:
+def rebuild_after_push(always: bool = False, trigger: str = "push") -> None:
     """Rebuild the board now for a LibreNMS push (#284), in a thread.  If
     another process holds the scheduler lock, its next tick does it.
 
@@ -124,7 +128,7 @@ def rebuild_after_push(always: bool = False) -> None:
                 pushes = pending_librenms_pushes()
                 if not pushes and not (always and attempt == 0):
                     break
-                rebuild_board()
+                rebuild_board(trigger)
                 if pushes:
                     ack_librenms_pushes(pushes)
         except Exception as exc:

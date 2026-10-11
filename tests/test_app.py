@@ -1184,6 +1184,9 @@ class TestAlertBoard:
             return alerts.empty_alert_context()
 
         with (
+            # The build's own connections; not the build lock or its stats (#295).
+            patch.object(alerts, "_board_build_lock", return_value=None),
+            patch.object(alerts, "record_board_build"),
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
@@ -1218,6 +1221,9 @@ class TestAlertBoard:
         ]
 
         with (
+            # The build's own connections; not the build lock or its stats (#295).
+            patch.object(alerts, "_board_build_lock", return_value=None),
+            patch.object(alerts, "record_board_build"),
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
@@ -2742,7 +2748,11 @@ class TestAlertLifecycleTracking:
             call.args == () and call.kwargs == {"force": True, "full": False, "wait": False}
             for call in ensure_snapshot.call_args_list
         )
-        assert all(call.kwargs.get("timeout") == settings.CACHE_TTL for call in cache_set.call_args_list)
+        # The stored board outlives the sync interval a little (#295).
+        assert all(
+            call.kwargs.get("timeout") == settings.CACHE_TTL + alerts.BOARD_TTL_SLACK_SECONDS
+            for call in cache_set.call_args_list
+        )
 
     def test_get_alert_board_data_builds_snapshot_only_payload(self):
         caching.cache.clear()
@@ -2759,10 +2769,7 @@ class TestAlertLifecycleTracking:
             result = alerts.get_alert_board_data(force_refresh=True)
 
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
-        build_payload.assert_called_once_with(
-            snapshot_only=True,
-            include_non_operational=False,
-        )
+        build_payload.assert_called_once_with(snapshot_only=True)
         ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
 
     def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
@@ -5296,7 +5303,12 @@ class TestAlertBoardBulkReads:
             opened.append(1)
             return real_get_db_conn()
 
-        with patch.object(db, "get_conn", side_effect=counting_get_db_conn):
+        with (
+            patch.object(db, "get_conn", side_effect=counting_get_db_conn),
+            # The build's own connections; not the build lock or its stats (#295).
+            patch.object(alerts, "_board_build_lock", return_value=None),
+            patch.object(alerts, "record_board_build"),
+        ):
             data = alerts.get_alert_board_data()
         return data, len(opened)
 

@@ -34,6 +34,12 @@ class Exposition:
             number = _number(value)
             self._lines.append(f"{name}{{{rendered}}} {number}" if rendered else f"{name} {number}")
 
+    def counter(self, name: str, help_text: str, samples: list[tuple[dict, float]]) -> None:
+        self._lines += [f"# HELP {name} {help_text}", f"# TYPE {name} counter"]
+        for labels, value in samples:
+            rendered = ",".join(f'{key}="{_label(val)}"' for key, val in labels.items())
+            self._lines.append(f"{name}{{{rendered}}} {_number(value)}")
+
     def render(self) -> str:
         return "\n".join(self._lines) + "\n"
 
@@ -117,6 +123,28 @@ def collect(conn) -> str:
         "nautobot_maps_notifications_failed",
         "Notifications given up after all retries (kept 30 days), by channel.",
         [({"channel": row["channel"]}, row["n"]) for row in outbox if row["status"] == "failed"],
+    )
+    # Board builds (#295): requests should hardly ever build; the scheduler does.
+    builds = [
+        db.row_to_dict(row)
+        for row in conn.execute(
+            "SELECT trigger, builds, total_seconds, last_seconds FROM board_build_stats ORDER BY trigger"
+        ).fetchall()
+    ]
+    out.counter(
+        "nautobot_maps_board_builds_total",
+        "Alert board builds by trigger (scheduler, request, push, change).",
+        [({"trigger": row["trigger"]}, row["builds"]) for row in builds],
+    )
+    out.counter(
+        "nautobot_maps_board_build_seconds_total",
+        "Time spent building the alert board, by trigger.",
+        [({"trigger": row["trigger"]}, row["total_seconds"]) for row in builds],
+    )
+    out.gauge(
+        "nautobot_maps_board_build_last_duration_seconds",
+        "How long the last alert board build took, by trigger.",
+        [({"trigger": row["trigger"]}, row["last_seconds"]) for row in builds],
     )
     mismatches: dict[tuple, int] = {}
     for check in contract.latest_checks(conn):

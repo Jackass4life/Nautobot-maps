@@ -814,7 +814,7 @@ def api_maintenance_devices():
 
 def _maintenance_changed() -> None:
     """The board and the map show maintenance: drop their cached copies."""
-    caching.invalidate_alert_board()  # also the map's marker colours
+    scheduler.board_changed()  # also the map's marker colours
 
 
 @bp.route("/api/maintenance", methods=["POST"])
@@ -1271,7 +1271,7 @@ def _acknowledge(clear: bool):
             ),
             404,
         )
-    caching.invalidate_alert_board()
+    scheduler.board_changed()
     return jsonify({"site_id": site_id, "changed": result["changed"]})
 
 
@@ -1363,7 +1363,7 @@ def api_add_alert_case():
                     (instance_ids[device_id], case_number, created_by),
                 )
         # The board payload embeds case numbers; drop it so the new case shows.
-        caching.invalidate_alert_board()
+        scheduler.board_changed()
         result = {
             "status": "ok",
             "site_id": site_id,
