@@ -13,6 +13,8 @@
     <!-- Wall screen (#243): when the board last updated, and loudly when it can't. -->
     <div class="wall-bar">
       <span id="wall-updated" class="wall-updated">Loading…</span>
+      <!-- A chime and a notification for a new Critical, per screen (#290). -->
+      <button id="wall-sound" class="wall-sound" type="button" aria-pressed="false">Sound off</button>
       <a class="wall-exit" href="/alerts">Operator view</a>
     </div>
     <div id="wall-error" class="wall-error" role="alert" hidden></div>

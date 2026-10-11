@@ -1684,6 +1684,7 @@ const wallErrorEl = {{ hidden: true }};
 const noop = () => {{}};
 const populateFilters = noop, renderSummary = noop, scheduleSyncPoll = noop, setNextUpdate = noop;
 const loadFeed = noop, renderWallStatus = noop, stopSyncPolling = noop, showError = noop;
+const announceNewAlarms = noop;
 const applyFilters = (payload) => shown.push(payload.tag);
 const showWallError = (message) => errors.push(message);
 const escHtml = (value) => String(value);
