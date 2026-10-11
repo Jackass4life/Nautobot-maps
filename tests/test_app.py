@@ -6017,11 +6017,20 @@ class TestGeocoder:
         assert geolocator.geocode.call_count == 1
         assert first["search_lat"] == second["search_lat"] == pytest.approx(55.68)
 
-    def test_at_most_one_request_per_second(self, client):
+    def test_at_most_one_request_per_second(self, client, monkeypatch):
+        # A minute, not a second: a slow CI runner took over a second between
+        # the two requests, and the second one was let through (#332).
+        monkeypatch.setattr(web, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
         with patch("nautobot_maps.web.Nominatim", return_value=self._geolocator()):
             assert client.get("/api/search?q=Copenhagen").status_code == 200
             busy = client.get("/api/search?q=Aarhus")
-        assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
+            assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
+            # Once the interval is over (its key expired), the next search is asked.
+            caching.cache.delete("geocode-rate-limit")
+            assert client.get("/api/search?q=Aarhus").status_code == 200
+
+    def test_the_interval_is_one_second(self):
+        assert web.GEOCODE_MIN_INTERVAL_SECONDS == 1
 
     def test_geocoder_error_is_not_passed_to_the_client(self, client):
         geolocator = MagicMock()

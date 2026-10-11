@@ -398,6 +398,9 @@ def api_alerts():
 
 
 GEOCODE_CACHE_SECONDS = 24 * 3600
+# At most one request to the geocoder per this many seconds: the public
+# Nominatim allows no more.  A constant so the tests can widen it.
+GEOCODE_MIN_INTERVAL_SECONDS = 1
 
 
 class GeocoderBusy(Exception):
@@ -421,7 +424,7 @@ def geocode(query: str):
     if cached is not None:
         return cached.get("point")
     # cache.add is atomic (SET NX in Redis): only one caller per second wins.
-    if not caching.cache.add("geocode-rate-limit", 1, timeout=1):
+    if not caching.cache.add("geocode-rate-limit", 1, timeout=GEOCODE_MIN_INTERVAL_SECONDS):
         raise GeocoderBusy()
     parsed = urlsplit(settings.GEOCODER_URL)
     try:
