@@ -41,6 +41,7 @@ services:
 - **Security headers** on every response: a Content-Security-Policy that only runs the app's own scripts and loads images only from the app and the `MAP_TILE_URL` host, plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
 - **Unprivileged user:** the image runs as `app` (uid 10001).
 - **Health check:** a Docker `HEALTHCHECK` probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. It never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
+- **Shared cache:** the bundled `docker-compose.yml` runs a `redis` service and sets `CACHE_TYPE=RedisCache`, so the 4 Gunicorn workers share one cache (the board, map levels, geocoding) and the MCP rate limit. Redis holds nothing that isn't rebuilt: it needs no volume or backup. With your own Redis, set `CACHE_REDIS_URL`. `CACHE_TYPE=SimpleCache` gives each worker its own cache again: it works, but each worker rebuilds and limits on its own.
 - **Migrations:** before starting the app the container runs `python -m nautobot_maps migrate` (see [database migrations](#database-migrations)).
 
 ## Backup and restore
