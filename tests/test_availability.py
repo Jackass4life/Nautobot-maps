@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import app as flask_app
-from nautobot_maps import availability, caching, db, settings, timeutil
+from nautobot_maps import alerts, availability, caching, db, inventory, settings, timeutil
 
 NOW = "2026-10-21T00:00:00Z"  # 20 days into October
 OCT = datetime(2026, 10, 1, tzinfo=UTC)
@@ -237,6 +237,9 @@ class TestReport:
             run(basis="uptime")
 
 
+REAL_BOARD_SITES = availability.board_sites
+
+
 class TestPages:
     @pytest.fixture
     def client(self, pg_database, clock, monkeypatch):
@@ -268,6 +271,29 @@ class TestPages:
         resp = client.get("/api/availability")
         assert resp.status_code == 503 and "would miss sites" in resp.get_json()["error"]
         assert client.get("/availability").status_code == 503
+
+    def test_an_empty_board_before_the_first_sync_is_a_503(self, client, monkeypatch):
+        monkeypatch.setattr(availability, "board_sites", REAL_BOARD_SITES)
+        monkeypatch.setattr(alerts, "cached_alert_board", lambda: {"alerts": []})
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
+        assert client.get("/api/availability").status_code == 503
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        assert client.get("/api/availability").status_code == 200, "synced, and really no sites"
+
+    def test_the_period_query_can_use_the_index(self, pg_database):
+        conn = db.get_conn()
+        try:
+            conn.execute("SET enable_seqscan = off")
+            plan = "\n".join(
+                str(next(iter(db.row_to_dict(row).values())))
+                for row in conn.execute(
+                    "EXPLAIN SELECT 1 FROM alert_instances "
+                    "WHERE COALESCE(resolved_at, 'infinity'::timestamptz) > now() AND down_started_at < now()"
+                ).fetchall()
+            )
+        finally:
+            conn.close()
+        assert "idx_alert_instances_period" in plan, plan
 
     def test_bad_input(self, client):
         assert client.get("/api/availability?month=2026-13").status_code == 400
