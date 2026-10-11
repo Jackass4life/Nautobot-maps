@@ -2399,30 +2399,36 @@ def record_board_build(trigger: str, seconds: float) -> None:
         conn.close()
 
 
-def board(trigger: str = "request", rebuild: bool = False) -> dict:
+def board(trigger: str = "request", rebuild: bool = False, include_non_operational: bool = False) -> dict:
     """The stored alert board, built when it is missing, or with *rebuild*.
 
     One build at a time across workers (#295): a caller that finds another
     build running waits for it and takes its result instead of building the
     same board again.  *trigger* (``request``, ``scheduler``, ``push``,
-    ``change``) is counted in board_build_stats.
+    ``change``) is counted in board_build_stats.  *include_non_operational*:
+    the variant with the excluded locations, stored on its own.
     """
+    key = f"{BOARD_CACHE_KEY}:include-non-operational" if include_non_operational else BOARD_CACHE_KEY
     if not rebuild:
-        cached = caching.get(BOARD_CACHE_KEY)
+        cached = caching.get(key)
         if cached is not None:
             return cached
-    release = _board_build_lock(None if rebuild else lambda: caching.get(BOARD_CACHE_KEY))
+    release = _board_build_lock(None if rebuild else lambda: caching.get(key))
     if isinstance(release, tuple):
         return release[1]  # another worker built it while we waited
     try:
         if not rebuild:
-            cached = caching.get(BOARD_CACHE_KEY)
+            cached = caching.get(key)
             if cached is not None:
                 return cached  # built while we waited
         started = time.monotonic()
-        payload = build_alert_board_payload(snapshot_only=True)
+        payload = (
+            build_alert_board_payload(snapshot_only=True, include_non_operational=True)
+            if include_non_operational
+            else build_alert_board_payload(snapshot_only=True)
+        )
         if payload.get("alerts") or inventory.snapshot_initialized():
-            caching.set(BOARD_CACHE_KEY, payload, timeout=board_cache_seconds(payload))
+            caching.set(key, payload, timeout=board_cache_seconds(payload))
         record_board_build(trigger, time.monotonic() - started)
         return payload
     finally:
@@ -2435,9 +2441,6 @@ def get_alert_board_data(
     include_non_operational: bool = False,
 ) -> dict:
     """Return alert summaries for all locations."""
-    cache_key = BOARD_CACHE_KEY
-    if include_non_operational:
-        cache_key = f"{cache_key}:include-non-operational"
     sync_enqueued = False
     if force_refresh:
         # "Sync now": incremental, not a full reconcile (#135).  Deletions are
@@ -2449,25 +2452,10 @@ def get_alert_board_data(
         # an open board keeps itself up to date (#152).  This request still
         # makes no upstream calls itself.
         sync_enqueued = inventory.ensure_snapshot(wait=False)
-    if not include_non_operational:
-        return apply_alert_board_freshness(
-            board("request"), sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
-        )
-    cached = caching.get(cache_key)
-    if cached is not None:
-        return apply_alert_board_freshness(
-            cached, sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
-        )
-
-    payload = build_alert_board_payload(
-        snapshot_only=True,
-        include_non_operational=include_non_operational,
-    )
-    should_cache = bool(payload.get("alerts")) or inventory.snapshot_initialized()
-    if should_cache:
-        caching.set(cache_key, payload, timeout=board_cache_seconds(payload))
     return apply_alert_board_freshness(
-        payload, sync_enqueued=sync_enqueued, next_update_in_seconds=next_update_in_seconds
+        board("request", include_non_operational=include_non_operational),
+        sync_enqueued=sync_enqueued,
+        next_update_in_seconds=next_update_in_seconds,
     )
 
 

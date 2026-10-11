@@ -85,3 +85,51 @@ def test_a_change_rebuilds_in_the_background_only_with_the_scheduler(site, monke
     scheduler.board_changed()
     assert caching.get(alerts.BOARD_CACHE_KEY) is None
     assert calls == ([{"always": True, "trigger": "change"}] if started else [])
+
+
+def test_a_change_whose_rebuild_lost_the_lock_is_rebuilt_by_the_tick(site, monkeypatch, clock):
+    from nautobot_maps import inventory
+
+    built = []
+    monkeypatch.setattr(scheduler, "rebuild_board", lambda trigger="scheduler": built.append(trigger))
+    monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
+    monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: False)
+    assert scheduler.pending_changes() is None
+    scheduler.board_changed()  # scheduler not started here: no rebuild of its own
+    assert scheduler.pending_changes() is not None
+    assert scheduler.tick() is True and built == ["scheduler"]
+    assert scheduler.pending_changes() is None and scheduler.tick() is False, "taken in once"
+
+
+def test_the_rebuild_loop_drains_a_change_made_during_its_build(site, monkeypatch, clock):
+    calls = []
+
+    def build(trigger="scheduler"):
+        calls.append(trigger)
+        if len(calls) == 1:  # a change lands while the first build runs
+            clock["now"] = "2026-10-09T12:00:05Z"
+            scheduler.request_change_rebuild()
+
+    class InlineThread:
+        def __init__(self, target, **kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(scheduler, "rebuild_board", build)
+    monkeypatch.setattr(scheduler.threading, "Thread", InlineThread)
+    scheduler.request_change_rebuild()
+    scheduler.rebuild_after_push(always=True, trigger="change")
+    assert calls == ["change", "change"] and scheduler.pending_changes() is None
+
+
+def test_the_variant_with_excluded_locations_is_built_once_too(site, monkeypatch):
+    caching.cache.clear()
+    calls = []
+    real = alerts.build_alert_board_payload
+    monkeypatch.setattr(alerts, "build_alert_board_payload", lambda **kw: calls.append(kw) or real(**kw))
+    alerts.get_alert_board_data(include_non_operational=True)
+    alerts.get_alert_board_data(include_non_operational=True)
+    assert calls == [{"snapshot_only": True, "include_non_operational": True}]
+    assert stats() == {"request": 1}
