@@ -68,3 +68,36 @@ def test_the_button_is_on_the_wall_only():
         board = client.get("/alerts").get_data(as_text=True)
     assert 'id="wall-sound"' in wall and 'aria-pressed="false">Sound off<' in wall
     assert 'id="wall-sound"' not in board
+
+
+def test_at_most_five_notifications_open_the_rest_wait():
+    if shutil.which("node") is None:
+        pytest.skip("node is required")
+    js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
+    functions = "\n".join(_extract_js_function(js, n) for n in ("alarmText", "showQueuedNotifications"))
+    script = f"""
+function check(c, m) {{ if (!c) throw new Error(m); }}
+const shown = [];
+globalThis.window = {{}};
+class FakeNotification {{
+  constructor(title, options) {{ this.body = options.body; this.listeners = []; shown.push(this); }}
+  addEventListener(kind, fn) {{ this.listeners.push(fn); }}
+  close() {{ this.listeners.forEach((fn) => fn()); }}
+}}
+FakeNotification.permission = "granted";
+window.Notification = FakeNotification;
+globalThis.Notification = FakeNotification;
+const MAX_OPEN_NOTIFICATIONS = 5;
+const openNotifications = new Set();
+const queuedNotifications = [];
+{functions}
+for (let n = 1; n <= 7; n += 1) queuedNotifications.push({{ id: "s" + n, name: "Site " + n, kind: "critical" }});
+showQueuedNotifications();
+check(shown.length === 5 && queuedNotifications.length === 2, "five open, two waiting");
+shown[0].close();
+check(shown.length === 6 && shown[5].body === "Site 6 is Critical", "a slot frees: the next one");
+shown[1].close();
+check(shown.length === 7 && queuedNotifications.length === 0, "none dropped");
+"""
+    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+    assert completed.returncode == 0, completed.stderr or completed.stdout

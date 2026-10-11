@@ -1474,20 +1474,35 @@ function playChime() {
   });
 }
 
+// At most this many notifications open at once; the rest wait until one closes.
+const MAX_OPEN_NOTIFICATIONS = 5;
+const openNotifications = new Set();
+const queuedNotifications = [];
+
+function showQueuedNotifications() {
+  if (!window.Notification || Notification.permission !== "granted") return;
+  while (openNotifications.size < MAX_OPEN_NOTIFICATIONS && queuedNotifications.length) {
+    const event = queuedNotifications.shift();
+    try {
+      const note = new Notification("Nautobot Maps", { body: alarmText(event), tag: `${event.id}-${event.kind}` });
+      openNotifications.add(note);
+      note.addEventListener("close", () => {
+        openNotifications.delete(note);
+        showQueuedNotifications();
+      });
+    } catch (_err) {
+      // Notifications unavailable here: the chime still played.
+    }
+  }
+}
+
 function announceNewAlarms(sites) {
   const { events, seen } = newAlarms(announced, sites);
   announced = seen;
   if (!wallSoundOn || !events.length) return;
   playChime();
-  if (window.Notification && Notification.permission === "granted") {
-    events.slice(0, 5).forEach((event) => {
-      try {
-        new Notification("Nautobot Maps", { body: alarmText(event), tag: `${event.id}-${event.kind}` });
-      } catch (_err) {
-        // Notifications unavailable here: the chime still played.
-      }
-    });
-  }
+  queuedNotifications.push(...events);
+  showQueuedNotifications();
 }
 
 function setWallSound(on) {
