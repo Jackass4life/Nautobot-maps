@@ -6,7 +6,7 @@ How a device is matched and counted:
 - Like LibreNMS, an alert is matched to a Nautobot device by **name** (the part before the first dot, case-insensitive), or by **primary IP** when the alert names an IP.
 - A matched device counts as **down** for as long as the alert fires. It is additive: these sources never mark a device up that Nautobot has down.
 - Down since = when the alert started.
-- The board, history, notifications and the map treat it like any other down device. In device history its source is `alertmanager` or the webhook's `source`.
+- The board, history, notifications and the map treat it like any other down device. On the board its line says who reported it: "alertmanager: Target down".
 
 Both endpoints need an **operator** [API token](authentication.md#api-tokens) and the database:
 
