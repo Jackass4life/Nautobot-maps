@@ -1478,9 +1478,20 @@ function playChime() {
 const MAX_OPEN_NOTIFICATIONS = 5;
 const openNotifications = new Set();
 const queuedNotifications = [];
+// While the browser's question is unanswered, at most this many wait.
+const MAX_QUEUED_NOTIFICATIONS = 50;
 
 function showQueuedNotifications() {
-  if (!window.Notification || Notification.permission !== "granted") return;
+  const permission = window.Notification ? Notification.permission : "denied";
+  if (permission === "default") {
+    // Not answered yet: keep the newest waiting.
+    queuedNotifications.splice(0, Math.max(0, queuedNotifications.length - MAX_QUEUED_NOTIFICATIONS));
+    return;
+  }
+  if (permission !== "granted") {
+    queuedNotifications.length = 0; // never shown here: don't keep them
+    return;
+  }
   while (openNotifications.size < MAX_OPEN_NOTIFICATIONS && queuedNotifications.length) {
     const event = queuedNotifications.shift();
     try {
@@ -1507,6 +1518,7 @@ function announceNewAlarms(sites) {
 
 function setWallSound(on) {
   wallSoundOn = Boolean(on);
+  if (!wallSoundOn) queuedNotifications.length = 0;
   if (!wallSoundBtn) return;
   wallSoundBtn.textContent = wallSoundOn ? "Sound on" : "Sound off";
   wallSoundBtn.setAttribute("aria-pressed", wallSoundOn ? "true" : "false");
@@ -1526,7 +1538,10 @@ if (wallSoundBtn) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (AudioContextClass && !audioContext) audioContext = new AudioContextClass();
       audioContext?.resume();
-      if (window.Notification && Notification.permission === "default") Notification.requestPermission();
+      if (window.Notification && Notification.permission === "default") {
+        // Show what came in while the browser was asking.
+        Promise.resolve(Notification.requestPermission()).then(showQueuedNotifications, () => {});
+      }
       playChime();
     }
     setWallSound(on);

@@ -90,6 +90,7 @@ globalThis.Notification = FakeNotification;
 const MAX_OPEN_NOTIFICATIONS = 5;
 const openNotifications = new Set();
 const queuedNotifications = [];
+const MAX_QUEUED_NOTIFICATIONS = 50;
 {functions}
 for (let n = 1; n <= 7; n += 1) queuedNotifications.push({{ id: "s" + n, name: "Site " + n, kind: "critical" }});
 showQueuedNotifications();
@@ -98,6 +99,15 @@ shown[0].close();
 check(shown.length === 6 && shown[5].body === "Site 6 is Critical", "a slot frees: the next one");
 shown[1].close();
 check(shown.length === 7 && queuedNotifications.length === 0, "none dropped");
+
+// Not answered yet: they wait (the newest 50); denied or unsupported: dropped.
+FakeNotification.permission = "default";
+for (let n = 1; n <= 60; n += 1) queuedNotifications.push({{ id: "w" + n, name: "W" + n, kind: "critical" }});
+showQueuedNotifications();
+check(queuedNotifications.length === 50 && queuedNotifications[0].id === "w11", "the newest 50 wait");
+FakeNotification.permission = "denied";
+showQueuedNotifications();
+check(queuedNotifications.length === 0, "denied: nothing kept");
 """
     completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr or completed.stdout
