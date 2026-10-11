@@ -31,8 +31,8 @@ The alert board needs PostgreSQL; the map works without it. The bundled `docker-
 | `INVENTORY_SYNC_INTERVAL_SECONDS` | `CACHE_TTL` | Minimum seconds between Nautobot inventory syncs |
 | `LIBRENMS_SYNC_INTERVAL_SECONDS` | `CACHE_TTL` | Minimum seconds between LibreNMS status refreshes |
 | `CACHE_TTL` | `300` | Seconds to cache Nautobot API responses |
-| `CACHE_TYPE` | `SimpleCache` | Flask-Caching backend. Use `RedisCache` in production with several workers |
-| `CACHE_REDIS_URL` | — | Redis URL, e.g. `redis://redis:6379/0`; required with `CACHE_TYPE=RedisCache` |
+| `CACHE_TYPE` | `SimpleCache` (`RedisCache` in `docker-compose.yml`) | Flask-Caching backend. `SimpleCache` is per worker; `RedisCache` shares the cache and rate limits between workers |
+| `CACHE_REDIS_URL` | — (`redis://redis:6379/0` in `docker-compose.yml`) | Redis URL; required with `CACHE_TYPE=RedisCache` |
 
 ## LibreNMS (optional)
 
