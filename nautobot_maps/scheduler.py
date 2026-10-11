@@ -6,7 +6,7 @@ Called as ``scheduler.function()`` so tests can replace it on this module.
 import logging
 import threading
 
-from nautobot_maps import alerts, caching, db, inventory, notify, settings
+from nautobot_maps import alerts, caching, db, inventory, notify, settings, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +57,17 @@ def tick() -> bool:
         send_notifications()
         prune_alert_history_if_due()
         worked = inventory.ensure_snapshot(wait=True)
-        # LibreNMS pushes (#284) whose own rebuild didn't get the lock.
+        # LibreNMS pushes (#284) and webhook alerts (#292) whose own rebuild
+        # didn't get the lock.
         pushes = pending_librenms_pushes()
-        if worked or pushes:
+        received = pending_webhook_alerts()
+        if worked or pushes or received:
             # The syncs invalidated the cached board; rebuild it now so alert
             # history is recorded even if nobody opens the board.
             rebuild_board()
             ack_librenms_pushes(pushes)  # only after the rebuild succeeded
-        return worked or bool(pushes)
+            ack_webhook_alerts(received)
+        return worked or bool(pushes) or received is not None
     finally:
         release()
 
@@ -122,21 +125,55 @@ def rebuild_after_push(always: bool = False, trigger: str = "push") -> None:
         if not callable(release):
             return
         try:
+            # Read before the build: alerts arriving during it stay pending.
+            received = pending_webhook_alerts()
             # Again while pushes arrived during the rebuild (bounded: the
             # tick picks up anything left).
+            built = False
             for attempt in range(5):
                 pushes = pending_librenms_pushes()
-                if not pushes and not (always and attempt == 0):
+                if not pushes and not (attempt == 0 and (always or received is not None)):
                     break
                 rebuild_board(trigger)
+                built = True
                 if pushes:
                     ack_librenms_pushes(pushes)
+            if built:
+                ack_webhook_alerts(received)
         except Exception as exc:
             logger.warning("Rebuild after a LibreNMS push failed: %s", exc, exc_info=True)
         finally:
             release()
 
     threading.Thread(target=run, name=PUSH_REBUILD_THREAD_NAME, daemon=True).start()
+
+
+def pending_webhook_alerts():
+    """When webhook alerts (#292) arrived that no build has taken in, else None."""
+    conn = db.get_conn()
+    if conn is None:
+        return None
+    try:
+        return webhooks.pending_rebuild(conn)
+    except Exception as exc:
+        logger.warning("Reading pending webhook alerts failed: %s", exc, exc_info=True)
+        return None
+    finally:
+        conn.close()
+
+
+def ack_webhook_alerts(received) -> None:
+    if received is None:
+        return
+    conn = db.get_conn()
+    if conn is None:
+        return
+    try:
+        webhooks.mark_rebuilt(conn, received)
+    except Exception as exc:
+        logger.warning("Recording the webhook rebuild failed: %s", exc, exc_info=True)
+    finally:
+        conn.close()
 
 
 def send_notifications() -> None:

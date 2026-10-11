@@ -241,3 +241,44 @@ class TestAccess:
         assert client.post("/api/alertmanager", data="x", headers=bearer(token)).status_code == 400
         response = client.post("/api/device-status", json={"status": "down"}, headers=bearer(token))
         assert response.status_code == 400 and "device" in response.get_json()["error"]
+
+
+class TestReviewFixes:
+    def test_an_overlong_id_is_refused_not_cut(self):
+        with pytest.raises(webhooks.WebhookError, match="at most 255"):
+            webhooks.parse_generic({"device": "sw1", "status": "down", "id": "x" * 256})
+        long_fingerprint = am_alert(fingerprint="f" * 300)
+        (event,), _ = webhooks.parse_alertmanager({"alerts": [long_fingerprint]})
+        assert len(event["key"]) == 64, "a hash of the labels instead"
+
+    def test_an_expired_alert_firing_again_starts_anew_and_is_pruned(self, site, clock):
+        conn = db.get_conn()
+        try:
+            webhooks.store(conn, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+            clock["now"] = "2026-10-11T12:00:00Z"  # past the 24 h TTL
+            webhooks.store(conn, webhooks.parse_generic({"device": "other", "status": "down"}))
+            keys = [r["alert_key"] for r in conn.execute("SELECT alert_key FROM webhook_device_alerts").fetchall()]
+            assert keys == ["other"], "the expired one is gone"
+            webhooks.store(conn, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+            assert webhooks.read_index(conn)["by_host"]["acc1"]["started_at"] == "2026-10-11T12:00:00Z"
+        finally:
+            conn.close()
+
+    def test_a_rebuild_that_lost_the_lock_is_done_by_the_tick(self, site, clock, monkeypatch):
+        from nautobot_maps import scheduler
+
+        conn = db.get_conn()
+        try:
+            assert webhooks.pending_rebuild(conn) is None
+            webhooks.store(conn, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+            received = webhooks.pending_rebuild(conn)
+            assert received is not None
+        finally:
+            conn.close()
+        built = []
+        monkeypatch.setattr(scheduler, "rebuild_board", lambda *args: built.append(True))
+        monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: False)
+        assert scheduler.tick() is True and built == [True]
+        assert scheduler.pending_webhook_alerts() is None
+        assert scheduler.tick() is False and built == [True], "taken in once"
