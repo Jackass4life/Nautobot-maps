@@ -1,15 +1,13 @@
 """A tenant's status page (#291): its sites only, with a status token or as the board."""
 
 import json
-import shutil
-import subprocess
 
 import pytest
 
 from nautobot_maps import alerts, auth, inventory, settings, status
 from tests import test_tokens
+from tests.js_modules import run_js
 from tests.test_app import auth_config
-from tests.test_integration import REPO_ROOT, _extract_js_function
 from tests.test_tokens import bearer, make
 
 clock = test_tokens.clock
@@ -163,17 +161,9 @@ class TestStatusTokens:
 
 
 def test_the_page_renderer():
-    if shutil.which("node") is None:
-        pytest.skip("node is required")
-    js = (REPO_ROOT / "static" / "js" / "status.js").read_text(encoding="utf-8")
-    labels = js[js.index("const STATE_LABELS") : js.index("};", js.index("const STATE_LABELS")) + 2]
-    names = ("escHtml", "shortTime", "headline", "siteLine", "statusKey", "errorText")
-    script = (
-        "function check(c, m) { if (!c) throw new Error(m); }\n"
-        + labels
-        + "\n"
-        + "\n".join(_extract_js_function(js, n) for n in names)
-        + """
+    run_js(
+        """
+import { errorText, headline, siteLine, statusKey } from "@js/status/page.js";
 check(headline({ summary: { sites: 3, affected: 0 } }) === "All 3 sites operational", "all ok");
 check(headline({ summary: { sites: 1, affected: 0 } }) === "Operational", "one ok");
 check(headline({ summary: { sites: 5, affected: 2 } }) === "2 of 5 sites affected", "affected");
@@ -186,5 +176,3 @@ check(statusKey("#key=nmt_abc") === "nmt_abc" && statusKey("") === "", "key");
 check(errorText(403).includes("doesn't work"), "refused");
 """
     )
-    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-    assert completed.returncode == 0, completed.stderr or completed.stdout

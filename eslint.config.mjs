@@ -11,11 +11,12 @@ export default [
     files: ["static/js/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
-      // Plain <script> tags, except the ES modules below.
-      sourceType: "script",
+      // Every page script is an ES module (#294): <script type="module">,
+      // and imported by the tests in Node.
+      sourceType: "module",
       globals: {
         ...globals.browser,
-        L: "readonly", // Leaflet, loaded before map.js
+        L: "readonly", // Leaflet, a plain script loaded before map/main.js
       },
     },
     rules: {
@@ -25,10 +26,5 @@ export default [
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
     },
-  },
-  {
-    // ES modules (#294): <script type="module">, and imported by the tests in Node.
-    files: ["static/js/lib/**/*.js", "static/js/alerts/**/*.js"],
-    languageOptions: { sourceType: "module" },
   },
 ];

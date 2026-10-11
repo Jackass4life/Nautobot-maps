@@ -1,8 +1,9 @@
-"use strict";
-
 // A tenant's status page (#291).  The key from a share link's "#key=" goes
 // in the Authorization header; the fragment is never sent to the server.
-const REFRESH_MS = 60 * 1000;
+// Public: every file this imports is in auth.STATUS_PAGE_ASSETS.
+import { formatFeedTime } from "../lib/format.js";
+import { escHtml } from "../lib/html.js";
+
 const STATE_LABELS = {
   operational: "Operational",
   degraded: "Degraded",
@@ -11,35 +12,18 @@ const STATE_LABELS = {
   unknown: "No data",
 };
 
-function escHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-// "14:05" today, else "3 Oct 14:05" (the viewer's time zone).
-function shortTime(iso, now) {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return "";
-  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (at.toDateString() === now.toDateString()) return time;
-  return `${at.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
-}
-
-function headline(data) {
+export function headline(data) {
   const { sites, affected } = data.summary;
   if (!affected) return sites === 1 ? "Operational" : `All ${sites} sites operational`;
   return `${affected} of ${sites} site${sites === 1 ? "" : "s"} affected`;
 }
 
-function siteLine(site, now) {
+// "since 14:05" today, else "since 3 Oct 14:05" (the viewer's time zone).
+export function siteLine(site, now) {
   const label = STATE_LABELS[site.state] || STATE_LABELS.unknown;
   let when = "";
-  if (site.since) when = `since ${shortTime(site.since, now)}`;
-  else if (site.until) when = `until ${shortTime(site.until, now)}`;
+  if (site.since) when = `since ${formatFeedTime(site.since, now)}`;
+  else if (site.until) when = `until ${formatFeedTime(site.until, now)}`;
   return `<li class="status-site status-${escHtml(site.state)}">
     <span class="status-dot" aria-hidden="true"></span>
     <span class="status-name">${escHtml(site.name)}</span>
@@ -47,22 +31,18 @@ function siteLine(site, now) {
   </li>`;
 }
 
-function statusKey(hash) {
+export function statusKey(hash) {
   return new URLSearchParams(String(hash || "").replace(/^#/, "")).get("key") || "";
 }
 
-function errorText(code) {
+export function errorText(code) {
   if (code === 401 || code === 403) return "This link doesn't work (anymore). Ask your contact for a new one.";
   if (code === 404) return "No sites found.";
   return "Status is unavailable right now. Retrying…";
 }
 
-function applyTheme() {
-  const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-}
-
-async function refresh() {
+// Load and show the status; whether to try again later (not for a refused link).
+export async function refresh() {
   const tenant = document.body.dataset.tenant || "";
   const key = statusKey(window.location.hash);
   const headlineEl = document.getElementById("status-headline");
@@ -84,19 +64,10 @@ async function refresh() {
     headlineEl.textContent = headline(data);
     headlineEl.className = `status-headline${data.summary.affected ? " status-affected" : " status-ok"}`;
     document.getElementById("status-sites").innerHTML = data.sites.map((site) => siteLine(site, now)).join("");
-    document.getElementById("status-updated").textContent = `Updated ${shortTime(data.checked_at, now)}`;
+    document.getElementById("status-updated").textContent = `Updated ${formatFeedTime(data.checked_at, now)}`;
   } catch (_err) {
     headlineEl.textContent = errorText(0);
     headlineEl.className = "status-headline status-error";
   }
   return true;
-}
-
-if (typeof document !== "undefined" && document.body && document.body.classList.contains("status-page")) {
-  applyTheme();
-  const tick = async () => {
-    // A refused link stays refused; stop asking.
-    if (await refresh()) window.setTimeout(tick, REFRESH_MS);
-  };
-  tick();
 }

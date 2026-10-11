@@ -1,0 +1,60 @@
+// Alert levels of every location, so markers are coloured without a click (#234).
+import { applyLevelToOpenPanel } from "./inspector.js";
+import { refreshMarkerIcon } from "./markers.js";
+import { detailCache, els, locationAlerts, state } from "./state.js";
+
+const ALERT_REFRESH_MS = 60 * 1000;
+// Until the levels have loaded once, a location without one isn't known to
+// have no data (#311).
+let locationAlertsLoaded = false;
+
+function setAlertLevelsNote(show) {
+  if (els.alertLevelsNote) els.alertLevelsNote.hidden = !show;
+}
+
+export async function loadLocationAlerts() {
+  let data;
+  try {
+    const resp = await fetch("/api/location-alerts");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    data = await resp.json();
+  } catch (err) {
+    // Markers keep their last colours; a click still loads the site's level.
+    // Never loaded: grey would read as "no data", so say so (#311).
+    console.warn("Could not load location alert levels:", err);
+    if (!locationAlertsLoaded) setAlertLevelsNote(true);
+    return;
+  }
+  locationAlertsLoaded = true;
+  setAlertLevelsNote(false);
+  const levels = data.levels || {};
+  const changed = new Set();
+  for (const id of Object.keys(locationAlerts)) {
+    if (!levels[id]) {
+      delete locationAlerts[id];
+      changed.add(id);
+    }
+  }
+  for (const [id, alert] of Object.entries(levels)) {
+    if (locationAlerts[id] !== alert.level) {
+      locationAlerts[id] = alert.level;
+      changed.add(id);
+    }
+  }
+  // Site details loaded earlier may now hold an old alert level.
+  for (const id of detailCache.keys()) {
+    if (id !== state.selectedLocationId) detailCache.delete(id);
+  }
+  for (const id of changed) refreshMarkerIcon(id);
+  applyLevelToOpenPanel(levels);
+}
+
+export function startLocationAlertRefresh() {
+  loadLocationAlerts();
+  setInterval(() => {
+    if (!document.hidden) loadLocationAlerts();
+  }, ALERT_REFRESH_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) loadLocationAlerts();
+  });
+}

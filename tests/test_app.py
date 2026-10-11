@@ -1598,7 +1598,7 @@ class TestIndex:
 
     @staticmethod
     def _app_config(resp) -> dict:
-        """The settings the page hands to map.js (data attributes, #197)."""
+        """The settings the page hands to js/map/main.js (data attributes, #197)."""
         import html
 
         tag = re.search(rb'<div\s+id="app-config"(.*?)></div>', resp.data, re.S).group(1).decode()
@@ -6620,7 +6620,7 @@ class TestApiExplorer:
         html = client.get("/docs").get_data(as_text=True)
         assert "&lt;device uuid&gt;" in html and "\\u003c" not in html
         assert '"case_number": "INC-1234"' in html_lib.unescape(html)
-        assert '<script src="/static/js/docs.js">' in html and "<script>" not in html
+        assert '<script type="module" src="/static/js/docs/main.js">' in html and "<script>" not in html
 
     def test_header_links_to_the_explorer(self, client):
         for path in ("/", "/alerts", "/docs"):

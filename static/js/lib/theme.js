@@ -22,9 +22,10 @@ function initialTheme() {
   return "light";
 }
 
+// The stored or system theme, and the button (if the page has one) to change it.
 export function initThemeToggle(themeToggle) {
-  if (!themeToggle) return;
   applyTheme(initialTheme(), themeToggle);
+  if (!themeToggle) return;
   themeToggle.addEventListener("click", () => {
     const nextTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
     applyTheme(nextTheme, themeToggle);

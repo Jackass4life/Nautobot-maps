@@ -3,6 +3,7 @@
 // page when it loads (#294).
 import { setCaseUrlTemplate } from "../lib/cases.js";
 import { initThemeToggle } from "../lib/theme.js";
+import { initInfoTips } from "../lib/tooltip.js";
 import { showError } from "../lib/toast.js";
 import { applyFilters, loadAlertBoard, renderNextUpdate } from "./board.js";
 import { initCasePanel, openCasePanel, sendAck } from "./case-panel.js";
@@ -14,6 +15,9 @@ import { DEFAULT_SEVERITY_FILTER, DEFAULT_SORT, config, els, state } from "./sta
 import { WALL_RELOAD_MS, initWallSound, renderWallStatus } from "./wall.js";
 
 const byId = (id) => document.getElementById(id);
+
+// First, as when it was its own script: its Escape runs before the panels'.
+initInfoTips();
 
 Object.assign(els, {
   boardStatus: byId("board-status"),

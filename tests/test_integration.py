@@ -12,8 +12,6 @@ Run with:
 import json
 import pathlib
 import re
-import shutil
-import subprocess
 import threading
 
 import mock_nautobot  # provided via tests/conftest.py path injection
@@ -22,27 +20,9 @@ from werkzeug.serving import make_server
 
 import app as flask_app
 from nautobot_maps import caching, inventory, settings
-from tests.js_modules import run_js
+from tests.js_modules import js_source, run_js
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-
-
-def _extract_js_function(source, name):
-    token = f"function {name}("
-    start = source.index(token)
-    if source[max(0, start - 6) : start] == "async ":
-        start -= 6  # keep "async", or await inside is a syntax error
-    brace_start = source.index("{", start)
-    depth = 0
-    for idx in range(brace_start, len(source)):
-        char = source[idx]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return source[start : idx + 1]
-    raise ValueError(f"Could not extract function {name}")
 
 
 # ---------------------------------------------------------------------------
@@ -116,12 +96,12 @@ class TestMapUI:
         assert resp.status_code == 200
 
     def test_static_js_served(self, integration_client):
-        resp = integration_client.get("/static/js/map.js")
+        resp = integration_client.get("/static/js/map/main.js")
         assert resp.status_code == 200
 
     def test_js_contains_location_inspector_flow(self, integration_client):
-        """The JS bundle includes the persistent location inspector logic."""
-        resp = integration_client.get("/static/js/map.js")
+        """The site panel module has the persistent location inspector logic."""
+        resp = integration_client.get("/static/js/map/inspector.js")
         js = resp.data.decode()
         assert "openInspectorForLocation" in js
         assert "loadLocationDetail" in js
@@ -140,121 +120,49 @@ class TestMapUI:
 
     def test_js_runtime_helpers_cover_resize_and_keyboard_access(self):
         """Inspector helper runtime behavior should defer resize and wire keyboard activation."""
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the inspector runtime helper regression test")
-        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        schedule_map_resize = _extract_js_function(js, "scheduleMapResize")
-        wire_marker_accessibility = _extract_js_function(js, "wireMarkerAccessibility")
+        run_js("""
+import { scheduleMapResize } from "@js/map/inspector.js";
+import { wireMarkerAccessibility } from "@js/map/markers.js";
+import { state } from "@js/map/state.js";
 
-        script = f"""
-{schedule_map_resize}
-{wire_marker_accessibility}
 const rafCallbacks = [];
-global.window = {{
-  requestAnimationFrame(callback) {{
-    rafCallbacks.push(callback);
-    return rafCallbacks.length;
-  }},
-}};
+setGlobal("window", { requestAnimationFrame(callback) { rafCallbacks.push(callback); return rafCallbacks.length; } });
 let invalidations = 0;
-const initialMap = {{
-  invalidateSize() {{
-    invalidations += 1;
-  }},
-  getContainer() {{
-    return {{ id: "map" }};
-  }},
-}};
-let map = initialMap;
+state.map = { invalidateSize() { invalidations += 1; }, getContainer() { return { id: "map" }; } };
 scheduleMapResize();
-if (rafCallbacks.length !== 1) {{
-  throw new Error(`expected one queued animation frame, got ${{rafCallbacks.length}}`);
-}}
-map = {{
-  invalidateSize() {{
-    throw new Error("resize should use the originally scheduled map instance");
-  }},
-  getContainer() {{
-    return {{ id: "replacement-map" }};
-  }},
-}};
+check(rafCallbacks.length === 1, `expected one queued animation frame, got ${rafCallbacks.length}`);
+state.map = {
+  invalidateSize() { throw new Error("resize should use the originally scheduled map instance"); },
+  getContainer() { return { id: "replacement-map" }; },
+};
 rafCallbacks.shift()();
-if (invalidations !== 0 || rafCallbacks.length !== 1) {{
-  throw new Error("resize should wait for the second animation frame");
-}}
+check(invalidations === 0 && rafCallbacks.length === 1, "resize should wait for the second animation frame");
 rafCallbacks.shift()();
-if (invalidations !== 1) {{
-  throw new Error(`expected one resize invalidation, got ${{invalidations}}`);
-}}
-map = {{
-  invalidateSize() {{
-    throw new Error("guard should skip resize when no container is available");
-  }},
-  getContainer() {{
-    return null;
-  }},
-}};
+check(invalidations === 1, `expected one resize invalidation, got ${invalidations}`);
+state.map = {
+  invalidateSize() { throw new Error("guard should skip resize when no container is available"); },
+  getContainer() { return null; },
+};
 scheduleMapResize();
-if (rafCallbacks.length !== 0) {{
-  throw new Error("guarded resize should not queue animation frames");
-}}
-const listeners = {{}};
-const element = {{
-  dataset: {{}},
-  setAttribute(name, value) {{
-    this[name] = value;
-  }},
-  addEventListener(name, handler) {{
-    listeners[name] = handler;
-  }},
-}};
+check(rafCallbacks.length === 0, "guarded resize should not queue animation frames");
+
+const listeners = {};
+const el = element("marker", { addEventListener(name, handler) { listeners[name] = handler; } });
 let activations = 0;
-const marker = {{
-  on(name, handler) {{
-    if (name === "add") this._onAdd = handler;
-  }},
-  getElement() {{
-    return element;
-  }},
-}};
-wireMarkerAccessibility(marker, "Zoom to 3 clustered locations", () => {{
-  activations += 1;
-}});
+const marker = {
+  on(name, handler) { if (name === "add") this._onAdd = handler; },
+  getElement() { return el; },
+};
+wireMarkerAccessibility(marker, "Zoom to 3 clustered locations", () => { activations += 1; });
 marker._onAdd();
-if (element.role !== "button" || element.tabindex !== "0" || element["aria-label"] !== "Zoom to 3 clustered locations") {{
-  throw new Error("marker accessibility attributes were not applied");
-}}
+check(el.attrs.role === "button" && el.attrs.tabindex === "0" && el.attrs["aria-label"] === "Zoom to 3 clustered locations",
+  "marker accessibility attributes were not applied");
 let prevented = false;
-listeners.keydown({{
-  key: "Enter",
-  preventDefault() {{
-    prevented = true;
-  }},
-}});
-listeners.keydown({{
-  key: " ",
-  preventDefault() {{
-    prevented = true;
-  }},
-}});
-listeners.keydown({{
-  key: "Escape",
-  preventDefault() {{
-    throw new Error("non-activation keys should not be prevented");
-  }},
-}});
-if (!prevented || activations !== 2) {{
-  throw new Error(`expected two keyboard activations, got ${{activations}}`);
-}}
-"""
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+listeners.keydown({ key: "Enter", preventDefault() { prevented = true; } });
+listeners.keydown({ key: " ", preventDefault() { prevented = true; } });
+listeners.keydown({ key: "Escape", preventDefault() { throw new Error("non-activation keys should not be prevented"); } });
+check(prevented && activations === 2, `expected two keyboard activations, got ${activations}`);
+""")
 
 
 class TestAlertBoardUI:
@@ -1122,23 +1030,14 @@ check(alertBadge(undefined).includes("NO DATA"), "missing level shows as No data
 """)
 
     def test_map_renders_the_new_levels(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        map_js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        rank = re.search(r"const ALERT_RANK = \{[^}]*\};", map_js).group(0)
-        functions = "\n".join(_extract_js_function(map_js, name) for name in ("escHtml", "buildAlertBanner"))
-        script = f"""
-{rank}
-{functions}
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-check(buildAlertBanner({{ level: "no_data", reason: "No monitored devices" }}) === "", "no banner for No data");
-check(buildAlertBanner({{ level: "ok" }}) === "", "no banner for OK");
-const low = buildAlertBanner({{ level: "low", reason: "1/20 devices offline (5%)" }});
+        run_js("""
+import { buildAlertBanner } from "@js/map/panel.js";
+check(buildAlertBanner({ level: "no_data", reason: "No monitored devices" }) === "", "no banner for No data");
+check(buildAlertBanner({ level: "ok" }) === "", "no banner for OK");
+const low = buildAlertBanner({ level: "low", reason: "1/20 devices offline (5%)" });
 check(low.includes("alert-low") && low.includes("LOW") && low.includes("1/20"), low);
-check(buildAlertBanner({{ level: "medium" }}).includes("alert-medium"), "medium banner");
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+check(buildAlertBanner({ level: "medium" }).includes("alert-medium"), "medium banner");
+""")
 
     def test_board_page_has_low_and_no_data_tiles_and_filters(self, integration_client):
         html = integration_client.get("/alerts").get_data(as_text=True)
@@ -1588,18 +1487,7 @@ class TestTenantInfoTipInTheBrowser:
     """The floating box for the tenant (i) (#263): placed inside the window."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "tooltip.js").read_text(encoding="utf-8")
-        constants = "\n".join(re.findall(r"const INFO_TIP_[A-Z_]+ = [^;]*;", js))
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{constants}
-{_extract_js_function(js, "placeInfoTip")}
-{body}
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+        run_js('import { placeInfoTip } from "@js/lib/tooltip.js";\n' + body)
 
     def test_placement_stays_in_the_window(self):
         self._run("""
@@ -1615,32 +1503,25 @@ check(at.top === 692, "above when there is no room below: " + JSON.stringify(at)
 """)
 
     def test_pages_load_the_tooltip(self, integration_client):
-        for path in ("/", "/alerts"):
+        """Both pages that show an (i) load its CSS, and their main module starts it first."""
+        for path, page_script in (("/", "map/main.js"), ("/alerts", "alerts/main.js")):
             html = integration_client.get(path).get_data(as_text=True)
-            assert 'src="/static/js/tooltip.js"' in html and 'href="/static/css/tooltip.css"' in html, path
-            # Before the page script, which renders the (i).
-            page_script = "js/map.js" if path == "/" else "js/alerts/main.js"
-            assert html.index("js/tooltip.js") < html.index(f'src="/static/{page_script}"')
+            assert 'href="/static/css/tooltip.css"' in html and f'src="/static/js/{page_script}"' in html, path
+            main = js_source(page_script)
+            first_call = main.index("initInfoTips();")
+            assert 'import { initInfoTips } from "../lib/tooltip.js";' in main
+            assert first_call < main.index("Object.assign(els"), "before the page's own listeners"
 
     def test_map_tenant_row(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name) for name in ("escHtml", "infoTipHtml", "ownDescription", "tenantRow")
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{functions}
-let row = tenantRow({{ tenant: "Acme", tenant_descriptions: {{ Acme: "Bank & co" }} }});
-check(row.includes("Acme<span class=\\"info-tip\\"") && row.includes('data-info-tip="Bank &amp; co"'), row);
-row = tenantRow({{ tenant: "Acme", tenant_descriptions: {{ Other: "x" }} }});
+        run_js("""
+import { tenantRow } from "@js/map/panel.js";
+let row = tenantRow({ tenant: "Acme", tenant_descriptions: { Acme: "Bank & co" } });
+check(row.includes('Acme<span class="info-tip"') && row.includes('data-info-tip="Bank &amp; co"'), row);
+row = tenantRow({ tenant: "Acme", tenant_descriptions: { Other: "x" } });
 check(row.includes("Acme") && !row.includes("info-tip"), row);
-check(tenantRow({{ tenant: "" }}) === "", "no tenant, no row");
-check(!tenantRow({{ tenant: "constructor", tenant_descriptions: {{}} }}).includes("info-tip"), "inherited property");
-"""
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+check(tenantRow({ tenant: "" }) === "", "no tenant, no row");
+check(!tenantRow({ tenant: "constructor", tenant_descriptions: {} }).includes("info-tip"), "inherited property");
+""")
 
 
 class TestWallCaseStateInTheBrowser:
@@ -1826,12 +1707,17 @@ check(wall.indexOf("maintenance-heading") > wall.indexOf("Aarhus") && wall.inclu
 """)
         html = integration_client.get("/alerts").get_data(as_text=True)
         assert 'data-severity-filter="maintenance"' in html and 'id="summary-maintenance"' in html
-        map_js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        assert 'if (locationAlerts[locId] === "maintenance") return;' in _extract_js_function(
-            map_js, "updateMarkerForAlert"
-        )
-        # Maintenance has its own colour in the one scale of pins, stacks and clusters (#311).
-        assert 'maintenance: "#2563eb"' in map_js and "return ICONS[displayLevel(loc.id)];" in map_js
+        run_js("""
+import { LEVEL_COLORS, displayLevel } from "@js/map/levels.js";
+import { updateMarkerForAlert } from "@js/map/markers.js";
+import { locationAlerts } from "@js/map/state.js";
+// The site panel's live level doesn't turn a site in maintenance red.
+locationAlerts["m"] = "maintenance";
+updateMarkerForAlert("m", "critical");
+check(displayLevel("m") === "maintenance", locationAlerts["m"]);
+// Maintenance has its own colour in the one scale of pins, stacks and clusters (#311).
+check(LEVEL_COLORS.maintenance === "#2563eb", LEVEL_COLORS.maintenance);
+""")
 
 
 class TestMaintenancePanelInTheBrowser:
@@ -1902,20 +1788,13 @@ class TestApiExplorerInTheBrowser:
     """Try it on the API explorer (#230)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "docs.js").read_text(encoding="utf-8")
-        names = ("fillPath", "buildUrl", "shellQuote", "curlCommand", "formatResponseBody")
-        functions = "\n".join(_extract_js_function(js, name) for name in names)
-        limit = re.search(r"const MAX_BODY_CHARS = \d+;", js).group(0)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{limit}
-{functions}
-{body}
+        run_js(
+            """
+import { buildUrl, curlCommand, fillPath, formatResponseBody } from "@js/docs/explorer.js";
+const MAX_BODY_CHARS = 50000;
 """
-        completed = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+            + body
+        )
 
     def test_urls(self):
         self._run("""
@@ -1950,87 +1829,66 @@ class TestMapAlertColoursInTheBrowser:
     """Markers are coloured from /api/location-alerts, without a click (#234)."""
 
     def test_levels_are_applied_and_cleared(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name) for name in ("displayLevel", "worstAlertLevel", "loadLocationAlerts")
-        )
-        rank = re.search(r"const DISPLAY_RANK = \{[^}]*\};", js).group(0)
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-{rank}
-const locationAlerts = {{ "loc-old": "medium", "loc-same": "low" }};
-const detailCache = new Map([["loc-a", {{}}], ["loc-open", {{}}]]);
-const selectedLocationId = "loc-open";
+        run_js("""
+import { displayLevel, worstAlertLevel } from "@js/map/levels.js";
+import { loadLocationAlerts } from "@js/map/refresh.js";
+import { detailCache, els, locationAlerts, markerByLocId, state } from "@js/map/state.js";
+
+// Leaflet's icons as plain objects; each marker records the icons it is given.
+setGlobal("L", { divIcon: (options) => options });
 const redrawn = [];
-function refreshMarkerIcon(id) {{ redrawn.push(id); }}
-let locationAlertsLoaded = false;
-const notes = [];
-function setAlertLevelsNote(show) {{ notes.push(show); }}
-function applyLevelToOpenPanel() {{}}
-let payload = {{ levels: {{ "loc-a": {{ level: "critical" }}, "loc-same": {{ level: "low" }} }} }};
-globalThis.fetch = async () => ({{ ok: true, json: async () => payload }});
-{functions}
+const marker = (id) => ({ setIcon() { redrawn.push(id); } });
+state.allLocations = ["loc-old", "loc-same", "loc-a"].map((id) => ({ id }));
+for (const loc of state.allLocations) markerByLocId[loc.id] = marker(loc.id);
+Object.assign(locationAlerts, { "loc-old": "medium", "loc-same": "low" });
+detailCache.set("loc-a", {});
+detailCache.set("loc-open", {});
+state.selectedLocationId = "loc-open";
+els.alertLevelsNote = element("note", { hidden: true });
+console.warn = () => {};
 
-(async () => {{
-  await loadLocationAlerts();
-  check(JSON.stringify(locationAlerts) === JSON.stringify({{ "loc-same": "low", "loc-a": "critical" }}), JSON.stringify(locationAlerts));
-  check(redrawn.sort().join() === "loc-a,loc-old", "only changed markers are redrawn: " + redrawn);
-  check(!detailCache.has("loc-a") && detailCache.has("loc-open"), "old site details are dropped, the open one kept");
-  check(worstAlertLevel(["loc-same", "loc-a", "loc-none"]) === "critical", "worst level");
-  // Without a level a location has no monitored devices: grey, not green (#311).
-  check(worstAlertLevel(["loc-none"]) === "no_data" && displayLevel("loc-none") === "no_data", "no data");
-  locationAlerts["loc-fine"] = "ok";
-  check(worstAlertLevel(["loc-none", "loc-fine"]) === "ok", "OK beats no data in a cluster");
-  locationAlerts["loc-planned-work"] = "maintenance";
-  check(worstAlertLevel(["loc-fine", "loc-planned-work"]) === "maintenance", "maintenance beats OK");
-  check(worstAlertLevel(["loc-planned-work", "loc-same"]) === "low", "an alarm beats maintenance");
+// Never loaded: grey would read as "no data", so the page says so (#311).
+globalThis.fetch = async () => { throw new Error("offline"); };
+await loadLocationAlerts();
+check(!els.alertLevelsNote.hidden, "first load failed: the note is shown");
 
-  check(notes.join() === "false", "loaded: no note");
-  globalThis.fetch = async () => {{ throw new Error("offline"); }};
-  console.warn = () => {{}};
-  await loadLocationAlerts();
-  check(locationAlerts["loc-a"] === "critical", "a failed refresh keeps the colours");
-  check(notes.join() === "false", "after a first load, a failed refresh adds no note");
+const payload = { levels: { "loc-a": { level: "critical" }, "loc-same": { level: "low" } } };
+globalThis.fetch = async () => ({ ok: true, json: async () => payload });
+await loadLocationAlerts();
+check(els.alertLevelsNote.hidden, "loaded: no note");
+check(JSON.stringify(locationAlerts) === JSON.stringify({ "loc-same": "low", "loc-a": "critical" }), JSON.stringify(locationAlerts));
+check(redrawn.sort().join() === "loc-a,loc-old", "only changed markers are redrawn: " + redrawn);
+check(!detailCache.has("loc-a") && detailCache.has("loc-open"), "old site details are dropped, the open one kept");
+check(worstAlertLevel(["loc-same", "loc-a", "loc-none"]) === "critical", "worst level");
+// Without a level a location has no monitored devices: grey, not green (#311).
+check(worstAlertLevel(["loc-none"]) === "no_data" && displayLevel("loc-none") === "no_data", "no data");
+locationAlerts["loc-fine"] = "ok";
+check(worstAlertLevel(["loc-none", "loc-fine"]) === "ok", "OK beats no data in a cluster");
+locationAlerts["loc-planned-work"] = "maintenance";
+check(worstAlertLevel(["loc-fine", "loc-planned-work"]) === "maintenance", "maintenance beats OK");
+check(worstAlertLevel(["loc-planned-work", "loc-same"]) === "low", "an alarm beats maintenance");
 
-  // Never loaded: grey would read as "no data", so the page says so (#311).
-  locationAlertsLoaded = false;
-  await loadLocationAlerts();
-  check(notes.join() === "false,true", "first load failed: note: " + notes);
-}})().catch((err) => {{ console.error(err.message); process.exit(1); }});
-"""
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+globalThis.fetch = async () => { throw new Error("offline"); };
+await loadLocationAlerts();
+check(locationAlerts["loc-a"] === "critical", "a failed refresh keeps the colours");
+check(els.alertLevelsNote.hidden, "after a first load, a failed refresh adds no note");
+""")
 
 
 class TestMapCircuitsInTheBrowser:
     """The site panel shows each circuit at the site (#235)."""
 
     def test_circuit_card(self):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name)
-            for name in ("escHtml", "normalizeDeviceHealth", "deviceStatusClass", "buildCircuitCard")
-        )
-        script = f"""
-function check(condition, message) {{ if (!condition) throw new Error(message); }}
-let NAUTOBOT_URL = "https://nautobot.example";
-{functions}
+        run_js("""
+import { buildCircuitCard } from "@js/map/panel.js";
+import { config } from "@js/map/state.js";
+config.nautobotUrl = "https://nautobot.example";
 
-let html = buildCircuitCard({{
+let html = buildCircuitCard({
   id: "cir-1", cid: "TEL<1>", provider: "Telia", circuit_type: "Transit", status: "Offline",
   term_side: "A", port_speed: "1 Gbps", upstream_speed: "500 Mbps", commit_rate: "", xconnect_id: "XC-1",
   pp_info: "", tenant: "", description: "",
-}});
+});
 check(html.includes('href="https://nautobot.example/circuits/circuits/cir-1/"'), html);
 check(html.includes("TEL&lt;1&gt;"), "circuit ID is escaped");
 check(html.includes("device-status-offline"), "an offline circuit is red");
@@ -2038,19 +1896,11 @@ check(html.includes("Telia · Transit"), html);
 check(html.includes("Side A · 1 Gbps down / 500 Mbps up"), html);
 check(html.includes("Cross-connect: XC-1") && !html.includes("Patch panel"), html);
 
-NAUTOBOT_URL = "";
-html = buildCircuitCard({{ id: "cir-2", cid: "C2", status: "Active", port_speed: "10 Gbps", upstream_speed: "10 Gbps" }});
+config.nautobotUrl = "";
+html = buildCircuitCard({ id: "cir-2", cid: "C2", status: "Active", port_speed: "10 Gbps", upstream_speed: "10 Gbps" });
 check(!html.includes("<a "), "no link without a Nautobot URL");
 check(html.includes("device-status-active") && html.includes(">10 Gbps<"), html);
-"""
-        completed = subprocess.run(
-            ["node", "-e", script],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+""")
 
 
 class TestSiteTenantsInTheBrowser:
@@ -2131,29 +1981,35 @@ class TestMapPanelSameLevelInTheBrowser:
     """The site panel shows the board's level and count, and why a device isn't counted (#316)."""
 
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required for the browser runtime test")
-        js = (REPO_ROOT / "static" / "js" / "map.js").read_text(encoding="utf-8")
-        functions = "\n".join(
-            _extract_js_function(js, name) for name in ("escHtml", "deviceCountNote", "applyLevelToOpenPanel")
-        )
-        script = f"""
-function check(c, m) {{ if (!c) throw new Error(m); }}
-let selectedLocationId = "loc-lon", inspectorLoading = false, inspectorError = "";
-let selectedDetail = {{ devices: [], alert: {{ level: "medium", reason: "2/7" }}, counts: {{ down: 2, monitored: 7 }} }};
-const detailCache = new Map([["loc-lon", {{ stale: true }}]]);
+        run_js(
+            """
+import { applyLevelToOpenPanel } from "@js/map/inspector.js";
+import { deviceCountNote } from "@js/map/panel.js";
+import { detailCache, els, state } from "@js/map/state.js";
+
+// The panel's elements; every redraw of its content is counted.
+for (const name of ["inspector", "inspectorTitle", "inspectorSubtitle", "inspectorTabs", "inspectorState"]) {
+  els[name] = element(name);
+}
 let renders = 0;
-function renderInspectorContent() {{ renders += 1; }}
+let content = "";
+els.inspectorContent = element("content");
+Object.defineProperty(els.inspectorContent, "innerHTML", { get: () => content, set: (html) => { renders += 1; content = html; } });
+setGlobal("L", { divIcon: (options) => options });
+state.allLocations = [{ id: "loc-lon", name: "London" }];
+Object.assign(state, {
+  selectedLocationId: "loc-lon", inspectorLoading: false, inspectorError: "",
+  selectedDetail: { devices: [], alert: { level: "medium", reason: "2/7" }, counts: { down: 2, monitored: 7 } },
+});
+detailCache.set("loc-lon", { stale: true });
 const loads = [];
-async function loadLocationDetail(id) {{
-  loads.push(id);
-  return {{ devices: [{{ name: "sw1", maintenance_until: "2026-10-10T21:00:00Z" }}], alert: {{ level: "critical" }}, counts: {{ down: 3, monitored: 7 }} }};
-}}
-{functions}
-{body}
+globalThis.fetch = async (url) => {
+  loads.push(url);
+  return { ok: true, json: async () => ({ devices: [{ name: "sw1", maintenance_until: "2026-10-10T21:00:00Z" }], alert: { level: "critical" }, counts: { down: 3, monitored: 7 } }) };
+};
 """
-        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+            + body
+        )
 
     def test_device_notes(self):
         self._run("""
@@ -2167,14 +2023,14 @@ check(deviceCountNote({ not_monitored: "<x>" }).includes("&lt;x&gt;"), "escaped"
 
     def test_the_open_panel_follows_a_refresh_only_when_it_changes(self):
         self._run("""
-(async () => {
 applyLevelToOpenPanel({ "loc-lon": { level: "medium", reason: "2/7", down: 2, monitored: 7 } });
 check(renders === 0 && loads.length === 0, "nothing changed: not re-drawn or reloaded (a search being typed stays)");
 applyLevelToOpenPanel({ "loc-lon": { level: "critical", reason: "Core down", down: 3, monitored: 7 } });
-check(renders === 1 && selectedDetail.alert.level === "critical" && selectedDetail.counts.down === 3, JSON.stringify(selectedDetail));
+check(renders === 1 && state.selectedDetail.alert.level === "critical" && state.selectedDetail.counts.down === 3, JSON.stringify(state.selectedDetail));
+check(content.includes("3 down · 7 monitored") && content.includes("CRITICAL"), "the panel shows it");
 // ...and the devices' notes are reloaded (not the stale cache).
-check(loads.join() === "loc-lon" && !detailCache.has("loc-lon"), "reloaded: " + loads);
+check(loads.join() === "/api/locations/loc-lon/detail" && !detailCache.has("loc-lon"), "reloaded: " + loads);
 await new Promise((resolve) => setTimeout(resolve, 0));
-check(renders === 2 && selectedDetail.devices[0].maintenance_until, JSON.stringify(selectedDetail));
-})().catch((err) => { console.error(err.message); process.exit(1); });
+check(renders === 2 && state.selectedDetail.devices[0].maintenance_until, JSON.stringify(state.selectedDetail));
+check(content.includes("In maintenance until"), "the device's note is shown");
 """)

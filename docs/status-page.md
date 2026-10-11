@@ -49,7 +49,10 @@ The page itself carries no data, so a customer's browser must reach these paths 
 - `/status/`
 - `/api/status/`
 - `/static/css/alerts.css`
-- `/static/js/status.js`
+- `/static/js/status/main.js` and `/static/js/status/page.js`
+- `/static/js/lib/format.js` and `/static/js/lib/html.js` (imported by the page's script)
+
+Before #294 the script was the single file `/static/js/status.js`: a proxy rule for it alone now leaves the page without its data.
 
 Let these past the proxy's sign-in (oauth2-proxy: `--skip-auth-route`). The app then checks access on `/api/status/` itself.
 

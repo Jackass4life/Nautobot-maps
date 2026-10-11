@@ -160,7 +160,7 @@
   <!-- Leaflet JS (vendored locally for offline/air-gapped use) -->
   <script src="{{ url_for('static', filename='vendor/leaflet.js') }}"></script>
 
-  <!-- Settings for map.js; data attributes, not an inline script (#197) -->
+  <!-- Settings for js/map/main.js; data attributes, not an inline script (#197) -->
   <div
     id="app-config"
     hidden
@@ -170,7 +170,6 @@
   ></div>
 
   <!-- App JS -->
-  <script src="{{ url_for('static', filename='js/tooltip.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/map/main.js') }}"></script>
 </body>
 </html>

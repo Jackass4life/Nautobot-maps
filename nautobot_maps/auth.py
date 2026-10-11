@@ -208,7 +208,14 @@ PUBLIC_PATHS = {"/healthz", "/metrics"}
 # (``status_access``).
 STATUS_PAGE_PREFIX = "/status/"
 STATUS_API_PREFIX = "/api/status/"
-STATUS_PAGE_ASSETS = {"/static/css/alerts.css", "/static/js/status.js"}
+# Every module the page loads, imports included (#294); a test checks the list.
+STATUS_PAGE_ASSETS = {
+    "/static/css/alerts.css",
+    "/static/js/status/main.js",
+    "/static/js/status/page.js",
+    "/static/js/lib/format.js",
+    "/static/js/lib/html.js",
+}
 
 
 def is_status_token(user: dict) -> bool:

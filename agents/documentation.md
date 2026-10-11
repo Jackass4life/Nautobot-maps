@@ -26,7 +26,7 @@ and that new features are fully documented for operators and contributors.
 | **Agent guides** | `agents/*.md` files stay current with actual project structure and commands |
 | **`demo/README.md`** | Instructions for running the demo stack remain accurate |
 | **`CHANGELOG.md`** | Every PR adds an entry under the correct semver section (`Added`, `Changed`, `Fixed`, `Removed`) |
-| **Popup UI labels** | User-visible labels in `templates/index.html` and `static/js/map.js` are clear and consistent |
+| **Popup UI labels** | User-visible labels in `templates/index.html` and `static/js/map/` are clear and consistent |
 | **API contracts** | Flask route docstrings document query params, response schema, and error codes |
 
 ---
@@ -138,7 +138,7 @@ README.md               # Project overview, setup instructions, env vars
 .env.example            # Must list every configurable variable
 app.py                  # Docstrings on all public functions and routes
 templates/index.html    # User-visible labels and aria attributes
-static/js/map.js        # Comments explaining non-obvious logic
+static/js/**/*.js       # Comments explaining non-obvious logic
 agents/*.md             # Agent definitions stay current
 demo/mock_nautobot.py   # Seed data comments
 CHANGELOG.md            # Unreleased section updated
