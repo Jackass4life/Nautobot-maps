@@ -1144,7 +1144,9 @@ def _acknowledge(clear: bool):
                 {"error": "device_ids must be a non-empty list of device IDs (leave it out for every device)"}
             ), 400
         device_ids = [value.strip() for value in raw_ids]
-    note = body.get("note") or ""
+    note = body.get("note")
+    if note is None:
+        note = ""
     if not isinstance(note, str):
         return jsonify({"error": "note must be text"}), 400
     if not site_id:

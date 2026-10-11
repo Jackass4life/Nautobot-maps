@@ -108,6 +108,9 @@ class TestApi:
         for bad in ("acc1", "", 0, False, [], ["  "], [1]):
             resp = client.post("/api/alert-acks", json={"site_id": "loc-lon", "device_ids": bad})
             assert resp.status_code == 400, bad
+        for bad_note in (0, False, [], {}):
+            resp = client.post("/api/alert-acks", json={"site_id": "loc-lon", "note": bad_note})
+            assert resp.status_code == 400, bad_note
         assert events() == [], "bad input never acknowledges everything"
         resp = client.post("/api/alert-acks", json={"site_id": "loc-lon", "device_ids": ["acc2"]})
         assert resp.status_code == 404 and resp.get_json()["missing_device_ids"] == ["acc2"], "acc2 is up"
