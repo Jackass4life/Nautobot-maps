@@ -239,6 +239,18 @@ function maintenanceButton(item) {
   return `<button class="action-btn maint-open-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-haspopup="dialog" title="Maintenance window">Maint.${siteLabel}</button>`;
 }
 
+// One click: someone is on it (#288); "Remove ack" once every device is.
+function ackButton(item) {
+  const devices = caseDevices(item);
+  if (!devices.length) return "";
+  const siteId = escHtml(item.id || "");
+  const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
+  if (devices.every((d) => d.acknowledged)) {
+    return `<button class="action-btn unack-btn" type="button" data-site-id="${siteId}">Remove ack${siteLabel}</button>`;
+  }
+  return `<button class="action-btn ack-btn" type="button" data-site-id="${siteId}" title="Someone is on it, without a case number">Acknowledge${siteLabel}</button>`;
+}
+
 // The rest of a row's actions behind "⋯" (#311): a native <details>, so it
 // opens without script; choosing an action, Escape or a click elsewhere closes it.
 function rowMenu(item, buttons) {
@@ -262,7 +274,7 @@ function actionCell(item) {
     : "";
   // Copy the site and its down devices as text for an ITSM ticket (#227).
   const copyButton = `<button class="action-btn copy-site-btn" type="button" data-site-id="${siteId}" title="Copy the site and its down devices as text">Copy${siteLabel}</button>`;
-  return `<div class="action-row">${caseButton}${rowMenu(item, [copyButton, maintenanceButton(item), historyButton(item)])}</div>`;
+  return `<div class="action-row">${caseButton}${rowMenu(item, [ackButton(item), copyButton, maintenanceButton(item), historyButton(item)])}</div>`;
 }
 
 // One window in the panel: what, when, why, and End now / Cancel.
@@ -416,11 +428,14 @@ function siteNameHtml(item, linked) {
 function siteCaseState(item) {
   // Devices in maintenance are planned work, not waiting for a case (#283).
   const devices = downDeviceList(item).filter((d) => !d.maintenance_until);
-  const withCase = devices.filter((d) => Array.isArray(d.case_numbers) && d.case_numbers.length).length;
+  // A case or an acknowledgement (#288): someone is on it.
+  const handled = devices.filter(
+    (d) => (Array.isArray(d.case_numbers) && d.case_numbers.length) || d.acknowledged,
+  ).length;
   let state = "none";
-  if (devices.length && withCase === devices.length) state = "handled";
-  else if (withCase) state = "partly";
-  return { state, without: devices.length - withCase, total: devices.length };
+  if (devices.length && handled === devices.length) state = "handled";
+  else if (handled) state = "partly";
+  return { state, without: devices.length - handled, total: devices.length };
 }
 
 // The wall view's case badge, next to the severity: readable at a glance,
@@ -428,10 +443,12 @@ function siteCaseState(item) {
 function caseStateBadge(item) {
   const { state, without, total } = siteCaseState(item);
   if (state === "handled") {
-    const cases = [...new Set(downDeviceList(item).flatMap((d) => d.case_numbers))];
-    return `<span class="case-state case-state-handled">✓ ${escHtml(cases.join(", "))}</span>`;
+    const cases = [...new Set(downDeviceList(item).flatMap((d) => d.case_numbers || []))];
+    const acked = downDeviceList(item).some((d) => d.acknowledged);
+    const label = [cases.join(", "), acked ? "ACK" : ""].filter(Boolean).join(" · ");
+    return `<span class="case-state case-state-handled">✓ ${escHtml(label)}</span>`;
   }
-  if (state === "partly") return `<span class="case-state case-state-partly">${without} of ${total} no case</span>`;
+  if (state === "partly") return `<span class="case-state case-state-partly">${without} of ${total} no case or ack</span>`;
   return '<span class="case-state case-state-none">NO CASE</span>';
 }
 
@@ -472,6 +489,11 @@ function renderCaseForm(item) {
       <label class="case-input-label" for="case-input">Case number</label>
       <input id="case-input" class="case-input" type="text" autocomplete="off" placeholder="Case #" />
       <button class="case-save-btn" type="submit"${ticked ? "" : " disabled"}>${caseButtonLabel(ticked)}</button>
+      <div class="ack-form">
+        <label class="case-input-label" for="ack-note">Or acknowledge without a case (note, optional)</label>
+        <input id="ack-note" class="ack-note-input" type="text" autocomplete="off" maxlength="200" placeholder="e.g. On my way" />
+        <button class="ack-form-btn" type="button">Acknowledge ticked</button>
+      </div>
     </form>
   `;
 }
@@ -960,6 +982,14 @@ function siteAlarmSeconds(item) {
   return known ? item.current_downtime_seconds || 0 : NaN;
 }
 
+// "ACK olga · on my way" under an acknowledged device (#288).
+function ackNote(device) {
+  const ack = device.acknowledged;
+  if (!ack) return "";
+  const text = [ack.by ? `ACK ${ack.by}` : "ACK", ack.note || ""].filter(Boolean).join(" · ");
+  return `<div class="ack-note">${escHtml(text)}</div>`;
+}
+
 // A device going up and down (#286): one label; the count is in the hover text.
 function flappingBadge(device) {
   if (!device.flapping) return "";
@@ -979,6 +1009,7 @@ function renderDownDeviceRows(item, isExpanded, extraClass) {
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
         <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}${device.core ? ' <span class="core-badge" title="A core device: the likely cause of the other devices down here">CORE</span>' : ""}${flappingBadge(device)}</div>
         <div class="site-meta">${[device.location_path, device.role, device.flapping ? "" : device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+        ${ackNote(device)}
         ${device.probable_cause ? `<div class="cause-note">Likely caused by ${escHtml(device.probable_cause)}</div>` : ""}
         ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
       </td>
@@ -1295,7 +1326,7 @@ function renderWallStatus(now = Date.now()) {
   wallUpdatedEl.classList.toggle("wall-stale", stale);
   wallUpdatedEl.textContent = stale
     ? `NOT UPDATED since ${formatClock(lastLoadedAt)}`
-    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case`
+    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case or ack`
       + (planned ? ` · ${planned} in maintenance` : "");
 }
 
@@ -1598,6 +1629,65 @@ alertsTableBody.addEventListener("click", async (event) => {
       historyBtn.disabled = false;
     }
   }
+});
+
+// The acknowledge request (#288): *deviceIds* empty = every down device, sent
+// as null; the API refuses an empty list, so bad input never means "all".
+function ackRequestBody(siteId, deviceIds, note) {
+  return { site_id: siteId, device_ids: deviceIds && deviceIds.length ? deviceIds : null, note: note || "" };
+}
+
+// Acknowledge (#288) or remove it; reloads the board.
+async function sendAck(siteId, deviceIds, note, remove) {
+  const resp = await fetch(remove ? "/api/alert-acks/remove" : "/api/alert-acks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ackRequestBody(siteId, deviceIds, note)),
+  });
+  const payload = await readJsonResponse(resp);
+  if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+  await loadAlertBoard(false);
+}
+
+alertsTableBody.addEventListener("click", async (event) => {
+  const button = event.target.closest(".ack-btn, .unack-btn");
+  if (!button) return;
+  button.disabled = true;
+  try {
+    await sendAck(button.dataset.siteId, [], "", button.classList.contains("unack-btn"));
+  } catch (err) {
+    showError(`Could not ${button.classList.contains("unack-btn") ? "remove the acknowledgement" : "acknowledge"}: ${err.message}`);
+    button.disabled = false;
+  }
+});
+
+casePanel?.addEventListener("click", async (event) => {
+  const button = event.target.closest(".ack-form-btn");
+  if (!button) return;
+  const form = button.closest(".case-form");
+  const deviceIds = Array.from(form.querySelectorAll(".case-device-checkbox")).filter((box) => box.checked).map((box) => box.value);
+  if (!deviceIds.length) {
+    showError("Tick at least one device to acknowledge.");
+    return;
+  }
+  button.disabled = true;
+  try {
+    hideSidePanel(casePanel);
+    await sendAck(form.dataset.siteId, deviceIds, form.querySelector(".ack-note-input")?.value, false);
+    restorePanelFocus();
+  } catch (err) {
+    showError(`Could not acknowledge: ${err.message}`);
+    restorePanelFocus();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+// Enter in the note acknowledges; it must not submit the case form (#288).
+casePanel?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.classList.contains("ack-note-input")) return;
+  event.preventDefault();
+  event.target.closest(".case-form")?.querySelector(".ack-form-btn")?.click();
 });
 
 casePanel?.addEventListener("submit", async (event) => {

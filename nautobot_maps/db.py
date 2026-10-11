@@ -598,6 +598,14 @@ def add_site_first_seen(conn) -> None:
     )
 
 
+def add_acknowledgements(conn) -> None:
+    """Someone is on it, without a case number (#288): on the open incident,
+    so it ends with the alarm."""
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ")
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS acknowledged_by TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS ack_note TEXT NOT NULL DEFAULT ''")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -617,6 +625,7 @@ MIGRATIONS = (
     (13, "device_states.flapping_since", add_device_flapping),
     (14, "alert_instances.probable_cause", add_probable_cause),
     (15, "site_alert_levels.first_seen_at, alert_instances period index", add_site_first_seen),
+    (16, "alert_instances acknowledgements", add_acknowledgements),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

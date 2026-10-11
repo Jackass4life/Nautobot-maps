@@ -677,6 +677,68 @@ def resolve_open_alert_instances_for_site(
         )
 
 
+MAX_ACK_NOTE_LENGTH = 200
+
+
+def acknowledge(conn, site_id: str, device_ids: list | None, by: str, note: str = "", clear: bool = False) -> dict:
+    """Acknowledge (or with *clear*, un-acknowledge) the open alerts at *site_id* (#288).
+
+    *device_ids*: those devices' alerts; ``None`` or empty: every open alert
+    of the site.  All or nothing, like cases: a device without an open alert
+    leaves everything as it was.  Returns ``{"changed": [device_id],
+    "missing": [device_id]}``; each change is an event in the history.
+    """
+    note = (note or "").strip()[:MAX_ACK_NOTE_LENGTH]
+    at = timeutil.iso_utc_now()
+    with db.transaction(conn):
+        rows = conn.execute(
+            "SELECT id, device_id, device_name, site_name, alert_level, alert_reason, acknowledged_at "
+            # Locked: a board build resolving one meanwhile waits, so an
+            # acknowledgement never lands on an alarm that just ended.
+            "FROM alert_instances WHERE site_id = %s AND status = 'open' ORDER BY id FOR UPDATE",
+            (site_id,),
+        ).fetchall()
+        by_device = {row["device_id"]: row for row in map(db.row_to_dict, rows)}
+        wanted = list(dict.fromkeys(device_ids)) if device_ids else list(by_device)
+        missing = [device_id for device_id in wanted if device_id not in by_device]
+        if missing:
+            return {"changed": [], "missing": missing}
+        changed = []
+        for device_id in wanted:
+            row = by_device[device_id]
+            # Idempotent both ways: the first acknowledgement keeps its owner.
+            if (row.get("acknowledged_at") is None) == clear:
+                continue
+            if clear:
+                conn.execute(
+                    "UPDATE alert_instances SET acknowledged_at = NULL, acknowledged_by = '', ack_note = '' WHERE id = %s",
+                    (row["id"],),
+                )
+            else:
+                conn.execute(
+                    "UPDATE alert_instances SET acknowledged_at = %s, acknowledged_by = %s, ack_note = %s WHERE id = %s",
+                    (at, by, note, row["id"]),
+                )
+            insert_alert_event(
+                conn=conn,
+                instance_id=row["id"],
+                event_type="unacknowledged" if clear else "acknowledged",
+                event_at=at,
+                alert_level=row.get("alert_level") or "",
+                alert_reason=row.get("alert_reason") or "",
+                snapshot={
+                    "site_id": site_id,
+                    "site_name": row.get("site_name") or "",
+                    "device_id": device_id,
+                    "device_name": row.get("device_name") or "",
+                    "by": by,
+                    **({} if clear else {"note": note}),
+                },
+            )
+            changed.append(device_id)
+    return {"changed": changed, "missing": []}
+
+
 def down_since(device: dict, checked_at: str) -> str:
     """When *device* went down, as far as we can tell (#166).
 
@@ -1153,6 +1215,18 @@ def summarize_alert_context(
                 # Kept for when a build can't observe the site (#285).
                 "stored_probable_cause": data.get("probable_cause") or "",
                 "stored_core": bool(data.get("is_core")),
+                # Someone is on it (#288).
+                **(
+                    {
+                        "acknowledged": {
+                            "by": data.get("acknowledged_by") or "",
+                            "at": data.get("acknowledged_at"),
+                            "note": data.get("ack_note") or "",
+                        }
+                    }
+                    if data.get("acknowledged_at")
+                    else {}
+                ),
             }
         )
     return {
@@ -1171,7 +1245,8 @@ def read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     site_marker = db.placeholders(1)
     rows = conn.execute(
         f"""
-        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds, probable_cause, is_core
+        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds, probable_cause, is_core,
+               acknowledged_at, acknowledged_by, ack_note
         FROM alert_instances
         WHERE site_id = {site_marker}
         ORDER BY id DESC
@@ -1423,7 +1498,8 @@ def read_alert_board_data(conn) -> dict:
     open_rows_by_site: dict[str, list[dict]] = {}
     for row in conn.execute(
         """
-        SELECT id, site_id, device_id, device_name, down_started_at, probable_cause, is_core
+        SELECT id, site_id, device_id, device_name, down_started_at, probable_cause, is_core,
+               acknowledged_at, acknowledged_by, ack_note
         FROM alert_instances
         WHERE status = 'open'
         ORDER BY id DESC

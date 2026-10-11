@@ -35,6 +35,8 @@ EXAMPLE_BODIES = {
     "web.api_librenms_alert": {"device_id": 42},
     "web.api_tokens_create": {"name": "librenms", "role": "operator", "expires_in_days": 365},
     "web.api_tokens_revoke": {},
+    "web.api_acknowledge": {"site_id": "<site id>", "note": "On my way"},
+    "web.api_unacknowledge": {"site_id": "<site id>"},
     "web.api_add_alert_case": {
         "site_id": "<site id>",
         "device_ids": ["<device uuid>"],
