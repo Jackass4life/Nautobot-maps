@@ -132,3 +132,41 @@ check(sites.map((s) => s.name).join() === "Hospital,Office,Depot", sites.map((s)
     )
     completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+class TestTierChangesDuringAnAlarm:
+    """The tier changed while a site was in alarm: its end is still announced."""
+
+    def enqueue(self, from_level, to_level, tier):
+        from nautobot_maps import db
+
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                return notify.enqueue_change(
+                    conn, "s1", from_level, to_level, {"id": "s1", "name": "S", "tier": tier}, "2026-10-10T12:00:00Z"
+                )
+        finally:
+            conn.close()
+
+    @pytest.fixture
+    def hook(self, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
+        monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL_BY_TIER", {"gold": "low"})
+
+    def kinds(self):
+        from tests.test_notify import outbox
+
+        return [row["kind"] for row in outbox()]
+
+    def test_a_gold_alarm_recovers_after_the_tier_is_removed(self, hook):
+        assert self.enqueue("ok", "low", "gold") == 1
+        assert self.enqueue("low", "ok", "") == 1, "below every threshold now, after an alarm"
+        assert self.kinds() == ["alarm", "recovery"]
+
+    def test_no_recovery_without_an_alarm_or_while_still_at_the_minimum(self, hook):
+        assert self.enqueue("medium", "low", "") == 0, "never alarmed"
+        assert self.enqueue("ok", "medium", "gold") == 1
+        assert self.enqueue("medium", "low", "gold") == 0, "still at gold's minimum"
+        assert self.kinds() == ["alarm"]
