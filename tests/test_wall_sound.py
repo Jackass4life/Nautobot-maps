@@ -1,26 +1,11 @@
 """Wall view: a chime and a notification for a new Critical (#290)."""
 
-import re
-import shutil
-import subprocess
-
-import pytest
-
 import app as flask_app
-from tests.test_integration import REPO_ROOT, _extract_js_function
+from tests.js_modules import run_js
 
 
 def run(body):
-    if shutil.which("node") is None:
-        pytest.skip("node is required")
-    js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-    levels = re.search(r"const ALARM_LEVELS = \[[^\]]*\];", js).group(0)
-    functions = "\n".join(
-        _extract_js_function(js, n) for n in ("downDeviceList", "siteCaseState", "newAlarms", "alarmText")
-    )
-    script = f"function check(c, m) {{ if (!c) throw new Error(m); }}\n{levels}\n{functions}\n{body}"
-    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-    assert completed.returncode == 0, completed.stderr or completed.stdout
+    run_js('import { alarmText, newAlarms } from "@js/alerts/wall.js";\n' + body)
 
 
 def test_once_per_new_critical_or_site_nobody_is_on():
@@ -71,43 +56,54 @@ def test_the_button_is_on_the_wall_only():
 
 
 def test_at_most_five_notifications_open_the_rest_wait():
-    if shutil.which("node") is None:
-        pytest.skip("node is required")
-    js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-    functions = "\n".join(_extract_js_function(js, n) for n in ("alarmText", "showQueuedNotifications"))
-    script = f"""
-function check(c, m) {{ if (!c) throw new Error(m); }}
+    run_js("""
+import { announceNewAlarms, setWallSound, showQueuedNotifications } from "@js/alerts/wall.js";
 const shown = [];
-globalThis.window = {{}};
-class FakeNotification {{
-  constructor(title, options) {{ this.body = options.body; this.listeners = []; shown.push(this); }}
-  addEventListener(kind, fn) {{ this.listeners.push(fn); }}
-  close() {{ this.listeners.forEach((fn) => fn()); }}
-}}
+class FakeNotification {
+  constructor(title, options) { this.body = options.body; this.listeners = []; this.open = true; shown.push(this); }
+  addEventListener(kind, fn) { this.listeners.push(fn); }
+  close() { this.open = false; this.listeners.forEach((fn) => fn()); }
+}
 FakeNotification.permission = "granted";
-window.Notification = FakeNotification;
-globalThis.Notification = FakeNotification;
-const MAX_OPEN_NOTIFICATIONS = 5;
-const openNotifications = new Set();
-const queuedNotifications = [];
-const MAX_QUEUED_NOTIFICATIONS = 50;
-{functions}
-for (let n = 1; n <= 7; n += 1) queuedNotifications.push({{ id: "s" + n, name: "Site " + n, kind: "critical" }});
-showQueuedNotifications();
-check(shown.length === 5 && queuedNotifications.length === 2, "five open, two waiting");
-shown[0].close();
-check(shown.length === 6 && shown[5].body === "Site 6 is Critical", "a slot frees: the next one");
-shown[1].close();
-check(shown.length === 7 && queuedNotifications.length === 0, "none dropped");
+setGlobal("window", { Notification: FakeNotification });
+setGlobal("Notification", FakeNotification);
+const closeAll = () => { while (shown.some((n) => n.open)) shown.find((n) => n.open).close(); };
+// Sites that go Critical with someone on them: one notification each.
+const sites = (prefix, count, level) => Array.from({ length: count }, (_, i) => ({
+  id: prefix + (i + 1), name: `${prefix.toUpperCase()}${i + 1}`, alert_level: level,
+  down_devices: [{ device_id: "d", case_numbers: ["INC-1"] }],
+}));
+const goCritical = (prefix, count) => {
+  announceNewAlarms(sites(prefix, count, "ok"));
+  announceNewAlarms(sites(prefix, count, "critical"));
+};
+setWallSound(true);
 
-// Not answered yet: they wait (the newest 50); denied or unsupported: dropped.
+goCritical("s", 7);
+check(shown.length === 5, "five open, the rest wait: " + shown.length);
+shown[0].close();
+check(shown.length === 6 && shown[5].body === "S6 is Critical", "a slot frees: the next one");
+shown[1].close();
+check(shown.length === 7, "none dropped");
+closeAll();
+check(shown.length === 7, "nothing else was waiting");
+
+// Not answered yet: they wait (the newest 50).
 FakeNotification.permission = "default";
-for (let n = 1; n <= 60; n += 1) queuedNotifications.push({{ id: "w" + n, name: "W" + n, kind: "critical" }});
+goCritical("w", 60);
+check(shown.length === 7, "nothing shown before the answer");
+FakeNotification.permission = "granted";
 showQueuedNotifications();
-check(queuedNotifications.length === 50 && queuedNotifications[0].id === "w11", "the newest 50 wait");
+check(shown[7].body === "W11 is Critical", "the newest 50 waited: " + shown[7].body);
+closeAll();
+check(shown.length === 7 + 50, "all 50 shown: " + (shown.length - 7));
+
+// Denied or unsupported: dropped.
+FakeNotification.permission = "default";
+goCritical("x", 3);
 FakeNotification.permission = "denied";
 showQueuedNotifications();
-check(queuedNotifications.length === 0, "denied: nothing kept");
-"""
-    completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
-    assert completed.returncode == 0, completed.stderr or completed.stdout
+FakeNotification.permission = "granted";
+showQueuedNotifications();
+check(shown.length === 57, "denied: nothing kept");
+""")

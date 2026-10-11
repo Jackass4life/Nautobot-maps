@@ -192,9 +192,9 @@
   <div id="copy-status" class="visually-hidden" role="status" aria-live="polite"></div>
   <div id="error-toast" class="hidden" role="alert"></div>
 
-  <!-- Settings for alerts.js; data attributes, not an inline script (#197) -->
+  <!-- Settings for js/alerts/main.js; data attributes, not an inline script (#197) -->
   <div id="app-config" hidden data-nautobot-url="{{ nautobot_url or '' }}" data-case-url-template="{{ case_url_template or '' }}"></div>
   <script src="{{ url_for('static', filename='js/tooltip.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/alerts/main.js') }}"></script>
 </body>
 </html>

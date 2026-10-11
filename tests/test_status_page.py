@@ -79,7 +79,7 @@ class TestAccess:
         assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
         assert client.get("/api/status/acme%20corp", headers=bearer(token)).status_code == 200
         assert client.get("/api/status/Other%20Co", headers=bearer(token)).status_code == 403
-        for path in ("/api/alerts", "/alerts", "/api/maintenance", "/api/status-other", "/static/js/alerts.js"):
+        for path in ("/api/alerts", "/alerts", "/api/maintenance", "/api/status-other", "/static/js/alerts/main.js"):
             assert client.get(path, headers=bearer(token)).status_code == 403, path
         response = client.post("/api/alert-cases", json={}, headers=bearer(token))
         assert response.status_code == 403
@@ -106,7 +106,7 @@ class TestAccess:
             assert page.headers["Referrer-Policy"] == "no-referrer"
             for asset in sorted(auth.STATUS_PAGE_ASSETS):
                 assert client.get(asset, environ_base=anonymous).status_code == 200, asset
-            assert client.get("/static/js/alerts.js", environ_base=anonymous).status_code == 401
+            assert client.get("/static/js/alerts/main.js", environ_base=anonymous).status_code == 401
             assert client.get("/api/status/Acme%20Corp", environ_base=anonymous).status_code == 401
             assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
             assert client.get("/api/status/Other%20Co", headers=bearer(viewer)).status_code == 200

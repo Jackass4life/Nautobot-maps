@@ -1,15 +1,11 @@
 """Flapping (#286): a device going up and down is one incident with a label."""
 
-import os
-import shutil
-import subprocess
-
 import pytest
 
 from nautobot_maps import alerts, caching, settings
 from tests import test_alert_delay
+from tests.js_modules import run_js
 from tests.test_alert_delay import LONG_AGO, build, rows, set_devices
-from tests.test_integration import REPO_ROOT, _extract_js_function
 
 # The alert delay tests' fixtures: London HQ, all up for long, and a clock.
 clock = test_alert_delay.clock
@@ -194,12 +190,7 @@ class TestMapWindow:
 
 class TestLabel:
     def _run(self, body):
-        if shutil.which("node") is None:
-            pytest.skip("node is required")
-        js = (REPO_ROOT / "static" / "js" / "alerts.js").read_text(encoding="utf-8")
-        script = f"function check(c, m) {{ if (!c) throw new Error(m); }}\n{_extract_js_function(js, 'flappingBadge')}\n{body}"
-        completed = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False, env=os.environ)
-        assert completed.returncode == 0, completed.stderr or completed.stdout
+        run_js('import { flappingBadge } from "@js/alerts/rows.js";\n' + body)
 
     def test_one_label_with_the_count_in_the_hover_text(self):
         self._run("""

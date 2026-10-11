@@ -107,6 +107,31 @@ after logging is configured (a test enforces this).
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.
 
+### Browser JavaScript
+
+The alert board is ES modules (#294), loaded with `<script type="module">`:
+
+- `static/js/lib/`: helpers shared by the pages (HTML escaping, times, case links, theme).
+- `static/js/alerts/`: the board. `main.js` is the only module that looks up page elements
+  and wires events; it fills `els` and `config` in `state.js`. Every other module touches the
+  page only when one of its functions is called, never when it is imported.
+
+That rule is what makes them testable: a test imports the real functions in Node with
+`tests/js_modules.py`, and gives them stand-in elements:
+
+```python
+from tests.js_modules import run_js
+
+run_js("""
+import { siteMeta } from "@js/alerts/rows.js";
+check(siteMeta({ parent: "R&D" }) === "R&amp;D", "escaped");
+""")
+```
+
+`check(condition, message)`, `element(name, props)`, a page-less `document` and
+`setGlobal(name, value)` are always there. Behaviour that needs a real browser goes in the
+Chromium tests in `e2e/`.
+
 ### Code Style
 
 - Python code must pass `ruff check .` (configured in `pyproject.toml`; CI runs it on every PR).
