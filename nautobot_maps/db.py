@@ -583,8 +583,15 @@ def add_probable_cause(conn) -> None:
 def add_site_first_seen(conn) -> None:
     """When a site was first seen (#287): the availability report's start for
     a site's first level, which updated_at forgets at the first change.
-    Known for sites that never changed level; for the others it stays NULL."""
+    Known for sites that never changed level; for the others it stays NULL.
+
+    Also an index for the report's incidents in a period: those still down
+    at its start, i.e. resolved after it or not at all."""
     conn.execute("ALTER TABLE site_alert_levels ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alert_instances_period ON alert_instances "
+        "((COALESCE(resolved_at, 'infinity'::timestamptz)), down_started_at)"
+    )
     conn.execute(
         "UPDATE site_alert_levels l SET first_seen_at = l.updated_at WHERE first_seen_at IS NULL "
         "AND NOT EXISTS (SELECT 1 FROM site_level_changes c WHERE c.site_id = l.site_id)"
@@ -617,7 +624,7 @@ MIGRATIONS = (
     (12, "device_states", add_device_states),
     (13, "device_states.flapping_since", add_device_flapping),
     (14, "alert_instances.probable_cause", add_probable_cause),
-    (15, "site_alert_levels.first_seen_at", add_site_first_seen),
+    (15, "site_alert_levels.first_seen_at, alert_instances period index", add_site_first_seen),
     (16, "alert_instances acknowledgements", add_acknowledgements),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
