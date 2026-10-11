@@ -289,7 +289,8 @@ def summary_lines(events: list[dict]) -> list[str]:
                 if cause
                 else f" ({event['down_device_count']} down)"
             )
-        lines.append(f"{mark} {site}: {level}{extra}")
+        tier = f" [{event['tier'].capitalize()}]" if event.get("tier") else ""
+        lines.append(f"{mark} {site}{tier}: {level}{extra}")
     url = next((event["board_url"] for event in events if event["board_url"]), "")
     if url:
         lines.append(f"Board: {url}")

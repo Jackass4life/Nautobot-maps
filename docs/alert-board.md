@@ -16,9 +16,9 @@ Each site gets one level, from its **monitored devices**: devices with a Nautobo
 
 | Level | When |
 |---|---|
-| **Critical** | A core device is down, or every monitored device is down (or `ALERT_CRITICAL_PERCENT` of them) |
-| **Medium** | More than 25% of the monitored devices are down (`ALERT_MEDIUM_PERCENT`) |
-| **Low** | At least one monitored device is down, 25% or fewer |
+| **Critical** | A core device is down, or at least `ALERT_CRITICAL_PERCENT` of the monitored devices are down (default 100: all of them) |
+| **Medium** | More than `ALERT_MEDIUM_PERCENT` of the monitored devices are down (default 25%) |
+| **Low** | At least one monitored device is down, `ALERT_MEDIUM_PERCENT` or fewer |
 | **No data** | No monitored devices, or the level could not be computed. Not an alarm |
 | **OK** | Monitored devices, none down |
 

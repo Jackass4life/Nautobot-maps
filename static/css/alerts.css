@@ -648,9 +648,10 @@ tbody td:last-child:has(details.row-menu[open]) {
   vertical-align: middle;
 }
 
+/* Gold border; the text in the normal color, readable on both themes. */
 .tier-pill.tier-top {
   border-color: #b8860b;
-  color: #b8860b;
+  color: var(--color-text);
 }
 
 /* The likely cause (#285): the down core device, and what is behind it. */

@@ -92,6 +92,16 @@ class TestNotifications:
             "alarm", "ok", "low", {"id": "s", "name": "S", "tier": "gold"}, "2026-10-10T12:00:00Z"
         )
         assert "Tier: Gold" in notify.detail_lines(event)
+        assert notify.summary_lines([event])[0].startswith("🔴 S [Gold]: "), "also in a burst's summary"
+
+    def test_an_override_without_a_tier_is_ignored(self):
+        import os
+        import sys
+
+        code = "from nautobot_maps import settings as s; print(s.NOTIFY_MIN_LEVEL_BY_TIER)"
+        env = {**os.environ, "NOTIFY_MIN_LEVEL_BY_TIER": ":low, gold:low,silver:bogus"}
+        out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
+        assert out.stdout.strip() == "{'gold': 'low'}"
 
 
 def test_the_tier_label_and_sort():
