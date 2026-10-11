@@ -631,6 +631,8 @@ def add_webhook_device_alerts(conn) -> None:
         )
         """
     )
+    # The TTL: read and prune by updated_at.
+    conn.execute("CREATE INDEX IF NOT EXISTS webhook_device_alerts_updated ON webhook_device_alerts (updated_at)")
 
 
 # Numbered schema changes, each applied once, in order, and recorded in
