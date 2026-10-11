@@ -159,9 +159,21 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
     no change at all, the site's level since it was first seen
     (``site_alert_levels``: a site's first level is not a change).
     """
+    # Only what the period needs: the changes in it, and per site the last
+    # one before it and the first one after it (#287), not the whole history.
+    columns = "site_id, site_name, from_level, to_level, changed_at, id"
     rows = conn.execute(
-        "SELECT site_id, site_name, from_level, to_level, changed_at FROM site_level_changes "
-        "ORDER BY site_id, changed_at, id"
+        f"""
+        (SELECT {columns} FROM site_level_changes WHERE changed_at > %(start)s AND changed_at < %(end)s)
+        UNION ALL
+        (SELECT DISTINCT ON (site_id) {columns} FROM site_level_changes
+          WHERE changed_at <= %(start)s ORDER BY site_id, changed_at DESC, id DESC)
+        UNION ALL
+        (SELECT DISTINCT ON (site_id) {columns} FROM site_level_changes
+          WHERE changed_at >= %(end)s ORDER BY site_id, changed_at, id)
+        ORDER BY site_id, changed_at, id
+        """,
+        {"start": start, "end": end},
     ).fetchall()
     by_site: dict[str, list] = {}
     for row in rows:
