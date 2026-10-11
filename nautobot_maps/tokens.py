@@ -20,12 +20,15 @@ logger = logging.getLogger(__name__)
 PREFIX = "nmt_"
 SHOWN_CHARACTERS = 12  # "nmt_" and 8 more, in lists
 ROLES = ("viewer", "operator", "admin")
+# A tenant's status token (#291): opens only /status/<tenant>, nothing else.
+STATUS_ROLE = "status"
+MAX_TENANT_LENGTH = 200
 MAX_NAME_LENGTH = 100
 MAX_EXPIRY_DAYS = 3650
 # last_used_at is written at most this often, not on every request.
 LAST_USED_INTERVAL = timedelta(minutes=5)
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
-COLUMNS = "id, name, prefix, role, created_by, created_at, expires_at, last_used_at, revoked_at, revoked_by"
+COLUMNS = "id, name, prefix, role, tenant, created_by, created_at, expires_at, last_used_at, revoked_at, revoked_by"
 
 
 class TokenError(ValueError):
@@ -63,8 +66,8 @@ def _with_state(token: dict, at: datetime) -> dict:
 
 
 def create(conn, body: dict, created_by: str) -> dict:
-    """Validate *body* (``name``, ``role``, optional ``expires_in_days``) and
-    store a new token.  The result has ``token``, the secret: the only time
+    """Validate *body* (``name``, ``role``, optional ``expires_in_days``; with
+    role ``status``, the ``tenant`` it may see) and store a new token.  The result has ``token``, the secret: the only time
     it is available."""
     name = body.get("name")
     if not isinstance(name, str) or not name.strip():
@@ -76,8 +79,15 @@ def create(conn, body: dict, created_by: str) -> dict:
             "starting with a letter or digit"
         )
     role = body.get("role")
-    if role not in ROLES:
-        raise TokenError(f"role must be one of: {', '.join(ROLES)}")
+    if role not in (*ROLES, STATUS_ROLE):
+        raise TokenError(f"role must be one of: {', '.join((*ROLES, STATUS_ROLE))}")
+    tenant = body.get("tenant")
+    if role == STATUS_ROLE:
+        if not isinstance(tenant, str) or not tenant.strip() or len(tenant.strip()) > MAX_TENANT_LENGTH:
+            raise TokenError(f"tenant is required for role status (up to {MAX_TENANT_LENGTH} characters)")
+        tenant = tenant.strip()
+    elif tenant is not None:
+        raise TokenError("tenant is only for role status")
     days = body.get("expires_in_days")
     current = now()
     expires_at = None
@@ -90,9 +100,9 @@ def create(conn, body: dict, created_by: str) -> dict:
     with db.transaction(conn):
         # The unique name is the check, so two creates at once can't both pass it.
         row = conn.execute(
-            "INSERT INTO api_tokens (name, token_hash, prefix, role, created_by, created_at, expires_at) "
-            f"VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (name) DO NOTHING RETURNING {COLUMNS}",
-            (name, hash_token(token), token[:SHOWN_CHARACTERS], role, created_by, current, expires_at),
+            "INSERT INTO api_tokens (name, token_hash, prefix, role, tenant, created_by, created_at, expires_at) "
+            f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (name) DO NOTHING RETURNING {COLUMNS}",
+            (name, hash_token(token), token[:SHOWN_CHARACTERS], role, tenant, created_by, current, expires_at),
         ).fetchone()
     if row is None:
         raise TokenError("A token with this name already exists (revoked ones keep their name)")
@@ -126,7 +136,7 @@ def revoke(conn, token_id: int, revoked_by: str) -> dict | None:
 
 
 def verify(token: str) -> dict | None:
-    """``{"name", "role"}`` of an active token, else None (unknown, revoked or expired)."""
+    """``{"name", "role", "tenant"}`` of an active token, else None (unknown, revoked or expired)."""
     if not is_token(token):
         return None
     conn = db.get_conn()
@@ -135,7 +145,7 @@ def verify(token: str) -> dict | None:
     current = now()
     try:
         row = conn.execute(
-            "SELECT id, name, role, (last_used_at IS NULL OR last_used_at < %s) AS stale FROM api_tokens "
+            "SELECT id, name, role, tenant, (last_used_at IS NULL OR last_used_at < %s) AS stale FROM api_tokens "
             "WHERE token_hash = %s AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > %s)",
             (current - LAST_USED_INTERVAL, hash_token(token), current),
         ).fetchone()
@@ -150,6 +160,6 @@ def verify(token: str) -> dict | None:
                     "WHERE id = %s AND (last_used_at IS NULL OR last_used_at < %s)",
                     (current, found["id"], current - LAST_USED_INTERVAL),
                 )
-        return {"name": found["name"], "role": found["role"]}
+        return {"name": found["name"], "role": found["role"], "tenant": found.get("tenant") or ""}
     finally:
         conn.close()

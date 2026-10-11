@@ -1218,6 +1218,117 @@ a.case-pill:focus-visible {
   opacity: 0.6;
 }
 
+/* A tenant's status page (#291): one column, a line per site. */
+.status-page {
+  min-height: 100vh;
+}
+
+.status-shell {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 16px;
+}
+
+.status-shell h1 {
+  margin: 4px 0 8px;
+}
+
+.status-headline {
+  margin: 0 0 24px;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.status-headline.status-ok {
+  color: var(--color-success);
+}
+
+.status-headline.status-affected {
+  color: var(--color-danger);
+}
+
+.status-headline.status-error {
+  color: var(--color-text-muted);
+}
+
+.status-sites {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: var(--shadow);
+}
+
+.status-sites:empty {
+  display: none;
+}
+
+.status-site {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.status-site + .status-site {
+  border-top: 1px solid var(--color-border);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.status-operational .status-dot {
+  background: var(--color-success);
+}
+
+.status-degraded .status-dot {
+  background: var(--color-warning);
+}
+
+.status-outage .status-dot {
+  background: var(--color-danger);
+}
+
+.status-maintenance .status-dot {
+  background: var(--color-primary);
+}
+
+/* On a narrow screen the state goes below the name, not the name in pieces. */
+.status-name {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.status-state {
+  color: var(--color-text-muted);
+}
+
+.status-outage .status-state,
+.status-degraded .status-state {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.status-when {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.status-updated {
+  margin-top: 12px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
 /* Wall-screen view, /alerts?view=wall (#243): nothing to click.  Alarms
    only, every site open, four columns.  Text at the browser standard, the
    same sizes as the board: a big screen is sized with the browser's zoom. */
@@ -1432,3 +1543,4 @@ a.case-pill:focus-visible {
 .availability-pct.is-below {
   color: var(--color-danger);
 }
+

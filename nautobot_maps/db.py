@@ -604,6 +604,11 @@ def add_location_tier(conn) -> None:
     conn.execute("ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT ''")
 
 
+def add_token_tenant(conn) -> None:
+    """A status token's tenant (#291): it opens only that tenant's status page."""
+    conn.execute("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS tenant TEXT")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -625,6 +630,7 @@ MIGRATIONS = (
     (15, "site_alert_levels.first_seen_at", add_site_first_seen),
     (16, "alert_instances acknowledgements", add_acknowledgements),
     (17, "nautobot_location_cache.tier", add_location_tier),
+    (18, "api_tokens.tenant", add_token_tenant),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

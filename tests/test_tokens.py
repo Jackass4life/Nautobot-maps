@@ -128,7 +128,7 @@ class TestTokens:
 
     def test_verify_expiry_revocation_and_last_used(self, pg_database, clock):
         secret = make(expires_in_days=1)["token"]
-        assert tokens.verify(secret) == {"name": "script", "role": "operator"}
+        assert tokens.verify(secret) == {"name": "script", "role": "operator", "tenant": ""}
         assert raw_rows()[0]["last_used_at"] is not None
         first_use = raw_rows()[0]["last_used_at"]
         clock["now"] = "2026-10-09T12:04:00Z"
@@ -312,7 +312,7 @@ class TestCli:
         out, err = capsys.readouterr()
         secret = out.strip()
         assert secret.startswith("nmt_") and "Shown only now" in err and secret not in err
-        assert tokens.verify(secret) == {"name": "librenms", "role": "operator"}
+        assert tokens.verify(secret) == {"name": "librenms", "role": "operator", "tenant": ""}
         assert raw_rows()[0]["created_by"] == "cli"
         assert cli.main(["token", "create", "librenms", "--role", "viewer"]) == 1
         assert "already exists" in capsys.readouterr().err

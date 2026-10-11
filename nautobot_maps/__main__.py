@@ -29,7 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     token_commands = token.add_subparsers(dest="token_command", required=True)
     create = token_commands.add_parser("create", help="create a token and print it (shown once)")
     create.add_argument("name")
-    create.add_argument("--role", required=True, choices=tokens.ROLES)
+    create.add_argument("--role", required=True, choices=(*tokens.ROLES, tokens.STATUS_ROLE))
+    create.add_argument("--tenant", default=None, help="with --role status: the tenant whose status page it opens")
     create.add_argument("--expires-days", type=int, default=None)
     token_commands.add_parser("list", help="list tokens (never the secrets)")
     revoke = token_commands.add_parser("revoke", help="revoke a token by its ID")
@@ -40,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
 def token_command(conn, args) -> int:
     if args.token_command == "create":
         body = {"name": args.name, "role": args.role, "expires_in_days": args.expires_days}
+        if args.tenant is not None:
+            body["tenant"] = args.tenant
         try:
             token = tokens.create(conn, body, "cli")
         except tokens.TokenError as exc:
@@ -57,10 +60,11 @@ def token_command(conn, args) -> int:
         if not rows:
             print("No tokens.")
         for token in rows:
+            tenant = f"  (tenant {token['tenant']})" if token.get("tenant") else ""
             print(
                 f"{token['id']:>4}  {token['prefix']}…  {token['role']:<8}  {token['state']:<7}  "
                 f"expires {token['expires_at'] or 'never'}  last used {token['last_used_at'] or 'never'}  "
-                f"{token['name']}"
+                f"{token['name']}{tenant}"
             )
         return 0
     token = tokens.revoke(conn, args.id, "cli")
