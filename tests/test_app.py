@@ -3304,6 +3304,7 @@ class TestInventoryCacheSync:
                 "description": "",
                 "physical_address": "",
                 "country": "",
+                "tier": "",
                 "facility": "",
                 "tenant": "",
                 "tenant_id": "",

@@ -947,6 +947,8 @@ function compareSites(a, b, sort) {
     }
   }
   return severityWeight(a.alert_level) - severityWeight(b.alert_level)
+    // Within a level, more important sites first (#293).
+    || (a.tier_rank ?? 99) - (b.tier_rank ?? 99)
     || (b.down_device_count || 0) - (a.down_device_count || 0)
     || compareText(a.name, b.name);
 }
@@ -1067,6 +1069,13 @@ function tenantName(name, descriptions) {
   return description ? `${escHtml(name)}${infoTipHtml(description, `${name}: ${description}`)}` : escHtml(name);
 }
 
+// The site's importance (#293): "GOLD" by its name; the most important tier is accented.
+function tierPill(item) {
+  if (!item.tier) return "";
+  const top = Number(item.tier_rank) === 0 ? " tier-top" : "";
+  return ` <span class="tier-pill${top}" title="Importance tier">${escHtml(String(item.tier).toUpperCase())}</span>`;
+}
+
 // The site's tenants on one line under its name (#311): the first, and
 // "+N" that shows the rest in place, each with its (i) (#238, #279).
 function tenantLine(item) {
@@ -1137,7 +1146,7 @@ function renderTableRows(alerts, payload) {
         <div class="site-name-row">
           ${toggleButton}
           <div>
-            ${siteNameHtml(item, !WALL_VIEW)}
+            <div class="site-title">${siteNameHtml(item, !WALL_VIEW)}${tierPill(item)}</div>
             <div class="site-summary">${downCount} down · ${item.device_count || 0} monitored</div>
             ${tenantLine(item)}
           </div>

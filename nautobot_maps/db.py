@@ -599,6 +599,11 @@ def add_acknowledgements(conn) -> None:
     conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS ack_note TEXT NOT NULL DEFAULT ''")
 
 
+def add_location_tier(conn) -> None:
+    """A location's importance tier from a Nautobot custom field (#293)."""
+    conn.execute("ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT ''")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -619,6 +624,7 @@ MIGRATIONS = (
     (14, "alert_instances.probable_cause", add_probable_cause),
     (15, "site_alert_levels.first_seen_at", add_site_first_seen),
     (16, "alert_instances acknowledgements", add_acknowledgements),
+    (17, "nautobot_location_cache.tier", add_location_tier),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

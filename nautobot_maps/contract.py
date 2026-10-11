@@ -170,6 +170,12 @@ CONTRACT: tuple[Endpoint, ...] = (
                 becomes="last_updated",
                 rule="the incremental sync's watermark (last_updated__gte)",
             ),
+            Field(
+                "custom_fields",
+                ("object", "null"),
+                becomes="tier",
+                rule="the SITE_TIER_FIELD custom field (a value, or a select's value or label), lowercased",
+            ),
         ),
         request="all pages; incremental with last_updated__gte",
         stored_in="nautobot_location_cache",

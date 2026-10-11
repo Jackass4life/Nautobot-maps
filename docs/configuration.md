@@ -74,6 +74,10 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` | — | Nautobot tag names hidden from the board |
 | `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | — | Location names hidden from the board (fallback) |
 | `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | — | Device statuses ignored: not counted, not listed |
+| `ALERT_MEDIUM_PERCENT` | `25` | More than this share of a site's monitored devices down is **Medium** ([alert levels](alert-board.md#alert-levels)) |
+| `ALERT_CRITICAL_PERCENT` | `100` | This share or more down is **Critical** (100: only when all are down); a down core device is always Critical |
+| `SITE_TIER_FIELD` | — | Nautobot custom field on the location with its importance tier (e.g. `tier`) ([importance](alert-board.md#importance-tier)) |
+| `SITE_TIERS` | `gold,silver,bronze` | The tier values, most important first; other values are no tier |
 | `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`) |
 | `AVAILABILITY_BASIS` | `any_down` | What the [availability report](availability.md) counts as downtime: `any_down` (any monitored device of the site down) or `critical` (the site at Critical) |
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |
@@ -105,6 +109,7 @@ See [notifications](notifications.md). Each channel is on when its setting is fi
 | Variable | Default | Description |
 |---|---|---|
 | `NOTIFY_MIN_LEVEL` | `critical` | `low`, `medium` or `critical`: notify when a site reaches it (or gets worse above it) and when it drops below it |
+| `NOTIFY_MIN_LEVEL_BY_TIER` | — | `NOTIFY_MIN_LEVEL` for some importance tiers, e.g. `gold:low,silver:medium` |
 | `NOTIFY_TENANTS` | — | Only sites with one of these tenants (comma-separated) |
 | `NOTIFY_BOARD_URL` | — | The app's address, for the link in messages, e.g. `https://nautobot-maps.example.com` |
 | `NOTIFY_SUMMARY_THRESHOLD` | `5` | More messages due at once on a channel go out as one summary |

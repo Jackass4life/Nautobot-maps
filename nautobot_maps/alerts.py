@@ -35,26 +35,34 @@ def status_is_excluded(status: str | None, excluded: set[str]) -> bool:
 # "flapping": a device flapping (#286) counts as down while momentarily up.
 DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning", "flapping"})
 
-# A site is "medium" when more than this share of its monitored devices is down.
+# The default share of a site's monitored devices that must be down (more
+# than) for "medium"; ALERT_MEDIUM_PERCENT sets it (#293).
 MEDIUM_DOWN_RATIO = 0.25
 
-# Tier definitions shown in the alert-board summary tile (i) tooltips.  They
-# describe compute_alert_level() and must be kept in sync with it.
-ALERT_STATUS_TIER_DEFINITIONS = {
-    "alarms": "Sites at Critical, Medium or Low: the ones that need attention. The board opens here.",
-    "critical": (
-        "At least one core device is down (its role matches a critical keyword, "
-        "or it is marked critical by an override), or every monitored device is down."
-    ),
-    "medium": (
-        f"More than {MEDIUM_DOWN_RATIO:.0%} of the site's monitored devices are down and no core device is down."
-    ),
-    "low": (f"At least one monitored device is down, but {MEDIUM_DOWN_RATIO:.0%} or fewer and no core device."),
-    "no_data": ("The site has no monitored devices, or its state could not be computed. Not counted as an alert."),
-    "ok": "The site has monitored devices and none of them is down.",
-    "total": ("All sites on the board. Only devices with a Nautobot primary IP are monitored."),
-    "maintenance": "Sites in a maintenance window: planned work, not an alarm. Nothing is notified until it ends.",
-}
+
+def alert_level_definitions() -> dict:
+    """What each level means, from the configured thresholds (#293); shown on
+    the board.  They describe compute_alert_level() and must match it."""
+    medium = settings.ALERT_MEDIUM_PERCENT
+    critical = settings.ALERT_CRITICAL_PERCENT
+    critical_share = "every monitored device is down" if critical >= 100 else f"{critical}% or more of them are down"
+    return {
+        "alarms": "Sites at Critical, Medium or Low: the ones that need attention. The board opens here.",
+        "critical": (
+            "At least one core device is down (its role matches a critical keyword, "
+            f"or it is marked critical by an override), or {critical_share}."
+        ),
+        "medium": f"More than {medium}% of the site's monitored devices are down and no core device is down.",
+        "low": f"At least one monitored device is down, but {medium}% or fewer and no core device.",
+        "no_data": "The site has no monitored devices, or its state could not be computed. Not counted as an alert.",
+        "ok": "The site has monitored devices and none of them is down.",
+        "total": "All sites on the board. Only devices with a Nautobot primary IP are monitored.",
+        "maintenance": "Sites in a maintenance window: planned work, not an alarm. Nothing is notified until it ends.",
+    }
+
+
+# With the default thresholds; the board uses alert_level_definitions().
+ALERT_STATUS_TIER_DEFINITIONS = alert_level_definitions()
 
 # Board order, most severe first (#124).
 ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
@@ -310,7 +318,10 @@ def compute_alert_level(
             "reason": f"All {total} monitored device{'s' if total != 1 else ''} offline",
         }
     pct = round(down_count / total * 100)
-    if down_count / total > MEDIUM_DOWN_RATIO:
+    # Thresholds from the settings (#293), read now so a test or a reload sees them.
+    if down_count * 100 >= total * settings.ALERT_CRITICAL_PERCENT:
+        return {"level": "critical", "reason": f"{down_count}/{total} devices offline ({pct}%)"}
+    if down_count * 100 > total * settings.ALERT_MEDIUM_PERCENT:
         return {
             "level": "medium",
             "reason": f"{down_count}/{total} devices offline ({pct}%)",
@@ -573,6 +584,12 @@ def get_location_devices_and_alert(
         new_librenms_maps=new_librenms_maps,
     )
     return enriched, compute_alert_level(enriched, location_type, override_map=override_map)
+
+
+def tier_rank(tier: str) -> int:
+    """0 for the most important tier in SITE_TIERS (#293); 99 without a known tier."""
+    tier = (tier or "").strip().lower()
+    return settings.SITE_TIERS.index(tier) if tier in settings.SITE_TIERS else 99
 
 
 def alert_sort_key(level: str) -> int:
@@ -2141,6 +2158,9 @@ def build_alert_board_payload(
                     "tenants": loc.get("tenants") or inventory.site_tenants(loc.get("tenant") or "", []),
                     "alert_level": level,
                     "alert_reason": alert.get("reason", ""),
+                    # Importance (#293): a known tier and its rank (0 = most important).
+                    "tier": (loc.get("tier") or "") if tier_rank(loc.get("tier")) < 99 else "",
+                    "tier_rank": tier_rank(loc.get("tier")),
                     "device_count": len(devices) + len(pending_devices),
                     # Left out of device_count while in a window (#283).
                     "maintenance_device_count": len(maintenance_devices),
@@ -2198,6 +2218,7 @@ def build_alert_board_payload(
     alerts.sort(
         key=lambda item: (
             alert_sort_key(item.get("alert_level", "ok")),
+            item.get("tier_rank", 99),  # more important sites first within a level (#293)
             -item.get("down_device_count", 0),
             item.get("name", "").lower(),
         )
