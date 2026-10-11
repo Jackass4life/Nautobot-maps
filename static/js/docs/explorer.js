@@ -1,19 +1,13 @@
-"use strict";
-
 // The API explorer (#230): Try it sends the request and shows the response.
 
 const MAX_BODY_CHARS = 50000;
-const themeToggle = document.getElementById("theme-toggle");
-const endpointFilter = document.getElementById("endpoint-filter");
-const endpointCount = document.getElementById("endpoint-count");
-const endpointCards = Array.from(document.querySelectorAll(".endpoint"));
 
 // "/api/x/<id>/detail" or "/api/x/<string:id>" with {id: "a b"} -> "/api/x/a%20b/detail".
-function fillPath(template, values) {
+export function fillPath(template, values) {
   return template.replace(/<(?:[^:>]+:)?([^>]+)>/g, (_match, name) => encodeURIComponent(values[name] ?? ""));
 }
 
-function buildUrl(template, pathValues, queryValues) {
+export function buildUrl(template, pathValues, queryValues) {
   const params = new URLSearchParams();
   Object.entries(queryValues).forEach(([name, value]) => {
     if (value !== "") params.set(name, value);
@@ -22,12 +16,12 @@ function buildUrl(template, pathValues, queryValues) {
   return `${fillPath(template, pathValues)}${query ? `?${query}` : ""}`;
 }
 
-function shellQuote(value) {
+export function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
 // The same request as a curl command, to rerun outside the browser.
-function curlCommand(method, url, body, origin) {
+export function curlCommand(method, url, body, origin) {
   const parts = ["curl", "-sS"];
   if (method !== "GET") parts.push("-X", method);
   if (body !== null) parts.push("-H", shellQuote("Content-Type: application/json"), "--data", shellQuote(body));
@@ -36,7 +30,7 @@ function curlCommand(method, url, body, origin) {
 }
 
 // Pretty JSON when the response is JSON; otherwise the text, shortened.
-function formatResponseBody(text, contentType) {
+export function formatResponseBody(text, contentType) {
   if ((contentType || "").includes("json")) {
     try {
       return JSON.stringify(JSON.parse(text), null, 2);
@@ -61,7 +55,7 @@ function readForm(form) {
   return { pathValues, queryValues, body: bodyInput ? bodyInput.value : null };
 }
 
-async function tryEndpoint(card, form) {
+export async function tryEndpoint(card, form) {
   const result = card.querySelector(".try-result");
   const status = result.querySelector(".try-status");
   const curl = result.querySelector(".try-curl");
@@ -112,62 +106,17 @@ async function tryEndpoint(card, form) {
   }
 }
 
-function applyFilter() {
-  const needle = (endpointFilter?.value || "").trim().toLowerCase();
+// Show the endpoints matching *needle*, and the groups that still have one.
+export function filterEndpoints(cards, groups, needle) {
+  const query = (needle || "").trim().toLowerCase();
   let shown = 0;
-  endpointCards.forEach((card) => {
-    const match = !needle || card.dataset.search.includes(needle);
+  cards.forEach((card) => {
+    const match = !query || card.dataset.search.includes(query);
     card.hidden = !match;
     if (match) shown += 1;
   });
-  document.querySelectorAll(".docs-group").forEach((group) => {
+  groups.forEach((group) => {
     group.hidden = !group.querySelector(".endpoint:not([hidden])");
   });
-  if (endpointCount) endpointCount.textContent = `${shown} of ${endpointCards.length} shown`;
+  return shown;
 }
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-  if (themeToggle) {
-    const darkEnabled = theme === "dark";
-    themeToggle.textContent = darkEnabled ? "Light mode" : "Dark mode";
-    themeToggle.setAttribute("aria-label", darkEnabled ? "Switch to light mode" : "Switch to dark mode");
-    themeToggle.setAttribute("aria-pressed", darkEnabled ? "true" : "false");
-  }
-}
-
-function initTheme() {
-  let theme = "light";
-  try {
-    const stored = localStorage.getItem("nautobot-maps-theme");
-    if (stored === "dark" || stored === "light") {
-      theme = stored;
-    } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      theme = "dark";
-    }
-  } catch (_err) {
-    theme = "light";
-  }
-  applyTheme(theme);
-}
-
-document.addEventListener("submit", (event) => {
-  const form = event.target.closest(".try-form");
-  if (!form) return;
-  event.preventDefault();
-  tryEndpoint(form.closest(".endpoint"), form);
-});
-
-endpointFilter?.addEventListener("input", applyFilter);
-applyFilter();
-
-initTheme();
-themeToggle?.addEventListener("click", () => {
-  const nextTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-  applyTheme(nextTheme);
-  try {
-    localStorage.setItem("nautobot-maps-theme", nextTheme);
-  } catch (_err) {
-    // noop
-  }
-});

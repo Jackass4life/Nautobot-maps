@@ -51,7 +51,7 @@ Your sole responsibility on this repository is to **review every code change** a
 ```
 app.py                      # Flask application – API logic, caching, Nautobot client
 templates/index.html        # Jinja2 template – XSS risks, CDN SRI hashes
-static/js/map.js            # Client-side JS – XSS via innerHTML, fetch error handling
+static/js/**/*.js           # Client-side JS (ES modules) – XSS via innerHTML, fetch error handling
 static/css/map.css          # Accessibility, responsive layout
 demo/mock_nautobot.py       # Mock server – must stay in sync with real Nautobot API shape
 tests/test_app.py           # Unit tests – coverage, assertion quality

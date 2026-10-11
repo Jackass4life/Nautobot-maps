@@ -109,12 +109,19 @@ can replace a function where it is defined.
 
 ### Browser JavaScript
 
-The alert board is ES modules (#294), loaded with `<script type="module">`:
+Every page's script is an ES module (#294), loaded with `<script type="module">`:
 
-- `static/js/lib/`: helpers shared by the pages (HTML escaping, times, case links, theme).
-- `static/js/alerts/`: the board. `main.js` is the only module that looks up page elements
-  and wires events; it fills `els` and `config` in `state.js`. Every other module touches the
-  page only when one of its functions is called, never when it is imported.
+- `static/js/lib/`: helpers shared by the pages (HTML escaping, times, case links, theme,
+  the (i) tooltip, the error toast).
+- `static/js/alerts/`, `static/js/map/`, `static/js/docs/`, `static/js/status/`: one folder per
+  page. Its `main.js` is the entry: the only module that looks up page elements (and, on the
+  map, creates the Leaflet map) and wires events; it fills `els`, `config` and `state` in
+  `state.js`. Every other module touches the page only when one of its functions is called,
+  never when it is imported. `availability.js` is that page's whole entry.
+- Leaflet stays a plain `<script>` (`static/vendor/leaflet.js`) loaded before `map/main.js`;
+  the map's modules use the global `L` only inside functions.
+- The tenant status page is public: every module it imports is listed in
+  `auth.STATUS_PAGE_ASSETS` (`tests/test_js_modules.py` checks the list).
 
 That rule is what makes them testable: a test imports the real functions in Node with
 `tests/js_modules.py`, and gives them stand-in elements:

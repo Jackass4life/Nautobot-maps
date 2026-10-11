@@ -1,5 +1,3 @@
-"use strict";
-
 // The (i) next to a tenant (#263): hover or keyboard focus shows its
 // description.  One floating box, placed in the window (position: fixed),
 // because the board table and the map's site panel both scroll and would
@@ -24,7 +22,7 @@ function infoTipElement() {
 }
 
 // Below the glyph, or above it when there is no room; never outside the window.
-function placeInfoTip(anchorRect, boxWidth, boxHeight, viewportWidth, viewportHeight) {
+export function placeInfoTip(anchorRect, boxWidth, boxHeight, viewportWidth, viewportHeight) {
   const maxLeft = Math.max(INFO_TIP_MARGIN_PX, viewportWidth - boxWidth - INFO_TIP_MARGIN_PX);
   const centred = anchorRect.left + anchorRect.width / 2 - boxWidth / 2;
   const left = Math.min(Math.max(INFO_TIP_MARGIN_PX, centred), maxLeft);
@@ -62,26 +60,29 @@ function infoTipAnchorOf(target) {
   return target instanceof Element ? target.closest("[data-info-tip]") : null;
 }
 
-document.addEventListener("mouseover", (event) => {
-  const anchor = infoTipAnchorOf(event.target);
-  if (anchor && anchor !== infoTipAnchor) showInfoTip(anchor);
-});
-document.addEventListener("mouseout", (event) => {
-  if (infoTipAnchor && infoTipAnchorOf(event.target) === infoTipAnchor && !infoTipAnchor.contains(event.relatedTarget)) {
-    hideInfoTip();
-  }
-});
-document.addEventListener("focusin", (event) => {
-  const anchor = infoTipAnchorOf(event.target);
-  if (anchor) showInfoTip(anchor);
-});
-document.addEventListener("focusout", (event) => {
-  if (infoTipAnchorOf(event.target) === infoTipAnchor) hideInfoTip();
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && infoTipAnchor) hideInfoTip();
-});
-// The box is fixed in the window: when the page or a panel scrolls, it would
-// no longer sit next to its glyph.
-document.addEventListener("scroll", hideInfoTip, true);
-window.addEventListener("resize", hideInfoTip);
+// Called once by each page that shows (i) glyphs.
+export function initInfoTips() {
+  document.addEventListener("mouseover", (event) => {
+    const anchor = infoTipAnchorOf(event.target);
+    if (anchor && anchor !== infoTipAnchor) showInfoTip(anchor);
+  });
+  document.addEventListener("mouseout", (event) => {
+    if (infoTipAnchor && infoTipAnchorOf(event.target) === infoTipAnchor && !infoTipAnchor.contains(event.relatedTarget)) {
+      hideInfoTip();
+    }
+  });
+  document.addEventListener("focusin", (event) => {
+    const anchor = infoTipAnchorOf(event.target);
+    if (anchor) showInfoTip(anchor);
+  });
+  document.addEventListener("focusout", (event) => {
+    if (infoTipAnchorOf(event.target) === infoTipAnchor) hideInfoTip();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && infoTipAnchor) hideInfoTip();
+  });
+  // The box is fixed in the window: when the page or a panel scrolls, it would
+  // no longer sit next to its glyph.
+  document.addEventListener("scroll", hideInfoTip, true);
+  window.addEventListener("resize", hideInfoTip);
+}
