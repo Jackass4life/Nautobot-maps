@@ -113,3 +113,5 @@ Syncs are incremental (only what changed in Nautobot since the last one); a dail
 - It reloads every minute and shows **"Updated hh:mm"**, which turns red ("NOT UPDATED since …") after 10 minutes without a successful update.
 - When the board can't be loaded it shows a red banner and keeps the last board on screen, so a frozen screen never looks like "all OK".
 - With `AUTH_REQUIRE_VIEWER=true`, the screen's browser needs to sign in through your proxy like any other viewer.
+
+**Sound** (top right of the wall view, #290): **Sound on** plays a short chime and shows a browser notification ("London HQ is Critical") once when a site becomes Critical, and once when a site in alarm has nobody on it (no case, no acknowledgement); not on every refresh, and not for what was already wrong when the page opened. It is remembered on that screen; after the page reloads, browsers play sound only after a first click anywhere on it. Notifications need the browser's permission, asked when you turn sound on.

@@ -1302,6 +1302,7 @@ async function loadAlertBoard(forceRefresh = false, { background = false } = {})
     populateFilters(allAlerts);
     renderSummary(payload.summary || {});
     applyFilters(payload);
+    if (WALL_VIEW) announceNewAlarms(allAlerts);
     scheduleSyncPoll(payload);
     setNextUpdate(payload);
     // The feed refreshes with the board (#180).
@@ -1418,6 +1419,123 @@ if (toggleNonOperational) {
     allSitesExpanded = false;
     loadAlertBoard(false);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Wall view: a chime and a notification for a new Critical (#290)
+// ---------------------------------------------------------------------------
+const WALL_SOUND_KEY = "nautobot-maps-wall-sound";
+const wallSoundBtn = document.getElementById("wall-sound");
+let wallSoundOn = false;
+let audioContext = null;
+// What was already announced (or there at the start): site id -> "critical" / "nobody".
+let announced = null;
+
+// The alarms that are new since *before* (#290): sites that became Critical,
+// and sites in alarm with nobody on them (no case, no acknowledgement).
+// Returns { events: [{ id, name, kind }], seen }; *before* null = the first
+// load, which only records what is there.
+function newAlarms(before, sites) {
+  const seen = new Map();
+  const events = [];
+  sites.forEach((site) => {
+    const id = String(site.id || "");
+    if (!id || !ALARM_LEVELS.includes(site.alert_level)) return;
+    const kinds = [];
+    if (site.alert_level === "critical") kinds.push("critical");
+    if (siteCaseState(site).state === "none") kinds.push("nobody");
+    const previous = before ? before.get(id) || new Set() : null;
+    const now = new Set(kinds);
+    seen.set(id, now);
+    if (!previous) return;
+    kinds.filter((kind) => !previous.has(kind)).forEach((kind) => events.push({ id, name: site.name || id, kind }));
+  });
+  return { events, seen };
+}
+
+function alarmText(event) {
+  return event.kind === "critical" ? `${event.name} is Critical` : `${event.name}: in alarm, nobody on it`;
+}
+
+// Two short tones from the browser itself: no sound file to load.
+function playChime() {
+  if (!audioContext) return;
+  const start = audioContext.currentTime;
+  [880, 660].forEach((frequency, index) => {
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, start + index * 0.25);
+    gain.gain.exponentialRampToValueAtTime(0.3, start + index * 0.25 + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.25 + 0.22);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(start + index * 0.25);
+    oscillator.stop(start + index * 0.25 + 0.24);
+  });
+}
+
+function announceNewAlarms(sites) {
+  const { events, seen } = newAlarms(announced, sites);
+  announced = seen;
+  if (!wallSoundOn || !events.length) return;
+  playChime();
+  if (window.Notification && Notification.permission === "granted") {
+    events.slice(0, 5).forEach((event) => {
+      try {
+        new Notification("Nautobot Maps", { body: alarmText(event), tag: `${event.id}-${event.kind}` });
+      } catch (_err) {
+        // Notifications unavailable here: the chime still played.
+      }
+    });
+  }
+}
+
+function setWallSound(on) {
+  wallSoundOn = Boolean(on);
+  if (!wallSoundBtn) return;
+  wallSoundBtn.textContent = wallSoundOn ? "Sound on" : "Sound off";
+  wallSoundBtn.setAttribute("aria-pressed", wallSoundOn ? "true" : "false");
+  try {
+    if (wallSoundOn) localStorage.setItem(WALL_SOUND_KEY, "on");
+    else localStorage.removeItem(WALL_SOUND_KEY);
+  } catch (_err) {
+    // Not remembered; works for this page.
+  }
+}
+
+if (wallSoundBtn) {
+  wallSoundBtn.addEventListener("click", () => {
+    const on = !wallSoundOn;
+    if (on) {
+      // This click is what lets the browser play sound.
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass && !audioContext) audioContext = new AudioContextClass();
+      audioContext?.resume();
+      if (window.Notification && Notification.permission === "default") Notification.requestPermission();
+      playChime();
+    }
+    setWallSound(on);
+  });
+  let remembered;
+  try {
+    remembered = localStorage.getItem(WALL_SOUND_KEY) === "on";
+  } catch (_err) {
+    remembered = false;
+  }
+  if (remembered) {
+    // Remembered, but a browser plays sound only after a click on this page:
+    // the first click anywhere unlocks it.
+    setWallSound(true);
+    document.addEventListener(
+      "click",
+      () => {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass && !audioContext) audioContext = new AudioContextClass();
+        audioContext?.resume();
+      },
+      { once: true },
+    );
+  }
 }
 
 function applyTheme(theme) {
