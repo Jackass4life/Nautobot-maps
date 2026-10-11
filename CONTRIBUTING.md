@@ -31,6 +31,14 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    ```bash
    python -m pytest tests/ -v
    ```
+   For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
+   ```bash
+   pip install -r requirements-e2e.txt && python -m playwright install chromium
+   python demo/mock_nautobot.py &                       # :8080
+   NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=x \
+     NAUTOBOT_MAPS_DATABASE_URL=postgresql://... FLASK_RUN_PORT=5055 python app.py &
+   E2E_BASE_URL=http://127.0.0.1:5055 python -m pytest e2e/ -v
+   ```
 5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
 6. **Submit** a pull request against `main` with a clear description of the change.
 

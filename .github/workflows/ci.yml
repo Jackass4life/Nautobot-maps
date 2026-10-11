@@ -78,6 +78,7 @@ jobs:
           pip install pip-audit
           pip-audit --strict -r requirements.txt
           pip-audit --strict -r requirements-dev.txt
+          pip-audit --strict -r requirements-e2e.txt
 
       - name: Lock files match the .in files
         # Fails if someone edited requirements*.in without recompiling.
@@ -85,7 +86,7 @@ jobs:
         run: |
           pip install pip-tools
           pins() { grep -oE '^[A-Za-z0-9._-]+==[^ ]+' "$1" | sort; }
-          for name in requirements requirements-dev; do
+          for name in requirements requirements-dev requirements-e2e; do
             # Start from the committed lock, so only a change the .in file
             # requires shows up (not newer releases of transitive packages).
             cp "$name.txt" "$name.check.txt"
@@ -156,6 +157,71 @@ jobs:
           NAUTOBOT_TOKEN: "test-token"
           TEST_DATABASE_URL: "postgresql://nautobot_maps:nautobot_maps@127.0.0.1:5432/nautobot_maps_test"
           NAUTOBOT_VERIFY_SSL: "true"
+
+  # -----------------------------------------------------------------------
+  # End-to-end in Chromium (#294): the app with the mock Nautobot and
+  # PostgreSQL, driven like a user (board, + Case, history export, wall,
+  # map, availability, status page), in light and dark.
+  # -----------------------------------------------------------------------
+  e2e:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nautobot_maps
+          POSTGRES_USER: nautobot_maps
+          POSTGRES_PASSWORD: nautobot_maps
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nautobot_maps -d nautobot_maps"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NAUTOBOT_URL: "http://127.0.0.1:8080"
+      NAUTOBOT_TOKEN: "demo-token"
+      NAUTOBOT_MAPS_DATABASE_URL: "postgresql://nautobot_maps:nautobot_maps@127.0.0.1:5432/nautobot_maps"
+      FLASK_RUN_PORT: "5055"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies and Chromium
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements-e2e.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Start the mock Nautobot and the app
+        run: |
+          python demo/mock_nautobot.py > mock.log 2>&1 &
+          python -m nautobot_maps migrate
+          python app.py > app.log 2>&1 &
+          # Ready when the first inventory sync has filled the board.
+          for attempt in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:5055/api/alerts | grep -q '"name"'; then exit 0; fi
+            sleep 1
+          done
+          echo "The app did not become ready within 60s" >&2
+          exit 1
+
+      - name: Run end-to-end tests
+        run: python -m pytest e2e/ -v
+        env:
+          E2E_BASE_URL: "http://127.0.0.1:5055"
+
+      - name: App and mock logs on failure
+        if: failure()
+        run: tail -n 200 app.log mock.log
 
   # -----------------------------------------------------------------------
   # Integration tests against a real Nautobot 3.x instance
