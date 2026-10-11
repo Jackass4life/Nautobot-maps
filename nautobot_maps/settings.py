@@ -6,6 +6,7 @@ Other modules read them as ``settings.NAME`` at call time, never with
 """
 
 import ipaddress
+import logging
 import os
 import re
 from urllib.parse import urlsplit
@@ -203,6 +204,14 @@ ALERT_DELAY_SECONDS = max(0, int(os.getenv("ALERT_DELAY_SECONDS", "").strip() or
 FLAP_CHANGES = max(0, int(os.getenv("FLAP_CHANGES", "").strip() or 4))
 # What counts as downtime in the availability report (#287): "any_down" (any
 # monitored device of the site down) or "critical" (the site at Critical).
+# A case number's ticket in the ITSM system (#289): "https://itsm.example.com/ticket/{case}".
+# Only http(s) templates with {case} are used.
+CASE_URL_TEMPLATE = os.getenv("CASE_URL_TEMPLATE", "").strip()
+if CASE_URL_TEMPLATE and (
+    not CASE_URL_TEMPLATE.lower().startswith(("https://", "http://")) or "{case}" not in CASE_URL_TEMPLATE
+):
+    logging.getLogger(__name__).warning("CASE_URL_TEMPLATE ignored: it must start with http(s):// and contain {case}")
+    CASE_URL_TEMPLATE = ""
 AVAILABILITY_BASIS = os.getenv("AVAILABILITY_BASIS", "").strip().lower() or "any_down"
 if AVAILABILITY_BASIS not in ("any_down", "critical"):
     AVAILABILITY_BASIS = "any_down"

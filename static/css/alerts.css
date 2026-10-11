@@ -710,6 +710,16 @@ tbody td:last-child:has(details.row-menu[open]) {
   font-size: 0.75rem;
 }
 
+/* A case number linked to its ticket (#289). */
+a.case-pill {
+  text-decoration: none;
+}
+
+a.case-pill:hover,
+a.case-pill:focus-visible {
+  text-decoration: underline;
+}
+
 /* One line of small buttons per row (#179). */
 .action-row {
   display: flex;

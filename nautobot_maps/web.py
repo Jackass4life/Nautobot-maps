@@ -261,6 +261,7 @@ def alert_board():
     return render_template(
         "alerts.html",
         nautobot_url=settings.NAUTOBOT_URL,
+        case_url_template=settings.CASE_URL_TEMPLATE,
         tier_definitions=alerts.ALERT_STATUS_TIER_DEFINITIONS,
         wall_view=request.args.get("view") == "wall",
     )
