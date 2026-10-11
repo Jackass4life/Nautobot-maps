@@ -101,6 +101,8 @@ def _token_user(token: str) -> dict:
         "role": found["role"] if found else "",
         "auth_mode": settings.AUTH_MODE,
         "token": found["name"] if found else "",
+        # A status token's tenant (#291); "" for other tokens.
+        "tenant": (found.get("tenant") or "") if found else "",
         "token_rejected": found is None,
     }
 
@@ -201,6 +203,40 @@ def require_role(required_role: str, open_when_disabled: bool = False):
 # Prometheus scrapes send no identity headers.  /metrics has only counts,
 # no site or device names (#200).
 PUBLIC_PATHS = {"/healthz", "/metrics"}
+# A tenant's status page (#291): the page and its assets carry no data, so a
+# customer's browser loads them without SSO; /api/status/ checks access itself
+# (``status_access``).
+STATUS_PAGE_PREFIX = "/status/"
+STATUS_API_PREFIX = "/api/status/"
+STATUS_PAGE_ASSETS = {"/static/css/alerts.css", "/static/js/status.js"}
+
+
+def is_status_token(user: dict) -> bool:
+    return bool(user.get("token")) and user.get("role") == tokens.STATUS_ROLE
+
+
+def status_access(tenant: str):
+    """None when this request may read *tenant*'s status, else a response.
+
+    A status token: only its own tenant.  Anyone else: as the board, i.e.
+    the viewer role when AUTH_REQUIRE_VIEWER is on in header mode.
+    """
+    current_user = get_current_user()
+    if current_user.get("token"):
+        if is_status_token(current_user):
+            if current_user.get("tenant", "").casefold() == tenant.strip().casefold():
+                return None
+            return jsonify({"error": "This token is for another tenant"}), 403
+        if role_level(current_user["role"]) >= role_level("viewer"):
+            return None
+        return jsonify({"error": "Insufficient permissions", "required_role": "viewer"}), 403
+    if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER:
+        return None
+    if not current_user["is_authenticated"]:
+        return jsonify({"error": "Authentication required"}), 401
+    if role_level(current_user["role"]) < role_level("viewer"):
+        return jsonify({"error": "Insufficient permissions", "required_role": "viewer"}), 403
+    return None
 
 
 def check_viewer():
@@ -214,6 +250,11 @@ def check_viewer():
     # its token stopped working.
     if bearer_token() and get_current_user().get("token_rejected"):
         return jsonify({"error": "Invalid, expired or revoked API token"}), 401
+    status_path = request.path.startswith((STATUS_PAGE_PREFIX, STATUS_API_PREFIX)) or request.path in STATUS_PAGE_ASSETS
+    if bearer_token() and is_status_token(get_current_user()) and not status_path:
+        return jsonify({"error": "This token only opens its tenant's status page"}), 403
+    if status_path:
+        return None
     if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER:
         return None
     current_user = get_current_user()

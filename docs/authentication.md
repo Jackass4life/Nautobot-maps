@@ -82,6 +82,7 @@ Authorization: Bearer nmt_...
 - Changes made with it are recorded as `token:<name>` (e.g. on cases and maintenance windows).
 - A wrong, expired or revoked token gets **401** on every request except `/healthz` and `/metrics` (always public), so a script notices.
 - Only the token's SHA-256 is stored. The token itself is shown once, when it is created.
+- A token with role `status` belongs to one tenant and opens only that tenant's [status page](status-page.md) (403 everywhere else). Create it with `--role status --tenant "Acme Corp"` or `{"role": "status", "tenant": "Acme Corp"}`.
 - Other `Bearer` values (not starting with `nmt_`, e.g. an access token your proxy forwards) are ignored; sign-in then works as without a token.
 
 ### Creating and revoking

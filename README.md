@@ -58,6 +58,7 @@ Without Docker (for development): `pip install -r requirements.txt`, then `pytho
 | [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, automatic updates, wall view |
 | [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
 | [Availability](docs/availability.md) | Uptime per site and tenant, by month, without maintenance |
+| [Tenant status page](docs/status-page.md) | "Are we affected?" for one tenant, shareable with a customer |
 | [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
 | [Sign-in and roles](docs/authentication.md) | SSO proxy setup, what each role can do, API tokens |
 | [Data contract](docs/data-contract.md) | What is read from Nautobot and LibreNMS, and what it becomes |
