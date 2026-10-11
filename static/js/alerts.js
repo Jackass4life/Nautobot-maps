@@ -431,13 +431,13 @@ function siteCaseState(item) {
   // Devices in maintenance are planned work, not waiting for a case (#283).
   const devices = downDeviceList(item).filter((d) => !d.maintenance_until);
   // A case or an acknowledgement (#288): someone is on it.
-  const withCase = devices.filter(
+  const handled = devices.filter(
     (d) => (Array.isArray(d.case_numbers) && d.case_numbers.length) || d.acknowledged,
   ).length;
   let state = "none";
-  if (devices.length && withCase === devices.length) state = "handled";
-  else if (withCase) state = "partly";
-  return { state, without: devices.length - withCase, total: devices.length };
+  if (devices.length && handled === devices.length) state = "handled";
+  else if (handled) state = "partly";
+  return { state, without: devices.length - handled, total: devices.length };
 }
 
 // The wall view's case badge, next to the severity: readable at a glance,
@@ -450,7 +450,7 @@ function caseStateBadge(item) {
     const label = [cases.join(", "), acked ? "ACK" : ""].filter(Boolean).join(" · ");
     return `<span class="case-state case-state-handled">✓ ${escHtml(label)}</span>`;
   }
-  if (state === "partly") return `<span class="case-state case-state-partly">${without} of ${total} no case</span>`;
+  if (state === "partly") return `<span class="case-state case-state-partly">${without} of ${total} no case or ack</span>`;
   return '<span class="case-state case-state-none">NO CASE</span>';
 }
 
@@ -1347,7 +1347,7 @@ function renderWallStatus(now = Date.now()) {
   wallUpdatedEl.classList.toggle("wall-stale", stale);
   wallUpdatedEl.textContent = stale
     ? `NOT UPDATED since ${formatClock(lastLoadedAt)}`
-    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case`
+    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case or ack`
       + (planned ? ` · ${planned} in maintenance` : "");
 }
 

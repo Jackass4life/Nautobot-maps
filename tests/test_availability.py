@@ -173,6 +173,25 @@ class TestReport:
         sites = {row["site_id"]: row["downtime_seconds"] for row in run(basis="critical")["sites"]}
         assert sites == {"always": PERIOD, "since": 6 * 86400, "later": PERIOD}
 
+    def test_first_seen_mid_month_then_changed(self, pg_database, clock):
+        """First seen Critical on the 15th, back to OK on the 20th: five days, not from the 1st."""
+
+        def setup(conn):
+            conn.execute(
+                "INSERT INTO site_alert_levels (site_id, site_name, alert_level, updated_at, first_seen_at) "
+                "VALUES ('new', 'New', 'ok', %s, %s)",
+                (t(20), t(15)),
+            )
+            conn.execute(
+                "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
+                "VALUES ('new', 'New', 'critical', 'ok', %s)",
+                (t(20),),
+            )
+
+        write(setup)
+        (site,) = run(basis="critical")["sites"]
+        assert site["downtime_seconds"] == 5 * 86400
+
     def test_months_with_deleted_history_are_refused(self, pg_database, clock, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
         with pytest.raises(availability.ReportError, match="History before 2026-10-11 is deleted"):
@@ -261,3 +280,31 @@ class TestPages:
         with flask_app.app.test_client() as client:
             resp = client.get("/availability")
         assert resp.status_code == 503 and "needs the PostgreSQL database" in resp.get_data(as_text=True)
+
+
+def test_migration_15_backfills_first_seen_where_it_is_known(pg_database):
+    def setup(conn):
+        conn.execute(
+            "INSERT INTO site_alert_levels (site_id, site_name, alert_level, updated_at) VALUES "
+            "('steady', 'S', 'ok', %s), ('changed', 'C', 'ok', %s)",
+            (t(3), t(9)),
+        )
+        conn.execute(
+            "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
+            "VALUES ('changed', 'C', 'low', 'ok', %s)",
+            (t(9),),
+        )
+        conn.execute("UPDATE site_alert_levels SET first_seen_at = NULL")
+        db.add_site_first_seen(conn)
+
+    write(setup)
+    conn = db.get_conn()
+    try:
+        rows = {
+            r["site_id"]: r["first_seen_at"]
+            for r in conn.execute("SELECT site_id, first_seen_at FROM site_alert_levels")
+        }
+    finally:
+        conn.close()
+    assert rows["steady"] == t(3), "never changed: updated_at is when it was first seen"
+    assert rows["changed"] is None, "changed since: unknown"
