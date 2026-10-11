@@ -67,9 +67,42 @@ def test_the_csv_has_the_links(monkeypatch):
     from nautobot_maps import export
 
     monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
-    rows = [{"site_name": "S", "device_name": "sw1", "status": "open", "cases": "INC-1;INC 2"}]
+    rows = [
+        {
+            "site_name": "S",
+            "device_name": "sw1",
+            "status": "open",
+            "cases": "INC-1;INC;7",
+            "case_list": ["INC-1", "INC;7"],
+        }
+    ]
     lines = list(export.incident_lines(rows, datetime.now(UTC)))
-    assert lines[1].rstrip().endswith(",https://itsm.example.com/ticket/INC-1;https://itsm.example.com/ticket/INC%202")
+    # A number with ";" is one ticket, not two.
+    assert lines[1].rstrip().endswith(",https://itsm.example.com/ticket/INC-1;https://itsm.example.com/ticket/INC%3B7")
+
+
+def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
+    from datetime import UTC, datetime
+
+    from nautobot_maps import db, export
+
+    monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            row = conn.execute(
+                "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
+                "status, down_started_at, last_seen_down_at) "
+                "VALUES ('k', 's', 'S', 'd', 'sw1', 'low', 'open', now(), now()) RETURNING id"
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO alert_cases (alert_instance_id, case_number, created_by) VALUES (%s, 'INC;7', 'x')",
+                (row["id"],),
+            )
+        lines = list(export.incident_lines(export.iter_site_incidents(conn, "s", None), datetime.now(UTC)))
+    finally:
+        conn.close()
+    assert lines[1].rstrip().endswith(",https://itsm.example.com/ticket/INC%3B7")
 
 
 class TestInTheBrowser:

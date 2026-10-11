@@ -80,7 +80,10 @@ def iter_site_incidents(conn, site_id: str, since: datetime | None):
                i.down_started_at, i.resolved_at, i.total_downtime_seconds,
                d.role, d.primary_ip, s.ip AS librenms_ip,
                (SELECT string_agg(c.case_number, ';' ORDER BY c.case_number)
-                  FROM alert_cases c WHERE c.alert_instance_id = i.id) AS cases
+                  FROM alert_cases c WHERE c.alert_instance_id = i.id) AS cases,
+               -- The numbers as a list, for their links (#289): a number may contain ";".
+               ARRAY(SELECT c.case_number FROM alert_cases c WHERE c.alert_instance_id = i.id
+                     ORDER BY c.case_number) AS case_list
         {_FROM}
         {where}
         ORDER BY i.down_started_at DESC, i.id DESC
@@ -196,7 +199,7 @@ def incident_lines(incidents, now: datetime):
                 row.get("alert_reason"),
                 row.get("cases") or "",
                 row.get("probable_cause") or "",
-                ";".join(filter(None, (itsm.case_url(case) for case in (row.get("cases") or "").split(";")))),
+                ";".join(filter(None, (itsm.case_url(case) for case in row.get("case_list") or []))),
             ]
         )
 
