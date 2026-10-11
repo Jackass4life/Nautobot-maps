@@ -49,6 +49,10 @@ ALERT_BOARD_SITE_LOCATION_TYPE=Site
 
 Only locations of that type (case-insensitive) get a row. Levels above it are shown as a path, e.g. `EMEA › DNK`. Devices in child locations count towards their Site (device count, level, downtime), and a down device's row says where it is, e.g. `Bygning A › Etage 2`. Devices below an excluded location (e.g. a Decommissioning building) are left out. A location with devices but no Site above it keeps its own row and is logged once. Changing the setting moves open alerts from building/floor rows to their Site, which restarts their downtime once.
 
+## Likely cause
+
+When a **core** device at a site is down, the site's other down devices are probably down because of it (#285). The board and the wall list the core device first, marked **CORE**, and each other down device says "Likely caused by core-rt01". Copy, notifications ("Likely cause: core-rt01 down; 2 other devices probably behind it") and the history (panel and `probable_cause` in the incidents CSV) say the same. It is a guess from the roles, not from cabling: a device can be down for its own reason while its core is down too.
+
 ## Alert delay
 
 With `ALERT_DELAY_SECONDS` (default `0`: off), a device must be down that long before it alarms. Until then it is not shown, not counted in the site's level, not recorded in the history and not notified; if it comes back sooner, it never happened. When it does alarm, its incident starts when it went down, so the downtime is right.

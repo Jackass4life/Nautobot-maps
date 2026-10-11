@@ -94,6 +94,13 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
     """What a message says, from the site's board row at the moment of the change."""
     devices = site.get("down_devices") or []
     cases = sorted({case for device in devices for case in (device.get("case_numbers") or [])})
+    # From every device, before the list is cut to MAX_DEVICES_IN_MESSAGE (#285).
+    likely_cause = {
+        "cores": [
+            device.get("device_name") or device.get("device_id") or "" for device in devices if device.get("core")
+        ],
+        "behind": sum(1 for device in devices if device.get("probable_cause")),
+    }
     site_id = site.get("id") or ""
     return {
         # The same on every channel and every resend: receivers can drop duplicates.
@@ -119,10 +126,14 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
                 "role": device.get("role") or "",
                 "down_since": device.get("down_started_at") or "",
                 "cases": device.get("case_numbers") or [],
+                # The likely cause (#285): a core device, or what one is behind.
+                "core": bool(device.get("core")),
+                "probable_cause": device.get("probable_cause") or "",
             }
             for device in devices[:MAX_DEVICES_IN_MESSAGE]
         ],
         "cases": cases,
+        "likely_cause": likely_cause,
         "board_url": board_url(),
     }
 
@@ -219,8 +230,15 @@ def detail_lines(event: dict) -> list[str]:
         lines.append(f"Reason: {event['reason']}")
     if event["type"] == "alarm":
         lines.append(f"Down: {event['down_device_count']} of {event['device_count']} monitored devices")
+        cause = likely_cause_text(event)
+        if cause:
+            lines.append(f"Likely cause: {cause}")
         for device in event["down_devices"]:
             parts = [device["name"], device["ip"], device["role"]]
+            if device.get("core"):
+                parts.append("core")
+            if device.get("probable_cause"):
+                parts.append(f"likely caused by {device['probable_cause']}")
             if device["down_since"]:
                 parts.append(f"down since {readable_time(device['down_since'])}")
             if device["cases"]:
@@ -232,13 +250,33 @@ def detail_lines(event: dict) -> list[str]:
     return lines
 
 
+def likely_cause_text(event: dict) -> str:
+    """ "core-rt01 down; 2 other devices probably behind it", or "" (#285)."""
+    # Counted from every device when the event was made (older queued events: the listed ones).
+    likely_cause = event.get("likely_cause") or {
+        "cores": [device["name"] for device in event["down_devices"] if device.get("core")],
+        "behind": sum(1 for device in event["down_devices"] if device.get("probable_cause")),
+    }
+    cores, behind = likely_cause["cores"], likely_cause["behind"]
+    if not cores or not behind:
+        return ""
+    return f"{', '.join(cores)} down; {behind} other device{'s' if behind != 1 else ''} probably behind it"
+
+
 def summary_lines(events: list[dict]) -> list[str]:
     lines = []
     for event in events:
         site = event["site"]["name"] or event["site"]["id"]
         level = LEVEL_LABEL.get(event["level"], event["level"])
         mark = "✅" if event["type"] == "recovery" else "🔴"
-        extra = f" ({event['down_device_count']} down)" if event["type"] == "alarm" else ""
+        extra = ""
+        if event["type"] == "alarm":
+            cause = likely_cause_text(event)
+            extra = (
+                f" ({event['down_device_count']} down; likely cause: {cause})"
+                if cause
+                else f" ({event['down_device_count']} down)"
+            )
         lines.append(f"{mark} {site}: {level}{extra}")
     url = next((event["board_url"] for event in events if event["board_url"]), "")
     if url:

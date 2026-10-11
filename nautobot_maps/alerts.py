@@ -202,6 +202,39 @@ def read_criticality_overrides(conn, device_ids: list | None = None) -> dict:
     return overrides
 
 
+def is_core_device(device: dict, core_keywords, override_map: dict) -> bool:
+    """A core device: marked critical by an override, else its role has a core keyword."""
+    device_id = device.get("id") or ""
+    if device_id in override_map:
+        return bool(override_map[device_id])
+    role = (device.get("role") or "").lower()
+    return any(keyword in role for keyword in core_keywords)
+
+
+def down_core_devices(devices: list, location_type: str | None = None, override_map: dict | None = None) -> list:
+    """The down core devices among *devices* (#285): the likely cause of the
+    other devices down at the same site."""
+    keywords = get_critical_keywords(location_type)
+    overrides = override_map
+    if overrides is None:
+        overrides = {}
+        conn = db.get_conn()
+        if conn is not None:
+            try:
+                ids = [d.get("id") for d in devices if d.get("id")]
+                if ids:
+                    overrides = read_criticality_overrides(conn, ids)
+            except Exception as exc:
+                logger.debug("Could not read criticality overrides: %s", exc)
+            finally:
+                conn.close()
+    return [
+        device
+        for device in devices
+        if (device.get("status") or "").lower().strip() in DOWN_STATUSES and is_core_device(device, keywords, overrides)
+    ]
+
+
 def compute_alert_level(
     devices: list,
     location_type: str | None = None,
@@ -258,14 +291,7 @@ def compute_alert_level(
             continue
         name = device.get("name") or "Unknown"
         down_names.append(name)
-        device_id = device.get("id") or ""
-        # Check per-device override first; fall back to keyword matching
-        if device_id in override_map:
-            is_critical = override_map[device_id]
-        else:
-            role = (device.get("role") or "").lower()
-            is_critical = any(kw in role for kw in core_keywords)
-        if is_critical:
+        if is_core_device(device, core_keywords, override_map):
             core_down_names.append(name)
 
     if core_down_names:
@@ -877,6 +903,8 @@ def upsert_alert_lifecycle_for_site(
     conn=None,
     frozen_device_ids: set[str] | None = None,
     resolved_at_by_device: dict[str, str] | None = None,
+    probable_causes: dict[str, str] | None = None,
+    core_device_ids: set[str] | None = None,
 ) -> bool:
     """Record the site's down devices as alert instances and resolve recovered ones.
 
@@ -921,16 +949,16 @@ def upsert_alert_lifecycle_for_site(
                 ).fetchone()
                 if latest_row is None:
                     now_sql = db.sql_now()
-                    p = db.placeholders(10).split(",")
+                    p = db.placeholders(12).split(",")
                     conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
                     inserted = conn.execute(
                         f"""
                         INSERT INTO alert_instances
                             (alert_key, site_id, site_name, device_id, device_name, alert_level, alert_reason,
                              status, down_started_at, last_seen_down_at, resolved_at, total_downtime_seconds,
-                             created_at, updated_at)
+                             created_at, updated_at, probable_cause, is_core)
                         VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]},
-                                NULL, 0, {now_sql}, {now_sql})
+                                NULL, 0, {now_sql}, {now_sql}, {p[10]}, {p[11]})
                         {conflict_sql}
                         RETURNING id
                         """,
@@ -945,6 +973,8 @@ def upsert_alert_lifecycle_for_site(
                             "open",
                             down_since(device, checked_at),
                             checked_at,
+                            (probable_causes or {}).get(device_id, ""),
+                            device_id in (core_device_ids or ()),
                         ),
                     ).fetchone()
                     inserted_id = db.row_to_dict(inserted).get("id")
@@ -979,7 +1009,7 @@ def upsert_alert_lifecycle_for_site(
                         continue
                 current = db.row_to_dict(latest_row)
                 now_sql = db.sql_now()
-                p = db.placeholders(7).split(",")
+                p = db.placeholders(9).split(",")
                 # down_started_at only ever moves earlier: this also corrects
                 # alerts opened before #166 on their next build.
                 conn.execute(
@@ -991,8 +1021,10 @@ def upsert_alert_lifecycle_for_site(
                         alert_reason = {p[3]},
                         last_seen_down_at = {p[4]},
                         down_started_at = LEAST(down_started_at, {p[5]}::timestamptz),
+                        probable_cause = {p[6]},
+                        is_core = {p[7]},
                         updated_at = {now_sql}
-                    WHERE id = {p[6]}
+                    WHERE id = {p[8]}
                     """,
                     (
                         site.get("name") or "",
@@ -1001,6 +1033,8 @@ def upsert_alert_lifecycle_for_site(
                         reason,
                         checked_at,
                         down_since(device, checked_at),
+                        (probable_causes or {}).get(device_id, ""),
+                        device_id in (core_device_ids or ()),
                         current["id"],
                     ),
                 )
@@ -1116,6 +1150,9 @@ def summarize_alert_context(
                 # When it went down, for "Newest down first" and Copy (#227, #228).
                 "down_started_at": data.get("down_started_at") or None,
                 "case_numbers": case_numbers,
+                # Kept for when a build can't observe the site (#285).
+                "stored_probable_cause": data.get("probable_cause") or "",
+                "stored_core": bool(data.get("is_core")),
             }
         )
     return {
@@ -1134,7 +1171,7 @@ def read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     site_marker = db.placeholders(1)
     rows = conn.execute(
         f"""
-        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds
+        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds, probable_cause, is_core
         FROM alert_instances
         WHERE site_id = {site_marker}
         ORDER BY id DESC
@@ -1386,7 +1423,7 @@ def read_alert_board_data(conn) -> dict:
     open_rows_by_site: dict[str, list[dict]] = {}
     for row in conn.execute(
         """
-        SELECT id, site_id, device_id, device_name, down_started_at
+        SELECT id, site_id, device_id, device_name, down_started_at, probable_cause, is_core
         FROM alert_instances
         WHERE status = 'open'
         ORDER BY id DESC
@@ -1832,6 +1869,18 @@ def build_alert_board_payload(
                     # far; not "no data" (#316).
                     alert = {"level": "ok", "reason": ""}
             down_devices = [d for d in devices if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
+            # The likely cause (#285): with a core device down, the others
+            # down at the site are probably behind it.
+            cores = (
+                down_core_devices(devices, loc.get("location_type") or None, bulk_kwargs.get("override_map"))
+                if down_devices
+                else []
+            )
+            core_ids = {d.get("id") for d in cores if d.get("id")}
+            core_names = ", ".join(d.get("name") or d.get("id") or "" for d in cores)
+            probable_causes = {
+                d.get("id"): core_names for d in down_devices if cores and d.get("id") and d.get("id") not in core_ids
+            }
             alert_context = empty_alert_context()
             if board_data is not None:
                 primary_ip_backfill_pending = board_data["primary_ip_backfill_pending"]
@@ -1874,6 +1923,8 @@ def build_alert_board_payload(
                                     conn=write_conn,
                                     frozen_device_ids=frozen_device_ids,
                                     resolved_at_by_device=flapping_ended,
+                                    probable_causes=probable_causes,
+                                    core_device_ids=core_ids,
                                 )
                                 is False
                             ):
@@ -1972,10 +2023,35 @@ def build_alert_board_payload(
                 if item_key:
                     seen_down_device_keys.add(item_key)
             for item in merged_down_devices:
+                stored_cause = item.pop("stored_probable_cause", "")
+                stored_core = item.pop("stored_core", False)
                 window = in_maintenance["devices"].get(item.get("device_id") or "")
                 if window is not None:
                     item["maintenance_until"] = window["ends_at"]
                     item["maintenance_reason"] = window["reason"]
+                elif not observation_succeeded:
+                    # Nothing observed this build: keep what the history says.
+                    if stored_core:
+                        item["core"] = True
+                    elif stored_cause:
+                        item["probable_cause"] = stored_cause
+                elif item.get("device_id") in core_ids:
+                    item["core"] = True
+                elif item.get("device_id") in probable_causes:
+                    item["probable_cause"] = probable_causes[item["device_id"]]
+            if not observation_succeeded:
+                # The cores are the devices the others are likely caused by.
+                named = {
+                    name.strip()
+                    for item in merged_down_devices
+                    for name in (item.get("probable_cause") or "").split(",")
+                    if name.strip()
+                }
+                for item in merged_down_devices:
+                    if item.get("device_name") in named and not item.get("maintenance_until"):
+                        item["core"] = True
+            # The cause first, then what is behind it (#285).
+            merged_down_devices.sort(key=lambda item: not item.get("core"))
             level = (alert.get("level") or "ok").lower()
             if site_window is not None:
                 level = "maintenance"

@@ -573,6 +573,13 @@ def add_device_flapping(conn) -> None:
     conn.execute("ALTER TABLE device_states ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT ''")
 
 
+def add_probable_cause(conn) -> None:
+    """The down core device(s) an incident is likely caused by, and whether
+    the incident's device is a core device (#285)."""
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS probable_cause TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS is_core BOOLEAN NOT NULL DEFAULT FALSE")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -590,6 +597,7 @@ MIGRATIONS = (
     (11, "nautobot_location_cache.country", add_location_country),
     (12, "device_states", add_device_states),
     (13, "device_states.flapping_since", add_device_flapping),
+    (14, "alert_instances.probable_cause", add_probable_cause),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

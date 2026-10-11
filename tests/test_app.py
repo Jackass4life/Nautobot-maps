@@ -781,6 +781,7 @@ class TestAlertBoard:
                 "device_ip": "10.0.0.1",
                 "status": "offline",
                 "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
                 "case_numbers": [],
             }
         ]
@@ -1174,9 +1175,7 @@ class TestAlertBoard:
             opened_conns.append(conn)
             return conn
 
-        def fake_upsert(
-            site, devices, alert, checked_at, conn=None, frozen_device_ids=None, resolved_at_by_device=None
-        ):
+        def fake_upsert(site, devices, alert, checked_at, conn=None, **kwargs):
             upsert_conns.append(conn)
             return site["id"] != "loc-2"  # the write for loc-2 fails
 
@@ -2339,6 +2338,7 @@ class TestAlertLifecycleTracking:
                 "device_ip": "",
                 "status": "offline",
                 "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
                 "case_numbers": [],
             }
         ]
@@ -2608,6 +2608,7 @@ class TestAlertLifecycleTracking:
                 "device_ip": "",
                 "status": "offline",
                 "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
                 "case_numbers": ["INC-1001"],
                 "down_started_at": "2026-01-01T00:00:00Z",
             }
@@ -4073,6 +4074,7 @@ class TestInventoryCacheSync:
                 "device_ip": "192.0.2.1",
                 "status": "offline",
                 "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
                 "case_numbers": [],
                 "down_started_at": "2026-01-01T00:00:00Z",
             }
@@ -7307,6 +7309,7 @@ class TestAlertHistoryCsv:
             "level": "low",
             "reason": "x",
             "cases": "INC-1;INC-881",
+            "probable_cause": "",  # no core device was down (#285)
         }
         assert long_one["ip"] == "10.9.9.9" and long_one["duration_min"] == "54720"
         # A deleted device exports no role and no IP, even with a lingering LibreNMS mapping.

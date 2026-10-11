@@ -548,8 +548,15 @@ function siteReport(item, nautobotUrl = "") {
   if (Array.isArray(item.active_cases) && item.active_cases.length) lines.push(`Cases: ${item.active_cases.join(", ")}`);
   if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotUrl.replace(/\/+$/, "")}/dcim/locations/${encodeURIComponent(item.id)}/`);
 
+  // The likely cause first (#285), then newest down first.
   const devices = (Array.isArray(item.down_devices) ? [...item.down_devices] : [])
-    .sort((a, b) => (Date.parse(b.down_started_at || "") || 0) - (Date.parse(a.down_started_at || "") || 0));
+    .sort((a, b) => (Number(Boolean(b.core)) - Number(Boolean(a.core)))
+      || (Date.parse(b.down_started_at || "") || 0) - (Date.parse(a.down_started_at || "") || 0));
+  const cores = devices.filter((device) => device.core).map((device) => device.device_name || device.device_id);
+  const behind = devices.filter((device) => device.probable_cause).length;
+  if (cores.length && behind) {
+    lines.push(`Likely cause: ${cores.join(", ")} down; ${behind} other device${behind === 1 ? "" : "s"} probably behind it`);
+  }
   lines.push("", `Down devices (${devices.length}):`);
   devices.forEach((device) => {
     const since = formatReportTime(device.down_started_at);
@@ -562,6 +569,8 @@ function siteReport(item, nautobotUrl = "") {
       device.location_path ? `Location ${device.location_path}` : "",
       since ? `Down since ${since}` : "",
       cases.length ? `Case ${cases.join(", ")}` : "",
+      device.core ? "Core device" : "",
+      device.probable_cause ? `Likely caused by ${device.probable_cause}` : "",
     ];
     lines.push(`- ${fields.filter(Boolean).join(" | ")}`);
   });
@@ -683,6 +692,7 @@ function renderAlertHistory(siteId, instances) {
           <div class="history-line">Downtime: ${formatDuration(instance.total_downtime_seconds || 0)}</div>
           <div class="history-line">Opened: ${formatTimestamp(instance.down_started_at)} · Resolved: ${formatTimestamp(instance.resolved_at)}</div>
           <div class="history-line">Cases: ${cases.length ? cases.join(", ") : "—"}</div>
+          ${instance.probable_cause ? `<div class="history-line">Likely caused by: ${escHtml(instance.probable_cause)}</div>` : ""}
           <div class="history-line">Events: ${events || "—"}</div>
         </article>
       `;
@@ -967,8 +977,9 @@ function renderDownDeviceRows(item, isExpanded, extraClass) {
   const rows = downDevices.map((device) => `
     <tr class="down-device-row${hidden}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
-        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}${flappingBadge(device)}</div>
+        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}${device.core ? ' <span class="core-badge" title="A core device: the likely cause of the other devices down here">CORE</span>' : ""}${flappingBadge(device)}</div>
         <div class="site-meta">${[device.location_path, device.role, device.flapping ? "" : device.status].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+        ${device.probable_cause ? `<div class="cause-note">Likely caused by ${escHtml(device.probable_cause)}</div>` : ""}
         ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
       </td>
       <td></td>
