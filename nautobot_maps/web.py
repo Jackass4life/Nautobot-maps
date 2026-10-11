@@ -33,6 +33,7 @@ from nautobot_maps import (
     status,
     timeutil,
     tokens,
+    webhooks,
 )
 
 logger = logging.getLogger(__name__)
@@ -1025,6 +1026,64 @@ def api_librenms_alert():
         caching.invalidate_alert_board()
         scheduler.rebuild_after_push()
     return jsonify(result)
+
+
+def _webhook_alerts(parse):
+    """Store the alerts *parse* reads from the JSON body (#292); the board is rebuilt."""
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    try:
+        body = request.get_json(silent=True)
+        if body is None:
+            return jsonify({"error": "Expected a JSON body"}), 400
+        try:
+            events, skipped = parse(body)
+        except webhooks.WebhookError as exc:
+            return jsonify({"error": exc.message}), 400
+        webhooks.store(conn, events)
+    finally:
+        conn.close()
+    if events:
+        caching.invalidate_alert_board()
+        scheduler.rebuild_after_push()
+    firing = sum(1 for event in events if event["status"] == "down")
+    return jsonify(
+        {
+            "firing": firing,
+            "resolved": len(events) - firing,
+            "skipped": skipped,
+            # Firing alerts that name a Nautobot device: 0 hints at the wrong label.
+            "matched": webhooks.matched(events),
+        }
+    )
+
+
+@bp.route("/api/alertmanager", methods=["POST"])
+@auth.require_role("operator")
+def api_alertmanager():
+    """Prometheus Alertmanager webhook (#292): firing alerts mark devices down.
+
+    The device is the first of ``ALERTMANAGER_DEVICE_LABELS`` (default
+    ``instance,hostname,host,device``) an alert has, matched to a Nautobot
+    device by name, then primary IP.  Resolved alerts end it.  Use an
+    operator API token (``http_config.authorization``).
+    """
+    return _webhook_alerts(webhooks.parse_alertmanager)
+
+
+@bp.route("/api/device-status", methods=["POST"])
+@auth.require_role("operator")
+def api_device_status():
+    """Generic webhook (#292): ``{"device", "status": "down"|"up", "source"?,
+    "id"?, "summary"?, "started_at"?}``, or a list of them.
+
+    ``device`` is a hostname or IP, matched to a Nautobot device by name,
+    then primary IP.  A ``down`` lasts until the same source and ``id``
+    (default: the device) sends ``up``, or WEBHOOK_ALERT_TTL_HOURS without
+    a repeat.
+    """
+    return _webhook_alerts(lambda body: (webhooks.parse_generic(body), 0))
 
 
 @bp.route("/api/tokens", methods=["GET"])

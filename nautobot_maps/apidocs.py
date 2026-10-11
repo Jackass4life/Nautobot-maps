@@ -33,6 +33,19 @@ EXAMPLE_BODIES = {
     },
     "web.api_maintenance_end": {},
     "web.api_librenms_alert": {"device_id": 42},
+    "web.api_alertmanager": {
+        "version": "4",
+        "alerts": [
+            {
+                "status": "firing",
+                "labels": {"alertname": "InstanceDown", "instance": "sw1.example.com:9100"},
+                "annotations": {"summary": "Target down"},
+                "startsAt": "2026-10-09T11:50:00Z",
+                "fingerprint": "a1b2c3",
+            }
+        ],
+    },
+    "web.api_device_status": {"device": "sw1.example.com", "status": "down", "source": "zabbix", "id": "123"},
     "web.api_tokens_create": {"name": "librenms", "role": "operator", "expires_in_days": 365},
     "web.api_tokens_revoke": {},
     "web.api_acknowledge": {"site_id": "<site id>", "note": "On my way"},

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Alertmanager and generic webhook sources** (#292): `POST /api/alertmanager` (the standard Alertmanager webhook) and `POST /api/device-status` (`{"device", "status": "down"|"up", ...}`) mark devices down, matched to Nautobot devices by name or IP like LibreNMS; operator token. Settings `ALERTMANAGER_DEVICE_LABELS`, `ALERTMANAGER_ALERTNAMES`, `WEBHOOK_ALERT_TTL_HOURS`. Schema version 19 (`webhook_device_alerts`)
 - **Tenant status page** (#291): `/status/<tenant>` shows one tenant's sites as Operational, Degraded, Outage, Planned maintenance or No data, with since when. It shows no devices, IPs, cases or other tenants. Staff see it as they see the board. A customer gets a link with a `status` API token for their tenant (`token create … --role status --tenant "Acme Corp"`), which opens nothing else. Schema version 18 (`api_tokens.tenant`)
 - **Configurable severity and an importance tier** (#293): `ALERT_MEDIUM_PERCENT` (default 25) and `ALERT_CRITICAL_PERCENT` (default 100); a site tier from a Nautobot custom field (`SITE_TIER_FIELD`, `SITE_TIERS`), shown by the site name and sorting important sites first within a level; `NOTIFY_MIN_LEVEL_BY_TIER` (e.g. `gold:low`). Schema version 17 (`nautobot_location_cache.tier`), one full resync
 - **Wall view sound** (#290): "Sound on" (per screen, remembered) plays a chime and shows a browser notification once when a site becomes Critical or a site in alarm has nobody on it; not on every refresh

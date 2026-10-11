@@ -10,7 +10,18 @@ from datetime import UTC, datetime, timedelta
 
 import requests
 
-from nautobot_maps import caching, db, inventory, librenms, maintenance, nautobot, notify, settings, timeutil
+from nautobot_maps import (
+    caching,
+    db,
+    inventory,
+    librenms,
+    maintenance,
+    nautobot,
+    notify,
+    settings,
+    timeutil,
+    webhooks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -512,6 +523,32 @@ def fetch_live_location_devices(location_id: str) -> list:
     return nautobot.fetch_all_pages("dcim/devices/", {"location": location_id, "depth": 1})
 
 
+def enrich_with_webhooks(devices: list, index: dict) -> list:
+    """Mark devices down that Alertmanager or a webhook says are (#292).
+
+    Additive, as LibreNMS: a device Nautobot already has down stays as it is.
+    """
+    if not index or not (index["by_host"] or index["by_ip"]):
+        return devices
+    enriched = []
+    for device in devices:
+        alert = webhooks.find(index, device)
+        if alert is not None and (device.get("status") or "").lower() not in DOWN_STATUSES:
+            device = dict(device)
+            device["status"] = "offline"
+            device["down_source"] = alert["source"]
+            device["webhook_since"] = alert["started_at"]
+            device["webhook_summary"] = alert["summary"]
+        enriched.append(device)
+    return enriched
+
+
+def webhook_reason(device: dict) -> str:
+    """ "alertmanager: Target down": who says the device is down, and why (#292)."""
+    summary = device.get("webhook_summary") or ""
+    return f"{device.get('down_source')}: {summary}" if summary else str(device.get("down_source") or "")
+
+
 def get_location_devices_and_alert(
     location_id: str,
     location_type: str | None = None,
@@ -526,6 +563,7 @@ def get_location_devices_and_alert(
     excluded_device_statuses: set[str] | None = None,
     lnms_index: dict | None = None,
     new_librenms_maps: dict | None = None,
+    webhook_index: dict | None = None,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location.
 
@@ -583,6 +621,7 @@ def get_location_devices_and_alert(
         lnms_index=lnms_index,
         new_librenms_maps=new_librenms_maps,
     )
+    enriched = enrich_with_webhooks(enriched, webhooks.load_index() if webhook_index is None else webhook_index)
     return enriched, compute_alert_level(enriched, location_type, override_map=override_map)
 
 
@@ -959,6 +998,9 @@ def pending_device_ids(conn, now: str) -> set:
 
 
 def _down_since(device: dict, checked_at: str) -> str:
+    if device.get("webhook_since"):
+        # When the other tool says it went down (#292), not in the future.
+        return earliest_time(device["webhook_since"], checked_at) or checked_at
     if device.get("down_source") in ("librenms", "flapping"):
         return checked_at
     changed = timeutil.parse_iso_datetime(device.get("last_updated"))
@@ -1765,6 +1807,8 @@ def build_alert_board_payload(
             lnms_devices = []
             lnms_id_map = {}
         lnms_index = librenms_index(lnms_devices)
+    # Alertmanager and webhook alerts (#292), read once for the board.
+    webhook_index: dict = {}
 
     # Read everything that can be read for all sites at once (#149).  A
     # failed connect disables persistence for this build; a failed bulk read
@@ -1802,6 +1846,10 @@ def build_alert_board_payload(
         except Exception as exc:
             device_states = None
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
+        try:
+            webhook_index = webhooks.read_index(read_conn)
+        except Exception as exc:
+            logger.warning("Could not read webhook device alerts: %s", type(exc).__name__)
         try:
             in_maintenance = maintenance.read_active(read_conn, maintenance.now())
         except Exception as exc:
@@ -1860,6 +1908,7 @@ def build_alert_board_payload(
                     lnms_id_map=lnms_id_map,
                     lnms_index=lnms_index,
                     new_librenms_maps=new_librenms_maps,
+                    webhook_index=webhook_index,
                     snapshot_only=snapshot_only,
                     **board_device_rules(),
                     **bulk_kwargs,
@@ -2064,6 +2113,8 @@ def build_alert_board_payload(
                     **({"location_path": device["location_path"]} if device.get("location_path") else {}),
                     # Up and down FLAP_CHANGES times or more within 30 minutes (#286).
                     **({"flapping": True, "flap_changes": device["flap_changes"]} if device.get("flapping") else {}),
+                    # Down per Alertmanager or a webhook, not Nautobot (#292).
+                    **({"down_reason": webhook_reason(device)} if device.get("webhook_since") else {}),
                 }
                 # Down devices in maintenance are listed (marked below) but not counted (#283).
                 for device in down_devices
@@ -2101,6 +2152,8 @@ def build_alert_board_payload(
                 if current_item.get("flapping"):
                     merged["flapping"] = True
                     merged["flap_changes"] = current_item["flap_changes"]
+                if current_item.get("down_reason"):
+                    merged["down_reason"] = current_item["down_reason"]
                 merged["device_ip"] = device_ip_by_key.get(item_key, "")
                 merged.setdefault("status", "")
                 merged.setdefault("role", "")
@@ -2344,6 +2397,7 @@ def build_location_alert_levels() -> dict:
     # Locations with devices held back by the alert delay: they have
     # monitored devices, so they are OK even with no others (#311).
     held_back: dict[str, int] = {}
+    webhook_index: dict = {}
     conn = db.get_conn()
     if conn is not None:
         try:
@@ -2365,6 +2419,7 @@ def build_location_alert_levels() -> dict:
                     device = {**device, "status": "Flapping"}  # counts as down, like on the board (#286)
                 devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
             override_map = read_criticality_overrides(conn)
+            webhook_index = webhooks.read_index(conn)
         finally:
             conn.close()
     lnms_devices = None
@@ -2415,6 +2470,7 @@ def build_location_alert_levels() -> dict:
             lnms_id_map=lnms_id_map,
             lnms_index=lnms_index,
             new_librenms_maps=new_librenms_maps,
+            webhook_index=webhook_index,
             snapshot_only=True,
             override_map=override_map,
             **board_device_rules(),
