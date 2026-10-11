@@ -85,6 +85,15 @@ def event_kind(from_level: str, to_level: str, tier: str = "") -> str | None:
     return None
 
 
+def dropped_below_minimum(from_level: str, to_level: str, tier: str = "") -> bool:
+    """The level went down and is below the site's minimum now, but was below it before too."""
+    if to_level == "maintenance":
+        return False
+    minimum = LEVEL_RANK[settings.NOTIFY_MIN_LEVEL_BY_TIER.get((tier or "").lower(), settings.NOTIFY_MIN_LEVEL)]
+    before, after = LEVEL_RANK.get(from_level, 0), LEVEL_RANK.get(to_level, 0)
+    return after < before and before < minimum
+
+
 def tenant_matches(tenants: list[str]) -> bool:
     if not settings.NOTIFY_TENANTS:
         return True
@@ -160,7 +169,16 @@ def enqueue_change(
     Returns how many rows were queued (one per configured channel).
     """
     channels = configured_channels()
-    kind = event_kind(from_level, to_level, (site or {}).get("tier") or "")
+    tier = (site or {}).get("tier") or ""
+    kind = event_kind(from_level, to_level, tier)
+    if channels and kind is None and site_id and dropped_below_minimum(from_level, to_level, tier):
+        # The alarm went out under another threshold (the site's tier changed
+        # since, #293): its end is still a recovery.
+        row = conn.execute(
+            "SELECT kind FROM notification_outbox WHERE site_id = %s ORDER BY id DESC LIMIT 1", (site_id,)
+        ).fetchone()
+        if row is not None and row["kind"] == "alarm":
+            kind = "recovery"
     if not channels or kind is None or (quiet_recovery and kind == "recovery"):
         return 0
     site = site or {"id": site_id}
