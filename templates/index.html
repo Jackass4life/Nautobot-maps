@@ -7,6 +7,8 @@
 
   <!-- Leaflet CSS (vendored locally for offline/air-gapped use) -->
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet.css') }}" />
+  <!-- Leaflet.markercluster 1.5.3 (MIT, vendor/leaflet.markercluster.LICENSE.txt; #334) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/MarkerCluster.css') }}" />
 
   <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/map.css') }}" />
@@ -121,6 +123,10 @@
       <div class="legend-item">
         <span class="legend-dot dot-search"></span> Searched point
       </div>
+      <!-- #334: what a circle with a number means. -->
+      <div class="legend-item legend-note">
+        Sites in alarm or maintenance are always their own pin. Sites without an alarm are small dots, grouped into numbered circles when zoomed out.
+      </div>
     </div>
   </div>
 
@@ -159,6 +165,7 @@
 
   <!-- Leaflet JS (vendored locally for offline/air-gapped use) -->
   <script src="{{ url_for('static', filename='vendor/leaflet.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/leaflet.markercluster.js') }}"></script>
 
   <!-- Settings for js/map/main.js; data attributes, not an inline script (#197) -->
   <div

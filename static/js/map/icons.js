@@ -36,14 +36,32 @@ export function iconForLocation(loc) {
   return pinIcon(displayLevel(loc.id));
 }
 
-// Zoomed-out cluster bubble, coloured by the worst alert inside it (#234).
+// A cluster of quiet sites (#334): green with an OK site in it, else grey.
+// Quieter than a pin (smaller, softer) so the pins of sites in alarm stand
+// out; a little bigger for more sites.  Leaflet makes the marker a button;
+// the label says what is in it.
 export function makeClusterIcon(count, alertLevel) {
   const color = LEVEL_COLORS[alertLevel] || LEVEL_COLORS.no_data;
-  const cls = alertLevel === "critical" ? "marker-pulse" : "";
+  const size = count < 10 ? 24 : count < 100 ? 30 : 36;
+  const label = `${count} location${count === 1 ? "" : "s"} without an alarm, zoom in`;
   return L.divIcon({
-    html: `<div class="${cls}" style="width:40px;height:40px;background:${color};color:white;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 0 8px rgba(0,0,0,.4)">${count}</div>`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
+    html: `<div class="quiet-cluster" role="img" aria-label="${label}" style="width:${size}px;height:${size}px;background:${color}">${count}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    className: "",
+  });
+}
+
+// A quiet site (OK, No data) on its own: a dot, not a pin (#334); with a
+// count for several sites at the same coordinates.
+export function quietDotIcon(level, count = 1) {
+  const color = LEVEL_COLORS[level] || LEVEL_COLORS.no_data;
+  const size = count > 1 ? 18 : 12;
+  return L.divIcon({
+    html: `<div class="quiet-dot" style="width:${size}px;height:${size}px;background:${color}">${count > 1 ? count : ""}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
     className: "",
   });
 }

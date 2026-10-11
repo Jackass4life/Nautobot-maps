@@ -1,24 +1,34 @@
-// The markers on the map: one pin per site, a stack for sites at the same
-// coordinates, and, zoomed out with many sites, clusters.
-import { escHtml } from "../lib/html.js";
-import { iconForLocation, makeClusterIcon, makeStackedIcon } from "./icons.js";
-import { worstAlertLevel } from "./levels.js";
-import {
-  CLUSTER_THRESHOLD,
-  clusterByLocId,
-  colocGroupByLocId,
-  getLocationById,
-  locationAlerts,
-  markerByLocId,
-  state,
-} from "./state.js";
+// The markers on the map (#334).  Sites that need attention (an alarm or
+// maintenance) are always their own pin, on top: never hidden in a cluster.
+// The rest (OK, No data) go into Leaflet.markercluster's group, which draws
+// only what is in view and stays quiet (green or grey) at any count.
+import { iconForLocation, makeClusterIcon, makeStackedIcon, quietDotIcon } from "./icons.js";
+import { displayLevel, worstAlertLevel } from "./levels.js";
+import { colocGroupByLocId, getLocationById, locationAlerts, markerByLocId, state } from "./state.js";
+
+// Levels that are never clustered.
+const ATTENTION_LEVELS = new Set(["critical", "medium", "low", "maintenance"]);
+// Above quiet clusters and each other: worst on top.
+const ATTENTION_Z = { critical: 4000, medium: 3000, low: 2000, maintenance: 1000 };
 
 // What a click (or Enter) on a pin or stack does: main.js sets it to open
 // the site panel.  (marker, locId, groupIds, focusElement)
 let activateMarker = () => {};
+// Redraw every marker: main.js sets it (filters.applyFilters).
+let redrawAll = () => {};
+// The sites drawn as their own pins at the last draw.
+let drawnAttention = new Set();
 
 export function onMarkerActivate(handler) {
   activateMarker = handler;
+}
+
+export function onRedrawNeeded(handler) {
+  redrawAll = handler;
+}
+
+export function needsAttention(level) {
+  return ATTENTION_LEVELS.has(level);
 }
 
 // Sites at the same coordinates (to 4 decimals, ~10 m), by "lat,lon".
@@ -31,6 +41,31 @@ export function groupByCoords(locations) {
     groups[key].push(loc);
   }
   return groups;
+}
+
+// Coordinate groups split into those drawn as pins on top (any site in the
+// group needs attention) and the quiet ones that may be clustered.
+export function splitGroups(groups, levelOf = displayLevel) {
+  const attention = [];
+  const quiet = [];
+  for (const group of Object.values(groups)) {
+    (group.some((loc) => needsAttention(levelOf(loc.id))) ? attention : quiet).push(group);
+  }
+  return { attention, quiet };
+}
+
+// A quiet cluster: green when any site in it is OK, else grey (No data).
+// *idLists*: the site ids of each marker in the cluster.
+export function quietCluster(idLists, levelOf = displayLevel) {
+  const ids = idLists.flat();
+  return { count: ids.length, level: ids.some((id) => levelOf(id) === "ok") ? "ok" : "no_data" };
+}
+
+// For L.markerClusterGroup's iconCreateFunction: counts sites, not markers
+// (a co-located stack is one marker).
+export function quietClusterIcon(cluster) {
+  const { count, level } = quietCluster(cluster.getAllChildMarkers().map((marker) => marker.options.locIds || []));
+  return makeClusterIcon(count, level);
 }
 
 // The ids of every site at *locId*'s coordinates, itself included.
@@ -72,176 +107,117 @@ function stopMapClick(event) {
   }
 }
 
-function addMarker(loc) {
-  const marker = L.marker([loc.latitude, loc.longitude], {
-    icon: iconForLocation(loc),
-    title: loc.name,
-  });
-
-  marker.on("click", (event) => {
-    stopMapClick(event);
-    activateMarker(marker, loc.id, [loc.id], marker.getElement());
-  });
-
-  wireMarkerAccessibility(
-    marker,
-    `Inspect ${loc.name}`,
-    (focusElement) => activateMarker(marker, loc.id, [loc.id], focusElement)
-  );
-
-  markerByLocId[loc.id] = marker;
-  marker.addTo(state.markerLayer);
+// A coordinate group's icon: a pin (or stack) for a site that needs attention
+// or a search result; a small dot for a quiet one.
+function iconForGroup(ids, asPin) {
+  const level = ids.length === 1 ? displayLevel(ids[0]) : worstAlertLevel(ids);
+  if (!asPin) return quietDotIcon(level, ids.length);
+  return ids.length === 1 ? iconForLocation({ id: ids[0] }) : makeStackedIcon(ids.length, level);
 }
 
-function addColocatedMarker(locations) {
-  const first = locations[0];
-  const ids = locations.map((loc) => loc.id);
+// One marker for a coordinate group: a pin, or a stack for several sites.
+// *onTop*: a site that needs attention, above quiet markers and clusters;
+// *asPin*: drawn as a pin (also every search result).
+function markerForGroup(group, onTop, asPin = onTop) {
+  const first = group[0];
+  const ids = group.map((loc) => loc.id);
+  const level = group.length === 1 ? displayLevel(first.id) : worstAlertLevel(ids);
   const marker = L.marker([first.latitude, first.longitude], {
-    icon: makeStackedIcon(locations.length, worstAlertLevel(ids)),
-    title: locations.map((loc) => loc.name).join(", "),
+    icon: iconForGroup(ids, asPin),
+    title: group.map((loc) => loc.name).join(", "),
+    zIndexOffset: onTop ? ATTENTION_Z[level] || 0 : 0,
+    locIds: ids,
   });
+  const label = group.length === 1 ? `Inspect ${first.name}` : `Inspect ${group.length} co-located locations`;
 
   marker.on("click", (event) => {
     stopMapClick(event);
     activateMarker(marker, first.id, ids, marker.getElement());
   });
+  wireMarkerAccessibility(marker, label, (focusElement) => activateMarker(marker, first.id, ids, focusElement));
 
-  wireMarkerAccessibility(
-    marker,
-    `Inspect ${locations.length} co-located locations`,
-    (focusElement) => activateMarker(marker, first.id, ids, focusElement)
-  );
-
-  for (const loc of locations) {
-    markerByLocId[loc.id] = marker;
-    colocGroupByLocId[loc.id] = ids;
-  }
-
-  marker.addTo(state.markerLayer);
-}
-
-function addMarkersForGroups(groups) {
-  for (const key in groups) {
-    const group = groups[key];
-    if (group.length === 1) addMarker(group[0]);
-    else addColocatedMarker(group);
-  }
-}
-
-function addCluster(group, currentZoom) {
-  const { map } = state;
-  const lat = group.reduce((sum, loc) => sum + loc.latitude, 0) / group.length;
-  const lon = group.reduce((sum, loc) => sum + loc.longitude, 0) / group.length;
-  const locIds = group.map((loc) => loc.id);
-  const clusterMarker = L.marker([lat, lon], {
-    icon: makeClusterIcon(group.length, worstAlertLevel(locIds)),
-  });
-  clusterMarker.locIds = locIds;
-  clusterMarker.on("click", () => {
-    map.setView([lat, lon], Math.min(currentZoom + 3, 15));
-  });
-  wireMarkerAccessibility(
-    clusterMarker,
-    `Zoom to ${group.length} clustered locations`,
-    () => {
-      map.setView([lat, lon], Math.min(currentZoom + 3, 15));
-    }
-  );
-
-  const listedLocations = group.map((loc) => `<li>${escHtml(loc.name)}</li>`).slice(0, 10).join("");
-  const more = group.length > 10 ? `<li style="color:#888">… and ${group.length - 10} more</li>` : "";
-  clusterMarker.bindPopup(
-    `<div class="popup-content">
-      <div class="popup-title">${group.length} locations</div>
-      <div style="font-size:0.85rem;margin-top:8px">Click to zoom in</div>
-      <ul style="margin:8px 0 0 0;padding-left:20px;font-size:0.8rem;max-height:150px;overflow-y:auto">
-        ${listedLocations}${more}
-      </ul>
-    </div>`,
-    { keepInView: true }
-  );
   for (const loc of group) {
-    clusterByLocId[loc.id] = clusterMarker;
+    markerByLocId[loc.id] = marker;
+    if (group.length > 1) colocGroupByLocId[loc.id] = ids;
   }
-  clusterMarker.addTo(state.markerLayer);
+  return marker;
 }
 
-function renderMarkersWithClustering(locations) {
-  const currentZoom = state.map.getZoom();
-  const gridSize = currentZoom < 5 ? 2 : currentZoom < 8 ? 1 : 0.5;
-  const clusters = {};
+function clearMarkers() {
+  state.markerLayer.clearLayers();
+  state.clusterLayer?.clearLayers();
+  for (const key of Object.keys(markerByLocId)) delete markerByLocId[key];
+  for (const key of Object.keys(colocGroupByLocId)) delete colocGroupByLocId[key];
+}
 
-  for (const loc of locations) {
-    const gridLat = Math.floor(loc.latitude / gridSize) * gridSize;
-    const gridLon = Math.floor(loc.longitude / gridSize) * gridSize;
-    const key = `${gridLat},${gridLon}`;
-    if (!clusters[key]) clusters[key] = [];
-    clusters[key].push(loc);
-  }
+function drawSearchPoint({ lat, lon }) {
+  // A ring, not a colour (#311): no pin colour means "searched here".
+  const searchIcon = L.divIcon({
+    html: '<div class="search-point-marker"></div>',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    className: "",
+  });
+  L.marker([lat, lon], { icon: searchIcon })
+    .bindPopup(`<div class="popup-content"><div class="popup-title" aria-label="Search location">&#128269; Search point</div></div>`)
+    .addTo(state.markerLayer);
 
-  for (const key in clusters) {
-    const group = clusters[key];
-    if (group.length === 1) addMarker(group[0]);
-    else if (currentZoom < 8) addCluster(group, currentZoom);
-    else addMarkersForGroups(groupByCoords(group));
-  }
+  L.circle([lat, lon], {
+    radius: 5000,
+    color: "#334155",
+    fillColor: "#334155",
+    fillOpacity: 0.05,
+    weight: 2,
+    dashArray: "6 4",
+  }).addTo(state.markerLayer);
 }
 
 // Draw *locations*; with *searchMarker* ({lat, lon}) also the searched point
-// and its 5 km circle, and never clusters.
+// and its 5 km circle, and every site as its own pin (a search finds few).
 export function renderMarkers(locations, searchMarker) {
-  state.markerLayer.clearLayers();
-  for (const key of Object.keys(markerByLocId)) delete markerByLocId[key];
-  for (const key of Object.keys(clusterByLocId)) delete clusterByLocId[key];
-  for (const key of Object.keys(colocGroupByLocId)) delete colocGroupByLocId[key];
-
+  clearMarkers();
+  const groups = groupByCoords(locations);
   if (searchMarker) {
-    const { lat, lon } = searchMarker;
-    // A ring, not a colour (#311): no pin colour means "searched here".
-    const searchIcon = L.divIcon({
-      html: '<div class="search-point-marker"></div>',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
-      className: "",
-    });
-    L.marker([lat, lon], { icon: searchIcon })
-      .bindPopup(`<div class="popup-content"><div class="popup-title" aria-label="Search location">&#128269; Search point</div></div>`)
-      .addTo(state.markerLayer);
-
-    L.circle([lat, lon], {
-      radius: 5000,
-      color: "#334155",
-      fillColor: "#334155",
-      fillOpacity: 0.05,
-      weight: 2,
-      dashArray: "6 4",
-    }).addTo(state.markerLayer);
-  }
-
-  if (locations.length > CLUSTER_THRESHOLD && !searchMarker) {
-    renderMarkersWithClustering(locations);
-  } else {
-    addMarkersForGroups(groupByCoords(locations));
-  }
-}
-
-// Redraw the marker (or co-located stack, or cluster) holding *locId*.
-export function refreshMarkerIcon(locId) {
-  const marker = markerByLocId[locId];
-  if (marker) {
-    const groupIds = colocGroupByLocId[locId];
-    if (groupIds) {
-      marker.setIcon(makeStackedIcon(groupIds.length, worstAlertLevel(groupIds)));
-    } else {
-      const loc = getLocationById(locId);
-      if (loc) marker.setIcon(iconForLocation(loc));
-    }
+    drawSearchPoint(searchMarker);
+    for (const group of Object.values(groups)) markerForGroup(group, false, true).addTo(state.markerLayer);
+    drawnAttention = new Set(locations.map((loc) => loc.id));
     return;
   }
-  const cluster = clusterByLocId[locId];
-  if (cluster && cluster.locIds) {
-    cluster.setIcon(makeClusterIcon(cluster.locIds.length, worstAlertLevel(cluster.locIds)));
+  const { attention, quiet } = splitGroups(groups);
+  drawnAttention = new Set();
+  for (const group of attention) {
+    markerForGroup(group, true).addTo(state.markerLayer);
+    for (const loc of group) drawnAttention.add(loc.id);
   }
+  // In one call: the cluster group sorts them once.
+  state.clusterLayer.addLayers(quiet.map((group) => markerForGroup(group, false)));
+}
+
+// Whether *locId*'s level change moves its marker between the pins on top
+// and the clusters, which takes a full redraw.
+export function crossesClusterLine(locId) {
+  const marker = markerByLocId[locId];
+  if (!marker) return false;
+  const ids = marker.options.locIds || [locId];
+  return ids.some((id) => drawnAttention.has(id)) !== ids.some((id) => needsAttention(displayLevel(id)));
+}
+
+export function redrawMarkers() {
+  redrawAll();
+}
+
+// Redraw the marker (or co-located stack) holding *locId* after its level changed.
+export function refreshMarkerIcon(locId) {
+  const marker = markerByLocId[locId];
+  if (!marker) return;
+  if (crossesClusterLine(locId)) {
+    redrawAll();
+    return;
+  }
+  const ids = marker.options.locIds || [locId];
+  marker.setIcon(iconForGroup(ids, ids.some((id) => drawnAttention.has(id))));
+  // A quiet site turning from No data to OK (or back) recolours its cluster.
+  if (state.clusterLayer?.hasLayer(marker)) state.clusterLayer.refreshClusters(marker);
 }
 
 // A level the site panel loaded; it colours the site's marker too.

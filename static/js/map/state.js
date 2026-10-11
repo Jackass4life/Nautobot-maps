@@ -7,19 +7,16 @@ export const els = {};
 // Settings from the server (templates/index.html, #197).
 export const config = { nautobotUrl: "" };
 
-// Above this many locations, zoomed out, nearby markers become clusters.
-export const CLUSTER_THRESHOLD = 100;
-
 export const state = {
-  // The Leaflet map and the layer that holds every marker.
+  // The Leaflet map; the pins of sites that need attention (and search
+  // results), always shown; the cluster group for the quiet sites (#334).
   map: null,
   markerLayer: null,
+  clusterLayer: null,
   allLocations: [],
   // ?location_id= on the page's URL, opened once its marker exists.
   initialLocationId: null,
   initialLocationOpened: false,
-  // A location to open once the map has zoomed to it.
-  pendingLocationOpen: null,
   // The site panel.
   selectedLocationId: null,
   selectedGroupIds: [],
@@ -33,9 +30,8 @@ export const state = {
 
 // Location id -> its alert level, from /api/location-alerts (#234).
 export const locationAlerts = {};
-// Location id -> the marker, co-located stack or cluster that shows it.
+// Location id -> the marker (pin or co-located stack) that shows it.
 export const markerByLocId = {};
-export const clusterByLocId = {};
 // Location id -> the ids of every location in its co-located stack.
 export const colocGroupByLocId = {};
 // Site details (/api/locations/<id>/detail), and the requests under way.

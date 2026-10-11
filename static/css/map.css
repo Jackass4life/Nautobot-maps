@@ -736,6 +736,14 @@ body.inspector-open #map {
   margin-bottom: 5px;
 }
 
+/* The cluster note (#334): plain text under the colours. */
+.legend-note {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+
 .legend-dot {
   width: 12px;
   height: 12px;
@@ -1265,4 +1273,37 @@ body.inspector-open #loading-overlay {
   .inspector-header {
     padding-top: 12px;
   }
+}
+
+/* Quiet sites (#334): OK and No data are dots and soft clusters, so the pins
+   of the sites that need attention stand out. */
+.quiet-cluster,
+.quiet-dot {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--color-surface);
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.quiet-cluster {
+  font-size: 0.72rem;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.25);
+}
+
+.quiet-dot {
+  font-size: 0.6rem;
+  border-width: 1.5px;
+}
+
+.leaflet-marker-icon:hover .quiet-cluster,
+.leaflet-marker-icon:focus-visible .quiet-cluster,
+.leaflet-marker-icon:hover .quiet-dot,
+.leaflet-marker-icon:focus-visible .quiet-dot {
+  opacity: 1;
 }

@@ -1825,22 +1825,59 @@ check(shown.startsWith("x".repeat(MAX_BODY_CHARS)) && shown.endsWith("(5 more ch
 """)
 
 
+# A stand-in for Leaflet and its layers, for the map's marker tests (#334).
+# Markers record their icons; layers record what they hold.
+MAP_FAKES = """
+const made = [];
+setGlobal("L", {
+  divIcon: (options) => options,
+  marker(latlng, options) {
+    const marker = {
+      latlng, options: { ...options }, icon: options.icon, iconSets: 0,
+      on() { return this; }, bindPopup() { return this; }, getElement: () => null, getLatLng: () => latlng,
+      addTo(layer) { layer.addLayer(this); return this; },
+      setIcon(icon) { this.icon = icon; this.iconSets += 1; },
+    };
+    made.push(marker);
+    return marker;
+  },
+  circle: () => ({ addTo() { return this; } }),
+});
+function fakeLayer() {
+  const held = new Set();
+  return {
+    held, refreshed: 0,
+    addLayer(marker) { held.add(marker); },
+    addLayers(markers) { markers.forEach((marker) => held.add(marker)); },
+    clearLayers() { held.clear(); },
+    hasLayer(marker) { return held.has(marker); },
+    refreshClusters() { this.refreshed += 1; },
+  };
+}
+const site = (id, lat, lon) => ({ id, name: id, latitude: lat, longitude: lon });
+"""
+
+
 class TestMapAlertColoursInTheBrowser:
     """Markers are coloured from /api/location-alerts, without a click (#234)."""
 
     def test_levels_are_applied_and_cleared(self):
-        run_js("""
+        run_js(
+            MAP_FAKES
+            + """
 import { displayLevel, worstAlertLevel } from "@js/map/levels.js";
+import { onRedrawNeeded, renderMarkers } from "@js/map/markers.js";
 import { loadLocationAlerts } from "@js/map/refresh.js";
 import { detailCache, els, locationAlerts, markerByLocId, state } from "@js/map/state.js";
 
-// Leaflet's icons as plain objects; each marker records the icons it is given.
-setGlobal("L", { divIcon: (options) => options });
-const redrawn = [];
-const marker = (id) => ({ setIcon() { redrawn.push(id); } });
-state.allLocations = ["loc-old", "loc-same", "loc-a"].map((id) => ({ id }));
-for (const loc of state.allLocations) markerByLocId[loc.id] = marker(loc.id);
+state.markerLayer = fakeLayer();
+state.clusterLayer = fakeLayer();
+let redraws = 0;
+onRedrawNeeded(() => { redraws += 1; renderMarkers(state.allLocations); });
+state.allLocations = [site("loc-old", 1, 1), site("loc-same", 2, 2), site("loc-a", 3, 3), site("loc-quiet", 4, 4)];
 Object.assign(locationAlerts, { "loc-old": "medium", "loc-same": "low" });
+renderMarkers(state.allLocations);
+check(state.markerLayer.held.size === 2 && state.clusterLayer.held.size === 2, "alarms on top, the rest clustered");
 detailCache.set("loc-a", {});
 detailCache.set("loc-open", {});
 state.selectedLocationId = "loc-open";
@@ -1852,18 +1889,26 @@ globalThis.fetch = async () => { throw new Error("offline"); };
 await loadLocationAlerts();
 check(!els.alertLevelsNote.hidden, "first load failed: the note is shown");
 
-const payload = { levels: { "loc-a": { level: "critical" }, "loc-same": { level: "low" } } };
+// loc-old recovers and loc-a goes critical: both cross the cluster line, one redraw for both.
+let payload = { levels: { "loc-a": { level: "critical" }, "loc-same": { level: "low" } } };
 globalThis.fetch = async () => ({ ok: true, json: async () => payload });
 await loadLocationAlerts();
 check(els.alertLevelsNote.hidden, "loaded: no note");
 check(JSON.stringify(locationAlerts) === JSON.stringify({ "loc-same": "low", "loc-a": "critical" }), JSON.stringify(locationAlerts));
-check(redrawn.sort().join() === "loc-a,loc-old", "only changed markers are redrawn: " + redrawn);
+check(redraws === 1, "one redraw for every site that crossed: " + redraws);
+check(state.markerLayer.hasLayer(markerByLocId["loc-a"]) && state.clusterLayer.hasLayer(markerByLocId["loc-old"]), "moved");
 check(!detailCache.has("loc-a") && detailCache.has("loc-open"), "old site details are dropped, the open one kept");
+
+// A quiet site gets data (No data -> OK): its pin and its cluster are recoloured, nothing redrawn.
+payload = { levels: { ...payload.levels, "loc-quiet": { level: "ok" } } };
+await loadLocationAlerts();
+check(redraws === 1 && markerByLocId["loc-quiet"].iconSets === 1 && state.clusterLayer.refreshed === 1, "recoloured in place");
+
 check(worstAlertLevel(["loc-same", "loc-a", "loc-none"]) === "critical", "worst level");
 // Without a level a location has no monitored devices: grey, not green (#311).
 check(worstAlertLevel(["loc-none"]) === "no_data" && displayLevel("loc-none") === "no_data", "no data");
 locationAlerts["loc-fine"] = "ok";
-check(worstAlertLevel(["loc-none", "loc-fine"]) === "ok", "OK beats no data in a cluster");
+check(worstAlertLevel(["loc-none", "loc-fine"]) === "ok", "OK beats no data");
 locationAlerts["loc-planned-work"] = "maintenance";
 check(worstAlertLevel(["loc-fine", "loc-planned-work"]) === "maintenance", "maintenance beats OK");
 check(worstAlertLevel(["loc-planned-work", "loc-same"]) === "low", "an alarm beats maintenance");
@@ -1872,7 +1917,57 @@ globalThis.fetch = async () => { throw new Error("offline"); };
 await loadLocationAlerts();
 check(locationAlerts["loc-a"] === "critical", "a failed refresh keeps the colours");
 check(els.alertLevelsNote.hidden, "after a first load, a failed refresh adds no note");
-""")
+"""
+        )
+
+
+class TestMapAtScaleInTheBrowser:
+    """Sites that need attention are never clustered; the rest cluster quietly (#334)."""
+
+    def test_which_sites_cluster(self):
+        run_js(
+            MAP_FAKES
+            + """
+import { groupByCoords, needsAttention, quietCluster, renderMarkers, splitGroups } from "@js/map/markers.js";
+import { locationAlerts, markerByLocId, state } from "@js/map/state.js";
+
+for (const level of ["critical", "medium", "low", "maintenance"]) check(needsAttention(level), level);
+for (const level of ["ok", "no_data", undefined]) check(!needsAttention(level), String(level));
+
+// 1,200 sites, 25 in alarm, 3 in maintenance; two co-located pairs.
+const sites = Array.from({ length: 1200 }, (_, i) => site(`s${i}`, 40 + (i % 40) * 0.5, -5 + Math.floor(i / 40) * 0.8));
+sites.push(site("pair-alarm", 60, 10), site("pair-ok", 60, 10), site("pair-q1", 61, 11), site("pair-q2", 61, 11));
+for (let i = 0; i < 25; i += 1) locationAlerts[`s${i * 40}`] = ["critical", "medium", "low"][i % 3];
+for (let i = 0; i < 3; i += 1) locationAlerts[`s${i * 40 + 7}`] = "maintenance";
+locationAlerts["pair-alarm"] = "critical";
+for (let i = 0; i < 1200; i += 1) if (!locationAlerts[`s${i}`] && i % 2) locationAlerts[`s${i}`] = "ok";
+locationAlerts["pair-ok"] = "ok";
+
+const { attention, quiet } = splitGroups(groupByCoords(sites));
+check(attention.length === 29, "25 alarms + 3 maintenance + the pair with an alarm: " + attention.length);
+check(attention.some((group) => group.length === 2), "a co-located pair with an alarm stays one stack on top");
+check(quiet.length === 1202 - 29, "1,200 singles + 2 pairs, minus those on top: " + quiet.length);
+
+state.markerLayer = fakeLayer();
+state.clusterLayer = fakeLayer();
+renderMarkers(sites);
+check(state.markerLayer.held.size === 29, "pins on top: " + state.markerLayer.held.size);
+const pins = [...state.markerLayer.held];
+check(pins.every((marker) => marker.options.zIndexOffset >= 1000), "above clusters");
+const critical = pins.find((marker) => locationAlerts[marker.options.locIds[0]] === "critical");
+const maint = pins.find((marker) => locationAlerts[marker.options.locIds[0]] === "maintenance");
+check(critical.options.zIndexOffset > maint.options.zIndexOffset, "worst on top");
+check(markerByLocId["pair-q1"] === markerByLocId["pair-q2"] && state.clusterLayer.hasLayer(markerByLocId["pair-q1"]), "a quiet pair is one marker in a cluster");
+
+// A cluster counts sites (a stack is one marker) and is never an alarm colour.
+check(JSON.stringify(quietCluster([["a"], ["b", "c"]], () => "no_data")) === '{"count":3,"level":"no_data"}', "grey, 3 sites");
+check(quietCluster([["a"], ["b"]], (id) => (id === "b" ? "ok" : "no_data")).level === "ok", "green with an OK site");
+
+// Search results are all pins: a search finds few.
+renderMarkers(sites.slice(0, 5), { lat: 40, lon: -5 });
+check(state.clusterLayer.held.size === 0, "no clusters in a search");
+"""
+        )
 
 
 class TestMapCircuitsInTheBrowser:

@@ -10,15 +10,15 @@ import {
   closeInspector,
   handleMarkerActivation,
   isInspectorOpen,
+  UNCLUSTERED_ZOOM,
   openInspectorForLocation,
-  openLocationById,
   renderInspectorContent,
   syncInspectorBackdrop,
 } from "./inspector.js";
-import { onMarkerActivate } from "./markers.js";
-import { startLocationAlertRefresh } from "./refresh.js";
+import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js";
+import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
-import { CLUSTER_THRESHOLD, config, detailCache, els, state } from "./state.js";
+import { config, detailCache, els, state } from "./state.js";
 
 const byId = (id) => document.getElementById(id);
 
@@ -40,6 +40,14 @@ state.map = L.map("map", {
 L.tileLayer(appConfig.tileUrl || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: appConfig.tileAttribution || "",
   maxZoom: 19,
+}).addTo(state.map);
+// The quiet sites (OK, No data) cluster; sites that need attention are pins
+// in markerLayer, added after it so they are drawn on top (#334).
+state.clusterLayer = L.markerClusterGroup({
+  iconCreateFunction: quietClusterIcon,
+  showCoverageOnHover: false,
+  maxClusterRadius: 60,
+  disableClusteringAtZoom: UNCLUSTERED_ZOOM,
 }).addTo(state.map);
 state.markerLayer = L.layerGroup().addTo(state.map);
 
@@ -68,20 +76,8 @@ Object.assign(els, {
 });
 
 onMarkerActivate(handleMarkerActivation);
-
-state.map.on("zoomend", () => {
-  if (state.allLocations.length > CLUSTER_THRESHOLD) {
-    applyFilters();
-  }
-  if (state.pendingLocationOpen) {
-    const pending = state.pendingLocationOpen;
-    state.pendingLocationOpen = null;
-    const opened = openLocationById(pending.locId, pending.options);
-    if (pending.options.markInitial && opened) {
-      state.initialLocationOpened = true;
-    }
-  }
-});
+// A site that starts or stops needing attention moves out of or into a cluster.
+onRedrawNeeded(() => applyFilters());
 
 let resizeAnimationFrame = null;
 window.addEventListener("resize", () => {
@@ -176,7 +172,10 @@ function showLoading(visible, message) {
   byId("loading-overlay").style.display = visible ? "flex" : "none";
 }
 
-async function loadLocations() {
+// *levelsLoaded*: the first alert levels, asked for at the same time.  The map
+// is drawn once they are in, so a site in alarm is a pin from the start, not
+// first in a cluster with every other site (#334).
+async function loadLocations(levelsLoaded) {
   showLoading(true, "Loading locations from Nautobot…");
   try {
     const resp = await fetch("/api/locations");
@@ -185,6 +184,7 @@ async function loadLocations() {
     if (data.error) throw new Error(data.error);
     state.allLocations = data.locations || [];
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
+    await levelsLoaded;
     populateFilters(state.allLocations);
     applyFilters();
   } catch (err) {
@@ -194,4 +194,4 @@ async function loadLocations() {
   }
 }
 
-loadLocations().then(startLocationAlertRefresh);
+loadLocations(loadLocationAlerts()).then(() => startLocationAlertRefresh({ loadNow: false }));

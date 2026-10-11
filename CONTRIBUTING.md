@@ -118,8 +118,10 @@ Every page's script is an ES module (#294), loaded with `<script type="module">`
   map, creates the Leaflet map) and wires events; it fills `els`, `config` and `state` in
   `state.js`. Every other module touches the page only when one of its functions is called,
   never when it is imported. `availability.js` is that page's whole entry.
-- Leaflet stays a plain `<script>` (`static/vendor/leaflet.js`) loaded before `map/main.js`;
-  the map's modules use the global `L` only inside functions.
+- Leaflet and Leaflet.markercluster stay plain `<script>`s (`static/vendor/`, with their
+  licences) loaded before `map/main.js`; the map's modules use the global `L` only inside
+  functions. To update a vendored library, take the file from its npm package and check the
+  tarball against npm's `dist.integrity`.
 - The tenant status page is public: every module it imports is listed in
   `auth.STATUS_PAGE_ASSETS` (`tests/test_js_modules.py` checks the list).
 
