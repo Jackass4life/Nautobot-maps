@@ -210,7 +210,7 @@ class TestRebuild:
         from nautobot_maps import scheduler
 
         ran = []
-        monkeypatch.setattr(scheduler, "rebuild_board", lambda: ran.append(True))
+        monkeypatch.setattr(scheduler, "rebuild_board", lambda trigger="scheduler": ran.append(trigger))
         monkeypatch.setattr(scheduler, "pending_librenms_pushes", lambda: [])
         monkeypatch.setattr(db, "try_advisory_lock", lambda name: lambda: None)
 
@@ -225,7 +225,7 @@ class TestRebuild:
         scheduler.rebuild_after_push()
         assert ran == [], "no push pending: nothing to do"
         scheduler.rebuild_after_push(always=True)
-        assert ran == [True]
+        assert ran == ["push"]
 
 
 class TestAccess:

@@ -635,6 +635,21 @@ def add_webhook_device_alerts(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS webhook_device_alerts_updated ON webhook_device_alerts (updated_at)")
 
 
+def add_board_build_stats(conn) -> None:
+    """How often and how long the alert board is built, per trigger (#295)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS board_build_stats (
+            trigger        TEXT PRIMARY KEY,
+            builds         BIGINT NOT NULL DEFAULT 0,
+            total_seconds  DOUBLE PRECISION NOT NULL DEFAULT 0,
+            last_seconds   DOUBLE PRECISION NOT NULL DEFAULT 0,
+            last_built_at  TIMESTAMPTZ
+        )
+        """
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -658,6 +673,7 @@ MIGRATIONS = (
     (17, "nautobot_location_cache.tier", add_location_tier),
     (18, "api_tokens.tenant", add_token_tenant),
     (19, "webhook_device_alerts", add_webhook_device_alerts),
+    (20, "board_build_stats", add_board_build_stats),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

@@ -104,9 +104,18 @@ Rolling back to an older release after its database was migrated is refused at s
 | `nautobot_maps_sites{level}` | Sites by level at the last board build |
 | `nautobot_maps_database_up` | The database answered this scrape |
 | `nautobot_maps_notifications_pending{channel}` / `nautobot_maps_notifications_failed{channel}` | Notifications waiting to be sent / given up ([notifications](notifications.md)) |
+| `nautobot_maps_board_builds_total{trigger}` / `nautobot_maps_board_build_seconds_total{trigger}` | Alert board builds and the time they took, by trigger: `scheduler` (after a sync), `push` (LibreNMS or webhook alert), `change` (case, acknowledgement, maintenance), `request` (a page found no stored board) |
+| `nautobot_maps_board_build_last_duration_seconds{trigger}` | How long the last build took |
 | `nautobot_maps_contract_mismatches{source,endpoint,field}` | Records of the last sync whose field didn't match the [data contract](data-contract.md); 0 series when all match |
 
 `source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full sync) or `librenms_inventory`. Request counts and response times are in the access log. `/metrics` needs no sign-in, even with `AUTH_REQUIRE_VIEWER=true`, since it holds only counts (no site or device names); set `METRICS_ENABLED=false` if even those should stay private.
+
+**The board is built once, not per request:**
+- The scheduler builds it after each sync and stores it in the cache. It stays stored a little longer than `CACHE_TTL`, until the next build replaces it.
+- A case, acknowledgement or maintenance change rebuilds it in the background.
+- Only one build runs at a time across all workers. A page that finds no stored board waits for the running build instead of starting another.
+
+With the shared Redis cache, `nautobot_maps_board_builds_total{trigger="request"}` should hardly grow. If it does, the board expires between syncs: check that the scheduler runs (`BACKGROUND_SYNC_ENABLED`).
 
 An example alert, for a sync interval of 5 minutes:
 
