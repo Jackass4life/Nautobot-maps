@@ -223,7 +223,7 @@ NOTIFY_MIN_LEVEL_BY_TIER = {
     for tier, _, level in (
         item.partition(":") for item in os.getenv("NOTIFY_MIN_LEVEL_BY_TIER", "").split(",") if ":" in item
     )
-    if level.strip().lower() in ("low", "medium", "critical")
+    if tier.strip() and level.strip().lower() in ("low", "medium", "critical")
 }
 # A case number's ticket in the ITSM system (#289): "https://itsm.example.com/ticket/{case}".
 # Only http(s) templates with {case} are used.
