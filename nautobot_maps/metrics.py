@@ -146,6 +146,32 @@ def collect(conn) -> str:
         "How long the last alert board build took, by trigger.",
         [({"trigger": row["trigger"]}, row["last_seconds"]) for row in builds],
     )
+    # Growth (#298): every table's size on disk (with indexes) and the
+    # planner's row estimate (no count(*) on a large history at each scrape).
+    tables = [
+        db.row_to_dict(row)
+        for row in conn.execute(
+            "SELECT c.relname AS name, pg_total_relation_size(c.oid) AS bytes, GREATEST(c.reltuples, 0) AS rows "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = current_schema() AND c.relkind = 'r' ORDER BY c.relname"
+        ).fetchall()
+    ]
+    out.gauge(
+        "nautobot_maps_table_bytes",
+        "Size of each database table on disk, with its indexes.",
+        [({"table": row["name"]}, row["bytes"]) for row in tables],
+    )
+    out.gauge(
+        "nautobot_maps_table_rows_estimate",
+        "Rows per table, as PostgreSQL estimates them (updated by autovacuum/ANALYZE).",
+        [({"table": row["name"]}, row["rows"]) for row in tables],
+    )
+    oldest = db.row_to_dict(conn.execute("SELECT min(changed_at) AS at FROM site_level_changes").fetchone())
+    out.gauge(
+        "nautobot_maps_history_oldest_timestamp_seconds",
+        "The oldest site level change kept (Unix time): how far back history goes.",
+        [({}, value)] if (value := _timestamp(oldest.get("at"))) is not None else [],
+    )
     mismatches: dict[tuple, int] = {}
     for check in contract.latest_checks(conn):
         for mismatch in check["mismatches"]:

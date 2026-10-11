@@ -76,7 +76,23 @@ Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
 3. Change the image in `docker-compose.yml` (or `docker-compose.override.yml`).
 4. `docker compose up -d postgres`, restore the dump as above, then `docker compose up -d`.
 
-**Growth:** alert history is kept forever unless you set `ALERT_HISTORY_RETENTION_DAYS` (e.g. `365`); the scheduler then prunes once a day.
+**Growth:** alert history is kept forever unless you set `ALERT_HISTORY_RETENTION_DAYS` (e.g. `730`). The scheduler then prunes once a day: resolved alerts with their events and cases, and site level changes. Open alerts are never pruned.
+
+| What | On disk, with indexes |
+|---|---|
+| One device incident (down, then up): its alert, two events, and the site's level changes | ≈ 1.2 KB |
+| 100 incidents a day | ≈ 45 MB a year |
+| 1,000 incidents a day | ≈ 450 MB a year |
+
+These figures were measured on PostgreSQL 17 with 20,000 incidents. Notes, cases and longer reasons add a little. A flapping device is one incident (#286), not one per change.
+
+How to choose:
+- The [availability report](availability.md) refuses months older than the retention, so keep at least as long as you report on, e.g. two years for year-on-year.
+- Back up before lowering it: pruning deletes for good.
+
+Watch it in `/metrics`:
+- `nautobot_maps_table_bytes{table}` and `nautobot_maps_table_rows_estimate{table}`: size per table;
+- `nautobot_maps_history_oldest_timestamp_seconds`: how far back history goes, which stops moving back once retention prunes.
 
 ## Database migrations
 
@@ -106,6 +122,8 @@ Rolling back to an older release after its database was migrated is refused at s
 | `nautobot_maps_notifications_pending{channel}` / `nautobot_maps_notifications_failed{channel}` | Notifications waiting to be sent / given up ([notifications](notifications.md)) |
 | `nautobot_maps_board_builds_total{trigger}` / `nautobot_maps_board_build_seconds_total{trigger}` | Alert board builds and the time they took, by trigger: `scheduler` (after a sync), `push` (LibreNMS or webhook alert), `change` (case, acknowledgement, maintenance), `request` (a page found no stored board) |
 | `nautobot_maps_board_build_last_duration_seconds{trigger}` | How long the last build took |
+| `nautobot_maps_table_bytes{table}` / `nautobot_maps_table_rows_estimate{table}` | Each table's size on disk (with indexes) and PostgreSQL's row estimate ([growth](#backup-and-restore)) |
+| `nautobot_maps_history_oldest_timestamp_seconds` | The oldest site level change kept: how far back history goes |
 | `nautobot_maps_contract_mismatches{source,endpoint,field}` | Records of the last sync whose field didn't match the [data contract](data-contract.md); 0 series when all match |
 
 `source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full sync) or `librenms_inventory`. Request counts and response times are in the access log. `/metrics` needs no sign-in, even with `AUTH_REQUIRE_VIEWER=true`, since it holds only counts (no site or device names); set `METRICS_ENABLED=false` if even those should stay private.
