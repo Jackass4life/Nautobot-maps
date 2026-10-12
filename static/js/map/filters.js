@@ -1,7 +1,10 @@
 // The sidebar's filters: which locations the map shows.
+import { isAlarm, renderAlarmList } from "./alarms.js";
 import { openLocationFromQuery } from "./inspector.js";
 import { renderMarkers } from "./markers.js";
-import { els, state } from "./state.js";
+import { els, locationAlerts, state } from "./state.js";
+
+const ALARMS_ONLY_KEY = "nautobot-maps-map-alarms-only";
 
 const FILTERS = [
   ["filterStatus", "status", "All statuses"],
@@ -32,7 +35,32 @@ export function filterLocations(locations, criteria) {
 }
 
 export function updateLocationCount(count) {
-  els.locationCount.textContent = `${count} location${count !== 1 ? "s" : ""} with GPS coordinates loaded`;
+  const scope = state.alarmsOnly ? " in alarm" : "";
+  els.locationCount.textContent = `${count} location${count !== 1 ? "s" : ""}${scope} with GPS coordinates loaded`;
+}
+
+// "Alarms only" (#334): remembered in this browser, like the board's sort.
+export function restoreAlarmsOnly() {
+  try {
+    state.alarmsOnly = localStorage.getItem(ALARMS_ONLY_KEY) === "1";
+  } catch (_err) {
+    state.alarmsOnly = false;
+  }
+}
+
+export function setAlarmsOnly(on, { remember = true } = {}) {
+  state.alarmsOnly = Boolean(on);
+  if (els.alarmsOnlyBtn) {
+    els.alarmsOnlyBtn.classList.toggle("active", state.alarmsOnly);
+    els.alarmsOnlyBtn.setAttribute("aria-pressed", state.alarmsOnly ? "true" : "false");
+  }
+  if (!remember) return;
+  try {
+    if (state.alarmsOnly) localStorage.setItem(ALARMS_ONLY_KEY, "1");
+    else localStorage.removeItem(ALARMS_ONLY_KEY);
+  } catch (_err) {
+    // Not remembered; works for this page.
+  }
 }
 
 export function syncQuickStatusButtons() {
@@ -46,13 +74,17 @@ export function syncQuickStatusButtons() {
 export function applyFilters() {
   const criteria = Object.fromEntries(FILTERS.map(([name, field]) => [field, els[name].value]));
   const filtered = filterLocations(state.allLocations, criteria);
-  renderMarkers(filtered);
-  updateLocationCount(filtered.length);
+  state.filteredLocations = filtered;
+  const drawn = state.alarmsOnly ? filtered.filter((loc) => isAlarm(locationAlerts[loc.id])) : filtered;
+  renderMarkers(drawn);
+  updateLocationCount(drawn.length);
   openLocationFromQuery();
   syncQuickStatusButtons();
+  renderAlarmList();
 }
 
 export function clearFilters() {
   for (const [name] of FILTERS) els[name].value = "";
+  setAlarmsOnly(false);
   applyFilters();
 }

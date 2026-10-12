@@ -39,6 +39,16 @@
       </div>
     </div>
 
+    <!-- The sites that need action, worst first, then newest (#334). -->
+    <section id="alarm-section" aria-labelledby="alarm-title">
+      <div class="alarm-header">
+        <h2 id="alarm-title">In alarm <span id="alarm-count" class="alarm-count"></span></h2>
+        <button id="alarms-only" class="quick-filter-btn" type="button" aria-pressed="false" title="Show only the sites in alarm on the map">Alarms only</button>
+      </div>
+      <ol id="alarm-list" class="alarm-list"></ol>
+      <button id="alarm-more" class="alarm-more" type="button" aria-controls="alarm-list" hidden></button>
+    </section>
+
     <div id="search-section">
       <label for="search-input">Search address or GPS&nbsp;coordinates</label>
       <div id="search-row">

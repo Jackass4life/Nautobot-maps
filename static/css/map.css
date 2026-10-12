@@ -599,6 +599,94 @@ body.inspector-open #map {
 }
 
 /* =========================================================
+   In alarm (#334): the sites that need action, at the top
+   ========================================================= */
+#alarm-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.alarm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.alarm-header h2 {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.alarm-count {
+  color: var(--color-text);
+}
+
+.alarm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.alarm-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.alarm-item:hover,
+.alarm-item:focus-visible {
+  background: var(--color-surface-2);
+}
+
+.alarm-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alarm-meta {
+  grid-column: 2;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.alarm-empty {
+  padding: 4px 6px;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.alarm-more {
+  margin-top: 4px;
+  padding: 2px 6px;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* =========================================================
    Filter section
    ========================================================= */
 #filter-section {

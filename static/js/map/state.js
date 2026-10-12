@@ -14,6 +14,12 @@ export const state = {
   markerLayer: null,
   clusterLayer: null,
   allLocations: [],
+  // The locations the sidebar's filters let through (the alarm list uses them).
+  filteredLocations: [],
+  // "Alarms only" (#334): the map shows only the sites in alarm.
+  alarmsOnly: false,
+  // Whether /api/location-alerts has answered once.
+  levelsLoaded: false,
   // ?location_id= on the page's URL, opened once its marker exists.
   initialLocationId: null,
   initialLocationOpened: false,
@@ -30,6 +36,9 @@ export const state = {
 
 // Location id -> its alert level, from /api/location-alerts (#234).
 export const locationAlerts = {};
+// Location id -> what /api/location-alerts says about it: {level, reason,
+// down, monitored, since}, for the alarm list (#334).
+export const locationAlertInfo = {};
 // Location id -> the marker (pin or co-located stack) that shows it.
 export const markerByLocId = {};
 // Location id -> the ids of every location in its co-located stack.

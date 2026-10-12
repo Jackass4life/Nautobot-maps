@@ -2534,6 +2534,8 @@ def build_location_alert_levels() -> dict:
                 "reason": window.get("reason", "") if level == "maintenance" else row.get("alert_reason", ""),
                 "down": row.get("down_device_count", 0),
                 "monitored": row.get("device_count", 0),
+                # When its newest open alert started: the map's alarm list puts the newest first (#334).
+                **({"since": row["latest_down_at"]} if row.get("latest_down_at") else {}),
                 **({"until": window["until"]} if level == "maintenance" and window.get("until") else {}),
             }
             continue

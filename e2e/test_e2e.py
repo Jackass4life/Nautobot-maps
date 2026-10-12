@@ -140,7 +140,13 @@ def test_the_map_at_scale(page):
     ]
     levels = {f"s{i}": {"level": "ok", "down": 0, "monitored": 8} for i in range(1200)}
     for n in range(25):
-        levels[f"s{n * 40}"] = {"level": ("critical", "medium", "low")[n % 3], "reason": "x", "down": 2, "monitored": 8}
+        levels[f"s{n * 40}"] = {
+            "level": ("critical", "medium", "low")[n % 3],
+            "reason": "x",
+            "down": 2,
+            "monitored": 8,
+            "since": f"2026-10-12T08:{n:02d}:00Z",
+        }
     for n in range(3):
         levels[f"s{n * 40 + 7}"] = {"level": "maintenance", "down": 0, "monitored": 8}
     page.route("**/api/locations", lambda route: route.fulfill(json={"locations": sites}))
@@ -172,6 +178,22 @@ def test_the_map_at_scale(page):
             ).count()
             == 0
         ), colour
+
+    # The sidebar lists them: worst first, then newest; ten and "+15 more" (#334).
+    assert page.locator("#alarm-count").inner_text() == "(25)"
+    assert page.locator(".alarm-item").count() == 10
+    assert page.locator("#alarm-more").inner_text() == "+15 more"
+    assert page.locator(".alarm-item .alarm-name").first.inner_text() == "Site 0960"  # critical, 08:24
+    page.locator(".alarm-item").first.click()
+    page.locator("#inspector-title", has_text="Site 0960").wait_for()
+    page.keyboard.press("Escape")
+
+    # Alarms only: the 25 pins and nothing else.
+    page.locator("#alarms-only").click()
+    assert page.locator(".leaflet-marker-icon").count() == 25
+    assert "25 locations in alarm" in page.locator("#location-count").inner_text()
+    page.locator("#clear-filters").click()
+    assert page.locator(".leaflet-marker-icon:has(.quiet-cluster)").count() > 0
 
     # A quiet site inside a cluster opens from a link: the map zooms to it.
     page.goto(f"{BASE_URL}/?location_id=s613")

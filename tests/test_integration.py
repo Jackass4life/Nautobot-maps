@@ -2004,6 +2004,92 @@ check(markerByLocId.a.options.zIndexOffset < markerByLocId.b.options.zIndexOffse
         )
 
 
+class TestMapAlarmListInTheBrowser:
+    """The sidebar's "In alarm (N)" list and "Alarms only" (#334)."""
+
+    SETUP = """
+import { alarmItemHtml, alarmSites, renderAlarmList, toggleAlarmList } from "@js/map/alarms.js";
+import { applyFilters, clearFilters, setAlarmsOnly } from "@js/map/filters.js";
+import { els, locationAlertInfo, locationAlerts, state } from "@js/map/state.js";
+
+setGlobal("localStorage", { getItem: () => null, setItem() {}, removeItem() {} });
+state.markerLayer = fakeLayer();
+state.clusterLayer = fakeLayer();
+for (const name of ["alarmList", "alarmCount", "alarmMore", "alarmsOnlyBtn", "locationCount",
+  "filterStatus", "filterType", "filterParent", "filterTenant", "filterTenantGroup"]) {
+  els[name] = element(name);
+}
+// 40 sites: 25 in alarm (8 critical, 9 medium, 8 low), 2 in maintenance, the rest OK.
+state.allLocations = Array.from({ length: 40 }, (_, i) => ({ ...site(`s${i}`, i, i), name: `Site ${String(i).padStart(2, "0")}`, tenant: i % 2 ? "Odd" : "Even" }));
+for (let i = 0; i < 40; i += 1) {
+  const level = i < 25 ? ["critical", "medium", "low"][i % 3] : i < 27 ? "maintenance" : "ok";
+  const since = i < 25 ? new Date(Date.UTC(2026, 9, 12, 8, i)).toISOString() : undefined;
+  locationAlertInfo[`s${i}`] = { level, since, down: 2, monitored: 8 };
+  locationAlerts[`s${i}`] = level;
+}
+state.levelsLoaded = true;
+const rows = () => (els.alarmList.innerHTML.match(/class="alarm-item"/g) || []).length;
+const ids = () => [...els.alarmList.innerHTML.matchAll(/data-location-id="([^"]+)"/g)].map((m) => m[1]);
+"""
+
+    def _run(self, body):
+        run_js(MAP_FAKES + self.SETUP + body, tz="UTC")
+
+    def test_worst_first_then_newest_and_ten_at_a_time(self):
+        self._run("""
+applyFilters();
+check(els.alarmCount.textContent === "(25)", "maintenance is not an alarm: " + els.alarmCount.textContent);
+check(rows() === 10 && !els.alarmMore.hidden && els.alarmMore.textContent === "+15 more", els.alarmMore.textContent);
+// Critical first (s0, s3, ... s24), newest first within it.
+check(ids().slice(0, 3).join() === "s24,s21,s18", ids().join());
+toggleAlarmList();
+check(rows() === 25 && els.alarmMore.textContent === "Show fewer", "all of them");
+check(ids().indexOf("s1") > ids().indexOf("s0") && ids().at(-1) === "s2", "medium after critical, low last: " + ids().join());
+toggleAlarmList();
+check(rows() === 10, "back to ten");
+""")
+
+    def test_rows_say_what_and_since_when(self):
+        self._run("""
+const html = alarmItemHtml({ loc: { id: "x&1", name: "Bank <HQ>" }, level: "critical", down: 3, monitored: 7, since: "2026-10-12T08:05:00Z" },
+  new Date("2026-10-12T12:00:00Z"));
+check(html.includes('data-location-id="x&amp;1"') && html.includes("Bank &lt;HQ&gt;") && !html.includes("<HQ>"), html);
+// The time is in the viewer's locale ("08:05" or "08:05 AM").
+check(html.includes("dot-critical") && html.includes(">3/7 down · since 08:05"), html);
+check(html.includes('aria-label="Critical: Bank &lt;HQ&gt;, 3/7 down · since 08:05'), html);
+// Without a time (not a board row): no "since".
+check(!alarmItemHtml({ loc: { id: "y", name: "Y" }, level: "low", down: 1, monitored: 4 }).includes("since"), "no time");
+check(alarmSites([{ id: "q", name: "Q" }], { q: { level: "ok" } }).length === 0, "OK is not in the list");
+""")
+
+    def test_alarms_only_and_the_filters(self):
+        self._run("""
+setAlarmsOnly(true, { remember: false });
+applyFilters();
+check(state.markerLayer.held.size === 25 && state.clusterLayer.held.size === 0, "only the 25 alarms on the map");
+check(els.locationCount.textContent.startsWith("25 locations in alarm"), els.locationCount.textContent);
+check(els.alarmsOnlyBtn.attrs["aria-pressed"] === "true", "pressed");
+// The list follows the sidebar's filters.
+els.filterTenant.value = "Odd";
+applyFilters();
+check(els.alarmCount.textContent === "(12)" && ids().every((id) => Number(id.slice(1)) % 2), els.alarmCount.textContent);
+// Clear Filters also turns Alarms only off.
+clearFilters();
+check(!state.alarmsOnly && els.alarmCount.textContent === "(25)" && state.clusterLayer.held.size > 0, "cleared");
+""")
+
+    def test_before_the_levels_and_without_alarms(self):
+        self._run("""
+state.levelsLoaded = false;
+renderAlarmList();
+check(els.alarmList.innerHTML.includes("not loaded yet") && els.alarmMore.hidden, "not yet");
+state.levelsLoaded = true;
+state.filteredLocations = state.allLocations.slice(27);
+renderAlarmList();
+check(els.alarmCount.textContent === "(0)" && els.alarmList.innerHTML.includes("No site in alarm."), els.alarmList.innerHTML);
+""")
+
+
 class TestMapCircuitsInTheBrowser:
     """The site panel shows each circuit at the site (#235)."""
 

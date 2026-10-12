@@ -54,6 +54,14 @@ def test_london_is_medium_everywhere_and_the_panel_says_why_one_device_is_not_co
     assert len(detail["devices"]) == 8, "the panel still lists every device"
 
 
+def test_the_map_knows_when_a_site_went_into_alarm(synced):
+    """The map's alarm list puts the newest first, like the board (#334)."""
+    board, levels = three_views()
+    assert board["loc-lon"]["latest_down_at"] and levels["loc-lon"]["since"] == board["loc-lon"]["latest_down_at"]
+    quiet = next(site_id for site_id, row in board.items() if site_id in levels and not row.get("latest_down_at"))
+    assert "since" not in levels[quiet], "nothing down: no time"
+
+
 def test_excluded_statuses_count_nowhere(synced, monkeypatch):
     monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"offline"})
     board, levels = three_views()
