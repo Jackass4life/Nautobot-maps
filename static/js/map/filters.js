@@ -34,8 +34,14 @@ export function filterLocations(locations, criteria) {
   return locations.filter((loc) => FILTERS.every(([, field]) => !criteria[field] || loc[field] === criteria[field]));
 }
 
+// "Alarms only" once the levels are in: before (or if they fail) every site is
+// shown, with the page's "levels not loaded" note, not an empty map (#337).
+function alarmsOnlyApplies() {
+  return state.alarmsOnly && state.levelsLoaded;
+}
+
 export function updateLocationCount(count) {
-  const scope = state.alarmsOnly ? " in alarm" : "";
+  const scope = alarmsOnlyApplies() ? " in alarm" : "";
   els.locationCount.textContent = `${count} location${count !== 1 ? "s" : ""}${scope} with GPS coordinates loaded`;
 }
 
@@ -75,7 +81,7 @@ export function applyFilters() {
   const criteria = Object.fromEntries(FILTERS.map(([name, field]) => [field, els[name].value]));
   const filtered = filterLocations(state.allLocations, criteria);
   state.filteredLocations = filtered;
-  const drawn = state.alarmsOnly ? filtered.filter((loc) => isAlarm(locationAlerts[loc.id])) : filtered;
+  const drawn = alarmsOnlyApplies() ? filtered.filter((loc) => isAlarm(locationAlerts[loc.id])) : filtered;
   renderMarkers(drawn);
   updateLocationCount(drawn.length);
   openLocationFromQuery();

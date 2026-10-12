@@ -2078,6 +2078,30 @@ clearFilters();
 check(!state.alarmsOnly && els.alarmCount.textContent === "(25)" && state.clusterLayer.held.size > 0, "cleared");
 """)
 
+    def test_alarms_only_waits_for_the_levels_and_keeps_a_search(self):
+        """Review on #337: no empty map before the levels; no redraw over a search."""
+        self._run("""
+import { loadLocationAlerts } from "@js/map/refresh.js";
+import { onRedrawNeeded, renderMarkers } from "@js/map/markers.js";
+// Alarms only remembered, levels not in yet (or failed): every site, not an empty map.
+state.levelsLoaded = false;
+setAlarmsOnly(true, { remember: false });
+applyFilters();
+check(state.markerLayer.held.size + state.clusterLayer.held.size > 25, "every site is drawn");
+check(!els.locationCount.textContent.includes("in alarm"), els.locationCount.textContent);
+
+// A search is shown; a level changes on the minute refresh: the search stays.
+state.levelsLoaded = true;
+let redraws = 0;
+onRedrawNeeded(() => { redraws += 1; });
+renderMarkers(state.allLocations.slice(0, 3), { lat: 0, lon: 0 });
+const levels = Object.fromEntries(Object.entries(locationAlertInfo).map(([id, info]) => [id, { ...info }]));
+levels.s0.level = "ok";
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ levels }) });
+await loadLocationAlerts();
+check(locationAlerts.s0 === "ok" && redraws === 0, "no redraw over a search: " + redraws);
+""")
+
     def test_before_the_levels_and_without_alarms(self):
         self._run("""
 state.levelsLoaded = false;

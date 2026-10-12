@@ -188,6 +188,20 @@ def test_the_map_at_scale(page):
     page.locator("#inspector-title", has_text="Site 0960").wait_for()
     page.keyboard.press("Escape")
 
+    # During a search a row for a site outside it goes back to the whole map and opens it (#337).
+    nearby = [{**sites[1], "distance_km": 0.0}]
+    page.route(
+        "**/api/search*",
+        lambda route: route.fulfill(json={"search_lat": 40, "search_lon": -5, "count": 1, "locations": nearby}),
+    )
+    page.fill("#search-input", "40,-5")
+    page.press("#search-input", "Enter")
+    page.locator("#search-results-header", has_text="1 location within 5 km").wait_for()
+    page.locator(".alarm-item").first.click()
+    page.locator("#inspector-title", has_text="Site 0960").wait_for()
+    assert page.locator("#search-results").get_attribute("class") == "hidden"
+    page.keyboard.press("Escape")
+
     # Alarms only: the 25 pins and nothing else.
     page.locator("#alarms-only").click()
     assert page.locator(".leaflet-marker-icon").count() == 25

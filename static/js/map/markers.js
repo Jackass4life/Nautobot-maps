@@ -207,8 +207,14 @@ export function crossesClusterLine(locId) {
   return ids.some((id) => drawnAttention.has(id)) !== ids.some((id) => needsAttention(displayLevel(id)));
 }
 
+// Draw every marker again, unless search results are shown: a redraw would
+// throw the search away (reviews on #336, #337).
 export function redrawMarkers() {
-  redrawAll();
+  if (!drawnSearch) redrawAll();
+}
+
+export function isSearchShown() {
+  return drawnSearch;
 }
 
 // Redraw the marker (or co-located stack) holding *locId* after its level changed.

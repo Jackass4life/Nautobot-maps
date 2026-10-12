@@ -160,7 +160,14 @@ els.quickStatusButtons.forEach((button) => {
 // The sites in alarm (#334): the list opens a site; "Alarms only" hides the rest.
 els.alarmList.addEventListener("click", (event) => {
   const button = event.target.closest(".alarm-item");
-  if (button) openLocationById(button.dataset.locationId, { focusInspector: false, focusElement: button });
+  if (!button) return;
+  const open = () => openLocationById(button.dataset.locationId, { focusInspector: false, focusElement: button });
+  if (open()) return;
+  // Not on the map: search results are shown.  Back to the whole map (#337).
+  els.searchInput.value = "";
+  els.searchResults.classList.add("hidden");
+  applyFilters();
+  open();
 });
 els.alarmMore.addEventListener("click", toggleAlarmList);
 restoreAlarmsOnly();

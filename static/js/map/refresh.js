@@ -26,6 +26,7 @@ export async function loadLocationAlerts() {
     if (!locationAlertsLoaded) setAlertLevelsNote(true);
     return;
   }
+  const firstLoad = !state.levelsLoaded;
   locationAlertsLoaded = true;
   state.levelsLoaded = true;
   setAlertLevelsNote(false);
@@ -50,8 +51,9 @@ export async function loadLocationAlerts() {
     if (id !== state.selectedLocationId) detailCache.delete(id);
   }
   // A site that started or stopped needing attention: one redraw for all.
-  // With "Alarms only", any change may add or remove a site.
-  if ([...changed].some(crossesClusterLine) || (state.alarmsOnly && changed.size)) redrawMarkers();
+  // With "Alarms only", any change may add or remove a site, and the first
+  // levels turn it on.  (Not while search results are shown: redrawMarkers.)
+  if ([...changed].some(crossesClusterLine) || (state.alarmsOnly && (changed.size || firstLoad))) redrawMarkers();
   else for (const id of changed) refreshMarkerIcon(id);
   // Times and counts change without a level change: the list always.
   renderAlarmList();
