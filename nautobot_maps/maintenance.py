@@ -10,7 +10,7 @@ resolves) and nothing is notified.  Ending a window early sets
 
 from datetime import UTC, datetime, timedelta
 
-from nautobot_maps import db, timeutil
+from nautobot_maps import db, status, timeutil
 
 MAX_DURATION = timedelta(days=14)
 MAX_REASON_LENGTH = 200
@@ -19,6 +19,8 @@ MAX_DEVICES = 200
 MAX_SITES = 200
 # How far back the page's "Ended" group reaches (#343).
 MAX_RECENT_DAYS = 90
+# The page's list: the most it reads; open windows (active, planned) come first.
+LIST_LIMIT = 2000
 
 
 class WindowError(ValueError):
@@ -27,6 +29,11 @@ class WindowError(ValueError):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+def _iso(value: datetime) -> str:
+    """As stored and as the API shows times: "2026-10-09T12:00:00Z"."""
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def now() -> datetime:
@@ -81,11 +88,18 @@ def cache_seconds(next_change: str | None, default: int) -> int:
 
 
 def list_windows(
-    conn, site_id: str = "", include_past: bool = False, at: datetime | None = None, recent_days: int = 0
+    conn,
+    site_id: str = "",
+    include_past: bool = False,
+    at: datetime | None = None,
+    recent_days: int = 0,
+    limit: int = 500,
 ) -> list[dict]:
-    """Windows with their state (``active``, ``upcoming``, ``ended``, ``cancelled``), soonest first.
+    """Windows with their state (``active``, ``upcoming``, ``ended``, ``cancelled``):
+    the open ones first (#343, so ended ones never crowd them out), soonest first.
 
     *recent_days* (#343): also those that ended or were cancelled in the last that many days.
+    At most *limit*.
     """
     at = at or now()
     conditions, params = [], []
@@ -102,8 +116,9 @@ def list_windows(
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     rows = conn.execute(
         "SELECT id, site_id, device_id, starts_at, ends_at, reason, created_by, created_at, ended_at, ended_by "
-        f"FROM maintenance_windows {where} ORDER BY starts_at, id LIMIT 500",
-        tuple(params),
+        f"FROM maintenance_windows {where} "
+        "ORDER BY (ended_at IS NOT NULL OR ends_at <= %s), starts_at, id LIMIT %s",
+        (*params, at, limit),
     ).fetchall()
     return [{**window, "state": state(window, at)} for window in map(db.row_to_dict, rows)]
 
@@ -199,9 +214,10 @@ def create(conn, body: dict, created_by: str) -> list[dict]:
     return [{**window, "state": state(window, current)} for window in map(db.row_to_dict, rows)]
 
 
-def end_many(conn, window_ids: list[int], ended_by: str) -> list[dict]:
+def end_many(conn, window_ids: list[int], ended_by: str) -> dict:
     """End or cancel several windows at once (#343): a batch planned together.
-    Unknown IDs are left out; ones already over are returned as they are."""
+    ``{"windows", "changed"}``: unknown IDs are left out, ones already over
+    returned as they are; *changed* counts those ended or cancelled now."""
     current = now()
     with db.transaction(conn):
         rows = conn.execute(
@@ -218,9 +234,9 @@ def end_many(conn, window_ids: list[int], ended_by: str) -> list[dict]:
             )
         for window in windows:
             if window["id"] in open_ids:
-                window["ended_at"] = timeutil.iso_utc_now()
+                window["ended_at"] = _iso(current)
                 window["ended_by"] = ended_by
-    return [{**window, "state": state(window, current)} for window in windows]
+    return {"windows": [{**window, "state": state(window, current)} for window in windows], "changed": len(open_ids)}
 
 
 def describe(conn, windows: list[dict], sites: list[dict]) -> dict:
@@ -239,7 +255,7 @@ def describe(conn, windows: list[dict], sites: list[dict]) -> dict:
     described = []
     for window in windows:
         site = by_site.get(window["site_id"]) or {}
-        tenants = list(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else []))
+        tenants = status.site_tenants(site)
         for tenant in tenants:
             description = (site.get("tenant_descriptions") or {}).get(tenant)
             if description:
@@ -276,6 +292,6 @@ def end(conn, window_id: int, ended_by: str) -> dict | None:
                 "UPDATE maintenance_windows SET ended_at = %s, ended_by = %s WHERE id = %s",
                 (current, ended_by, window_id),
             )
-            window["ended_at"] = timeutil.iso_utc_now()
+            window["ended_at"] = _iso(current)
             window["ended_by"] = ended_by
     return {**window, "state": state(window, current)}

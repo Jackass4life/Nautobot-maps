@@ -792,13 +792,22 @@ def api_maintenance_list():
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     try:
+        site_id = _arg("site_id") or ""
         windows = maintenance.list_windows(
             conn,
-            site_id=_arg("site_id") or "",
+            site_id=site_id,
             include_past=(_arg("all") or "").lower() in {"1", "true", "yes"},
             recent_days=recent_days,
+            limit=maintenance.LIST_LIMIT + 1,
         )
-        return jsonify(maintenance.describe(conn, windows, _board_sites()))
+        truncated = len(windows) > maintenance.LIST_LIMIT
+        windows = windows[: maintenance.LIST_LIMIT]
+        # One site's panel on the board knows its names: no board read for it.
+        if site_id:
+            payload = {"windows": windows, "tenant_descriptions": {}}
+        else:
+            payload = maintenance.describe(conn, windows, _board_sites())
+        return jsonify({**payload, "truncated": truncated})
     finally:
         conn.close()
 
@@ -812,10 +821,16 @@ def _board_sites() -> list[dict]:
         return []
 
 
+# The Maintenance page's "Ended" group (#343).
+MAINTENANCE_PAGE_RECENT_DAYS = 7
+
+
 @bp.route("/maintenance")
 def maintenance_page():
     """Current and planned maintenance, and planning more (#343); the data comes from the API."""
-    return render_template("maintenance.html")
+    return render_template(
+        "maintenance.html", recent_days=MAINTENANCE_PAGE_RECENT_DAYS, max_sites=maintenance.MAX_SITES
+    )
 
 
 @bp.route("/api/maintenance/sites", methods=["GET"])
@@ -831,7 +846,7 @@ def api_maintenance_sites():
                     "id": site["id"],
                     "name": site.get("name") or site["id"],
                     "path": site.get("ancestor_path") or site.get("parent") or "",
-                    "tenants": list(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])),
+                    "tenants": status.site_tenants(site),
                     "devices": site.get("device_count") or 0,
                     "maintenance": site.get("alert_level") == "maintenance",
                 }
@@ -904,18 +919,22 @@ def api_maintenance_end_many():
         not isinstance(ids, list)
         or not ids
         or len(ids) > 500
-        or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)
+        # Window IDs are BIGSERIAL: anything else would fail in the query, not here.
+        or not all(isinstance(i, int) and not isinstance(i, bool) and 0 < i < 2**63 for i in ids)
     ):
         return jsonify({"error": "ids must be a list of 1 to 500 window IDs"}), 400
     conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     try:
-        windows = maintenance.end_many(conn, ids, auth.get_current_user().get("username") or "")
+        result = maintenance.end_many(conn, ids, auth.get_current_user().get("username") or "")
     finally:
         conn.close()
-    _maintenance_changed()
-    return jsonify({"windows": windows})
+    # Nothing ended (already over, or unknown): the board and map stay cached.
+    if result["changed"]:
+        _maintenance_changed()
+    found = {window["id"] for window in result["windows"]}
+    return jsonify({"windows": result["windows"], "not_found": [i for i in ids if i not in found]})
 
 
 @bp.route("/api/maintenance/<int:window_id>/end", methods=["POST"])

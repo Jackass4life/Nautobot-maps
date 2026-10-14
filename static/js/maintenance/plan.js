@@ -6,8 +6,6 @@ import { whenRequest } from "../lib/when.js";
 
 // At most this many sites listed under the search; a tenant adds all of its own.
 export const MAX_MATCHES = 8;
-// The server's limit for one request (maintenance.MAX_SITES).
-export const MAX_SITES = 200;
 
 // Sites matching *query* (every word in the name, path or a tenant), not yet
 // chosen, names first; and the tenants whose name has it, with their sites.
@@ -56,10 +54,11 @@ export function chosenHtml(ids, byId, showAll = false) {
   return chips.join("");
 }
 
-// The request, or {error}.  values: {siteIds, scope, deviceIds, reason, ...when}.
-export function planRequest(values) {
+// The request, or {error}.  values: {siteIds, scope, deviceIds, reason, ...when};
+// *maxSites*: the server's limit for one request (maintenance.MAX_SITES, from the page).
+export function planRequest(values, maxSites = 200) {
   if (!values.siteIds.length) return { error: "Choose at least one site." };
-  if (values.siteIds.length > MAX_SITES) return { error: `At most ${MAX_SITES} sites at once.` };
+  if (values.siteIds.length > maxSites) return { error: `At most ${maxSites} sites at once.` };
   const reason = (values.reason || "").trim();
   if (!reason) return { error: "Enter a reason." };
   const body = { reason };

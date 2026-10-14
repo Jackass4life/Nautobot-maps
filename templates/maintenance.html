@@ -62,7 +62,7 @@
       </form>
     </section>
 
-    <div id="maint-groups" class="maint-groups" data-limit="25"></div>
+    <div id="maint-groups" class="maint-groups" data-limit="25" data-recent-days="{{ recent_days }}" data-max-sites="{{ max_sites }}"></div>
     <noscript><p class="availability-note">This page needs JavaScript. The API is <a href="/docs">/api/maintenance</a>.</p></noscript>
   </div>
   <script type="module" src="{{ url_for('static', filename='js/maintenance/main.js') }}"></script>

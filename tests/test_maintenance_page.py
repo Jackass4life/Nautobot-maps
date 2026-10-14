@@ -58,6 +58,19 @@ check(groupsHtml(batches, { limits: {}, expanded: new Set(), descriptions: {}, n
 html = groupsHtml(batches, { limits: {}, expanded: new Set([batches[1].key]), descriptions: {}, now });
 check((html.match(/class="maint-batch-window"/g) || []).length === 30 && html.includes('data-ids="17">End now</button>'), "expanded");
 
+// Groups first, whatever the input order (review on #343); the Ended title follows the days.
+const mixed = batchesOf([ended, planned, ...batch30, device]);
+check(mixed.map((b) => b.group).join() === "active,active,upcoming,past", mixed.map((b) => b.group).join());
+check(groupsHtml(mixed, { limits: {}, expanded: new Set(), descriptions: {}, now, days: 14 }).includes("Ended in the last 14 days"), "days");
+// A batch partly cancelled and partly ended: two lines, each right.
+const split = batchesOf([
+  w(70, "a", "cancelled", { created_at: "2026-10-12T09:00:00Z", ended_at: "2026-10-12T08:00:00Z", starts_at: "2026-10-12T10:00:00Z" }),
+  w(71, "b", "ended", { created_at: "2026-10-12T09:00:00Z", ended_at: "2026-10-12T11:00:00Z", starts_at: "2026-10-12T10:00:00Z" }),
+  w(72, "c", "ended", { created_at: "2026-10-12T09:00:00Z", ended_at: "2026-10-12T12:30:00Z", starts_at: "2026-10-12T10:00:00Z" }),
+]);
+check(split.length === 2 && split.map((b) => b.state).sort().join() === "cancelled,ended", JSON.stringify(split.map((b) => b.state)));
+check(split.find((b) => b.state === "ended").ended_at === "2026-10-12T12:30:00Z", "the latest end");
+
 // Hundreds of batches: the first 25, then "Show 25 more".
 const many = batchesOf(Array.from({ length: 300 }, (_, i) => w(1000 + i, `x${i}`, "upcoming",
   { created_at: `2026-10-14T10:${String(i % 60).padStart(2, "0")}:00Z`, reason: `job ${i}` })));
@@ -111,5 +124,6 @@ check(planRequest({ siteIds: [], scope: "site", deviceIds: [], reason: "x", ...w
 check(planRequest({ siteIds: ids, scope: "site", deviceIds: [], reason: " ", ...when }).error === "Enter a reason.", "reason");
 check(planRequest({ siteIds: ["a", "b"], scope: "devices", deviceIds: ["d"], reason: "x", ...when }).error.includes("one site"), "devices");
 check(planRequest({ siteIds: sites.slice(0, 201).map((s) => s.id), scope: "site", deviceIds: [], reason: "x", ...when }).error.includes("200"), "limit");
+check(planRequest({ siteIds: ids, scope: "site", deviceIds: [], reason: "x", ...when }, 30).error === "At most 30 sites at once.", "the page's limit");
 """
     )

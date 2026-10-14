@@ -22,6 +22,8 @@ const els = {
   siteSearch: $("maint-site-search"), matches: $("maint-site-matches"), chosen: $("maint-chosen"), when: $("maint-when"),
 };
 const step = Number(els.groups.dataset.limit) || 25;
+const recentDays = Number(els.groups.dataset.recentDays) || 7;
+const maxSites = Number(els.groups.dataset.maxSites) || 200;
 const state = {
   batches: [], descriptions: {}, limits: {}, expanded: new Set(), pastOpen: false,
   sites: null, byId: new Map(), chosen: [], showAllChosen: false, readWhen: null,
@@ -44,12 +46,31 @@ async function getJson(url, options) {
 
 // --- the list ---------------------------------------------------------------
 
+// Which list button has the keyboard, to give it back after a redraw (the minute refresh).
+function focusedButton() {
+  const button = document.activeElement?.closest?.("#maint-groups button");
+  if (!button) return null;
+  const batch = button.closest(".maint-batch");
+  return { key: batch?.dataset.key, ids: button.dataset.ids, group: button.dataset.group, className: button.className };
+}
+
+function restoreFocus(was) {
+  if (!was) return;
+  const scope = was.key ? els.groups.querySelector(`.maint-batch[data-key="${CSS.escape(was.key)}"]`) : els.groups;
+  const same = Array.from(scope?.querySelectorAll("button") || [])
+    .find((b) => b.className === was.className && b.dataset.ids === was.ids && b.dataset.group === was.group);
+  same?.focus();
+}
+
 function render() {
+  const was = focusedButton();
   const criteria = { query: els.search.value, tenant: els.tenant.value };
   const shown = state.batches.filter((batch) => batchMatches(batch, criteria));
   els.groups.innerHTML = groupsHtml(shown, {
     limits: state.limits, expanded: state.expanded, descriptions: state.descriptions, step, pastOpen: state.pastOpen,
+    days: recentDays,
   });
+  restoreFocus(was);
 }
 
 function fillTenants() {
@@ -61,13 +82,14 @@ function fillTenants() {
 
 async function loadList() {
   try {
-    const payload = await getJson("/api/maintenance?recent_days=7");
+    const payload = await getJson(`/api/maintenance?recent_days=${recentDays}`);
     state.batches = batchesOf(payload.windows || []);
     state.descriptions = payload.tenant_descriptions || {};
     fillTenants();
     render();
     const count = (group) => state.batches.filter((batch) => batch.group === group).length;
-    setStatus(`${count("active")} active · ${count("upcoming")} planned · updated ${formatClock(Date.now())}`);
+    const cut = payload.truncated ? " · only the first windows are shown: search or pick a tenant" : "";
+    setStatus(`${count("active")} active · ${count("upcoming")} planned · updated ${formatClock(Date.now())}${cut}`);
   } catch (err) {
     setStatus(`Could not load maintenance: ${err.message}`, true);
   }
@@ -267,7 +289,7 @@ els.form.addEventListener("submit", async (event) => {
     deviceIds: Array.from(els.form.querySelectorAll(".maint-device:checked")).map((box) => box.value),
     reason: els.form.querySelector(".maint-reason").value,
     ...state.readWhen(),
-  });
+  }, maxSites);
   if (body.error) {
     showPlanError(body.error);
     return;

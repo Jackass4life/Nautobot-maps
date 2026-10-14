@@ -5,11 +5,16 @@ import { tenantCell } from "../alerts/rows.js";
 import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 
-export const GROUPS = [
-  { id: "active", title: "Active now", empty: "Nothing in maintenance now." },
-  { id: "upcoming", title: "Planned", empty: "Nothing planned." },
-  { id: "past", title: "Ended in the last 7 days", empty: "Nothing ended lately." },
-];
+// *days*: how far back the Ended group reaches (the page's recent_days).
+export function groupsFor(days) {
+  return [
+    { id: "active", title: "Active now", empty: "Nothing in maintenance now." },
+    { id: "upcoming", title: "Planned", empty: "Nothing planned." },
+    { id: "past", title: `Ended in the last ${days} day${days === 1 ? "" : "s"}`, empty: "Nothing ended lately." },
+  ];
+}
+
+const GROUP_ORDER = { active: 0, upcoming: 1, past: 2 };
 
 const BADGES = { active: "ACTIVE", upcoming: "PLANNED", ended: "ENDED", cancelled: "CANCELLED" };
 
@@ -17,12 +22,14 @@ function groupOf(state) {
   return state === "active" || state === "upcoming" ? state : "past";
 }
 
-// Windows created in one request (same created_at, times, reason and person) are one batch.
+// Windows created in one request (same created_at, times, reason and person) are one batch;
+// once over, the cancelled ones apart from those that ran.
 export function batchesOf(windows) {
   const batches = new Map();
   for (const window of windows) {
     const group = groupOf(window.state);
-    const key = [group, window.created_at, window.starts_at, window.ends_at, window.reason, window.created_by].join("|");
+    const state = group === "past" ? window.state : group;
+    const key = [state, window.created_at, window.starts_at, window.ends_at, window.reason, window.created_by].join("|");
     if (!batches.has(key)) {
       batches.set(key, {
         key, group, state: window.state, windows: [],
@@ -30,12 +37,16 @@ export function batchesOf(windows) {
         reason: window.reason || "", created_by: window.created_by || "",
       });
     }
-    batches.get(key).windows.push(window);
+    const batch = batches.get(key);
+    batch.windows.push(window);
+    // Ended at different times: the latest.
+    if (window.ended_at && !(Date.parse(batch.ended_at) >= Date.parse(window.ended_at))) batch.ended_at = window.ended_at;
   }
-  // Ending soonest first; planned soonest first; ended latest first.
+  // By group; then ending soonest first, planned soonest first, ended latest first.
   const time = (batch) => Date.parse(batch.group === "active" ? batch.ends_at
     : batch.group === "upcoming" ? batch.starts_at : batch.ended_at || batch.ends_at);
-  return [...batches.values()].sort((a, b) => (a.group === "past" ? time(b) - time(a) : time(a) - time(b)));
+  return [...batches.values()].sort((a, b) => GROUP_ORDER[a.group] - GROUP_ORDER[b.group]
+    || (a.group === "past" ? time(b) - time(a) : time(a) - time(b)));
 }
 
 export function batchTenants(batch) {
@@ -119,8 +130,8 @@ export function batchHtml(batch, { descriptions = {}, expanded = false, now = ne
 }
 
 // The three groups; *limits* {group: N shown}, *expanded* a Set of batch keys.
-export function groupsHtml(batches, { limits, expanded, descriptions, now = new Date(), step = 25, pastOpen = false }) {
-  return GROUPS.map((group) => {
+export function groupsHtml(batches, { limits, expanded, descriptions, now = new Date(), step = 25, pastOpen = false, days = 7 }) {
+  return groupsFor(days).map((group) => {
     const members = batches.filter((batch) => batch.group === group.id);
     const limit = limits[group.id] || step;
     const shown = members.slice(0, limit);

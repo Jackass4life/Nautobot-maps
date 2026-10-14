@@ -418,7 +418,11 @@ class TestBatches:
         planned = self._create({"site_ids": ["c"], "starts_at": "2026-10-10T08:00:00Z", "duration_minutes": 60})
         conn = db.get_conn()
         try:
-            ended = maintenance.end_many(conn, [w["id"] for w in active + planned] + [999], "ivan")
+            result = maintenance.end_many(conn, [w["id"] for w in active + planned] + [999], "ivan")
+            ended = result["windows"]
+            assert result["changed"] == 3
+            # The ended time returned is the one stored.
+            assert ended[0]["ended_at"] == "2026-10-09T12:00:00Z"
             assert [(w["site_id"], w["state"], w["ended_by"]) for w in ended] == [
                 ("a", "ended", "ivan"),
                 ("b", "ended", "ivan"),
@@ -426,9 +430,22 @@ class TestBatches:
             ]
             # Already over: returned as they are, not ended again.
             again = maintenance.end_many(conn, [active[0]["id"]], "someone")
-            assert again[0]["ended_by"] == "ivan"
+            assert again["windows"][0]["ended_by"] == "ivan" and again["changed"] == 0
         finally:
             conn.close()
+
+    def test_open_windows_are_never_crowded_out(self):
+        # A week of ended 200-site batches must not push tonight's work past the limit (review on #343).
+        conn = db.get_conn()
+        try:
+            for day in range(3):
+                old = self._create({"site_ids": [f"old-{day}-{i}" for i in range(5)], "duration_minutes": 60})
+                maintenance.end_many(conn, [w["id"] for w in old], "olga")
+            fresh = self._create({"site_ids": ["tonight"], "starts_at": "2026-10-09T20:00:00Z", "duration_minutes": 60})
+            listed = maintenance.list_windows(conn, recent_days=7, limit=3)
+        finally:
+            conn.close()
+        assert listed[0]["id"] == fresh[0]["id"] and listed[0]["state"] == "upcoming"
 
     def test_recent_windows_and_names(self):
         old = self._create({"site_ids": ["gone"], "duration_minutes": 60})
@@ -508,12 +525,37 @@ class TestApi:
             windows = client.post("/api/maintenance", json=body, headers=operator).get_json()["windows"]
             listed = client.get("/api/maintenance", headers=viewer).get_json()
             assert {w["site_id"]: w["site_name"] for w in listed["windows"]} == {"loc-lon": "London HQ", "loc-x": ""}
+            assert listed["truncated"] is False
+            # One site (the board's panel): no names, so no board read.
+            one = client.get("/api/maintenance?site_id=loc-lon", headers=viewer).get_json()
+            assert "site_name" not in one["windows"][0]
             ids = [w["id"] for w in windows]
             assert client.post("/api/maintenance/end", json={"ids": ids}, headers=viewer).status_code == 403
-            for bad in ({"ids": []}, {"ids": ["1"]}, {"ids": [True]}, {"ids": list(range(501))}, [1]):
+            bad_bodies = (
+                {"ids": []},
+                {"ids": ["1"]},
+                {"ids": [True]},
+                {"ids": list(range(501))},
+                [1],
+                {"ids": [10**30]},
+                {"ids": [0]},
+            )
+            for bad in bad_bodies:
                 assert client.post("/api/maintenance/end", json=bad, headers=operator).status_code == 400, bad
-            ended = client.post("/api/maintenance/end", json={"ids": ids}, headers=operator).get_json()["windows"]
-            assert {w["state"] for w in ended} == {"ended"}
+            resp = client.post("/api/maintenance/end", json={"ids": [*ids, 999]}, headers=operator).get_json()
+            assert {w["state"] for w in resp["windows"]} == {"ended"} and resp["not_found"] == [999]
+            # Already over: nothing changes, so the cached board is kept.
+            built = []
+            original = alerts.build_alert_board_payload
+            alerts.build_alert_board_payload = lambda *a, **k: built.append(1) or original(*a, **k)
+            try:
+                client.get("/api/alerts", headers=viewer)
+                built.clear()
+                client.post("/api/maintenance/end", json={"ids": ids}, headers=operator)
+                client.get("/api/alerts", headers=viewer)
+            finally:
+                alerts.build_alert_board_payload = original
+            assert built == [], "a no-op end must not drop the board"
             assert client.get("/api/maintenance", headers=viewer).get_json()["windows"] == []
             assert len(client.get("/api/maintenance?recent_days=7", headers=viewer).get_json()["windows"]) == 2
             assert client.get("/api/maintenance?recent_days=x", headers=viewer).status_code == 400
