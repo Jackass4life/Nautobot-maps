@@ -1749,7 +1749,7 @@ body = maintenanceRequestBody(planned);
 check(body.starts_at === "2026-10-09T20:00:00.000Z" && body.ends_at === "2026-10-10T00:00:00.000Z", JSON.stringify(body));
 check(!("duration_minutes" in body), "planned has no duration");
 check(maintenanceRequestBody({ ...planned, endDay: "" }).error === "Choose the days and times.", "both");
-check(maintenanceRequestBody({ ...planned, endDay: "2026-10-09", endTime: "21:45" }).error === "To must be after From.", "order");
+check(maintenanceRequestBody({ ...planned, endDay: "2026-10-08" }).error === "To must be after From.", "order");
 """)
 
     def test_panel(self):
@@ -1769,7 +1769,7 @@ check(html.includes('<form class="maint-form" data-site-id="loc-1">'), "form");
 // Planned: a calendar and times from the next full hour, not typed dates (#343).
 check(html.includes('class="calendar when-calendar"') && !html.includes("datetime-local"), "calendar");
 check(html.includes('<option value="22:00" selected>22:00</option>') && html.includes('<option value="00:00" selected>00:00</option>'), "22:00 to 00:00");
-check(html.includes(">9 – 10 Oct 2026<") && html.includes("Times in Europe/Copenhagen"), "days and zone");
+check(html.includes(">Fri 9 Oct 22:00 → Sat 10 Oct 00:00 (2h)<") && html.includes("Times in Europe/Copenhagen"), "days and zone");
 html = renderMaintenancePanel({ id: "loc-2" }, [], []);
 check(html.includes("No maintenance now or planned.") && html.includes("No monitored devices."), html);
 """)

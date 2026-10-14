@@ -26,6 +26,7 @@ EXAMPLE_BODIES = {
         "params": {"name": "get_alert_board", "arguments": {"filter": "alarms", "limit": 5}},
     },
     "web.api_notifications_test": {},
+    "web.api_maintenance_end_many": {"ids": [1, 2]},
     "web.api_maintenance_create": {
         "site_id": "<site id>",
         "duration_minutes": 120,

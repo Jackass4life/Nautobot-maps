@@ -2,7 +2,7 @@
 // picked on the calendar (#341) with times in 15-minute steps, in the
 // browser's time zone.  The board's Maint. panel and the Maintenance page
 // share it.  No page access at import.
-import { addDays, createRangeCalendar, formatRange } from "./calendar.js";
+import { addDays, createRangeCalendar } from "./calendar.js";
 import { escHtml } from "./html.js";
 
 // "Now, for …", in minutes.
@@ -51,21 +51,40 @@ export function whenFieldsetHtml(plan, zone) {
       <div class="maint-planned" hidden>
         <div class="calendar when-calendar"></div>
         <div class="when-times">
-          <p class="when-days">${escHtml(formatRange(plan.startDay, plan.endDay))}</p>
+          <p class="when-days" aria-live="polite">${escHtml(whenSummary({ ...plan, when: "planned" }))}</p>
           <label>From <select class="when-start-time" aria-label="Start time">${timeOptionsHtml(plan.startTime)}</select></label>
           <label>To <select class="when-end-time" aria-label="End time">${timeOptionsHtml(plan.endTime)}</select></label>
-          <p class="when-hint">Click the first and the last day (the same day twice for one day). Times in ${escHtml(zone)}.</p>
+          <p class="when-hint">Click the first and the last day (the same day twice for one day; a To before the From runs overnight). Times in ${escHtml(zone)}.</p>
         </div>
       </div>
     </fieldset>`;
+}
+
+// The window's local start and end; on one day, an end at or before the
+// start is the next morning (22:00 to 02:00 is overnight work).
+function plannedTimes(values) {
+  const overnight = values.startDay && values.startDay === values.endDay && values.endTime <= values.startTime;
+  const endDay = overnight ? addDays(values.endDay, 1) : values.endDay;
+  return { start: new Date(`${values.startDay}T${values.startTime}`), end: new Date(`${endDay}T${values.endTime}`) };
+}
+
+// "Thu 15 Oct 22:00 → Fri 16 Oct 02:00 (4h)", or why it isn't a window.
+export function whenSummary(values) {
+  const { start, end } = plannedTimes(values);
+  if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return "Choose the days and times.";
+  if (end <= start) return "To must be after From.";
+  const at = (date) => `${date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} ${localTime(date)}`;
+  const minutes = Math.round((end - start) / 60000);
+  const length = minutes >= 48 * 60 ? `${Math.floor(minutes / 1440)} days`
+    : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`;
+  return `${at(start)} → ${at(end)} (${length})`;
 }
 
 // The request's time fields from what was chosen, or {error}.
 // values: {when: "now"|"planned", duration, startDay, startTime, endDay, endTime}.
 export function whenRequest(values) {
   if (values.when !== "planned") return { duration_minutes: Number(values.duration) };
-  const start = new Date(`${values.startDay}T${values.startTime}`);
-  const end = new Date(`${values.endDay}T${values.endTime}`);
+  const { start, end } = plannedTimes(values);
   if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return { error: "Choose the days and times." };
   if (end <= start) return { error: "To must be after From." };
   return { starts_at: start.toISOString(), ends_at: end.toISOString() };
@@ -75,6 +94,20 @@ export function whenRequest(values) {
 export function initWhen(fieldset, plan, today) {
   const days = { startDay: plan.startDay, endDay: plan.endDay };
   const label = fieldset.querySelector(".when-days");
+  const read = () => ({
+    when: fieldset.querySelector('input[name="maint-when"]:checked')?.value,
+    duration: fieldset.querySelector(".maint-duration")?.value,
+    startDay: days.startDay,
+    endDay: days.endDay,
+    startTime: fieldset.querySelector(".when-start-time")?.value,
+    endTime: fieldset.querySelector(".when-end-time")?.value,
+  });
+  const showSummary = () => {
+    label.textContent = whenSummary(read());
+  };
+  fieldset.addEventListener("change", (event) => {
+    if (event.target.matches(".when-start-time, .when-end-time")) showSummary();
+  });
   createRangeCalendar(fieldset.querySelector(".when-calendar"), {
     from: days.startDay,
     to: days.endDay,
@@ -84,15 +117,8 @@ export function initWhen(fieldset, plan, today) {
     today,
     onPick(from, to) {
       Object.assign(days, { startDay: from, endDay: to });
-      label.textContent = formatRange(from, to);
+      showSummary();
     },
   });
-  return () => ({
-    when: fieldset.querySelector('input[name="maint-when"]:checked')?.value,
-    duration: fieldset.querySelector(".maint-duration")?.value,
-    startDay: days.startDay,
-    endDay: days.endDay,
-    startTime: fieldset.querySelector(".when-start-time")?.value,
-    endTime: fieldset.querySelector(".when-end-time")?.value,
-  });
+  return read;
 }

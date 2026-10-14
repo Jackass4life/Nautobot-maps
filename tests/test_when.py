@@ -6,7 +6,7 @@ from tests.js_modules import run_js
 def test_planned_days_and_times():
     run_js(
         """
-import { defaultPlan, localDay, timeOptionsHtml, whenRequest } from "@js/lib/when.js";
+import { defaultPlan, localDay, timeOptionsHtml, whenRequest, whenSummary } from "@js/lib/when.js";
 
 // The next full hour, for two hours; across midnight the days follow.
 let plan = defaultPlan(new Date("2026-10-14T13:20:00+02:00"));
@@ -25,7 +25,15 @@ const body = whenRequest(planned);
 check(body.starts_at === "2026-10-24T20:00:00.000Z" && body.ends_at === "2026-10-25T03:00:00.000Z", JSON.stringify(body));
 check(JSON.stringify(whenRequest({ when: "now", duration: "240" })) === '{"duration_minutes":240}', "now");
 check(whenRequest({ ...planned, startDay: "" }).error === "Choose the days and times.", "missing");
-check(whenRequest({ ...planned, endDay: "2026-10-24", endTime: "22:00" }).error === "To must be after From.", "same time");
+// One day, To at or before From: overnight, into the next morning.
+const night = { when: "planned", startDay: "2026-10-15", startTime: "22:00", endDay: "2026-10-15", endTime: "02:00" };
+check(whenRequest(night).ends_at === "2026-10-16T00:00:00.000Z", JSON.stringify(whenRequest(night)));
+check(whenSummary(night) === "Thu 15 Oct 22:00 → Fri 16 Oct 02:00 (4h)", whenSummary(night));
+check(whenSummary({ ...night, startTime: "08:00", endTime: "09:30" }) === "Thu 15 Oct 08:00 → Thu 15 Oct 09:30 (1h 30m)", "day");
+check(whenSummary({ ...night, endDay: "2026-10-20", endTime: "06:00" }) === "Thu 15 Oct 22:00 → Tue 20 Oct 06:00 (4 days)", "days");
+// Over several days the days are as chosen: To before From is a mistake.
+check(whenRequest({ ...planned, endDay: "2026-10-23" }).error === "To must be after From.", "backwards");
+check(whenSummary({ ...planned, startDay: "" }) === "Choose the days and times.", "missing");
 """,
         tz="Europe/Copenhagen",
     )
