@@ -1673,7 +1673,7 @@ a.case-pill:focus-visible {
   border-radius: 8px;
   background: var(--color-surface-2);
   color: var(--color-text);
-  font-size: 1.1rem;
+  font-size: 1rem;
   cursor: pointer;
 }
 
