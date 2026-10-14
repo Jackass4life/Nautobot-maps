@@ -98,6 +98,7 @@ class TestIntervals:
             (("2026-10-09", "2026-10-03"), "on or after"),
             (("2025-10-01", "2026-10-02"), "at most 366 days"),
             (("2026-10-22", "2026-10-23"), "hasn't started"),
+            (("9999-12-31", "9999-12-31"), "real date"),
         ):
             with pytest.raises(availability.ReportError, match=message):
                 availability.period_bounds(*bad, at)
@@ -109,7 +110,8 @@ class TestIntervals:
         assert availability.oldest_day(t(21, 9)) == ""
         monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
         assert availability.oldest_day(t(21, 9)) == "2026-10-12", "the 11th is partly deleted"
-        assert availability.oldest_day(t(21)) == "2026-10-11", "at midnight the 11th is whole"
+        # At midnight too: a moment later the 11th is partly deleted.
+        assert availability.oldest_day(t(21)) == "2026-10-12"
 
 
 class TestReport:

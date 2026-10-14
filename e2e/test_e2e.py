@@ -138,6 +138,10 @@ def test_the_availability_period_calendar(page):
     page.locator("#period-button").focus()
     page.keyboard.press("Enter")
     assert page.locator("#period-popover").is_visible()
+    # The month arrows keep the focus, so Escape still works after them.
+    page.locator('.cal-nav[data-step="-1"]').focus()
+    page.keyboard.press("Enter")
+    assert page.evaluate("document.activeElement.dataset.step") == "-1"
     page.keyboard.press("Escape")
     assert not page.locator("#period-popover").is_visible()
     assert page.evaluate("document.activeElement.id") == "period-button"

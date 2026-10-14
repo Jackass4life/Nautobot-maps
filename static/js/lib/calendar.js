@@ -165,9 +165,14 @@ export function createRangeCalendar(element, options) {
   element.addEventListener("click", (event) => {
     const nav = event.target.closest(".cal-nav");
     if (nav) {
-      month = addMonths(month, Number(nav.dataset.step));
+      const step = nav.dataset.step;
+      month = addMonths(month, Number(step));
       state.focus = clampDay(month, state);
       render();
+      // The redraw replaced the arrow: keep the keyboard on it, or on a day at the end.
+      const again = element.querySelector(`.cal-nav[data-step="${step}"]:not(:disabled)`);
+      if (again) again.focus();
+      else element.querySelector(`[data-day="${state.focus}"]`)?.focus();
       return;
     }
     const button = event.target.closest(".cal-day");
@@ -209,7 +214,8 @@ export function createRangeCalendar(element, options) {
     focus: () => element.querySelector(`[data-day="${state.focus}"]`)?.focus(),
     // Show *from*–*to* (a quick choice), without calling onPick.
     set(from, to) {
-      Object.assign(state, { from: shown(from), to: shown(to), picking: false, focus: clampDay(to, state) });
+      // No range yet (an error page): open on today, as at the start.
+      Object.assign(state, { from: shown(from), to: shown(to), picking: false, focus: clampDay(to || state.today, state) });
       month = monthStart(state.focus);
       render();
     },

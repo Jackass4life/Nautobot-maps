@@ -41,8 +41,8 @@ def now() -> datetime:
     return timeutil.parse_iso_datetime(timeutil.iso_utc_now())
 
 
-def month_bounds(month: str, at: datetime) -> tuple[datetime, datetime]:
-    """``(start, end)`` of *month* ("2026-10"), the end not after *at*."""
+def _month_span(month: str) -> tuple[datetime, datetime]:
+    """``(start, end)`` of the whole of *month* ("2026-10"), the end exclusive."""
     match = MONTH_PATTERN.match(month or "")
     if not match:
         raise ReportError("month must look like 2026-10")
@@ -52,6 +52,12 @@ def month_bounds(month: str, at: datetime) -> tuple[datetime, datetime]:
         end = datetime(year + (number == 12), number % 12 + 1, 1, tzinfo=UTC)
     except ValueError:  # month 13, year 0, the month after 9999-12
         raise ReportError("month must look like 2026-10") from None
+    return start, end
+
+
+def month_bounds(month: str, at: datetime) -> tuple[datetime, datetime]:
+    """``(start, end)`` of *month* ("2026-10"), the end not after *at*."""
+    start, end = _month_span(month)
     if start >= at:
         raise ReportError("That month hasn't started yet")
     return start, min(end, at)
@@ -73,7 +79,10 @@ def period_bounds(from_date: str, to_date: str, at: datetime) -> tuple[datetime,
     last = _date(to_date, "to")
     if last < start:
         raise ReportError("to must be on or after from")
-    end = last + timedelta(days=1)
+    try:
+        end = last + timedelta(days=1)
+    except OverflowError:  # 9999-12-31
+        raise ReportError("to must be a real date, like 2026-10-03") from None
     if (end - start).days > MAX_PERIOD_DAYS:
         raise ReportError(f"A period can be at most {MAX_PERIOD_DAYS} days")
     if start >= at:
@@ -82,13 +91,13 @@ def period_bounds(from_date: str, to_date: str, at: datetime) -> tuple[datetime,
 
 
 def oldest_day(at: datetime) -> str:
-    """The first whole day the history still has, "2024-10-15", or "" when
-    nothing is deleted: the calendar's limit, the same as report()'s (#341)."""
+    """The calendar's oldest day, "2024-10-15", or "" when nothing is deleted
+    (#341): the day after the one the history starts in, so report() still
+    accepts it a moment later, when the history has moved on."""
     if settings.ALERT_HISTORY_RETENTION_DAYS <= 0:
         return ""
     kept_from = at - timedelta(days=settings.ALERT_HISTORY_RETENTION_DAYS)
-    day = kept_from.replace(hour=0, minute=0, second=0, microsecond=0)
-    return f"{day if day == kept_from else day + timedelta(days=1):%Y-%m-%d}"
+    return f"{kept_from + timedelta(days=1):%Y-%m-%d}"
 
 
 def current_month(at: datetime) -> str:
@@ -287,7 +296,7 @@ def report(
     else:
         month = month or current_month(at)
         start, end = month_bounds(month, at)
-        last_day = f"{(start + timedelta(days=31)).replace(day=1) - timedelta(days=1):%Y-%m-%d}"
+        last_day = f"{_month_span(month)[1] - timedelta(days=1):%Y-%m-%d}"
         label = month
     if settings.ALERT_HISTORY_RETENTION_DAYS > 0:
         # Deleted history would read as no downtime: refuse rather than guess.

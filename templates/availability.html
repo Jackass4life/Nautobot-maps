@@ -24,7 +24,8 @@
     </header>
 
     <!-- The period and what counts as down (#287).  Without script, two date
-         fields; with it, a button that opens a calendar and quick choices (#341). -->
+         fields; with it, a button that opens a calendar and quick choices (#341).
+         "To" has no max: a month so far ends after today, and the report stops at now. -->
     <form id="availability-form" class="toolbar availability-form" method="get" action="/availability"
           data-today="{{ today }}" data-oldest-day="{{ oldest_day }}">
       <input type="hidden" name="month" value="{{ month }}" disabled />
@@ -32,7 +33,7 @@
         <span class="period-label" id="period-label">Period</span>
         <div class="period-inputs">
           <label>From <input id="availability-from" name="from" type="date" value="{{ from_date }}" min="{{ oldest_day }}" max="{{ today }}" required /></label>
-          <label>To <input id="availability-to" name="to" type="date" value="{{ to_date }}" min="{{ oldest_day }}" max="{{ today }}" required /></label>
+          <label>To <input id="availability-to" name="to" type="date" value="{{ to_date }}" min="{{ oldest_day }}" required /></label>
         </div>
         <button id="period-button" class="period-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="period-popover" aria-describedby="period-label" hidden></button>
         <div id="period-popover" class="period-popover" role="dialog" aria-label="Choose a period" hidden>

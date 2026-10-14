@@ -117,6 +117,9 @@ check(prevented === 3, `only moves: ${prevented}`);
 // A quick choice shows its days without a pick.
 calendar.set("2026-09-01", "2026-09-30");
 check(root.innerHTML.includes(">September 2026<") && picks.length === 1, "set");
+// After an error page there is no range: it opens on today (review on #341).
+calendar.set("", "");
+check(root.innerHTML.includes(">October 2026<") && root.innerHTML.includes('data-day="2026-10-14" tabindex="0"'), "empty: today");
 // This month, so far: shown up to today, not to the 31st.
 calendar.set("2026-10-01", "2026-10-31");
 check(/range-end[^"]*" data-day="2026-10-14"/.test(root.innerHTML) && !/in-range[^"]*" data-day="2026-10-15"/.test(root.innerHTML), "up to today");
