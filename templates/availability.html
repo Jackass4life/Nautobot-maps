@@ -23,10 +23,29 @@
       </nav>
     </header>
 
-    <!-- A month and what counts as down; a plain form, no script needed (#287). -->
-    <form class="toolbar availability-form" method="get" action="/availability">
-      <label for="availability-month">Month</label>
-      <input id="availability-month" name="month" type="month" value="{{ month }}" max="{{ this_month }}" required />
+    <!-- The period and what counts as down (#287).  Without script, two date
+         fields; with it, a button that opens a calendar and quick choices (#341). -->
+    <form id="availability-form" class="toolbar availability-form" method="get" action="/availability"
+          data-today="{{ today }}" data-oldest-day="{{ oldest_day }}">
+      <input type="hidden" name="month" value="{{ month }}" disabled />
+      <div class="period-field">
+        <span class="period-label" id="period-label">Period</span>
+        <div class="period-inputs">
+          <label>From <input id="availability-from" name="from" type="date" value="{{ from_date }}" min="{{ oldest_day }}" max="{{ today }}" required /></label>
+          <label>To <input id="availability-to" name="to" type="date" value="{{ to_date }}" min="{{ oldest_day }}" max="{{ today }}" required /></label>
+        </div>
+        <button id="period-button" class="period-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="period-popover" aria-describedby="period-label" hidden></button>
+        <div id="period-popover" class="period-popover" role="dialog" aria-label="Choose a period" hidden>
+          <div class="period-presets" role="group" aria-label="Quick choices">
+            <button type="button" class="period-preset" data-preset="this-month">This month</button>
+            <button type="button" class="period-preset" data-preset="last-month">Last month</button>
+            <button type="button" class="period-preset" data-preset="last-7">Last 7 days</button>
+            <button type="button" class="period-preset" data-preset="last-30">Last 30 days</button>
+          </div>
+          <div id="period-calendar" class="calendar"></div>
+          <p class="period-hint" id="period-hint">Click the first day, then the last.</p>
+        </div>
+      </div>
       <label for="availability-basis">Downtime</label>
       <select id="availability-basis" name="basis">
         <option value="any_down"{% if basis == "any_down" %} selected{% endif %}>Any monitored device down</option>
@@ -41,8 +60,8 @@
     <p class="availability-note">
       {{ report.period.start[:10] }} to {{ report.period.end[:16] | replace("T", " ") }} UTC{% if not report.period.complete %} (so far){% endif %}.
       Time in maintenance windows is not downtime.
-      Download CSV: <a href="/api/availability.csv?month={{ month }}&amp;basis={{ basis }}&amp;view=sites">sites</a>,
-      <a href="/api/availability.csv?month={{ month }}&amp;basis={{ basis }}&amp;view=tenants">tenants</a>.
+      Download CSV: <a href="/api/availability.csv?{{ csv_query }}&amp;view=sites">sites</a>,
+      <a href="/api/availability.csv?{{ csv_query }}&amp;view=tenants">tenants</a>.
     </p>
 
     <section class="table-shell availability-section" aria-labelledby="availability-tenants">

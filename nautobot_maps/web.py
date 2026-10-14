@@ -6,7 +6,7 @@ A Flask blueprint registered by app.py; URLs are unchanged.
 import json
 import logging
 from datetime import UTC
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
@@ -864,7 +864,7 @@ def api_maintenance_end(window_id: int):
 
 
 def _availability_report() -> tuple[dict | None, str, int]:
-    """``(report, error, status)`` for the month and basis in the query string (#287)."""
+    """``(report, error, status)`` for the month or from–to and the basis in the query string (#287, #341)."""
     conn = db.get_conn()
     if conn is None:
         return None, "The availability report needs the PostgreSQL database (NAUTOBOT_MAPS_DATABASE_URL).", 503
@@ -881,6 +881,8 @@ def _availability_report() -> tuple[dict | None, str, int]:
                 (request.args.get("month") or "").strip() or None,
                 (request.args.get("basis") or "").strip() or None,
                 sites,
+                (request.args.get("from") or "").strip() or None,
+                (request.args.get("to") or "").strip() or None,
             ),
             "",
             200,
@@ -893,17 +895,33 @@ def _availability_report() -> tuple[dict | None, str, int]:
 
 @bp.route("/availability")
 def availability_page():
-    """Availability per site and tenant for a month (#287); ``?month=2026-10&basis=any_down``."""
+    """Availability per site and tenant (#287): ``?month=2026-10`` or
+    ``?from=2026-10-03&to=2026-10-09`` (#341), and ``&basis=any_down``."""
     report, error, status = _availability_report()
-    this_month = availability.current_month(availability.now())
+    at = availability.now()
+    this_month = availability.current_month(at)
+    period = (report or {}).get("period") or {}
+    # What the page asked for, kept in the form after an error too.
+    month = (report.get("month") or "") if report else (request.args.get("month") or "").strip()
+    from_date = period.get("from") or (request.args.get("from") or "").strip()
+    to_date = period.get("to") or (request.args.get("to") or "").strip()
+    if not report and not (month or from_date or to_date):
+        month = this_month
+    basis = (report or {}).get("basis") or settings.AVAILABILITY_BASIS
+    query = {"month": month} if month else {"from": from_date, "to": to_date}
     return (
         render_template(
             "availability.html",
             report=report,
             error=error,
-            month=(report or {}).get("month") or (request.args.get("month") or this_month),
-            basis=(report or {}).get("basis") or settings.AVAILABILITY_BASIS,
-            this_month=this_month,
+            month=month,
+            from_date=from_date,
+            to_date=to_date,
+            basis=basis,
+            csv_query=urlencode({**query, "basis": basis}),
+            today=f"{at:%Y-%m-%d}",
+            # The calendar's limits: today, and the oldest day the history still has.
+            oldest_day=availability.oldest_day(at),
         ),
         status,
     )
@@ -914,7 +932,8 @@ def api_availability():
     """Availability per site and tenant for a month (#287).
 
     Query parameters: ``month`` (``2026-10``; default the current month, up
-    to now) and ``basis``: ``any_down`` (any monitored device of the site
+    to now), or ``from`` and ``to`` (``2026-10-03``, both days included, at
+    most 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site
     down) or ``critical`` (the site at Critical); default
     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
     """
@@ -922,9 +941,15 @@ def api_availability():
     return (jsonify(report), 200) if report is not None else (jsonify({"error": error}), status)
 
 
+def _period_slug(report: dict) -> str:
+    """``2026-10``, or ``2026-10-03_2026-10-09`` for a from–to period (#341)."""
+    period = report["period"]
+    return report["month"] or (period["from"] if period["from"] == period["to"] else f"{period['from']}_{period['to']}")
+
+
 @bp.route("/api/availability.csv")
 def api_availability_csv():
-    """The availability report as CSV (#287): ``view=sites`` (default) or ``tenants``; same ``month`` and ``basis``."""
+    """The availability report as CSV (#287): ``view=sites`` (default) or ``tenants``; same ``month``, ``from``/``to`` and ``basis``."""
     view = (request.args.get("view") or "sites").strip()
     if view not in ("sites", "tenants"):
         return jsonify({"error": "view must be sites or tenants"}), 400
@@ -934,7 +959,7 @@ def api_availability_csv():
     return Response(
         availability.to_csv(report, view),
         mimetype="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="availability-{view}-{report["month"]}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="availability-{view}-{_period_slug(report)}.csv"'},
     )
 
 

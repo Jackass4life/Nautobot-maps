@@ -57,10 +57,10 @@ def write(fn):
         conn.close()
 
 
-def run(month="2026-10", basis="any_down", sites=None):
+def run(month="2026-10", basis="any_down", sites=None, from_date=None, to_date=None):
     conn = db.get_conn()
     try:
-        return availability.report(conn, month, basis, sites)
+        return availability.report(conn, month, basis, sites, from_date, to_date)
     finally:
         conn.close()
 
@@ -83,6 +83,33 @@ class TestIntervals:
                 availability.month_bounds(bad, at)
         with pytest.raises(availability.ReportError, match="hasn't started"):
             availability.month_bounds("2026-11", at)
+
+    def test_period_bounds(self):
+        # Any days, both included (#341); the end not after now.
+        at = t(21, 9)
+        assert availability.period_bounds("2026-10-03", "2026-10-09", at) == (t(3), t(10))
+        assert availability.period_bounds("2026-10-20", "2026-10-25", at) == (t(20), at)
+        assert availability.period_bounds("2026-10-21", "2026-10-21", at) == (t(21), at), "today so far"
+        # Months of every length: no "31 September".
+        assert availability.period_bounds("2024-02-01", "2024-02-29", at)[1] == datetime(2024, 3, 1, tzinfo=UTC)
+        for bad, message in (
+            (("2026-02-30", "2026-03-01"), "real date"),
+            (("2026-9-1", "2026-09-02"), "2026-10-03"),
+            (("2026-10-09", "2026-10-03"), "on or after"),
+            (("2025-10-01", "2026-10-02"), "at most 366 days"),
+            (("2026-10-22", "2026-10-23"), "hasn't started"),
+        ):
+            with pytest.raises(availability.ReportError, match=message):
+                availability.period_bounds(*bad, at)
+        assert availability.period_bounds("2025-10-01", "2026-09-30", at)[0] == datetime(2025, 10, 1, tzinfo=UTC)
+
+    def test_oldest_day(self, monkeypatch):
+        # The calendar's first day is the first whole day report() accepts (#341).
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 0)
+        assert availability.oldest_day(t(21, 9)) == ""
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
+        assert availability.oldest_day(t(21, 9)) == "2026-10-12", "the 11th is partly deleted"
+        assert availability.oldest_day(t(21)) == "2026-10-11", "at midnight the 11th is whole"
 
 
 class TestReport:
@@ -230,7 +257,40 @@ class TestReport:
             "end": "2026-10-21T00:00:00Z",
             "seconds": PERIOD,
             "complete": False,
+            "from": "2026-10-01",
+            "to": "2026-10-31",
+            "label": "2026-10",
         }
+
+    def test_a_from_to_period(self, pg_database, clock, monkeypatch):
+        write(lambda conn: incident(conn, "s1", "d1", t(2, 12), t(4, 12)))
+        sites = [{"id": "s1", "name": "Oslo", "tenants": ["Acme"], "device_count": 1}]
+        # 3–4 October: the 2nd's half day is outside, 36 of 48 hours down.
+        data = run(None, sites=sites, from_date="2026-10-03", to_date="2026-10-04")
+        assert data["sites"][0]["downtime_seconds"] == 36 * 3600
+        assert data["sites"][0]["availability"] == 25.0
+        assert data["month"] is None
+        assert data["period"] == {
+            "start": "2026-10-03T00:00:00Z",
+            "end": "2026-10-05T00:00:00Z",
+            "seconds": 2 * 86400,
+            "complete": True,
+            "from": "2026-10-03",
+            "to": "2026-10-04",
+            "label": "2026-10-03 to 2026-10-04",
+        }
+        # A month says its days too.
+        month = run(sites=sites)["period"]
+        assert (month["from"], month["to"], month["label"]) == ("2026-10-01", "2026-10-31", "2026-10")
+        assert run("2026-02", sites=sites)["period"]["to"] == "2026-02-28"
+        with pytest.raises(availability.ReportError, match="not both"):
+            run("2026-10", from_date="2026-10-03", to_date="2026-10-04")
+        with pytest.raises(availability.ReportError, match="both from and to"):
+            run(None, from_date="2026-10-03")
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
+        with pytest.raises(availability.ReportError, match="2026-10-03 to 2026-10-04 can't be reported"):
+            run(None, from_date="2026-10-03", to_date="2026-10-04")
+        assert run(None, from_date="2026-10-11", to_date="2026-10-20")["period"]["seconds"] == 10 * 86400
 
     def test_unknown_basis(self, pg_database, clock):
         with pytest.raises(availability.ReportError, match="basis"):
@@ -258,10 +318,35 @@ class TestPages:
         assert data["sites"][0]["availability"] == 90.0
         csv_text = client.get("/api/availability.csv?month=2026-10").get_data(as_text=True)
         lines = csv_text.lstrip("﻿").splitlines()
-        assert lines[0] == "month,basis,site,tenants,availability_pct,downtime_min,incidents"
-        assert lines[1] == "2026-10,any_down,'=Oslo,Acme,90.0,2880,1", "formula-safe"
+        assert lines[0] == "month,basis,site,tenants,availability_pct,downtime_min,incidents,period_from,period_to"
+        assert lines[1] == "2026-10,any_down,'=Oslo,Acme,90.0,2880,1,2026-10-01,2026-10-31", "formula-safe"
         tenants = client.get("/api/availability.csv?view=tenants&month=2026-10").get_data(as_text=True)
-        assert "2026-10,any_down,Acme,1,90.0,2880" in tenants
+        assert "2026-10,any_down,Acme,1,90.0,2880,2026-10-01,2026-10-31" in tenants
+
+    def test_a_from_to_period_on_the_page_json_and_csv(self, client):
+        # #341: down the 2nd and 3rd; the 3rd and 4th asked for: half.
+        query = "from=2026-10-03&to=2026-10-04"
+        page = client.get(f"/availability?{query}").get_data(as_text=True)
+        assert "50.000 %" in page and "(so far)" not in page
+        assert 'name="from" type="date" value="2026-10-03"' in page and 'value="2026-10-04"' in page
+        assert '<input type="hidden" name="month" value="" disabled />' in page
+        assert (
+            'href="/api/availability.csv?from=2026-10-03&amp;to=2026-10-04&amp;basis=any_down&amp;view=sites"' in page
+        )
+        assert 'data-today="2026-10-21"' in page
+        data = client.get(f"/api/availability?{query}").get_json()
+        assert data["period"]["label"] == "2026-10-03 to 2026-10-04" and data["month"] is None
+        resp = client.get(f"/api/availability.csv?{query}")
+        assert 'filename="availability-sites-2026-10-03_2026-10-04.csv"' in resp.headers["Content-Disposition"]
+        assert (
+            resp.get_data(as_text=True).lstrip("﻿").splitlines()[1]
+            == ",any_down,'=Oslo,Acme,50.0,1440,1,2026-10-03,2026-10-04"
+        )
+        one_day = client.get("/api/availability.csv?from=2026-10-03&to=2026-10-03")
+        assert 'filename="availability-sites-2026-10-03.csv"' in one_day.headers["Content-Disposition"]
+        month = client.get("/availability?month=2026-10").get_data(as_text=True)
+        assert '<input type="hidden" name="month" value="2026-10" disabled />' in month
+        assert 'name="from" type="date" value="2026-10-01"' in month
 
     def test_an_unreadable_board_is_a_503_not_a_partial_report(self, client, monkeypatch):
         def broken():
@@ -299,6 +384,11 @@ class TestPages:
         assert client.get("/api/availability?month=2026-13").status_code == 400
         assert client.get("/availability?month=2027-01").status_code == 400
         assert client.get("/api/availability.csv?view=x").status_code == 400
+        resp = client.get("/availability?from=2026-02-30&to=2026-03-02")
+        assert resp.status_code == 400 and "real date" in resp.get_data(as_text=True)
+        # The form keeps what was asked for.
+        assert 'value="2026-02-30"' in resp.get_data(as_text=True)
+        assert client.get("/api/availability?from=2026-10-03").status_code == 400
 
     def test_no_database(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")

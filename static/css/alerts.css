@@ -1544,3 +1544,213 @@ a.case-pill:focus-visible {
   color: var(--color-danger);
 }
 
+
+/* The period: a button that opens a calendar and quick choices (#341). */
+.period-field {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.period-label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.period-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.period-button {
+  min-width: 190px;
+  padding: 8px 32px 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+
+.period-button::after {
+  content: "▾";
+  position: absolute;
+  right: 12px;
+  color: var(--color-text-muted);
+}
+
+.period-button:hover,
+.period-button[aria-expanded="true"] {
+  border-color: var(--color-primary);
+}
+
+.period-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  gap: 16px;
+  max-width: calc(100vw - 32px);
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.period-popover[hidden] {
+  display: none;
+}
+
+.period-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  padding-right: 14px;
+  border-right: 1px solid var(--color-border);
+}
+
+.period-preset {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.period-preset:hover:not(:disabled),
+.period-preset:focus-visible {
+  background: var(--color-surface-2);
+  color: var(--color-primary);
+}
+
+.period-preset:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.period-hint {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.calendar {
+  width: 260px;
+  padding-bottom: 18px;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cal-title {
+  font-weight: 600;
+}
+
+.cal-nav {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.cal-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px 0;
+}
+
+.cal-weekday {
+  padding: 4px 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.cal-day {
+  height: 34px;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.cal-day:hover:not(:disabled) {
+  border-radius: 8px;
+  background: var(--color-surface-2);
+}
+
+.cal-day.in-range,
+.cal-day.in-preview {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.cal-day.range-start,
+.cal-day.range-end {
+  border-radius: 8px;
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.cal-day.is-today:not(.range-start):not(.range-end) {
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+  border-radius: 8px;
+}
+
+.cal-day:disabled {
+  color: var(--color-text-muted);
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cal-day:focus-visible,
+.cal-nav:focus-visible,
+.period-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .period-popover {
+    flex-direction: column;
+  }
+
+  .period-presets {
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 0 0 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
