@@ -117,14 +117,22 @@ def test_the_availability_page_answers_first(page):
     assert page.locator(".avail-card").count() == 4
     sites = page.locator('[data-avail-table="sites"]')
     assert sites.locator(".avail-filters").is_visible()
-    shown = [float(v) for v in sites.locator("tbody tr:visible").evaluate_all("rows => rows.map(r => r.dataset.availability)")]
+    shown = [
+        float(v)
+        for v in sites.locator("tbody tr:visible").evaluate_all("rows => rows.map(r => r.dataset.availability)")
+    ]
     assert shown == sorted(shown), "worst first"
     sites.locator("th[data-sort=name] button").click()
     assert sites.locator("th[data-sort=name]").get_attribute("aria-sort") == "ascending"
     name = sites.locator("tbody tr:visible").first.get_attribute("data-name")
     sites.locator(".avail-search").fill(name)
     assert sites.locator("tbody tr:visible").count() >= 1
-    assert all(name.lower() in n.lower() for n in sites.locator("tbody tr:visible").evaluate_all("rows => rows.map(r => r.dataset.name + ' ' + r.dataset.tenants)"))
+    assert all(
+        name.lower() in n.lower()
+        for n in sites.locator("tbody tr:visible").evaluate_all(
+            "rows => rows.map(r => r.dataset.name + ' ' + r.dataset.tenants)"
+        )
+    )
 
 
 def test_the_availability_period_calendar(page):
