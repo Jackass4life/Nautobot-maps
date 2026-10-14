@@ -5,13 +5,15 @@
 import { initThemeToggle } from "../lib/theme.js";
 import { showError } from "../lib/toast.js";
 import { initInfoTips } from "../lib/tooltip.js";
-import { applyFilters, clearFilters, populateFilters } from "./filters.js";
+import { renderAlarmList, toggleAlarmList } from "./alarms.js";
+import { applyFilters, clearFilters, populateFilters, restoreAlarmsOnly, setAlarmsOnly } from "./filters.js";
 import {
   closeInspector,
   handleMarkerActivation,
   isInspectorOpen,
   UNCLUSTERED_ZOOM,
   openInspectorForLocation,
+  openLocationById,
   renderInspectorContent,
   syncInspectorBackdrop,
 } from "./inspector.js";
@@ -73,6 +75,10 @@ Object.assign(els, {
   searchResults: byId("search-results"),
   searchResultsHeader: byId("search-results-header"),
   searchResultsList: byId("search-results-list"),
+  alarmList: byId("alarm-list"),
+  alarmCount: byId("alarm-count"),
+  alarmMore: byId("alarm-more"),
+  alarmsOnlyBtn: byId("alarms-only"),
 });
 
 onMarkerActivate(handleMarkerActivation);
@@ -150,6 +156,28 @@ els.quickStatusButtons.forEach((button) => {
     applyFilters();
   });
 });
+
+// The sites in alarm (#334): the list opens a site; "Alarms only" hides the rest.
+els.alarmList.addEventListener("click", (event) => {
+  const button = event.target.closest(".alarm-item");
+  if (!button) return;
+  const open = () => openLocationById(button.dataset.locationId, { focusInspector: false, focusElement: button });
+  if (open()) return;
+  // Not on the map: search results are shown.  Back to the whole map (#337).
+  els.searchInput.value = "";
+  els.searchResults.classList.add("hidden");
+  applyFilters();
+  open();
+});
+els.alarmMore.addEventListener("click", toggleAlarmList);
+restoreAlarmsOnly();
+// A link to a site shows it, even a quiet one: not remembered.
+setAlarmsOnly(state.alarmsOnly && !state.initialLocationId, { remember: false });
+els.alarmsOnlyBtn.addEventListener("click", () => {
+  setAlarmsOnly(!state.alarmsOnly);
+  applyFilters();
+});
+renderAlarmList();
 
 initThemeToggle(byId("theme-toggle"));
 

@@ -1,7 +1,8 @@
 // Alert levels of every location, so markers are coloured without a click (#234).
 import { applyLevelToOpenPanel } from "./inspector.js";
 import { crossesClusterLine, redrawMarkers, refreshMarkerIcon } from "./markers.js";
-import { detailCache, els, locationAlerts, state } from "./state.js";
+import { renderAlarmList } from "./alarms.js";
+import { detailCache, els, locationAlertInfo, locationAlerts, state } from "./state.js";
 
 const ALERT_REFRESH_MS = 60 * 1000;
 // Until the levels have loaded once, a location without one isn't known to
@@ -25,9 +26,13 @@ export async function loadLocationAlerts() {
     if (!locationAlertsLoaded) setAlertLevelsNote(true);
     return;
   }
+  const firstLoad = !state.levelsLoaded;
   locationAlertsLoaded = true;
+  state.levelsLoaded = true;
   setAlertLevelsNote(false);
   const levels = data.levels || {};
+  for (const id of Object.keys(locationAlertInfo)) delete locationAlertInfo[id];
+  Object.assign(locationAlertInfo, levels);
   const changed = new Set();
   for (const id of Object.keys(locationAlerts)) {
     if (!levels[id]) {
@@ -46,8 +51,12 @@ export async function loadLocationAlerts() {
     if (id !== state.selectedLocationId) detailCache.delete(id);
   }
   // A site that started or stopped needing attention: one redraw for all.
-  if ([...changed].some(crossesClusterLine)) redrawMarkers();
+  // With "Alarms only", any change may add or remove a site, and the first
+  // levels turn it on.  (Not while search results are shown: redrawMarkers.)
+  if ([...changed].some(crossesClusterLine) || (state.alarmsOnly && (changed.size || firstLoad))) redrawMarkers();
   else for (const id of changed) refreshMarkerIcon(id);
+  // Times and counts change without a level change: the list always.
+  renderAlarmList();
   applyLevelToOpenPanel(levels);
 }
 
