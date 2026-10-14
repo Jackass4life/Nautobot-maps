@@ -1535,13 +1535,247 @@ a.case-pill:focus-visible {
   font-size: 1rem;
 }
 
-.availability-pct {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+/* The answer first (#342): four cards, then the tables, the worst first. */
+.avail-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
 }
 
-.availability-pct.is-below {
+.avail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: var(--shadow);
+}
+
+.avail-card-label {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.avail-card-value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.avail-card-name {
+  font-size: 1.35rem;
+}
+
+.avail-card-note {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.avail-card-value.is-below,
+.avail-card-note.is-below {
   color: var(--color-danger);
+}
+
+.avail-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px 6px;
+}
+
+.avail-section-head .availability-heading {
+  padding: 0;
+}
+
+.avail-count {
+  margin-left: 6px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.avail-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.avail-filters[hidden] {
+  display: none;
+}
+
+.avail-search,
+.avail-tenant {
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font: inherit;
+  color-scheme: light dark;
+}
+
+.avail-search {
+  width: min(260px, 100%);
+}
+
+.avail-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.avail-table th.num .sort-btn {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sort-btn::after {
+  content: "↕";
+  color: var(--color-text-muted);
+  font-size: 0.8em;
+  opacity: 0.5;
+}
+
+th[aria-sort="ascending"] .sort-btn::after {
+  content: "↑";
+  opacity: 1;
+}
+
+th[aria-sort="descending"] .sort-btn::after {
+  content: "↓";
+  opacity: 1;
+}
+
+.sort-btn:focus-visible,
+.avail-more-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.pct-cell {
+  white-space: nowrap;
+}
+
+.pct-value {
+  display: inline-block;
+  min-width: 6.5em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pct-value.is-below {
+  color: var(--color-danger);
+}
+
+/* 90-100 %: green from the target, amber from 99 %, red below. */
+.pct-bar {
+  width: 96px;
+  height: 6px;
+  vertical-align: middle;
+  border: 0;
+  border-radius: 3px;
+  background: var(--color-surface-2);
+  appearance: none;
+}
+
+.pct-bar::-webkit-meter-bar {
+  height: 6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--color-surface-2);
+}
+
+.pct-bar::-webkit-meter-optimum-value {
+  border-radius: 3px;
+  background: var(--color-success);
+}
+
+.pct-bar::-webkit-meter-suboptimum-value {
+  border-radius: 3px;
+  background: var(--color-warning);
+}
+
+.pct-bar::-webkit-meter-even-less-good-value {
+  border-radius: 3px;
+  background: var(--color-danger);
+}
+
+.pct-bar:-moz-meter-optimum::-moz-meter-bar {
+  background: var(--color-success);
+}
+
+.pct-bar:-moz-meter-sub-optimum::-moz-meter-bar {
+  background: var(--color-warning);
+}
+
+.pct-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+  background: var(--color-danger);
+}
+
+.avail-tenants {
+  color: var(--color-text-muted);
+}
+
+.avail-more-tenants {
+  color: var(--color-primary);
+  cursor: help;
+}
+
+.avail-more {
+  margin: 0;
+  padding: 10px 16px 14px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.avail-more[hidden] {
+  display: none;
+}
+
+.avail-more-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.avail-more-btn:hover {
+  border-color: var(--color-primary);
+}
+
+@media (max-width: 560px) {
+  .pct-bar {
+    display: none;
+  }
+
+  .avail-card-value {
+    font-size: 1.5rem;
+  }
 }
 
 

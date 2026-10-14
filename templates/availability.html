@@ -55,53 +55,123 @@
       <button class="secondary-filter-btn" type="submit">Show</button>
     </form>
 
+    {#- A tenant's name, with an (i) for its Nautobot description (#342, as on the board). #}
+    {%- macro tenant_name(name) -%}
+      {{ name }}
+      {%- set description = report.tenant_descriptions.get(name) -%}
+      {%- if description %}<span class="info-tip" tabindex="0" role="img" aria-label="{{ name }}: {{ description }}" data-info-tip="{{ description }}">i</span>{% endif -%}
+    {%- endmacro %}
+    {#- Availability as a number and a bar: 90 % or less is empty, under the target red (#342). #}
+    {%- macro pct(value, target) -%}
+      <span class="pct-value{% if value < target %} is-below{% endif %}">{{ "%.3f" | format(value) }} %</span>
+      <meter class="pct-bar" min="90" max="100" low="99" high="{{ target }}" optimum="100" value="{{ value }}" aria-hidden="true"></meter>
+    {%- endmacro %}
+
     {%- if error %}
     <p class="availability-note" role="alert">{{ error }}</p>
     {%- else %}
+    {%- set summary = report.summary %}
     <p class="availability-note">
-      {{ report.period.start[:10] }} to {{ report.period.end[:16] | replace("T", " ") }} UTC{% if not report.period.complete %} (so far){% endif %}.
-      Time in maintenance windows is not downtime.
-      Download CSV: <a href="/api/availability.csv?{{ csv_query }}&amp;view=sites">sites</a>,
-      <a href="/api/availability.csv?{{ csv_query }}&amp;view=tenants">tenants</a>.
+      {{ report.period.start[:10] }} to {{ report.period.end[:16] | replace("T", " ") }} UTC{% if not report.period.complete %} (so far){% endif %}
+      · maintenance is not downtime ·
+      CSV: <a href="/api/availability.csv?{{ csv_query }}&amp;view=sites">sites</a>,
+      <a href="/api/availability.csv?{{ csv_query }}&amp;view=tenants">tenants</a>
     </p>
 
-    <section class="table-shell availability-section" aria-labelledby="availability-tenants">
-      <h2 id="availability-tenants" class="availability-heading">Tenants</h2>
-      <table>
-        <thead><tr><th>Tenant</th><th>Availability</th><th>Sites</th><th>Downtime</th></tr></thead>
+    <!-- The answer first (#342): four cards, then the worst tenants and sites. -->
+    <section class="avail-cards" aria-label="Summary">
+      <div class="avail-card">
+        <span class="avail-card-label">Availability</span>
+        <span class="avail-card-value{% if summary.availability < summary.target %} is-below{% endif %}">{{ "%.3f" | format(summary.availability) }} %</span>
+        <span class="avail-card-note">average of {{ "{:,}".format(summary.sites) }} site{{ "" if summary.sites == 1 else "s" }}</span>
+      </div>
+      <div class="avail-card">
+        <span class="avail-card-label">Downtime</span>
+        <span class="avail-card-value">{{ summary.downtime_seconds | downtime }}</span>
+        <span class="avail-card-note">{{ "{:,}".format(summary.incidents) }} incident{{ "" if summary.incidents == 1 else "s" }}, all sites</span>
+      </div>
+      <div class="avail-card">
+        <span class="avail-card-label">Below {{ summary.target }} %</span>
+        <span class="avail-card-value{% if summary.below_target %} is-below{% endif %}">{{ "{:,}".format(summary.below_target) }}</span>
+        <span class="avail-card-note">of {{ "{:,}".format(summary.sites) }} sites · {{ "{:,}".format(summary.no_downtime) }} with no downtime</span>
+      </div>
+      <div class="avail-card">
+        <span class="avail-card-label">Worst tenant</span>
+        {%- if summary.worst_tenant %}
+        <span class="avail-card-value avail-card-name">{{ tenant_name(summary.worst_tenant.tenant) }}</span>
+        <span class="avail-card-note{% if summary.worst_tenant.availability < summary.target %} is-below{% endif %}">{{ "%.3f" | format(summary.worst_tenant.availability) }} %</span>
+        {%- else %}
+        <span class="avail-card-value">—</span>
+        <span class="avail-card-note">no tenants</span>
+        {%- endif %}
+      </div>
+    </section>
+
+    <section class="table-shell availability-section" aria-labelledby="availability-tenants" data-avail-table="tenants" data-limit="10">
+      <div class="avail-section-head">
+        <h2 id="availability-tenants" class="availability-heading">Tenants <span class="avail-count">{{ "{:,}".format(report.tenants | length) }}</span></h2>
+      </div>
+      <table class="avail-table">
+        <thead><tr>
+          <th data-sort="name">Tenant</th>
+          <th data-sort="availability" aria-sort="ascending">Availability</th>
+          <th data-sort="sites" class="num">Sites</th>
+          <th data-sort="downtime" class="num">Downtime</th>
+        </tr></thead>
         <tbody>
           {%- for row in report.tenants %}
-          <tr>
-            <td>{{ row.tenant }}</td>
-            <td class="availability-pct{% if row.availability < 99.9 %} is-below{% endif %}">{{ "%.3f" | format(row.availability) }} %</td>
-            <td>{{ row.sites }}</td>
-            <td>{{ (row.downtime_seconds / 60) | round | int }} min</td>
+          <tr data-name="{{ row.tenant }}" data-availability="{{ row.availability }}" data-sites="{{ row.sites }}" data-downtime="{{ row.downtime_seconds }}">
+            <td>{{ tenant_name(row.tenant) }}</td>
+            <td class="pct-cell">{{ pct(row.availability, summary.target) }}</td>
+            <td class="num">{{ row.sites }}</td>
+            <td class="num">{{ row.downtime_seconds | downtime }}</td>
           </tr>
           {%- else %}
           <tr><td colspan="4" class="empty-state">No tenants.</td></tr>
           {%- endfor %}
         </tbody>
       </table>
+      <p class="avail-more" hidden></p>
     </section>
 
-    <section class="table-shell availability-section" aria-labelledby="availability-sites">
-      <h2 id="availability-sites" class="availability-heading">Sites</h2>
-      <table>
-        <thead><tr><th>Site</th><th>Availability</th><th>Downtime</th><th>Incidents</th><th>Tenants</th></tr></thead>
+    <section class="table-shell availability-section" aria-labelledby="availability-sites" data-avail-table="sites" data-limit="25">
+      <div class="avail-section-head">
+        <h2 id="availability-sites" class="availability-heading">Sites <span class="avail-count">{{ "{:,}".format(report.sites | length) }}</span></h2>
+        <div class="avail-filters" hidden>
+          <input class="avail-search" type="search" placeholder="Search sites" aria-label="Search sites" autocomplete="off" />
+          <select class="avail-tenant" aria-label="Tenant">
+            <option value="">All tenants</option>
+            {%- for row in report.tenants | sort(attribute="tenant") %}
+            <option value="{{ row.tenant }}">{{ row.tenant }}</option>
+            {%- endfor %}
+          </select>
+        </div>
+      </div>
+      <table class="avail-table">
+        <thead><tr>
+          <th data-sort="name">Site</th>
+          <th data-sort="availability" aria-sort="ascending">Availability</th>
+          <th data-sort="downtime" class="num">Downtime</th>
+          <th data-sort="incidents" class="num">Incidents</th>
+          <th>Tenants</th>
+        </tr></thead>
         <tbody>
           {%- for row in report.sites %}
-          <tr>
+          <tr data-name="{{ row.name or row.site_id }}" data-availability="{{ row.availability }}" data-downtime="{{ row.downtime_seconds }}" data-incidents="{{ row.incidents }}" data-tenants='{{ row.tenants | tojson }}'>
             <td>{{ row.name or row.site_id }}</td>
-            <td class="availability-pct{% if row.availability < 99.9 %} is-below{% endif %}">{{ "%.3f" | format(row.availability) }} %</td>
-            <td>{{ (row.downtime_seconds / 60) | round | int }} min</td>
-            <td>{{ row.incidents }}</td>
-            <td>{{ row.tenants | join(", ") }}</td>
+            <td class="pct-cell">{{ pct(row.availability, summary.target) }}</td>
+            <td class="num">{{ row.downtime_seconds | downtime }}</td>
+            <td class="num">{{ row.incidents }}</td>
+            <td class="avail-tenants">
+              {%- if row.tenants %}{{ tenant_name(row.tenants[0]) }}{% if row.tenants | length > 1 %} <span class="avail-more-tenants" title="{{ row.tenants[1:] | join(', ') }}">+{{ row.tenants | length - 1 }}</span>{% endif %}{% else %}—{% endif -%}
+            </td>
           </tr>
           {%- else %}
           <tr><td colspan="5" class="empty-state">No sites.</td></tr>
           {%- endfor %}
         </tbody>
       </table>
+      <p class="avail-more" hidden></p>
     </section>
     {%- endif %}
   </div>

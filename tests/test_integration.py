@@ -1475,7 +1475,8 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         for selector in (".wall-view .site-name", ".wall-view .alert-badge", ".wall-view .case-pill"):
             assert selector not in sizes, f"{selector} uses the board's size"
         for selector, value in sizes.items():
-            if "empty-state" in selector:
+            # Only the wall's own rules: other pages' styles follow in the file (#342).
+            if "empty-state" in selector or ".wall-view" not in selector:
                 continue
             number = re.fullmatch(r"([\d.]+)rem", value)
             assert number, f"{selector}: font-size {value!r}; use rem, at most 1rem"

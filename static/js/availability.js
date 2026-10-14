@@ -1,10 +1,15 @@
 // The availability page (#287) is rendered on the server.  This keeps the
-// light/dark choice the other pages use, and turns the two date fields into
-// a button with a calendar and quick choices (#341).  An entry module, like */main.js.
+// light/dark choice the other pages use, turns the two date fields into a
+// button with a calendar and quick choices (#341), and makes the tables
+// sortable and searchable, the worst first (#342).  An entry module, like */main.js.
+import { initAvailabilityTable } from "./availability/table.js";
 import { createRangeCalendar, formatRange, quickPeriod } from "./lib/calendar.js";
 import { initThemeToggle } from "./lib/theme.js";
+import { initInfoTips } from "./lib/tooltip.js";
 
 initThemeToggle(document.getElementById("theme-toggle"));
+initInfoTips();
+for (const section of document.querySelectorAll("[data-avail-table]")) initAvailabilityTable(section);
 
 function initPeriodPicker(form) {
   const fromInput = form.querySelector("#availability-from");

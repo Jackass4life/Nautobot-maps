@@ -891,6 +891,11 @@ def _availability_report() -> tuple[dict | None, str, int]:
         conn.close()
 
 
+@bp.app_template_filter("downtime")
+def _downtime_filter(seconds) -> str:
+    return availability.format_downtime(seconds)
+
+
 @bp.route("/availability")
 def availability_page():
     """Availability per site and tenant (#287): ``?month=2026-10`` or
