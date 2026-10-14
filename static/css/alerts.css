@@ -1538,7 +1538,7 @@ a.case-pill:focus-visible {
 /* The answer first (#342): four cards, then the tables, the worst first. */
 .avail-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 40%), 1fr));
   gap: 14px;
   margin-bottom: 22px;
 }
@@ -1689,7 +1689,7 @@ th[aria-sort="descending"] .sort-btn::after {
   color: var(--color-danger);
 }
 
-/* 90-100 %: green from the target, amber from 99 %, red below. */
+/* 98-100 %: green from the target, amber from 99 %, red below. */
 .pct-bar {
   width: 96px;
   height: 6px;
@@ -1773,8 +1773,16 @@ th[aria-sort="descending"] .sort-btn::after {
     display: none;
   }
 
+  .avail-card {
+    padding: 14px;
+  }
+
   .avail-card-value {
-    font-size: 1.5rem;
+    font-size: 1.35rem;
+  }
+
+  .avail-card-name {
+    font-size: 1.1rem;
   }
 }
 
