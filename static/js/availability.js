@@ -79,9 +79,11 @@ function initPeriodPicker(form) {
     }
   });
 
-  // A click outside closes it.
+  // A click outside closes it.  The path, not target.closest(): a day's click
+  // redraws the calendar, so its button is no longer in the page by now.
+  const field = form.querySelector(".period-field");
   document.addEventListener("click", (event) => {
-    if (!popover.hidden && !event.target.closest(".period-field")) close(false);
+    if (!popover.hidden && !event.composedPath().includes(field)) close(false);
   });
 }
 
