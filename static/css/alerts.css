@@ -1616,7 +1616,7 @@ a.case-pill:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 120px;
+  min-width: 132px;
   padding-right: 14px;
   border-right: 1px solid var(--color-border);
 }

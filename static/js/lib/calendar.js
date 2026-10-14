@@ -124,9 +124,11 @@ function clampDay(day, { min, max }) {
 // The first click starts a range, the second ends it (either order) and calls onPick.
 // Keys: arrows by day and week, PageUp/PageDown by month, Home/End the week.
 export function createRangeCalendar(element, options) {
+  // A month that hasn't ended is shown up to its last day that can be chosen.
+  const shown = (day) => (day ? clampDay(day, options) : "");
   const state = {
-    from: options.from || "",
-    to: options.to || "",
+    from: shown(options.from),
+    to: shown(options.to),
     min: options.min || "",
     max: options.max || "",
     today: options.today,
@@ -207,7 +209,7 @@ export function createRangeCalendar(element, options) {
     focus: () => element.querySelector(`[data-day="${state.focus}"]`)?.focus(),
     // Show *from*–*to* (a quick choice), without calling onPick.
     set(from, to) {
-      Object.assign(state, { from, to, picking: false, focus: clampDay(to, state) });
+      Object.assign(state, { from: shown(from), to: shown(to), picking: false, focus: clampDay(to, state) });
       month = monthStart(state.focus);
       render();
     },
