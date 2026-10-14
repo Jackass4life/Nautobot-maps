@@ -171,7 +171,8 @@ def test_planning_maintenance_for_several_sites(operator_page):
     cancel.click()
     # Cancelled: out of Planned, into the folded Ended group.
     page.locator('[data-group="upcoming"] .maint-batch', has_text="e2e batch").wait_for(state="detached")
-    assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text="e2e batch").first.inner_text()
+    # Folded, so its text content, not the visible text.
+    assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text="e2e batch").first.text_content()
 
 
 def test_the_availability_period_calendar(page):
