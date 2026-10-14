@@ -3,6 +3,8 @@
 // The rows are rendered on the server (they work without script); this only
 // orders and hides them.  No page access at import.
 
+import { revealTenantRest } from "../lib/html.js";
+
 // Which way a column sorts first: the worst first.
 const FIRST_DIRECTION = { name: "asc", availability: "asc", downtime: "desc", incidents: "desc", sites: "desc" };
 
@@ -18,6 +20,8 @@ export function rowFrom(tr) {
   return {
     el: tr,
     name,
+    // Lower case once: the server's order (Python's str.lower()), so rows don't move when the script starts.
+    lname: name.toLowerCase(),
     availability: Number(availability),
     downtime: Number(downtime),
     incidents: Number(incidents || 0),
@@ -27,24 +31,26 @@ export function rowFrom(tr) {
   };
 }
 
-// Names in the server's order (Python's str.lower()), so rows don't move when the script starts.
 function byName(a, b) {
-  const x = a.name.toLowerCase();
-  const y = b.name.toLowerCase();
-  return x < y ? -1 : x > y ? 1 : 0;
+  return a.lname < b.lname ? -1 : a.lname > b.lname ? 1 : 0;
 }
 
-// The rows to show, in order: {shown, rest, matched}.  Ties by name.
-export function viewRows(rows, { query = "", tenant = "", key = "availability", dir = "asc", limit = Infinity } = {}) {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const matched = rows.filter((row) => words.every((word) => row.search.includes(word))
-    && (!tenant || row.tenants.includes(tenant)));
+// A sorted copy, by *key* and *dir*; ties by name.  Only when the column changes.
+export function sortRows(rows, key = "availability", dir = "asc") {
   const sign = dir === "desc" ? -1 : 1;
-  matched.sort((a, b) => {
-    const order = key === "name" ? byName(a, b) : a[key] - b[key];
-    return order * sign || byName(a, b);
-  });
+  return [...rows].sort((a, b) => (key === "name" ? byName(a, b) : a[key] - b[key]) * sign || byName(a, b));
+}
+
+// The sorted rows a search and a tenant leave, in order: {shown, rest, matched}.
+export function filterRows(sorted, { query = "", tenant = "", limit = Infinity } = {}) {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matched = sorted.filter((row) => words.every((word) => row.search.includes(word))
+    && (!tenant || row.tenants.includes(tenant)));
   return { shown: matched.slice(0, limit), rest: matched.slice(limit), matched: matched.length };
+}
+
+export function viewRows(rows, options = {}) {
+  return filterRows(sortRows(rows, options.key, options.dir), options);
 }
 
 // The line under a table: "Showing 25 of 1,200 · 1,140 of the rest with no downtime".
@@ -58,6 +64,18 @@ export function moreText(view, total) {
   return `Showing ${count(view.shown.length)} of ${count(view.matched)}${tail}`;
 }
 
+// The site rows' (i) carry only the tenant's name; the description is in the
+// section once (data-tenant-descriptions), so 1,200 rows don't repeat it.
+export function fillTenantTips(root, descriptions) {
+  for (const tip of root.querySelectorAll(".info-tip[data-tenant-tip]")) {
+    const name = tip.dataset.tenantTip;
+    const description = Object.hasOwn(descriptions, name) ? descriptions[name] : "";
+    if (!description) continue;
+    tip.dataset.infoTip = description;
+    tip.setAttribute("aria-label", `${name}: ${description}`);
+  }
+}
+
 export function initAvailabilityTable(section) {
   const tbody = section.querySelector("tbody");
   const rows = Array.from(tbody.querySelectorAll("tr[data-name]")).map(rowFrom);
@@ -67,7 +85,15 @@ export function initAvailabilityTable(section) {
   const tenant = section.querySelector(".avail-tenant");
   const step = Number(section.dataset.limit) || 25;
   const state = { key: "availability", dir: "asc", limit: step };
+  let sorted = sortRows(rows, state.key, state.dir);
+  // The server already shows the worst *step*, in this order.
+  let shown = rows.filter((row) => !row.el.hidden);
   section.querySelector(".avail-filters")?.removeAttribute("hidden");
+  try {
+    fillTenantTips(tbody, JSON.parse(section.dataset.tenantDescriptions || "{}"));
+  } catch {
+    // No descriptions: no (i) text, the names still show.
+  }
 
   // Sortable headers: a button in each, aria-sort on the column in use.
   const headers = Array.from(section.querySelectorAll("th[data-sort]"));
@@ -82,19 +108,35 @@ export function initAvailabilityTable(section) {
       const key = th.dataset.sort;
       state.dir = state.key === key ? (state.dir === "asc" ? "desc" : "asc") : FIRST_DIRECTION[key] || "asc";
       state.key = key;
+      sorted = sortRows(rows, state.key, state.dir);
       render();
     });
   }
 
-  function render() {
-    const view = viewRows(rows, {
-      query: search?.value || "", tenant: tenant?.value || "", key: state.key, dir: state.dir, limit: state.limit,
+  function addMore(label, limit) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "avail-more-btn";
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      state.limit = limit;
+      render();
+      // The line was redrawn: keep the keyboard here, not at the top of the page.
+      (more.querySelector(".avail-more-btn") || section.querySelector("h2")).focus();
     });
-    for (const row of rows) row.el.hidden = true;
-    for (const row of view.shown) {
-      row.el.hidden = false;
-      tbody.appendChild(row.el);
+    more.append(" ", button);
+  }
+
+  // Only rows that come or go are touched; the shown ones are moved only when their order changed.
+  function render() {
+    const view = filterRows(sorted, { query: search?.value || "", tenant: tenant?.value || "", limit: state.limit });
+    const next = new Set(view.shown);
+    for (const row of shown) if (!next.has(row)) row.el.hidden = true;
+    if (view.shown.some((row, i) => shown[i] !== row)) {
+      for (const row of view.shown) tbody.appendChild(row.el);
     }
+    for (const row of view.shown) row.el.hidden = false;
+    shown = view.shown;
     for (const th of headers) {
       if (th.dataset.sort === state.key) th.setAttribute("aria-sort", state.dir === "asc" ? "ascending" : "descending");
       else th.removeAttribute("aria-sort");
@@ -102,31 +144,12 @@ export function initAvailabilityTable(section) {
     const text = moreText(view, rows.length);
     more.hidden = !text;
     more.textContent = text;
-    if (view.rest.length) {
-      for (const [label, limit] of [[`Show ${Math.min(step, view.rest.length)} more`, state.limit + step], ["Show all", Infinity]]) {
-        if (label === "Show all" && view.rest.length <= step) continue;
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "avail-more-btn";
-        button.textContent = label;
-        button.addEventListener("click", () => {
-          state.limit = limit;
-          render();
-          // The line was redrawn: keep the keyboard here, not at the top of the page.
-          (more.querySelector(".avail-more-btn") || section.querySelector("h2")).focus();
-        });
-        more.append(" ", button);
-      }
-    }
+    if (view.rest.length) addMore(`Show ${Math.min(step, view.rest.length)} more`, state.limit + step);
+    if (view.rest.length > step) addMore("Show all", Infinity);
   }
 
   // "+2" shows a site's other tenants in place (#279, as on the board).
-  tbody.addEventListener("click", (event) => {
-    const moreTenants = event.target.closest(".tenant-more-btn");
-    if (!moreTenants) return;
-    moreTenants.previousElementSibling.hidden = false;
-    moreTenants.remove();
-  });
+  tbody.addEventListener("click", revealTenantRest);
 
   // A new search or tenant starts again from the worst N.
   for (const input of [search, tenant]) {

@@ -56,12 +56,17 @@
       <button class="secondary-filter-btn" type="submit">Show</button>
     </form>
 
-    {#- A tenant's name, with an (i) for its Nautobot description (#342, as on the board). #}
-    {%- macro tenant_name(name) -%}
+    {#- A tenant's name, with an (i) for its Nautobot description (#342): the same markup as
+        tenantName()/infoTipHtml() on the board (static/js/alerts/rows.js, lib/html.js).
+        In the site rows (*lookup*) the (i) names the tenant and the script fills in the
+        description from the section's one copy, so 1,200 rows don't repeat it. #}
+    {%- macro tenant_name(name, lookup=false) -%}
       {{ name }}
       {%- set description = report.tenant_descriptions.get(name) -%}
-      {%- if description %}<span class="info-tip" tabindex="0" role="img" aria-label="{{ name }}: {{ description }}" data-info-tip="{{ description }}">i</span>{% endif -%}
+      {%- if description and lookup %}<span class="info-tip" tabindex="0" role="img" data-tenant-tip="{{ name }}">i</span>
+      {%- elif description %}<span class="info-tip" tabindex="0" role="img" aria-label="{{ name }}: {{ description }}" data-info-tip="{{ description }}">i</span>{% endif -%}
     {%- endmacro %}
+    {%- macro plural(count, word) %}{{ count | thousands }} {{ word }}{{ "" if count == 1 else "s" }}{% endmacro %}
     {#- Availability as a number and a bar on 98-100 % (most targets are 99-100 %): below the
         target red, and below 98 % a short red stub rather than an empty bar (#342). #}
     {%- macro pct(value, target) -%}
@@ -85,17 +90,17 @@
       <div class="avail-card">
         <span class="avail-card-label">Availability</span>
         <span class="avail-card-value{% if summary.availability < summary.target %} is-below{% endif %}">{{ "%.3f" | format(summary.availability) }} %</span>
-        <span class="avail-card-note">average of {{ "{:,}".format(summary.sites) }} site{{ "" if summary.sites == 1 else "s" }}</span>
+        <span class="avail-card-note">average of {{ plural(summary.sites, "site") }}</span>
       </div>
       <div class="avail-card">
         <span class="avail-card-label">Downtime</span>
         <span class="avail-card-value">{{ summary.downtime_seconds | downtime }}</span>
-        <span class="avail-card-note">{{ "{:,}".format(summary.incidents) }} incident{{ "" if summary.incidents == 1 else "s" }}, all sites</span>
+        <span class="avail-card-note">{{ plural(summary.incidents, "incident") }}, all sites</span>
       </div>
       <div class="avail-card">
         <span class="avail-card-label">Below {{ summary.target }} %</span>
-        <span class="avail-card-value{% if summary.below_target %} is-below{% endif %}">{{ "{:,}".format(summary.below_target) }}</span>
-        <span class="avail-card-note">of {{ "{:,}".format(summary.sites) }} site{{ "" if summary.sites == 1 else "s" }} · {{ "{:,}".format(summary.no_downtime) }} with no downtime</span>
+        <span class="avail-card-value{% if summary.below_target %} is-below{% endif %}">{{ summary.below_target | thousands }}</span>
+        <span class="avail-card-note">of {{ plural(summary.sites, "site") }} · {{ summary.no_downtime | thousands }} with no downtime</span>
       </div>
       <div class="avail-card">
         <span class="avail-card-label">Worst tenant</span>
@@ -111,7 +116,7 @@
 
     <section class="table-shell availability-section" aria-labelledby="availability-tenants" data-avail-table="tenants" data-limit="10">
       <div class="avail-section-head">
-        <h2 id="availability-tenants" class="availability-heading" tabindex="-1">Tenants <span class="avail-count">{{ "{:,}".format(report.tenants | length) }}</span></h2>
+        <h2 id="availability-tenants" class="availability-heading" tabindex="-1">Tenants <span class="avail-count">{{ report.tenants | length | thousands }}</span></h2>
       </div>
       <table class="avail-table">
         <thead><tr>
@@ -121,8 +126,9 @@
           <th data-sort="downtime" class="num">Downtime</th>
         </tr></thead>
         <tbody>
+          {#- Past the limit hidden from the start: the server's order is the first one shown. #}
           {%- for row in report.tenants %}
-          <tr data-name="{{ row.tenant }}" data-availability="{{ row.availability }}" data-sites="{{ row.sites }}" data-downtime="{{ row.downtime_seconds }}">
+          <tr{% if loop.index > 10 %} hidden{% endif %} data-name="{{ row.tenant }}" data-availability="{{ row.availability }}" data-sites="{{ row.sites }}" data-downtime="{{ row.downtime_seconds }}">
             <td>{{ tenant_name(row.tenant) }}</td>
             <td class="pct-cell">{{ pct(row.availability, summary.target) }}</td>
             <td class="num">{{ row.sites }}</td>
@@ -136,9 +142,9 @@
       <p class="avail-more" hidden></p>
     </section>
 
-    <section class="table-shell availability-section" aria-labelledby="availability-sites" data-avail-table="sites" data-limit="25">
+    <section class="table-shell availability-section" aria-labelledby="availability-sites" data-avail-table="sites" data-limit="25" data-tenant-descriptions='{{ report.tenant_descriptions | tojson }}'>
       <div class="avail-section-head">
-        <h2 id="availability-sites" class="availability-heading" tabindex="-1">Sites <span class="avail-count">{{ "{:,}".format(report.sites | length) }}</span></h2>
+        <h2 id="availability-sites" class="availability-heading" tabindex="-1">Sites <span class="avail-count">{{ report.sites | length | thousands }}</span></h2>
         <div class="avail-filters" hidden>
           <input class="avail-search" type="search" placeholder="Search sites" aria-label="Search sites" autocomplete="off" />
           <select class="avail-tenant" aria-label="Tenant">
@@ -159,16 +165,17 @@
         </tr></thead>
         <tbody>
           {%- for row in report.sites %}
-          <tr data-name="{{ row.name or row.site_id }}" data-availability="{{ row.availability }}" data-downtime="{{ row.downtime_seconds }}" data-incidents="{{ row.incidents }}" data-tenants='{{ row.tenants | tojson }}'>
-            <td>{{ row.name or row.site_id }}</td>
+          {%- set name = row.name or row.site_id %}
+          <tr{% if loop.index > 25 %} hidden{% endif %} data-name="{{ name }}" data-availability="{{ row.availability }}" data-downtime="{{ row.downtime_seconds }}" data-incidents="{{ row.incidents }}" data-tenants='{{ row.tenants | tojson }}'>
+            <td>{{ name }}</td>
             <td class="pct-cell">{{ pct(row.availability, summary.target) }}</td>
             <td class="num">{{ row.downtime_seconds | downtime }}</td>
             <td class="num">{{ row.incidents }}</td>
             <td class="avail-tenants">
               {#- The first tenant, and "+N" that shows the rest in place, as on the board (#279). -#}
-              {%- if row.tenants %}{{ tenant_name(row.tenants[0]) }}
+              {%- if row.tenants %}{{ tenant_name(row.tenants[0], true) }}
                 {%- if row.tenants | length > 1 %}<span class="tenant-rest" hidden>
-                  {%- for name in row.tenants[1:] %}, {{ tenant_name(name) }}{% endfor %}</span>
+                  {%- for other in row.tenants[1:] %}, {{ tenant_name(other, true) }}{% endfor %}</span>
                 <button class="tenant-more-btn" type="button" title="{{ row.tenants[1:] | join(', ') }}">+{{ row.tenants | length - 1 }}</button>
                 {%- endif %}
               {%- else %}—{% endif -%}

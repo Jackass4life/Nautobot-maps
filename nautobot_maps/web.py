@@ -896,6 +896,12 @@ def _downtime_filter(seconds) -> str:
     return availability.format_downtime(seconds)
 
 
+@bp.app_template_filter("thousands")
+def _thousands_filter(count) -> str:
+    """1,200 (#342)."""
+    return f"{count:,}"
+
+
 @bp.route("/availability")
 def availability_page():
     """Availability per site and tenant (#287): ``?month=2026-10`` or

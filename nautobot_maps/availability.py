@@ -419,20 +419,20 @@ def summarise(site_rows: list[dict], tenant_rows: list[dict]) -> dict:
         "below_target": sum(1 for r in site_rows if r["availability"] < TARGET_PCT),
         "no_downtime": sum(1 for r in site_rows if not r["downtime_seconds"]),
         "target": TARGET_PCT,
-        "worst_tenant": {"tenant": worst["tenant"], "availability": worst["availability"]} if worst else None,
+        "worst_tenant": worst,
     }
 
 
 def format_downtime(seconds: int) -> str:
-    """ "0 min", "14 min", "2 h 14 min", "3 d 4 h" (#342): minutes are rounded."""
-    minutes = round((seconds or 0) / 60)
-    if minutes < 60:
-        return f"{minutes} min"
-    hours, minutes = divmod(minutes, 60)
-    if hours < 24:
-        return f"{hours} h {minutes} min" if minutes else f"{hours} h"
-    days, hours = divmod(hours, 24)
-    return f"{days} d {hours} h" if hours else f"{days} d"
+    """As the board shows durations (lib/format.js formatDuration, #311): "—", "14m",
+    "2h 14m", and in days from two days ("3 days")."""
+    total = int(seconds or 0)
+    if total <= 0:
+        return "—"
+    hours, minutes = total // 3600, total % 3600 // 60
+    if hours >= 48:
+        return f"{hours // 24} days"
+    return f"{hours}h {minutes}m" if hours else f"{minutes}m"
 
 
 def _safe(value) -> str:

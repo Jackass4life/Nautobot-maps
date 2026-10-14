@@ -151,16 +151,17 @@ class TestIntervals:
         assert availability.oldest_day(t(21)) == "2026-10-12"
 
     def test_format_downtime(self):
+        # As the board shows durations (lib/format.js formatDuration, #311).
         cases = {
-            0: "0 min",
-            29: "0 min",
-            31: "1 min",
-            14 * 60: "14 min",
-            3600: "1 h",
-            8040: "2 h 14 min",
-            86400: "1 d",
-            3 * 86400 + 4 * 3600 + 59: "3 d 4 h",
-            None: "0 min",
+            0: "—",
+            None: "—",
+            59: "0m",
+            14 * 60: "14m",
+            3600: "1h 0m",
+            8040: "2h 14m",
+            47 * 3600 + 59 * 60: "47h 59m",
+            48 * 3600: "2 days",
+            283 * 86400 + 3600: "283 days",
         }
         for seconds, text in cases.items():
             assert availability.format_downtime(seconds) == text, seconds
@@ -370,7 +371,7 @@ class TestReport:
             "below_target": 1,
             "no_downtime": 1,
             "target": 99.9,
-            "worst_tenant": {"tenant": "Acme", "availability": 90.0},
+            "worst_tenant": {"tenant": "Acme", "sites": 1, "availability": 90.0, "downtime_seconds": 2 * 86400},
         }
         assert data["tenant_descriptions"] == {"Acme": "Gold <VIP>"}, "only listed tenants with a description"
         empty = run("2026-09", sites=[])
@@ -456,9 +457,12 @@ class TestPages:
         )
         page = client.get("/availability?month=2026-10").get_data(as_text=True)
         assert page.count('class="avail-card"') == 4
-        assert "90.000 %" in page and "2 d" in page and "1 incident," in page
+        assert "90.000 %" in page and "2 days" in page and "1 incident," in page
         assert '<meter class="pct-bar" min="98" max="100" low="99" high="99.9" optimum="100" value="98.1"' in page
         assert 'data-info-tip="Bank &lt;&#34;VIP&#34;&gt;"' in page and 'Bank <"VIP">' not in page
+        # Site rows name the tenant; the description is in the section once (#342).
+        assert 'data-tenant-tip="Acme">i</span>' in page
+        assert """data-tenant-descriptions='{"Acme": "Bank \\u003c\\"VIP\\"\\u003e"}'""" in page
         assert 'data-availability="90.0" data-downtime="172800" data-incidents="1"' in page
         # JSON in a single-quoted attribute: the quote and the brackets are escaped.
         assert """data-tenants='["Acme", "O\\u0027Brien \\u003cLtd\\u003e"]'""" in page

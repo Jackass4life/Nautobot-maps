@@ -20,3 +20,12 @@ export function infoTipHtml(text, label) {
 export function ownDescription(descriptions, name) {
   return descriptions && Object.hasOwn(descriptions, name) ? descriptions[name] : "";
 }
+
+// "+2" after a tenant shows the rest in place (#279): the board and the
+// availability page (#342) use the same markup, a hidden .tenant-rest then the button.
+export function revealTenantRest(event) {
+  const button = event.target.closest(".tenant-more-btn");
+  if (!button) return;
+  button.previousElementSibling.hidden = false;
+  button.remove();
+}
