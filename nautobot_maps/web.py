@@ -845,7 +845,7 @@ def api_maintenance_sites():
                 {
                     "id": site["id"],
                     "name": site.get("name") or site["id"],
-                    "path": site.get("ancestor_path") or site.get("parent") or "",
+                    "path": status.site_path(site),
                     "tenants": status.site_tenants(site),
                     "devices": site.get("device_count") or 0,
                     "maintenance": site.get("alert_level") == "maintenance",
@@ -912,17 +912,18 @@ def api_maintenance_create():
 @bp.route("/api/maintenance/end", methods=["POST"])
 @auth.require_role("operator")
 def api_maintenance_end_many():
-    """End or cancel several windows at once (#343): JSON ``{"ids": [1, 2, ...]}``, at most 500."""
+    """End or cancel several windows at once (#343): JSON ``{"ids": [1, 2, ...]}``,
+    at most ``maintenance.MAX_END_IDS``; ``not_found`` lists the unknown ones."""
     body = request.get_json(silent=True)
     ids = body.get("ids") if isinstance(body, dict) else None
     if (
         not isinstance(ids, list)
         or not ids
-        or len(ids) > 500
+        or len(ids) > maintenance.MAX_END_IDS
         # Window IDs are BIGSERIAL: anything else would fail in the query, not here.
         or not all(isinstance(i, int) and not isinstance(i, bool) and 0 < i < 2**63 for i in ids)
     ):
-        return jsonify({"error": "ids must be a list of 1 to 500 window IDs"}), 400
+        return jsonify({"error": f"ids must be a list of 1 to {maintenance.MAX_END_IDS} window IDs"}), 400
     conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503

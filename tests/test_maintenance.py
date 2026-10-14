@@ -407,11 +407,13 @@ class TestBatches:
         created = self._create({"site_ids": sites})
         assert [w["site_id"] for w in created] == sorted(set(sites))
         assert {w["device_id"] for w in created} == {""} and {w["state"] for w in created} == {"active"}
-        # One transaction: the same created_at, so the page shows one batch.
+        # One request, one stored batch (and one transaction: the same created_at).
         assert len({w["created_at"] for w in created}) == 1
+        assert len({w["batch_id"] for w in created}) == 1 and created[0]["batch_id"]
         # One site's devices, as before.
         devices = self._create({"site_id": "site-00", "device_ids": ["d1", "d2"]})
         assert [(w["site_id"], w["device_id"]) for w in devices] == [("site-00", "d1"), ("site-00", "d2")]
+        assert devices[0]["batch_id"] == devices[1]["batch_id"] != created[0]["batch_id"]
 
     def test_end_or_cancel_a_batch(self):
         active = self._create({"site_ids": ["a", "b"]})

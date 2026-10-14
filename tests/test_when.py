@@ -6,7 +6,7 @@ from tests.js_modules import run_js
 def test_planned_days_and_times():
     run_js(
         """
-import { defaultPlan, localDay, timeOptionsHtml, whenRequest, whenSummary } from "@js/lib/when.js";
+import { defaultPlan, localDay, timeOptionsHtml, whenFieldsetHtml, whenRequest, whenSummary } from "@js/lib/when.js";
 
 // The next full hour, for two hours; across midnight the days follow.
 let plan = defaultPlan(new Date("2026-10-14T13:20:00+02:00"));
@@ -14,6 +14,13 @@ check(JSON.stringify(plan) === '{"startDay":"2026-10-14","startTime":"14:00","en
 plan = defaultPlan(new Date("2026-10-14T22:59:00+02:00"));
 check(plan.startTime === "23:00" && plan.endDay === "2026-10-15" && plan.endTime === "01:00", JSON.stringify(plan));
 check(localDay(new Date("2026-10-14T23:30:00Z")) === "2026-10-15", "local, not UTC");
+
+// The fieldset: a calendar and times from the next full hour, not typed dates (#343).
+const html = whenFieldsetHtml(defaultPlan(new Date("2026-10-09T21:20:00+02:00")), "Europe/Copenhagen");
+check(html.includes('class="calendar when-calendar"') && !html.includes("datetime-local"), "calendar");
+check(html.includes('<option value="22:00" selected>22:00</option>') && html.includes('<option value="00:00" selected>00:00</option>'), "22:00 to 00:00");
+check(html.includes(">Fri 9 Oct 22:00 → Sat 10 Oct 00:00 (2h)<") && html.includes("Times in Europe/Copenhagen"), "days and zone");
+check(html.includes('<option value="120" selected>2 hours</option>') && html.includes('<option value="60">1 hour</option>'), "durations");
 
 // 96 quarter hours.
 const options = timeOptionsHtml("06:15");

@@ -3,6 +3,7 @@
 // The rows are rendered on the server (they work without script); this only
 // orders and hides them.  No page access at import.
 
+import { hasAllWords, searchWords } from "../lib/format.js";
 import { revealTenantRest } from "../lib/html.js";
 
 // Which way a column sorts first: the worst first.
@@ -43,8 +44,8 @@ export function sortRows(rows, key = "availability", dir = "asc") {
 
 // The sorted rows a search and a tenant leave, in order: {shown, rest, matched}.
 export function filterRows(sorted, { query = "", tenant = "", limit = Infinity } = {}) {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const matched = sorted.filter((row) => words.every((word) => row.search.includes(word))
+  const words = searchWords(query);
+  const matched = sorted.filter((row) => hasAllWords(row.search, words)
     && (!tenant || row.tenants.includes(tenant)));
   return { shown: matched.slice(0, limit), rest: matched.slice(limit), matched: matched.length };
 }

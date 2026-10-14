@@ -2,11 +2,11 @@
 // batch, so a change across 30 sites is one line; groups Active now,
 // Planned and Ended, each the first N with "Show more".  No page access at import.
 import { tenantCell } from "../alerts/rows.js";
-import { formatFeedTime } from "../lib/format.js";
+import { formatFeedTime, hasAllWords } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 
 // *days*: how far back the Ended group reaches (the page's recent_days).
-export function groupsFor(days) {
+function groupsFor(days) {
   return [
     { id: "active", title: "Active now", empty: "Nothing in maintenance now." },
     { id: "upcoming", title: "Planned", empty: "Nothing planned." },
@@ -22,14 +22,20 @@ function groupOf(state) {
   return state === "active" || state === "upcoming" ? state : "past";
 }
 
-// Windows created in one request (same created_at, times, reason and person) are one batch;
-// once over, the cancelled ones apart from those that ran.
+function siteLabel(window) {
+  return window.site_name || window.site_id;
+}
+
+// Windows planned in one request (batch_id) are one batch; once over, the
+// cancelled ones apart from those that ran.  A window from before batches is
+// its own.  Each batch's tenants, sites and search text are worked out here
+// once, not on every key.
 export function batchesOf(windows) {
   const batches = new Map();
   for (const window of windows) {
     const group = groupOf(window.state);
     const state = group === "past" ? window.state : group;
-    const key = [state, window.created_at, window.starts_at, window.ends_at, window.reason, window.created_by].join("|");
+    const key = `${state}|${window.batch_id || `window-${window.id}`}`;
     if (!batches.has(key)) {
       batches.set(key, {
         key, group, state: window.state, windows: [],
@@ -42,6 +48,12 @@ export function batchesOf(windows) {
     // Ended at different times: the latest.
     if (window.ended_at && !(Date.parse(batch.ended_at) >= Date.parse(window.ended_at))) batch.ended_at = window.ended_at;
   }
+  for (const batch of batches.values()) {
+    batch.tenants = [...new Set(batch.windows.flatMap((window) => window.tenants || []))].sort();
+    batch.sites = [...new Set(batch.windows.map(siteLabel))];
+    batch.text = [batch.reason, batch.created_by, ...batch.tenants,
+      ...batch.windows.flatMap((w) => [siteLabel(w), w.site_path, w.device_name || w.device_id])].join(" ").toLowerCase();
+  }
   // By group; then ending soonest first, planned soonest first, ended latest first.
   const time = (batch) => Date.parse(batch.group === "active" ? batch.ends_at
     : batch.group === "upcoming" ? batch.starts_at : batch.ended_at || batch.ends_at);
@@ -49,28 +61,14 @@ export function batchesOf(windows) {
     || (a.group === "past" ? time(b) - time(a) : time(a) - time(b)));
 }
 
-export function batchTenants(batch) {
-  return [...new Set(batch.windows.flatMap((window) => window.tenants || []))].sort();
-}
-
-function siteLabel(window) {
-  return window.site_name || window.site_id;
-}
-
-// Search: reason, person, sites, paths, devices and tenants, every word; and one tenant.
-export function batchMatches(batch, { query = "", tenant = "" }) {
-  if (tenant && !batchTenants(batch).includes(tenant)) return false;
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return true;
-  const text = [batch.reason, batch.created_by, ...batchTenants(batch),
-    ...batch.windows.flatMap((w) => [siteLabel(w), w.site_path, w.device_name || w.device_id])].join(" ").toLowerCase();
-  return words.every((word) => text.includes(word));
+// Search (*words* from searchWords): reason, person, sites, paths, devices and tenants; and one tenant.
+export function batchMatches(batch, { words = [], tenant = "" }) {
+  return (!tenant || batch.tenants.includes(tenant)) && hasAllWords(batch.text, words);
 }
 
 // "Aarhus", "Aarhus · sw1", "3 devices at Aarhus", "30 sites".
 export function batchTitle(batch) {
-  const { windows } = batch;
-  const sites = [...new Set(windows.map(siteLabel))];
+  const { windows, sites } = batch;
   if (windows.length === 1) {
     const [window] = windows;
     return window.device_id ? `${siteLabel(window)} · ${window.device_name || window.device_id}` : siteLabel(window);
@@ -86,15 +84,17 @@ export function whenText(batch, now = new Date()) {
   return `${formatFeedTime(batch.starts_at, now)} – ${formatFeedTime(batch.ends_at, now)}`;
 }
 
+// "End now", "Cancel", "End all 30", "Cancel all 30".
 function endLabel(batch, count) {
   const verb = batch.group === "upcoming" ? "Cancel" : "End";
-  return count > 1 ? `${verb} all ${count}` : batch.group === "upcoming" ? "Cancel" : "End now";
+  if (count > 1) return `${verb} all ${count}`;
+  return batch.group === "upcoming" ? "Cancel" : "End now";
 }
 
 function windowHtml(batch, window, descriptions) {
   const what = window.device_id ? ` · ${escHtml(window.device_name || window.device_id)}` : "";
   const end = batch.group === "past" ? ""
-    : `<button class="action-btn maint-end" type="button" data-ids="${window.id}">${batch.group === "upcoming" ? "Cancel" : "End now"}</button>`;
+    : `<button class="action-btn maint-end" type="button" data-ids="${window.id}">${endLabel(batch, 1)}</button>`;
   return `<li class="maint-batch-window"><span>${escHtml(siteLabel(window))}${what}</span>`
     + `<span class="maint-batch-tenants">${tenantCell({ tenants: window.tenants || [], tenant_descriptions: descriptions })}</span>${end}</li>`;
 }
@@ -104,7 +104,7 @@ export function batchHtml(batch, { descriptions = {}, expanded = false, now = ne
   const { windows } = batch;
   const ids = windows.map((window) => window.id).join(",");
   const many = windows.length > 1;
-  const names = [...new Set(windows.map(siteLabel))];
+  const names = batch.sites;
   const preview = many && names.length > 1
     ? `<div class="maint-batch-sites">${escHtml(names.slice(0, 3).join(", "))}${names.length > 3 ? ` +${names.length - 3}` : ""}</div>` : "";
   const end = batch.group === "past" ? ""
@@ -112,7 +112,7 @@ export function batchHtml(batch, { descriptions = {}, expanded = false, now = ne
   const toggle = many
     ? `<button class="action-btn maint-expand" type="button" aria-expanded="${expanded}">${expanded ? "Hide" : "Show"} ${windows.length}</button>` : "";
   const by = batch.created_by ? ` · by ${escHtml(batch.created_by)}` : "";
-  const tenants = batchTenants(batch);
+  const { tenants } = batch;
   return `
     <li class="maint-batch" data-key="${escHtml(batch.key)}">
       <div class="maint-batch-main">

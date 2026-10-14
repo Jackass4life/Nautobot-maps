@@ -1759,17 +1759,14 @@ const windows = [
   { id: 7, state: "active", device_id: "", ends_at: "2026-10-09T14:00:00Z", reason: "Core <upgrade>", created_by: "olga" },
   { id: 8, state: "upcoming", device_id: "d1", starts_at: "2026-10-09T20:00:00Z", ends_at: "2026-10-10T00:00:00Z", reason: "PSU" },
 ];
-let html = renderMaintenancePanel({ id: "loc-1" }, windows, devices, new Date("2026-10-09T21:20:00+02:00"));
+let html = renderMaintenancePanel({ id: "loc-1" }, windows, devices);
 check(html.includes("ACTIVE") && html.includes("<strong>Whole site</strong> · until ") && html.includes("Core &lt;upgrade&gt; · by olga"), html);
 check(html.includes('data-window-id="7">End now<') && html.includes('data-window-id="8">Cancel<'), "end vs cancel");
 check(html.includes("PLANNED") && html.includes("<strong>sw&lt;1&gt;</strong>"), "device window named");
 check(html.includes('class="maint-device" value="d1"') && html.includes("Bygning A · Access · Active"), "device choice");
-check(html.includes('<option value="120" selected>2 hours</option>') && html.includes('<option value="60">1 hour</option>'), "durations");
 check(html.includes('<form class="maint-form" data-site-id="loc-1">'), "form");
-// Planned: a calendar and times from the next full hour, not typed dates (#343).
-check(html.includes('class="calendar when-calendar"') && !html.includes("datetime-local"), "calendar");
-check(html.includes('<option value="22:00" selected>22:00</option>') && html.includes('<option value="00:00" selected>00:00</option>'), "22:00 to 00:00");
-check(html.includes(">Fri 9 Oct 22:00 → Sat 10 Oct 00:00 (2h)<") && html.includes("Times in Europe/Copenhagen"), "days and zone");
+// "When" is mounted into it (lib/when.js mountWhen, tested there): no typed dates (#343).
+check(html.includes('<div class="maint-when"></div>') && !html.includes("datetime-local"), "when");
 html = renderMaintenancePanel({ id: "loc-2" }, [], []);
 check(html.includes("No maintenance now or planned.") && html.includes("No monitored devices."), html);
 """)

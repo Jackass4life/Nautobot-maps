@@ -6,7 +6,7 @@ import { addDays, createRangeCalendar } from "./calendar.js";
 import { escHtml } from "./html.js";
 
 // "Now, for …", in minutes.
-export const DURATIONS = [60, 120, 240, 480];
+const DURATIONS = [60, 120, 240, 480];
 
 // "2026-10-14" in the browser's time zone (the calendar's days are local here).
 export function localDay(date) {
@@ -90,8 +90,15 @@ export function whenRequest(values) {
   return { starts_at: start.toISOString(), ends_at: end.toISOString() };
 }
 
-// Wires the calendar in *fieldset* (from whenFieldsetHtml); returns read() for whenRequest().
-export function initWhen(fieldset, plan, today) {
+// Renders the fieldset into *container* and wires it: the calendar, the
+// summary, and Now / Planned showing the planned fields (*onModeChange(planned)*
+// for the caller's button).  Returns read(), for whenRequest().
+export function mountWhen(container, { now = new Date(), onModeChange = () => {} } = {}) {
+  const plan = defaultPlan(now);
+  const today = localDay(now);
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "your time zone";
+  container.innerHTML = whenFieldsetHtml(plan, zone);
+  const fieldset = container.querySelector(".when-fieldset");
   const days = { startDay: plan.startDay, endDay: plan.endDay };
   const label = fieldset.querySelector(".when-days");
   const read = () => ({
@@ -107,6 +114,11 @@ export function initWhen(fieldset, plan, today) {
   };
   fieldset.addEventListener("change", (event) => {
     if (event.target.matches(".when-start-time, .when-end-time")) showSummary();
+    if (event.target.name === "maint-when") {
+      const planned = read().when === "planned";
+      fieldset.querySelector(".maint-planned").hidden = !planned;
+      onModeChange(planned);
+    }
   });
   createRangeCalendar(fieldset.querySelector(".when-calendar"), {
     from: days.startDay,

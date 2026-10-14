@@ -54,3 +54,13 @@ export function formatCountdown(totalSeconds) {
 export function formatClock(ms) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+// A search's words, lower case: every one must be found (#342, #343).
+export function searchWords(query) {
+  return (query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+// Whether lower-cased *text* has all of *words* (from searchWords).
+export function hasAllWords(text, words) {
+  return words.every((word) => text.includes(word));
+}
