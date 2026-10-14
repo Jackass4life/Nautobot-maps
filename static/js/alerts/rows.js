@@ -220,6 +220,7 @@ export function renderDownDeviceRows(item, isExpanded, extraClass) {
         ${device.probable_cause ? `<div class="cause-note">Likely caused by ${escHtml(device.probable_cause)}</div>` : ""}
         ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
       </td>
+      <td class="col-tenants"></td>
       <td></td>
       <td class="since-cell">${sinceLabel("down", deviceDowntimeSeconds(device, now))}</td>
       <td class="cases-cell col-cases">${renderDeviceCases(device)}</td>
@@ -249,18 +250,18 @@ export function tierPill(item) {
   return ` <span class="tier-pill${top}" title="Importance tier">${escHtml(String(item.tier).toUpperCase())}</span>`;
 }
 
-// The site's tenants on one line under its name (#311): the first, and
+// The site's Tenants cell (#340; under its name in #311): the first, and
 // "+N" that shows the rest in place, each with its (i) (#238, #279).
-export function tenantLine(item) {
+export function tenantCell(item) {
   const tenants = siteTenants(item);
   const descriptions = item.tenant_descriptions;
-  if (!tenants.length) return "";
+  if (!tenants.length) return "—";
   const rest = tenants.slice(1);
   const more = rest.length
     ? `<span class="tenant-rest" hidden>, ${rest.map((name) => tenantName(name, descriptions)).join(", ")}</span>`
       + ` <button class="tenant-more-btn" type="button" title="${escHtml(rest.join(", "))}">+${rest.length}</button>`
     : "";
-  return `<div class="site-tenants">${tenantName(tenants[0], descriptions)}${more}</div>`;
+  return `${tenantName(tenants[0], descriptions)}${more}`;
 }
 
 // Only the path above the site, e.g. "NORAM › GRL" (#178).
@@ -280,7 +281,7 @@ export function siteRowsHtml(alerts, { wallView, isExpanded }) {
     const inMaintenance = item.alert_level === "maintenance";
     // Wall view: sites in maintenance are listed last, under a heading (#283).
     const maintenanceHeading = wallView && inMaintenance && !maintenanceSeen
-      ? '<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>'
+      ? '<tr class="maintenance-heading"><td colspan="6">In maintenance</td></tr>'
       : "";
     if (inMaintenance) maintenanceSeen = true;
     // Wall view: sites someone is on are faded, below a dashed line (#271).
@@ -306,12 +307,12 @@ export function siteRowsHtml(alerts, { wallView, isExpanded }) {
           <div>
             <div class="site-title">${siteNameHtml(item, !wallView)}${tierPill(item)}</div>
             <div class="site-summary">${downCount} down · ${item.device_count || 0} monitored</div>
-            ${tenantLine(item)}
           </div>
         </div>
         ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
         ${meta ? `<div class="site-meta">${meta}</div>` : ""}
       </td>
+      <td class="col-tenants">${tenantCell(item)}</td>
       <td>${alertBadge(item.alert_level, item.alert_reason)}${wallView && !inMaintenance ? caseStateBadge(item) : ""}${item.maintenance ? `<div class="maintenance-note">${maintenanceNote(item.maintenance.until, item.maintenance.reason)}</div>` : ""}</td>
       <td class="since-cell">${wallView ? "" : sinceLabel("in alarm", siteAlarmSeconds(item))}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>

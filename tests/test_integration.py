@@ -1453,7 +1453,7 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
         hidden = css[css.index(".wall-view .page-header,") :]
         hidden = hidden[: hidden.index("}")]
-        for selector in (".toolbar", ".summary-bar", ".feed-panel", ".col-action", ".site-tenants"):
+        for selector in (".toolbar", ".summary-bar", ".feed-panel", ".col-action", ".col-tenants"):
             assert f".wall-view {selector}" in hidden
         assert "display: none !important" in hidden
         # Case numbers stay visible: the room can see a site has someone on it.
@@ -1702,7 +1702,7 @@ const criteria = { sort: "newest", severityFilter: "alarms" };
 check(filterSites([planned, alarm], { ...criteria, wallView: true }).map((s) => s.name).join() === "Aarhus,Bergen", "the wall lists maintenance last");
 check(filterSites([planned, alarm], { ...criteria, wallView: false }).map((s) => s.name).join() === "Aarhus", "the board's Alarms don't");
 const wall = siteRowsHtml([alarm, planned], { wallView: true, isExpanded: () => true });
-check(wall.includes('<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>'), wall);
+check(wall.includes('<tr class="maintenance-heading"><td colspan="6">In maintenance</td></tr>'), wall);
 check(wall.indexOf("maintenance-heading") > wall.indexOf("Aarhus") && wall.includes("Core &lt;upgrade&gt;"), wall);
 """)
         html = integration_client.get("/alerts").get_data(as_text=True)
@@ -2143,22 +2143,22 @@ check(html.includes("device-status-active") && html.includes(">10 Gbps<"), html)
 
 
 class TestSiteTenantsInTheBrowser:
-    """The tenants line under the site name and Copy for ITSM show every tenant of a site (#238, #311)."""
+    """The Tenants column and Copy for ITSM show every tenant of a site (#238, #340)."""
 
     def test_tenant_cell_and_report(self):
         run_js("""
 import { siteReport } from "@js/alerts/panels.js";
-import { tenantLine } from "@js/alerts/rows.js";
+import { siteRowsHtml, tenantCell } from "@js/alerts/rows.js";
 
-const line = (inner) => `<div class="site-tenants">${inner}</div>`;
-check(tenantLine({}) === "", "no tenant: no line");
-check(tenantLine({ tenant: "Acme" }) === line("Acme"), "a board cached before #238 has only tenant");
-check(tenantLine({ tenant: "Acme", tenants: ["Acme"] }) === line("Acme"), "one tenant");
+const line = (inner) => inner;
+check(tenantCell({}) === "—", "no tenant: a dash");
+check(tenantCell({ tenant: "Acme" }) === line("Acme"), "a board cached before #238 has only tenant");
+check(tenantCell({ tenant: "Acme", tenants: ["Acme"] }) === line("Acme"), "one tenant");
 
 // The first one, and "+N" that shows the rest in place, each with its (i) (#279).
-let cell = tenantLine({ tenants: ["Acme", "B&B"] });
+let cell = tenantCell({ tenants: ["Acme", "B&B"] });
 check(cell === line('Acme<span class="tenant-rest" hidden>, B&amp;B</span> <button class="tenant-more-btn" type="button" title="B&amp;B">+1</button>'), cell);
-cell = tenantLine({ tenants: ["A", "B", "C", "Hidden"], tenant_descriptions: { Hidden: "Reach me" } });
+cell = tenantCell({ tenants: ["A", "B", "C", "Hidden"], tenant_descriptions: { Hidden: "Reach me" } });
 check(cell.includes(">+3</button>") && cell.includes('hidden>, B, C, Hidden<span class="info-tip"') && cell.includes('data-info-tip="Reach me"'), cell);
 
 let report = siteReport({ name: "LON", tenant: "Acme", tenants: ["Acme", "Nordic"], alert_level: "low" });
@@ -2167,16 +2167,29 @@ report = siteReport({ name: "STO", tenant: "Acme", alert_level: "ok" });
 check(report.includes("Tenant: Acme"), report);
 
 // The (i) only for tenants with a description (#263), escaped.
-cell = tenantLine({ tenant: "Acme", tenants: ["Acme"], tenant_descriptions: { Acme: 'Bank <"VIP">' } });
-check(cell.startsWith('<div class="site-tenants">Acme<span class="info-tip"'), cell);
+cell = tenantCell({ tenant: "Acme", tenants: ["Acme"], tenant_descriptions: { Acme: 'Bank <"VIP">' } });
+check(cell.startsWith('Acme<span class="info-tip"'), cell);
 check(cell.includes('data-info-tip="Bank &lt;&quot;VIP&quot;&gt;"') && !cell.includes('<"VIP">'), cell);
 check(cell.includes('aria-label="Acme: Bank') && cell.includes('tabindex="0"'), cell);
-cell = tenantLine({ tenants: ["Acme", "Nordic"], tenant_descriptions: { Nordic: "Shared rack" } });
+cell = tenantCell({ tenants: ["Acme", "Nordic"], tenant_descriptions: { Nordic: "Shared rack" } });
 check(cell.includes("Acme<span") && cell.includes(", Nordic<span") && (cell.match(/info-tip"/g) || []).length === 1, cell);
-check(tenantLine({ tenant: "Acme", tenant_descriptions: {} }) === line("Acme"), "no description: no (i)");
+check(tenantCell({ tenant: "Acme", tenant_descriptions: {} }) === line("Acme"), "no description: no (i)");
 // Inherited object properties are not descriptions (Copilot review on #264).
-check(tenantLine({ tenant: "constructor", tenant_descriptions: {} }) === line("constructor"), "constructor");
-check(tenantLine({ tenants: ["toString", "hasOwnProperty"] }).indexOf("info-tip") === -1, "toString");
+check(tenantCell({ tenant: "constructor", tenant_descriptions: {} }) === line("constructor"), "constructor");
+check(tenantCell({ tenants: ["toString", "hasOwnProperty"] }).indexOf("info-tip") === -1, "toString");
+
+// Its own column (#340), between Location and Alert; down-device rows keep
+// the columns lined up, and the tenant isn't repeated under the name.
+const site = { id: "s1", name: "Oslo", tenants: ["Acme", "Nordic"], alert_level: "critical", down_device_count: 1,
+  down_devices: [{ device_id: "d1", device_name: "sw1" }] };
+const html = siteRowsHtml([site], { wallView: false, isExpanded: () => true });
+const siteRow = html.slice(html.indexOf('<tr class="site-row'), html.indexOf("</tr>"));
+const cells = siteRow.match(/<td[ >]/g).length;
+check(cells === 6, `six cells: ${cells}`);
+check(siteRow.indexOf('<td class="col-tenants">Acme') > siteRow.indexOf("Oslo") && siteRow.indexOf("col-tenants") < siteRow.indexOf("alert-badge"), siteRow);
+check((html.match(/Acme/g) || []).length === 1, "tenant once");
+const deviceRow = html.slice(html.indexOf('<tr class="down-device-row'));
+check(deviceRow.slice(0, deviceRow.indexOf("</tr>")).match(/<td[ >]/g).length === 6, deviceRow);
 """)
 
 
