@@ -858,6 +858,46 @@ a.case-pill:focus-visible {
   font-size: 0.78rem;
 }
 
+/* The maintenance forms' reason and their main button (#343): on the board's
+   panel and the Maintenance page; they were the browser's own until now. */
+.maint-reason {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 7px 10px;
+  font: inherit;
+}
+
+.maint-save-btn,
+.maint-plan-open {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.maint-save-btn:hover,
+.maint-plan-open:hover {
+  filter: brightness(1.08);
+}
+
+.maint-save-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.maint-save-btn:focus-visible,
+.maint-plan-open:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .case-form input[type="text"],
 .case-form button {
   border: 1px solid var(--color-border);
