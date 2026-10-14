@@ -150,6 +150,22 @@ class TestIntervals:
         # At midnight too: a moment later the 11th is partly deleted.
         assert availability.oldest_day(t(21)) == "2026-10-12"
 
+    def test_format_downtime(self):
+        # As the board shows durations (lib/format.js formatDuration, #311).
+        cases = {
+            0: "—",
+            None: "—",
+            59: "0m",
+            14 * 60: "14m",
+            3600: "1h 0m",
+            8040: "2h 14m",
+            47 * 3600 + 59 * 60: "47h 59m",
+            48 * 3600: "2 days",
+            283 * 86400 + 3600: "283 days",
+        }
+        for seconds, text in cases.items():
+            assert availability.format_downtime(seconds) == text, seconds
+
 
 class TestReport:
     def test_overlapping_devices_count_once_and_maintenance_is_not_downtime(self, pg_database, clock):
@@ -327,6 +343,43 @@ class TestReport:
             run(None, from_date="2026-10-03", to_date="2026-10-04")
         assert run(None, from_date="2026-10-11", to_date="2026-10-20")["period"]["seconds"] == 10 * 86400
 
+    def test_the_summary_and_tenant_descriptions(self, pg_database, clock):
+        # The page's cards (#342): every site counts the same.
+        write(lambda conn: incident(conn, "s1", "d1", t(2), t(4)))  # 90 %
+        sites = [
+            {
+                "id": "s1",
+                "name": "Oslo",
+                "tenants": ["Acme"],
+                "device_count": 1,
+                "tenant_descriptions": {"Acme": "Gold <VIP>"},
+            },
+            {
+                "id": "s2",
+                "name": "Bergen",
+                "tenants": ["Nordic"],
+                "device_count": 1,
+                "tenant_descriptions": {"Nordic": "", "Unlisted": "not a tenant here"},
+            },
+        ]
+        data = run(sites=sites)
+        assert data["summary"] == {
+            "sites": 2,
+            "availability": 95.0,
+            "downtime_seconds": 2 * 86400,
+            "incidents": 1,
+            "below_target": 1,
+            "no_downtime": 1,
+            "target": 99.9,
+            "worst_tenant": {"tenant": "Acme", "sites": 1, "availability": 90.0, "downtime_seconds": 2 * 86400},
+        }
+        assert data["tenant_descriptions"] == {"Acme": "Gold <VIP>"}, "only listed tenants with a description"
+        empty = run("2026-09", sites=[])
+        assert empty["summary"]["availability"] == 100.0 and empty["summary"]["worst_tenant"] is None
+        # No downtime at all: no tenant is named the worst.
+        quiet = run("2026-09", sites=sites)["summary"]
+        assert quiet["worst_tenant"] is None and quiet["no_downtime"] == 2
+
     def test_unknown_basis(self, pg_database, clock):
         with pytest.raises(availability.ReportError, match="basis"):
             run(basis="uptime")
@@ -387,6 +440,37 @@ class TestPages:
         resp = client.get("/api/availability.csv?from=2026-10-01&to=2026-10-31")
         assert 'filename="availability-sites-2026-10.csv"' in resp.headers["Content-Disposition"]
         assert resp.get_data(as_text=True).lstrip("\ufeff").splitlines()[1].startswith("2026-10,any_down,")
+
+    def test_the_page_answers_first(self, client, monkeypatch):
+        # #342: four cards, bars, the tenant (i), and data for sorting; escaped.
+        monkeypatch.setattr(
+            availability,
+            "board_sites",
+            lambda: [
+                {
+                    "id": "s1",
+                    "name": "=Oslo",
+                    "tenants": ["Acme", "O'Brien <Ltd>"],
+                    "tenant_descriptions": {"Acme": 'Bank <"VIP">'},
+                }
+            ],
+        )
+        page = client.get("/availability?month=2026-10").get_data(as_text=True)
+        assert page.count('class="avail-card"') == 4
+        assert "90.000 %" in page and "2 days" in page and "1 incident," in page
+        assert '<meter class="pct-bar" min="98" max="100" low="99" high="99.9" optimum="100" value="98.1"' in page
+        assert 'data-info-tip="Bank &lt;&#34;VIP&#34;&gt;"' in page and 'Bank <"VIP">' not in page
+        # Site rows name the tenant; the description is in the section once (#342).
+        assert 'data-tenant-tip="Acme">i</span>' in page
+        assert """data-tenant-descriptions='{"Acme": "Bank \\u003c\\"VIP\\"\\u003e"}'""" in page
+        assert 'data-availability="90.0" data-downtime="172800" data-incidents="1"' in page
+        # JSON in a single-quoted attribute: the quote and the brackets are escaped.
+        assert """data-tenants='["Acme", "O\\u0027Brien \\u003cLtd\\u003e"]'""" in page
+        assert '<span class="tenant-rest" hidden>, O&#39;Brien &lt;Ltd&gt;</span>' in page
+        assert 'title="O&#39;Brien &lt;Ltd&gt;">+1</button>' in page
+        assert 'href="/static/css/tooltip.css"' in page, "the (i) needs its styles"
+        quiet = client.get("/availability?month=2026-09").get_data(as_text=True)
+        assert "none had downtime" in quiet
 
     def test_an_unreadable_board_is_a_503_not_a_partial_report(self, client, monkeypatch):
         def broken():

@@ -2,6 +2,7 @@
 // wires the controls and loads the board.  The only module that looks at the
 // page when it loads (#294).
 import { setCaseUrlTemplate } from "../lib/cases.js";
+import { revealTenantRest } from "../lib/html.js";
 import { initThemeToggle } from "../lib/theme.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { showError } from "../lib/toast.js";
@@ -190,12 +191,7 @@ document.addEventListener("keydown", (event) => {
 
 // The rows' buttons; rows are re-rendered on every update, so the listeners
 // are on the table body.
-els.alertsTableBody.addEventListener("click", (event) => {
-  const moreBtn = event.target.closest(".tenant-more-btn");
-  if (!moreBtn) return;
-  moreBtn.previousElementSibling.hidden = false;
-  moreBtn.remove();
-});
+els.alertsTableBody.addEventListener("click", revealTenantRest);
 
 function toggleSite(siteId) {
   // With every site open, the set holds the ones the operator closed.

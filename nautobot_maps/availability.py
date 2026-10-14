@@ -25,6 +25,8 @@ MONTH_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Longest from–to period (#341): a year, so a report stays a few quick queries.
 MAX_PERIOD_DAYS = 366
+# Below this a site or tenant is shown in red (#287) and counted as below target (#342).
+TARGET_PCT = 99.9
 
 Interval = tuple[datetime, datetime]
 
@@ -380,6 +382,10 @@ def report(
         ),
         key=lambda r: (r["availability"], r["tenant"].lower()),
     )
+    # The descriptions of the tenants listed, for their (i) (#342).
+    descriptions: dict[str, str] = {}
+    for site in sites or []:
+        descriptions.update(site.get("tenant_descriptions") or {})
     return {
         "month": asked["month"],
         "basis": basis,
@@ -393,9 +399,40 @@ def report(
             "to": asked["to"],
             "label": asked["label"],
         },
+        "summary": summarise(site_rows, tenant_rows),
         "sites": site_rows,
         "tenants": tenant_rows,
+        "tenant_descriptions": {name: descriptions[name] for name in tenants if descriptions.get(name)},
     }
+
+
+def summarise(site_rows: list[dict], tenant_rows: list[dict]) -> dict:
+    """The page's cards (#342): every site counts the same, as for a tenant."""
+    count = len(site_rows)
+    # No tenant had downtime: no "worst" to name.
+    worst = tenant_rows[0] if tenant_rows and tenant_rows[0]["downtime_seconds"] else None
+    return {
+        "sites": count,
+        "availability": round(sum(r["availability"] for r in site_rows) / count, 3) if count else 100.0,
+        "downtime_seconds": sum(r["downtime_seconds"] for r in site_rows),
+        "incidents": sum(r["incidents"] for r in site_rows),
+        "below_target": sum(1 for r in site_rows if r["availability"] < TARGET_PCT),
+        "no_downtime": sum(1 for r in site_rows if not r["downtime_seconds"]),
+        "target": TARGET_PCT,
+        "worst_tenant": worst,
+    }
+
+
+def format_downtime(seconds: int) -> str:
+    """As the board shows durations (lib/format.js formatDuration, #311): "—", "14m",
+    "2h 14m", and in days from two days ("3 days")."""
+    total = int(seconds or 0)
+    if total <= 0:
+        return "—"
+    hours, minutes = total // 3600, total % 3600 // 60
+    if hours >= 48:
+        return f"{hours // 24} days"
+    return f"{hours}h {minutes}m" if hours else f"{minutes}m"
 
 
 def _safe(value) -> str:
