@@ -61,10 +61,11 @@
       {%- set description = report.tenant_descriptions.get(name) -%}
       {%- if description %}<span class="info-tip" tabindex="0" role="img" aria-label="{{ name }}: {{ description }}" data-info-tip="{{ description }}">i</span>{% endif -%}
     {%- endmacro %}
-    {#- Availability as a number and a bar: 98 % or less is empty (most targets are 99-100 %), under the target red (#342). #}
+    {#- Availability as a number and a bar on 98-100 % (most targets are 99-100 %): below the
+        target red, and below 98 % a short red stub rather than an empty bar (#342). #}
     {%- macro pct(value, target) -%}
       <span class="pct-value{% if value < target %} is-below{% endif %}">{{ "%.3f" | format(value) }} %</span>
-      <meter class="pct-bar" min="98" max="100" low="99" high="{{ target }}" optimum="100" value="{{ value }}" aria-hidden="true"></meter>
+      <meter class="pct-bar" min="98" max="100" low="99" high="{{ target }}" optimum="100" value="{{ [value, 98.1] | max }}" aria-hidden="true"></meter>
     {%- endmacro %}
 
     {%- if error %}

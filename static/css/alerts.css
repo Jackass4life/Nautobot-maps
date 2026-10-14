@@ -1606,7 +1606,9 @@ a.case-pill:focus-visible {
 
 .avail-filters {
   display: flex;
+  flex: 0 1 460px;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -1626,7 +1628,8 @@ a.case-pill:focus-visible {
 }
 
 .avail-search {
-  width: min(260px, 100%);
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .avail-table .num {

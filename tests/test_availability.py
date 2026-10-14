@@ -454,7 +454,8 @@ class TestPages:
         page = client.get("/availability?month=2026-10").get_data(as_text=True)
         assert page.count('class="avail-card"') == 4
         assert "90.000 %" in page and "2 d" in page and "1 incident," in page
-        assert '<meter class="pct-bar" min="98" max="100" low="99" high="99.9" optimum="100" value="90.0"' in page
+        assert '<meter class="pct-bar" min="98" max="100" low="99" high="99.9" optimum="100" value="98.1"' in page
+        assert "90.000 %" in page, "the number stays exact"
         assert 'data-info-tip="Bank &lt;&#34;VIP&#34;&gt;"' in page and 'Bank <"VIP">' not in page
         assert 'data-availability="90.0" data-downtime="172800" data-incidents="1"' in page
         # JSON in a single-quoted attribute: the quote and the brackets are escaped.
