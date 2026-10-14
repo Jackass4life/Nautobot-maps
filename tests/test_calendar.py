@@ -27,19 +27,17 @@ check(formatRange("", "2026-10-03") === "", "nothing to show");
 
     def test_quick_choices(self):
         run_js("""
-import { quickPeriod, quickPeriodAllowed } from "@js/lib/calendar.js";
+import { quickPeriod } from "@js/lib/calendar.js";
 
+// Always days; a month runs to its last day (the report stops at now and calls it that month).
 const today = "2026-03-14";
-check(quickPeriod("this-month", today).month === "2026-03", "this month");
-check(quickPeriod("last-month", "2026-01-31").month === "2025-12", "last month across a year");
-const week = quickPeriod("last-7", today);
-check(week.from === "2026-03-08" && week.to === today, JSON.stringify(week));
-const thirty = quickPeriod("last-30", today);
-check(thirty.from === "2026-02-13" && thirty.to === today, JSON.stringify(thirty));
+const same = (period, from, to) => period.from === from && period.to === to;
+check(same(quickPeriod("this-month", today), "2026-03-01", "2026-03-31"), "this month");
+check(same(quickPeriod("last-month", today), "2026-02-01", "2026-02-28"), "last month: February");
+check(same(quickPeriod("last-month", "2026-01-31"), "2025-12-01", "2025-12-31"), "across a year");
+check(same(quickPeriod("last-7", today), "2026-03-08", today), "7 days");
+check(same(quickPeriod("last-30", today), "2026-02-13", today), "30 days");
 check(quickPeriod("nope", today) === null, "unknown");
-// Older than the history kept: not offered.
-check(quickPeriodAllowed({ month: "2026-02" }, "") && quickPeriodAllowed({ month: "2026-02" }, "2026-02-01"), "allowed");
-check(!quickPeriodAllowed({ month: "2026-02" }, "2026-02-02") && !quickPeriodAllowed(thirty, "2026-02-20"), "refused");
 """)
 
 

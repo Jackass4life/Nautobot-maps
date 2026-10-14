@@ -73,25 +73,43 @@ class TestIntervals:
         assert availability.clip([(t(1) - timedelta(days=2), t(2))], OCT, t(3)) == [(OCT, t(2))]
         assert availability.seconds([a, b]) == 2 * 86400
 
-    def test_month_bounds(self):
+    def test_a_month(self):
         at = t(21)
-        assert availability.month_bounds("2026-10", at) == (OCT, at), "the current month: up to now"
-        assert availability.month_bounds("2026-09", at) == (datetime(2026, 9, 1, tzinfo=UTC), OCT)
-        assert availability.month_bounds("2025-12", at)[1] == datetime(2026, 1, 1, tzinfo=UTC)
-        for bad in ("2026-13", "26-10", "oct", "", "0000-01", "9999-12"):
-            with pytest.raises(availability.ReportError, match="2026-10"):
-                availability.month_bounds(bad, at)
-        with pytest.raises(availability.ReportError, match="hasn't started"):
-            availability.month_bounds("2026-11", at)
 
-    def test_period_bounds(self):
+        def bounds(month):
+            period = availability.resolve_period(month, None, None, at)
+            return period["start"], period["end"]
+
+        assert bounds("2026-10") == (OCT, at), "the current month: up to now"
+        assert bounds(None) == (OCT, at), "the default"
+        assert bounds("2026-09") == (datetime(2026, 9, 1, tzinfo=UTC), OCT)
+        assert bounds("2025-12")[1] == datetime(2026, 1, 1, tzinfo=UTC)
+        for bad in ("2026-13", "26-10", "oct", "0000-01", "9999-12"):
+            with pytest.raises(availability.ReportError, match="2026-10"):
+                bounds(bad)
+        with pytest.raises(availability.ReportError, match="hasn't started"):
+            bounds("2026-11")
+        sept = availability.resolve_period("2026-09", None, None, at)
+        assert (sept["from"], sept["to"], sept["month"], sept["label"]) == (
+            "2026-09-01",
+            "2026-09-30",
+            "2026-09",
+            "2026-09",
+        )
+
+    def test_any_days(self):
         # Any days, both included (#341); the end not after now.
         at = t(21, 9)
-        assert availability.period_bounds("2026-10-03", "2026-10-09", at) == (t(3), t(10))
-        assert availability.period_bounds("2026-10-20", "2026-10-25", at) == (t(20), at)
-        assert availability.period_bounds("2026-10-21", "2026-10-21", at) == (t(21), at), "today so far"
+
+        def bounds(from_date, to_date):
+            period = availability.resolve_period(None, from_date, to_date, at)
+            return period["start"], period["end"]
+
+        assert bounds("2026-10-03", "2026-10-09") == (t(3), t(10))
+        assert bounds("2026-10-20", "2026-10-25") == (t(20), at)
+        assert bounds("2026-10-21", "2026-10-21") == (t(21), at), "today so far"
         # Months of every length: no "31 September".
-        assert availability.period_bounds("2024-02-01", "2024-02-29", at)[1] == datetime(2024, 3, 1, tzinfo=UTC)
+        assert bounds("2024-02-01", "2024-02-29")[1] == datetime(2024, 3, 1, tzinfo=UTC)
         for bad, message in (
             (("2026-02-30", "2026-03-01"), "real date"),
             (("2026-9-1", "2026-09-02"), "2026-10-03"),
@@ -99,10 +117,29 @@ class TestIntervals:
             (("2025-10-01", "2026-10-02"), "at most 366 days"),
             (("2026-10-22", "2026-10-23"), "hasn't started"),
             (("9999-12-31", "9999-12-31"), "real date"),
+            (("2026-10-03", None), "both from and to"),
         ):
             with pytest.raises(availability.ReportError, match=message):
-                availability.period_bounds(*bad, at)
-        assert availability.period_bounds("2025-10-01", "2026-09-30", at)[0] == datetime(2025, 10, 1, tzinfo=UTC)
+                bounds(*bad)
+        assert bounds("2025-10-01", "2026-09-30")[0] == datetime(2025, 10, 1, tzinfo=UTC)
+        with pytest.raises(availability.ReportError, match="not both"):
+            availability.resolve_period("2026-10", "2026-10-03", "2026-10-04", at)
+
+    def test_a_whole_month_from_to_is_that_month(self):
+        # The page always sends from and to; a whole month keeps its CSV month (#341).
+        at = t(21, 9)
+        labels = {
+            ("2026-09-01", "2026-09-30"): ("2026-09", "2026-09"),
+            ("2026-10-01", "2026-10-31"): ("2026-10", "2026-10"),  # so far
+            ("2024-02-01", "2024-02-29"): ("2024-02", "2024-02"),
+            ("2026-09-01", "2026-09-29"): (None, "2026-09-01 to 2026-09-29"),
+            ("2026-09-02", "2026-09-30"): (None, "2026-09-02 to 2026-09-30"),
+            ("2026-09-01", "2026-10-31"): (None, "2026-09-01 to 2026-10-31"),
+            ("2026-10-03", "2026-10-03"): (None, "2026-10-03"),
+        }
+        for (from_date, to_date), expected in labels.items():
+            period = availability.resolve_period(None, from_date, to_date, at)
+            assert (period["month"], period["label"]) == expected, (from_date, to_date)
 
     def test_oldest_day(self, monkeypatch):
         # The calendar's first day is the first whole day report() accepts (#341).
@@ -285,10 +322,6 @@ class TestReport:
         month = run(sites=sites)["period"]
         assert (month["from"], month["to"], month["label"]) == ("2026-10-01", "2026-10-31", "2026-10")
         assert run("2026-02", sites=sites)["period"]["to"] == "2026-02-28"
-        with pytest.raises(availability.ReportError, match="not both"):
-            run("2026-10", from_date="2026-10-03", to_date="2026-10-04")
-        with pytest.raises(availability.ReportError, match="both from and to"):
-            run(None, from_date="2026-10-03")
         monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 10)
         with pytest.raises(availability.ReportError, match="2026-10-03 to 2026-10-04 can't be reported"):
             run(None, from_date="2026-10-03", to_date="2026-10-04")
@@ -315,7 +348,9 @@ class TestPages:
     def test_page_json_and_csv(self, client):
         page = client.get("/availability?month=2026-10").get_data(as_text=True)
         assert "=Oslo" in page and "90.000 %" in page and "(so far)" in page
-        assert 'href="/api/availability.csv?month=2026-10&amp;basis=any_down&amp;view=tenants"' in page
+        assert (
+            'href="/api/availability.csv?from=2026-10-01&amp;to=2026-10-31&amp;basis=any_down&amp;view=tenants"' in page
+        )
         data = client.get("/api/availability?month=2026-10").get_json()
         assert data["sites"][0]["availability"] == 90.0
         csv_text = client.get("/api/availability.csv?month=2026-10").get_data(as_text=True)
@@ -331,7 +366,6 @@ class TestPages:
         page = client.get(f"/availability?{query}").get_data(as_text=True)
         assert "50.000 %" in page and "(so far)" not in page
         assert 'name="from" type="date" value="2026-10-03"' in page and 'value="2026-10-04"' in page
-        assert '<input type="hidden" name="month" value="" disabled />' in page
         assert (
             'href="/api/availability.csv?from=2026-10-03&amp;to=2026-10-04&amp;basis=any_down&amp;view=sites"' in page
         )
@@ -346,9 +380,13 @@ class TestPages:
         )
         one_day = client.get("/api/availability.csv?from=2026-10-03&to=2026-10-03")
         assert 'filename="availability-sites-2026-10-03.csv"' in one_day.headers["Content-Disposition"]
+        # A month, asked for either way, is that month: its CSV keeps the month column.
         month = client.get("/availability?month=2026-10").get_data(as_text=True)
-        assert '<input type="hidden" name="month" value="2026-10" disabled />' in month
-        assert 'name="from" type="date" value="2026-10-01"' in month
+        assert 'name="from" type="date" value="2026-10-01"' in month and 'value="2026-10-31"' in month
+        assert "from=2026-10-01&amp;to=2026-10-31&amp;basis=any_down" in month
+        resp = client.get("/api/availability.csv?from=2026-10-01&to=2026-10-31")
+        assert 'filename="availability-sites-2026-10.csv"' in resp.headers["Content-Disposition"]
+        assert resp.get_data(as_text=True).lstrip("\ufeff").splitlines()[1].startswith("2026-10,any_down,")
 
     def test_an_unreadable_board_is_a_503_not_a_partial_report(self, client, monkeypatch):
         def broken():

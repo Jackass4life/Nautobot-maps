@@ -1,7 +1,7 @@
 // The availability page (#287) is rendered on the server.  This keeps the
 // light/dark choice the other pages use, and turns the two date fields into
 // a button with a calendar and quick choices (#341).  An entry module, like */main.js.
-import { createRangeCalendar, formatRange, monthEnd, quickPeriod, quickPeriodAllowed } from "./lib/calendar.js";
+import { createRangeCalendar, formatRange, quickPeriod } from "./lib/calendar.js";
 import { initThemeToggle } from "./lib/theme.js";
 
 initThemeToggle(document.getElementById("theme-toggle"));
@@ -9,19 +9,14 @@ initThemeToggle(document.getElementById("theme-toggle"));
 function initPeriodPicker(form) {
   const fromInput = form.querySelector("#availability-from");
   const toInput = form.querySelector("#availability-to");
-  const monthInput = form.querySelector('input[name="month"]');
   const button = form.querySelector("#period-button");
   const popover = form.querySelector("#period-popover");
   const { today, oldestDay } = form.dataset;
 
-  // A month report keeps sending month= (not from and to), so Show keeps it a month.
-  const monthMode = Boolean(monthInput.value);
-  monthInput.disabled = !monthMode;
-  fromInput.disabled = toInput.disabled = monthMode;
-  const showPeriod = (from, to) => {
-    button.textContent = formatRange(from, to) || "Choose a period";
+  const showPeriod = () => {
+    button.textContent = formatRange(fromInput.value, toInput.value) || "Choose a period";
   };
-  showPeriod(fromInput.value, toInput.value);
+  showPeriod();
   form.querySelector(".period-inputs").hidden = true;
   button.hidden = false;
 
@@ -31,14 +26,11 @@ function initPeriodPicker(form) {
     if (returnFocus) button.focus();
   }
 
-  function submit(period) {
-    monthInput.value = period.month || "";
-    monthInput.disabled = !period.month;
-    fromInput.value = period.from || `${period.month}-01`;
-    toInput.value = period.to || monthEnd(`${period.month}-01`);
-    // Either a month or from and to: the server refuses both.
-    fromInput.disabled = toInput.disabled = Boolean(period.month);
-    showPeriod(fromInput.value, toInput.value);
+  // Always from and to: the server reports a whole month as that month.
+  function submit({ from, to }) {
+    fromInput.value = from;
+    toInput.value = to;
+    showPeriod();
     close(false);
     form.requestSubmit();
   }
@@ -54,7 +46,7 @@ function initPeriodPicker(form) {
 
   for (const preset of form.querySelectorAll(".period-preset")) {
     const period = quickPeriod(preset.dataset.preset, today);
-    if (!quickPeriodAllowed(period, oldestDay)) {
+    if (oldestDay && period.from < oldestDay) {
       preset.disabled = true;
       preset.title = "Older than the history kept";
     }

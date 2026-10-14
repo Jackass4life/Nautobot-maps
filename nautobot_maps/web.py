@@ -863,6 +863,11 @@ def api_maintenance_end(window_id: int):
     return jsonify({"window": window})
 
 
+def _arg(name: str) -> str | None:
+    """A query-string value, stripped; None when empty."""
+    return (request.args.get(name) or "").strip() or None
+
+
 def _availability_report() -> tuple[dict | None, str, int]:
     """``(report, error, status)`` for the month or from–to and the basis in the query string (#287, #341)."""
     conn = db.get_conn()
@@ -876,14 +881,7 @@ def _availability_report() -> tuple[dict | None, str, int]:
             logger.warning("Availability report: could not read the alert board: %s", exc, exc_info=True)
             return None, "The alert board could not be read, so the report would miss sites; try again shortly.", 503
         return (
-            availability.report(
-                conn,
-                (request.args.get("month") or "").strip() or None,
-                (request.args.get("basis") or "").strip() or None,
-                sites,
-                (request.args.get("from") or "").strip() or None,
-                (request.args.get("to") or "").strip() or None,
-            ),
+            availability.report(conn, _arg("month"), _arg("basis"), sites, _arg("from"), _arg("to")),
             "",
             200,
         )
@@ -899,26 +897,20 @@ def availability_page():
     ``?from=2026-10-03&to=2026-10-09`` (#341), and ``&basis=any_down``."""
     report, error, status = _availability_report()
     at = availability.now()
-    this_month = availability.current_month(at)
-    period = (report or {}).get("period") or {}
-    # What the page asked for, kept in the form after an error too.
-    month = (report.get("month") or "") if report else (request.args.get("month") or "").strip()
-    from_date = period.get("from") or (request.args.get("from") or "").strip()
-    to_date = period.get("to") or (request.args.get("to") or "").strip()
-    if not report and not (month or from_date or to_date):
-        month = this_month
-    basis = (report or {}).get("basis") or settings.AVAILABILITY_BASIS
-    query = {"month": month} if month else {"from": from_date, "to": to_date}
+    # The days shown in the form: the report's, or after an error what was
+    # asked for.  The form always sends from and to; a whole month is still
+    # a month (availability.resolve_period).
+    asked = report["period"] if report else {"from": _arg("from") or "", "to": _arg("to") or ""}
+    basis = report["basis"] if report else settings.AVAILABILITY_BASIS
     return (
         render_template(
             "availability.html",
             report=report,
             error=error,
-            month=month,
-            from_date=from_date,
-            to_date=to_date,
+            from_date=asked["from"],
+            to_date=asked["to"],
             basis=basis,
-            csv_query=urlencode({**query, "basis": basis}),
+            csv_query=urlencode({"from": asked["from"], "to": asked["to"], "basis": basis}),
             today=f"{at:%Y-%m-%d}",
             # The calendar's limits: today, and the oldest day the history still has.
             oldest_day=availability.oldest_day(at),
@@ -929,7 +921,7 @@ def availability_page():
 
 @bp.route("/api/availability")
 def api_availability():
-    """Availability per site and tenant for a month (#287).
+    """Availability per site and tenant for a period (#287, #341).
 
     Query parameters: ``month`` (``2026-10``; default the current month, up
     to now), or ``from`` and ``to`` (``2026-10-03``, both days included, at
@@ -939,12 +931,6 @@ def api_availability():
     """
     report, error, status = _availability_report()
     return (jsonify(report), 200) if report is not None else (jsonify({"error": error}), status)
-
-
-def _period_slug(report: dict) -> str:
-    """``2026-10``, or ``2026-10-03_2026-10-09`` for a from–to period (#341)."""
-    period = report["period"]
-    return report["month"] or (period["from"] if period["from"] == period["to"] else f"{period['from']}_{period['to']}")
 
 
 @bp.route("/api/availability.csv")
@@ -959,7 +945,9 @@ def api_availability_csv():
     return Response(
         availability.to_csv(report, view),
         mimetype="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="availability-{view}-{_period_slug(report)}.csv"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="availability-{view}-{report["period"]["label"].replace(" to ", "_")}.csv"'
+        },
     )
 
 

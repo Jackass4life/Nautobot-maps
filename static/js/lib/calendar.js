@@ -58,21 +58,17 @@ export function formatRange(from, to) {
   return `${a.getUTCDate()} – ${b.getUTCDate()} ${short(b)} ${b.getUTCFullYear()}`;
 }
 
-// A quick choice's {month: "2026-10"} or {from, to}, with *today* "2026-10-14" (#341).
+// A quick choice's days {from, to}, with *today* "2026-10-14" (#341).
+// A month runs to its last day: the report stops at now, and calls it that month.
 export function quickPeriod(choice, today) {
+  const lastMonth = addMonths(monthStart(today), -1);
   switch (choice) {
-    case "this-month": return { month: today.slice(0, 7) };
-    case "last-month": return { month: addMonths(monthStart(today), -1).slice(0, 7) };
+    case "this-month": return { from: monthStart(today), to: monthEnd(today) };
+    case "last-month": return { from: lastMonth, to: monthEnd(lastMonth) };
     case "last-7": return { from: addDays(today, -6), to: today };
     case "last-30": return { from: addDays(today, -29), to: today };
     default: return null;
   }
-}
-
-// Whether all of a quick choice's days are on or after *oldest* ("" for no limit).
-export function quickPeriodAllowed(period, oldest) {
-  if (!oldest) return true;
-  return (period.month ? `${period.month}-01` : period.from) >= oldest;
 }
 
 // One month as a grid of day buttons, weeks from Monday.  *state*: {from, to}
@@ -85,21 +81,21 @@ export function monthGridHtml(month, state) {
   const prevOk = !state.min || monthEnd(addMonths(monthStart(month), -1)) >= state.min;
   const nextOk = !state.max || addMonths(monthStart(month), 1) <= state.max;
   const title = `${MONTH_NAMES[first.getUTCMonth()]} ${first.getUTCFullYear()}`;
+  const short = MONTH_NAMES[first.getUTCMonth()].slice(0, 3);
+  const end = state.to || state.from;
   const cells = [];
   for (let i = 0; i < lead; i += 1) cells.push('<span class="cal-blank"></span>');
-  for (let day = monthStart(month); day <= last; day = addDays(day, 1)) {
+  for (let date = 1, day = monthStart(month); day <= last; date += 1, day = addDays(day, 1)) {
     const disabled = (state.min && day < state.min) || (state.max && day > state.max);
-    const end = state.to || state.from;
+    const selected = day === state.from || day === end;
     const classes = ["cal-day"];
     if (state.from && day >= state.from && day <= end) classes.push("in-range");
     if (day === state.from) classes.push("range-start");
     if (day === end) classes.push("range-end");
     if (day === state.today) classes.push("is-today");
-    const selected = classes.includes("range-start") || classes.includes("range-end");
-    const label = formatRange(day, day);
+    const label = `${date} ${short} ${first.getUTCFullYear()}${day === state.today ? " (today)" : ""}`;
     cells.push(`<button type="button" class="${classes.join(" ")}" data-day="${day}" tabindex="${day === state.focus ? 0 : -1}"`
-      + ` aria-label="${escHtml(label)}${day === state.today ? " (today)" : ""}" aria-pressed="${selected}"${disabled ? " disabled" : ""}>`
-      + `${Number(day.slice(8))}</button>`);
+      + ` aria-label="${escHtml(label)}" aria-pressed="${selected}"${disabled ? " disabled" : ""}>${date}</button>`);
   }
   return `
     <div class="cal-head">
@@ -124,22 +120,32 @@ function clampDay(day, { min, max }) {
 // The first click starts a range, the second ends it (either order) and calls onPick.
 // Keys: arrows by day and week, PageUp/PageDown by month, Home/End the week.
 export function createRangeCalendar(element, options) {
-  // A month that hasn't ended is shown up to its last day that can be chosen.
-  const shown = (day) => (day ? clampDay(day, options) : "");
-  const state = {
-    from: shown(options.from),
-    to: shown(options.to),
-    min: options.min || "",
-    max: options.max || "",
-    today: options.today,
-    focus: clampDay(options.to || options.today, options),
-    picking: false,
-  };
-  let month = monthStart(state.focus);
+  const state = { min: options.min || "", max: options.max || "", today: options.today, picking: false };
+  let month;
+  // The preview's last hovered day, so moving within one day does nothing.
+  let hovered = "";
 
-  function render(focusDay = false) {
+  function focusDay() {
+    element.querySelector(`[data-day="${state.focus}"]`)?.focus();
+  }
+
+  function render(withFocus = false) {
     element.innerHTML = monthGridHtml(month, state);
-    if (focusDay) element.querySelector(`[data-day="${state.focus}"]`)?.focus();
+    hovered = "";
+    if (withFocus) focusDay();
+  }
+
+  // Show *from*–*to* without calling onPick; with no range (an error page) open on today.
+  // A month that hasn't ended is shown up to its last day that can be chosen.
+  function set(from, to) {
+    Object.assign(state, {
+      from: from ? clampDay(from, state) : "",
+      to: to ? clampDay(to, state) : "",
+      picking: false,
+      focus: clampDay(to || state.today, state),
+    });
+    month = monthStart(state.focus);
+    render();
   }
 
   function moveFocus(day) {
@@ -172,7 +178,7 @@ export function createRangeCalendar(element, options) {
       // The redraw replaced the arrow: keep the keyboard on it, or on a day at the end.
       const again = element.querySelector(`.cal-nav[data-step="${step}"]:not(:disabled)`);
       if (again) again.focus();
-      else element.querySelector(`[data-day="${state.focus}"]`)?.focus();
+      else focusDay();
       return;
     }
     const button = event.target.closest(".cal-day");
@@ -182,8 +188,9 @@ export function createRangeCalendar(element, options) {
   // While picking, the range follows the pointer to show what a click would choose.
   element.addEventListener("mouseover", (event) => {
     const button = event.target.closest(".cal-day");
-    if (!state.picking || !button || button.disabled) return;
-    const [a, b] = [state.from, button.dataset.day].sort();
+    if (!state.picking || !button || button.disabled || button.dataset.day === hovered) return;
+    hovered = button.dataset.day;
+    const [a, b] = [state.from, hovered].sort();
     for (const day of element.querySelectorAll(".cal-day")) {
       day.classList.toggle("in-preview", day.dataset.day >= a && day.dataset.day <= b);
     }
@@ -209,15 +216,6 @@ export function createRangeCalendar(element, options) {
     moveFocus(moves[event.key]());
   });
 
-  render();
-  return {
-    focus: () => element.querySelector(`[data-day="${state.focus}"]`)?.focus(),
-    // Show *from*–*to* (a quick choice), without calling onPick.
-    set(from, to) {
-      // No range yet (an error page): open on today, as at the start.
-      Object.assign(state, { from: shown(from), to: shown(to), picking: false, focus: clampDay(to || state.today, state) });
-      month = monthStart(state.focus);
-      render();
-    },
-  };
+  set(options.from, options.to);
+  return { focus: focusDay, set };
 }

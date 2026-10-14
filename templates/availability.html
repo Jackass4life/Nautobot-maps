@@ -25,10 +25,10 @@
 
     <!-- The period and what counts as down (#287).  Without script, two date
          fields; with it, a button that opens a calendar and quick choices (#341).
-         "To" has no max: a month so far ends after today, and the report stops at now. -->
+         "To" has no max: a month so far ends after today, and the report stops at now.
+         A whole month sent as from and to is reported as that month. -->
     <form id="availability-form" class="toolbar availability-form" method="get" action="/availability"
           data-today="{{ today }}" data-oldest-day="{{ oldest_day }}">
-      <input type="hidden" name="month" value="{{ month }}" disabled />
       <div class="period-field">
         <span class="period-label" id="period-label">Period</span>
         <div class="period-inputs">
@@ -44,7 +44,7 @@
             <button type="button" class="period-preset" data-preset="last-30">Last 30 days</button>
           </div>
           <div id="period-calendar" class="calendar"></div>
-          <p class="period-hint" id="period-hint">Click the first day, then the last.</p>
+          <p class="period-hint">Click the first day, then the last.</p>
         </div>
       </div>
       <label for="availability-basis">Downtime</label>

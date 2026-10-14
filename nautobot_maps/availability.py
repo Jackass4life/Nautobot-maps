@@ -55,14 +55,6 @@ def _month_span(month: str) -> tuple[datetime, datetime]:
     return start, end
 
 
-def month_bounds(month: str, at: datetime) -> tuple[datetime, datetime]:
-    """``(start, end)`` of *month* ("2026-10"), the end not after *at*."""
-    start, end = _month_span(month)
-    if start >= at:
-        raise ReportError("That month hasn't started yet")
-    return start, min(end, at)
-
-
 def _date(value: str, name: str) -> datetime:
     if not DATE_PATTERN.match(value or ""):
         raise ReportError(f"{name} must look like 2026-10-03")
@@ -72,11 +64,23 @@ def _date(value: str, name: str) -> datetime:
         raise ReportError(f"{name} must be a real date, like 2026-10-03") from None
 
 
-def period_bounds(from_date: str, to_date: str, at: datetime) -> tuple[datetime, datetime]:
-    """``(start, end)`` of the days *from_date* to *to_date* ("2026-10-03"),
-    both included (#341), the end not after *at*."""
-    start = _date(from_date, "from")
-    last = _date(to_date, "to")
+def resolve_period(month: str | None, from_date: str | None, to_date: str | None, at: datetime) -> dict:
+    """The period asked for (#341): ``month`` ("2026-10"), or ``from`` and
+    ``to`` ("2026-10-03", both included); default the current month.
+
+    ``{start, end, from, to, month, label}``: *end* not after *at*; a from–to
+    that is a whole calendar month is that month, so its CSV keeps the month.
+    """
+    if from_date or to_date:
+        if month:
+            raise ReportError("Give a month, or from and to, not both")
+        if not (from_date and to_date):
+            raise ReportError("Give both from and to")
+        start = _date(from_date, "from")
+        last = _date(to_date, "to")
+    else:
+        start, end = _month_span(month or current_month(at))
+        last = end - timedelta(days=1)
     if last < start:
         raise ReportError("to must be on or after from")
     try:
@@ -87,17 +91,31 @@ def period_bounds(from_date: str, to_date: str, at: datetime) -> tuple[datetime,
         raise ReportError(f"A period can be at most {MAX_PERIOD_DAYS} days")
     if start >= at:
         raise ReportError("That period hasn't started yet")
-    return start, min(end, at)
+    first, final = f"{start:%Y-%m-%d}", f"{last:%Y-%m-%d}"
+    whole_month = start.day == 1 and _month_span(first[:7])[1] == end
+    month = first[:7] if whole_month else None
+    return {
+        "start": start,
+        "end": min(end, at),
+        "from": first,
+        "to": final,
+        "month": month,
+        "label": month or (first if first == final else f"{first} to {final}"),
+    }
+
+
+def kept_from(at: datetime) -> datetime | None:
+    """When the history kept starts (``ALERT_HISTORY_RETENTION_DAYS``), or None: all kept."""
+    days = settings.ALERT_HISTORY_RETENTION_DAYS
+    return at - timedelta(days=days) if days > 0 else None
 
 
 def oldest_day(at: datetime) -> str:
     """The calendar's oldest day, "2024-10-15", or "" when nothing is deleted
     (#341): the day after the one the history starts in, so report() still
     accepts it a moment later, when the history has moved on."""
-    if settings.ALERT_HISTORY_RETENTION_DAYS <= 0:
-        return ""
-    kept_from = at - timedelta(days=settings.ALERT_HISTORY_RETENTION_DAYS)
-    return f"{kept_from + timedelta(days=1):%Y-%m-%d}"
+    start = kept_from(at)
+    return f"{start + timedelta(days=1):%Y-%m-%d}" if start else ""
 
 
 def current_month(at: datetime) -> str:
@@ -285,27 +303,15 @@ def report(
     basis = basis or settings.AVAILABILITY_BASIS
     if basis not in BASES:
         raise ReportError(f"basis must be one of: {', '.join(BASES)}")
-    if from_date or to_date:
-        if month:
-            raise ReportError("Give a month, or from and to, not both")
-        if not (from_date and to_date):
-            raise ReportError("Give both from and to")
-        start, end = period_bounds(from_date, to_date, at)
-        last_day = to_date
-        label = from_date if from_date == to_date else f"{from_date} to {to_date}"
-    else:
-        month = month or current_month(at)
-        start, end = month_bounds(month, at)
-        last_day = f"{_month_span(month)[1] - timedelta(days=1):%Y-%m-%d}"
-        label = month
-    if settings.ALERT_HISTORY_RETENTION_DAYS > 0:
+    asked = resolve_period(month, from_date, to_date, at)
+    start, end = asked["start"], asked["end"]
+    history_start = kept_from(at)
+    if history_start and start < history_start:
         # Deleted history would read as no downtime: refuse rather than guess.
-        kept_from = at - timedelta(days=settings.ALERT_HISTORY_RETENTION_DAYS)
-        if start < kept_from:
-            raise ReportError(
-                f"History before {kept_from:%Y-%m-%d} is deleted (ALERT_HISTORY_RETENTION_DAYS="
-                f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {label} can't be reported in full"
-            )
+        raise ReportError(
+            f"History before {history_start:%Y-%m-%d} is deleted (ALERT_HISTORY_RETENTION_DAYS="
+            f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {asked['label']} can't be reported in full"
+        )
     period = int((end - start).total_seconds())
     site_windows, device_windows = read_maintenance(conn, start, end)
 
@@ -375,7 +381,7 @@ def report(
         key=lambda r: (r["availability"], r["tenant"].lower()),
     )
     return {
-        "month": month if not from_date else None,
+        "month": asked["month"],
         "basis": basis,
         "period": {
             "start": start.isoformat().replace("+00:00", "Z"),
@@ -383,16 +389,13 @@ def report(
             "seconds": period,
             "complete": end < at,
             # The days asked for, both included (*end* may be cut at now).
-            "from": f"{start:%Y-%m-%d}",
-            "to": last_day,
-            "label": label,
+            "from": asked["from"],
+            "to": asked["to"],
+            "label": asked["label"],
         },
         "sites": site_rows,
         "tenants": tenant_rows,
     }
-
-
-PERIOD_COLUMNS = ("period_from", "period_to")
 
 
 def _safe(value) -> str:
@@ -402,47 +405,31 @@ def _safe(value) -> str:
 
 def to_csv(data: dict, view: str) -> str:
     out = io.StringIO()
-    out.write("﻿")  # Excel reads UTF-8
+    out.write("\ufeff")  # Excel reads UTF-8
     writer = csv.writer(out, lineterminator="\r\n")
-    period = (data["period"]["from"], data["period"]["to"])
     if view == "tenants":
-        # period_from and period_to (#341) last, so existing spreadsheets keep their columns.
-        writer.writerow(["month", "basis", "tenant", "sites", "availability_pct", "downtime_min", *PERIOD_COLUMNS])
-        for row in data["tenants"]:
-            writer.writerow(
-                [
-                    _safe(v)
-                    for v in (
-                        data["month"] or "",
-                        data["basis"],
-                        row["tenant"],
-                        row["sites"],
-                        row["availability"],
-                        round(row["downtime_seconds"] / 60),
-                        *period,
-                    )
-                ]
-            )
+        columns = ["tenant", "sites", "availability_pct", "downtime_min"]
+        rows = [
+            (r["tenant"], r["sites"], r["availability"], round(r["downtime_seconds"] / 60)) for r in data["tenants"]
+        ]
     else:
-        writer.writerow(
-            ["month", "basis", "site", "tenants", "availability_pct", "downtime_min", "incidents", *PERIOD_COLUMNS]
-        )
-        for row in data["sites"]:
-            writer.writerow(
-                [
-                    _safe(v)
-                    for v in (
-                        data["month"] or "",
-                        data["basis"],
-                        row["name"] or row["site_id"],
-                        "; ".join(row["tenants"]),
-                        row["availability"],
-                        round(row["downtime_seconds"] / 60),
-                        row["incidents"],
-                        *period,
-                    )
-                ]
+        columns = ["site", "tenants", "availability_pct", "downtime_min", "incidents"]
+        rows = [
+            (
+                r["name"] or r["site_id"],
+                "; ".join(r["tenants"]),
+                r["availability"],
+                round(r["downtime_seconds"] / 60),
+                r["incidents"],
             )
+            for r in data["sites"]
+        ]
+    # period_from and period_to (#341) last, so existing spreadsheets keep their columns.
+    writer.writerow(["month", "basis", *columns, "period_from", "period_to"])
+    before = (data["month"], data["basis"])
+    after = (data["period"]["from"], data["period"]["to"])
+    for row in rows:
+        writer.writerow([_safe(v) for v in (*before, *row, *after)])
     return out.getvalue()
 
 

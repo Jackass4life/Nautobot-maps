@@ -146,11 +146,13 @@ def test_the_availability_period_calendar(page):
     assert not page.locator("#period-popover").is_visible()
     assert page.evaluate("document.activeElement.id") == "period-button"
 
-    # Back to a month: the CSV link stays a month.
+    # Back to a month: its first to last day, shown and reported as the month.
     page.locator("#period-button").click()
     page.locator(".period-preset", has_text="This month").click()
-    page.wait_for_url("**month=*")
-    assert "month=" in page.locator(".availability-note a").first.get_attribute("href")
+    page.wait_for_url("**from=*-01&to=*")
+    assert " " in page.locator("#period-button").inner_text() and "–" not in page.locator("#period-button").inner_text()
+    href = page.locator(".availability-note a").first.get_attribute("href")
+    assert api(href.replace("/api/availability.csv", "/api/availability"))["month"], href
 
 
 def test_a_tenant_status_page(page):

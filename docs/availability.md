@@ -15,8 +15,8 @@ The figures add up with the history: in `any_down`, a site's downtime is the inc
 
 ## API and CSV
 
-- `GET /api/availability?month=2026-10&basis=any_down`, or `?from=2026-10-03&to=2026-10-09` for any days (both included): the report as JSON (`sites`, `tenants`, `period` with `from`, `to` and `label`; `month` is `null` for a from–to period).
-- `GET /api/availability.csv?month=2026-10&view=sites` (or `view=tenants`; `from` and `to` work here too): for a spreadsheet. Downtime is in minutes. The last two columns, `period_from` and `period_to`, are the days covered; `month` is empty for a from–to period.
+- `GET /api/availability?month=2026-10&basis=any_down`, or `?from=2026-10-03&to=2026-10-09` for any days (both included): the report as JSON (`sites`, `tenants`, `period` with `from`, `to` and `label`). A from–to that is a whole calendar month (the 1st to its last day) is that month; otherwise `month` is `null`.
+- `GET /api/availability.csv?month=2026-10&view=sites` (or `view=tenants`; `from` and `to` work here too): for a spreadsheet. Downtime is in minutes. The last two columns, `period_from` and `period_to`, are the days covered; `month` is empty unless the period is a whole month.
 
 Both are readable like the board: with `AUTH_REQUIRE_VIEWER=true`, the viewer role.
 
