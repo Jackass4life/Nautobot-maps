@@ -23,6 +23,9 @@ const names = (view) => view.shown.map((row) => row.name).join();
 check(names(viewRows(rows)) === "Aarhus,Oslo,Bergen,Bodø", names(viewRows(rows)));
 check(names(viewRows(rows, { key: "downtime", dir: "desc" })) === "Aarhus,Oslo,Bergen,Bodø", "downtime");
 check(names(viewRows(rows, { key: "name" })) === "Aarhus,Bergen,Bodø,Oslo", "name");
+// Ties in the server's order (lower case, code points): no reordering when the script starts.
+const ties = ["bodø", "Bergen", "Zürich", "aarhus"].map((name) => rowFrom(tr(name, 100, 0, 0, [])));
+check(names(viewRows(ties)) === "aarhus,Bergen,bodø,Zürich", names(viewRows(ties)));
 check(names(viewRows(rows, { key: "incidents", dir: "asc" })) === "Bergen,Bodø,Oslo,Aarhus", "incidents asc");
 
 // Search: the site or a tenant, every word, any case.

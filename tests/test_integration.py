@@ -1465,7 +1465,7 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
     def test_wall_text_is_the_browser_standard(self, integration_client):
         """Same sizes as the board (#267): a big screen is sized with the browser's zoom."""
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
-        wall = css[css.index("/* Wall-screen view") :]
+        wall = css[css.index("/* Wall-screen view") : css.index("/* Availability report")]
         # Every font-size in the wall rules, in any unit (px, em, clamp(), ...).
         sizes = {
             selectors.strip().splitlines()[-1]: value.strip()
@@ -1475,8 +1475,7 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         for selector in (".wall-view .site-name", ".wall-view .alert-badge", ".wall-view .case-pill"):
             assert selector not in sizes, f"{selector} uses the board's size"
         for selector, value in sizes.items():
-            # Only the wall's own rules: other pages' styles follow in the file (#342).
-            if "empty-state" in selector or ".wall-view" not in selector:
+            if "empty-state" in selector:
                 continue
             number = re.fullmatch(r"([\d.]+)rem", value)
             assert number, f"{selector}: font-size {value!r}; use rem, at most 1rem"

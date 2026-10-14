@@ -1741,11 +1741,6 @@ th[aria-sort="descending"] .sort-btn::after {
   color: var(--color-text-muted);
 }
 
-.avail-more-tenants {
-  color: var(--color-primary);
-  cursor: help;
-}
-
 .avail-more {
   margin: 0;
   padding: 10px 16px 14px;

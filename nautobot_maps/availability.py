@@ -409,7 +409,8 @@ def report(
 def summarise(site_rows: list[dict], tenant_rows: list[dict]) -> dict:
     """The page's cards (#342): every site counts the same, as for a tenant."""
     count = len(site_rows)
-    worst = tenant_rows[0] if tenant_rows else None
+    # No tenant had downtime: no "worst" to name.
+    worst = tenant_rows[0] if tenant_rows and tenant_rows[0]["downtime_seconds"] else None
     return {
         "sites": count,
         "availability": round(sum(r["availability"] for r in site_rows) / count, 3) if count else 100.0,

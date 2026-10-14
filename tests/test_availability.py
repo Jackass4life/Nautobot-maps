@@ -375,6 +375,9 @@ class TestReport:
         assert data["tenant_descriptions"] == {"Acme": "Gold <VIP>"}, "only listed tenants with a description"
         empty = run("2026-09", sites=[])
         assert empty["summary"]["availability"] == 100.0 and empty["summary"]["worst_tenant"] is None
+        # No downtime at all: no tenant is named the worst.
+        quiet = run("2026-09", sites=sites)["summary"]
+        assert quiet["worst_tenant"] is None and quiet["no_downtime"] == 2
 
     def test_unknown_basis(self, pg_database, clock):
         with pytest.raises(availability.ReportError, match="basis"):
@@ -455,12 +458,15 @@ class TestPages:
         assert page.count('class="avail-card"') == 4
         assert "90.000 %" in page and "2 d" in page and "1 incident," in page
         assert '<meter class="pct-bar" min="98" max="100" low="99" high="99.9" optimum="100" value="98.1"' in page
-        assert "90.000 %" in page, "the number stays exact"
         assert 'data-info-tip="Bank &lt;&#34;VIP&#34;&gt;"' in page and 'Bank <"VIP">' not in page
         assert 'data-availability="90.0" data-downtime="172800" data-incidents="1"' in page
         # JSON in a single-quoted attribute: the quote and the brackets are escaped.
         assert """data-tenants='["Acme", "O\\u0027Brien \\u003cLtd\\u003e"]'""" in page
-        assert 'title="O&#39;Brien &lt;Ltd&gt;">+1</span>' in page
+        assert '<span class="tenant-rest" hidden>, O&#39;Brien &lt;Ltd&gt;</span>' in page
+        assert 'title="O&#39;Brien &lt;Ltd&gt;">+1</button>' in page
+        assert 'href="/static/css/tooltip.css"' in page, "the (i) needs its styles"
+        quiet = client.get("/availability?month=2026-09").get_data(as_text=True)
+        assert "none had downtime" in quiet
 
     def test_an_unreadable_board_is_a_503_not_a_partial_report(self, client, monkeypatch):
         def broken():

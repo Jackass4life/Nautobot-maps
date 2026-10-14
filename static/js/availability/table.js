@@ -27,6 +27,13 @@ export function rowFrom(tr) {
   };
 }
 
+// Names in the server's order (Python's str.lower()), so rows don't move when the script starts.
+function byName(a, b) {
+  const x = a.name.toLowerCase();
+  const y = b.name.toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
 // The rows to show, in order: {shown, rest, matched}.  Ties by name.
 export function viewRows(rows, { query = "", tenant = "", key = "availability", dir = "asc", limit = Infinity } = {}) {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -34,8 +41,8 @@ export function viewRows(rows, { query = "", tenant = "", key = "availability", 
     && (!tenant || row.tenants.includes(tenant)));
   const sign = dir === "desc" ? -1 : 1;
   matched.sort((a, b) => {
-    const order = key === "name" ? a.name.localeCompare(b.name) : a[key] - b[key];
-    return order * sign || a.name.localeCompare(b.name);
+    const order = key === "name" ? byName(a, b) : a[key] - b[key];
+    return order * sign || byName(a, b);
   });
   return { shown: matched.slice(0, limit), rest: matched.slice(limit), matched: matched.length };
 }
@@ -105,11 +112,21 @@ export function initAvailabilityTable(section) {
         button.addEventListener("click", () => {
           state.limit = limit;
           render();
+          // The line was redrawn: keep the keyboard here, not at the top of the page.
+          (more.querySelector(".avail-more-btn") || section.querySelector("h2")).focus();
         });
         more.append(" ", button);
       }
     }
   }
+
+  // "+2" shows a site's other tenants in place (#279, as on the board).
+  tbody.addEventListener("click", (event) => {
+    const moreTenants = event.target.closest(".tenant-more-btn");
+    if (!moreTenants) return;
+    moreTenants.previousElementSibling.hidden = false;
+    moreTenants.remove();
+  });
 
   // A new search or tenant starts again from the worst N.
   for (const input of [search, tenant]) {
