@@ -145,9 +145,10 @@ def operator_page(page):
     return page
 
 
-def test_planning_maintenance_for_several_sites(operator_page):
+def test_planning_maintenance_for_several_sites(operator_page, request):
     """Plan for two sites from the Maintenance page, see one batch, cancel it (#343)."""
     page = operator_page
+    reason = f"e2e batch {request.node.callspec.id} {int(time.time())}"  # new on every run
     sites = api("/api/maintenance/sites")["sites"]
     assert len(sites) >= 2
     page.goto(f"{BASE_URL}/maintenance")
@@ -160,9 +161,9 @@ def test_planning_maintenance_for_several_sites(operator_page):
     assert page.locator(".when-calendar .cal-day").count() > 27
     page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
     page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
-    page.locator("#maint-plan-reason").fill("e2e batch")
+    page.locator("#maint-plan-reason").fill(reason)
     page.locator(".maint-save-btn").click()
-    batch = page.locator(".maint-batch", has_text="e2e batch")
+    batch = page.locator(".maint-batch", has_text=reason)
     batch.wait_for()
     assert "2 sites" in batch.inner_text()
     cancel = batch.locator(".maint-end")
@@ -170,9 +171,9 @@ def test_planning_maintenance_for_several_sites(operator_page):
     assert "Sure?" in cancel.inner_text()
     cancel.click()
     # Cancelled: out of Planned, into the folded Ended group.
-    page.locator('[data-group="upcoming"] .maint-batch', has_text="e2e batch").wait_for(state="detached")
+    page.locator('[data-group="upcoming"] .maint-batch', has_text=reason).wait_for(state="detached")
     # Folded, so its text content, not the visible text.
-    assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text="e2e batch").first.text_content()
+    assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text=reason).first.text_content()
 
 
 def test_the_availability_period_calendar(page):
