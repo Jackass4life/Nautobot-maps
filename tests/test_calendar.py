@@ -118,6 +118,10 @@ check(root.innerHTML.includes(">September 2026<") && picks.length === 1, "set");
 // After an error page there is no range: it opens on today (review on #341).
 calendar.set("", "");
 check(root.innerHTML.includes(">October 2026<") && root.innerHTML.includes('data-day="2026-10-14" tabindex="0"'), "empty: today");
+// Text that isn't a day (an error page's fields hold what the URL had) is ignored (CodeQL on #346).
+calendar.set('2026-10"><img src=x onerror=alert(1)>', "2026-1<b>");
+check(!root.innerHTML.includes("<img") && !root.innerHTML.includes("<b>") && root.innerHTML.includes(">October 2026<"), root.innerHTML);
+check(!root.innerHTML.includes("in-range"), "no range from bad text");
 // This month, so far: shown up to today, not to the 31st.
 calendar.set("2026-10-01", "2026-10-31");
 check(/range-end[^"]*" data-day="2026-10-14"/.test(root.innerHTML) && !/in-range[^"]*" data-day="2026-10-15"/.test(root.innerHTML), "up to today");

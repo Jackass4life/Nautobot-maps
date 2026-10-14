@@ -85,7 +85,8 @@ export function monthGridHtml(month, state) {
   const end = state.to || state.from;
   const cells = [];
   for (let i = 0; i < lead; i += 1) cells.push('<span class="cal-blank"></span>');
-  for (let date = 1, day = monthStart(month); day <= last; date += 1, day = addDays(day, 1)) {
+  // Every day in the HTML is made from a parsed date, never from the text given (CodeQL on #346).
+  for (let date = 1, day = formatDay(first); day <= last; date += 1, day = addDays(day, 1)) {
     const disabled = (state.min && day < state.min) || (state.max && day > state.max);
     const selected = day === state.from || day === end;
     const classes = ["cal-day"];
@@ -137,13 +138,11 @@ export function createRangeCalendar(element, options) {
 
   // Show *from*–*to* without calling onPick; with no range (an error page) open on today.
   // A month that hasn't ended is shown up to its last day that can be chosen.
+  // Only real days are taken from the page's fields (after an error they hold what the URL had).
   function set(from, to) {
-    Object.assign(state, {
-      from: from ? clampDay(from, state) : "",
-      to: to ? clampDay(to, state) : "",
-      picking: false,
-      focus: clampDay(to || state.today, state),
-    });
+    const day = (value) => (parseDay(value) ? clampDay(value, state) : "");
+    Object.assign(state, { from: day(from), to: day(to), picking: false });
+    state.focus = state.to || clampDay(state.today, state);
     month = monthStart(state.focus);
     render();
   }
