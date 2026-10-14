@@ -5,7 +5,7 @@ import { readJsonResponse } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
 import { filtersInUse, getFilteredAlerts, isSiteExpanded, populateFilters, renderMoreFiltersLabel } from "./filters.js";
-import { hasActiveAlarm, siteRowsHtml, summaryText } from "./rows.js";
+import { fullWidthRow, hasActiveAlarm, siteRowsHtml, summaryText } from "./rows.js";
 import { ALARM_LEVELS, config, els, state } from "./state.js";
 import { announceNewAlarms, renderWallStatus, showWallError } from "./wall.js";
 
@@ -79,7 +79,7 @@ export function emptyBoardText(payload) {
 export function renderTableRows(alerts, payload) {
   if (!alerts.length) {
     const { text, className } = emptyBoardText(payload);
-    els.alertsTableBody.innerHTML = `<tr><td colspan="6" class="${className}">${text}</td></tr>`;
+    els.alertsTableBody.innerHTML = fullWidthRow(text, className);
     formatBoardStatus(payload, 0);
     return;
   }
@@ -183,7 +183,7 @@ export async function loadAlertBoard(forceRefresh = false, { background = false 
       showWallError(err.message);
       if (state.lastLoadedAt !== null) return;
     }
-    els.alertsTableBody.innerHTML = `<tr><td colspan="6" class="empty-state">Could not load alerts: ${escHtml(err.message)}</td></tr>`;
+    els.alertsTableBody.innerHTML = fullWidthRow(`Could not load alerts: ${escHtml(err.message)}`, "empty-state");
     els.boardStatus.textContent = "Alert board unavailable";
     showError(`Failed to load alert board: ${err.message}`);
   } finally {

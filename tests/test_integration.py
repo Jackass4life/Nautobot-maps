@@ -2192,6 +2192,19 @@ const deviceRow = html.slice(html.indexOf('<tr class="down-device-row'));
 check(deviceRow.slice(0, deviceRow.indexOf("</tr>")).match(/<td[ >]/g).length === 6, deviceRow);
 """)
 
+    def test_full_width_rows_span_every_column(self, integration_client):
+        # One column count for the empty, error and heading rows (#340).
+        html = integration_client.get("/alerts").get_data(as_text=True)
+        thead = html[html.index("<thead>") : html.index("</thead>")]
+        columns = len(re.findall(r"<th[ >]", thead))
+        assert f'<td colspan="{columns}" class="empty-state">Loading' in html
+        run_js(f"""
+import {{ fullWidthRow }} from "@js/alerts/rows.js";
+const row = fullWidthRow("No <b>sites</b>", "empty-state", "maintenance-heading");
+check(row === '<tr class="maintenance-heading"><td colspan="{columns}" class="empty-state">No <b>sites</b></td></tr>', row);
+check(fullWidthRow("x") === '<tr><td colspan="{columns}">x</td></tr>', fullWidthRow("x"));
+""")
+
 
 class TestSimplerBoardInTheBrowser:
     """Only what is needed to decide (#311)."""

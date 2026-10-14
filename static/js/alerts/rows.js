@@ -5,6 +5,16 @@ import { formatDuration, formatFeedTime } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { ALARM_LEVELS, SEVERITY_ORDER } from "./state.js";
 
+// The board's columns (templates/alerts.html), for rows that span them all.
+const BOARD_COLUMNS = 6;
+
+// A row of one cell across the whole board: empty, error or a heading.
+export function fullWidthRow(html, cellClass = "", rowClass = "") {
+  const rowAttr = rowClass ? ` class="${rowClass}"` : "";
+  const cellAttr = cellClass ? ` class="${cellClass}"` : "";
+  return `<tr${rowAttr}><td colspan="${BOARD_COLUMNS}"${cellAttr}>${html}</td></tr>`;
+}
+
 export function severityWeight(level) {
   const index = SEVERITY_ORDER.indexOf(level);
   return index === -1 ? SEVERITY_ORDER.length : index;
@@ -250,7 +260,7 @@ export function tierPill(item) {
   return ` <span class="tier-pill${top}" title="Importance tier">${escHtml(String(item.tier).toUpperCase())}</span>`;
 }
 
-// The site's Tenants cell (#340; under its name in #311): the first, and
+// The site's Tenants cell (#340): the first, and
 // "+N" that shows the rest in place, each with its (i) (#238, #279).
 export function tenantCell(item) {
   const tenants = siteTenants(item);
@@ -281,7 +291,7 @@ export function siteRowsHtml(alerts, { wallView, isExpanded }) {
     const inMaintenance = item.alert_level === "maintenance";
     // Wall view: sites in maintenance are listed last, under a heading (#283).
     const maintenanceHeading = wallView && inMaintenance && !maintenanceSeen
-      ? '<tr class="maintenance-heading"><td colspan="6">In maintenance</td></tr>'
+      ? fullWidthRow("In maintenance", "", "maintenance-heading")
       : "";
     if (inMaintenance) maintenanceSeen = true;
     // Wall view: sites someone is on are faded, below a dashed line (#271).
