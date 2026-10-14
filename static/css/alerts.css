@@ -502,11 +502,10 @@ a.site-name:focus-visible {
   font-size: 0.8rem;
 }
 
-/* The site's tenants, under its name (#238, #311). */
-.site-tenants {
-  margin-top: 2px;
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
+/* The site's tenants, in their own column (#238, #340). */
+.col-tenants {
+  min-width: 120px;
+  max-width: 240px;
 }
 
 /* "+2" shows the remaining tenants in place (#279). */
@@ -1344,7 +1343,7 @@ a.case-pill:focus-visible {
 
 .wall-view .page-header,
 .wall-view .summary-bar,
-.wall-view .site-tenants,
+.wall-view .col-tenants,
 .wall-view .toolbar,
 .wall-view .feed-panel,
 .wall-view .site-toggle-btn,
