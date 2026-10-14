@@ -111,6 +111,50 @@ def test_the_availability_report(page):
     assert page.locator("table tbody tr").count() > 0
 
 
+def test_the_availability_period_calendar(page):
+    """Days are clicked, not typed (#341): quick choices, two clicks, Escape."""
+    page.goto(f"{BASE_URL}/availability")
+    button = page.locator("#period-button")
+    assert button.is_visible() and not page.locator("#availability-from").is_visible()
+    button.click()
+    assert page.locator("#period-popover").is_visible()
+    page.locator(".period-preset", has_text="Last 7 days").click()
+    page.wait_for_url("**from=*")
+    assert "to=" in page.url and "month=" not in page.url
+    assert page.locator(".availability-note").is_visible(), "a report, not an error"
+
+    # Two clicks in the month shown: the first and the last enabled day.
+    button = page.locator("#period-button")
+    button.click()
+    days = page.locator(".cal-day:not([disabled])")
+    first, last = days.first.get_attribute("data-day"), days.last.get_attribute("data-day")
+    days.last.click()
+    assert page.locator("#period-popover").is_visible(), "one click starts a range"
+    days.first.click()
+    page.wait_for_url(f"**from={first}&to={last}*")
+    assert "–" in page.locator("#period-button").inner_text() or first == last
+
+    # Keyboard: open, Escape closes and gives focus back.
+    page.locator("#period-button").focus()
+    page.keyboard.press("Enter")
+    assert page.locator("#period-popover").is_visible()
+    # The month arrows keep the focus, so Escape still works after them.
+    page.locator('.cal-nav[data-step="-1"]').focus()
+    page.keyboard.press("Enter")
+    assert page.evaluate("document.activeElement.dataset.step") == "-1"
+    page.keyboard.press("Escape")
+    assert not page.locator("#period-popover").is_visible()
+    assert page.evaluate("document.activeElement.id") == "period-button"
+
+    # Back to a month: its first to last day, shown and reported as the month.
+    page.locator("#period-button").click()
+    page.locator(".period-preset", has_text="This month").click()
+    page.wait_for_url("**from=*-01&to=*")
+    assert " " in page.locator("#period-button").inner_text() and "–" not in page.locator("#period-button").inner_text()
+    href = page.locator(".availability-note a").first.get_attribute("href")
+    assert api(href.replace("/api/availability.csv", "/api/availability"))["month"], href
+
+
 def test_a_tenant_status_page(page):
     tenant = next(t for row in api("/api/alerts")["alerts"] for t in row.get("tenants") or [])
     page.goto(f"{BASE_URL}/status/{urllib.request.quote(tenant)}")

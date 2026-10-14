@@ -88,7 +88,7 @@ These figures were measured on PostgreSQL 17 with 20,000 incidents. Notes, cases
 
 How to choose:
 - **Upgrading from a version that kept everything:** the first daily prune deletes history older than two years. To keep it, set `ALERT_HISTORY_RETENTION_DAYS=0` (or a longer period) before upgrading, or back up first.
-- The [availability report](availability.md) refuses months older than the retention, so keep at least as long as you report on, e.g. two years for year-on-year.
+- The [availability report](availability.md) refuses periods older than the retention (its calendar doesn't offer those days), so keep at least as long as you report on, e.g. two years for year-on-year.
 - Back up before lowering it: pruning deletes for good.
 
 Watch it in `/metrics`:

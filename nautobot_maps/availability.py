@@ -1,7 +1,7 @@
-"""Availability per site, tenant and month (#287).
+"""Availability per site, tenant and period (#287, #341).
 
-Availability = 1 − downtime ÷ the period (the month; up to now for the
-current one, UTC).  Downtime, by ``AVAILABILITY_BASIS``:
+Availability = 1 − downtime ÷ the period (a month, or any days from–to;
+up to now when it hasn't ended, UTC).  Downtime, by ``AVAILABILITY_BASIS``:
 
 * ``any_down``: the time any monitored device of the site was down, from
   the incident history (overlapping devices count once);
@@ -22,6 +22,9 @@ from nautobot_maps import alerts, inventory, settings, timeutil
 
 BASES = ("any_down", "critical")
 MONTH_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
+DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Longest from–to period (#341): a year, so a report stays a few quick queries.
+MAX_PERIOD_DAYS = 366
 
 Interval = tuple[datetime, datetime]
 
@@ -38,8 +41,8 @@ def now() -> datetime:
     return timeutil.parse_iso_datetime(timeutil.iso_utc_now())
 
 
-def month_bounds(month: str, at: datetime) -> tuple[datetime, datetime]:
-    """``(start, end)`` of *month* ("2026-10"), the end not after *at*."""
+def _month_span(month: str) -> tuple[datetime, datetime]:
+    """``(start, end)`` of the whole of *month* ("2026-10"), the end exclusive."""
     match = MONTH_PATTERN.match(month or "")
     if not match:
         raise ReportError("month must look like 2026-10")
@@ -49,9 +52,70 @@ def month_bounds(month: str, at: datetime) -> tuple[datetime, datetime]:
         end = datetime(year + (number == 12), number % 12 + 1, 1, tzinfo=UTC)
     except ValueError:  # month 13, year 0, the month after 9999-12
         raise ReportError("month must look like 2026-10") from None
+    return start, end
+
+
+def _date(value: str, name: str) -> datetime:
+    if not DATE_PATTERN.match(value or ""):
+        raise ReportError(f"{name} must look like 2026-10-03")
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
+    except ValueError:  # 2026-02-30
+        raise ReportError(f"{name} must be a real date, like 2026-10-03") from None
+
+
+def resolve_period(month: str | None, from_date: str | None, to_date: str | None, at: datetime) -> dict:
+    """The period asked for (#341): ``month`` ("2026-10"), or ``from`` and
+    ``to`` ("2026-10-03", both included); default the current month.
+
+    ``{start, end, from, to, month, label}``: *end* not after *at*; a from–to
+    that is a whole calendar month is that month, so its CSV keeps the month.
+    """
+    if from_date or to_date:
+        if month:
+            raise ReportError("Give a month, or from and to, not both")
+        if not (from_date and to_date):
+            raise ReportError("Give both from and to")
+        start = _date(from_date, "from")
+        last = _date(to_date, "to")
+    else:
+        start, end = _month_span(month or current_month(at))
+        last = end - timedelta(days=1)
+    if last < start:
+        raise ReportError("to must be on or after from")
+    try:
+        end = last + timedelta(days=1)
+    except OverflowError:  # 9999-12-31
+        raise ReportError("to must be a real date, like 2026-10-03") from None
+    if (end - start).days > MAX_PERIOD_DAYS:
+        raise ReportError(f"A period can be at most {MAX_PERIOD_DAYS} days")
     if start >= at:
-        raise ReportError("That month hasn't started yet")
-    return start, min(end, at)
+        raise ReportError("That period hasn't started yet")
+    first, final = f"{start:%Y-%m-%d}", f"{last:%Y-%m-%d}"
+    whole_month = start.day == 1 and _month_span(first[:7])[1] == end
+    month = first[:7] if whole_month else None
+    return {
+        "start": start,
+        "end": min(end, at),
+        "from": first,
+        "to": final,
+        "month": month,
+        "label": month or (first if first == final else f"{first} to {final}"),
+    }
+
+
+def kept_from(at: datetime) -> datetime | None:
+    """When the history kept starts (``ALERT_HISTORY_RETENTION_DAYS``), or None: all kept."""
+    days = settings.ALERT_HISTORY_RETENTION_DAYS
+    return at - timedelta(days=days) if days > 0 else None
+
+
+def oldest_day(at: datetime) -> str:
+    """The calendar's oldest day, "2024-10-15", or "" when nothing is deleted
+    (#341): the day after the one the history starts in, so report() still
+    accepts it a moment later, when the history has moved on."""
+    start = kept_from(at)
+    return f"{start + timedelta(days=1):%Y-%m-%d}" if start else ""
 
 
 def current_month(at: datetime) -> str:
@@ -220,27 +284,34 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
 # --- the report -----------------------------------------------------------
 
 
-def report(conn, month: str | None = None, basis: str | None = None, sites: list | None = None) -> dict:
-    """The availability of *month* (default: the current one).
+def report(
+    conn,
+    month: str | None = None,
+    basis: str | None = None,
+    sites: list | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict:
+    """The availability of *month*, or of the days *from_date* to *to_date*
+    (#341); default: the current month.
 
     *sites*: the board's rows (``id``, ``name``, ``tenants``, ``device_count``),
     so a monitored site with no downtime is listed at 100 %; sites only in
     the history are added, sites with no monitored devices left out.
     """
     at = now()
-    month = month or current_month(at)
     basis = basis or settings.AVAILABILITY_BASIS
     if basis not in BASES:
         raise ReportError(f"basis must be one of: {', '.join(BASES)}")
-    start, end = month_bounds(month, at)
-    if settings.ALERT_HISTORY_RETENTION_DAYS > 0:
+    asked = resolve_period(month, from_date, to_date, at)
+    start, end = asked["start"], asked["end"]
+    history_start = kept_from(at)
+    if history_start and start < history_start:
         # Deleted history would read as no downtime: refuse rather than guess.
-        kept_from = at - timedelta(days=settings.ALERT_HISTORY_RETENTION_DAYS)
-        if start < kept_from:
-            raise ReportError(
-                f"History before {kept_from:%Y-%m-%d} is deleted (ALERT_HISTORY_RETENTION_DAYS="
-                f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {month} can't be reported in full"
-            )
+        raise ReportError(
+            f"History before {history_start:%Y-%m-%d} is deleted (ALERT_HISTORY_RETENTION_DAYS="
+            f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {asked['label']} can't be reported in full"
+        )
     period = int((end - start).total_seconds())
     site_windows, device_windows = read_maintenance(conn, start, end)
 
@@ -310,13 +381,17 @@ def report(conn, month: str | None = None, basis: str | None = None, sites: list
         key=lambda r: (r["availability"], r["tenant"].lower()),
     )
     return {
-        "month": month,
+        "month": asked["month"],
         "basis": basis,
         "period": {
             "start": start.isoformat().replace("+00:00", "Z"),
             "end": end.isoformat().replace("+00:00", "Z"),
             "seconds": period,
             "complete": end < at,
+            # The days asked for, both included (*end* may be cut at now).
+            "from": asked["from"],
+            "to": asked["to"],
+            "label": asked["label"],
         },
         "sites": site_rows,
         "tenants": tenant_rows,
@@ -330,41 +405,31 @@ def _safe(value) -> str:
 
 def to_csv(data: dict, view: str) -> str:
     out = io.StringIO()
-    out.write("﻿")  # Excel reads UTF-8
+    out.write("\ufeff")  # Excel reads UTF-8
     writer = csv.writer(out, lineterminator="\r\n")
     if view == "tenants":
-        writer.writerow(["month", "basis", "tenant", "sites", "availability_pct", "downtime_min"])
-        for row in data["tenants"]:
-            writer.writerow(
-                [
-                    _safe(v)
-                    for v in (
-                        data["month"],
-                        data["basis"],
-                        row["tenant"],
-                        row["sites"],
-                        row["availability"],
-                        round(row["downtime_seconds"] / 60),
-                    )
-                ]
-            )
+        columns = ["tenant", "sites", "availability_pct", "downtime_min"]
+        rows = [
+            (r["tenant"], r["sites"], r["availability"], round(r["downtime_seconds"] / 60)) for r in data["tenants"]
+        ]
     else:
-        writer.writerow(["month", "basis", "site", "tenants", "availability_pct", "downtime_min", "incidents"])
-        for row in data["sites"]:
-            writer.writerow(
-                [
-                    _safe(v)
-                    for v in (
-                        data["month"],
-                        data["basis"],
-                        row["name"] or row["site_id"],
-                        "; ".join(row["tenants"]),
-                        row["availability"],
-                        round(row["downtime_seconds"] / 60),
-                        row["incidents"],
-                    )
-                ]
+        columns = ["site", "tenants", "availability_pct", "downtime_min", "incidents"]
+        rows = [
+            (
+                r["name"] or r["site_id"],
+                "; ".join(r["tenants"]),
+                r["availability"],
+                round(r["downtime_seconds"] / 60),
+                r["incidents"],
             )
+            for r in data["sites"]
+        ]
+    # period_from and period_to (#341) last, so existing spreadsheets keep their columns.
+    writer.writerow(["month", "basis", *columns, "period_from", "period_to"])
+    before = (data["month"], data["basis"])
+    after = (data["period"]["from"], data["period"]["to"])
+    for row in rows:
+        writer.writerow([_safe(v) for v in (*before, *row, *after)])
     return out.getvalue()
 
 
