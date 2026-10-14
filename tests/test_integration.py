@@ -1439,7 +1439,7 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         ]
         assert "view=wall" not in toolbar, "the link is in the top navigation, not the toolbar"
 
-    @pytest.mark.parametrize("path", ["/", "/alerts", "/docs", "/availability"])
+    @pytest.mark.parametrize("path", ["/", "/alerts", "/docs", "/availability", "/maintenance"])
     def test_every_page_has_wall_view_in_the_top_navigation(self, integration_client, path):
         html = integration_client.get(path).get_data(as_text=True)
         start = html.index('class="app-nav"')
@@ -1447,7 +1447,7 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         end = min(i for i in (html.find("</nav>", start), html.find("</div>", start)) if i != -1)
         nav = html[start:end]
         links = re.findall(r'href="([^"]+)"', nav)
-        assert links == ["/", "/alerts", "/availability", "/docs", "/alerts?view=wall"], links
+        assert links == ["/", "/alerts", "/availability", "/maintenance", "/docs", "/alerts?view=wall"], links
 
     def test_wall_css_hides_the_controls(self, integration_client):
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
@@ -1742,12 +1742,14 @@ check(maintenanceRequestBody({ ...base, reason: " " }).error === "Enter a reason
 check(maintenanceRequestBody({ ...base, scope: "devices" }).error.startsWith("Tick at least one device"), "devices");
 body = maintenanceRequestBody({ ...base, scope: "devices", deviceIds: ["d1", "d2"] });
 check(JSON.stringify(body.device_ids) === '["d1","d2"]', JSON.stringify(body));
-// Planned: the browser's local time (Copenhagen, +02:00 in October) is sent as UTC.
-body = maintenanceRequestBody({ ...base, when: "planned", start: "2026-10-09T22:00", end: "2026-10-10T02:00" });
+// Planned: days from the calendar and times, the browser's local time (Copenhagen,
+// +02:00 in October) sent as UTC (lib/when.js, #343).
+const planned = { ...base, when: "planned", startDay: "2026-10-09", startTime: "22:00", endDay: "2026-10-10", endTime: "02:00" };
+body = maintenanceRequestBody(planned);
 check(body.starts_at === "2026-10-09T20:00:00.000Z" && body.ends_at === "2026-10-10T00:00:00.000Z", JSON.stringify(body));
 check(!("duration_minutes" in body), "planned has no duration");
-check(maintenanceRequestBody({ ...base, when: "planned", start: "2026-10-09T22:00" }).error === "Enter both From and To.", "both");
-check(maintenanceRequestBody({ ...base, when: "planned", start: "2026-10-10T02:00", end: "2026-10-09T22:00" }).error === "To must be after From.", "order");
+check(maintenanceRequestBody({ ...planned, endDay: "" }).error === "Choose the days and times.", "both");
+check(maintenanceRequestBody({ ...planned, endDay: "2026-10-08" }).error === "To must be after From.", "order");
 """)
 
     def test_panel(self):
@@ -1762,8 +1764,9 @@ check(html.includes("ACTIVE") && html.includes("<strong>Whole site</strong> · u
 check(html.includes('data-window-id="7">End now<') && html.includes('data-window-id="8">Cancel<'), "end vs cancel");
 check(html.includes("PLANNED") && html.includes("<strong>sw&lt;1&gt;</strong>"), "device window named");
 check(html.includes('class="maint-device" value="d1"') && html.includes("Bygning A · Access · Active"), "device choice");
-check(html.includes('<option value="120" selected>2 hours</option>') && html.includes('<option value="60">1 hour</option>'), "durations");
 check(html.includes('<form class="maint-form" data-site-id="loc-1">'), "form");
+// "When" is mounted into it (lib/when.js mountWhen, tested there): no typed dates (#343).
+check(html.includes('<div class="maint-when"></div>') && !html.includes("datetime-local"), "when");
 html = renderMaintenancePanel({ id: "loc-2" }, [], []);
 check(html.includes("No maintenance now or planned.") && html.includes("No monitored devices."), html);
 """)

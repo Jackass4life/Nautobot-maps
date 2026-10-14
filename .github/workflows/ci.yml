@@ -215,7 +215,10 @@ jobs:
           exit 1
 
       - name: Run end-to-end tests
-        run: python -m pytest e2e/ -v
+        # Maintenance needs the operator role (#343): a token for the tests that plan some.
+        run: |
+          export E2E_OPERATOR_TOKEN="$(python -m nautobot_maps token create e2e --role operator --expires-days 1 | head -n 1)"
+          python -m pytest e2e/ -v
         env:
           E2E_BASE_URL: "http://127.0.0.1:5055"
 

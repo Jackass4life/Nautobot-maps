@@ -2,14 +2,13 @@
 // form for a new one.
 import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
-import { readJsonResponse } from "../lib/http.js";
+import { getJson } from "../lib/http.js";
+import { devicesHtml, windowRequest } from "../lib/maintenance-form.js";
 import { showError } from "../lib/toast.js";
+import { mountWhen } from "../lib/when.js";
 import { loadAlertBoard } from "./board.js";
 import { openSidePanel } from "./panels.js";
 import { els, findSite } from "./state.js";
-
-// "Now, for …" in the maintenance panel (#283), in minutes.
-const MAINTENANCE_DURATIONS = [60, 120, 240, 480];
 
 // One window in the panel: what, when, why, and End now / Cancel.
 export function maintenanceWindowItem(window, deviceNames) {
@@ -27,23 +26,13 @@ export function maintenanceWindowItem(window, deviceNames) {
     </li>`;
 }
 
-// The panel: the site's current and planned windows, and a form for a new one.
+// The panel: the site's current and planned windows, and a form for a new one
+// ("When" is mounted into .maint-when afterwards: lib/when.js).
 export function renderMaintenancePanel(item, windows, devices) {
   const deviceNames = Object.fromEntries(devices.map((device) => [device.id, device.name]));
   const list = windows.length
     ? `<ul class="maint-windows">${windows.map((window) => maintenanceWindowItem(window, deviceNames)).join("")}</ul>`
     : '<p class="maint-empty">No maintenance now or planned.</p>';
-  const deviceChoices = devices.length
-    ? devices.map((device) => `
-        <label class="case-device-option">
-          <input type="checkbox" class="maint-device" value="${escHtml(device.id)}" />
-          <span>${escHtml(device.name || device.id)}</span>
-          <span class="maint-device-meta">${[device.location_path, device.role, device.status].filter(Boolean).map(escHtml).join(" · ")}</span>
-        </label>`).join("")
-    : '<p class="maint-empty">No monitored devices.</p>';
-  const durations = MAINTENANCE_DURATIONS
-    .map((minutes) => `<option value="${minutes}"${minutes === 120 ? " selected" : ""}>${minutes / 60} hour${minutes === 60 ? "" : "s"}</option>`)
-    .join("");
   return `
     ${list}
     <form class="maint-form" data-site-id="${escHtml(item.id || "")}">
@@ -51,58 +40,32 @@ export function renderMaintenancePanel(item, windows, devices) {
         <legend>What</legend>
         <label class="maint-choice"><input type="radio" name="maint-scope" value="site" checked /> Whole site</label>
         <label class="maint-choice"><input type="radio" name="maint-scope" value="devices" /> Some devices</label>
-        <div class="maint-devices case-device-list" hidden>${deviceChoices}</div>
+        <div class="maint-devices case-device-list" hidden>${devicesHtml(devices)}</div>
       </fieldset>
-      <fieldset class="maint-fieldset">
-        <legend>When</legend>
-        <label class="maint-choice"><input type="radio" name="maint-when" value="now" checked /> Now, for
-          <select class="maint-duration" aria-label="How long">${durations}</select></label>
-        <label class="maint-choice"><input type="radio" name="maint-when" value="planned" /> Planned</label>
-        <div class="maint-planned" hidden>
-          <label>From <input type="datetime-local" class="maint-start" /></label>
-          <label>To <input type="datetime-local" class="maint-end" /></label>
-        </div>
-      </fieldset>
+      <div class="maint-when"></div>
       <label class="case-input-label" for="maint-reason">Reason</label>
       <input id="maint-reason" class="case-input maint-reason" type="text" maxlength="200" autocomplete="off" placeholder="e.g. Core switch upgrade" />
       <p class="maint-error" role="alert" hidden></p>
-      <button class="case-save-btn maint-save-btn" type="submit">Start maintenance</button>
+      <button class="maint-save-btn" type="submit">Start maintenance</button>
     </form>`;
 }
 
-// The request for a new window from the form's values, or {error}.
-// datetime-local values are the browser's local time; sent as UTC.
+// The request for a new window from the form's values, or {error}: the
+// Maintenance page's, for this one site (lib/maintenance-form.js).
 export function maintenanceRequestBody(values) {
-  const reason = (values.reason || "").trim();
-  if (!reason) return { error: "Enter a reason." };
-  const body = { site_id: values.siteId, reason };
-  if (values.scope === "devices") {
-    if (!values.deviceIds.length) return { error: "Tick at least one device, or choose Whole site." };
-    body.device_ids = values.deviceIds;
-  }
-  if (values.when === "planned") {
-    const start = new Date(values.start || "");
-    const end = new Date(values.end || "");
-    if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return { error: "Enter both From and To." };
-    if (end <= start) return { error: "To must be after From." };
-    body.starts_at = start.toISOString();
-    body.ends_at = end.toISOString();
-  } else {
-    body.duration_minutes = Number(values.duration);
-  }
-  return body;
+  return windowRequest({ ...values, siteIds: [values.siteId] });
 }
+
+// The open form's "When" reader (mountWhen); one panel is open at a time.
+let readWhen = () => ({});
 
 function readMaintenanceForm(form) {
   return {
     siteId: form.dataset.siteId,
     scope: form.querySelector('input[name="maint-scope"]:checked')?.value,
     deviceIds: Array.from(form.querySelectorAll(".maint-device:checked")).map((box) => box.value),
-    when: form.querySelector('input[name="maint-when"]:checked')?.value,
-    duration: form.querySelector(".maint-duration")?.value,
-    start: form.querySelector(".maint-start")?.value,
-    end: form.querySelector(".maint-end")?.value,
     reason: form.querySelector(".maint-reason")?.value,
+    ...readWhen(),
   };
 }
 
@@ -125,16 +88,18 @@ async function refreshMaintenancePanel(item) {
   const devicesParams = new URLSearchParams(params);
   if (els.toggleNonOperational?.checked) devicesParams.set("include_non_operational", "1");
   try {
-    const [windowsResp, devicesResp] = await Promise.all([
-      fetch(`/api/maintenance?${params}`, { cache: "no-store" }),
-      fetch(`/api/maintenance/devices?${devicesParams}`, { cache: "no-store" }),
+    const [windows, devices] = await Promise.all([
+      getJson(`/api/maintenance?${params}`),
+      getJson(`/api/maintenance/devices?${devicesParams}`),
     ]);
-    const windows = await readJsonResponse(windowsResp);
-    const devices = await readJsonResponse(devicesResp);
     if (seq !== maintenanceRequestSeq) return;
-    if (!windowsResp.ok || windows.error) throw new Error(windows.error || `HTTP ${windowsResp.status}`);
-    if (!devicesResp.ok || devices.error) throw new Error(devices.error || `HTTP ${devicesResp.status}`);
     els.maintContent.innerHTML = renderMaintenancePanel(item, windows.windows || [], devices.devices || []);
+    const form = els.maintContent.querySelector(".maint-form");
+    readWhen = mountWhen(form.querySelector(".maint-when"), {
+      onModeChange: (planned) => {
+        form.querySelector(".maint-save-btn").textContent = planned ? "Plan maintenance" : "Start maintenance";
+      },
+    });
   } catch (err) {
     if (seq !== maintenanceRequestSeq) return;
     els.maintContent.innerHTML = `<p class="maint-error">Could not load maintenance: ${escHtml(err.message)}</p>`;
@@ -156,13 +121,11 @@ async function saveWindow(form) {
   const button = form.querySelector(".maint-save-btn");
   button.disabled = true;
   try {
-    const resp = await fetch("/api/maintenance", {
+    await getJson("/api/maintenance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const payload = await readJsonResponse(resp);
-    if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
     const item = findSite(form.dataset.siteId);
     await loadAlertBoard(false);
     if (item) await refreshMaintenancePanel(findSite(form.dataset.siteId) || item);
@@ -176,9 +139,7 @@ async function endWindow(endBtn) {
   endBtn.disabled = true;
   const siteId = els.maintContent.querySelector(".maint-form")?.dataset.siteId;
   try {
-    const resp = await fetch(`/api/maintenance/${encodeURIComponent(endBtn.dataset.windowId)}/end`, { method: "POST" });
-    const payload = await readJsonResponse(resp);
-    if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+    await getJson(`/api/maintenance/${encodeURIComponent(endBtn.dataset.windowId)}/end`, { method: "POST" });
     await loadAlertBoard(false);
     const item = findSite(siteId);
     if (item) await refreshMaintenancePanel(item);
@@ -192,14 +153,11 @@ export function initMaintenancePanel() {
   const { maintPanel } = els;
   if (!maintPanel) return;
 
-  // The panel's "What" and "When" choices show their details (#283).
+  // "Some devices" shows the devices (#283); "When" shows its own (mountWhen).
   maintPanel.addEventListener("change", (event) => {
     const form = event.target.closest(".maint-form");
-    if (!form) return;
-    form.querySelector(".maint-devices").hidden = form.querySelector('input[name="maint-scope"]:checked')?.value !== "devices";
-    const planned = form.querySelector('input[name="maint-when"]:checked')?.value === "planned";
-    form.querySelector(".maint-planned").hidden = !planned;
-    form.querySelector(".maint-save-btn").textContent = planned ? "Plan maintenance" : "Start maintenance";
+    if (!form || event.target.name !== "maint-scope") return;
+    form.querySelector(".maint-devices").hidden = event.target.value !== "devices";
   });
 
   maintPanel.addEventListener("submit", (event) => {

@@ -12,3 +12,11 @@ export async function readJsonResponse(resp) {
     return { error: text };
   }
 }
+
+// fetch() that returns the JSON, or throws the API's error (#343).
+export async function getJson(url, options) {
+  const resp = await fetch(url, { cache: "no-store", ...options });
+  const payload = await readJsonResponse(resp);
+  if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+  return payload;
+}

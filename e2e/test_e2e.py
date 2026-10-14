@@ -135,6 +135,47 @@ def test_the_availability_page_answers_first(page):
     )
 
 
+@pytest.fixture
+def operator_page(page):
+    """*page* as an operator: maintenance changes need the role (#343). CI makes
+    the token (``token create e2e --role operator``) before the tests run."""
+    token = os.getenv("E2E_OPERATOR_TOKEN", "")
+    assert token.startswith("nmt_"), "set E2E_OPERATOR_TOKEN to an operator token (see the e2e job)"
+    page.context.set_extra_http_headers({"Authorization": f"Bearer {token}"})
+    return page
+
+
+def test_planning_maintenance_for_several_sites(operator_page, request):
+    """Plan for two sites from the Maintenance page, see one batch, cancel it (#343)."""
+    page = operator_page
+    reason = f"e2e batch {request.node.callspec.id} {int(time.time())}"  # new on every run
+    sites = api("/api/maintenance/sites")["sites"]
+    assert len(sites) >= 2
+    page.goto(f"{BASE_URL}/maintenance")
+    page.locator("#maint-plan-open").click()
+    for site in sites[:2]:
+        page.locator("#maint-site-search").fill(site["name"])
+        page.locator(".maint-match", has_text=site["name"]).first.click()
+    assert page.locator(".maint-chip").count() == 2
+    page.locator('input[name="maint-when"][value="planned"]').check()
+    assert page.locator(".when-calendar .cal-day").count() > 27
+    page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
+    page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
+    page.locator("#maint-plan-reason").fill(reason)
+    page.locator(".maint-save-btn").click()
+    batch = page.locator(".maint-batch", has_text=reason)
+    batch.wait_for()
+    assert "2 sites" in batch.inner_text()
+    cancel = batch.locator(".maint-end")
+    cancel.click()
+    assert "Sure?" in cancel.inner_text()
+    cancel.click()
+    # Cancelled: out of Planned, into the folded Ended group.
+    page.locator('[data-group="upcoming"] .maint-batch', has_text=reason).wait_for(state="detached")
+    # Folded, so its text content, not the visible text.
+    assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text=reason).first.text_content()
+
+
 def test_the_availability_period_calendar(page):
     """Days are clicked, not typed (#341): quick choices, two clicks, Escape."""
     page.goto(f"{BASE_URL}/availability")

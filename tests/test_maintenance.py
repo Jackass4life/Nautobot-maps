@@ -100,6 +100,15 @@ class TestWindows:
             ({"site_id": "s", "reason": "x" * 201, "duration_minutes": 60}, "longer than 200"),
             # Would overflow a timedelta: a clean 400, not a 500 (Copilot on #303).
             ({"site_id": "s", "reason": "x", "duration_minutes": 10**100}, "at most 14 days"),
+            # Several sites at once (#343).
+            ({"site_ids": [], "reason": "x", "duration_minutes": 60}, "site_ids must be a list"),
+            ({"site_ids": "s1", "reason": "x", "duration_minutes": 60}, "site_ids must be a list"),
+            ({"site_ids": ["s1", " "], "reason": "x", "duration_minutes": 60}, "site_ids must be a list"),
+            ({"site_ids": [f"s{i}" for i in range(201)], "reason": "x", "duration_minutes": 60}, "At most 200 sites"),
+            (
+                {"site_ids": ["s1", "s2"], "reason": "x", "duration_minutes": 60, "device_ids": ["d1"]},
+                "one site at a time",
+            ),
         ],
     )
     def test_invalid_requests(self, body, error):
@@ -378,6 +387,104 @@ class TestSiteDevices:
         assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
 
 
+@pytest.mark.usefixtures("pg_database")
+class TestBatches:
+    """A change across many sites is one request, one transaction, one batch (#343)."""
+
+    @pytest.fixture(autouse=True)
+    def _clock(self, clock):
+        self.clock = clock
+
+    def _create(self, body):
+        conn = db.get_conn()
+        try:
+            return maintenance.create(conn, {"reason": "Core upgrade", "duration_minutes": 120, **body}, "olga")
+        finally:
+            conn.close()
+
+    def test_thirty_sites_in_one_request(self):
+        sites = [f"site-{i:02d}" for i in range(30)] + ["site-00"]  # a repeat counts once
+        created = self._create({"site_ids": sites})
+        assert [w["site_id"] for w in created] == sorted(set(sites))
+        assert {w["device_id"] for w in created} == {""} and {w["state"] for w in created} == {"active"}
+        # One request, one stored batch (and one transaction: the same created_at).
+        assert len({w["created_at"] for w in created}) == 1
+        assert len({w["batch_id"] for w in created}) == 1 and created[0]["batch_id"]
+        # One site's devices, as before.
+        devices = self._create({"site_id": "site-00", "device_ids": ["d1", "d2"]})
+        assert [(w["site_id"], w["device_id"]) for w in devices] == [("site-00", "d1"), ("site-00", "d2")]
+        assert devices[0]["batch_id"] == devices[1]["batch_id"] != created[0]["batch_id"]
+
+    def test_end_or_cancel_a_batch(self):
+        active = self._create({"site_ids": ["a", "b"]})
+        planned = self._create({"site_ids": ["c"], "starts_at": "2026-10-10T08:00:00Z", "duration_minutes": 60})
+        conn = db.get_conn()
+        try:
+            result = maintenance.end_many(conn, [w["id"] for w in active + planned] + [999], "ivan")
+            ended = result["windows"]
+            assert result["changed"] == 3
+            # The ended time returned is the one stored.
+            assert ended[0]["ended_at"] == "2026-10-09T12:00:00Z"
+            assert [(w["site_id"], w["state"], w["ended_by"]) for w in ended] == [
+                ("a", "ended", "ivan"),
+                ("b", "ended", "ivan"),
+                ("c", "cancelled", "ivan"),
+            ]
+            # Already over: returned as they are, not ended again.
+            again = maintenance.end_many(conn, [active[0]["id"]], "someone")
+            assert again["windows"][0]["ended_by"] == "ivan" and again["changed"] == 0
+        finally:
+            conn.close()
+
+    def test_open_windows_are_never_crowded_out(self):
+        # A week of ended 200-site batches must not push tonight's work past the limit (review on #343).
+        conn = db.get_conn()
+        try:
+            for day in range(3):
+                old = self._create({"site_ids": [f"old-{day}-{i}" for i in range(5)], "duration_minutes": 60})
+                maintenance.end_many(conn, [w["id"] for w in old], "olga")
+            fresh = self._create({"site_ids": ["tonight"], "starts_at": "2026-10-09T20:00:00Z", "duration_minutes": 60})
+            listed = maintenance.list_windows(conn, recent_days=7, limit=3)
+        finally:
+            conn.close()
+        assert listed[0]["id"] == fresh[0]["id"] and listed[0]["state"] == "upcoming"
+
+    def test_recent_windows_and_names(self):
+        old = self._create({"site_ids": ["gone"], "duration_minutes": 60})
+        current = self._create({"site_ids": ["site-a"]})
+        device = self._create({"site_id": "site-a", "device_ids": ["dev-1"]})
+        conn = db.get_conn()
+        try:
+            maintenance.end_many(conn, [old[0]["id"]], "olga")
+            self.clock["now"] = "2026-10-12T12:00:00Z"  # three days later: all over
+            assert maintenance.list_windows(conn) == []
+            recent = maintenance.list_windows(conn, recent_days=7)
+            assert {w["site_id"] for w in recent} == {"gone", "site-a"}
+            assert maintenance.list_windows(conn, recent_days=2) == []
+            inventory.write_devices(conn, [_snapshot_device("dev-1", "site-a", "Core Router", "Active")])
+            sites = [
+                {
+                    "id": "site-a",
+                    "name": "Aarhus",
+                    "ancestor_path": "EMEA › DNK",
+                    "tenants": ["Acme"],
+                    "tenant_descriptions": {"Acme": "Gold"},
+                }
+            ]
+            described = maintenance.describe(conn, current + device, sites)
+        finally:
+            conn.close()
+        whole, dev = described["windows"]
+        assert (whole["site_name"], whole["site_path"], whole["tenants"], whole["device_name"]) == (
+            "Aarhus",
+            "EMEA › DNK",
+            ["Acme"],
+            "",
+        )
+        assert dev["device_name"] == "dev-1"
+        assert described["tenant_descriptions"] == {"Acme": "Gold"}
+
+
 class TestApi:
     @pytest.fixture
     def client(self, site):
@@ -407,6 +514,53 @@ class TestApi:
             assert client.get("/api/maintenance", headers=viewer).get_json()["windows"] == []
             assert len(client.get("/api/maintenance?all=1", headers=viewer).get_json()["windows"]) == 1
             assert client.post("/api/maintenance/999/end", headers=operator).status_code == 404
+
+    def test_sites_batches_and_ending_many(self, client):
+        sites = client.get("/api/maintenance/sites").get_json()["sites"]
+        assert [(s["id"], s["name"], s["devices"], s["maintenance"]) for s in sites] == [
+            ("loc-lon", "London HQ", 3, False)
+        ]
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            body = {"site_ids": ["loc-lon", "loc-x"], "reason": "Core upgrade", "duration_minutes": 60}
+            windows = client.post("/api/maintenance", json=body, headers=operator).get_json()["windows"]
+            listed = client.get("/api/maintenance", headers=viewer).get_json()
+            assert {w["site_id"]: w["site_name"] for w in listed["windows"]} == {"loc-lon": "London HQ", "loc-x": ""}
+            assert listed["truncated"] is False
+            # One site (the board's panel): no names, so no board read.
+            one = client.get("/api/maintenance?site_id=loc-lon", headers=viewer).get_json()
+            assert "site_name" not in one["windows"][0]
+            ids = [w["id"] for w in windows]
+            assert client.post("/api/maintenance/end", json={"ids": ids}, headers=viewer).status_code == 403
+            bad_bodies = (
+                {"ids": []},
+                {"ids": ["1"]},
+                {"ids": [True]},
+                {"ids": list(range(501))},
+                [1],
+                {"ids": [10**30]},
+                {"ids": [0]},
+            )
+            for bad in bad_bodies:
+                assert client.post("/api/maintenance/end", json=bad, headers=operator).status_code == 400, bad
+            resp = client.post("/api/maintenance/end", json={"ids": [*ids, 999]}, headers=operator).get_json()
+            assert {w["state"] for w in resp["windows"]} == {"ended"} and resp["not_found"] == [999]
+            # Already over: nothing changes, so the cached board is kept.
+            built = []
+            original = alerts.build_alert_board_payload
+            alerts.build_alert_board_payload = lambda *a, **k: built.append(1) or original(*a, **k)
+            try:
+                client.get("/api/alerts", headers=viewer)
+                built.clear()
+                client.post("/api/maintenance/end", json={"ids": ids}, headers=operator)
+                client.get("/api/alerts", headers=viewer)
+            finally:
+                alerts.build_alert_board_payload = original
+            assert built == [], "a no-op end must not drop the board"
+            assert client.get("/api/maintenance", headers=viewer).get_json()["windows"] == []
+            assert len(client.get("/api/maintenance?recent_days=7", headers=viewer).get_json()["windows"]) == 2
+            assert client.get("/api/maintenance?recent_days=x", headers=viewer).status_code == 400
 
     def test_bad_requests(self, client, monkeypatch):
         monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)

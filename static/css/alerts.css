@@ -858,6 +858,46 @@ a.case-pill:focus-visible {
   font-size: 0.78rem;
 }
 
+/* The maintenance forms' reason and their main button (#343): on the board's
+   panel and the Maintenance page; they were the browser's own until now. */
+.maint-reason {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 7px 10px;
+  font: inherit;
+}
+
+.maint-save-btn,
+.maint-plan-open {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.maint-save-btn:hover,
+.maint-plan-open:hover {
+  filter: brightness(1.08);
+}
+
+.maint-save-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.maint-save-btn:focus-visible,
+.maint-plan-open:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .case-form input[type="text"],
 .case-form button {
   border: 1px solid var(--color-border);
@@ -1180,7 +1220,27 @@ a.case-pill:focus-visible {
 .maint-planned {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 18px;
+}
+
+/* Planned: the days on the calendar, the times beside it (#343). */
+.when-times {
+  display: flex;
+  flex: 1 1 150px;
+  flex-direction: column;
   gap: 8px;
+}
+
+.when-days {
+  margin: 0;
+  font-weight: 600;
+}
+
+.when-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
 }
 
 .maint-planned[hidden],
@@ -1194,8 +1254,7 @@ a.case-pill:focus-visible {
   font-size: 0.72rem;
 }
 
-.maint-form select,
-.maint-form input[type="datetime-local"] {
+.maint-form select {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-surface-2);
@@ -1980,4 +2039,231 @@ th[aria-sort="descending"] .sort-btn::after {
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
   }
+}
+
+/* The Maintenance page (#343): batches in groups, and the plan form. */
+.maint-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.maint-toolbar .avail-search {
+  flex: 1 1 260px;
+}
+
+.maint-status {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.maint-status.is-error {
+  color: var(--color-danger);
+}
+
+.maint-plan {
+  margin-bottom: 18px;
+  padding: 14px 16px 16px;
+}
+
+.maint-plan .availability-heading {
+  margin-bottom: 10px;
+}
+
+.maint-plan-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.maint-plan-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.maint-sites-fieldset {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.maint-site-picker {
+  position: relative;
+}
+
+.maint-site-picker .avail-search {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.maint-site-matches {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: var(--shadow);
+}
+
+.maint-site-matches[hidden] {
+  display: none;
+}
+
+.maint-match,
+.maint-match-more {
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.maint-match {
+  cursor: pointer;
+}
+
+.maint-match:hover,
+.maint-match:focus {
+  background: var(--color-surface-2);
+  outline: none;
+}
+
+.maint-match-tenant {
+  color: var(--color-primary);
+}
+
+.maint-match-path,
+.maint-match-more {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.maint-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maint-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+}
+
+.maint-chip-remove {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.maint-chip-remove:hover,
+.maint-chip-remove:focus-visible {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+.maint-scope-note {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.maint-group {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+}
+
+.maint-group-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.maint-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.maint-group-summary .availability-heading::before {
+  content: "▸ ";
+  color: var(--color-text-muted);
+}
+
+details[open] > .maint-group-summary .availability-heading::before {
+  content: "▾ ";
+}
+
+.maint-batches,
+.maint-batch-windows {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maint-batch {
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.maint-batch-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 14px;
+}
+
+.maint-batch-text {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.maint-batch-meta,
+.maint-batch-sites,
+.maint-batch-tenants {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.maint-batch-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.maint-batch-windows {
+  margin-left: 18px;
+}
+
+.maint-batch-window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-top: 1px dashed var(--color-border);
+}
+
+.maint-batch-window > span:first-child {
+  flex: 1 1 200px;
+}
+
+.maint-end.is-confirm {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }

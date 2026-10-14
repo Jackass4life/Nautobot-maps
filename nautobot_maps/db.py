@@ -650,6 +650,14 @@ def add_board_build_stats(conn) -> None:
     )
 
 
+def add_maintenance_batches(conn) -> None:
+    """Windows planned in one request share a batch (#343), so the Maintenance
+    page can show and end them together; older windows have none ('').  And
+    the page's "ended lately" reads by ended_at."""
+    conn.execute("ALTER TABLE maintenance_windows ADD COLUMN IF NOT EXISTS batch_id TEXT NOT NULL DEFAULT ''")
+    conn.execute("CREATE INDEX IF NOT EXISTS maintenance_windows_ended ON maintenance_windows (ended_at)")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -674,6 +682,7 @@ MIGRATIONS = (
     (18, "api_tokens.tenant", add_token_tenant),
     (19, "webhook_device_alerts", add_webhook_device_alerts),
     (20, "board_build_stats", add_board_build_stats),
+    (21, "maintenance_windows.batch_id", add_maintenance_batches),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
