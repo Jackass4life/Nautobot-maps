@@ -135,8 +135,19 @@ def test_the_availability_page_answers_first(page):
     )
 
 
-def test_planning_maintenance_for_several_sites(page):
+@pytest.fixture
+def operator_page(page):
+    """*page* as an operator: maintenance changes need the role (#343). CI makes
+    the token (``token create e2e --role operator``) before the tests run."""
+    token = os.getenv("E2E_OPERATOR_TOKEN", "")
+    assert token.startswith("nmt_"), "set E2E_OPERATOR_TOKEN to an operator token (see the e2e job)"
+    page.context.set_extra_http_headers({"Authorization": f"Bearer {token}"})
+    return page
+
+
+def test_planning_maintenance_for_several_sites(operator_page):
     """Plan for two sites from the Maintenance page, see one batch, cancel it (#343)."""
+    page = operator_page
     sites = api("/api/maintenance/sites")["sites"]
     assert len(sites) >= 2
     page.goto(f"{BASE_URL}/maintenance")

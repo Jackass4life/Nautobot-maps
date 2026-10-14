@@ -37,6 +37,8 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    python demo/mock_nautobot.py &                       # :8080
    NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=x \
      NAUTOBOT_MAPS_DATABASE_URL=postgresql://... FLASK_RUN_PORT=5055 python app.py &
+   # Planning maintenance needs the operator role: an API token for the tests.
+   export E2E_OPERATOR_TOKEN="$(NAUTOBOT_MAPS_DATABASE_URL=postgresql://... python -m nautobot_maps token create e2e --role operator --expires-days 1 | head -n 1)"
    E2E_BASE_URL=http://127.0.0.1:5055 python -m pytest e2e/ -v
    ```
 5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
