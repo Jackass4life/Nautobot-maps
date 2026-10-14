@@ -158,7 +158,9 @@ def test_planning_maintenance_for_several_sites(page):
     cancel.click()
     assert "Sure?" in cancel.inner_text()
     cancel.click()
-    page.locator(".maint-batch", has_text="e2e batch").first.wait_for(state="detached")
+    # Cancelled: out of Planned, into the folded Ended group.
+    page.locator('[data-group="upcoming"] .maint-batch', has_text="e2e batch").wait_for(state="detached")
+    assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text="e2e batch").first.inner_text()
 
 
 def test_the_availability_period_calendar(page):
