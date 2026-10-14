@@ -777,22 +777,63 @@ def api_alert_history():
 def api_maintenance_list():
     """Maintenance windows (#283): active and upcoming, soonest first.
 
-    Query parameters: ``site_id`` (one site) and ``all=1`` (also ended and
-    cancelled ones).  Each has a ``state``: active, upcoming, ended or
-    cancelled; ``device_id`` is empty for a whole site.
+    Query parameters: ``site_id`` (one site), ``all=1`` (also ended and
+    cancelled ones) and ``recent_days`` (also those that ended in the last
+    that many days, at most 90; #343).  Each has a ``state``: active,
+    upcoming, ended or cancelled; ``device_id`` is empty for a whole site.
+    Each also has ``site_name``, ``site_path``, ``tenants`` and
+    ``device_name``; ``tenant_descriptions`` has the tenants' descriptions.
     """
+    try:
+        recent_days = min(max(int(_arg("recent_days") or 0), 0), maintenance.MAX_RECENT_DAYS)
+    except ValueError:
+        return jsonify({"error": "recent_days must be a whole number of days"}), 400
     conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     try:
         windows = maintenance.list_windows(
             conn,
-            site_id=(request.args.get("site_id") or "").strip(),
-            include_past=(request.args.get("all") or "").strip().lower() in {"1", "true", "yes"},
+            site_id=_arg("site_id") or "",
+            include_past=(_arg("all") or "").lower() in {"1", "true", "yes"},
+            recent_days=recent_days,
         )
-        return jsonify({"windows": windows})
+        return jsonify(maintenance.describe(conn, windows, _board_sites()))
     finally:
         conn.close()
+
+
+def _board_sites() -> list[dict]:
+    """The board's rows, for names and tenants; none when it can't be read (names stay empty)."""
+    try:
+        return alerts.cached_alert_board().get("alerts") or []
+    except Exception as exc:
+        logger.warning("Maintenance: could not read the alert board for names: %s", exc)
+        return []
+
+
+@bp.route("/api/maintenance/sites", methods=["GET"])
+def api_maintenance_sites():
+    """The sites maintenance can be planned for (#343), for the page's site
+    picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)
+    and ``maintenance`` (in a window now).  From the stored board; no query
+    per site."""
+    return jsonify(
+        {
+            "sites": [
+                {
+                    "id": site["id"],
+                    "name": site.get("name") or site["id"],
+                    "path": site.get("ancestor_path") or site.get("parent") or "",
+                    "tenants": list(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])),
+                    "devices": site.get("device_count") or 0,
+                    "maintenance": site.get("alert_level") == "maintenance",
+                }
+                for site in _board_sites()
+                if site.get("id") and (site.get("device_count") or site.get("maintenance_device_count"))
+            ]
+        }
+    )
 
 
 @bp.route("/api/maintenance/devices", methods=["GET"])
@@ -825,7 +866,8 @@ def _maintenance_changed() -> None:
 def api_maintenance_create():
     """Put a site, or some of its devices, in maintenance (#283).
 
-    JSON body: ``site_id``, ``reason``, optional ``device_ids`` (leave it out
+    JSON body: ``site_id`` (or ``site_ids``, up to 200 sites at once, #343),
+    ``reason``, optional ``device_ids`` (one site only; leave it out
     for the whole site), optional ``starts_at`` (ISO-8601 with a time zone;
     default now), and ``ends_at`` or ``duration_minutes``.  At most 14 days.
     """
@@ -844,6 +886,30 @@ def api_maintenance_create():
         conn.close()
     _maintenance_changed()
     return jsonify({"windows": windows}), 201
+
+
+@bp.route("/api/maintenance/end", methods=["POST"])
+@auth.require_role("operator")
+def api_maintenance_end_many():
+    """End or cancel several windows at once (#343): JSON ``{"ids": [1, 2, ...]}``, at most 500."""
+    body = request.get_json(silent=True)
+    ids = body.get("ids") if isinstance(body, dict) else None
+    if (
+        not isinstance(ids, list)
+        or not ids
+        or len(ids) > 500
+        or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)
+    ):
+        return jsonify({"error": "ids must be a list of 1 to 500 window IDs"}), 400
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    try:
+        windows = maintenance.end_many(conn, ids, auth.get_current_user().get("username") or "")
+    finally:
+        conn.close()
+    _maintenance_changed()
+    return jsonify({"windows": windows})
 
 
 @bp.route("/api/maintenance/<int:window_id>/end", methods=["POST"])
