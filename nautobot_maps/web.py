@@ -812,6 +812,12 @@ def _board_sites() -> list[dict]:
         return []
 
 
+@bp.route("/maintenance")
+def maintenance_page():
+    """Current and planned maintenance, and planning more (#343); the data comes from the API."""
+    return render_template("maintenance.html")
+
+
 @bp.route("/api/maintenance/sites", methods=["GET"])
 def api_maintenance_sites():
     """The sites maintenance can be planned for (#343), for the page's site

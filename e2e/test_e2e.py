@@ -135,6 +135,32 @@ def test_the_availability_page_answers_first(page):
     )
 
 
+def test_planning_maintenance_for_several_sites(page):
+    """Plan for two sites from the Maintenance page, see one batch, cancel it (#343)."""
+    sites = api("/api/maintenance/sites")["sites"]
+    assert len(sites) >= 2
+    page.goto(f"{BASE_URL}/maintenance")
+    page.locator("#maint-plan-open").click()
+    for site in sites[:2]:
+        page.locator("#maint-site-search").fill(site["name"])
+        page.locator(".maint-match", has_text=site["name"]).first.click()
+    assert page.locator(".maint-chip").count() == 2
+    page.locator('input[name="maint-when"][value="planned"]').check()
+    assert page.locator(".when-calendar .cal-day").count() > 27
+    page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
+    page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
+    page.locator("#maint-plan-reason").fill("e2e batch")
+    page.locator(".maint-save-btn").click()
+    batch = page.locator(".maint-batch", has_text="e2e batch")
+    batch.wait_for()
+    assert "2 sites" in batch.inner_text()
+    cancel = batch.locator(".maint-end")
+    cancel.click()
+    assert "Sure?" in cancel.inner_text()
+    cancel.click()
+    page.locator(".maint-batch", has_text="e2e batch").first.wait_for(state="detached")
+
+
 def test_the_availability_period_calendar(page):
     """Days are clicked, not typed (#341): quick choices, two clicks, Escape."""
     page.goto(f"{BASE_URL}/availability")

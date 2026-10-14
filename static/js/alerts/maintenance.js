@@ -4,12 +4,10 @@ import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { readJsonResponse } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
+import { defaultPlan, initWhen, localDay, whenFieldsetHtml, whenRequest } from "../lib/when.js";
 import { loadAlertBoard } from "./board.js";
 import { openSidePanel } from "./panels.js";
 import { els, findSite } from "./state.js";
-
-// "Now, for …" in the maintenance panel (#283), in minutes.
-const MAINTENANCE_DURATIONS = [60, 120, 240, 480];
 
 // One window in the panel: what, when, why, and End now / Cancel.
 export function maintenanceWindowItem(window, deviceNames) {
@@ -28,7 +26,8 @@ export function maintenanceWindowItem(window, deviceNames) {
 }
 
 // The panel: the site's current and planned windows, and a form for a new one.
-export function renderMaintenancePanel(item, windows, devices) {
+// *now* sets the planned fields' first values (from the next full hour).
+export function renderMaintenancePanel(item, windows, devices, now = new Date()) {
   const deviceNames = Object.fromEntries(devices.map((device) => [device.id, device.name]));
   const list = windows.length
     ? `<ul class="maint-windows">${windows.map((window) => maintenanceWindowItem(window, deviceNames)).join("")}</ul>`
@@ -41,9 +40,7 @@ export function renderMaintenancePanel(item, windows, devices) {
           <span class="maint-device-meta">${[device.location_path, device.role, device.status].filter(Boolean).map(escHtml).join(" · ")}</span>
         </label>`).join("")
     : '<p class="maint-empty">No monitored devices.</p>';
-  const durations = MAINTENANCE_DURATIONS
-    .map((minutes) => `<option value="${minutes}"${minutes === 120 ? " selected" : ""}>${minutes / 60} hour${minutes === 60 ? "" : "s"}</option>`)
-    .join("");
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "your time zone";
   return `
     ${list}
     <form class="maint-form" data-site-id="${escHtml(item.id || "")}">
@@ -53,16 +50,7 @@ export function renderMaintenancePanel(item, windows, devices) {
         <label class="maint-choice"><input type="radio" name="maint-scope" value="devices" /> Some devices</label>
         <div class="maint-devices case-device-list" hidden>${deviceChoices}</div>
       </fieldset>
-      <fieldset class="maint-fieldset">
-        <legend>When</legend>
-        <label class="maint-choice"><input type="radio" name="maint-when" value="now" checked /> Now, for
-          <select class="maint-duration" aria-label="How long">${durations}</select></label>
-        <label class="maint-choice"><input type="radio" name="maint-when" value="planned" /> Planned</label>
-        <div class="maint-planned" hidden>
-          <label>From <input type="datetime-local" class="maint-start" /></label>
-          <label>To <input type="datetime-local" class="maint-end" /></label>
-        </div>
-      </fieldset>
+      ${whenFieldsetHtml(defaultPlan(now), zone)}
       <label class="case-input-label" for="maint-reason">Reason</label>
       <input id="maint-reason" class="case-input maint-reason" type="text" maxlength="200" autocomplete="off" placeholder="e.g. Core switch upgrade" />
       <p class="maint-error" role="alert" hidden></p>
@@ -71,7 +59,7 @@ export function renderMaintenancePanel(item, windows, devices) {
 }
 
 // The request for a new window from the form's values, or {error}.
-// datetime-local values are the browser's local time; sent as UTC.
+// Planned days and times are the browser's local time; sent as UTC (lib/when.js).
 export function maintenanceRequestBody(values) {
   const reason = (values.reason || "").trim();
   if (!reason) return { error: "Enter a reason." };
@@ -80,29 +68,20 @@ export function maintenanceRequestBody(values) {
     if (!values.deviceIds.length) return { error: "Tick at least one device, or choose Whole site." };
     body.device_ids = values.deviceIds;
   }
-  if (values.when === "planned") {
-    const start = new Date(values.start || "");
-    const end = new Date(values.end || "");
-    if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return { error: "Enter both From and To." };
-    if (end <= start) return { error: "To must be after From." };
-    body.starts_at = start.toISOString();
-    body.ends_at = end.toISOString();
-  } else {
-    body.duration_minutes = Number(values.duration);
-  }
-  return body;
+  const when = whenRequest(values);
+  return when.error ? when : { ...body, ...when };
 }
+
+// The open form's "When" reader (initWhen); one panel is open at a time.
+let readWhen = () => ({});
 
 function readMaintenanceForm(form) {
   return {
     siteId: form.dataset.siteId,
     scope: form.querySelector('input[name="maint-scope"]:checked')?.value,
     deviceIds: Array.from(form.querySelectorAll(".maint-device:checked")).map((box) => box.value),
-    when: form.querySelector('input[name="maint-when"]:checked')?.value,
-    duration: form.querySelector(".maint-duration")?.value,
-    start: form.querySelector(".maint-start")?.value,
-    end: form.querySelector(".maint-end")?.value,
     reason: form.querySelector(".maint-reason")?.value,
+    ...readWhen(),
   };
 }
 
@@ -134,7 +113,10 @@ async function refreshMaintenancePanel(item) {
     if (seq !== maintenanceRequestSeq) return;
     if (!windowsResp.ok || windows.error) throw new Error(windows.error || `HTTP ${windowsResp.status}`);
     if (!devicesResp.ok || devices.error) throw new Error(devices.error || `HTTP ${devicesResp.status}`);
-    els.maintContent.innerHTML = renderMaintenancePanel(item, windows.windows || [], devices.devices || []);
+    const now = new Date();
+    els.maintContent.innerHTML = renderMaintenancePanel(item, windows.windows || [], devices.devices || [], now);
+    const fieldset = els.maintContent.querySelector(".when-fieldset");
+    readWhen = initWhen(fieldset, defaultPlan(now), localDay(now));
   } catch (err) {
     if (seq !== maintenanceRequestSeq) return;
     els.maintContent.innerHTML = `<p class="maint-error">Could not load maintenance: ${escHtml(err.message)}</p>`;

@@ -43,7 +43,14 @@ def imported_files(entry):
 
 def test_every_page_loads_a_module_and_its_imports_exist():
     scripts = page_scripts()
-    assert scripts == {"alerts/main.js", "availability.js", "docs/main.js", "map/main.js", "status/main.js"}
+    assert scripts == {
+        "alerts/main.js",
+        "availability.js",
+        "docs/main.js",
+        "maintenance/main.js",
+        "map/main.js",
+        "status/main.js",
+    }
     used = set().union(*(imported_files(entry) for entry in scripts))
     every = {path.relative_to(JS_ROOT).as_posix() for path in JS_ROOT.rglob("*.js")}
     assert every - used == set(), "modules no page loads"

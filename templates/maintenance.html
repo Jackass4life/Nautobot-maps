@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maintenance · Nautobot Maps</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Nautobot Maps</p>
+        <h1>Maintenance</h1>
+      </div>
+      <nav class="app-nav" aria-label="Primary">
+        <a class="app-nav-link" href="/">Map</a>
+        <a class="app-nav-link" href="/alerts">Alert Board</a>
+        <a class="app-nav-link" href="/availability">Availability</a>
+        <a class="app-nav-link active" href="/maintenance" aria-current="page">Maintenance</a>
+        <a class="app-nav-link" href="/docs" title="Every endpoint, with Try it">API</a>
+        <a class="app-nav-link" href="/alerts?view=wall" title="For a wall screen: alarms only, no controls">Wall view</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
+      </nav>
+    </header>
+
+    <!-- Current and planned work, as batches: a change planned for 30 sites is one line (#343). -->
+    <section class="toolbar maint-toolbar">
+      <input id="maint-search" class="avail-search" type="search" placeholder="Search site, device, reason or person" aria-label="Search maintenance" autocomplete="off" />
+      <select id="maint-tenant" class="avail-tenant" aria-label="Tenant"><option value="">All tenants</option></select>
+      <button id="maint-plan-open" class="case-save-btn maint-plan-open" type="button" aria-expanded="false" aria-controls="maint-plan">Plan maintenance</button>
+      <p id="maint-status" class="maint-status" role="status">Loading…</p>
+    </section>
+
+    <!-- Plan: sites (search, or every site of a tenant), what, when, why (#343). -->
+    <section id="maint-plan" class="table-shell maint-plan" aria-labelledby="maint-plan-title" hidden>
+      <h2 id="maint-plan-title" class="availability-heading">Plan maintenance</h2>
+      <form id="maint-plan-form" class="maint-form maint-plan-form" novalidate>
+        <fieldset class="maint-fieldset maint-sites-fieldset">
+          <legend>Sites</legend>
+          <div class="maint-site-picker">
+            <input id="maint-site-search" class="avail-search" type="search" placeholder="Site, path or tenant" aria-label="Find a site" autocomplete="off" aria-controls="maint-site-matches" />
+            <ul id="maint-site-matches" class="maint-site-matches" role="listbox" aria-label="Matching sites" hidden></ul>
+          </div>
+          <ul id="maint-chosen" class="maint-chosen" aria-label="Chosen sites"></ul>
+        </fieldset>
+        <fieldset class="maint-fieldset">
+          <legend>What</legend>
+          <label class="maint-choice"><input type="radio" name="maint-scope" value="site" checked /> Whole sites</label>
+          <label class="maint-choice"><input type="radio" name="maint-scope" value="devices" disabled /> Some devices <span class="maint-scope-note">(one site)</span></label>
+          <div class="maint-devices case-device-list" hidden></div>
+        </fieldset>
+        <div id="maint-when"></div>
+        <label class="case-input-label" for="maint-plan-reason">Reason</label>
+        <input id="maint-plan-reason" class="case-input maint-reason" type="text" maxlength="200" autocomplete="off" placeholder="e.g. Core switch upgrade" />
+        <p class="maint-error" role="alert" hidden></p>
+        <div class="maint-plan-actions">
+          <button class="case-save-btn maint-save-btn" type="submit">Start maintenance</button>
+          <button id="maint-plan-cancel" class="secondary-filter-btn" type="button">Close</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="maint-groups" class="maint-groups" data-limit="25"></div>
+    <noscript><p class="availability-note">This page needs JavaScript. The API is <a href="/docs">/api/maintenance</a>.</p></noscript>
+  </div>
+  <script type="module" src="{{ url_for('static', filename='js/maintenance/main.js') }}"></script>
+</body>
+</html>
