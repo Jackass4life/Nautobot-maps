@@ -6,7 +6,7 @@ import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { ALARM_LEVELS, SEVERITY_ORDER } from "./state.js";
 
 // The board's columns (templates/alerts.html), for rows that span them all.
-const BOARD_COLUMNS = 6;
+const BOARD_COLUMNS = 5;
 
 // A row of one cell across the whole board: empty, error or a heading.
 export function fullWidthRow(html, cellClass = "", rowClass = "") {
@@ -230,7 +230,6 @@ export function renderDownDeviceRows(item, isExpanded, extraClass) {
         ${device.probable_cause ? `<div class="cause-note">Likely caused by ${escHtml(device.probable_cause)}</div>` : ""}
         ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
       </td>
-      <td class="col-tenants"></td>
       <td></td>
       <td class="since-cell">${sinceLabel("down", deviceDowntimeSeconds(device, now))}</td>
       <td class="cases-cell col-cases">${renderDeviceCases(device)}</td>
@@ -260,8 +259,8 @@ export function tierPill(item) {
   return ` <span class="tier-pill${top}" title="Importance tier">${escHtml(String(item.tier).toUpperCase())}</span>`;
 }
 
-// The site's Tenants cell (#340): the first, and
-// "+N" that shows the rest in place, each with its (i) (#238, #279).
+// A site's tenants: the first, and "+N" that shows the rest in place, each
+// with its (i) (#238, #279); "—" without any.  Also on the Maintenance page.
 export function tenantCell(item) {
   const tenants = siteTenants(item);
   const descriptions = item.tenant_descriptions;
@@ -272,6 +271,12 @@ export function tenantCell(item) {
       + ` <button class="tenant-more-btn" type="button" title="${escHtml(rest.join(", "))}">+${rest.length}</button>`
     : "";
   return `${tenantName(tenants[0], descriptions)}${more}`;
+}
+
+// The tenants on one line under the site's name (#311, #351), on the board
+// and the wall view, where the (i) shows the description too.
+export function tenantLine(item) {
+  return siteTenants(item).length ? `<div class="site-tenants">${tenantCell(item)}</div>` : "";
 }
 
 // Only the path above the site, e.g. "NORAM › GRL" (#178).
@@ -317,12 +322,12 @@ export function siteRowsHtml(alerts, { wallView, isExpanded }) {
           <div>
             <div class="site-title">${siteNameHtml(item, !wallView)}${tierPill(item)}</div>
             <div class="site-summary">${downCount} down · ${item.device_count || 0} monitored</div>
+            ${tenantLine(item)}
           </div>
         </div>
         ${address ? `<div class="site-address">${escHtml(address)}</div>` : ""}
         ${meta ? `<div class="site-meta">${meta}</div>` : ""}
       </td>
-      <td class="col-tenants">${tenantCell(item)}</td>
       <td>${alertBadge(item.alert_level, item.alert_reason)}${wallView && !inMaintenance ? caseStateBadge(item) : ""}${item.maintenance ? `<div class="maintenance-note">${maintenanceNote(item.maintenance.until, item.maintenance.reason)}</div>` : ""}</td>
       <td class="since-cell">${wallView ? "" : sinceLabel("in alarm", siteAlarmSeconds(item))}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>
