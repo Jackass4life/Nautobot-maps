@@ -4,8 +4,7 @@
 // .period-preset and .period-calendar).  No page access at import.
 import { createRangeCalendar, formatRange, quickPeriod } from "./calendar.js";
 
-// options: {from, to, min, max, today, onPick(from, to)}.  Returns show(from, to)
-// for the button's text after a change made elsewhere.
+// options: {from, to, min, max, today, onPick(from, to)}.
 export function initPeriodPicker(field, options) {
   const button = field.querySelector(".period-button");
   const popover = field.querySelector(".period-popover");
@@ -31,11 +30,7 @@ export function initPeriodPicker(field, options) {
   }
 
   const calendar = createRangeCalendar(field.querySelector(".period-calendar"), {
-    from: options.from,
-    to: options.to,
-    min: options.min,
-    max: options.max,
-    today: options.today,
+    ...options,
     onPick: (from, to) => pick({ from, to }),
   });
 
@@ -71,5 +66,4 @@ export function initPeriodPicker(field, options) {
   document.addEventListener("click", (event) => {
     if (!popover.hidden && !event.composedPath().includes(field)) close(false);
   });
-  return show;
 }

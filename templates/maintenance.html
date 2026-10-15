@@ -32,20 +32,10 @@
     </nav>
 
     <!-- The history's period, site and export (#353). -->
-    <section id="maint-history-bar" class="toolbar maint-toolbar maint-history-bar" hidden>
+    <section id="maint-history-bar" class="toolbar maint-toolbar maint-history-bar" data-default-days="{{ history_days }}" hidden>
       <div class="period-field">
         <span class="period-label" id="period-label">Period</span>
-        <button id="period-button" class="period-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="period-popover" aria-describedby="period-label" hidden></button>
-        <div id="period-popover" class="period-popover" role="dialog" aria-label="Choose a period" hidden>
-          <div class="period-presets" role="group" aria-label="Quick choices">
-            <button type="button" class="period-preset" data-preset="this-month">This month</button>
-            <button type="button" class="period-preset" data-preset="last-month">Last month</button>
-            <button type="button" class="period-preset" data-preset="last-7">Last 7 days</button>
-            <button type="button" class="period-preset" data-preset="last-30">Last 30 days</button>
-          </div>
-          <div class="calendar period-calendar"></div>
-          <p class="period-hint">Click the first day, then the last.</p>
-        </div>
+        {% include "_period_popover.html" %}
       </div>
       <span id="maint-site-filter" class="maint-chip" hidden></span>
       <a id="maint-history-csv" class="secondary-filter-btn maint-csv" href="/api/maintenance/history.csv" download>Download CSV</a>

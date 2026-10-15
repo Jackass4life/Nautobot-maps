@@ -171,22 +171,23 @@ def safe_cell(value) -> str:
     return f"'{text}" if text.startswith(_FORMULA_START) else text
 
 
-def _line(values) -> str:
+def csv_line(values) -> str:
+    """One CSV row, formula-safe, CRLF (#353: shared by the exports)."""
     out = io.StringIO()
     csv.writer(out, lineterminator="\r\n").writerow([safe_cell(value) for value in values])
     return out.getvalue()
 
 
-def _header(columns: tuple) -> str:
+def csv_header(columns: tuple) -> str:
     # The byte-order mark makes Excel read UTF-8 (Danish letters and all).
-    return "\ufeff" + _line(columns)
+    return "\ufeff" + csv_line(columns)
 
 
 def incident_lines(incidents, now: datetime):
     """The incidents CSV, a line at a time, so it can be streamed."""
-    yield _header(INCIDENT_COLUMNS)
+    yield csv_header(INCIDENT_COLUMNS)
     for row in incidents:
-        yield _line(
+        yield csv_line(
             [
                 row.get("site_name"),
                 row.get("device_name") or row.get("device_id"),
@@ -207,8 +208,8 @@ def incident_lines(incidents, now: datetime):
 
 def devices_csv(summary: list[dict]) -> str:
     """The per-device CSV from ``read_device_summary`` (a row per device: small)."""
-    return _header(DEVICE_COLUMNS) + "".join(
-        _line(
+    return csv_header(DEVICE_COLUMNS) + "".join(
+        csv_line(
             [
                 row.get("site_name"),
                 row.get("device_name") or row.get("device_id"),

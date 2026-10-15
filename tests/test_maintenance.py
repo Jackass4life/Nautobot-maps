@@ -543,18 +543,34 @@ class TestHistory:
 
     def test_export(self):
         self._create(site_id="=cmd", device_ids=["d1"], reason="=HYPERLINK()", duration_minutes=90)
+        # Streamed from a server-side cursor, the device name joined in (#353).
+        inventory_conn = db.get_conn()
+        try:
+            inventory.write_devices(inventory_conn, [_snapshot_device("d1", "=cmd", "Core Router", "Active")])
+        finally:
+            inventory_conn.close()
         conn = db.get_conn()
         try:
-            windows = maintenance.history(
+            text = "".join(
+                maintenance.history_csv_lines(
+                    conn,
+                    timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
+                    timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
+                    None,
+                    [{"id": "=cmd", "name": "Oslo", "tenants": ["Acme"]}],
+                )
+            )
+            # Over the limit is a probe, not a read.
+            assert maintenance.history_exceeds(
                 conn,
                 timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
                 timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
-                at=timeutil.parse_iso_datetime(NOW),
+                None,
+                0,
             )
-            described = maintenance.describe(conn, windows, [{"id": "=cmd", "name": "Oslo", "tenants": ["Acme"]}])
         finally:
             conn.close()
-        lines = maintenance.history_csv(described["windows"]).lstrip("\ufeff").splitlines()
+        lines = text.lstrip("\ufeff").splitlines()
         assert lines[0].split(",") == list(maintenance.HISTORY_COLUMNS)
         row = next(csv.reader(lines[1:]))
         values = dict(zip(maintenance.HISTORY_COLUMNS, row, strict=True))

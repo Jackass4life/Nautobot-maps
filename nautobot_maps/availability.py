@@ -66,12 +66,14 @@ def _date(value: str, name: str) -> datetime:
         raise ReportError(f"{name} must be a real date, like 2026-10-03") from None
 
 
-def resolve_period(month: str | None, from_date: str | None, to_date: str | None, at: datetime) -> dict:
+def resolve_period(month: str | None, from_date: str | None, to_date: str | None, at: datetime, zone=UTC) -> dict:
     """The period asked for (#341): ``month`` ("2026-10"), or ``from`` and
     ``to`` ("2026-10-03", both included); default the current month.
 
-    ``{start, end, from, to, month, label}``: *end* not after *at*; a from–to
-    that is a whole calendar month is that month, so its CSV keeps the month.
+    ``{start, end, until, from, to, month, label}``: the days are *zone*'s
+    (#353: the browser's for the maintenance history; UTC for the report);
+    *until* is the end of the last day, *end* that but not after *at*.  A
+    from–to that is a whole calendar month is that month, so its CSV keeps it.
     """
     if from_date or to_date:
         if month:
@@ -81,7 +83,7 @@ def resolve_period(month: str | None, from_date: str | None, to_date: str | None
         start = _date(from_date, "from")
         last = _date(to_date, "to")
     else:
-        start, end = _month_span(month or current_month(at))
+        start, end = _month_span(month or current_month(at.astimezone(zone)))
         last = end - timedelta(days=1)
     if last < start:
         raise ReportError("to must be on or after from")
@@ -91,14 +93,17 @@ def resolve_period(month: str | None, from_date: str | None, to_date: str | None
         raise ReportError("to must be a real date, like 2026-10-03") from None
     if (end - start).days > MAX_PERIOD_DAYS:
         raise ReportError(f"A period can be at most {MAX_PERIOD_DAYS} days")
-    if start >= at:
-        raise ReportError("That period hasn't started yet")
     first, final = f"{start:%Y-%m-%d}", f"{last:%Y-%m-%d}"
     whole_month = start.day == 1 and _month_span(first[:7])[1] == end
+    # The same days, from midnight in *zone* (the dates above are worked out in UTC).
+    start, end = start.replace(tzinfo=zone), end.replace(tzinfo=zone)
+    if start >= at:
+        raise ReportError("That period hasn't started yet")
     month = first[:7] if whole_month else None
     return {
         "start": start,
         "end": min(end, at),
+        "until": end,
         "from": first,
         "to": final,
         "month": month,

@@ -41,8 +41,9 @@ const historyView = params.get("view") === "history";
 // The browser's days: the server reads the period in this time zone.
 const today = localDay(new Date());
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const historyDays = Number(els.historyBar.dataset.defaultDays) || 30;
 const history = {
-  from: params.get("from") || addDays(today, -29),
+  from: params.get("from") || addDays(today, 1 - historyDays),
   to: params.get("to") || today,
   siteId: params.get("site_id") || "",
   siteName: "",
@@ -55,7 +56,7 @@ function historyQuery(extra = {}) {
 }
 
 // The export: the same period, site and tenant (the search is the page's own);
-// set before the list loads, so it is right even if that fails.
+// set at once and on each change, so it is right even if a load fails.
 function updateCsvLink() {
   const tenant = els.tenant.value ? { tenant: els.tenant.value } : {};
   els.csv.href = `/api/maintenance/history.csv?${historyQuery(tenant)}`;
@@ -101,7 +102,6 @@ function render() {
       days: recentDays,
     });
   restoreFocus(was);
-  if (historyView) updateCsvLink();
 }
 
 function fillTenants() {
@@ -208,6 +208,9 @@ els.groups.addEventListener("toggle", (event) => {
   if (event.target.matches?.('details[data-group="past"]')) state.pastOpen = event.target.open;
 }, true);
 
+els.tenant.addEventListener("change", () => {
+  if (historyView) updateCsvLink();
+});
 for (const input of [els.search, els.tenant]) {
   input.addEventListener("input", () => {
     state.limits = {};

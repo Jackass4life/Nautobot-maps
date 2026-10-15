@@ -8,8 +8,6 @@ resolves) and nothing is notified.  Ending a window early sets
 ``ended_at``; a window ended before it started is a cancelled one.
 """
 
-import csv
-import io
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -135,6 +133,23 @@ def _read(conn, conditions: list[str], params: list, order: str, limit: int, at:
     return [{**window, "state": state(window, at)} for window in map(db.row_to_dict, rows)]
 
 
+def _history_where(start: datetime, end: datetime, site_ids: list[str] | None) -> tuple[list[str], list]:
+    """Windows that ran in *start*–*end*, or were planned for it and cancelled
+    (#353); a window ended early, before *start*, didn't run in it.  The
+    (ends_at, starts_at) and ended_at indexes serve it."""
+    conditions = [
+        "w.starts_at < %s",
+        "w.ends_at > %s",
+        # Still on, ended in the period, or cancelled (ended before it began).
+        "(w.ended_at IS NULL OR w.ended_at > %s OR w.ended_at < w.starts_at)",
+    ]
+    params: list = [end, start, start]
+    if site_ids is not None:
+        conditions.append("w.site_id = ANY(%s)")
+        params.append(site_ids)
+    return conditions, params
+
+
 def history(
     conn,
     start: datetime,
@@ -143,21 +158,26 @@ def history(
     limit: int = HISTORY_LIMIT,
     at: datetime | None = None,
 ) -> list[dict]:
-    """Every window that ran in *start*–*end*, or was planned for it and
-    cancelled (#353), newest first: the history view, one site's (*site_ids*:
-    those sites only) and the export.  A window ended early, before *start*,
-    didn't run in it.  The (ends_at, starts_at) and ended_at indexes serve it."""
-    conditions = [
-        "starts_at < %s",
-        "ends_at > %s",
-        # Still on, ended in the period, or cancelled (ended before it began).
-        "(ended_at IS NULL OR ended_at > %s OR ended_at < starts_at)",
-    ]
-    params: list = [end, start, start]
-    if site_ids is not None:
-        conditions.append("site_id = ANY(%s)")
-        params.append(site_ids)
-    return _read(conn, conditions, params, "starts_at DESC, id DESC", limit, at or now())
+    """The history view's and one site's windows (#353), newest first, at most *limit*."""
+    conditions, params = _history_where(start, end, site_ids)
+    rows = conn.execute(
+        f"SELECT {COLUMNS} FROM maintenance_windows w WHERE {' AND '.join(conditions)} "
+        "ORDER BY w.starts_at DESC, w.id DESC LIMIT %s",
+        (*params, limit),
+    ).fetchall()
+    at = at or now()
+    return [{**window, "state": state(window, at)} for window in map(db.row_to_dict, rows)]
+
+
+def history_exceeds(conn, start: datetime, end: datetime, site_ids: list[str] | None, limit: int) -> bool:
+    """Whether the period has more than *limit* windows: one index probe, so a
+    too-big export is refused before any of it is read."""
+    conditions, params = _history_where(start, end, site_ids)
+    row = conn.execute(
+        f"SELECT 1 FROM maintenance_windows w WHERE {' AND '.join(conditions)} OFFSET %s LIMIT 1",
+        (*params, limit),
+    ).fetchone()
+    return row is not None
 
 
 HISTORY_COLUMNS = (
@@ -188,35 +208,46 @@ def history_minutes(window: dict, at: datetime) -> int:
     return max(0, round((stop - starts).total_seconds() / 60))
 
 
-def history_csv(windows: list[dict]) -> str:
-    """The history (from ``describe``) as CSV (#353): one row per window,
-    times in UTC, formula-safe like the other exports."""
+def history_csv_lines(conn, start: datetime, end: datetime, site_ids: list[str] | None, sites: list[dict]):
+    """The history as CSV, a line at a time (#353): a server-side cursor and
+    the device names joined in, so 100,000 windows stream in steady memory.
+    One row per window, times in UTC, formula-safe like the other exports."""
     at = now()
-    out = io.StringIO()
-    out.write("\ufeff")  # Excel reads UTF-8
-    writer = csv.writer(out, lineterminator="\r\n")
-    writer.writerow(HISTORY_COLUMNS)
-    for w in windows:
-        row = (
-            w.get("site_name") or w["site_id"],
-            w.get("site_path", ""),
-            "; ".join(w.get("tenants") or []),
-            w.get("device_name") or w.get("device_id") or "",
-            w["state"],
-            export.utc_text(w["starts_at"]),
-            export.utc_text(w["ends_at"]),
-            export.utc_text(w.get("ended_at")),
-            history_minutes(w, at),
-            w.get("reason", ""),
-            w.get("created_by", ""),
-            export.utc_text(w.get("created_at")),
-            w.get("ended_by", ""),
-            w.get("batch_id", ""),
-            w["site_id"],
-            w.get("device_id", ""),
+    by_site = {site.get("id"): site for site in sites if site.get("id")}
+    conditions, params = _history_where(start, end, site_ids)
+    columns = ", ".join(f"w.{column.strip()}" for column in COLUMNS.split(","))
+    yield export.csv_header(HISTORY_COLUMNS)
+    with db.transaction(conn), conn.cursor(name="maintenance_history_export") as cursor:
+        cursor.itersize = 2000
+        cursor.execute(
+            f"SELECT {columns}, d.name AS device_name FROM maintenance_windows w "
+            "LEFT JOIN nautobot_device_cache d ON d.device_id = w.device_id AND w.device_id <> '' "
+            f"WHERE {' AND '.join(conditions)} ORDER BY w.starts_at DESC, w.id DESC",
+            params,
         )
-        writer.writerow([export.safe_cell(value) for value in row])
-    return out.getvalue()
+        for row in cursor:
+            w = db.row_to_dict(row)
+            site = by_site.get(w["site_id"]) or {}
+            yield export.csv_line(
+                (
+                    site.get("name") or w["site_id"],
+                    status.site_path(site),
+                    "; ".join(status.site_tenants(site)),
+                    w.get("device_name") or w.get("device_id") or "",
+                    state(w, at),
+                    export.utc_text(w["starts_at"]),
+                    export.utc_text(w["ends_at"]),
+                    export.utc_text(w.get("ended_at")),
+                    history_minutes(w, at),
+                    w.get("reason", ""),
+                    w.get("created_by", ""),
+                    export.utc_text(w.get("created_at")),
+                    w.get("ended_by", ""),
+                    w.get("batch_id", ""),
+                    w["site_id"],
+                    w.get("device_id", ""),
+                )
+            )
 
 
 def state(window: dict, at: datetime) -> str:
