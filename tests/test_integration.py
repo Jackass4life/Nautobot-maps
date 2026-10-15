@@ -1453,14 +1453,16 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
         hidden = css[css.index(".wall-view .page-header,") :]
         hidden = hidden[: hidden.index("}")]
-        for selector in (".toolbar", ".summary-bar", ".feed-panel", ".col-action", ".col-tenants"):
+        for selector in (".toolbar", ".summary-bar", ".feed-panel", ".col-action"):
             assert f".wall-view {selector}" in hidden
+        # The tenants stay on the wall, readable (#351).
+        assert ".site-tenants" not in hidden and ".wall-view .site-tenants" in css
         assert "display: none !important" in hidden
         # Case numbers stay visible: the room can see a site has someone on it.
         assert ".col-cases" not in hidden
         # The physical address stays too, at a readable size.
         assert ".site-address" not in hidden
-        assert ".wall-view .site-address {" in css
+        assert re.search(r"\.wall-view \.site-address[,\s][^{]*\{\s*color: var\(--color-text\)", css)
 
     def test_wall_text_is_the_browser_standard(self, integration_client):
         """Same sizes as the board (#267): a big screen is sized with the browser's zoom."""
@@ -1702,7 +1704,7 @@ const criteria = { sort: "newest", severityFilter: "alarms" };
 check(filterSites([planned, alarm], { ...criteria, wallView: true }).map((s) => s.name).join() === "Aarhus,Bergen", "the wall lists maintenance last");
 check(filterSites([planned, alarm], { ...criteria, wallView: false }).map((s) => s.name).join() === "Aarhus", "the board's Alarms don't");
 const wall = siteRowsHtml([alarm, planned], { wallView: true, isExpanded: () => true });
-check(wall.includes('<tr class="maintenance-heading"><td colspan="6">In maintenance</td></tr>'), wall);
+check(wall.includes('<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>'), wall);
 check(wall.indexOf("maintenance-heading") > wall.indexOf("Aarhus") && wall.includes("Core &lt;upgrade&gt;"), wall);
 """)
         html = integration_client.get("/alerts").get_data(as_text=True)
@@ -2146,12 +2148,12 @@ check(html.includes("device-status-active") && html.includes(">10 Gbps<"), html)
 
 
 class TestSiteTenantsInTheBrowser:
-    """The Tenants column and Copy for ITSM show every tenant of a site (#238, #340)."""
+    """The tenant line under the site name, on the board and the wall, and Copy for ITSM show every tenant of a site (#238, #351)."""
 
     def test_tenant_cell_and_report(self):
         run_js("""
 import { siteReport } from "@js/alerts/panels.js";
-import { siteRowsHtml, tenantCell } from "@js/alerts/rows.js";
+import { siteRowsHtml, tenantCell, tenantLine } from "@js/alerts/rows.js";
 
 const line = (inner) => inner;
 check(tenantCell({}) === "—", "no tenant: a dash");
@@ -2181,22 +2183,27 @@ check(tenantCell({ tenant: "Acme", tenant_descriptions: {} }) === line("Acme"), 
 check(tenantCell({ tenant: "constructor", tenant_descriptions: {} }) === line("constructor"), "constructor");
 check(tenantCell({ tenants: ["toString", "hasOwnProperty"] }).indexOf("info-tip") === -1, "toString");
 
-// Its own column (#340), between Location and Alert; down-device rows keep
-// the columns lined up, and the tenant isn't repeated under the name.
-const site = { id: "s1", name: "Oslo", tenants: ["Acme", "Nordic"], alert_level: "critical", down_device_count: 1,
-  down_devices: [{ device_id: "d1", device_name: "sw1" }] };
-const html = siteRowsHtml([site], { wallView: false, isExpanded: () => true });
-const siteRow = html.slice(html.indexOf('<tr class="site-row'), html.indexOf("</tr>"));
-const cells = siteRow.match(/<td[ >]/g).length;
-check(cells === 6, `six cells: ${cells}`);
-check(siteRow.indexOf('<td class="col-tenants">Acme') > siteRow.indexOf("Oslo") && siteRow.indexOf("col-tenants") < siteRow.indexOf("alert-badge"), siteRow);
-check((html.match(/Acme/g) || []).length === 1, "tenant once");
-const deviceRow = html.slice(html.indexOf('<tr class="down-device-row'));
-check(deviceRow.slice(0, deviceRow.indexOf("</tr>")).match(/<td[ >]/g).length === 6, deviceRow);
+// Under the site's name (#351), with the (i) on the board and on the wall;
+// no tenant, no line; five cells, the down-device rows lined up.
+check(tenantLine({}) === "", "no tenant: no line");
+check(tenantLine({ tenant: "Acme" }) === '<div class="site-tenants">Acme</div>', tenantLine({ tenant: "Acme" }));
+const site = { id: "s1", name: "Oslo", tenants: ["Acme", "Nordic"], tenant_descriptions: { Acme: "Gold" },
+  alert_level: "critical", down_device_count: 1, down_devices: [{ device_id: "d1", device_name: "sw1" }] };
+for (const wallView of [false, true]) {
+  const html = siteRowsHtml([site], { wallView, isExpanded: () => true });
+  const siteRow = html.slice(html.indexOf('<tr class="site-row'), html.indexOf("</tr>"));
+  check(siteRow.match(/<td[ >]/g).length === 5, `five cells (wall: ${wallView})`);
+  const name = siteRow.indexOf("Oslo");
+  const line = siteRow.indexOf('<div class="site-tenants">Acme<span class="info-tip"');
+  check(line > name && line < siteRow.indexOf("alert-badge") && siteRow.includes('data-info-tip="Gold"'), siteRow);
+  check(siteRow.includes(">+1</button>") && (html.match(/class="site-tenants"/g) || []).length === 1, "+N, once");
+  const deviceRow = html.slice(html.indexOf('<tr class="down-device-row'));
+  check(deviceRow.slice(0, deviceRow.indexOf("</tr>")).match(/<td[ >]/g).length === 5, deviceRow);
+}
 """)
 
     def test_full_width_rows_span_every_column(self, integration_client):
-        # One column count for the empty, error and heading rows (#340).
+        # One column count for the empty, error and heading rows (#340, #351).
         html = integration_client.get("/alerts").get_data(as_text=True)
         thead = html[html.index("<thead>") : html.index("</thead>")]
         columns = len(re.findall(r"<th[ >]", thead))

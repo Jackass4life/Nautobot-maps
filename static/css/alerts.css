@@ -502,10 +502,11 @@ a.site-name:focus-visible {
   font-size: 0.8rem;
 }
 
-/* The site's tenants, in their own column (#238, #340). */
-.col-tenants {
-  min-width: 120px;
-  max-width: 240px;
+/* The site's tenants, under its name (#238, #311, #351). */
+.site-tenants {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
 }
 
 /* "+2" shows the remaining tenants in place (#279). */
@@ -1402,7 +1403,6 @@ a.case-pill:focus-visible {
 
 .wall-view .page-header,
 .wall-view .summary-bar,
-.wall-view .col-tenants,
 .wall-view .toolbar,
 .wall-view .feed-panel,
 .wall-view .site-toggle-btn,
@@ -1473,8 +1473,9 @@ a.case-pill:focus-visible {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* Where to send someone: in the normal text colour, not grey. */
-.wall-view .site-address {
+/* Where to send someone and whose site it is (#351): in the normal text colour, not grey. */
+.wall-view .site-address,
+.wall-view .site-tenants {
   color: var(--color-text);
 }
 
@@ -1514,6 +1515,7 @@ a.case-pill:focus-visible {
    severity and case badges keep their colours. */
 .wall-view tr.case-handled > td,
 .wall-view tr.case-handled .site-address,
+.wall-view tr.case-handled .site-tenants,
 .wall-view tr.case-handled .device-ip {
   color: var(--color-text-muted);
 }
