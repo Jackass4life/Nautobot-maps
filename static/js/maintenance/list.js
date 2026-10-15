@@ -30,7 +30,8 @@ function siteLabel(window) {
 // cancelled ones apart from those that ran.  A window from before batches is
 // its own.  Each batch's tenants, sites and search text are worked out here
 // once, not on every key.
-export function batchesOf(windows) {
+// *keepOrder* (the history): as the server sent them, newest first.
+export function batchesOf(windows, { keepOrder = false } = {}) {
   const batches = new Map();
   for (const window of windows) {
     const group = groupOf(window.state);
@@ -54,6 +55,7 @@ export function batchesOf(windows) {
     batch.text = [batch.reason, batch.created_by, ...batch.tenants,
       ...batch.windows.flatMap((w) => [siteLabel(w), w.site_path, w.device_name || w.device_id])].join(" ").toLowerCase();
   }
+  if (keepOrder) return [...batches.values()];
   // By group; then ending soonest first, planned soonest first, ended latest first.
   const time = (batch) => Date.parse(batch.group === "active" ? batch.ends_at
     : batch.group === "upcoming" ? batch.starts_at : batch.ended_at || batch.ends_at);
@@ -84,6 +86,19 @@ export function whenText(batch, now = new Date()) {
   return `${formatFeedTime(batch.starts_at, now)} – ${formatFeedTime(batch.ends_at, now)}`;
 }
 
+// The history's (#353): when it ran, and whether it ended early.
+// "22 Sep 22:00 – 23:00 · ended early", "cancelled · was planned 22 Sep 22:00",
+// "since 22:00, until 02:00", "planned 24 Sep 22:00 – 02:00".
+export function spanText(batch, now = new Date()) {
+  const at = (value) => formatFeedTime(value, now);
+  if (batch.state === "cancelled") return `cancelled · was planned ${at(batch.starts_at)}`;
+  if (batch.group === "active") return `since ${at(batch.starts_at)}, until ${at(batch.ends_at)}`;
+  if (batch.group === "upcoming") return `planned ${at(batch.starts_at)} – ${at(batch.ends_at)}`;
+  const end = batch.ended_at || batch.ends_at;
+  const early = batch.ended_at && Date.parse(batch.ended_at) < Date.parse(batch.ends_at) ? " · ended early" : "";
+  return `${at(batch.starts_at)} – ${at(end)}${early}`;
+}
+
 // "End now", "Cancel", "End all 30", "Cancel all 30".
 function endLabel(batch, count) {
   const verb = batch.group === "upcoming" ? "Cancel" : "End";
@@ -91,23 +106,25 @@ function endLabel(batch, count) {
   return batch.group === "upcoming" ? "Cancel" : "End now";
 }
 
-function windowHtml(batch, window, descriptions) {
+function windowHtml(batch, window, descriptions, actions) {
   const what = window.device_id ? ` · ${escHtml(window.device_name || window.device_id)}` : "";
-  const end = batch.group === "past" ? ""
+  const end = batch.group === "past" || !actions ? ""
     : `<button class="action-btn maint-end" type="button" data-ids="${window.id}">${endLabel(batch, 1)}</button>`;
   return `<li class="maint-batch-window"><span>${escHtml(siteLabel(window))}${what}</span>`
     + `<span class="maint-batch-tenants">${tenantCell({ tenants: window.tenants || [], tenant_descriptions: descriptions })}</span>${end}</li>`;
 }
 
-// One batch; *expanded*: its sites or devices listed, each with its own End.
-export function batchHtml(batch, { descriptions = {}, expanded = false, now = new Date() } = {}) {
+// One batch; *expanded*: its sites or devices listed, each with its own End;
+// *actions* false (the history): no End or Cancel; *when* says its time.
+export function batchHtml(batch, { descriptions = {}, expanded = false, now = new Date(), actions = true, when: whenOf = whenText } = {}) {
+  const when = whenOf(batch, now);
   const { windows } = batch;
   const ids = windows.map((window) => window.id).join(",");
   const many = windows.length > 1;
   const names = batch.sites;
   const preview = many && names.length > 1
     ? `<div class="maint-batch-sites">${escHtml(names.slice(0, 3).join(", "))}${names.length > 3 ? ` +${names.length - 3}` : ""}</div>` : "";
-  const end = batch.group === "past" ? ""
+  const end = batch.group === "past" || !actions ? ""
     : `<button class="action-btn maint-end" type="button" data-ids="${ids}">${endLabel(batch, windows.length)}</button>`;
   const toggle = many
     ? `<button class="action-btn maint-expand" type="button" aria-expanded="${expanded}">${expanded ? "Hide" : "Show"} ${windows.length}</button>` : "";
@@ -118,35 +135,54 @@ export function batchHtml(batch, { descriptions = {}, expanded = false, now = ne
       <div class="maint-batch-main">
         <span class="alert-badge alert-maintenance">${BADGES[batch.state] || "PLANNED"}</span>
         <div class="maint-batch-text">
-          <div><strong>${escHtml(batchTitle(batch))}</strong> · ${escHtml(whenText(batch, now))}</div>
+          <div><strong>${escHtml(batchTitle(batch))}</strong> · ${escHtml(when)}</div>
           <div class="maint-batch-meta">${escHtml(batch.reason)}${by}</div>
           ${preview}
           ${tenants.length ? `<div class="maint-batch-tenants">${tenantCell({ tenants, tenant_descriptions: descriptions })}</div>` : ""}
         </div>
         <div class="maint-batch-actions">${toggle}${end}</div>
       </div>
-      ${expanded ? `<ul class="maint-batch-windows">${windows.map((w) => windowHtml(batch, w, descriptions)).join("")}</ul>` : ""}
+      ${expanded ? `<ul class="maint-batch-windows">${windows.map((w) => windowHtml(batch, w, descriptions, actions)).join("")}</ul>` : ""}
     </li>`;
 }
 
 // The three groups; *limits* {group: N shown}, *expanded* a Set of batch keys.
+// One group's parts: "N · M sites", its first *limit* batches, and "Show N more".
+// *batch*: the options for batchHtml (the history's: read only, when it ran).
+function groupParts(members, { id, empty, limit, step, expanded, descriptions, now, batch = {} }) {
+  const shown = members.slice(0, limit);
+  const rest = members.length - shown.length;
+  const sites = new Set(members.flatMap((b) => b.windows.map((w) => w.site_id))).size;
+  return {
+    count: members.length ? ` <span class="avail-count">${members.length} · ${sites} site${sites === 1 ? "" : "s"}</span>` : "",
+    list: members.length
+      ? `<ul class="maint-batches">${shown.map((b) => batchHtml(b, { descriptions, expanded: expanded.has(b.key), now, ...batch })).join("")}</ul>`
+      : `<p class="maint-empty">${empty}</p>`,
+    more: rest > 0
+      ? `<p class="avail-more">${rest} more <button class="avail-more-btn maint-more" type="button" data-group="${id}">Show ${Math.min(step, rest)} more</button></p>` : "",
+  };
+}
+
 export function groupsHtml(batches, { limits, expanded, descriptions, now = new Date(), step = 25, pastOpen = false, days = 7 }) {
   return groupsFor(days).map((group) => {
     const members = batches.filter((batch) => batch.group === group.id);
-    const limit = limits[group.id] || step;
-    const shown = members.slice(0, limit);
-    const rest = members.length - shown.length;
-    const sites = new Set(members.flatMap((batch) => batch.windows.map((w) => w.site_id))).size;
-    const count = members.length ? ` <span class="avail-count">${members.length} · ${sites} site${sites === 1 ? "" : "s"}</span>` : "";
-    const list = members.length
-      ? `<ul class="maint-batches">${shown.map((batch) => batchHtml(batch, { descriptions, expanded: expanded.has(batch.key), now })).join("")}</ul>`
-      : `<p class="maint-empty">${group.empty}</p>`;
-    const more = rest > 0
-      ? `<p class="avail-more">${rest} more <button class="avail-more-btn maint-more" type="button" data-group="${group.id}">Show ${Math.min(step, rest)} more</button></p>` : "";
+    const { count, list, more } = groupParts(members, {
+      id: group.id, empty: group.empty, limit: limits[group.id] || step, step, expanded, descriptions, now,
+    });
     const heading = `<h2 class="availability-heading">${group.title}${count}</h2>`;
     // Ended work is history: folded unless asked for (*open*: the operator opened it).
     return group.id === "past"
       ? `<details class="table-shell maint-group" data-group="past"${pastOpen ? " open" : ""}><summary class="maint-group-summary">${heading}</summary>${list}${more}</details>`
       : `<section class="table-shell maint-group" data-group="${group.id}">${heading}${list}${more}</section>`;
   }).join("");
+}
+
+// The history (#353): every batch in the period (batchesOf keepOrder: newest
+// first), read only, each saying when it ran.  *title*: "History · 1 – 30 Sep 2026".
+export function historyHtml(batches, { limit, expanded, descriptions, now = new Date(), step = 25, title }) {
+  const { count, list, more } = groupParts(batches, {
+    id: "history", empty: "No maintenance in this period.", limit, step, expanded, descriptions, now,
+    batch: { actions: false, when: spanText },
+  });
+  return `<section class="table-shell maint-group" data-group="history"><h2 class="availability-heading">${escHtml(title)}${count}</h2>${list}${more}</section>`;
 }

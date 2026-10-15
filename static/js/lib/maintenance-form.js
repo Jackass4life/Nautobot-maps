@@ -3,6 +3,11 @@
 import { escHtml } from "./html.js";
 import { whenRequest } from "./when.js";
 
+// A site's maintenance history (#353): the board's ⋯ menu and the map's panel link here.
+export function maintenanceHistoryHref(siteId) {
+  return `/maintenance?${new URLSearchParams({ view: "history", site_id: siteId })}`;
+}
+
 // One site's monitored devices to tick.
 export function devicesHtml(devices) {
   if (!devices.length) return '<p class="maint-empty">No monitored devices.</p>';

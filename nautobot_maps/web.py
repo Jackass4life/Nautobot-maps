@@ -5,8 +5,10 @@ A Flask blueprint registered by app.py; URLs are unchanged.
 
 import json
 import logging
-from datetime import UTC
+import re
+from datetime import UTC, timedelta
 from urllib.parse import urlencode, urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
@@ -829,7 +831,124 @@ MAINTENANCE_PAGE_RECENT_DAYS = 7
 def maintenance_page():
     """Current and planned maintenance, and planning more (#343); the data comes from the API."""
     return render_template(
-        "maintenance.html", recent_days=MAINTENANCE_PAGE_RECENT_DAYS, max_sites=maintenance.MAX_SITES
+        "maintenance.html",
+        recent_days=MAINTENANCE_PAGE_RECENT_DAYS,
+        max_sites=maintenance.MAX_SITES,
+        view="history" if _arg("view") == "history" else "now",
+        history_days=MAINTENANCE_HISTORY_DEFAULT_DAYS,
+    )
+
+
+# The history's default period (#353): the last 30 days, today included.
+MAINTENANCE_HISTORY_DEFAULT_DAYS = 30
+
+
+def _history_request() -> tuple[dict | None, tuple | None]:
+    """``(request, None)`` or ``(None, error response)`` for the history's query
+    string (#353): ``from`` and ``to`` (days, both included; default the last 30),
+    ``tz`` (the browser's time zone, e.g. ``Europe/Copenhagen``: its days, not
+    UTC's; default UTC), ``site_id`` and ``tenant``.  The days are checked as
+    the availability report's (#341)."""
+    try:
+        zone = ZoneInfo(_arg("tz") or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        return None, (jsonify({"error": "tz must be a time zone, like Europe/Copenhagen"}), 400)
+    at = availability.now()
+    from_date, to_date = _arg("from"), _arg("to")
+    if not (from_date or to_date):
+        today = at.astimezone(zone).date()
+        to_date = today.isoformat()
+        from_date = (today - timedelta(days=MAINTENANCE_HISTORY_DEFAULT_DAYS - 1)).isoformat()
+    try:
+        period = availability.resolve_period(None, from_date, to_date, at, zone)
+    except availability.ReportError as exc:
+        return None, (jsonify({"error": exc.message}), 400)
+    site_id, tenant = _arg("site_id") or "", _arg("tenant") or ""
+    sites = _board_sites()
+    # One list of sites for both filters, chosen before any limit; a site no
+    # longer on the board still has its history, unless a tenant rules it out.
+    site_ids = None
+    if site_id or tenant:
+        candidates = {site_id: {}} if site_id else {s["id"]: s for s in sites if s.get("id")}
+        if site_id:
+            candidates[site_id] = next((s for s in sites if s.get("id") == site_id), {})
+        site_ids = [i for i, s in candidates.items() if not tenant or tenant in status.site_tenants(s)]
+    return {
+        "period": period,
+        # To the end of the last day, not now: a window starting later today is in it.
+        "start": period["start"],
+        "end": period["until"],
+        "site_id": site_id,
+        "site_ids": site_ids,
+        "sites": sites,
+        "zone": str(zone),
+    }, None
+
+
+@bp.route("/api/maintenance/history", methods=["GET"])
+def api_maintenance_history():
+    """Every maintenance window that ran in a period, or was planned for it and
+    cancelled (#353), newest first: ``from`` and ``to`` (``2026-10-01``, both
+    days included; default the last 30 days; at most 366), optional ``tz``
+    (whose days; default UTC), ``site_id`` and ``tenant``.  Names and tenants
+    as ``/api/maintenance``; ``truncated`` past 5,000 windows."""
+    req, error = _history_request()
+    if error:
+        return error
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    try:
+        limit = maintenance.HISTORY_LIMIT
+        windows = maintenance.history(conn, req["start"], req["end"], req["site_ids"], limit=limit + 1)
+        described = maintenance.describe(conn, windows[:limit], req["sites"])
+    finally:
+        conn.close()
+    period = req["period"]
+    return jsonify(
+        {
+            **described,
+            "period": {"from": period["from"], "to": period["to"], "label": period["label"], "tz": req["zone"]},
+            "site_id": req["site_id"],
+            "truncated": len(windows) > limit,
+        }
+    )
+
+
+@bp.route("/api/maintenance/history.csv", methods=["GET"])
+def api_maintenance_history_csv():
+    """The history as CSV (#353): the same ``from``, ``to``, ``tz``, ``site_id``
+    and ``tenant``; one row per window, times in UTC, streamed.  Every window,
+    or a 400 past 100,000: never a silently shorter file."""
+    req, error = _history_request()
+    if error:
+        return error
+    conn = db.get_conn()
+    if conn is None:
+        return jsonify({"error": "Persistence DB not configured"}), 503
+    limit = maintenance.HISTORY_EXPORT_LIMIT
+    try:
+        too_many = maintenance.history_exceeds(conn, req["start"], req["end"], req["site_ids"], limit)
+    except Exception:
+        conn.close()
+        raise
+    if too_many:
+        conn.close()
+        return jsonify({"error": f"More than {limit:,} windows: choose a shorter period, a site or a tenant"}), 400
+
+    def lines():
+        try:
+            yield from maintenance.history_csv_lines(conn, req["start"], req["end"], req["site_ids"], req["sites"])
+        finally:
+            conn.close()
+
+    name = req["period"]["label"].replace(" to ", "_")
+    if req["site_id"]:
+        name = f"{name}-{re.sub(r'[^A-Za-z0-9_.-]+', '-', req['site_id'])}"
+    return Response(
+        stream_with_context(lines()),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="maintenance-{name}.csv"'},
     )
 
 

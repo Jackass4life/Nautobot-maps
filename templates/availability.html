@@ -37,17 +37,7 @@
           <label>From <input id="availability-from" name="from" type="date" value="{{ from_date }}" min="{{ oldest_day }}" max="{{ today }}" required /></label>
           <label>To <input id="availability-to" name="to" type="date" value="{{ to_date }}" min="{{ oldest_day }}" required /></label>
         </div>
-        <button id="period-button" class="period-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="period-popover" aria-describedby="period-label" hidden></button>
-        <div id="period-popover" class="period-popover" role="dialog" aria-label="Choose a period" hidden>
-          <div class="period-presets" role="group" aria-label="Quick choices">
-            <button type="button" class="period-preset" data-preset="this-month">This month</button>
-            <button type="button" class="period-preset" data-preset="last-month">Last month</button>
-            <button type="button" class="period-preset" data-preset="last-7">Last 7 days</button>
-            <button type="button" class="period-preset" data-preset="last-30">Last 30 days</button>
-          </div>
-          <div id="period-calendar" class="calendar"></div>
-          <p class="period-hint">Click the first day, then the last.</p>
-        </div>
+        {% include "_period_popover.html" %}
       </div>
       <label for="availability-basis">Downtime</label>
       <select id="availability-basis" name="basis">

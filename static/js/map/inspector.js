@@ -8,6 +8,7 @@ import {
   buildAlertBanner,
   buildCircuitCard,
   buildHealthSummary,
+  buildMaintenanceHistoryLink,
   buildNautobotLink,
   deviceCard,
   deviceFilterLabel,
@@ -234,6 +235,7 @@ export function renderInspectorContent() {
       ${buildAlertBanner(alert)}
       <div class="inspector-actions-row">
         ${buildNautobotLink(loc)}
+        ${buildMaintenanceHistoryLink(loc)}
       </div>
     </div>
 

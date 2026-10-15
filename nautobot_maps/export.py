@@ -143,7 +143,8 @@ def _as_datetime(value) -> datetime | None:
     return parsed
 
 
-def _utc_text(value) -> str:
+def utc_text(value) -> str:
+    """ "2026-10-14 21:05" in UTC, as the exports write times; "" without one."""
     parsed = _as_datetime(value)
     return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M") if parsed else ""
 
@@ -170,29 +171,30 @@ def safe_cell(value) -> str:
     return f"'{text}" if text.startswith(_FORMULA_START) else text
 
 
-def _line(values) -> str:
+def csv_line(values) -> str:
+    """One CSV row, formula-safe, CRLF (#353: shared by the exports)."""
     out = io.StringIO()
     csv.writer(out, lineterminator="\r\n").writerow([safe_cell(value) for value in values])
     return out.getvalue()
 
 
-def _header(columns: tuple) -> str:
+def csv_header(columns: tuple) -> str:
     # The byte-order mark makes Excel read UTF-8 (Danish letters and all).
-    return "\ufeff" + _line(columns)
+    return "\ufeff" + csv_line(columns)
 
 
 def incident_lines(incidents, now: datetime):
     """The incidents CSV, a line at a time, so it can be streamed."""
-    yield _header(INCIDENT_COLUMNS)
+    yield csv_header(INCIDENT_COLUMNS)
     for row in incidents:
-        yield _line(
+        yield csv_line(
             [
                 row.get("site_name"),
                 row.get("device_name") or row.get("device_id"),
                 row.get("role"),
                 _ip(row),
-                _utc_text(row.get("down_started_at")),
-                "" if row.get("status") == "open" else _utc_text(row.get("resolved_at")),
+                utc_text(row.get("down_started_at")),
+                "" if row.get("status") == "open" else utc_text(row.get("resolved_at")),
                 _minutes(duration_seconds(row, now)),
                 row.get("status"),
                 row.get("alert_level"),
@@ -206,8 +208,8 @@ def incident_lines(incidents, now: datetime):
 
 def devices_csv(summary: list[dict]) -> str:
     """The per-device CSV from ``read_device_summary`` (a row per device: small)."""
-    return _header(DEVICE_COLUMNS) + "".join(
-        _line(
+    return csv_header(DEVICE_COLUMNS) + "".join(
+        csv_line(
             [
                 row.get("site_name"),
                 row.get("device_name") or row.get("device_id"),
@@ -216,7 +218,7 @@ def devices_csv(summary: list[dict]) -> str:
                 row.get("times_down"),
                 _minutes(int(row.get("total_seconds") or 0)),
                 _minutes(int(row.get("longest_seconds") or 0)),
-                _utc_text(row.get("last_down_at")),
+                utc_text(row.get("last_down_at")),
                 "yes" if row.get("down_now") else "no",
             ]
         )
