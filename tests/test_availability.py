@@ -57,10 +57,10 @@ def write(fn):
         conn.close()
 
 
-def run(month="2026-10", basis="any_down", sites=None, from_date=None, to_date=None):
+def run(month="2026-10", basis="any_down", sites=None, from_date=None, to_date=None, with_incidents=False):
     conn = db.get_conn()
     try:
-        return availability.report(conn, month, basis, sites, from_date, to_date)
+        return availability.report(conn, month, basis, sites, from_date, to_date, with_incidents=with_incidents)
     finally:
         conn.close()
 
@@ -380,6 +380,80 @@ class TestReport:
         quiet = run("2026-09", sites=sites)["summary"]
         assert quiet["worst_tenant"] is None and quiet["no_downtime"] == 2
 
+    def test_outages_maintenance_and_incidents(self, pg_database, clock):
+        # #354: outages are the merged down time after maintenance; each incident
+        # says what maintenance covered and carries its cases.
+        def setup(conn):
+            incident(conn, "s1", "d1", t(2, 10), t(2, 12))  # 2 h
+            incident(conn, "s1", "d2", t(2, 11), t(2, 13))  # overlaps: one outage of 3 h
+            incident(conn, "s1", "d3", t(5, 8), t(5, 9))  # 1 h, half in a site window
+            window(conn, "s1", "", t(5, 8, 30), t(5, 10))
+            incident(conn, "s1", "d4", t(6, 8), t(6, 9))  # fully in a device window
+            window(conn, "s1", "d4", t(6, 7), t(6, 10))
+            row = conn.execute("SELECT id FROM alert_instances WHERE device_id = 'd2'").fetchone()
+            conn.execute(
+                "INSERT INTO alert_cases (alert_instance_id, case_number) VALUES (%s, 'INC-2'), (%s, 'INC-1')",
+                (row["id"], row["id"]),
+            )
+
+        write(setup)
+        sites = [
+            {
+                "id": "s1",
+                "name": "Oslo",
+                "tenants": ["Acme"],
+                "device_count": 4,
+                "ancestor_path": "EMEA › NOR",
+                "physical_address": "Storgata 1",
+                "country": "Norway",
+                "tier": "gold",
+            }
+        ]
+        data = run(sites=sites)
+        (site,) = data["sites"]
+        assert (site["path"], site["address"], site["country"], site["tier"], site["monitored_devices"]) == (
+            "EMEA › NOR",
+            "Storgata 1",
+            "Norway",
+            "gold",
+            4,
+        )
+        assert site["outages"] == 2 and site["downtime_seconds"] == 3 * 3600 + 1800
+        assert site["longest_outage_seconds"] == 3 * 3600 and site["mean_outage_seconds"] == (3 * 3600 + 1800) // 2
+        # When they began; the mean time to restore counts restored outages only.
+        assert (site["first_outage"], site["last_outage"]) == ("2026-10-02T10:00:00Z", "2026-10-05T08:00:00Z")
+        assert site["maintenance_seconds"] == 90 * 60, "the site-wide window only"
+        conn = db.get_conn()
+        try:
+            # Streamed: read while the connection is open, as the export does.
+            listed = list(availability.report(conn, "2026-10", "any_down", sites, with_incidents=True)["incidents"])
+        finally:
+            conn.close()
+        by_device = {r["device"]: r for r in listed}
+        assert by_device["d2"]["cases"] == "INC-1;INC-2", "as the site history's export"
+        assert (by_device["d3"]["maintenance"], by_device["d3"]["minutes_counted"]) == ("partly", 30)
+        assert (by_device["d4"]["maintenance"], by_device["d4"]["minutes_counted"]) == ("full", 0)
+        assert by_device["d1"]["maintenance"] == "none" and by_device["d1"]["site_path"] == "EMEA › NOR"
+        assert [r["device"] for r in listed] == ["d1", "d2", "d3", "d4"], "oldest first"
+
+    def test_still_down_has_no_restore_time(self, pg_database, clock):
+        # An outage still on at the report's end isn't restored: no mean time to restore (review on #354).
+        write(lambda conn: incident(conn, "s1", "d1", t(19)))
+        (site,) = run(sites=[{"id": "s1", "name": "Oslo", "device_count": 1}])["sites"]
+        assert (
+            site["outages"] == 1 and site["mean_outage_seconds"] is None and site["longest_outage_seconds"] == 2 * 86400
+        )
+        report = run(sites=[{"id": "s1", "name": "Oslo", "device_count": 1}])
+        line = "".join(availability.csv_lines(report, "sites")).splitlines()[1]
+        assert ",1,2880,,2026-10-19 00:00,2026-10-19 00:00," in line
+
+    def test_too_many_incidents_are_refused(self, pg_database, clock, monkeypatch):
+        write(lambda conn: (incident(conn, "s1", "d1", t(2), t(3)), incident(conn, "s1", "d2", t(4), t(5))))
+        monkeypatch.setattr(availability, "INCIDENT_EXPORT_LIMIT", 1)
+        with pytest.raises(availability.ReportError, match="More than 1 incidents"):
+            run(with_incidents=True)
+        assert "incidents" not in run(), "only the export reads them"
+
     def test_unknown_basis(self, pg_database, clock):
         with pytest.raises(availability.ReportError, match="basis"):
             run(basis="uptime")
@@ -402,14 +476,23 @@ class TestPages:
         page = client.get("/availability?month=2026-10").get_data(as_text=True)
         assert "=Oslo" in page and "90.000 %" in page and "(so far)" in page
         assert (
-            'href="/api/availability.csv?from=2026-10-01&amp;to=2026-10-31&amp;basis=any_down&amp;view=tenants"' in page
+            'href="/api/availability.csv?from=2026-10-01&amp;to=2026-10-31&amp;basis=any_down&amp;view=tenants&amp;header=1"'
+            in page
         )
         data = client.get("/api/availability?month=2026-10").get_json()
         assert data["sites"][0]["availability"] == 90.0
         csv_text = client.get("/api/availability.csv?month=2026-10").get_data(as_text=True)
         lines = csv_text.lstrip("﻿").splitlines()
-        assert lines[0] == "month,basis,site,tenants,availability_pct,downtime_min,incidents,period_from,period_to"
-        assert lines[1] == "2026-10,any_down,'=Oslo,Acme,90.0,2880,1,2026-10-01,2026-10-31", "formula-safe"
+        # The first columns as before; the site's details and outages after them (#354).
+        assert lines[0] == (
+            "month,basis,site,tenants,availability_pct,downtime_min,incidents,period_from,period_to,"
+            "site_path,address,country,tier,monitored_devices,outages,longest_outage_min,"
+            "mean_time_to_restore_min,first_outage_utc,last_outage_utc,maintenance_min,site_id"
+        )
+        assert lines[1] == (
+            "2026-10,any_down,'=Oslo,Acme,90.0,2880,1,2026-10-01,2026-10-31,"
+            ",,,,0,1,2880,2880,2026-10-02 00:00,2026-10-02 00:00,0,s1"
+        ), "formula-safe"
         tenants = client.get("/api/availability.csv?view=tenants&month=2026-10").get_data(as_text=True)
         assert "2026-10,any_down,Acme,1,90.0,2880,2026-10-01,2026-10-31" in tenants
 
@@ -420,7 +503,8 @@ class TestPages:
         assert "50.000 %" in page and "(so far)" not in page
         assert 'name="from" type="date" value="2026-10-03"' in page and 'value="2026-10-04"' in page
         assert (
-            'href="/api/availability.csv?from=2026-10-03&amp;to=2026-10-04&amp;basis=any_down&amp;view=sites"' in page
+            'href="/api/availability.csv?from=2026-10-03&amp;to=2026-10-04&amp;basis=any_down&amp;view=sites&amp;header=1"'
+            in page
         )
         assert 'data-today="2026-10-21"' in page
         data = client.get(f"/api/availability?{query}").get_json()
@@ -429,9 +513,10 @@ class TestPages:
         assert 'filename="availability-sites-2026-10-03_2026-10-04.csv"' in resp.headers["Content-Disposition"]
         assert (
             resp.get_data(as_text=True).lstrip("﻿").splitlines()[1]
-            == ",any_down,'=Oslo,Acme,50.0,1440,1,2026-10-03,2026-10-04"
+            == ",any_down,'=Oslo,Acme,50.0,1440,1,2026-10-03,2026-10-04,,,,,0,1,1440,1440,2026-10-03 00:00,2026-10-03 00:00,0,s1"
         )
         one_day = client.get("/api/availability.csv?from=2026-10-03&to=2026-10-03")
+        one_day.get_data()  # streamed (#354): read it, as a browser does
         assert 'filename="availability-sites-2026-10-03.csv"' in one_day.headers["Content-Disposition"]
         # A month, asked for either way, is that month: its CSV keeps the month column.
         month = client.get("/availability?month=2026-10").get_data(as_text=True)
@@ -440,6 +525,25 @@ class TestPages:
         resp = client.get("/api/availability.csv?from=2026-10-01&to=2026-10-31")
         assert 'filename="availability-sites-2026-10.csv"' in resp.headers["Content-Disposition"]
         assert resp.get_data(as_text=True).lstrip("\ufeff").splitlines()[1].startswith("2026-10,any_down,")
+
+    def test_the_header_and_every_incident(self, client):
+        # #354: a header above the table on request, and every outage on its own.
+        sites = client.get("/api/availability.csv?month=2026-10&header=1").get_data(as_text=True)
+        lines = sites.lstrip("\ufeff").splitlines()
+        blank = lines.index("")
+        header = dict(line.split(",", 1) for line in lines[:blank])
+        assert header["report"] == "Nautobot Maps availability"
+        assert header["period"] == '"2026-10-01 to 2026-10-31 (UTC), so far"'
+        assert header["basis"] == "any_down" and header["target_pct"] == "99.9"
+        assert header["sites"] == "1" and header["availability_pct"] == "90.0" and header["sites_below_target"] == "1"
+        assert header["generated_at_utc"] == "2026-10-21 00:00"
+        assert lines[blank + 1].startswith("month,basis,site,")
+        resp = client.get("/api/availability.csv?month=2026-10&view=incidents")
+        assert 'filename="availability-incidents-2026-10.csv"' in resp.headers["Content-Disposition"]
+        rows = resp.get_data(as_text=True).lstrip("\ufeff").splitlines()
+        assert rows[0] == ",".join(availability.INCIDENT_COLUMNS)
+        assert rows[1] == "'=Oslo,,Acme,d1,2026-10-02 00:00,2026-10-04 00:00,2880,2880,none,,,s1,d1"
+        assert client.get("/api/availability.csv?view=devices").status_code == 400
 
     def test_the_page_answers_first(self, client, monkeypatch):
         # #342: four cards, bars, the tenant (i), and data for sorting; escaped.

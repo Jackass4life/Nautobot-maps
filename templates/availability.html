@@ -72,8 +72,9 @@
     <p class="availability-note">
       {{ report.period.start[:10] }} to {{ report.period.end[:16] | replace("T", " ") }} UTC{% if not report.period.complete %} (so far){% endif %}
       · maintenance is not downtime ·
-      CSV: <a href="/api/availability.csv?{{ csv_query }}&amp;view=sites">sites</a>,
-      <a href="/api/availability.csv?{{ csv_query }}&amp;view=tenants">tenants</a>
+      CSV: <a href="/api/availability.csv?{{ csv_query }}&amp;view=sites&amp;header=1">sites</a>,
+      <a href="/api/availability.csv?{{ csv_query }}&amp;view=tenants&amp;header=1">tenants</a>,
+      <a href="/api/availability.csv?{{ csv_query }}&amp;view=incidents&amp;header=1" title="Every outage in the period, to check the figures">every incident</a>
     </p>
 
     <!-- The answer first (#342): four cards, then the worst tenants and sites. -->

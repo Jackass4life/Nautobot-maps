@@ -13,12 +13,10 @@ early counts until ``ended_at``, a cancelled one not at all.  A tenant's
 availability is the average of its sites' (each site counts the same).
 """
 
-import csv
-import io
 import re
 from datetime import UTC, datetime, timedelta
 
-from nautobot_maps import alerts, inventory, settings, timeutil
+from nautobot_maps import alerts, db, export, inventory, settings, status, timeutil
 
 BASES = ("any_down", "critical")
 MONTH_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
@@ -202,21 +200,32 @@ def read_maintenance(conn, start: datetime, end: datetime) -> tuple[dict, dict]:
     return sites, devices
 
 
+# Incidents down at any point in a period: the same expression as idx_alert_instances_period.
+INCIDENTS_IN_PERIOD = "COALESCE(i.resolved_at, 'infinity'::timestamptz) > %s AND i.down_started_at < %s"
+
+
+def _down_span(row, at: datetime) -> Interval | None:
+    """An incident's down time, until *at* while it is open; None when it has none.
+    The one rule for the report's figures and its incidents export (#354)."""
+    down = _dt(row["down_started_at"])
+    up = _dt(row["resolved_at"]) or at
+    return None if down is None or up <= down else (down, up)
+
+
 def read_incidents(conn, start: datetime, end: datetime, at: datetime) -> dict:
     """``{site_id: {"name", "incidents", "devices": {device_id: [interval]}}}`` of incidents
     down at any point in the period; an open one is down until *at*."""
     rows = conn.execute(
-        "SELECT site_id, site_name, device_id, down_started_at, resolved_at FROM alert_instances "
-        # The same expression as idx_alert_instances_period.
-        "WHERE COALESCE(resolved_at, 'infinity'::timestamptz) > %s AND down_started_at < %s",
+        "SELECT i.site_id, i.site_name, i.device_id, i.down_started_at, i.resolved_at "
+        f"FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD}",
         (start, end),
     ).fetchall()
     sites: dict[str, dict] = {}
     for row in rows:
-        down = _dt(row["down_started_at"])
-        up = _dt(row["resolved_at"]) or at
-        if down is None or up <= down:
+        span = _down_span(row, at)
+        if span is None:
             continue
+        down, up = span
         site = sites.setdefault(row["site_id"], {"name": row["site_name"] or "", "incidents": 0, "devices": {}})
         site["incidents"] += 1
         site["devices"].setdefault(row["device_id"] or "", []).append((down, up))
@@ -298,9 +307,12 @@ def report(
     sites: list | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    with_incidents: bool = False,
 ) -> dict:
     """The availability of *month*, or of the days *from_date* to *to_date*
-    (#341); default: the current month.
+    (#341); default: the current month.  *with_incidents* (#354): also every
+    device incident of the period, worked out with the same windows and time,
+    so the incidents export adds up to the figures.
 
     *sites*: the board's rows (``id``, ``name``, ``tenants``, ``device_count``),
     so a monitored site with no downtime is listed at 100 %; sites only in
@@ -323,50 +335,39 @@ def report(
     site_windows, device_windows = read_maintenance(conn, start, end)
 
     rows: dict[str, dict] = {}
-    # Every board site's name and tenants, also for one listed only because of its history.
+    # Every board site's name, tenants and details, also for one listed only because of its history.
     known: dict[str, dict] = {}
     for site in sites or []:
         if not site.get("id"):
             continue
-        known[site["id"]] = {
-            "site_id": site["id"],
-            "name": site.get("name") or "",
-            "tenants": list(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])),
-            "downtime_seconds": 0,
-            "incidents": 0,
-        }
+        known[site["id"]] = _site_row(site["id"], site.get("name") or "", site)
         # A site without monitored devices has no availability to speak of
         # (it is listed if its history has something in the month).
         if site.get("device_count", 1) or site.get("maintenance_device_count"):
             rows[site["id"]] = known[site["id"]]
 
     # The incidents count, and list a site only in the history, whatever the basis.
-    incidents = read_incidents(conn, start, end, at)
-    for site_id, data in incidents.items():
-        row = rows.setdefault(
-            site_id,
-            known.get(site_id)
-            or {"site_id": site_id, "name": data["name"], "tenants": [], "downtime_seconds": 0, "incidents": 0},
-        )
+    site_incidents = read_incidents(conn, start, end, at)
+    for site_id, data in site_incidents.items():
+        row = rows.setdefault(site_id, known.get(site_id) or _site_row(site_id, data["name"]))
         row["incidents"] = data["incidents"]
     if basis == "any_down":
-        for site_id, data in incidents.items():
+        for site_id, data in site_incidents.items():
             down = []
             for device_id, intervals in data["devices"].items():
                 down += subtract(intervals, device_windows.get(device_id, []))
             down = subtract(clip(down, start, end), site_windows.get(site_id, []))
-            rows[site_id]["downtime_seconds"] = seconds(down)
+            _set_downtime(rows[site_id], down, end)
     else:
         for site_id, data in read_critical(conn, start, end).items():
             down = subtract(clip(data["intervals"], start, end), site_windows.get(site_id, []))
-            row = rows.setdefault(
-                site_id,
-                {"site_id": site_id, "name": data["name"], "tenants": [], "downtime_seconds": 0, "incidents": 0},
-            )
-            row["downtime_seconds"] = seconds(down)
+            row = rows.setdefault(site_id, known.get(site_id) or _site_row(site_id, data["name"]))
+            _set_downtime(row, down, end)
 
     site_rows = []
-    for row in rows.values():
+    for site_id, row in rows.items():
+        # Time in a whole-site window: not downtime, shown on its own (#354).
+        row["maintenance_seconds"] = seconds(clip(site_windows.get(site_id, []), start, end))
         row["availability"] = round(100 * (1 - row["downtime_seconds"] / period), 3) if period else 100.0
         site_rows.append(row)
     site_rows.sort(key=lambda r: (r["availability"], (r["name"] or "").lower()))
@@ -391,7 +392,9 @@ def report(
     descriptions: dict[str, str] = {}
     for site in sites or []:
         descriptions.update(site.get("tenant_descriptions") or {})
-    return {
+    if with_incidents and _incidents_exceed(conn, start, end, INCIDENT_EXPORT_LIMIT):
+        raise ReportError(f"More than {INCIDENT_EXPORT_LIMIT:,} incidents: choose a shorter period")
+    result = {
         "month": asked["month"],
         "basis": basis,
         "period": {
@@ -409,6 +412,50 @@ def report(
         "tenants": tenant_rows,
         "tenant_descriptions": {name: descriptions[name] for name in tenants if descriptions.get(name)},
     }
+    if with_incidents:
+        # Streamed when written (*conn* must stay open until then), with the report's
+        # own time, windows and sites, so the export adds up to the figures.
+        result["incidents"] = _incident_stream(conn, start, end, at, site_windows, device_windows, rows)
+    return result
+
+
+def _site_row(site_id: str, name: str = "", site: dict | None = None) -> dict:
+    """A site's report row: who and where it is (#354: the board's details), and no downtime yet."""
+    site = site or {}
+    return {
+        "site_id": site_id,
+        "name": name,
+        "tenants": status.site_tenants(site),
+        "path": status.site_path(site),
+        "address": site.get("physical_address") or site.get("facility") or "",
+        "country": site.get("country") or "",
+        "tier": site.get("tier") or "",
+        "monitored_devices": site.get("device_count") or 0,
+        "downtime_seconds": 0,
+        "incidents": 0,
+        "outages": 0,
+        "longest_outage_seconds": 0,
+        "mean_outage_seconds": 0,
+        "first_outage": None,
+        "last_outage": None,
+    }
+
+
+def _set_downtime(row: dict, down: list[Interval], end: datetime) -> None:
+    """*row*'s downtime and its outages (#354): the down time after maintenance,
+    merged, so devices down together are one outage.  First and last are when
+    they began.  The mean time to restore counts only outages restored in the
+    period (*end*: its end, or now): one still down has no restore time yet."""
+    outages = union(down)
+    row["downtime_seconds"] = seconds(outages)
+    row["outages"] = len(outages)
+    if outages:
+        lengths = [int((stop - begin).total_seconds()) for begin, stop in outages]
+        restored = [length for (_, stop), length in zip(outages, lengths, strict=True) if stop < end]
+        row["longest_outage_seconds"] = max(lengths)
+        row["mean_outage_seconds"] = round(sum(restored) / len(restored)) if restored else None
+        row["first_outage"] = db.serialize_value(outages[0][0])
+        row["last_outage"] = db.serialize_value(outages[-1][0])
 
 
 def summarise(site_rows: list[dict], tenant_rows: list[dict]) -> dict:
@@ -440,39 +487,190 @@ def format_downtime(seconds: int) -> str:
     return f"{hours}h {minutes}m" if hours else f"{minutes}m"
 
 
-def _safe(value) -> str:
-    text = "" if value is None else str(value)
-    return f"'{text}" if text.startswith(("=", "+", "-", "@", "\t", "\r")) else text
+# The most incidents one export holds (#354); past that it asks for a shorter period.
+INCIDENT_EXPORT_LIMIT = 200_000
 
 
-def to_csv(data: dict, view: str) -> str:
-    out = io.StringIO()
-    out.write("\ufeff")  # Excel reads UTF-8
-    writer = csv.writer(out, lineterminator="\r\n")
-    if view == "tenants":
-        columns = ["tenant", "sites", "availability_pct", "downtime_min"]
-        rows = [
-            (r["tenant"], r["sites"], r["availability"], round(r["downtime_seconds"] / 60)) for r in data["tenants"]
-        ]
-    else:
-        columns = ["site", "tenants", "availability_pct", "downtime_min", "incidents"]
-        rows = [
-            (
-                r["name"] or r["site_id"],
-                "; ".join(r["tenants"]),
-                r["availability"],
-                round(r["downtime_seconds"] / 60),
-                r["incidents"],
-            )
-            for r in data["sites"]
-        ]
-    # period_from and period_to (#341) last, so existing spreadsheets keep their columns.
-    writer.writerow(["month", "basis", *columns, "period_from", "period_to"])
-    before = (data["month"], data["basis"])
+def _incidents_exceed(conn, start: datetime, end: datetime, limit: int) -> bool:
+    """Whether the period has more than *limit* incidents: one index probe, before streaming."""
+    row = conn.execute(
+        f"SELECT 1 FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD} OFFSET %s LIMIT 1", (start, end, limit)
+    ).fetchone()
+    return row is not None
+
+
+def _incident_stream(conn, start, end, at, site_windows, device_windows, site_rows):
+    """Every device incident in the period (#354), oldest first, a row (dict by
+    INCIDENT_COLUMNS) at a time from a server-side cursor: when it was down
+    and up, the minutes in the period and those counted after maintenance,
+    the cases and the likely cause.  Per site and per device the work is done
+    once (*site_rows*: the report's, with name, path and tenants)."""
+    sites: dict[str, tuple] = {}
+    holes: dict[tuple, list] = {}
+    with conn.transaction(), conn.cursor(name="availability_incidents_export") as cursor:
+        cursor.itersize = 2000
+        cursor.execute(
+            "SELECT i.site_id, i.site_name, i.device_id, i.device_name, i.down_started_at, i.resolved_at, "
+            f"i.probable_cause, {export.CASES_SQL} AS cases "
+            f"FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD} ORDER BY i.down_started_at, i.id",
+            (start, end),
+        )
+        for row in cursor:
+            span = _down_span(row, at)
+            if span is None:
+                continue
+            site_id, device_id = row["site_id"], row["device_id"] or ""
+            if site_id not in sites:
+                site = site_rows.get(site_id) or {}
+                sites[site_id] = (
+                    site.get("name") or row["site_name"] or site_id,
+                    site.get("path", ""),
+                    "; ".join(site.get("tenants", [])),
+                )
+            key = (site_id, device_id)
+            if key not in holes:
+                holes[key] = union(device_windows.get(device_id, []) + site_windows.get(site_id, []))
+            in_period = clip([span], start, end)
+            total, kept = seconds(in_period), seconds(subtract(in_period, holes[key]))
+            name, path, tenants = sites[site_id]
+            yield {
+                "site": name,
+                "site_path": path,
+                "tenants": tenants,
+                "device": row["device_name"] or device_id,
+                "down_at_utc": export.utc_text(row["down_started_at"]),
+                "up_at_utc": export.utc_text(row["resolved_at"]),
+                "minutes_in_period": export.minutes(total),
+                "minutes_counted": export.minutes(kept),
+                "maintenance": "none" if kept == total else ("full" if not kept else "partly"),
+                "cases": row["cases"] or "",
+                "probable_cause": row["probable_cause"] or "",
+                "site_id": site_id,
+                "device_id": device_id,
+            }
+
+
+# The columns of each export view; period_from and period_to (#341) and the
+# details (#354) come after the first ones, so existing spreadsheets keep theirs.
+SITE_DETAIL_COLUMNS = (
+    "site_path",
+    "address",
+    "country",
+    "tier",
+    "monitored_devices",
+    "outages",
+    "longest_outage_min",
+    "mean_time_to_restore_min",
+    "first_outage_utc",
+    "last_outage_utc",
+    "maintenance_min",
+    "site_id",
+)
+INCIDENT_COLUMNS = (
+    "site",
+    "site_path",
+    "tenants",
+    "device",
+    "down_at_utc",
+    "up_at_utc",
+    "minutes_in_period",
+    "minutes_counted",
+    "maintenance",
+    "cases",
+    "probable_cause",
+    "site_id",
+    "device_id",
+)
+
+
+def header_lines(data: dict, generated_by: str = "") -> list[tuple]:
+    """The report's header (#354): what it covers and its totals, as name, value
+    rows, then a blank line before the table."""
+    summary, period = data["summary"], data["period"]
+    worst = summary.get("worst_tenant") or {}
+    return [
+        ("report", "Nautobot Maps availability"),
+        ("period", f"{period['from']} to {period['to']} (UTC){'' if period['complete'] else ', so far'}"),
+        ("basis", data["basis"]),
+        ("target_pct", summary["target"]),
+        ("generated_at_utc", export.utc_text(now())),
+        ("generated_by", generated_by),
+        ("sites", summary["sites"]),
+        ("availability_pct", summary["availability"]),
+        ("downtime_min", export.minutes(summary["downtime_seconds"])),
+        ("incidents", summary["incidents"]),
+        ("sites_below_target", summary["below_target"]),
+        ("sites_with_no_downtime", summary["no_downtime"]),
+        ("worst_tenant", f"{worst['tenant']} ({worst['availability']} %)" if worst else ""),
+        ("maintenance", "not counted as downtime"),
+        (),
+    ]
+
+
+def _view(data: dict, view: str) -> tuple[tuple, object]:
+    """``(columns, rows)`` of one export view: ``sites``, ``tenants`` or
+    ``incidents`` (from ``report(with_incidents=True)``, streamed)."""
+    if view == "incidents":
+        return INCIDENT_COLUMNS, (tuple(r[c] for c in INCIDENT_COLUMNS) for r in data["incidents"])
+    before = (data["month"] or "", data["basis"])
     after = (data["period"]["from"], data["period"]["to"])
+    if view == "tenants":
+        columns = ("month", "basis", "tenant", "sites", "availability_pct", "downtime_min", "period_from", "period_to")
+        rows = (
+            (*before, r["tenant"], r["sites"], r["availability"], export.minutes(r["downtime_seconds"]), *after)
+            for r in data["tenants"]
+        )
+        return columns, rows
+    columns = (
+        "month",
+        "basis",
+        "site",
+        "tenants",
+        "availability_pct",
+        "downtime_min",
+        "incidents",
+        "period_from",
+        "period_to",
+        *SITE_DETAIL_COLUMNS,
+    )
+    rows = (
+        (
+            *before,
+            r["name"] or r["site_id"],
+            "; ".join(r["tenants"]),
+            r["availability"],
+            export.minutes(r["downtime_seconds"]),
+            r["incidents"],
+            *after,
+            r["path"],
+            r["address"],
+            r["country"],
+            r["tier"],
+            r["monitored_devices"],
+            r["outages"],
+            export.minutes(r["longest_outage_seconds"]),
+            # Empty when no outage was restored in the period: none has a restore time.
+            "" if r["mean_outage_seconds"] is None else export.minutes(r["mean_outage_seconds"]),
+            export.utc_text(r["first_outage"]),
+            export.utc_text(r["last_outage"]),
+            export.minutes(r["maintenance_seconds"]),
+            r["site_id"],
+        )
+        for r in data["sites"]
+    )
+    return columns, rows
+
+
+def csv_lines(data: dict, view: str, header: bool = False, generated_by: str = ""):
+    """The report as CSV lines, to stream (formula-safe): one view (``_view``),
+    with the report's header first when *header* (#354)."""
+    columns, rows = _view(data, view)
+    lines = [*(header_lines(data, generated_by) if header else []), columns]
+    yield export.csv_header(lines[0])
+    for line in lines[1:]:
+        yield export.csv_line(line)
     for row in rows:
-        writer.writerow([_safe(v) for v in (*before, *row, *after)])
-    return out.getvalue()
+        yield export.csv_line(row)
 
 
 def board_sites() -> list[dict]:
