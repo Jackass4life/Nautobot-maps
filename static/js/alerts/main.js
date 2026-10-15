@@ -164,7 +164,7 @@ document.addEventListener(
   "click",
   (event) => {
     const menu = event.target.closest("details.row-menu");
-    if (menu && event.target.closest(".row-menu-items button")) {
+    if (menu && event.target.closest(".row-menu-items button, .row-menu-items a")) {
       menu.open = false;
       menu.querySelector("summary")?.focus();
       return;

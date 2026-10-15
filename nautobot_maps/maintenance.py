@@ -8,10 +8,12 @@ resolves) and nothing is notified.  Ending a window early sets
 ``ended_at``; a window ended before it started is a cancelled one.
 """
 
+import csv
+import io
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from nautobot_maps import db, status, timeutil
+from nautobot_maps import db, export, status, timeutil
 
 MAX_DURATION = timedelta(days=14)
 MAX_REASON_LENGTH = 200
@@ -22,6 +24,10 @@ MAX_SITES = 200
 MAX_RECENT_DAYS = 90
 # The page's list: the most it reads; open windows (active, planned) come first.
 LIST_LIMIT = 2000
+# The history (#353): the most windows the page gets (then "truncated"), and
+# the most an export holds (past that it asks for a shorter period).
+HISTORY_LIMIT = 5000
+HISTORY_EXPORT_LIMIT = 100_000
 # Windows ended in one request (#343).
 MAX_END_IDS = 500
 # What a window is, as read and returned (#343: batch_id, the request it was planned in).
@@ -115,13 +121,102 @@ def list_windows(
     elif not include_past:
         conditions.append("ended_at IS NULL AND ends_at > %s")
         params.append(at)
+    order = "(ended_at IS NOT NULL OR ends_at <= %s), starts_at, id"
+    return _read(conn, conditions, [*params, at], order, limit, at)
+
+
+def _read(conn, conditions: list[str], params: list, order: str, limit: int, at: datetime) -> list[dict]:
+    """The windows *conditions* select, in *order*, at most *limit*, each with its state at *at*."""
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     rows = conn.execute(
-        f"SELECT {COLUMNS} FROM maintenance_windows {where} "
-        "ORDER BY (ended_at IS NOT NULL OR ends_at <= %s), starts_at, id LIMIT %s",
-        (*params, at, limit),
+        f"SELECT {COLUMNS} FROM maintenance_windows {where} ORDER BY {order} LIMIT %s",
+        (*params, limit),
     ).fetchall()
     return [{**window, "state": state(window, at)} for window in map(db.row_to_dict, rows)]
+
+
+def history(
+    conn,
+    start: datetime,
+    end: datetime,
+    site_ids: list[str] | None = None,
+    limit: int = HISTORY_LIMIT,
+    at: datetime | None = None,
+) -> list[dict]:
+    """Every window that ran in *start*–*end*, or was planned for it and
+    cancelled (#353), newest first: the history view, one site's (*site_ids*:
+    those sites only) and the export.  A window ended early, before *start*,
+    didn't run in it.  The (ends_at, starts_at) and ended_at indexes serve it."""
+    conditions = [
+        "starts_at < %s",
+        "ends_at > %s",
+        # Still on, ended in the period, or cancelled (ended before it began).
+        "(ended_at IS NULL OR ended_at > %s OR ended_at < starts_at)",
+    ]
+    params: list = [end, start, start]
+    if site_ids is not None:
+        conditions.append("site_id = ANY(%s)")
+        params.append(site_ids)
+    return _read(conn, conditions, params, "starts_at DESC, id DESC", limit, at or now())
+
+
+HISTORY_COLUMNS = (
+    "site",
+    "site_path",
+    "tenants",
+    "device",
+    "state",
+    "planned_start_utc",
+    "planned_end_utc",
+    "ended_at_utc",
+    "minutes",
+    "reason",
+    "planned_by",
+    "planned_at_utc",
+    "ended_by",
+    "batch",
+    "site_id",
+    "device_id",
+)
+
+
+def history_minutes(window: dict, at: datetime) -> int:
+    """How long it ran: from its start to when it ended (early, or as planned),
+    up to *at* while it runs; 0 when cancelled or not started."""
+    starts = timeutil.parse_iso_datetime(window["starts_at"])
+    stop = min(timeutil.parse_iso_datetime(window.get("ended_at") or window["ends_at"]), at)
+    return max(0, round((stop - starts).total_seconds() / 60))
+
+
+def history_csv(windows: list[dict]) -> str:
+    """The history (from ``describe``) as CSV (#353): one row per window,
+    times in UTC, formula-safe like the other exports."""
+    at = now()
+    out = io.StringIO()
+    out.write("\ufeff")  # Excel reads UTF-8
+    writer = csv.writer(out, lineterminator="\r\n")
+    writer.writerow(HISTORY_COLUMNS)
+    for w in windows:
+        row = (
+            w.get("site_name") or w["site_id"],
+            w.get("site_path", ""),
+            "; ".join(w.get("tenants") or []),
+            w.get("device_name") or w.get("device_id") or "",
+            w["state"],
+            export.utc_text(w["starts_at"]),
+            export.utc_text(w["ends_at"]),
+            export.utc_text(w.get("ended_at")),
+            history_minutes(w, at),
+            w.get("reason", ""),
+            w.get("created_by", ""),
+            export.utc_text(w.get("created_at")),
+            w.get("ended_by", ""),
+            w.get("batch_id", ""),
+            w["site_id"],
+            w.get("device_id", ""),
+        )
+        writer.writerow([export.safe_cell(value) for value in row])
+    return out.getvalue()
 
 
 def state(window: dict, at: datetime) -> str:

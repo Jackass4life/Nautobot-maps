@@ -143,7 +143,8 @@ def _as_datetime(value) -> datetime | None:
     return parsed
 
 
-def _utc_text(value) -> str:
+def utc_text(value) -> str:
+    """ "2026-10-14 21:05" in UTC, as the exports write times; "" without one."""
     parsed = _as_datetime(value)
     return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M") if parsed else ""
 
@@ -191,8 +192,8 @@ def incident_lines(incidents, now: datetime):
                 row.get("device_name") or row.get("device_id"),
                 row.get("role"),
                 _ip(row),
-                _utc_text(row.get("down_started_at")),
-                "" if row.get("status") == "open" else _utc_text(row.get("resolved_at")),
+                utc_text(row.get("down_started_at")),
+                "" if row.get("status") == "open" else utc_text(row.get("resolved_at")),
                 _minutes(duration_seconds(row, now)),
                 row.get("status"),
                 row.get("alert_level"),
@@ -216,7 +217,7 @@ def devices_csv(summary: list[dict]) -> str:
                 row.get("times_down"),
                 _minutes(int(row.get("total_seconds") or 0)),
                 _minutes(int(row.get("longest_seconds") or 0)),
-                _utc_text(row.get("last_down_at")),
+                utc_text(row.get("last_down_at")),
                 "yes" if row.get("down_now") else "no",
             ]
         )

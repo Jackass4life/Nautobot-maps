@@ -25,6 +25,32 @@
       </nav>
     </header>
 
+    <!-- Now and planned (#343), or the history of any period (#353). -->
+    <nav class="maint-tabs" aria-label="Maintenance views">
+      <a class="maint-tab{% if view != 'history' %} active{% endif %}" href="/maintenance"{% if view != 'history' %} aria-current="page"{% endif %}>Now &amp; planned</a>
+      <a class="maint-tab{% if view == 'history' %} active{% endif %}" href="/maintenance?view=history"{% if view == 'history' %} aria-current="page"{% endif %}>History</a>
+    </nav>
+
+    <!-- The history's period, site and export (#353). -->
+    <section id="maint-history-bar" class="toolbar maint-toolbar maint-history-bar" hidden>
+      <div class="period-field">
+        <span class="period-label" id="period-label">Period</span>
+        <button id="period-button" class="period-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="period-popover" aria-describedby="period-label" hidden></button>
+        <div id="period-popover" class="period-popover" role="dialog" aria-label="Choose a period" hidden>
+          <div class="period-presets" role="group" aria-label="Quick choices">
+            <button type="button" class="period-preset" data-preset="this-month">This month</button>
+            <button type="button" class="period-preset" data-preset="last-month">Last month</button>
+            <button type="button" class="period-preset" data-preset="last-7">Last 7 days</button>
+            <button type="button" class="period-preset" data-preset="last-30">Last 30 days</button>
+          </div>
+          <div class="calendar period-calendar"></div>
+          <p class="period-hint">Click the first day, then the last.</p>
+        </div>
+      </div>
+      <span id="maint-site-filter" class="maint-chip" hidden></span>
+      <a id="maint-history-csv" class="secondary-filter-btn maint-csv" href="/api/maintenance/history.csv" download>Download CSV</a>
+    </section>
+
     <!-- Current and planned work, as batches: a change planned for 30 sites is one line (#343). -->
     <section class="toolbar maint-toolbar">
       <input id="maint-search" class="avail-search" type="search" placeholder="Search site, device, reason or person" aria-label="Search maintenance" autocomplete="off" />

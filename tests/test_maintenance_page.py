@@ -138,3 +138,37 @@ check(planRequest({ siteIds: sites.slice(0, 201).map((s) => s.id), scope: "site"
 check(planRequest({ siteIds: ids, scope: "site", deviceIds: [], reason: "x", ...when }, 30).error === "At most 30 sites at once.", "the page's limit");
 """
     )
+
+
+def test_history_list_and_links():
+    run_js(
+        """
+import { maintenanceHistoryLink } from "@js/alerts/rows.js";
+import { buildMaintenanceHistoryLink } from "@js/map/panel.js";
+import { batchesOf, historyHtml } from "@js/maintenance/list.js";
+"""
+        + WINDOWS
+        + """
+// Read only, newest first: no End or Cancel, every state (#353).
+const now = new Date("2026-10-14T13:00:00Z");
+const html = historyHtml(batchesOf(windows), { limit: 25, expanded: new Set(), descriptions: {}, now, title: "History · 1 – 14 Oct 2026" });
+check(!html.includes("maint-end") && html.includes(">Show 30</button>"), "read only");
+// When it ran, not just when it ended.
+check(html.includes("since ") && html.includes("planned "), "spans");
+const early = w(99, "x", "ended", { batch_id: "e", starts_at: "2026-10-14T10:00:00Z", ends_at: "2026-10-14T12:00:00Z", ended_at: "2026-10-14T11:00:00Z" });
+const spanHtml = historyHtml(batchesOf([early]), { limit: 25, expanded: new Set(), descriptions: {}, now, title: "x" });
+check(spanHtml.includes("<strong>X</strong> · ") && spanHtml.includes(" – ") && spanHtml.includes(" · ended early</div>"), spanHtml);
+check(historyHtml([], { limit: 25, expanded: new Set(), descriptions: {}, now, title: "x" }).includes("No maintenance in this period."), "empty");
+// Many: the first 25.
+const many = batchesOf(Array.from({ length: 60 }, (_, i) => w(2000 + i, `h${i}`, "ended",
+  { batch_id: `h${i}`, starts_at: `2026-10-${String(1 + (i % 13)).padStart(2, "0")}T10:00:00Z`, ended_at: "2026-10-14T00:00:00Z" })));
+const limited = historyHtml(many, { limit: 25, expanded: new Set(), descriptions: {}, now, title: "x" });
+check((limited.match(/class="maint-batch"/g) || []).length === 25 && limited.includes("35 more <button"), "limited");
+
+// A site's history from the board's ⋯ menu and the map's panel, escaped.
+const link = maintenanceHistoryLink({ id: "loc a&b", name: "Oslo <HQ>" });
+check(link.includes('href="/maintenance?view=history&amp;site_id=loc+a%26b"') && link.includes("for Oslo &lt;HQ&gt;"), link);
+check(maintenanceHistoryLink({}) === "", "no id");
+check(buildMaintenanceHistoryLink({ id: "loc-1" }).includes('href="/maintenance?view=history&amp;site_id=loc-1"'), "map");
+"""
+    )

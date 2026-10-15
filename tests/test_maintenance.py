@@ -1,5 +1,6 @@
 """Maintenance windows (#283): planned work is not an alarm."""
 
+import csv
 import json
 
 import pytest
@@ -485,6 +486,89 @@ class TestBatches:
         assert described["tenant_descriptions"] == {"Acme": "Gold"}
 
 
+@pytest.mark.usefixtures("pg_database")
+class TestHistory:
+    """Every window that overlapped a period, newest first, and its export (#353)."""
+
+    @pytest.fixture(autouse=True)
+    def _clock(self, clock):
+        self.clock = clock
+
+    def _create(self, **body):
+        conn = db.get_conn()
+        try:
+            return maintenance.create(conn, {"reason": "Work", **body}, "olga")
+        finally:
+            conn.close()
+
+    def _history(self, start, end, site_id=""):
+        conn = db.get_conn()
+        try:
+            return maintenance.history(
+                conn,
+                timeutil.parse_iso_datetime(start),
+                timeutil.parse_iso_datetime(end),
+                [site_id] if site_id else None,
+            )
+        finally:
+            conn.close()
+
+    def test_overlap_state_and_minutes(self):
+        # Now is 2026-10-09 12:00.
+        ran = self._create(site_ids=["a", "b"], starts_at="2026-10-09T12:00:00Z", duration_minutes=60)
+        cancelled = self._create(site_id="c", starts_at="2026-10-09T20:00:00Z", duration_minutes=60)
+        self.clock["now"] = "2026-10-09T12:30:00Z"
+        conn = db.get_conn()
+        try:
+            maintenance.end_many(conn, [ran[0]["id"], cancelled[0]["id"]], "ivan")  # a ends early, c is cancelled
+        finally:
+            conn.close()
+        self.clock["now"] = "2026-10-10T12:00:00Z"
+        later = self._create(site_id="a", device_ids=["d1"], starts_at="2026-10-12T08:00:00Z", duration_minutes=30)
+
+        day = self._history("2026-10-09T00:00:00Z", "2026-10-10T00:00:00Z")
+        assert [(w["site_id"], w["state"]) for w in day] == [("c", "cancelled"), ("b", "ended"), ("a", "ended")]
+        at = maintenance.now()
+        assert {w["site_id"]: maintenance.history_minutes(w, at) for w in day} == {"a": 30, "b": 60, "c": 0}
+        # Ended early before a period: it didn't run in it; cancelled: shown where it was planned
+        # (review on #353).
+        late = self._history("2026-10-09T12:45:00Z", "2026-10-09T23:00:00Z")
+        assert [(w["site_id"], w["state"]) for w in late] == [("c", "cancelled"), ("b", "ended")]
+        # A window outside the period is not in it; one site's history.
+        assert later[0]["id"] not in {w["id"] for w in day}
+        assert [w["id"] for w in self._history("2026-10-01T00:00:00Z", "2026-10-20T00:00:00Z", "a")] == [
+            later[0]["id"],
+            ran[0]["id"],
+        ]
+
+    def test_export(self):
+        self._create(site_id="=cmd", device_ids=["d1"], reason="=HYPERLINK()", duration_minutes=90)
+        conn = db.get_conn()
+        try:
+            windows = maintenance.history(
+                conn,
+                timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
+                timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
+                at=timeutil.parse_iso_datetime(NOW),
+            )
+            described = maintenance.describe(conn, windows, [{"id": "=cmd", "name": "Oslo", "tenants": ["Acme"]}])
+        finally:
+            conn.close()
+        lines = maintenance.history_csv(described["windows"]).lstrip("\ufeff").splitlines()
+        assert lines[0].split(",") == list(maintenance.HISTORY_COLUMNS)
+        row = next(csv.reader(lines[1:]))
+        values = dict(zip(maintenance.HISTORY_COLUMNS, row, strict=True))
+        assert values["site"] == "Oslo" and values["tenants"] == "Acme" and values["device"] == "d1"
+        assert values["state"] == "active" and values["planned_start_utc"] == "2026-10-09 12:00"
+        assert (
+            values["planned_end_utc"] == "2026-10-09 13:30"
+            and values["ended_at_utc"] == ""
+            and values["minutes"] == "0"
+        )
+        assert values["reason"] == "'=HYPERLINK()" and values["site_id"] == "'=cmd", "formula-safe"
+        assert values["planned_by"] == "olga" and values["batch"]
+
+
 class TestApi:
     @pytest.fixture
     def client(self, site):
@@ -561,6 +645,64 @@ class TestApi:
             assert client.get("/api/maintenance", headers=viewer).get_json()["windows"] == []
             assert len(client.get("/api/maintenance?recent_days=7", headers=viewer).get_json()["windows"]) == 2
             assert client.get("/api/maintenance?recent_days=x", headers=viewer).status_code == 400
+
+    def test_history_and_its_export(self, client, monkeypatch):
+        body = {"site_ids": ["loc-lon", "loc-x"], "reason": "Core", "duration_minutes": 60}
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            client.post("/api/maintenance", json=body, headers=operator)
+            # Default: the last 30 days, today included, in UTC unless the browser says.
+            data = client.get("/api/maintenance/history", headers=viewer).get_json()
+            assert data["period"] == {
+                "from": "2026-09-10",
+                "to": "2026-10-09",
+                "label": "2026-09-10 to 2026-10-09",
+                "tz": "UTC",
+            }
+            # The browser's days (review on #353): at 12:00 UTC it is already the 10th in Auckland,
+            # and the 9th there ends at 11:00 UTC, before the window started.
+            nz = client.get("/api/maintenance/history?tz=Pacific/Auckland", headers=viewer).get_json()
+            assert nz["period"]["to"] == "2026-10-10" and len(nz["windows"]) == 2
+            nz9 = client.get(
+                "/api/maintenance/history?tz=Pacific/Auckland&from=2026-10-09&to=2026-10-09", headers=viewer
+            )
+            assert nz9.get_json()["windows"] == []
+            assert client.get("/api/maintenance/history?tz=Mars/Base", headers=viewer).status_code == 400
+            assert {w["site_id"]: w["site_name"] for w in data["windows"]} == {"loc-lon": "London HQ", "loc-x": ""}
+            assert data["truncated"] is False
+            one = client.get("/api/maintenance/history?site_id=loc-lon&from=2026-10-09&to=2026-10-09", headers=viewer)
+            assert [w["site_id"] for w in one.get_json()["windows"]] == ["loc-lon"]
+            resp = client.get(
+                "/api/maintenance/history.csv?site_id=loc-lon&from=2026-10-01&to=2026-10-09", headers=viewer
+            )
+            assert resp.status_code == 200 and resp.mimetype == "text/csv"
+            assert 'filename="maintenance-2026-10-01_2026-10-09-loc-lon.csv"' in resp.headers["Content-Disposition"]
+            assert "London HQ" in resp.get_data(as_text=True)
+            # A tenant picks its sites before the limit, so its windows are never cut off for others'.
+            monkeypatch.setattr(
+                alerts,
+                "cached_alert_board",
+                lambda: {
+                    "alerts": [
+                        {"id": "loc-lon", "name": "London HQ", "tenants": ["Acme"]},
+                        {"id": "loc-x", "name": "X", "tenants": ["Other"]},
+                    ]
+                },
+            )
+            monkeypatch.setattr(maintenance, "HISTORY_LIMIT", 1)
+            only = client.get("/api/maintenance/history?tenant=Acme", headers=viewer).get_json()
+            assert [w["site_id"] for w in only["windows"]] == ["loc-lon"] and only["truncated"] is False
+            # An export is complete or refused, never silently short.
+            monkeypatch.setattr(maintenance, "HISTORY_EXPORT_LIMIT", 1)
+            refused = client.get("/api/maintenance/history.csv", headers=viewer)
+            assert refused.status_code == 400 and "shorter period" in refused.get_json()["error"]
+            for bad in ("from=2026-10-09", "from=2026-02-30&to=2026-03-01", "from=2025-01-01&to=2026-10-01"):
+                assert client.get(f"/api/maintenance/history?{bad}", headers=viewer).status_code == 400, bad
+            # The viewer role when the board needs it (AUTH_REQUIRE_VIEWER).
+            monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+            assert client.get("/api/maintenance/history").status_code == 401
+            assert client.get("/api/maintenance/history.csv").status_code == 401
 
     def test_bad_requests(self, client, monkeypatch):
         monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)

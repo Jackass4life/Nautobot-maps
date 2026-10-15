@@ -3,6 +3,7 @@
 import { casePill } from "../lib/cases.js";
 import { formatDuration, formatFeedTime } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
+import { maintenanceHistoryHref } from "../lib/maintenance-form.js";
 import { ALARM_LEVELS, SEVERITY_ORDER } from "./state.js";
 
 // The board's columns (templates/alerts.html), for rows that span them all.
@@ -61,6 +62,13 @@ export function maintenanceButton(item) {
   return `<button class="action-btn maint-open-btn" type="button" data-site-id="${escHtml(item.id || "")}" aria-haspopup="dialog" title="Maintenance window">Maint.${siteLabel}</button>`;
 }
 
+// The site's maintenance history (#353): the Maintenance page, this site, the last 30 days.
+export function maintenanceHistoryLink(item) {
+  if (!item.id) return "";
+  const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id)}</span>`;
+  return `<a class="action-btn maint-history-link" href="${escHtml(maintenanceHistoryHref(item.id))}">Maint. history${siteLabel}</a>`;
+}
+
 // One click: someone is on it (#288); "Remove ack" once every device is.
 export function ackButton(item) {
   const devices = caseDevices(item);
@@ -89,14 +97,14 @@ export function actionCell(item) {
   const siteId = escHtml(item.id || "");
   const siteLabel = `<span class="visually-hidden"> for ${escHtml(item.name || item.id || "site")}</span>`;
   if (!downDeviceList(item).length) {
-    return `<div class="action-row">${rowMenu(item, [historyButton(item), maintenanceButton(item)])}</div>`;
+    return `<div class="action-row">${rowMenu(item, [historyButton(item), maintenanceButton(item), maintenanceHistoryLink(item)])}</div>`;
   }
   const caseButton = caseDevices(item).length
     ? `<button class="action-btn case-open-btn" type="button" data-site-id="${siteId}" aria-haspopup="dialog">+ Case${siteLabel}</button>`
     : "";
   // Copy the site and its down devices as text for an ITSM ticket (#227).
   const copyButton = `<button class="action-btn copy-site-btn" type="button" data-site-id="${siteId}" title="Copy the site and its down devices as text">Copy${siteLabel}</button>`;
-  return `<div class="action-row">${caseButton}${rowMenu(item, [ackButton(item), copyButton, maintenanceButton(item), historyButton(item)])}</div>`;
+  return `<div class="action-row">${caseButton}${rowMenu(item, [ackButton(item), copyButton, maintenanceButton(item), historyButton(item), maintenanceHistoryLink(item)])}</div>`;
 }
 
 // The site name, linked to the site on the map when it has coordinates;
@@ -331,7 +339,7 @@ export function siteRowsHtml(alerts, { wallView, isExpanded }) {
       <td>${alertBadge(item.alert_level, item.alert_reason)}${wallView && !inMaintenance ? caseStateBadge(item) : ""}${item.maintenance ? `<div class="maintenance-note">${maintenanceNote(item.maintenance.until, item.maintenance.reason)}</div>` : ""}</td>
       <td class="since-cell">${wallView ? "" : sinceLabel("in alarm", siteAlarmSeconds(item))}</td>
       <td class="cases-cell col-cases">${renderCases(item)}</td>
-      <td class="col-action">${actionCell(item)}</td>
+      <td class="col-action">${wallView ? "" : actionCell(item)}</td>
     </tr>
     ${wallView && inMaintenance ? "" : renderDownDeviceRows(item, expanded, handled ? "case-handled" : "")}
   `;

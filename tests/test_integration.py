@@ -772,8 +772,9 @@ check(html.includes('class="action-btn case-open-btn"') && html.includes("+ Case
 const menuAt = html.indexOf('<details class="row-menu">');
 check(menuAt > html.indexOf("case-open-btn") && html.indexOf("copy-site-btn") > menuAt, html);
 check(html.includes('aria-label="More actions for Aarhus &lt;HQ&gt;"'), html);
-// Copy, Maint. and History are all in the menu; the map is the site name.
-check(html.indexOf("history-btn") > menuAt && !html.includes("href"), html);
+// Copy, Maint. and History are all in the menu; the map is the site name
+// (no map link here); the one link is to the site's maintenance history (#353).
+check(html.indexOf("history-btn") > menuAt && !html.includes('href="/?') && html.indexOf("maint-history-link") > menuAt, html);
 check(html.includes("for Aarhus &lt;HQ&gt;"), "screen readers hear the site: " + html);
 // The whole case form is gone from the row.
 check(!html.includes("case-form") && !html.includes("checkbox") && !html.includes("<input"), html);

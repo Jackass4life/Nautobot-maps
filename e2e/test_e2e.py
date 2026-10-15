@@ -156,7 +156,7 @@ def test_planning_maintenance_for_several_sites(operator_page, request):
     for site in sites[:2]:
         page.locator("#maint-site-search").fill(site["name"])
         page.locator(".maint-match", has_text=site["name"]).first.click()
-    assert page.locator(".maint-chip").count() == 2
+    assert page.locator("#maint-chosen .maint-chip").count() == 2
     page.locator('input[name="maint-when"][value="planned"]').check()
     assert page.locator(".when-calendar .cal-day").count() > 27
     page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
@@ -174,6 +174,29 @@ def test_planning_maintenance_for_several_sites(operator_page, request):
     page.locator('[data-group="upcoming"] .maint-batch', has_text=reason).wait_for(state="detached")
     # Folded, so its text content, not the visible text.
     assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text=reason).first.text_content()
+
+
+def test_a_sites_maintenance_history(page):
+    """From the board's ⋯ menu to that site's maintenance history, and its export (#353)."""
+    page.goto(f"{BASE_URL}/alerts")
+    page.wait_for_selector(".row-menu-btn")
+    row = page.locator(".site-row").first
+    name = row.locator(".site-name").inner_text()
+    row.locator(".row-menu-btn").click()
+    row.locator(".maint-history-link").click()
+    page.wait_for_url("**/maintenance?view=history&site_id=*")
+    page.locator('[data-group="history"]').wait_for()
+    assert page.locator("#maint-history-bar").is_visible() and not page.locator("#maint-plan-open").is_visible()
+    assert "Site:" in page.locator("#maint-site-filter").inner_text()
+    assert "site_id=" in page.locator("#maint-history-csv").get_attribute("href")
+    # The period: Last 7 days, kept in the address.
+    page.locator("#period-button").click()
+    page.locator(".period-preset", has_text="Last 7 days").click()
+    page.wait_for_url("**from=*")
+    # Every site: the site filter goes.
+    page.locator("#maint-site-filter .maint-chip-remove").click()
+    page.wait_for_function("!location.search.includes('site_id')")
+    assert name
 
 
 def test_the_availability_period_calendar(page):
