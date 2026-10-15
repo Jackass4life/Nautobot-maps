@@ -798,7 +798,7 @@ def api_maintenance_list():
         windows = maintenance.list_windows(
             conn,
             site_id=site_id,
-            include_past=(_arg("all") or "").lower() in {"1", "true", "yes"},
+            include_past=_flag_arg("all"),
             recent_days=recent_days,
             limit=maintenance.LIST_LIMIT + 1,
         )
@@ -1079,9 +1079,17 @@ def _arg(name: str) -> str | None:
     return (request.args.get(name) or "").strip() or None
 
 
-def _availability_report() -> tuple[dict | None, str, int]:
-    """``(report, error, status)`` for the month or from–to and the basis in the query string (#287, #341)."""
-    conn = db.get_conn()
+def _flag_arg(name: str) -> bool:
+    """A yes/no query-string value: 1, true or yes."""
+    return (_arg(name) or "").lower() in {"1", "true", "yes"}
+
+
+def _availability_report(conn=None, with_incidents: bool = False) -> tuple[dict | None, str, int]:
+    """``(report, error, status)`` for the month or from–to and the basis in the
+    query string (#287, #341).  *with_incidents* (#354): every incident too,
+    streamed from *conn*, which the caller then closes."""
+    own = conn is None
+    conn = conn or db.get_conn()
     if conn is None:
         return None, "The availability report needs the PostgreSQL database (NAUTOBOT_MAPS_DATABASE_URL).", 503
     try:
@@ -1092,14 +1100,17 @@ def _availability_report() -> tuple[dict | None, str, int]:
             logger.warning("Availability report: could not read the alert board: %s", exc, exc_info=True)
             return None, "The alert board could not be read, so the report would miss sites; try again shortly.", 503
         return (
-            availability.report(conn, _arg("month"), _arg("basis"), sites, _arg("from"), _arg("to")),
+            availability.report(
+                conn, _arg("month"), _arg("basis"), sites, _arg("from"), _arg("to"), with_incidents=with_incidents
+            ),
             "",
             200,
         )
     except availability.ReportError as exc:
         return None, exc.message, 400
     finally:
-        conn.close()
+        if own:
+            conn.close()
 
 
 @bp.app_template_filter("downtime")
@@ -1157,15 +1168,33 @@ def api_availability():
 
 @bp.route("/api/availability.csv")
 def api_availability_csv():
-    """The availability report as CSV (#287): ``view=sites`` (default) or ``tenants``; same ``month``, ``from``/``to`` and ``basis``."""
+    """The availability report as CSV (#287): ``view=sites`` (default; with each
+    site's details and outages, #354), ``tenants`` or ``incidents`` (every
+    outage in the period, to check the figures); same ``month``,
+    ``from``/``to`` and ``basis``.  ``header=1``: the report's period, basis,
+    target, totals, and who made it when, above the table."""
     view = (request.args.get("view") or "sites").strip()
-    if view not in ("sites", "tenants"):
-        return jsonify({"error": "view must be sites or tenants"}), 400
-    report, error, status = _availability_report()
+    if view not in ("sites", "tenants", "incidents"):
+        return jsonify({"error": "view must be sites, tenants or incidents"}), 400
+    # Every incident is read while the file streams: the connection stays open until then.
+    conn = db.get_conn() if view == "incidents" else None
+    report, error, code = _availability_report(conn, with_incidents=conn is not None)
     if report is None:
-        return jsonify({"error": error}), status
+        if conn is not None:
+            conn.close()
+        return jsonify({"error": error}), code
+    header = _flag_arg("header")
+    by = auth.get_current_user().get("username") or "" if header else ""
+
+    def lines():
+        try:
+            yield from availability.csv_lines(report, view, header=header, generated_by=by)
+        finally:
+            if conn is not None:
+                conn.close()
+
     return Response(
-        availability.to_csv(report, view),
+        stream_with_context(lines()),
         mimetype="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="availability-{view}-{report["period"]["label"].replace(" to ", "_")}.csv"'

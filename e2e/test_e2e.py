@@ -109,6 +109,12 @@ def test_the_availability_report(page):
     page.goto(f"{BASE_URL}/availability")
     page.locator("table").first.wait_for()
     assert page.locator("table tbody tr").count() > 0
+    # The three downloads, each with the report header (#354).
+    links = page.locator(".availability-note a").evaluate_all("as => as.map(a => a.getAttribute('href'))")
+    assert [link.split("view=")[1] for link in links] == ["sites&header=1", "tenants&header=1", "incidents&header=1"]
+    with urllib.request.urlopen(f"{BASE_URL}{links[2]}", timeout=30) as response:
+        text = response.read().decode("utf-8-sig")
+    assert text.startswith("report,Nautobot Maps availability") and "\r\n\r\nsite,site_path,tenants,device," in text
 
 
 def test_the_availability_page_answers_first(page):

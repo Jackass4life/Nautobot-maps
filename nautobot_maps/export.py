@@ -57,6 +57,10 @@ _FROM = """
     LEFT JOIN librenms_device_map m ON m.nautobot_device_id = d.device_id
     LEFT JOIN librenms_device_status s ON s.device_id = m.librenms_device_id
 """
+# An incident's case numbers as one text, for the incident exports (#278, #354).
+CASES_SQL = (
+    "(SELECT string_agg(c.case_number, ';' ORDER BY c.case_number) FROM alert_cases c WHERE c.alert_instance_id = i.id)"
+)
 # Rows read from the database at a time while streaming the incidents.
 STREAM_BATCH = 500
 
@@ -79,8 +83,7 @@ def iter_site_incidents(conn, site_id: str, since: datetime | None):
                i.probable_cause,
                i.down_started_at, i.resolved_at, i.total_downtime_seconds,
                d.role, d.primary_ip, s.ip AS librenms_ip,
-               (SELECT string_agg(c.case_number, ';' ORDER BY c.case_number)
-                  FROM alert_cases c WHERE c.alert_instance_id = i.id) AS cases,
+               {CASES_SQL} AS cases,
                -- The numbers as a list, for their links (#289): a number may contain ";".
                ARRAY(SELECT c.case_number FROM alert_cases c WHERE c.alert_instance_id = i.id
                      ORDER BY c.case_number) AS case_list
@@ -157,8 +160,9 @@ def duration_seconds(row: dict, now: datetime) -> int:
     return int(row.get("total_downtime_seconds") or 0)
 
 
-def _minutes(seconds: int) -> int:
-    return round(seconds / 60)
+def minutes(seconds: int | None) -> int:
+    """Whole minutes, as the exports write durations."""
+    return round((seconds or 0) / 60)
 
 
 def _ip(row: dict) -> str:
@@ -195,7 +199,7 @@ def incident_lines(incidents, now: datetime):
                 _ip(row),
                 utc_text(row.get("down_started_at")),
                 "" if row.get("status") == "open" else utc_text(row.get("resolved_at")),
-                _minutes(duration_seconds(row, now)),
+                minutes(duration_seconds(row, now)),
                 row.get("status"),
                 row.get("alert_level"),
                 row.get("alert_reason"),
@@ -216,8 +220,8 @@ def devices_csv(summary: list[dict]) -> str:
                 row.get("role"),
                 _ip(row),
                 row.get("times_down"),
-                _minutes(int(row.get("total_seconds") or 0)),
-                _minutes(int(row.get("longest_seconds") or 0)),
+                minutes(row.get("total_seconds")),
+                minutes(int(row.get("longest_seconds") or 0)),
                 utc_text(row.get("last_down_at")),
                 "yes" if row.get("down_now") else "no",
             ]

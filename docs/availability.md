@@ -17,7 +17,11 @@ The figures add up with the history: in `any_down`, a site's downtime is the inc
 ## API and CSV
 
 - `GET /api/availability?month=2026-10&basis=any_down`, or `?from=2026-10-03&to=2026-10-09` for any days (both included): the report as JSON (`sites`, `tenants`, `period` with `from`, `to` and `label`, `summary` with the cards' figures, and `tenant_descriptions`). A from–to that is a whole calendar month (the 1st to its last day) is that month; otherwise `month` is `null`.
-- `GET /api/availability.csv?month=2026-10&view=sites` (or `view=tenants`; `from` and `to` work here too): for a spreadsheet. Downtime is in minutes. The last two columns, `period_from` and `period_to`, are the days covered; `month` is empty unless the period is a whole month.
+- `GET /api/availability.csv?month=2026-10&view=sites` (or `view=tenants` or `view=incidents`; `from` and `to` work here too): for a spreadsheet. Downtime is in minutes; times are UTC. `month` is empty unless the period is a whole month. The page's **CSV** links are these three, each with the report header.
+  - **Sites**: the site, tenants, availability, downtime and incidents; `period_from` and `period_to`; then the site's details and outages (#354): `site_path`, `address`, `country`, `tier`, `monitored_devices`; `outages` (down time merged after maintenance, so devices down together are one outage), `longest_outage_min`, `mean_time_to_restore_min` (the mean outage), `first_outage_utc`, `last_outage_utc`; `maintenance_min` (time in a whole-site window, not counted as downtime); `site_id`.
+  - **Tenants**: the tenant, sites, availability and downtime, and the period.
+  - **Incidents** (every incident, #354): one row per device incident in the period, to check the figures: `site`, `site_path`, `tenants`, `device`, `down_at_utc`, `up_at_utc` (empty while still down), `minutes_in_period`, `minutes_counted` (after maintenance), `maintenance` (`none`, `partly` or `full`), `cases` (separated by `;`), `probable_cause`, `site_id`, `device_id`. With the `critical` basis the incidents are listed the same way; the site's downtime is then its time at Critical.
+  - `header=1` puts the report's header above the table: the period, basis, target, when it was made and by whom, the sites, availability, downtime, incidents, sites below target and with no downtime, the worst tenant; then a blank line. Without it the file starts with the table, as before, so scripts keep working.
 
 Both are readable like the board: with `AUTH_REQUIRE_VIEWER=true`, the viewer role.
 
