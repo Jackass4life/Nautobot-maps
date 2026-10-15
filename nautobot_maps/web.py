@@ -22,6 +22,7 @@ from nautobot_maps import (
     auth,
     availability,
     caching,
+    compression,
     contract,
     db,
     export,
@@ -71,6 +72,10 @@ def content_security_policy() -> str:
             "frame-ancestors 'none'",
         ]
     )
+
+
+# Registered first, so it runs last (Flask runs these in reverse): every other hook sees the plain answer.
+bp.after_app_request(compression.compress)
 
 
 @bp.after_app_request
@@ -1393,7 +1398,8 @@ def api_tokens_create():
     finally:
         conn.close()
     response = jsonify({"token": token})
-    response.headers["Cache-Control"] = "no-store"
+    # no-transform: never compressed, the secret beside the name the client chose (#349, BREACH).
+    response.headers["Cache-Control"] = "no-store, no-transform"
     return response, 201
 
 
