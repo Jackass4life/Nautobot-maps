@@ -1,7 +1,9 @@
 // The board's sites with missing or wrong coordinates (#368): a line under
 // the map's count, and the list behind its Check button.
+import { nautobotLocationUrl } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
+import { scopeParams } from "../lib/scope.js";
 import { showError } from "../lib/toast.js";
 import { openLocationById } from "./inspector.js";
 import { config, els } from "./state.js";
@@ -14,11 +16,8 @@ export const COORDINATE_REFRESH_MS = 15 * 60 * 1000;
 // The page's ?tenant= / ?q= (#367), for the check and its CSV: a map for
 // some sites only lists theirs.
 export function coordinateQuery(scope) {
-  if (!scope) return "";
-  const params = new URLSearchParams();
-  scope.tenants.forEach((name) => params.append("tenant", name));
-  scope.texts.forEach((text) => params.append("q", text));
-  return `?${params}`;
+  const params = scopeParams(scope).toString();
+  return params ? `?${params}` : "";
 }
 
 // "12 sites aren't on the map · 2 may be misplaced", or "" when all is well.
@@ -34,7 +33,7 @@ export function coordinateSummary(sites) {
 function siteCell(item) {
   const name = escHtml(item.name || item.site_id);
   if (!config.nautobotUrl) return name;
-  const href = `${config.nautobotUrl}/dcim/locations/${encodeURIComponent(item.site_id)}/`;
+  const href = nautobotLocationUrl(config.nautobotUrl, item.site_id);
   return `<a href="${escHtml(href)}" target="_blank" rel="noopener noreferrer" title="Fix it in Nautobot">${name} ↗</a>`;
 }
 

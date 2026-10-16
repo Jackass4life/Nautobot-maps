@@ -23,7 +23,7 @@ the 180° meridian gets a wrong centre (set ``MAP_DEFAULT_VIEW`` there, #362).
 import math
 import statistics
 
-from nautobot_maps import scope, status
+from nautobot_maps import export, scope, status
 
 FAR_MIN_KM = 2000
 FAR_FACTOR = 4
@@ -38,19 +38,7 @@ REASONS = {
     "far": "Far from the other sites: check the coordinates",
     "missing": "No coordinates: not on the map",
 }
-# (CSV column, item field).
-CSV_COLUMNS = (
-    ("site_id", "site_id"),
-    ("site", "name"),
-    ("path", "ancestor_path"),
-    ("type", "type"),
-    ("status", "status"),
-    ("problem", "problem"),
-    ("reason", "reason"),
-    ("latitude", "latitude"),
-    ("longitude", "longitude"),
-    ("km_away", "km_away"),
-)
+CSV_COLUMNS = ("site_id", "site", "path", "type", "status", "problem", "reason", "latitude", "longitude", "km_away")
 
 
 def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -83,8 +71,8 @@ def check(rows: list[dict], page_scope=None) -> list[dict]:
     """The rows with a coordinate problem, worst first, each the site's own
     fields plus ``problem``, ``reason`` and ``km_away``; only those in
     *page_scope* (``scope.read_scope``) when given."""
-    rows = [row for row in rows if scope.in_scope(row, page_scope)]
-    real = [p for row in rows if (p := _coordinates(row)) is not None and _valid(p) and p != (0.0, 0.0)]
+    placed = [(row, _coordinates(row)) for row in rows if scope.in_scope(row, page_scope)]
+    real = [p for _, p in placed if p is not None and _valid(p) and p != (0.0, 0.0)]
     centre = limit = None
     if len(real) >= FAR_MIN_SITES:
         centre = (statistics.median(p[0] for p in real), statistics.median(p[1] for p in real))
@@ -92,8 +80,7 @@ def check(rows: list[dict], page_scope=None) -> list[dict]:
         limit = max(FAR_MIN_KM, FAR_FACTOR * typical)
 
     problems = []
-    for row in rows:
-        point = _coordinates(row)
+    for row, point in placed:
         km = None
         if point is not None and not _valid(point):
             problem = "invalid"
@@ -135,3 +122,23 @@ def counts(problems: list[dict]) -> dict[str, int]:
     for item in problems:
         found[item["problem"]] += 1
     return found
+
+
+def csv_lines(problems: list[dict]):
+    """The list as CSV, one row per site (the export's formula-safe lines)."""
+    yield export.csv_header(CSV_COLUMNS)
+    for item in problems:
+        yield export.csv_line(
+            [
+                item["site_id"],
+                item["name"],
+                item["ancestor_path"],
+                item["type"],
+                item["status"],
+                item["problem"],
+                item["reason"],
+                item["latitude"],
+                item["longitude"],
+                item["km_away"],
+            ]
+        )

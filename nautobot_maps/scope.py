@@ -2,7 +2,9 @@
 
 The twin of ``static/js/lib/scope.js``: ``?tenant=`` (repeatable, any of
 them) and ``?q=`` (repeatable, every one of them), matched on the same
-fields, case ignored.  Tests run the same cases through both.
+fields, case ignored.  Tests run the same cases through both.  Needed where
+the server must filter itself: the coordinate list's CSV (#368) and the
+activity feed, whose limit must count the matching events (#369).
 """
 
 from nautobot_maps import status

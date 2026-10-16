@@ -64,3 +64,8 @@ export function searchWords(query) {
 export function hasAllWords(text, words) {
   return words.every((word) => text.includes(word));
 }
+
+// A site's page in Nautobot (the map's panel, Copy site, the coordinate list, #368).
+export function nautobotLocationUrl(nautobotUrl, locationId) {
+  return `${nautobotUrl.replace(/\/+$/, "")}/dcim/locations/${encodeURIComponent(locationId)}/`;
+}

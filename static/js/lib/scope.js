@@ -50,6 +50,14 @@ export function inScope(site, scope) {
   return lowerTexts.every((needle) => text.includes(needle));
 }
 
+// The scope as ?tenant= / ?q= again, for a request or link for the same sites.
+export function scopeParams(scope) {
+  const params = new URLSearchParams();
+  scope?.tenants.forEach((name) => params.append("tenant", name));
+  scope?.texts.forEach((text) => params.append("q", text));
+  return params;
+}
+
 // "Acme Corp, Nordic Net · “DNK”": what the page shows, each tenant as
 // Nautobot spells it when one of *sites* has it.
 export function scopeLabel(scope, sites = []) {

@@ -381,31 +381,23 @@ def _coordinate_problems() -> list[dict]:
 
 
 @bp.route("/api/locations/coordinate-check")
+@bp.route("/api/locations/coordinate-check.csv")
 def api_coordinate_check():
     """The alert board's sites with missing or wrong coordinates (#368), worst
-    first: at 0,0, latitude and longitude swapped, far from the rest, none."""
+    first: impossible, at 0,0, latitude and longitude swapped, far from the
+    rest, none.  JSON with counts, or CSV (one row per site)."""
     try:
         problems = _coordinate_problems()
     except Exception as exc:
         logger.exception("Coordinate check failed: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
+    if request.path.endswith(".csv"):
+        return Response(
+            "".join(coordinates.csv_lines(problems)),
+            mimetype="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="coordinate-check.csv"'},
+        )
     return jsonify({"counts": coordinates.counts(problems), "sites": problems})
-
-
-@bp.route("/api/locations/coordinate-check.csv")
-def api_coordinate_check_csv():
-    """The same list as CSV, one row per site (#368)."""
-    try:
-        problems = _coordinate_problems()
-    except Exception as exc:
-        logger.exception("Coordinate check failed: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
-    body = export.csv_header(tuple(column for column, _ in coordinates.CSV_COLUMNS)) + "".join(
-        export.csv_line([item[field] for _, field in coordinates.CSV_COLUMNS]) for item in problems
-    )
-    return Response(
-        body, mimetype="text/csv", headers={"Content-Disposition": 'attachment; filename="coordinate-check.csv"'}
-    )
 
 
 @bp.route("/api/alerts")
