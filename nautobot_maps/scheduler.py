@@ -98,9 +98,7 @@ CHANGE_REBUILT_STATE = "board_change_rebuilt"
 
 
 def _state_time(source: str, conn):
-    value = inventory.get_sync_state(source, conn=conn).get("last_completed_at")
-    parsed = timeutil.parse_iso_datetime(str(value)) if value else None
-    return parsed.replace(tzinfo=UTC) if parsed is not None and parsed.tzinfo is None else parsed
+    return timeutil.as_utc_datetime(inventory.get_sync_state(source, conn=conn).get("last_completed_at"))
 
 
 def request_change_rebuild() -> None:

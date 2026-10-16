@@ -45,12 +45,8 @@ class Exposition:
 
 
 def _timestamp(value) -> float | None:
-    parsed = timeutil.parse_iso_datetime(value) if isinstance(value, str) else value
-    if parsed is None:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.timestamp()
+    parsed = timeutil.as_utc_datetime(value)
+    return parsed.timestamp() if parsed else None
 
 
 def sync_rows(conn) -> dict:

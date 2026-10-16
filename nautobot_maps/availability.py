@@ -171,15 +171,6 @@ def seconds(intervals: list[Interval]) -> int:
 # --- reading --------------------------------------------------------------
 
 
-def _dt(value) -> datetime | None:
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
-    parsed = timeutil.parse_iso_datetime(value) if value else None
-    if parsed is not None and parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
-
-
 def read_maintenance(conn, start: datetime, end: datetime) -> tuple[dict, dict]:
     """``({site_id: [interval]}, {device_id: [interval]})`` of the windows in the period."""
     rows = conn.execute(
@@ -190,9 +181,9 @@ def read_maintenance(conn, start: datetime, end: datetime) -> tuple[dict, dict]:
     sites: dict[str, list] = {}
     devices: dict[str, list] = {}
     for row in rows:
-        window_start, window_end = _dt(row["starts_at"]), _dt(row["ends_at"])
+        window_start, window_end = timeutil.as_utc_datetime(row["starts_at"]), timeutil.as_utc_datetime(row["ends_at"])
         if row["ended_at"] is not None:
-            window_end = min(window_end, _dt(row["ended_at"]))
+            window_end = min(window_end, timeutil.as_utc_datetime(row["ended_at"]))
         if window_end <= window_start:
             continue
         target = devices.setdefault(row["device_id"], []) if row["device_id"] else sites.setdefault(row["site_id"], [])
@@ -207,8 +198,8 @@ INCIDENTS_IN_PERIOD = "COALESCE(i.resolved_at, 'infinity'::timestamptz) > %s AND
 def _down_span(row, at: datetime) -> Interval | None:
     """An incident's down time, until *at* while it is open; None when it has none.
     The one rule for the report's figures and its incidents export (#354)."""
-    down = _dt(row["down_started_at"])
-    up = _dt(row["resolved_at"]) or at
+    down = timeutil.as_utc_datetime(row["down_started_at"])
+    up = timeutil.as_utc_datetime(row["resolved_at"]) or at
     return None if down is None or up <= down else (down, up)
 
 
@@ -258,23 +249,24 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
     ).fetchall()
     by_site: dict[str, list] = {}
     for row in rows:
-        by_site.setdefault(row["site_id"], []).append(row)
+        # Each change's time parsed once, not in every filter below.
+        by_site.setdefault(row["site_id"], []).append({**row, "at": timeutil.as_utc_datetime(row["changed_at"])})
     sites = {}
     first_seen = {}
     for row in conn.execute(
         "SELECT site_id, site_name, alert_level, updated_at, first_seen_at FROM site_alert_levels"
     ).fetchall():
-        first_seen[row["site_id"]] = _dt(row["first_seen_at"])
+        first_seen[row["site_id"]] = timeutil.as_utc_datetime(row["first_seen_at"])
         if row["site_id"] in by_site or row["alert_level"] != "critical":
             continue
         # Critical since it was first seen, never changed.
-        seen = max(_dt(row["first_seen_at"]) or _dt(row["updated_at"]) or start, start)
+        seen = max(first_seen[row["site_id"]] or timeutil.as_utc_datetime(row["updated_at"]) or start, start)
         if seen < end:
             sites[row["site_id"]] = {"name": row["site_name"] or "", "intervals": [(seen, end)]}
     for site_id, changes in by_site.items():
-        before = [c for c in changes if _dt(c["changed_at"]) <= start]
-        during = [c for c in changes if start < _dt(c["changed_at"]) < end]
-        after = [c for c in changes if _dt(c["changed_at"]) >= end]
+        before = [c for c in changes if c["at"] <= start]
+        during = [c for c in changes if start < c["at"] < end]
+        after = [c for c in changes if c["at"] >= end]
         intervals = []
         since = start
         if before:
@@ -286,7 +278,7 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
             if first_seen.get(site_id) and first_seen[site_id] > start:
                 since = min(first_seen[site_id], end)
         for change in during:
-            at = _dt(change["changed_at"])
+            at = change["at"]
             if level == "critical":
                 intervals.append((since, at))
             level, since = change["to_level"], at
@@ -427,7 +419,7 @@ def _site_row(site_id: str, name: str = "", site: dict | None = None) -> dict:
         "name": name,
         "tenants": status.site_tenants(site),
         "path": status.site_path(site),
-        "address": site.get("physical_address") or site.get("facility") or "",
+        "address": status.site_address(site),
         "country": site.get("country") or "",
         "tier": site.get("tier") or "",
         "monitored_devices": site.get("device_count") or 0,
