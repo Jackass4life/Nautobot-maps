@@ -1,6 +1,7 @@
 // The site panel ("inspector"): opens from a marker, a search result or
 // ?location_id=, shows the site's level, devices, circuits and ASNs.
 import { escHtml } from "../lib/html.js";
+import { getJson } from "../lib/http.js";
 import { ALERT_RANK } from "./levels.js";
 import { getColocatedLocationIds, updateMarkerForAlert } from "./markers.js";
 import {
@@ -273,9 +274,7 @@ export async function loadLocationDetail(locId) {
     const locType = loc ? (loc.location_type || "") : "";
     const url = `/api/locations/${encodeURIComponent(locId)}/detail`
       + (locType ? `?location_type=${encodeURIComponent(locType)}` : "");
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const detail = await resp.json();
+    const detail = await getJson(url);
     detailCache.set(locId, detail);
     return detail;
   })();

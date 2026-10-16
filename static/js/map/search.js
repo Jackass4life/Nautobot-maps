@@ -1,5 +1,6 @@
 // Search a place or address: the Nautobot locations within 5 km (/api/search).
 import { escHtml } from "../lib/html.js";
+import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { openLocationById } from "./inspector.js";
 import { renderMarkers } from "./markers.js";
@@ -14,17 +15,7 @@ export async function doSearch() {
   searchBtn.style.opacity = "0.5";
 
   try {
-    const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-    const data = await resp.json();
-
-    if (!resp.ok || data.error) {
-      showError(data.error || `Search failed (HTTP ${resp.status})`);
-      searchResults.classList.add("hidden");
-      renderMarkers(state.allLocations);
-      return;
-    }
-
-    const { search_lat, search_lon, count, locations } = data;
+    const { search_lat, search_lon, count, locations } = await getJson(`/api/search?q=${encodeURIComponent(query)}`);
 
     // Re-render map with only the nearby locations highlighted
     renderMarkers(locations, { lat: search_lat, lon: search_lon });
@@ -55,7 +46,11 @@ export async function doSearch() {
 
     searchResults.classList.remove("hidden");
   } catch (err) {
-    showError("Search error: " + err.message);
+    // The API's own message ("Address not found: …") as it is; an error page
+    // no longer reads as a JSON parse error (#350).
+    showError(err.payload ? err.message : "Search error: " + err.message);
+    searchResults.classList.add("hidden");
+    renderMarkers(state.allLocations);
   } finally {
     searchBtn.disabled = false;
     searchBtn.style.opacity = "1";

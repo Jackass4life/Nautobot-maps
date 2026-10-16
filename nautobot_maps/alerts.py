@@ -47,10 +47,6 @@ def status_is_excluded(status: str | None, excluded: set[str]) -> bool:
 # "flapping": a device flapping (#286) counts as down while momentarily up.
 DOWN_STATUSES: frozenset = frozenset({"offline", "failed", "decommissioning", "flapping"})
 
-# The default share of a site's monitored devices that must be down (more
-# than) for "medium"; ALERT_MEDIUM_PERCENT sets it (#293).
-MEDIUM_DOWN_RATIO = 0.25
-
 
 def alert_level_definitions() -> dict:
     """What each level means, from the configured thresholds (#293); shown on
@@ -72,9 +68,6 @@ def alert_level_definitions() -> dict:
         "maintenance": "Sites in a maintenance window: planned work, not an alarm. Nothing is notified until it ends.",
     }
 
-
-# With the default thresholds; the board uses alert_level_definitions().
-ALERT_STATUS_TIER_DEFINITIONS = alert_level_definitions()
 
 # Board order, most severe first (#124).
 ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
@@ -1184,24 +1177,6 @@ def upsert_alert_lifecycle_for_site(
     finally:
         if owns_conn:
             conn.close()
-
-
-def get_case_numbers_for_instance(conn, instance_id: int) -> list[str]:
-    marker = db.placeholders(1)
-    rows = conn.execute(
-        f"""
-        SELECT case_number
-        FROM alert_cases
-        WHERE alert_instance_id = {marker}
-        ORDER BY created_at DESC
-        """,
-        (instance_id,),
-    ).fetchall()
-    return [
-        (db.row_to_dict(row).get("case_number") or "").strip()
-        for row in rows
-        if (db.row_to_dict(row).get("case_number") or "").strip()
-    ]
 
 
 def get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, list[str]]:

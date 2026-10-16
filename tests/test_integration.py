@@ -1898,7 +1898,7 @@ check(!els.alertLevelsNote.hidden, "first load failed: the note is shown");
 
 // loc-old recovers and loc-a goes critical: both cross the cluster line, one redraw for both.
 let payload = { levels: { "loc-a": { level: "critical" }, "loc-same": { level: "low" } } };
-globalThis.fetch = async () => ({ ok: true, json: async () => payload });
+globalThis.fetch = async () => new Response(JSON.stringify(payload));
 await loadLocationAlerts();
 check(els.alertLevelsNote.hidden, "loaded: no note");
 check(JSON.stringify(locationAlerts) === JSON.stringify({ "loc-same": "low", "loc-a": "critical" }), JSON.stringify(locationAlerts));
@@ -1924,6 +1924,45 @@ globalThis.fetch = async () => { throw new Error("offline"); };
 await loadLocationAlerts();
 check(locationAlerts["loc-a"] === "critical", "a failed refresh keeps the colours");
 check(els.alertLevelsNote.hidden, "after a first load, a failed refresh adds no note");
+"""
+        )
+
+
+class TestMapRequestsInTheBrowser:
+    """The map reads the API's answer as the board does (#350): lib/http.js getJson."""
+
+    def test_search_and_detail_errors(self):
+        run_js(
+            MAP_FAKES
+            + """
+import { loadLocationDetail } from "@js/map/inspector.js";
+import { doSearch } from "@js/map/search.js";
+import { els, state } from "@js/map/state.js";
+
+state.markerLayer = fakeLayer();
+state.clusterLayer = fakeLayer();
+state.allLocations = [site("loc-a", 1, 1)];
+const toast = element("error-toast");
+document.getElementById = (id) => (id === "error-toast" ? toast : null);
+Object.assign(els, {
+  searchInput: element("q", { value: "Atlantis" }),
+  searchBtn: element("go", { style: {} }),
+  searchResults: element("results"),
+});
+const page = new Response("<html>Bad gateway</html>", { status: 502, headers: { "Content-Type": "text/html" } });
+
+globalThis.fetch = async () => new Response(JSON.stringify({ error: "Address not found: Atlantis" }), { status: 404 });
+await doSearch();
+check(toast.textContent === "Address not found: Atlantis", toast.textContent);
+check(els.searchResults.classList.contains("hidden") && !els.searchBtn.disabled, "results hidden, button back");
+
+globalThis.fetch = async () => page.clone();
+await doSearch();
+check(toast.textContent.includes("Bad gateway"), "an error page is not a JSON parse error: " + toast.textContent);
+
+let failed = null;
+await loadLocationDetail("loc-a").catch((err) => { failed = err; });
+check(failed && failed.message.includes("Bad gateway"), String(failed));
 """
         )
 
@@ -2103,7 +2142,7 @@ onRedrawNeeded(() => { redraws += 1; });
 renderMarkers(state.allLocations.slice(0, 3), { lat: 0, lon: 0 });
 const levels = Object.fromEntries(Object.entries(locationAlertInfo).map(([id, info]) => [id, { ...info }]));
 levels.s0.level = "ok";
-globalThis.fetch = async () => ({ ok: true, json: async () => ({ levels }) });
+globalThis.fetch = async () => new Response(JSON.stringify({ levels }));
 await loadLocationAlerts();
 check(locationAlerts.s0 === "ok" && redraws === 0, "no redraw over a search: " + redraws);
 """)
@@ -2281,7 +2320,7 @@ detailCache.set("loc-lon", { stale: true });
 const loads = [];
 globalThis.fetch = async (url) => {
   loads.push(url);
-  return { ok: true, json: async () => ({ devices: [{ name: "sw1", maintenance_until: "2026-10-10T21:00:00Z" }], alert: { level: "critical" }, counts: { down: 3, monitored: 7 } }) };
+  return new Response(JSON.stringify({ devices: [{ name: "sw1", maintenance_until: "2026-10-10T21:00:00Z" }], alert: { level: "critical" }, counts: { down: 3, monitored: 7 } }));
 };
 """
             + body

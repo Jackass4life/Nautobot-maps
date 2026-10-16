@@ -4654,18 +4654,20 @@ class TestAlertBoardTierDefinitions:
         html = resp.get_data(as_text=True)
         assert html.lstrip().startswith("<!DOCTYPE html>")
         assert html.count('class="info-tip"') == 1  # the shared tooltip: hover, focus and touch
+        definitions = alerts.alert_level_definitions()
         levels = " ".join(
-            f"{label}: {escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])}"
+            f"{label}: {escape(definitions[key])}"
             for label, key in (("Critical", "critical"), ("Medium", "medium"), ("Low", "low"))
         )
         assert f'data-info-tip="{levels}"' in html
         for key in ("alarms", "total", "no_data", "maintenance"):
-            assert f'title="{escape(alerts.ALERT_STATUS_TIER_DEFINITIONS[key])}"' in html
+            assert f'title="{escape(definitions[key])}"' in html
 
     def test_medium_definition_matches_scoring_threshold(self):
-        threshold = f"{alerts.MEDIUM_DOWN_RATIO:.0%}"
-        assert threshold in alerts.ALERT_STATUS_TIER_DEFINITIONS["medium"]
-        assert threshold in alerts.ALERT_STATUS_TIER_DEFINITIONS["low"]
+        threshold = f"{settings.ALERT_MEDIUM_PERCENT}%"
+        definitions = alerts.alert_level_definitions()
+        assert threshold in definitions["medium"]
+        assert threshold in definitions["low"]
         devices = [{"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "active"} for i in range(4)]
         assert alerts.compute_alert_level(devices)["level"] == "ok"
         devices[0]["status"] = "offline"  # exactly 25% down
