@@ -148,6 +148,7 @@ See [MCP server](mcp.md).
 |---|---|---|
 | `MAP_TILE_URL` | OpenStreetMap | Tile URL template (`{s}`, `{z}`, `{x}`, `{y}`), e.g. an internal tile server |
 | `MAP_TILE_ATTRIBUTION` | OpenStreetMap | Attribution shown on the map (HTML allowed) |
+| `MAP_DEFAULT_VIEW` | empty | The map's first view as `lat,lon,zoom` (zoom 1–19), e.g. `55.7,12.6,6` for your region. Empty: the map fits itself to every site with coordinates. A wrong value is ignored with a warning in the log |
 | `GEOCODER_ENABLED` | `true` | `false`: address search off, only `lat,lon` searches; nothing is sent to a geocoder |
 | `GEOCODER_URL` | `https://nominatim.openstreetmap.org` | Nominatim-compatible geocoder |
 | `GEOCODER_USER_AGENT` | `nautobot-maps (+repo URL)` | User agent sent to the geocoder (the public Nominatim requires one that identifies you) |

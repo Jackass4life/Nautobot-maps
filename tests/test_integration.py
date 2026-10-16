@@ -2363,3 +2363,34 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 check(renders === 2 && state.selectedDetail.devices[0].maintenance_until, JSON.stringify(state.selectedDetail));
 check(content.includes("In maintenance until"), "the device's note is shown");
 """)
+
+
+class TestMapFirstViewInTheBrowser:
+    """The map opens on the sites, or on MAP_DEFAULT_VIEW, not the whole world (#362)."""
+
+    def test_fit_and_fixed_view(self):
+        run_js(
+            """
+import { fitToSites, parseView } from "@js/map/view.js";
+
+setGlobal("L", { latLngBounds: (points) => ({ points }) });
+const fits = [];
+const map = { fitBounds: (bounds, options) => fits.push({ bounds, options }) };
+
+fitToSites(map, [
+  { id: "a", latitude: 55.68, longitude: 12.57 },
+  { id: "no-coordinates", latitude: null, longitude: null },
+  { id: "b", latitude: 0, longitude: 0 },
+]);
+check(fits.length === 1, "one fit");
+check(JSON.stringify(fits[0].bounds.points) === "[[55.68,12.57],[0,0]]", JSON.stringify(fits[0].bounds));
+check(fits[0].options.maxZoom === 10, "no closer than a city: " + fits[0].options.maxZoom);
+
+fitToSites(map, [{ id: "c", latitude: null, longitude: null }]);
+check(fits.length === 1, "no sites with coordinates: the view stays");
+
+const view = parseView("55.7,12.6,6");
+check(JSON.stringify(view) === '{"center":[55.7,12.6],"zoom":6}', JSON.stringify(view));
+check(parseView("") === null && parseView(undefined) === null && parseView("55.7,x,6") === null, "no view");
+"""
+        )

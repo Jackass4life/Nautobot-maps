@@ -22,6 +22,7 @@ import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js
 import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
 import { config, detailCache, els, state } from "./state.js";
+import { fitToSites, parseView } from "./view.js";
 
 const byId = (id) => document.getElementById(id);
 
@@ -33,9 +34,11 @@ const appConfig = byId("app-config")?.dataset || {};
 config.nautobotUrl = appConfig.nautobotUrl || "";
 state.initialLocationId = new URLSearchParams(window.location.search).get("location_id");
 
+// The whole world until the sites are in, unless a fixed view is set (#362).
+const defaultView = parseView(appConfig.defaultView);
 state.map = L.map("map", {
-  center: [20, 0],
-  zoom: 3,
+  center: defaultView ? defaultView.center : [20, 0],
+  zoom: defaultView ? defaultView.zoom : 3,
   preferCanvas: true,
 });
 
@@ -211,6 +214,8 @@ async function loadLocations(levelsLoaded) {
     state.allLocations = data.locations || [];
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
     await levelsLoaded;
+    // Every site, not only the filtered ones; a link to a site flies there itself.
+    if (!defaultView && !state.initialLocationId) fitToSites(state.map, state.allLocations);
     populateFilters(state.allLocations);
     applyFilters();
   } catch (err) {
