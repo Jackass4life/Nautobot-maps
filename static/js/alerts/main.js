@@ -84,6 +84,8 @@ if (config.scope) {
     els.boardScopeLabel.textContent = state.scopeLabel;
     byId("board-scope").hidden = false;
   }
+  // Activity is for the same sites from the start (#369).
+  if (els.feedTitle) els.feedTitle.textContent = `Activity · ${state.scopeLabel}`;
 }
 // "https://itsm.example.com/ticket/{case}" (#289); "" when not set.
 setCaseUrlTemplate(appConfig.caseUrlTemplate || "");

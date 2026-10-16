@@ -708,18 +708,23 @@ def api_alert_feed():
     unknown = sorted(set(kinds) - set(alerts.FEED_KINDS))
     if unknown:
         return jsonify({"error": f"Unknown kinds: {', '.join(unknown)}"}), 400
-    # A board for some sites only (#369): its sites, from the stored board.
-    site_ids = None
-    if (page_scope := scope.read_scope(request.args)) is not None:
-        rows = alerts.board("request").get("alerts") or []
-        site_ids = [str(row["id"]) for row in rows if row.get("id") and scope.in_scope(row, page_scope)]
-        if not site_ids:
-            return jsonify({"events": [], "persistence_configured": bool(db.dialect())})
+    page_scope = scope.read_scope(request.args)
     conn = db.get_conn()
     if conn is None:
         return jsonify({"events": [], "persistence_configured": False})
     try:
-        events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
+        site_ids = None
+        if page_scope is not None:
+            # A board for some sites only (#369): matched on the stored locations
+            # (every one, excluded ones too, as they are now: tenant, path, name),
+            # a database read, never a board build.
+            locations = inventory.read_locations(include_without_coordinates=True, conn=conn)
+            site_ids = [str(loc["id"]) for loc in locations if loc.get("id") and scope.in_scope(loc, page_scope)]
+        events = (
+            alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
+            if site_ids is None or site_ids
+            else []
+        )
         return jsonify({"events": events, "persistence_configured": True})
     except Exception as exc:
         logger.exception("Could not read the alert feed: %s", exc)
