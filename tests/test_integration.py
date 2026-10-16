@@ -1949,20 +1949,35 @@ Object.assign(els, {
   searchBtn: element("go", { style: {} }),
   searchResults: element("results"),
 });
-const page = new Response("<html>Bad gateway</html>", { status: 502, headers: { "Content-Type": "text/html" } });
+const page = new Response(
+  "<html><head><title>502 Bad Gateway</title><style>body { color: red }</style></head><body><h1>502 Bad Gateway</h1></body></html>",
+  { status: 502, headers: { "Content-Type": "text/html" } },
+);
 
 globalThis.fetch = async () => new Response(JSON.stringify({ error: "Address not found: Atlantis" }), { status: 404 });
 await doSearch();
 check(toast.textContent === "Address not found: Atlantis", toast.textContent);
 check(els.searchResults.classList.contains("hidden") && !els.searchBtn.disabled, "results hidden, button back");
 
+// An error page: its words, not a JSON parse error or its markup.
 globalThis.fetch = async () => page.clone();
 await doSearch();
-check(toast.textContent.includes("Bad gateway"), "an error page is not a JSON parse error: " + toast.textContent);
+check(toast.textContent === "502 Bad Gateway 502 Bad Gateway", toast.textContent);
 
+globalThis.fetch = async () => new Response("", { status: 503 });
+await doSearch();
+check(toast.textContent === "Search failed (HTTP 503)", toast.textContent);
+
+// Offline: the last results stay.
+els.searchResults.classList.remove("hidden");
+globalThis.fetch = async () => { throw new Error("offline"); };
+await doSearch();
+check(toast.textContent === "Search error: offline" && !els.searchResults.classList.contains("hidden"), toast.textContent);
+
+globalThis.fetch = async () => page.clone();
 let failed = null;
 await loadLocationDetail("loc-a").catch((err) => { failed = err; });
-check(failed && failed.message.includes("Bad gateway"), String(failed));
+check(failed && failed.message === "502 Bad Gateway 502 Bad Gateway", String(failed));
 """
         )
 

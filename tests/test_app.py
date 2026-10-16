@@ -4663,17 +4663,19 @@ class TestAlertBoardTierDefinitions:
         for key in ("alarms", "total", "no_data", "maintenance"):
             assert f'title="{escape(definitions[key])}"' in html
 
-    def test_medium_definition_matches_scoring_threshold(self):
-        threshold = f"{settings.ALERT_MEDIUM_PERCENT}%"
+    @pytest.mark.parametrize("percent", [25, 50])
+    def test_medium_definition_matches_scoring_threshold(self, monkeypatch, percent):
+        monkeypatch.setattr(settings, "ALERT_MEDIUM_PERCENT", percent)
         definitions = alerts.alert_level_definitions()
-        assert threshold in definitions["medium"]
-        assert threshold in definitions["low"]
+        assert f"{percent}%" in definitions["medium"]
+        assert f"{percent}%" in definitions["low"]
         devices = [{"id": f"d{i}", "name": f"sw{i}", "role": "Access Switch", "status": "active"} for i in range(4)]
-        assert alerts.compute_alert_level(devices)["level"] == "ok"
-        devices[0]["status"] = "offline"  # exactly 25% down
-        assert alerts.compute_alert_level(devices)["level"] == "low"
-        devices[1]["status"] = "offline"  # 50% down
-        assert alerts.compute_alert_level(devices)["level"] == "medium"
+        at_threshold = 4 * percent // 100
+        for device in devices[:at_threshold]:
+            device["status"] = "offline"
+        assert alerts.compute_alert_level(devices)["level"] == "low"  # exactly the threshold: low
+        devices[at_threshold]["status"] = "offline"
+        assert alerts.compute_alert_level(devices)["level"] == "medium"  # more than it: medium
 
 
 class TestDeviceDisplayIp:

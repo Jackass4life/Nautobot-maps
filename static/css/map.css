@@ -1010,23 +1010,6 @@ body.inspector-open #loading-overlay {
   color: #fff;
 }
 
-.device-list {
-  list-style: none;
-  margin-top: 4px;
-}
-
-.device-list li {
-  background: var(--color-surface-2);
-  border-radius: 4px;
-  padding: 5px 8px;
-  margin-bottom: 4px;
-  font-size: 0.78rem;
-}
-
-.device-name {
-  font-weight: 600;
-}
-
 .device-meta {
   color: var(--color-text-muted);
   font-size: 0.73rem;
