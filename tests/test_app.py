@@ -5584,7 +5584,10 @@ class TestSiteRollup:
         rows, devices = alerts.roll_up_to_site_locations(locations, {"a": [{"id": "d1"}]}, "site")
         assert [row["id"] for row in rows] == ["a"]
         assert devices == {"a": [{"id": "d1", "location_path": ""}]}
-        assert [row["ancestor_path"] for row in alerts.with_ancestor_paths(locations, locations)] == ["A › B", "B › A"]
+        assert [row["ancestor_path"] for row in inventory.with_ancestor_paths(locations, locations)] == [
+            "A › B",
+            "B › A",
+        ]
 
     def test_migration_adds_parent_id_column(self):
         self.db.execute("DROP TABLE schema_migrations")  # from before versioned migrations (#201)

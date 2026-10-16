@@ -556,6 +556,12 @@ class TestAlertBoardWithPersistence:
         locations = {loc["id"]: loc for loc in inventory.read_locations()}
         assert set(locations["loc-cph"]["tenant_descriptions"]) == {"Acme Corp"}
         assert set(locations["loc-fra"]["tenant_descriptions"]) == {"DataCenter GmbH"}
+        # The site path (#367), as on the board, so a link's ?q= finds the same sites.
+        everywhere = {loc["id"]: loc for loc in inventory.read_locations(include_without_coordinates=True)}
+        floor = everywhere["loc-aar-bld-a-f2"]["ancestor_path"]
+        assert floor == "EMEA › DNK › Aarhus Campus › Bygning A"
+        assert alerts["loc-aar-bld-a-f2"]["ancestor_path"] == floor
+        assert locations["loc-cph"]["ancestor_path"] == ""
 
     def test_a_level_change_notifies_through_a_real_board_build(self, persisted_integration_client, monkeypatch):
         """End to end (#282): a real sync and board build queue and send a notification."""
