@@ -33,6 +33,7 @@ from nautobot_maps import (
     metrics,
     notify,
     scheduler,
+    scope,
     settings,
     status,
     timeutil,
@@ -192,7 +193,7 @@ def _scope_query() -> str:
     them: kept on the links between the map, the board and the wall."""
     return urlencode(
         [("tenant", name) for name in request.args.getlist("tenant") if name.strip()]
-        + [("q", text) for text in [request.args.get("q", "")] if text.strip()]
+        + [("q", text) for text in request.args.getlist("q") if text.strip()]
     )
 
 
@@ -267,8 +268,11 @@ def prometheus_metrics():
         logger.warning("Metrics: database unavailable: %s", exc)
         body = metrics.collect(None)
     try:
-        # Sites with missing or wrong coordinates (#368), from the stored board.
-        body += metrics.coordinate_problems(coordinates.counts(_coordinate_problems()))
+        # Sites with missing or wrong coordinates (#368): from the board already
+        # stored, never a build (a scrape must stay cheap); left out without one.
+        stored = caching.get(alerts.BOARD_CACHE_KEY)
+        if stored is not None:
+            body += metrics.coordinate_problems(coordinates.counts(coordinates.check(stored.get("alerts") or [])))
     except Exception as exc:
         logger.warning("Metrics: coordinate check unavailable: %s", exc)
     finally:
@@ -371,8 +375,9 @@ def api_location_alerts():
 
 def _coordinate_problems() -> list[dict]:
     """The board's sites with missing or wrong coordinates (#368), from the
-    stored board: no Nautobot call."""
-    return coordinates.check(alerts.board("request").get("alerts") or [])
+    stored board (no Nautobot call); only those a page's ?tenant= / ?q= ask for."""
+    rows = alerts.board("request").get("alerts") or []
+    return coordinates.check(rows, scope.read_scope(request.args))
 
 
 @bp.route("/api/locations/coordinate-check")
@@ -395,8 +400,8 @@ def api_coordinate_check_csv():
     except Exception as exc:
         logger.exception("Coordinate check failed: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
-    body = export.csv_header(coordinates.CSV_COLUMNS) + "".join(
-        export.csv_line([item[column] for column in coordinates.CSV_COLUMNS]) for item in problems
+    body = export.csv_header(tuple(column for column, _ in coordinates.CSV_COLUMNS)) + "".join(
+        export.csv_line([item[field] for _, field in coordinates.CSV_COLUMNS]) for item in problems
     )
     return Response(
         body, mimetype="text/csv", headers={"Content-Disposition": 'attachment; filename="coordinate-check.csv"'}

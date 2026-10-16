@@ -196,7 +196,7 @@ def coordinate_problems(counts: dict[str, int]) -> str:
     out = Exposition()
     out.gauge(
         "nautobot_maps_sites_coordinate_problems",
-        "Alert board sites with missing or wrong coordinates, by problem (zero, swapped, far, missing).",
+        "Alert board sites with missing or wrong coordinates, by problem (invalid, zero, swapped, far, missing).",
         [({"problem": problem}, number) for problem, number in counts.items()],
     )
     return out.render()

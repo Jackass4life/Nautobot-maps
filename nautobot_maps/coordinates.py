@@ -8,6 +8,7 @@ design (they are rows when every location is one).
 
 Problems, worst first:
 
+- ``invalid``: latitude beyond ±90 or longitude beyond ±180;
 - ``zero``: at 0,0, coordinates that were never set;
 - ``swapped``: far from the rest, but not when latitude and longitude swap;
 - ``far``: far from the rest (a hint to check: a lone site abroad is fine);
@@ -15,27 +16,41 @@ Problems, worst first:
 
 "Far" is more than ``max(FAR_MIN_KM, FAR_FACTOR × the median distance)``
 from the median point of every site with coordinates, so it scales with how
-spread out the network is.
+spread out the network is.  The median is taken per axis: a network across
+the 180° meridian gets a wrong centre (set ``MAP_DEFAULT_VIEW`` there, #362).
 """
 
 import math
 import statistics
 
-from nautobot_maps import status
+from nautobot_maps import scope, status
 
 FAR_MIN_KM = 2000
 FAR_FACTOR = 4
 # Fewer sites than this: no "far" (there is no "rest" to be far from).
 FAR_MIN_SITES = 3
 
-PROBLEM_ORDER = ("zero", "swapped", "far", "missing")
+PROBLEM_ORDER = ("invalid", "zero", "swapped", "far", "missing")
 REASONS = {
+    "invalid": "Impossible coordinates: latitude beyond ±90 or longitude beyond ±180",
     "zero": "At 0,0: the coordinates were never set",
     "swapped": "Far from the other sites, but not with latitude and longitude swapped",
     "far": "Far from the other sites: check the coordinates",
     "missing": "No coordinates: not on the map",
 }
-CSV_COLUMNS = ("site_id", "site", "path", "type", "status", "problem", "reason", "latitude", "longitude", "km_away")
+# (CSV column, item field).
+CSV_COLUMNS = (
+    ("site_id", "site_id"),
+    ("site", "name"),
+    ("path", "ancestor_path"),
+    ("type", "type"),
+    ("status", "status"),
+    ("problem", "problem"),
+    ("reason", "reason"),
+    ("latitude", "latitude"),
+    ("longitude", "longitude"),
+    ("km_away", "km_away"),
+)
 
 
 def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -54,29 +69,41 @@ def _coordinates(row: dict) -> tuple[float, float] | None:
     return (lat, lon) if math.isfinite(lat) and math.isfinite(lon) else None
 
 
-def check(rows: list[dict]) -> list[dict]:
-    """The rows with a coordinate problem, worst first, each
-    ``{**site fields, problem, reason, km_away}``."""
-    placed = [(row, point) for row in rows if (point := _coordinates(row)) is not None]
-    real = [(row, point) for row, point in placed if point != (0.0, 0.0)]
+def _valid(point: tuple[float, float]) -> bool:
+    return abs(point[0]) <= 90 and abs(point[1]) <= 180
+
+
+def _has_devices(row: dict) -> bool:
+    """Devices the board watches, in maintenance and down ones included: a
+    region or building above the sites has none."""
+    return any(row.get(field) for field in ("device_count", "maintenance_device_count", "down_device_count"))
+
+
+def check(rows: list[dict], page_scope=None) -> list[dict]:
+    """The rows with a coordinate problem, worst first, each the site's own
+    fields plus ``problem``, ``reason`` and ``km_away``; only those in
+    *page_scope* (``scope.read_scope``) when given."""
+    rows = [row for row in rows if scope.in_scope(row, page_scope)]
+    real = [p for row in rows if (p := _coordinates(row)) is not None and _valid(p) and p != (0.0, 0.0)]
     centre = limit = None
     if len(real) >= FAR_MIN_SITES:
-        centre = (statistics.median(p[0] for _, p in real), statistics.median(p[1] for _, p in real))
-        typical = statistics.median(distance_km(*point, *centre) for _, point in real)
+        centre = (statistics.median(p[0] for p in real), statistics.median(p[1] for p in real))
+        typical = statistics.median(distance_km(*point, *centre) for point in real)
         limit = max(FAR_MIN_KM, FAR_FACTOR * typical)
 
     problems = []
     for row in rows:
         point = _coordinates(row)
         km = None
-        if point is None:
-            # A region or building with no devices has none by design; a site with
-            # devices the board watches and the map can't show is the problem.
-            if not row.get("device_count"):
+        if point is not None and not _valid(point):
+            problem = "invalid"
+        elif point is None or point == (0.0, 0.0):
+            # A region or building with no devices has none by design (and 0,0
+            # is left out of the map's first view, #362); a site the board
+            # watches and the map can't show is the problem.
+            if not _has_devices(row):
                 continue
-            problem = "missing"
-        elif point == (0.0, 0.0):
-            problem = "zero"
+            problem = "missing" if point is None else "zero"
         elif limit is not None and (km := distance_km(*point, *centre)) > limit:
             lat, lon = point
             swapped_ok = abs(lon) <= 90 and distance_km(lon, lat, *centre) <= limit
@@ -85,23 +112,20 @@ def check(rows: list[dict]) -> list[dict]:
             continue
         problems.append(
             {
-                "site_id": row.get("id", ""),
-                "site": row.get("name", ""),
-                "path": row.get("ancestor_path") or row.get("parent") or "",
-                "type": row.get("location_type", ""),
-                "status": row.get("status", ""),
+                "site_id": row.get("id") or "",
+                "name": row.get("name") or "",
+                "ancestor_path": row.get("ancestor_path") or row.get("parent") or "",
+                "type": row.get("location_type") or "",
+                "status": row.get("status") or "",
                 "latitude": point[0] if point else None,
                 "longitude": point[1] if point else None,
                 "problem": problem,
                 "reason": REASONS[problem],
                 "km_away": round(km) if km is not None else None,
-                # For a map for some sites only (#367): what ?tenant= / ?q= match.
                 "tenants": status.site_tenants(row),
-                "physical_address": row.get("physical_address") or row.get("facility") or "",
-                "country": row.get("country", ""),
             }
         )
-    problems.sort(key=lambda item: (PROBLEM_ORDER.index(item["problem"]), item["site"].lower()))
+    problems.sort(key=lambda item: (PROBLEM_ORDER.index(item["problem"]), item["name"].lower()))
     return problems
 
 

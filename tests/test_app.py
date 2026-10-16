@@ -1655,6 +1655,9 @@ class TestIndex:
         assert 'href="/?tenant=Acme+Corp">Map</a>' in board
         plain = client.get("/").get_data(as_text=True)
         assert 'href="/alerts">Alert Board</a>' in plain
+        # Every q= stays, not only the first (#366: q= is repeatable).
+        twice = client.get("/?q=DNK&q=Aarhus").get_data(as_text=True)
+        assert 'href="/alerts?q=DNK&amp;q=Aarhus">Alert Board</a>' in twice
 
     def test_default_view_reaches_the_page(self, client, monkeypatch):
         """MAP_DEFAULT_VIEW (#362); empty: the map fits itself to the sites."""
