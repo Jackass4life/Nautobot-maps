@@ -14,8 +14,3 @@ export function fitToSites(map, locations) {
   if (!points.length) return;
   map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: FIT_MAX_ZOOM, animate: false });
 }
-
-// Whether a link (?location_id=) opens a site the map can fly to.
-export function linkedSiteOnMap(locations, locId) {
-  return Boolean(locId) && locations.some((loc) => loc.id === locId && loc.latitude != null && loc.longitude != null);
-}

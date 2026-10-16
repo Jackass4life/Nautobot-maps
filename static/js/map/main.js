@@ -22,7 +22,7 @@ import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js
 import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
 import { config, detailCache, els, state } from "./state.js";
-import { fitToSites, linkedSiteOnMap } from "./view.js";
+import { fitToSites } from "./view.js";
 
 const byId = (id) => document.getElementById(id);
 
@@ -214,10 +214,9 @@ async function loadLocations(levelsLoaded) {
     state.allLocations = data.locations || [];
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
     await levelsLoaded;
-    // Every site, not only the filtered ones; a link to a site flies there itself.
-    const linked = linkedSiteOnMap(state.allLocations, state.initialLocationId);
-    // No hand on the map yet: the loading overlay covers it until this is done.
-    if (!fixedView && !linked) fitToSites(state.map, state.allLocations);
+    // Every site, not only the filtered ones, before the markers are drawn; a
+    // link to a site flies on from here.  The loading overlay keeps hands off.
+    if (!fixedView) fitToSites(state.map, state.allLocations);
     populateFilters(state.allLocations);
     applyFilters();
   } catch (err) {

@@ -150,17 +150,15 @@ def _map_view(raw: str) -> tuple[float, float, int] | None:
     empty or not one: then the map fits itself to the sites."""
     if not raw:
         return None
-    parts = [part.strip() for part in raw.split(",")]
     try:
-        if len(parts) != 3:
-            raise ValueError
-        lat, lon, zoom = float(parts[0]), float(parts[1]), int(parts[2])
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180 and 1 <= zoom <= 19):
-            raise ValueError
+        lat, lon, zoom = (part.strip() for part in raw.split(","))
+        lat, lon, zoom = float(lat), float(lon), int(zoom)
+        if -90 <= lat <= 90 and -180 <= lon <= 180 and 1 <= zoom <= 19:
+            return lat, lon, zoom
     except ValueError:
-        logging.getLogger(__name__).warning("MAP_DEFAULT_VIEW ignored: expected lat,lon,zoom, e.g. 55.7,12.6,6")
-        return None
-    return lat, lon, zoom
+        pass
+    logging.getLogger(__name__).warning("MAP_DEFAULT_VIEW ignored: expected lat,lon,zoom, e.g. 55.7,12.6,6")
+    return None
 
 
 # A fixed first view of the map; None: fit it to the sites (#362).

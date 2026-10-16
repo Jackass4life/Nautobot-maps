@@ -2371,7 +2371,7 @@ class TestMapFirstViewInTheBrowser:
     def test_fit_and_fixed_view(self):
         run_js(
             """
-import { fitToSites, linkedSiteOnMap } from "@js/map/view.js";
+import { fitToSites } from "@js/map/view.js";
 
 setGlobal("L", { latLngBounds: (points) => ({ points }) });
 const fits = [];
@@ -2390,9 +2390,5 @@ check(fits[0].options.maxZoom === 10, "no closer than a city: " + fits[0].option
 
 fitToSites(map, [sites[1], sites[2]]);
 check(fits.length === 1, "no site to fit: the view stays");
-
-// A link flies to its site; one that can't (no coordinates, gone) gets the fit.
-check(linkedSiteOnMap(sites, "a"), "a site on the map");
-check(!linkedSiteOnMap(sites, "no-coordinates") && !linkedSiteOnMap(sites, "gone") && !linkedSiteOnMap(sites, null), "no site to fly to");
 """
         )
