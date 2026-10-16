@@ -791,7 +791,7 @@ body.inspector-open #map {
   border-bottom: 1px solid var(--color-border);
 }
 
-/* "Only Acme Corp · Show all sites" (#367), under the count. */
+/* "Only Acme Corp · Show all sites" (#367), at the top of the sidebar. */
 .map-scope {
   margin: 0;
   padding: 10px 16px;

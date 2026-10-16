@@ -40,6 +40,8 @@
       </div>
     </div>
 
+    <!-- A link for some sites only (?tenant=, ?q=, #367) says so, above everything else. -->
+    <p id="map-scope" class="map-scope" hidden>Only <strong id="map-scope-label"></strong> · <a href="/">Show all sites</a></p>
     <!-- The sites that need action, worst first, then newest (#334). -->
     <section id="alarm-section" aria-labelledby="alarm-title">
       <div class="alarm-header">
@@ -106,8 +108,6 @@
     </div>
 
     <div id="location-count"></div>
-    <!-- A link for some sites only (?tenant=, ?q=, #367) says so. -->
-    <p id="map-scope" class="map-scope" hidden>Only <strong id="map-scope-label"></strong> · <a href="/">Show all sites</a></p>
     <div id="alert-levels-note" class="alert-levels-note" role="status" hidden>
       Alert levels could not be loaded: markers are grey until they can be.
     </div>
