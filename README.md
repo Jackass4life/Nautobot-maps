@@ -12,7 +12,7 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 
 - **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom. Click a site for its devices, ASNs and circuits; search by address or `lat,lon` for sites within 5 km.
 - **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, the likely cause, downtime, tenants and case numbers. It opens on sites with alarms, the ones nobody is on first, and updates itself.
-- **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating.
+- **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating. A link with `?tenant=` / `?q=` gives a team its own wall, board and map, with **Copy wall link** on the board.
 - **Cases and ITSM**: attach a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
 - **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm. A history of every window, with CSV.
 - **Availability** per site and tenant for any period, with maintenance left out, and CSV exports down to every incident.

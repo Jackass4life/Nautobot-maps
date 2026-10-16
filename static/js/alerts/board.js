@@ -2,9 +2,17 @@
 import { formatCountdown } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
+import { SCOPE_NO_MATCH_HINT } from "../lib/scope.js";
 import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
-import { filtersInUse, getFilteredAlerts, isSiteExpanded, populateFilters, renderMoreFiltersLabel } from "./filters.js";
+import {
+  currentWallLink,
+  filtersInUse,
+  getFilteredAlerts,
+  isSiteExpanded,
+  populateFilters,
+  renderMoreFiltersLabel,
+} from "./filters.js";
 import { fullWidthRow, hasActiveAlarm, siteRowsHtml, summaryText } from "./rows.js";
 import { inScope, scopeLabel, scopeSummary } from "./scope.js";
 import { ALARM_LEVELS, config, els, state } from "./state.js";
@@ -69,7 +77,7 @@ export function emptyBoardText(payload) {
   // A link whose tenant= / q= matches nothing must not look like an all-clear (#364).
   if (config.scope && !state.allAlerts.length && (payload.alerts || []).length) {
     return {
-      text: `No site matches ${state.scopeLabel}. Check the link's tenant= and q=.`,
+      text: `No site matches ${state.scopeLabel}. ${SCOPE_NO_MATCH_HINT}`,
       className: "empty-state scope-no-match",
     };
   }
@@ -101,6 +109,7 @@ export function applyFilters(payload) {
   renderTableRows(filtered, payload);
   renderMoreFiltersLabel();
   if (els.clearAlertFiltersBtn) els.clearAlertFiltersBtn.hidden = !filtersInUse();
+  if (els.copyWallLinkBtn) els.copyWallLinkBtn.hidden = config.wallView || !currentWallLink();
 }
 
 function stopSyncPolling() {

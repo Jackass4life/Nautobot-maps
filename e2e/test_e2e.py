@@ -119,6 +119,28 @@ def test_a_wall_for_some_sites(page):
     assert page.locator(".all-clear").count() == 0
 
 
+def test_the_map_and_wall_link_for_some_sites(page):
+    """The map with ?tenant= (#367), and Copy wall link on a filtered board (#366)."""
+    page.goto(f"{BASE_URL}/?tenant=nordic%20net")
+    page.locator("#map-scope", has_text="Only Nordic Net").wait_for(timeout=20000)
+    count = page.locator("#location-count").inner_text()
+    assert int(count.split()[0]) < 9, count
+    assert page.locator(".app-nav-link", has_text="Alert Board").get_attribute("href") == "/alerts?tenant=nordic+net"
+    page.goto(f"{BASE_URL}/?q=nowhere-at-all")
+    page.locator("#map-scope.scope-no-match", has_text="No site matches").wait_for(timeout=20000)
+
+    page.goto(f"{BASE_URL}/alerts")
+    page.wait_for_selector(".site-row")
+    assert page.locator("#copy-wall-link").is_hidden()
+    page.evaluate(
+        "() => { window.__copied = []; navigator.clipboard.writeText = async (text) => { window.__copied.push(text); }; }"
+    )
+    page.locator("#filter-site").fill("London")
+    page.locator("#copy-wall-link").click()
+    page.locator("#copy-wall-link", has_text="Copied").wait_for()
+    assert page.evaluate("window.__copied") == [f"{BASE_URL}/alerts?view=wall&q=London"]
+
+
 def test_the_map_shows_markers(page):
     page.goto(f"{BASE_URL}/")
     page.locator(".leaflet-marker-icon").first.wait_for(timeout=20000)

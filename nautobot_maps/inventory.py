@@ -361,6 +361,33 @@ def read_location_name_map(conn=None) -> dict:
             conn.close()
 
 
+# Location paths (#178), for the board and the map (#367).
+PATH_SEPARATOR = " › "
+
+
+def location_chain(location_id: str, by_id: dict[str, dict]) -> list[dict]:
+    """*location_id* and its ancestors, nearest first (stops at unknown ids and cycles)."""
+    chain, seen = [], set()
+    while location_id and location_id in by_id and location_id not in seen:
+        seen.add(location_id)
+        chain.append(by_id[location_id])
+        location_id = by_id[location_id].get("parent_id") or ""
+    return chain
+
+
+def ancestor_path(loc: dict, by_id: dict[str, dict]) -> str:
+    """The Nautobot location path above *loc*, e.g. ``"EMEA › DNK"``."""
+    ancestors = location_chain(loc.get("parent_id") or "", by_id)
+    return PATH_SEPARATOR.join(a.get("name", "") for a in reversed(ancestors))
+
+
+def with_ancestor_paths(locations: list[dict], all_locations: list[dict]) -> list[dict]:
+    """*locations*, each with its ``ancestor_path`` (#178)."""
+    by_id = {loc.get("id"): loc for loc in all_locations if loc.get("id")}
+    # read_locations has worked them out already (#367).
+    return [loc if "ancestor_path" in loc else {**loc, "ancestor_path": ancestor_path(loc, by_id)} for loc in locations]
+
+
 def read_locations(include_without_coordinates: bool = False, conn=None) -> list:
     owns_conn = conn is None
     if owns_conn:
@@ -379,9 +406,11 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
         ).fetchall()
         related_tenants = read_location_tenant_links(conn)
         tenant_descriptions = read_tenant_descriptions(conn)
+        rows = [db.row_to_dict(row) for row in rows]
+        # Every location, with coordinates or not, for the paths above them (#367).
+        by_id = {data["location_id"]: data for data in rows if data.get("location_id")}
         locations = []
-        for row in rows:
-            data = db.row_to_dict(row)
+        for data in rows:
             lat = data.get("latitude")
             lon = data.get("longitude")
             has_coordinates = lat is not None and lon is not None
@@ -397,6 +426,8 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
                     "location_type": data.get("location_type", ""),
                     "parent": data.get("parent", ""),
                     "parent_id": data.get("parent_id", ""),
+                    # "EMEA › DNK", as on the board, so a link's ?q= finds the same sites (#367).
+                    "ancestor_path": ancestor_path(data, by_id),
                     "latitude": lat,
                     "longitude": lon,
                     "description": data.get("description", ""),
@@ -1204,7 +1235,14 @@ def get_locations(include_without_coordinates: bool = False, snapshot_only: bool
     if cached:
         return cached
     raw = nautobot.fetch_all_pages("dcim/locations/")
-    locations = normalize_locations(raw, include_without_coordinates=include_without_coordinates)
+    # Every location, for the paths above them (#367) as read_locations has;
+    # then only those with coordinates unless asked for all.
+    everywhere = normalize_locations(raw, include_without_coordinates=True)
+    locations = [
+        loc
+        for loc in with_ancestor_paths(everywhere, everywhere)
+        if include_without_coordinates or (loc.get("latitude") is not None and loc.get("longitude") is not None)
+    ]
     # Without the database (a map-only setup) the tenant (i) still works (#263).
     descriptions = live_tenant_descriptions()
     for loc in locations:

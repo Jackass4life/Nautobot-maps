@@ -5,7 +5,11 @@
 export const els = {};
 
 // Settings from the server (templates/index.html, #197).
-export const config = { nautobotUrl: "" };
+export const config = {
+  nautobotUrl: "",
+  // ?tenant= / ?q= on the link: these sites only, or null (#367).
+  scope: null,
+};
 
 export const state = {
   // The Leaflet map; the pins of sites that need attention (and search

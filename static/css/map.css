@@ -791,6 +791,27 @@ body.inspector-open #map {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* "Only Acme Corp · Show all sites" (#367), at the top of the sidebar. */
+.map-scope {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.map-scope a {
+  color: var(--color-text);
+}
+
+/* A link that matches no site: a warning, not an empty map with no reason.
+   Amber as a bar, the text in the text colour: amber text is too faint on white. */
+.map-scope.scope-no-match {
+  color: var(--color-text);
+  font-weight: 700;
+  border-left: 6px solid var(--color-warning);
+}
+
 .alert-levels-note {
   margin: 0 16px 12px;
   padding: 8px 10px;

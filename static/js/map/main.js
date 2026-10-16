@@ -3,11 +3,20 @@
 // module that looks at the page when it loads (#294).  Leaflet (L) is loaded
 // before this, as a plain script.
 import { getJson } from "../lib/http.js";
+import { inScope, readScope } from "../lib/scope.js";
 import { initThemeToggle } from "../lib/theme.js";
 import { showError } from "../lib/toast.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { renderAlarmList, toggleAlarmList } from "./alarms.js";
-import { applyFilters, clearFilters, populateFilters, restoreAlarmsOnly, setAlarmsOnly } from "./filters.js";
+import {
+  applyFilters,
+  clearFilters,
+  linkedSiteOutOfScope,
+  populateFilters,
+  restoreAlarmsOnly,
+  setAlarmsOnly,
+  showScope,
+} from "./filters.js";
 import {
   closeInspector,
   handleMarkerActivation,
@@ -33,6 +42,8 @@ initInfoTips();
 const appConfig = byId("app-config")?.dataset || {};
 config.nautobotUrl = appConfig.nautobotUrl || "";
 state.initialLocationId = new URLSearchParams(window.location.search).get("location_id");
+// ?tenant= (repeatable) and ?q=: the map for some sites only, as the board (#367).
+config.scope = readScope(window.location.search);
 
 // The whole world until the sites are in, unless a fixed view is set (#362).
 const fixedView = Boolean(appConfig.viewZoom);
@@ -74,6 +85,7 @@ Object.assign(els, {
   filterTenantGroup: byId("filter-tenant-group"),
   quickStatusButtons: Array.from(document.querySelectorAll("[data-quick-status]")),
   locationCount: byId("location-count"),
+  mapScope: byId("map-scope"),
   searchInput: byId("search-input"),
   searchBtn: byId("search-btn"),
   searchResults: byId("search-results"),
@@ -211,7 +223,14 @@ async function loadLocations(levelsLoaded) {
   showLoading(true, "Loading locations from Nautobot…");
   try {
     const data = await getJson("/api/locations");
-    state.allLocations = data.locations || [];
+    const everySite = data.locations || [];
+    // Only the sites the link asks for: the markers, alarm list, filters,
+    // count and first view all follow from here (#367).
+    state.allLocations = everySite.filter((loc) => inScope(loc, config.scope));
+    showScope(everySite.length);
+    if (linkedSiteOutOfScope(everySite)) {
+      showError("The linked site isn't among the sites this link shows (tenant= / q=): Show all sites to open it.");
+    }
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
     await levelsLoaded;
     // Every site, not only the filtered ones, before the markers are drawn; a

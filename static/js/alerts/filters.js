@@ -1,5 +1,6 @@
 // Which sites the board shows, in which order (#294).
-import { formatLocationAddress, hasActiveAlarm, severityWeight, siteCaseState, siteTenants } from "./rows.js";
+import { siteSearchText, siteTenants } from "../lib/scope.js";
+import { hasActiveAlarm, severityWeight, siteCaseState } from "./rows.js";
 import { DEFAULT_SEVERITY_FILTER, DEFAULT_SORT, SORT_KEY, config, els, state } from "./state.js";
 
 function populateSelect(selectEl, values, label) {
@@ -106,11 +107,6 @@ export function caseSortRank(item) {
   return siteCaseState(item).state === "handled" ? 1 : 0;
 }
 
-// What the filter box (and a link's ?q=) searches: name, path, address, country.
-export function siteSearchText(item) {
-  return [item.name, item.ancestor_path || item.parent, formatLocationAddress(item), item.country].join(" ").toLowerCase();
-}
-
 // The sites that pass *criteria*, sorted: {site (search text), status, type,
 // tenant, sort, severityFilter, wallView}.
 export function filterSites(sites, criteria) {
@@ -144,6 +140,25 @@ export function getFilteredAlerts() {
     severityFilter: state.severityFilter,
     wallView: config.wallView,
   });
+}
+
+// The wall for the sites the board shows (#366): the tenant menu, else the
+// link's tenants; the link's q= words and the filter box (every one must
+// match, as on the board).  null when nothing narrows the board.
+export function wallLinkFor({ tenant, text, scope }) {
+  const params = new URLSearchParams({ view: "wall" });
+  (tenant ? [tenant] : scope?.tenants || []).forEach((name) => params.append("tenant", name));
+  [...(scope?.texts || []), (text || "").trim()].filter(Boolean).forEach((q) => params.append("q", q));
+  return params.has("tenant") || params.has("q") ? `/alerts?${params}` : null;
+}
+
+// Board filters a wall can't take: it shows alarms, whatever their status or type.
+export function filtersLeftOffTheWall() {
+  return [els.filterStatus?.value && "Status", els.filterType?.value && "Type"].filter(Boolean);
+}
+
+export function currentWallLink() {
+  return wallLinkFor({ tenant: els.filterTenant.value, text: els.filterSite.value, scope: config.scope });
 }
 
 // "More filters (2)": the hidden filters say when they are in use.

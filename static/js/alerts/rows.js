@@ -4,6 +4,7 @@ import { casePill } from "../lib/cases.js";
 import { formatDuration, formatFeedTime } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { maintenanceHistoryHref } from "../lib/maintenance-form.js";
+import { formatLocationAddress, siteTenants } from "../lib/scope.js";
 import { ALARM_LEVELS, SEVERITY_ORDER } from "./state.js";
 
 // The board's columns (templates/alerts.html), for rows that span them all.
@@ -163,10 +164,6 @@ export function maintenanceNote(until, reason) {
   return [when ? `until ${when}` : "", reason || ""].filter(Boolean).map(escHtml).join(" · ");
 }
 
-export function formatLocationAddress(item) {
-  return item.physical_address || item.facility || "";
-}
-
 // A time with what it means (#275): "in alarm 3h 40m" for a site (since its
 // first currently-down device went down; one device may be down) and "down
 // 25m" for a device.  A bare "Downtime 24h" read as "the site was down".
@@ -245,13 +242,6 @@ export function renderDownDeviceRows(item, isExpanded, extraClass) {
     </tr>
   `).join("");
   return rows;
-}
-
-// Every tenant of the site: its own, then those linked by a Nautobot
-// Relationship (#238).  Boards cached before #238 only have `tenant`.
-export function siteTenants(item) {
-  if (Array.isArray(item.tenants) && item.tenants.length) return item.tenants;
-  return item.tenant ? [item.tenant] : [];
 }
 
 // A tenant name, with an (i) for its Nautobot description when it has one.

@@ -25,7 +25,7 @@
         <h1>Alert Board</h1>
       </div>
       <nav class="app-nav" aria-label="Primary">
-        <a class="app-nav-link" href="/">Map</a>
+        <a class="app-nav-link" href="/{{ '?' ~ scope_query if scope_query }}">Map</a>
         <a class="app-nav-link active" href="/alerts" aria-current="page">Alert Board</a>
         <a class="app-nav-link" href="/availability" title="Availability per site and tenant, by month">Availability</a>
         <a class="app-nav-link" href="/maintenance" title="Current and planned maintenance, and planning more">Maintenance</a>
@@ -57,6 +57,8 @@
         </select>
         <button id="more-filters-toggle" class="secondary-filter-btn" type="button" aria-expanded="false" aria-controls="more-filters">More filters</button>
         <button class="secondary-filter-btn" type="button" id="clear-alert-filters" hidden>Reset</button>
+        <!-- The wall for what the board shows (#366). -->
+        <button class="secondary-filter-btn" type="button" id="copy-wall-link" hidden title="Copy the link to a wall screen of these sites">Copy wall link</button>
       </div>
       <div id="more-filters" class="more-filters" hidden>
         <select id="sort-by" aria-label="Sort">
