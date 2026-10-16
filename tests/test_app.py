@@ -1623,6 +1623,35 @@ class TestIndex:
         assert config["tile-url"] == "https://tiles.internal/{z}/{x}/{y}.png"
         assert config["tile-attribution"] == '<a href="https://x">"Ours" & co</a>'
 
+    def test_default_view_reaches_the_page(self, client, monkeypatch):
+        """MAP_DEFAULT_VIEW (#362); empty: the map fits itself to the sites."""
+        config = self._app_config(client.get("/"))
+        assert (config["view-lat"], config["view-lon"], config["view-zoom"]) == ("", "", "")
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", (55.7, 12.6, 6))
+        config = self._app_config(client.get("/"))
+        assert (config["view-lat"], config["view-lon"], config["view-zoom"]) == ("55.7", "12.6", "6")
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("", None),
+            ("55.7, 12.6, 6", (55.7, 12.6, 6)),
+            ("-33.9,151.2,10", (-33.9, 151.2, 10)),
+            ("55.7,12.6", None),
+            ("55.7,12.6,6,1", None),
+            ("91,0,5", None),
+            ("0,181,5", None),
+            ("55.7,12.6,0", None),
+            ("55.7,12.6,20", None),
+            ("55.7,12.6,6.5", None),
+            ("Copenhagen", None),
+            ("nan,0,5", None),
+        ],
+    )
+    def test_default_view_is_checked(self, raw, expected, caplog):
+        assert settings._map_view(raw) == expected
+        assert ("MAP_DEFAULT_VIEW ignored" in caplog.text) == (bool(raw) and expected is None)
+
 
 # ---------------------------------------------------------------------------
 # Tests: caching

@@ -143,6 +143,26 @@ MAP_TILE_ATTRIBUTION = (
     os.getenv("MAP_TILE_ATTRIBUTION", "").strip()
     or '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 )
+
+
+def _map_view(raw: str) -> tuple[float, float, int] | None:
+    """MAP_DEFAULT_VIEW "lat,lon,zoom" (#362) as (lat, lon, zoom), or None when
+    empty or not one: then the map fits itself to the sites."""
+    if not raw:
+        return None
+    try:
+        lat, lon, zoom = (part.strip() for part in raw.split(","))
+        lat, lon, zoom = float(lat), float(lon), int(zoom)
+        if -90 <= lat <= 90 and -180 <= lon <= 180 and 1 <= zoom <= 19:
+            return lat, lon, zoom
+    except ValueError:
+        pass
+    logging.getLogger(__name__).warning("MAP_DEFAULT_VIEW ignored: expected lat,lon,zoom, e.g. 55.7,12.6,6")
+    return None
+
+
+# A fixed first view of the map; None: fit it to the sites (#362).
+MAP_DEFAULT_VIEW = _map_view(os.getenv("MAP_DEFAULT_VIEW", "").strip())
 GEOCODER_ENABLED = _flag("GEOCODER_ENABLED", True)
 GEOCODER_URL = os.getenv("GEOCODER_URL", "").strip().rstrip("/") or "https://nominatim.openstreetmap.org"
 GEOCODER_USER_AGENT = (

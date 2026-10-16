@@ -306,7 +306,9 @@ def test_the_map_at_scale(page):
     loaded = time.monotonic() - started
     clusters = page.locator(".leaflet-marker-icon:has(.quiet-cluster)")
     assert alarm_pins.count() == 28, alarm_pins.count()
-    assert 0 < clusters.count() < 60, f"{clusters.count()} clusters at the first zoom"
+    # The map opens fitted to the sites (#362): this even grid of 1,200 makes
+    # about 80 clusters, some 15 sites each, rather than a dot per site.
+    assert 0 < clusters.count() < 100, f"{clusters.count()} clusters at the first zoom"
     assert loaded < 10, f"{loaded:.1f} s to show 1,200 sites"
     # No cluster wears an alarm colour: the alarms are the pins.
     for colour in ("#e74c3c", "#ff8c00", "#eab308"):

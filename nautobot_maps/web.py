@@ -194,6 +194,7 @@ def index():
         nautobot_url=settings.NAUTOBOT_URL,
         tile_url=settings.MAP_TILE_URL,
         tile_attribution=settings.MAP_TILE_ATTRIBUTION,
+        view=settings.MAP_DEFAULT_VIEW,
     )
 
 

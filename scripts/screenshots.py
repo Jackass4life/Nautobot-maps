@@ -95,10 +95,6 @@ def shoot(page, out, name):
 def open_map(page, base):
     page.goto(base + "/")
     page.wait_for_selector("#alarm-list li", timeout=60000)
-    # The map opens on the whole world: zoom in on Europe, as an operator would.
-    page.mouse.move(WIDTH * 0.64, HEIGHT * 0.12)
-    page.mouse.wheel(0, -100)
-    page.wait_for_timeout(1000)  # the zoom
     page.wait_for_load_state("networkidle")  # the tiles
 
 

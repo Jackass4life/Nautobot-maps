@@ -22,6 +22,7 @@ import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js
 import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
 import { config, detailCache, els, state } from "./state.js";
+import { fitToSites } from "./view.js";
 
 const byId = (id) => document.getElementById(id);
 
@@ -33,9 +34,11 @@ const appConfig = byId("app-config")?.dataset || {};
 config.nautobotUrl = appConfig.nautobotUrl || "";
 state.initialLocationId = new URLSearchParams(window.location.search).get("location_id");
 
+// The whole world until the sites are in, unless a fixed view is set (#362).
+const fixedView = Boolean(appConfig.viewZoom);
 state.map = L.map("map", {
-  center: [20, 0],
-  zoom: 3,
+  center: fixedView ? [Number(appConfig.viewLat), Number(appConfig.viewLon)] : [20, 0],
+  zoom: fixedView ? Number(appConfig.viewZoom) : 3,
   preferCanvas: true,
 });
 
@@ -211,6 +214,9 @@ async function loadLocations(levelsLoaded) {
     state.allLocations = data.locations || [];
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
     await levelsLoaded;
+    // Every site, not only the filtered ones, before the markers are drawn; a
+    // link to a site flies on from here.  The loading overlay keeps hands off.
+    if (!fixedView) fitToSites(state.map, state.allLocations);
     populateFilters(state.allLocations);
     applyFilters();
   } catch (err) {
