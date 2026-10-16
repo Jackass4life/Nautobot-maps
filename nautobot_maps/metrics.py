@@ -189,3 +189,14 @@ def inventory_sync_age_seconds(conn) -> int | None:
     if succeeded is None:
         return None
     return max(0, int(datetime.now(UTC).timestamp() - succeeded))
+
+
+def coordinate_problems(counts: dict[str, int]) -> str:
+    """The board's sites with missing or wrong coordinates, by problem (#368)."""
+    out = Exposition()
+    out.gauge(
+        "nautobot_maps_sites_coordinate_problems",
+        "Alert board sites with missing or wrong coordinates, by problem (zero, swapped, far, missing).",
+        [({"problem": problem}, number) for problem, number in counts.items()],
+    )
+    return out.render()

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Sites with missing or wrong coordinates** (#368): the map says how many of the board's sites aren't on it or may be misplaced (at 0,0, latitude and longitude swapped, far from the rest), with a list to fix them in Nautobot and a CSV; `GET /api/locations/coordinate-check` (and `.csv`), `nautobot_maps_sites_coordinate_problems` on /metrics. See docs/operations.md
 - **The map for some sites only, and Copy wall link** (#366, #367): the map takes the board's `?tenant=` / `?q=` (`/?tenant=Acme%20Corp&q=DNK`) with "Only … · Show all sites", and the Map, Alert Board and Wall view links keep it; **Copy wall link** on a filtered board copies the wall's address for those sites. `/api/locations` adds each site's `ancestor_path`
 - **A wall or board for some sites only** (#364): `tenant=` (repeatable) and `q=` (site, path, address, country) on the link, e.g. `/alerts?view=wall&tenant=Acme%20Corp&q=DNK`; the wall's top line names the filter, and its counts and sound cover only those sites; the board says "Only … · Show all sites"
 - **Screenshots and a short clip in the README**, taken from a new scale demo: `MOCK_SCALE=1200` gives the mock Nautobot 1,200 more sites (about 9,600 devices, 27 in alarm, a core outage with 34 devices down), the same on every start ([demo](demo/README.md)); `scripts/screenshots.py` takes the pictures again

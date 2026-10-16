@@ -132,6 +132,7 @@ Rolling back to an older release after its database was migrated is refused at s
 | `nautobot_maps_board_build_last_duration_seconds{trigger}` | How long the last build took |
 | `nautobot_maps_table_bytes{table}` / `nautobot_maps_table_rows_estimate{table}` | Each table's size on disk (with indexes) and PostgreSQL's row estimate ([growth](#backup-and-restore)) |
 | `nautobot_maps_history_oldest_timestamp_seconds` | The oldest site level change kept: how far back history goes |
+| `nautobot_maps_sites_coordinate_problems{problem}` | Board sites with missing or wrong coordinates: `zero`, `swapped`, `far`, `missing` ([below](#sites-with-missing-or-wrong-coordinates)) |
 | `nautobot_maps_contract_mismatches{source,endpoint,field}` | Records of the last sync whose field didn't match the [data contract](data-contract.md); 0 series when all match |
 
 `source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full sync) or `librenms_inventory`. Request counts and response times are in the access log. `/metrics` needs no sign-in, even with `AUTH_REQUIRE_VIEWER=true`, since it holds only counts (no site or device names); set `METRICS_ENABLED=false` if even those should stay private.
@@ -152,3 +153,17 @@ An example alert, for a sync interval of 5 minutes:
   annotations:
     summary: "No successful Nautobot inventory sync for 15 minutes; the alert board shows old data"
 ```
+
+## Sites with missing or wrong coordinates
+
+A site without coordinates is missing from the map, and one with wrong coordinates pulls the map's first view out over the sea (#368). The map shows a line under its count when the alert board has any, e.g. "12 sites aren't on the map · 2 may be misplaced · **Check**"; **Check** lists them worst first (the first 50, the rest in the CSV), each with a link to fix it in Nautobot and **Show** for those on the map.
+
+| Problem | Meaning |
+|---|---|
+| `zero` | At 0,0: the coordinates were never set |
+| `swapped` | Far from the other sites, but not with latitude and longitude swapped |
+| `far` | More than 2,000 km, or 4 × the median distance if the network is wider, from the median of all sites: check it (a lone site abroad can be right) |
+| `missing` | No coordinates: on the board, not on the map |
+
+Only the board's sites are checked: regions, countries and floors have no coordinates by design. It reads the stored board, so it costs no Nautobot call. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`. On a map for some sites only (`?tenant=`, `?q=`), the line covers those sites.
+
