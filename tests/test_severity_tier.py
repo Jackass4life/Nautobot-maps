@@ -26,6 +26,8 @@ class TestThresholds:
         assert alerts.compute_alert_level(devices(2, 4), override_map={})["level"] == "medium"
         assert alerts.compute_alert_level(devices(3, 4), override_map={})["level"] == "medium"
         assert alerts.compute_alert_level(devices(4, 4), override_map={})["level"] == "critical"
+        definitions = alerts.alert_level_definitions()
+        assert "More than 25%" in definitions["medium"] and "25% or fewer" in definitions["low"]
 
     def test_configured(self, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_MEDIUM_PERCENT", 50)

@@ -1,4 +1,5 @@
-// An HTML error page (a proxy's 502, say) as its words, not its markup (#350).
+// An HTML error page (a proxy's 502, say) as its words, not its markup (#350);
+// the first 200 characters are enough for a toast.
 function pageText(html) {
   return html
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")

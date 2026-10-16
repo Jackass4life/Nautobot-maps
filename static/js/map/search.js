@@ -46,12 +46,8 @@ export async function doSearch() {
 
     searchResults.classList.remove("hidden");
   } catch (err) {
-    if (!err.payload) {
-      showError("Search error: " + err.message);
-      return;
-    }
-    // The API's answer: its own message ("Address not found: …") (#350).
-    showError(err.payload.error ? err.message : `Search failed (${err.message})`);
+    // The API's own message ("Address not found: …") as it is (#350).
+    showError(err.payload?.error ? err.message : "Search failed: " + err.message);
     searchResults.classList.add("hidden");
     renderMarkers(state.allLocations);
   } finally {

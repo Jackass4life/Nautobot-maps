@@ -1,7 +1,7 @@
 // Loading and drawing the alert board (#294).
 import { formatCountdown } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
-import { readJsonResponse } from "../lib/http.js";
+import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
 import { filtersInUse, getFilteredAlerts, isSiteExpanded, populateFilters, renderMoreFiltersLabel } from "./filters.js";
@@ -155,12 +155,8 @@ export async function loadAlertBoard(forceRefresh = false, { background = false 
     if (forceRefresh) params.set("refresh", "1");
     if (els.toggleNonOperational?.checked) params.set("include_non_operational", "1");
     const query = params.toString();
-    const resp = await fetch(`/api/alerts${query ? `?${query}` : ""}`, { cache: "no-store" });
-    const payload = await readJsonResponse(resp);
+    const payload = await getJson(`/api/alerts${query ? `?${query}` : ""}`);
     if (seq !== loadSeq) return; // A newer load started meanwhile.
-    if (!resp.ok || payload.error) {
-      throw new Error(payload.error || resp.statusText || `HTTP ${resp.status}`);
-    }
     state.latestPayload = payload;
     state.allAlerts = payload.alerts || [];
     state.lastLoadedAt = Date.now();

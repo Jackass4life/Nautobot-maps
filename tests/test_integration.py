@@ -1966,13 +1966,12 @@ check(toast.textContent === "502 Bad Gateway 502 Bad Gateway", toast.textContent
 
 globalThis.fetch = async () => new Response("", { status: 503 });
 await doSearch();
-check(toast.textContent === "Search failed (HTTP 503)", toast.textContent);
+check(toast.textContent === "Search failed: HTTP 503", toast.textContent);
 
-// Offline: the last results stay.
 els.searchResults.classList.remove("hidden");
 globalThis.fetch = async () => { throw new Error("offline"); };
 await doSearch();
-check(toast.textContent === "Search error: offline" && !els.searchResults.classList.contains("hidden"), toast.textContent);
+check(toast.textContent === "Search failed: offline" && els.searchResults.classList.contains("hidden"), toast.textContent);
 
 globalThis.fetch = async () => page.clone();
 let failed = null;
