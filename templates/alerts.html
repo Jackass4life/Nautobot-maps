@@ -41,6 +41,8 @@
         <span id="summary-line-text">Loading…</span>
         <span class="info-tip" tabindex="0" role="img" aria-label="Alert levels: Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}" data-info-tip="Critical: {{ tier_definitions['critical'] }} Medium: {{ tier_definitions['medium'] }} Low: {{ tier_definitions['low'] }}">i</span>
       </p>
+      <!-- A link for some sites only (?tenant=, ?q=, #364) says so. -->
+      <p id="board-scope" class="board-scope" hidden>Only <strong id="board-scope-label"></strong> · <a href="/alerts">Show all sites</a></p>
       <div class="severity-chips" role="group" aria-label="Show sites">
         {%- for key, filter, label in [("alarms", "alarms", "Alarms"), ("total", "all", "All sites"), ("no_data", "no_data", "No data"), ("maintenance", "maintenance", "Maintenance")] %}
         <button class="severity-chip" type="button" data-severity-filter="{{ filter }}" aria-pressed="{{ 'true' if key == 'alarms' else 'false' }}" title="{{ tier_definitions[key] }}">{{ label }} <strong id="summary-{{ key }}">0</strong></button>

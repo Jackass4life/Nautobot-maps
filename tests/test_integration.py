@@ -2392,3 +2392,72 @@ fitToSites(map, [sites[1], sites[2]]);
 check(fits.length === 1, "no site to fit: the view stays");
 """
         )
+
+
+class TestScopedBoardInTheBrowser:
+    """?tenant= (repeatable) and ?q=: a board or wall for some sites only (#364)."""
+
+    def test_scope_from_the_link(self):
+        run_js(
+            """
+import { inScope, readScope, scopeLabel, scopeSummary } from "@js/alerts/scope.js";
+
+check(readScope("") === null && readScope("?view=wall") === null && readScope("?tenant=+&q=") === null, "no scope");
+const scope = readScope("?view=wall&tenant=acme%20corp&tenant=Nordic%20Net&q=DNK");
+check(JSON.stringify(scope) === '{"tenants":["acme corp","Nordic Net"],"text":"DNK"}', JSON.stringify(scope));
+check(scopeLabel(scope) === "acme corp, Nordic Net · “DNK”", scopeLabel(scope));
+check(scopeLabel(readScope("?q=EMEA")) === "“EMEA”", scopeLabel(readScope("?q=EMEA")));
+
+const aarhus = { name: "Aarhus", ancestor_path: "EMEA › DNK", tenant: "Acme Corp", alert_level: "critical" };
+const oslo = { name: "Oslo", ancestor_path: "EMEA › NOR", tenant: "Nordic Net", alert_level: "low" };
+const lyon = { name: "Lyon", ancestor_path: "EMEA › FRA", tenant: "EuroIX", alert_level: "maintenance" };
+check(inScope(aarhus, scope) && !inScope(oslo, scope) && !inScope(lyon, scope), "tenants (any, any case) and the path");
+const tenants = readScope("?tenant=ACME%20CORP&tenant=nordic%20net");
+check(inScope(aarhus, tenants) && inScope(oslo, tenants) && !inScope(lyon, tenants), "either tenant");
+check(inScope(lyon, null), "no scope: every site");
+
+const summary = scopeSummary([aarhus, oslo, lyon, { name: "x" }]);
+check(summary.total === 4 && summary.critical === 1 && summary.low === 1 && summary.medium === 0
+  && summary.maintenance === 1 && summary.no_data === 1 && summary.non_ok === 2, JSON.stringify(summary));
+"""
+        )
+
+    def test_board_and_wall_show_only_those_sites(self):
+        run_js(
+            """
+import { loadAlertBoard } from "@js/alerts/board.js";
+import { readScope } from "@js/alerts/scope.js";
+import { config, els, state } from "@js/alerts/state.js";
+import { renderWallStatus } from "@js/alerts/wall.js";
+
+const names = ["boardStatus", "alertsTableBody", "refreshBtn", "filterSite", "filterStatus", "filterType",
+  "filterTenant", "sortBy", "summaryAlarms", "summaryNoData", "summaryMaintenance", "summaryTotal", "wallUpdatedEl"];
+names.forEach((name) => { els[name] = element(name); });
+els.sortBy.value = "newest";
+const sites = [
+  { id: "a", name: "Aarhus", tenant: "Acme Corp", alert_level: "critical", down_device_count: 1, down_devices: [{ device_name: "a1" }] },
+  { id: "c", name: "Copenhagen", tenant: "Acme Corp", alert_level: "ok" },
+  { id: "o", name: "Oslo", tenant: "Nordic Net", alert_level: "medium", down_device_count: 2, down_devices: [{ device_name: "o1" }] },
+];
+// The server's summary counts every site; the scoped board counts its own.
+const payload = { alerts: sites, summary: { total: 3, critical: 1, medium: 1, non_ok: 2 } };
+globalThis.fetch = async () => new Response(JSON.stringify(payload));
+
+config.wallView = true;
+config.scope = readScope("?view=wall&tenant=Acme%20Corp");
+await loadAlertBoard(false, { background: true });
+check(state.allAlerts.map((s) => s.id).join() === "a,c", state.allAlerts.map((s) => s.id).join());
+check(els.summaryAlarms.textContent === 1 && els.summaryTotal.textContent === 2,
+  `alarms ${els.summaryAlarms.textContent}, total ${els.summaryTotal.textContent}`);
+check(els.alertsTableBody.innerHTML.includes("Aarhus") && !els.alertsTableBody.innerHTML.includes("Oslo"), "rows");
+renderWallStatus(state.lastLoadedAt);
+check(els.wallUpdatedEl.textContent.startsWith("Acme Corp · Updated ")
+  && els.wallUpdatedEl.textContent.includes("1 site with alarms"), els.wallUpdatedEl.textContent);
+
+// Nothing in alarm for that tenant: the wall says for whom.
+config.scope = readScope("?view=wall&tenant=Nobody");
+await loadAlertBoard(false, { background: true });
+check(els.alertsTableBody.innerHTML.includes("No active alarms for Nobody."), els.alertsTableBody.innerHTML);
+""",
+            tz="UTC",
+        )

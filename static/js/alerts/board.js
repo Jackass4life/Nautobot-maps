@@ -6,6 +6,7 @@ import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
 import { filtersInUse, getFilteredAlerts, isSiteExpanded, populateFilters, renderMoreFiltersLabel } from "./filters.js";
 import { fullWidthRow, hasActiveAlarm, siteRowsHtml, summaryText } from "./rows.js";
+import { inScope, scopeLabel, scopeSummary } from "./scope.js";
 import { ALARM_LEVELS, config, els, state } from "./state.js";
 import { announceNewAlarms, renderWallStatus, showWallError } from "./wall.js";
 
@@ -68,7 +69,7 @@ export function emptyBoardText(payload) {
   if (state.severityFilter === "alarms" && !state.allAlerts.some(hasActiveAlarm)) {
     return {
       text: config.wallView
-        ? "No active alarms."
+        ? `No active alarms${config.scope ? ` for ${scopeLabel(config.scope)}` : ""}.`
         : "No site has an active alarm. Choose All sites to see every site.",
       className: "empty-state all-clear",
     };
@@ -158,11 +159,12 @@ export async function loadAlertBoard(forceRefresh = false, { background = false 
     const payload = await getJson(`/api/alerts${query ? `?${query}` : ""}`);
     if (seq !== loadSeq) return; // A newer load started meanwhile.
     state.latestPayload = payload;
-    state.allAlerts = payload.alerts || [];
+    // Only the sites a link's ?tenant= / ?q= asks for (#364).
+    state.allAlerts = (payload.alerts || []).filter((item) => inScope(item, config.scope));
     state.lastLoadedAt = Date.now();
     if (els.wallErrorEl) els.wallErrorEl.hidden = true;
     populateFilters(state.allAlerts);
-    renderSummary(payload.summary || {});
+    renderSummary(config.scope ? scopeSummary(state.allAlerts) : payload.summary || {});
     applyFilters(payload);
     if (config.wallView) announceNewAlarms(state.allAlerts);
     scheduleSyncPoll(payload);

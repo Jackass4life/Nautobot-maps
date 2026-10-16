@@ -12,6 +12,7 @@ import { FEED_COLLAPSED_KEY, feedStartsCollapsed, loadFeed, rememberFeedCollapse
 import { rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
 import { initMaintenancePanel, openMaintenancePanel } from "./maintenance.js";
 import { closeSidePanel, copySite, initPanels, openHistory, openPanel } from "./panels.js";
+import { readScope, scopeLabel } from "./scope.js";
 import { DEFAULT_SEVERITY_FILTER, DEFAULT_SORT, config, els, state } from "./state.js";
 import { WALL_RELOAD_MS, initWallSound, renderWallStatus } from "./wall.js";
 
@@ -71,6 +72,22 @@ Object.assign(els, {
 const appConfig = byId("app-config")?.dataset || {};
 config.nautobotUrl = appConfig.nautobotUrl || "";
 config.wallView = document.body.classList.contains("wall-view");
+// ?tenant= (repeatable) and ?q=: a board or wall for some sites only (#364).
+config.scope = readScope(window.location.search);
+if (config.scope) {
+  const label = byId("board-scope-label");
+  if (label) {
+    label.textContent = scopeLabel(config.scope);
+    byId("board-scope").hidden = false;
+  }
+  // From the wall, the operator view of the same sites.
+  const exit = document.querySelector(".wall-exit");
+  if (exit) {
+    const params = new URLSearchParams(window.location.search);
+    params.delete("view");
+    exit.href = `/alerts?${params}`;
+  }
+}
 // "https://itsm.example.com/ticket/{case}" (#289); "" when not set.
 setCaseUrlTemplate(appConfig.caseUrlTemplate || "");
 

@@ -140,6 +140,14 @@ html, body {
   margin-bottom: 18px;
 }
 
+/* "Only Acme Corp · Show all sites" (#364): its own line under the summary. */
+.board-scope {
+  order: 3;
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
 .summary-line {
   display: flex;
   align-items: center;
