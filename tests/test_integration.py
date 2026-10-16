@@ -2472,6 +2472,12 @@ config.scope = readScope("?view=wall&tenant=Acme%20Crop");
 await loadAlertBoard(false, { background: true });
 const empty = els.alertsTableBody.innerHTML;
 check(empty.includes("No site matches Acme Crop. Check the link") && empty.includes("scope-no-match") && !empty.includes("all-clear"), empty);
+
+// The link's text is the visitor's: shown, never markup.
+config.scope = readScope("?view=wall&q=" + encodeURIComponent('<img src=x onerror="alert(1)">'));
+await loadAlertBoard(false, { background: true });
+const escaped = els.alertsTableBody.innerHTML;
+check(!escaped.includes("<img") && escaped.includes("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"), escaped);
 """,
             tz="UTC",
         )

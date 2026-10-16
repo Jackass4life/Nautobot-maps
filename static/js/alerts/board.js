@@ -87,7 +87,8 @@ export function emptyBoardText(payload) {
 export function renderTableRows(alerts, payload) {
   if (!alerts.length) {
     const { text, className } = emptyBoardText(payload);
-    els.alertsTableBody.innerHTML = fullWidthRow(text, className);
+    // Plain text, and it can carry a link's ?q= (#364): escaped.
+    els.alertsTableBody.innerHTML = fullWidthRow(escHtml(text), className);
     formatBoardStatus(payload, 0);
     return;
   }
