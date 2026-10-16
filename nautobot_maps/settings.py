@@ -244,6 +244,9 @@ if CASE_URL_TEMPLATE and (
 ):
     logging.getLogger(__name__).warning("CASE_URL_TEMPLATE ignored: it must start with http(s):// and contain {case}")
     CASE_URL_TEMPLATE = ""
+# gzip large text answers (#349); off where a proxy in front compresses.
+COMPRESS_RESPONSES = _flag("COMPRESS_RESPONSES", True)
+
 AVAILABILITY_BASIS = os.getenv("AVAILABILITY_BASIS", "").strip().lower() or "any_down"
 if AVAILABILITY_BASIS not in ("any_down", "critical"):
     AVAILABILITY_BASIS = "any_down"

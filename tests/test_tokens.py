@@ -286,7 +286,7 @@ class TestApi:
         response = client.post(
             "/api/tokens", json={"name": "librenms", "role": "operator", "expires_in_days": 30}, headers=bearer(admin)
         )
-        assert response.status_code == 201 and response.headers["Cache-Control"] == "no-store"
+        assert response.status_code == 201 and response.headers["Cache-Control"] == "no-store, no-transform"
         created = response.get_json()["token"]
         assert created["created_by"] == "token:bootstrap" and created["token"].startswith("nmt_")
         assert client.get("/api/maintenance", headers=bearer(created["token"])).status_code == 200
