@@ -199,7 +199,7 @@ def _site(item: dict) -> dict:
         "id": item.get("id"),
         "name": item.get("name"),
         "path": status.site_path(item),
-        "address": item.get("physical_address") or item.get("facility") or "",
+        "address": status.site_address(item),
         "status": item.get("status") or "",
         "location_type": item.get("location_type") or "",
         "tenants": status.site_tenants(item),
@@ -232,7 +232,7 @@ def _matches_search(item: dict, needle: str) -> bool:
     fields = (
         item.get("name"),
         status.site_path(item),
-        item.get("physical_address") or item.get("facility"),
+        status.site_address(item),
         item.get("country"),
     )
     return needle in " ".join(value or "" for value in fields).lower()

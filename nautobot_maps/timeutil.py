@@ -22,12 +22,8 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
 
 def as_utc_datetime(value) -> datetime | None:
     """A database or ISO time as an aware datetime; a naive one is UTC (#350)."""
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
-    parsed = parse_iso_datetime(value) if value else None
-    if parsed is not None and parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
+    parsed = value if isinstance(value, datetime) else parse_iso_datetime(value)
+    return parsed.replace(tzinfo=UTC) if parsed is not None and parsed.tzinfo is None else parsed
 
 
 def max_last_updated(items: list, fallback: str | None = None) -> str | None:

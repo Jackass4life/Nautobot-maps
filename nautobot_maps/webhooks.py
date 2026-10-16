@@ -194,9 +194,7 @@ def store(conn, events: list[dict]) -> None:
 
 
 def _state_time(source: str, conn) -> datetime | None:
-    value = inventory.get_sync_state(source, conn=conn).get("last_completed_at")
-    parsed = timeutil.parse_iso_datetime(str(value)) if value else None
-    return parsed.replace(tzinfo=UTC) if parsed is not None and parsed.tzinfo is None else parsed
+    return timeutil.as_utc_datetime(inventory.get_sync_state(source, conn=conn).get("last_completed_at"))
 
 
 def pending_rebuild(conn) -> datetime | None:

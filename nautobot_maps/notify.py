@@ -123,7 +123,7 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
             "id": site_id,
             "name": site.get("name") or "",
             "path": status.site_path(site),
-            "address": site.get("physical_address") or site.get("facility") or "",
+            "address": status.site_address(site),
             "tenants": status.site_tenants(site),
         },
         "reason": site.get("alert_reason") or "",

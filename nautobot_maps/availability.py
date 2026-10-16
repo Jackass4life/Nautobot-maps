@@ -419,7 +419,7 @@ def _site_row(site_id: str, name: str = "", site: dict | None = None) -> dict:
         "name": name,
         "tenants": status.site_tenants(site),
         "path": status.site_path(site),
-        "address": site.get("physical_address") or site.get("facility") or "",
+        "address": status.site_address(site),
         "country": site.get("country") or "",
         "tier": site.get("tier") or "",
         "monitored_devices": site.get("device_count") or 0,

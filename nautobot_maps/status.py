@@ -28,6 +28,11 @@ def site_path(row: dict) -> str:
     return row.get("ancestor_path") or row.get("parent") or ""
 
 
+def site_address(row: dict) -> str:
+    """A board row's street address, or its facility (#350)."""
+    return row.get("physical_address") or row.get("facility") or ""
+
+
 def site_tenants(row: dict) -> list[str]:
     """Every tenant of a board row: its own and those linked by a Relationship (#238)."""
     if row.get("tenants"):
