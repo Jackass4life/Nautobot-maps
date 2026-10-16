@@ -235,8 +235,8 @@ LOCATIONS = [
 ]
 
 
-def _hierarchy_location(location_id: str, name: str, location_type: str, parent: tuple[str, str] | None) -> dict:
-    """A location without coordinates, so the map and proximity search are unaffected."""
+def _location(location_id: str, name: str, location_type: str, parent: tuple[str, str] | None = None, **fields) -> dict:
+    """A generated location; without coordinates unless given (*fields* override)."""
     return {
         "id": location_id,
         "name": name,
@@ -252,16 +252,17 @@ def _hierarchy_location(location_id: str, name: str, location_type: str, parent:
         "asn": None,
         "time_zone": "Europe/Copenhagen",
         "url": f"http://mock-nautobot:8080/api/dcim/locations/{location_id}/",
+        **fields,
     }
 
 
 # EMEA › DNK › Aarhus Campus (Site) › Bygning A › Etage 2 (#158).
 LOCATIONS += [
-    _hierarchy_location("loc-emea", "EMEA", "lt-region", None),
-    _hierarchy_location("loc-dnk", "DNK", "lt-country", ("loc-emea", "EMEA")),
-    _hierarchy_location("loc-aar", "Aarhus Campus", "lt-site", ("loc-dnk", "DNK")),
-    _hierarchy_location("loc-aar-bld-a", "Bygning A", "lt-building", ("loc-aar", "Aarhus Campus")),
-    _hierarchy_location("loc-aar-bld-a-f2", "Etage 2", "lt-floor", ("loc-aar-bld-a", "Bygning A")),
+    _location("loc-emea", "EMEA", "lt-region", None),
+    _location("loc-dnk", "DNK", "lt-country", ("loc-emea", "EMEA")),
+    _location("loc-aar", "Aarhus Campus", "lt-site", ("loc-dnk", "DNK")),
+    _location("loc-aar-bld-a", "Bygning A", "lt-building", ("loc-aar", "Aarhus Campus")),
+    _location("loc-aar-bld-a-f2", "Etage 2", "lt-floor", ("loc-aar-bld-a", "Bygning A")),
 ]
 
 # Devices keyed by location_id
@@ -603,21 +604,47 @@ def _scale_device(site_id, index, name, role, model, status, tenant, down_minute
     return device
 
 
+def _scale_site_devices(site_id, prefix, switches, down, core, core_model, since, tenant_of):
+    """A core router and *switches* access switches; the core (when *core*) and the first *down* switches down."""
+    devices = [
+        _scale_device(
+            site_id,
+            0,
+            f"{prefix}-core-rt01",
+            "Core Router",
+            core_model,
+            "Offline" if core else "Active",
+            tenant_of(0),
+            since if core else None,
+        )
+    ]
+    for i in range(1, switches + 1):
+        is_down = i <= down
+        devices.append(
+            _scale_device(
+                site_id,
+                i,
+                f"{prefix}-acc-sw{i:02d}",
+                "Access Switch",
+                ("Cisco", "Catalyst 9200"),
+                "Offline" if is_down else "Active",
+                tenant_of(i),
+                since if is_down else None,
+            )
+        )
+    return devices
+
+
 def _add_scale_sites(count: int) -> None:
     rnd = random.Random(1200)
+    customers = []
     for name in SCALE_CUSTOMERS:
         slug = name.lower().replace(" ", "-")
-        TENANTS[f"ten-{slug}"] = {
-            "id": f"ten-{slug}",
-            "name": name,
-            "slug": slug,
-            "description": "",
-            "tenant_group": None,
-        }
-    customers = [TENANTS[f"ten-{n.lower().replace(' ', '-')}"] for n in SCALE_CUSTOMERS]
+        tenant = {"id": f"ten-{slug}", "name": name, "slug": slug, "description": "", "tenant_group": None}
+        TENANTS[tenant["id"]] = tenant
+        customers.append(tenant)
     alarms = [(down, core) for sites, down, core in SCALE_ALARMS for _ in range(sites)][: count - 1]
-    alarm_sites = set(rnd.sample(range(1, count), len(alarms)))
-    alarm_iter = iter(alarms)
+    alarm_at = dict(zip(sorted(rnd.sample(range(1, count), len(alarms))), alarms, strict=True))
     for n in range(count):
         city, country, lat, lon = SCALE_CITIES[n % len(SCALE_CITIES)]
         kind = rnd.choices(["lt-office", "lt-pop", "lt-dc"], weights=[70, 25, 5])[0]
@@ -625,76 +652,35 @@ def _add_scale_sites(count: int) -> None:
         tenant = customers[n % len(customers)]
         label = LOCATION_TYPES[kind]["name"].replace("Data Center", "DC")
         LOCATIONS.append(
-            {
-                "id": site_id,
-                "name": f"{city} {label} {n // len(SCALE_CITIES) + 1:02d}",
-                "slug": site_id,
-                "status": {"label": "Active", "value": "active"},
-                "location_type": LOCATION_TYPES[kind],
-                "parent": None,
-                "latitude": f"{lat + rnd.uniform(-0.6, 0.6):.4f}",
-                "longitude": f"{lon + rnd.uniform(-0.9, 0.9):.4f}",
-                "description": "",
-                "physical_address": f"{rnd.randint(1, 120)} Harbour Street, {city}, {country}",
-                "tenant": tenant,
-                "asn": None,
-                "time_zone": "Europe/Copenhagen",
-                "url": f"http://mock-nautobot:8080/api/dcim/locations/{site_id}/",
-            }
+            _location(
+                site_id,
+                f"{city} {label} {n // len(SCALE_CITIES) + 1:02d}",
+                kind,
+                latitude=f"{lat + rnd.uniform(-0.6, 0.6):.4f}",
+                longitude=f"{lon + rnd.uniform(-0.9, 0.9):.4f}",
+                physical_address=f"{rnd.randint(1, 120)} Harbour Street, {city}, {country}",
+                tenant=tenant,
+            )
         )
         prefix = f"{city[:3].lower()}{n:04d}"
         if n == 0:
-            # A core outage's burst: 34 of 40 down, devices of eight customers.
-            devices = [
-                _scale_device(
-                    site_id, 0, f"{prefix}-core-rt01", "Core Router", ("Cisco", "ASR 9006"), "Offline", tenant, 38
-                )
-            ]
-            for i in range(1, 40):
-                down = i <= 33
-                devices.append(
-                    _scale_device(
-                        site_id,
-                        i,
-                        f"{prefix}-acc-sw{i:02d}",
-                        "Access Switch",
-                        ("Cisco", "Catalyst 9200"),
-                        "Offline" if down else "Active",
-                        customers[i % 8],
-                        37 if down else None,
-                    )
-                )
-            DEVICES[site_id] = devices
-            continue
-        down, core = next(alarm_iter) if n in alarm_sites else (0, False)
-        since = rnd.choice([4, 12, 35, 80, 190, 420, 1500])
-        devices = [
-            _scale_device(
+            # A core outage's burst: the core and 33 of 39 switches down, devices of eight customers.
+            DEVICES[site_id] = _scale_site_devices(
                 site_id,
-                0,
-                f"{prefix}-core-rt01",
-                "Core Router",
-                ("Juniper", "MX204"),
-                "Offline" if core else "Active",
-                tenant,
-                since if core else None,
+                prefix,
+                39,
+                33,
+                True,
+                ("Cisco", "ASR 9006"),
+                37,
+                lambda i, t=tenant: t if i == 0 else customers[i % 8],
             )
-        ]
-        for i in range(1, 8):
-            is_down = i <= down
-            devices.append(
-                _scale_device(
-                    site_id,
-                    i,
-                    f"{prefix}-acc-sw{i:02d}",
-                    "Access Switch",
-                    ("Cisco", "Catalyst 9200"),
-                    "Offline" if is_down else "Active",
-                    tenant,
-                    since if is_down else None,
-                )
-            )
-        DEVICES[site_id] = devices
+            continue
+        down, core = alarm_at.get(n, (0, False))
+        since = rnd.choice([4, 12, 35, 80, 190, 420, 1500])
+        DEVICES[site_id] = _scale_site_devices(
+            site_id, prefix, 7, down, core, ("Juniper", "MX204"), since, lambda i, t=tenant: t
+        )
 
 
 _scale = os.environ.get("MOCK_SCALE", "").replace(",", "").replace("_", "").strip() or "0"
@@ -728,6 +714,7 @@ def _attach_location_and_primary_ip() -> None:
 
 
 _attach_location_and_primary_ip()
+ALL_DEVICES = [d for devs in DEVICES.values() for d in devs]
 
 # ASNs keyed by location_id
 ASNS = {
@@ -920,7 +907,7 @@ def devices():
     if location_id:
         items = DEVICES.get(location_id, [])
     else:
-        items = [d for devs in DEVICES.values() for d in devs]
+        items = ALL_DEVICES
     return jsonify(_paginate(items))
 
 

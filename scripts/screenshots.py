@@ -108,30 +108,34 @@ def open_site(page, name):
     page.wait_for_timeout(1500)
 
 
+# (colour scheme, page, what shows it has loaded, file); the map and site panel come first.
+PAGES = [
+    ("light", "/availability", "table tbody tr", "availability"),
+    ("light", "/alerts", "#alerts-table-body tr", "alert-board"),
+    ("dark", "/alerts", "#alerts-table-body tr", "alert-board-dark"),
+    ("dark", "/alerts?view=wall", "#alerts-table-body tr", "wall-view"),
+]
+
+
 def screenshots(browser, base, token, out, burst):
+    pages = {}
     for scheme in ("light", "dark"):
         ctx = browser.new_context(viewport={"width": WIDTH, "height": HEIGHT}, color_scheme=scheme)
-        page = ctx.new_page()
-        with_token(page, base, token)
-        if scheme == "light":
-            open_map(page, base)
-            shoot(page, out, "map")
-            open_site(page, burst)
-            shoot(page, out, "site-panel")
-            page.goto(base + "/availability")
-            page.wait_for_selector("table tbody tr", timeout=60000)
-            page.wait_for_timeout(1000)
-            shoot(page, out, "availability")
-        page.goto(base + "/alerts")
-        page.wait_for_selector("#alerts-table-body tr", timeout=60000)
-        page.wait_for_timeout(1000)
-        shoot(page, out, "alert-board" if scheme == "light" else "alert-board-dark")
-        if scheme == "dark":
-            page.goto(base + "/alerts?view=wall")
-            page.wait_for_selector("#alerts-table-body tr", timeout=60000)
-            page.wait_for_timeout(1500)
-            shoot(page, out, "wall-view")
-        ctx.close()
+        pages[scheme] = ctx.new_page()
+        with_token(pages[scheme], base, token)
+    page = pages["light"]
+    open_map(page, base)
+    shoot(page, out, "map")
+    open_site(page, burst)
+    shoot(page, out, "site-panel")
+    for scheme, path, loaded, name in PAGES:
+        page = pages[scheme]
+        page.goto(base + path)
+        page.wait_for_selector(loaded, timeout=60000)
+        page.wait_for_timeout(1000)  # fonts and the last render
+        shoot(page, out, name)
+    for page in pages.values():
+        page.context.close()
 
 
 def clip(browser, base, token, out, burst):
@@ -141,15 +145,14 @@ def clip(browser, base, token, out, burst):
     page = ctx.new_page()
     with_token(page, base, token)
     frames = []
-
     durations = []
 
     def hold(ms, step=250):
         # Each frame lasts as long as it really took, so the clip plays in real time.
         for _ in range(max(1, ms // step)):
             started = time.monotonic()
-            shot = Image.open(io.BytesIO(page.screenshot()))
-            frames.append(shot.resize((WIDTH * 2 // 3, HEIGHT * 2 // 3), Image.LANCZOS))
+            shot = Image.open(io.BytesIO(page.screenshot(type="jpeg", quality=90)))
+            frames.append(shot.resize((WIDTH * 2 // 3, HEIGHT * 2 // 3), Image.BILINEAR))
             page.wait_for_timeout(step)
             durations.append(round((time.monotonic() - started) * 1000))
 

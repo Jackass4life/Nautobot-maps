@@ -42,7 +42,7 @@ def test_scale_mode_is_a_nocs_load_and_the_same_every_start():
 def test_off_by_default_and_any_size():
     assert _summary("")["sites"] == 9
     assert _summary("10")["sites"] == 19  # fewer sites than alarms: no error
-    assert _summary("1,200")["sites"] == 1209
+    assert _summary("1,0")["sites"] == 19  # "1,200" reads as 1200
 
 
 def test_a_wrong_value_says_so():
