@@ -185,7 +185,9 @@
     data-nautobot-url="{{ nautobot_url or '' }}"
     data-tile-url="{{ tile_url }}"
     data-tile-attribution="{{ tile_attribution }}"
-    data-default-view="{{ default_view }}"
+    data-view-lat="{{ view[0] if view else '' }}"
+    data-view-lon="{{ view[1] if view else '' }}"
+    data-view-zoom="{{ view[2] if view else '' }}"
   ></div>
 
   <!-- App JS -->

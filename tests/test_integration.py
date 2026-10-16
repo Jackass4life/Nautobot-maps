@@ -2371,26 +2371,28 @@ class TestMapFirstViewInTheBrowser:
     def test_fit_and_fixed_view(self):
         run_js(
             """
-import { fitToSites, parseView } from "@js/map/view.js";
+import { fitToSites, linkedSiteOnMap } from "@js/map/view.js";
 
 setGlobal("L", { latLngBounds: (points) => ({ points }) });
 const fits = [];
 const map = { fitBounds: (bounds, options) => fits.push({ bounds, options }) };
-
-fitToSites(map, [
+const sites = [
   { id: "a", latitude: 55.68, longitude: 12.57 },
   { id: "no-coordinates", latitude: null, longitude: null },
-  { id: "b", latitude: 0, longitude: 0 },
-]);
+  { id: "never-set", latitude: 0, longitude: 0 },
+  { id: "b", latitude: 51.5, longitude: 0 },
+];
+
+fitToSites(map, sites);
 check(fits.length === 1, "one fit");
-check(JSON.stringify(fits[0].bounds.points) === "[[55.68,12.57],[0,0]]", JSON.stringify(fits[0].bounds));
+check(JSON.stringify(fits[0].bounds.points) === "[[55.68,12.57],[51.5,0]]", "0,0 and no coordinates left out: " + JSON.stringify(fits[0].bounds));
 check(fits[0].options.maxZoom === 10, "no closer than a city: " + fits[0].options.maxZoom);
 
-fitToSites(map, [{ id: "c", latitude: null, longitude: null }]);
-check(fits.length === 1, "no sites with coordinates: the view stays");
+fitToSites(map, [sites[1], sites[2]]);
+check(fits.length === 1, "no site to fit: the view stays");
 
-const view = parseView("55.7,12.6,6");
-check(JSON.stringify(view) === '{"center":[55.7,12.6],"zoom":6}', JSON.stringify(view));
-check(parseView("") === null && parseView(undefined) === null && parseView("55.7,x,6") === null, "no view");
+// A link flies to its site; one that can't (no coordinates, gone) gets the fit.
+check(linkedSiteOnMap(sites, "a"), "a site on the map");
+check(!linkedSiteOnMap(sites, "no-coordinates") && !linkedSiteOnMap(sites, "gone") && !linkedSiteOnMap(sites, null), "no site to fly to");
 """
         )

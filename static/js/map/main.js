@@ -22,7 +22,7 @@ import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js
 import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
 import { config, detailCache, els, state } from "./state.js";
-import { fitToSites, parseView } from "./view.js";
+import { fitToSites, linkedSiteOnMap } from "./view.js";
 
 const byId = (id) => document.getElementById(id);
 
@@ -35,11 +35,16 @@ config.nautobotUrl = appConfig.nautobotUrl || "";
 state.initialLocationId = new URLSearchParams(window.location.search).get("location_id");
 
 // The whole world until the sites are in, unless a fixed view is set (#362).
-const defaultView = parseView(appConfig.defaultView);
+const fixedView = Boolean(appConfig.viewZoom);
 state.map = L.map("map", {
-  center: defaultView ? defaultView.center : [20, 0],
-  zoom: defaultView ? defaultView.zoom : 3,
+  center: fixedView ? [Number(appConfig.viewLat), Number(appConfig.viewLon)] : [20, 0],
+  zoom: fixedView ? Number(appConfig.viewZoom) : 3,
   preferCanvas: true,
+});
+// Zoomed or dragged while the sites load: keep that view (#362).
+let movedByHand = false;
+state.map.once("zoomstart dragstart", () => {
+  movedByHand = true;
 });
 
 // MAP_TILE_URL / MAP_TILE_ATTRIBUTION; default OpenStreetMap.
@@ -215,7 +220,8 @@ async function loadLocations(levelsLoaded) {
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
     await levelsLoaded;
     // Every site, not only the filtered ones; a link to a site flies there itself.
-    if (!defaultView && !state.initialLocationId) fitToSites(state.map, state.allLocations);
+    const linked = linkedSiteOnMap(state.allLocations, state.initialLocationId);
+    if (!fixedView && !movedByHand && !linked) fitToSites(state.map, state.allLocations);
     populateFilters(state.allLocations);
     applyFilters();
   } catch (err) {
