@@ -525,7 +525,8 @@ MOCK_LAST_UPDATED = "2026-01-01T00:00:00Z"
 # ---------------------------------------------------------------------------
 # Scale mode: MOCK_SCALE=<sites> adds that many generated sites, for screenshots
 # and checks at a NOC's real load (1,200 sites, ~25 in alarm, one with 30+
-# devices down). The same data every start; off by default.
+# devices down). The same sites and devices every start (the outages begin when
+# the mock starts); off by default.
 # ---------------------------------------------------------------------------
 SCALE_CITIES = [
     ("Copenhagen", "DK", 55.68, 12.57),
@@ -614,7 +615,7 @@ def _add_scale_sites(count: int) -> None:
             "tenant_group": None,
         }
     customers = [TENANTS[f"ten-{n.lower().replace(' ', '-')}"] for n in SCALE_CUSTOMERS]
-    alarms = [(down, core) for sites, down, core in SCALE_ALARMS for _ in range(sites)]
+    alarms = [(down, core) for sites, down, core in SCALE_ALARMS for _ in range(sites)][: count - 1]
     alarm_sites = set(rnd.sample(range(1, count), len(alarms)))
     alarm_iter = iter(alarms)
     for n in range(count):
@@ -671,7 +672,7 @@ def _add_scale_sites(count: int) -> None:
             _scale_device(
                 site_id,
                 0,
-                f"{prefix}-edge-rt01",
+                f"{prefix}-core-rt01",
                 "Core Router",
                 ("Juniper", "MX204"),
                 "Offline" if core else "Active",
@@ -696,7 +697,10 @@ def _add_scale_sites(count: int) -> None:
         DEVICES[site_id] = devices
 
 
-SCALE_SITES = int(os.environ.get("MOCK_SCALE", "0") or 0)
+_scale = os.environ.get("MOCK_SCALE", "").replace(",", "").replace("_", "").strip() or "0"
+if not _scale.isdigit():
+    raise SystemExit(f"MOCK_SCALE must be a number of sites, e.g. 1200 (got {_scale!r})")
+SCALE_SITES = int(_scale)
 if SCALE_SITES > 0:
     _add_scale_sites(SCALE_SITES)
 

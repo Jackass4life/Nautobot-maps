@@ -78,8 +78,8 @@ panel.
 `MOCK_SCALE=1200` adds 1,200 generated sites across Europe (about 9,600
 devices) to the nine above, 27 of them in alarm (Critical, Medium and Low; 29
 on the board with London HQ and Etage 2). One is a core outage: *Copenhagen
-Office 01* has 34 of its 40 devices down, across eight tenants. The data is the
-same on every start.
+Office 01* has 34 of its 40 devices down, across eight tenants. The sites and
+devices are the same on every start; the outages begin when the mock starts.
 
 ```bash
 MOCK_SCALE=1200 docker compose -f demo/docker-compose.yml up --build

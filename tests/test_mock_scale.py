@@ -39,5 +39,15 @@ def test_scale_mode_is_a_nocs_load_and_the_same_every_start():
     assert len(set(first["ips"])) == len(first["ips"])
 
 
-def test_off_by_default():
+def test_off_by_default_and_any_size():
     assert _summary("")["sites"] == 9
+    assert _summary("10")["sites"] == 19  # fewer sites than alarms: no error
+    assert _summary("1,200")["sites"] == 1209
+
+
+def test_a_wrong_value_says_so():
+    env = {**os.environ, "MOCK_SCALE": "yes"}
+    out = subprocess.run(
+        [sys.executable, "-c", "import mock_nautobot"], cwd=DEMO, env=env, capture_output=True, text=True
+    )
+    assert out.returncode != 0 and "MOCK_SCALE must be a number of sites" in out.stderr

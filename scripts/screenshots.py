@@ -16,6 +16,8 @@ import argparse
 import io
 import json
 import pathlib
+import time
+import urllib.error
 import urllib.request
 
 from PIL import Image
@@ -31,13 +33,28 @@ def api(base, token, path, body=None):
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST" if body is not None else "GET",
     )
-    with urllib.request.urlopen(request) as resp:
-        return json.load(resp)
+    try:
+        with urllib.request.urlopen(request) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise SystemExit(f"{request.method} {path}: HTTP {exc.code} {exc.read().decode(errors='replace')}") from exc
 
 
-def seed(base, token):
+def wait_for_board(base, token, timeout=300):
+    """The board once the first inventory sync has filled it."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        board = api(base, token, "/api/alerts").get("alerts") or []
+        if any(s["alert_level"] in ("critical", "medium", "low") for s in board):
+            return board
+        time.sleep(3)
+    raise SystemExit("The alert board has no alarms: is the mock running with MOCK_SCALE?")
+
+
+def seed(base, token, board):
     """A shift in progress: some sites have a case or an ack, some are in maintenance."""
-    board = api(base, token, "/api/alerts")["alerts"]
+    if any(s["active_cases"] for s in board):
+        raise SystemExit("This database already has cases: --seed is for an empty one")
     alarms = [s for s in board if s["alert_level"] in ("critical", "medium", "low")]
     alarms.sort(key=lambda s: -s["down_device_count"])
     for number, site in enumerate(alarms[:7], start=48213):
@@ -81,8 +98,8 @@ def open_map(page, base):
     # The map opens on the whole world: zoom in on Europe, as an operator would.
     page.mouse.move(WIDTH * 0.64, HEIGHT * 0.12)
     page.mouse.wheel(0, -100)
-    page.wait_for_timeout(1000)
-    page.wait_for_timeout(2500)  # tiles
+    page.wait_for_timeout(1000)  # the zoom
+    page.wait_for_load_state("networkidle")  # the tiles
 
 
 def open_site(page, name):
@@ -125,16 +142,20 @@ def clip(browser, base, token, out, burst):
     with_token(page, base, token)
     frames = []
 
+    durations = []
+
     def hold(ms, step=250):
+        # Each frame lasts as long as it really took, so the clip plays in real time.
         for _ in range(max(1, ms // step)):
+            started = time.monotonic()
             shot = Image.open(io.BytesIO(page.screenshot()))
             frames.append(shot.resize((WIDTH * 2 // 3, HEIGHT * 2 // 3), Image.LANCZOS))
             page.wait_for_timeout(step)
+            durations.append(round((time.monotonic() - started) * 1000))
 
     open_map(page, base)
     hold(1500)
-    page.locator("#alarm-list li", has_text=burst).first.click()
-    page.wait_for_timeout(300)
+    open_site(page, burst)
     hold(2500)
     page.goto(base + "/alerts")
     page.wait_for_selector("#alerts-table-body tr", timeout=60000)
@@ -152,7 +173,7 @@ def clip(browser, base, token, out, burst):
 
     path = out / "tour.gif"
     palette = [f.convert("P", palette=Image.ADAPTIVE, colors=128) for f in frames]
-    palette[0].save(path, save_all=True, append_images=palette[1:], duration=250, loop=0, optimize=True)
+    palette[0].save(path, save_all=True, append_images=palette[1:], duration=durations, loop=0, optimize=True)
     print("wrote", path, f"{path.stat().st_size // 1024} KB, {len(frames)} frames")
 
 
@@ -166,9 +187,10 @@ def main():
     args = parser.parse_args()
     base, out = args.base_url.rstrip("/"), pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    board = wait_for_board(base, args.token)
     if args.seed:
-        seed(base, args.token)
-    board = api(base, args.token, "/api/alerts")["alerts"]
+        seed(base, args.token, board)
+        board = api(base, args.token, "/api/alerts")["alerts"]
     burst = max(board, key=lambda s: s["down_device_count"])
     with sync_playwright() as p:
         browser = p.chromium.launch()
