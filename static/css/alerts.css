@@ -148,6 +148,11 @@ html, body {
   color: var(--color-text-muted);
 }
 
+/* Readable in both themes, like the wall's Operator view. */
+.board-scope a {
+  color: var(--color-text);
+}
+
 .summary-line {
   display: flex;
   align-items: center;
