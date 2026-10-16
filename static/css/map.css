@@ -791,6 +791,25 @@ body.inspector-open #map {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* "Only Acme Corp · Show all sites" (#367), under the count. */
+.map-scope {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.map-scope a {
+  color: var(--color-text);
+}
+
+/* A link that matches no site: a warning, not an empty map with no reason. */
+.map-scope.scope-no-match {
+  color: var(--color-warning);
+  font-weight: 700;
+}
+
 .alert-levels-note {
   margin: 0 16px 12px;
   padding: 8px 10px;

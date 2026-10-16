@@ -1,10 +1,11 @@
 // Search a place or address: the Nautobot locations within 5 km (/api/search).
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
+import { inScope } from "../lib/scope.js";
 import { showError } from "../lib/toast.js";
 import { openLocationById } from "./inspector.js";
 import { renderMarkers } from "./markers.js";
-import { els, state } from "./state.js";
+import { config, els, state } from "./state.js";
 
 export async function doSearch() {
   const { searchInput, searchBtn, searchResults, searchResultsHeader, searchResultsList } = els;
@@ -15,7 +16,11 @@ export async function doSearch() {
   searchBtn.style.opacity = "0.5";
 
   try {
-    const { search_lat, search_lon, count, locations } = await getJson(`/api/search?q=${encodeURIComponent(query)}`);
+    const answer = await getJson(`/api/search?q=${encodeURIComponent(query)}`);
+    const { search_lat, search_lon } = answer;
+    // On a map for some sites only, the nearby ones among them (#367).
+    const locations = (answer.locations || []).filter((loc) => inScope(loc, config.scope));
+    const count = locations.length;
 
     // Re-render map with only the nearby locations highlighted
     renderMarkers(locations, { lat: search_lat, lon: search_lon });

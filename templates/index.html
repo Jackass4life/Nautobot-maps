@@ -31,11 +31,11 @@
       </h1>
       <div class="app-nav">
         <a class="app-nav-link active" href="/">Map</a>
-        <a class="app-nav-link" href="/alerts">Alert Board</a>
+        <a class="app-nav-link" href="/alerts{{ '?' ~ scope_query if scope_query }}">Alert Board</a>
         <a class="app-nav-link" href="/availability">Availability</a>
         <a class="app-nav-link" href="/maintenance" title="Current and planned maintenance, and planning more">Maintenance</a>
         <a class="app-nav-link" href="/docs" title="Every endpoint, with Try it">API</a>
-        <a class="app-nav-link" href="/alerts?view=wall" title="For a wall screen: alarms only, no controls">Wall view</a>
+        <a class="app-nav-link" href="/alerts?view=wall{{ '&' ~ scope_query if scope_query }}" title="For a wall screen: alarms only, no controls">Wall view</a>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
       </div>
     </div>
@@ -106,6 +106,8 @@
     </div>
 
     <div id="location-count"></div>
+    <!-- A link for some sites only (?tenant=, ?q=, #367) says so. -->
+    <p id="map-scope" class="map-scope" hidden>Only <strong id="map-scope-label"></strong> · <a href="/">Show all sites</a></p>
     <div id="alert-levels-note" class="alert-levels-note" role="status" hidden>
       Alert levels could not be loaded: markers are grey until they can be.
     </div>

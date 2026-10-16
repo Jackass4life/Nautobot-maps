@@ -2,7 +2,8 @@
 import { isAlarm, renderAlarmList } from "./alarms.js";
 import { openLocationFromQuery } from "./inspector.js";
 import { renderMarkers } from "./markers.js";
-import { els, locationAlerts, state } from "./state.js";
+import { scopeLabel } from "../lib/scope.js";
+import { config, els, locationAlerts, state } from "./state.js";
 
 const ALARMS_ONLY_KEY = "nautobot-maps-map-alarms-only";
 
@@ -13,6 +14,27 @@ const FILTERS = [
   ["filterTenant", "tenant", "All tenants"],
   ["filterTenantGroup", "tenant_group", "All tenant groups"],
 ];
+
+// "Only Acme Corp · Show all sites" under the count; a link that matches no
+// site (a typo, a renamed tenant) says so instead of an empty map (#367).
+// *siteCount*: the sites before the scope.
+export function showScope(siteCount) {
+  const { mapScope, mapScopeLabel } = els;
+  if (!config.scope || !mapScope) return;
+  const label = scopeLabel(config.scope, state.allLocations);
+  const noMatch = siteCount > 0 && !state.allLocations.length;
+  mapScope.classList.toggle("scope-no-match", noMatch);
+  if (noMatch) {
+    mapScope.textContent = `No site matches ${label}. Check the link's tenant= and q=. `;
+    const all = document.createElement("a");
+    all.href = "/";
+    all.textContent = "Show all sites";
+    mapScope.append(all);
+  } else {
+    mapScopeLabel.textContent = label;
+  }
+  mapScope.hidden = false;
+}
 
 export function populateFilters(locations) {
   for (const [name, field, label] of FILTERS) {

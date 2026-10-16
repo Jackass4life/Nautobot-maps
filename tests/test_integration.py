@@ -2522,3 +2522,71 @@ check(els.summaryTotal.textContent === 80, "tiles count its sites: " + els.summa
 check(took < 1000, `${took.toFixed(0)} ms for 1,200 sites`);
 """
         )
+
+
+class TestScopedLinksInTheBrowser:
+    """Copy wall link (#366) and the map for some sites only (#367)."""
+
+    def test_wall_link_from_the_board_filters(self):
+        run_js(
+            """
+import { wallLinkFor } from "@js/alerts/filters.js";
+import { readScope, scopeQuery } from "@js/lib/scope.js";
+
+check(wallLinkFor({ tenant: "", text: "  ", scope: null }) === null, "nothing narrows the board: no link");
+check(wallLinkFor({ tenant: "Acme Corp", text: "", scope: null }) === "/alerts?view=wall&tenant=Acme+Corp", "the tenant menu");
+check(wallLinkFor({ tenant: "", text: " DNK ", scope: null }) === "/alerts?view=wall&q=DNK", "the filter box");
+const scope = readScope("?tenant=Acme%20Corp&tenant=Nordic%20Net&q=EMEA");
+check(wallLinkFor({ tenant: "", text: "", scope }) === "/alerts?view=wall&tenant=Acme+Corp&tenant=Nordic+Net&q=EMEA", "the link's scope");
+check(wallLinkFor({ tenant: "Nordic Net", text: "Oslo", scope }) === "/alerts?view=wall&tenant=Nordic+Net&q=Oslo", "the menu and box win");
+check(wallLinkFor({ tenant: "", text: "a&b=<c>", scope: null }) === "/alerts?view=wall&q=a%26b%3D%3Cc%3E", "encoded");
+check(scopeQuery(scope) === "tenant=Acme+Corp&tenant=Nordic+Net&q=EMEA" && scopeQuery(null) === "", scopeQuery(scope));
+"""
+        )
+
+    def test_map_scope_note_and_search(self):
+        run_js(
+            MAP_FAKES
+            + """
+import { readScope } from "@js/lib/scope.js";
+import { showScope } from "@js/map/filters.js";
+import { doSearch } from "@js/map/search.js";
+import { config, els, state } from "@js/map/state.js";
+
+state.markerLayer = fakeLayer();
+state.clusterLayer = fakeLayer();
+els.mapScope = element("map-scope", { hidden: true });
+els.mapScopeLabel = element("map-scope-label");
+els.mapScope.append = (child) => { els.mapScope.appended = child; };
+
+config.scope = readScope("?tenant=acme%20corp");
+state.allLocations = [{ id: "a", name: "Aarhus", tenant: "Acme Corp", latitude: 56, longitude: 10 }];
+showScope(1200);
+check(!els.mapScope.hidden && els.mapScopeLabel.textContent === "Acme Corp", els.mapScopeLabel.textContent);
+check(!els.mapScope.classList.contains("scope-no-match"), "sites match");
+
+state.allLocations = [];
+showScope(1200);
+check(els.mapScope.classList.contains("scope-no-match")
+  && els.mapScope.textContent.startsWith("No site matches acme corp. Check the link") && els.mapScope.appended.href === "/",
+  els.mapScope.textContent);
+
+// Search on a scoped map: the nearby sites among them only.
+const toast = element("error-toast");
+document.getElementById = (id) => (id === "error-toast" ? toast : null);
+Object.assign(els, {
+  searchInput: element("q", { value: "Copenhagen" }),
+  searchBtn: element("go", { style: {} }),
+  searchResults: element("results"),
+  searchResultsHeader: element("header"),
+  searchResultsList: element("list", { appendChild() {} }),
+});
+state.map = { flyTo() {} };
+globalThis.fetch = async () => new Response(JSON.stringify({ search_lat: 55.7, search_lon: 12.6, count: 2, locations: [
+  { id: "c1", name: "CPH DC", tenant: "Acme Corp", latitude: 55.7, longitude: 12.6, distance_km: 0.1 },
+  { id: "c2", name: "CPH Colo", tenant: "Nordic Net", latitude: 55.7, longitude: 12.6, distance_km: 1.2 },
+] }));
+await doSearch();
+check(els.searchResultsHeader.textContent === "1 location within 5 km", els.searchResultsHeader.textContent);
+"""
+        )

@@ -1633,6 +1633,17 @@ class TestIndex:
         plain = client.get("/alerts").get_data(as_text=True)
         assert 'href="/alerts?view=wall"' in plain
 
+    def test_map_and_board_links_keep_a_scope(self, client):
+        """?tenant= / ?q= (#367) stay on the links between the map, the board and the wall."""
+        html = client.get("/?tenant=Acme%20Corp&q=DNK").get_data(as_text=True)
+        assert 'href="/alerts?tenant=Acme+Corp&amp;q=DNK">Alert Board</a>' in html
+        assert 'href="/alerts?view=wall&amp;tenant=Acme+Corp&amp;q=DNK"' in html
+        assert 'id="map-scope"' in html
+        board = client.get("/alerts?tenant=Acme%20Corp").get_data(as_text=True)
+        assert 'href="/?tenant=Acme+Corp">Map</a>' in board
+        plain = client.get("/").get_data(as_text=True)
+        assert 'href="/alerts">Alert Board</a>' in plain
+
     def test_default_view_reaches_the_page(self, client, monkeypatch):
         """MAP_DEFAULT_VIEW (#362); empty: the map fits itself to the sites."""
         config = self._app_config(client.get("/"))

@@ -4,7 +4,11 @@ import { casePill } from "../lib/cases.js";
 import { formatDuration, formatFeedTime } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { maintenanceHistoryHref } from "../lib/maintenance-form.js";
+import { siteTenants } from "../lib/scope.js";
 import { ALARM_LEVELS, SEVERITY_ORDER } from "./state.js";
+
+// Shared with the map (#367); still imported from here by the board.
+export { siteTenants };
 
 // The board's columns (templates/alerts.html), for rows that span them all.
 const BOARD_COLUMNS = 5;
@@ -245,13 +249,6 @@ export function renderDownDeviceRows(item, isExpanded, extraClass) {
     </tr>
   `).join("");
   return rows;
-}
-
-// Every tenant of the site: its own, then those linked by a Nautobot
-// Relationship (#238).  Boards cached before #238 only have `tenant`.
-export function siteTenants(item) {
-  if (Array.isArray(item.tenants) && item.tenants.length) return item.tenants;
-  return item.tenant ? [item.tenant] : [];
 }
 
 // A tenant name, with an (i) for its Nautobot description when it has one.

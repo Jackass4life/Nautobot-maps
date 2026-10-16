@@ -186,6 +186,15 @@ def nautobot_service_unavailable(context: str, exc: Exception):
 # ---------------------------------------------------------------------------
 
 
+def _scope_query() -> str:
+    """The page's ?tenant= / ?q= (#364, #367) as a query string, "" without
+    them: kept on the links between the map, the board and the wall."""
+    return urlencode(
+        [("tenant", name) for name in request.args.getlist("tenant") if name.strip()]
+        + [("q", text) for text in [request.args.get("q", "")] if text.strip()]
+    )
+
+
 @bp.route("/")
 def index():
     """The map: Nautobot locations, address and GPS search, alert banners."""
@@ -195,6 +204,7 @@ def index():
         tile_url=settings.MAP_TILE_URL,
         tile_attribution=settings.MAP_TILE_ATTRIBUTION,
         view=settings.MAP_DEFAULT_VIEW,
+        scope_query=_scope_query(),
     )
 
 
@@ -274,11 +284,7 @@ def alert_board():
         case_url_template=settings.CASE_URL_TEMPLATE,
         tier_definitions=alerts.alert_level_definitions(),
         wall_view=request.args.get("view") == "wall",
-        # ?tenant= / ?q= (#364), kept on the Wall view and Operator view links.
-        scope_query=urlencode(
-            [("tenant", name) for name in request.args.getlist("tenant") if name.strip()]
-            + [("q", text) for text in [request.args.get("q", "")] if text.strip()]
-        ),
+        scope_query=_scope_query(),
     )
 
 

@@ -4,7 +4,14 @@ import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
-import { filtersInUse, getFilteredAlerts, isSiteExpanded, populateFilters, renderMoreFiltersLabel } from "./filters.js";
+import {
+  currentWallLink,
+  filtersInUse,
+  getFilteredAlerts,
+  isSiteExpanded,
+  populateFilters,
+  renderMoreFiltersLabel,
+} from "./filters.js";
 import { fullWidthRow, hasActiveAlarm, siteRowsHtml, summaryText } from "./rows.js";
 import { inScope, scopeLabel, scopeSummary } from "./scope.js";
 import { ALARM_LEVELS, config, els, state } from "./state.js";
@@ -101,6 +108,7 @@ export function applyFilters(payload) {
   renderTableRows(filtered, payload);
   renderMoreFiltersLabel();
   if (els.clearAlertFiltersBtn) els.clearAlertFiltersBtn.hidden = !filtersInUse();
+  if (els.copyWallLinkBtn) els.copyWallLinkBtn.hidden = config.wallView || !currentWallLink();
 }
 
 function stopSyncPolling() {

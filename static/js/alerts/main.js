@@ -9,9 +9,9 @@ import { showError } from "../lib/toast.js";
 import { applyFilters, loadAlertBoard, renderNextUpdate } from "./board.js";
 import { initCasePanel, openCasePanel, sendAck } from "./case-panel.js";
 import { FEED_COLLAPSED_KEY, feedStartsCollapsed, loadFeed, rememberFeedCollapsed, setFeedCollapsed } from "./feed.js";
-import { rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
+import { currentWallLink, rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
 import { initMaintenancePanel, openMaintenancePanel } from "./maintenance.js";
-import { closeSidePanel, copySite, initPanels, openHistory, openPanel } from "./panels.js";
+import { closeSidePanel, copySite, copyText, initPanels, openHistory, openPanel } from "./panels.js";
 import { readScope, scopeLabel } from "./scope.js";
 import { DEFAULT_SEVERITY_FILTER, DEFAULT_SORT, config, els, state } from "./state.js";
 import { WALL_RELOAD_MS, initWallSound, renderWallStatus } from "./wall.js";
@@ -34,6 +34,7 @@ Object.assign(els, {
   moreFiltersToggle: byId("more-filters-toggle"),
   moreFilters: byId("more-filters"),
   clearAlertFiltersBtn: byId("clear-alert-filters"),
+  copyWallLinkBtn: byId("copy-wall-link"),
   toggleNonOperational: byId("toggle-non-operational"),
   summaryLine: byId("summary-line-text"),
   summaryAlarms: byId("summary-alarms"),
@@ -114,6 +115,20 @@ if (els.moreFiltersToggle && els.moreFilters) {
 function resetExpandedSites() {
   state.expandedSiteIds = new Set();
   state.allSitesExpanded = false;
+}
+
+// Copy wall link (#366): the full address, for a screen's browser.
+if (els.copyWallLinkBtn) {
+  els.copyWallLinkBtn.addEventListener("click", async () => {
+    const link = currentWallLink();
+    if (!link) return;
+    const copied = await copyText(new URL(link, window.location.origin).href);
+    els.copyWallLinkBtn.textContent = copied ? "Copied" : "Copy failed";
+    if (els.copyStatus) els.copyStatus.textContent = copied ? "Copied the wall link" : "Could not copy the wall link";
+    setTimeout(() => {
+      els.copyWallLinkBtn.textContent = "Copy wall link";
+    }, 2000);
+  });
 }
 
 if (els.clearAlertFiltersBtn) {
