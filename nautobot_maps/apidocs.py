@@ -79,7 +79,11 @@ def _query_params(view) -> list[str]:
         source = inspect.getsource(inspect.unwrap(view))
     except (OSError, TypeError):
         return []
-    return list(dict.fromkeys(_QUERY_ARG.findall(source)))
+    found = _QUERY_ARG.findall(source)
+    # A page's ?tenant= / ?q= (#368, #369), read by scope.read_scope.
+    if "scope.read_scope(request.args)" in source:
+        found += ["tenant", "q"]
+    return list(dict.fromkeys(found))
 
 
 def endpoints(app: Flask) -> list[dict]:

@@ -373,11 +373,10 @@ def api_location_alerts():
         return jsonify({"error": "Internal server error"}), 500
 
 
-def _coordinate_problems() -> list[dict]:
+def _coordinate_problems(page_scope=None) -> list[dict]:
     """The board's sites with missing or wrong coordinates (#368), from the
-    stored board (no Nautobot call); only those a page's ?tenant= / ?q= ask for."""
-    rows = alerts.board("request").get("alerts") or []
-    return coordinates.check(rows, scope.read_scope(request.args))
+    stored board (no Nautobot call); only those in *page_scope* when given."""
+    return coordinates.check(alerts.board("request").get("alerts") or [], page_scope)
 
 
 @bp.route("/api/locations/coordinate-check")
@@ -387,7 +386,7 @@ def api_coordinate_check():
     first: impossible, at 0,0, latitude and longitude swapped, far from the
     rest, none.  JSON with counts, or CSV (one row per site)."""
     try:
-        problems = _coordinate_problems()
+        problems = _coordinate_problems(scope.read_scope(request.args))
     except Exception as exc:
         logger.exception("Coordinate check failed: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
@@ -691,7 +690,8 @@ def api_alert_feed():
     Devices going down and back up, and site severity changes.  Query
     parameters: ``limit`` (default 100, at most 500), ``since`` (ISO-8601;
     only newer entries) and ``kinds`` (comma-separated ``down``, ``up``,
-    ``severity``; default all).
+    ``severity``; default all).  ``tenant=`` / ``q=`` (as the board's link,
+    #369): only those sites' entries.
     """
     try:
         limit = int(request.args.get("limit") or 100)
@@ -708,11 +708,18 @@ def api_alert_feed():
     unknown = sorted(set(kinds) - set(alerts.FEED_KINDS))
     if unknown:
         return jsonify({"error": f"Unknown kinds: {', '.join(unknown)}"}), 400
+    # A board for some sites only (#369): its sites, from the stored board.
+    site_ids = None
+    if (page_scope := scope.read_scope(request.args)) is not None:
+        rows = alerts.board("request").get("alerts") or []
+        site_ids = [str(row["id"]) for row in rows if row.get("id") and scope.in_scope(row, page_scope)]
+        if not site_ids:
+            return jsonify({"events": [], "persistence_configured": bool(db.dialect())})
     conn = db.get_conn()
     if conn is None:
         return jsonify({"events": [], "persistence_configured": False})
     try:
-        events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS)
+        events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
         return jsonify({"events": events, "persistence_configured": True})
     except Exception as exc:
         logger.exception("Could not read the alert feed: %s", exc)

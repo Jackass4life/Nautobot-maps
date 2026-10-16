@@ -1670,12 +1670,15 @@ def maybe_prune_alert_history(conn) -> dict | None:
 FEED_KINDS = ("down", "up", "severity")
 
 
-def read_alert_feed(conn, limit: int, since: str | None = None, kinds=FEED_KINDS) -> list[dict]:
+def read_alert_feed(
+    conn, limit: int, since: str | None = None, kinds=FEED_KINDS, site_ids: list[str] | None = None
+) -> list[dict]:
     """What changed on the board, newest first (#180).
 
     ``down`` (an alert opened) and ``up`` (resolved) come from the alert
     events; ``severity`` from the logged site level changes.  *since* keeps
-    only entries after that time.
+    only entries after that time; *site_ids* (a page for some sites only,
+    #369) only those sites' entries, before the limit.
     """
     branches, params = [], []
     event_types = [event for kind, event in (("down", "opened"), ("up", "resolved")) if kind in kinds]
@@ -1689,9 +1692,10 @@ def read_alert_feed(conn, limit: int, since: str | None = None, kinds=FEED_KINDS
             FROM alert_events e
             JOIN alert_instances i ON i.id = e.alert_instance_id
             WHERE e.event_type = ANY(%s) {"AND e.event_at > %s" if since else ""}
+                {"AND i.site_id = ANY(%s)" if site_ids is not None else ""}
             """
         )
-        params += [event_types] + ([since] if since else [])
+        params += [event_types] + ([since] if since else []) + ([site_ids] if site_ids is not None else [])
     if "severity" in kinds:
         branches.append(
             f"""
@@ -1699,10 +1703,11 @@ def read_alert_feed(conn, limit: int, since: str | None = None, kinds=FEED_KINDS
                    '' AS device_id, '' AS device_name, c.to_level AS level,
                    NULL::timestamptz AS down_since, c.from_level, c.to_level
             FROM site_level_changes c
-            {"WHERE c.changed_at > %s" if since else ""}
+            WHERE TRUE {"AND c.changed_at > %s" if since else ""}
+                {"AND c.site_id = ANY(%s)" if site_ids is not None else ""}
             """
         )
-        params += [since] if since else []
+        params += ([since] if since else []) + ([site_ids] if site_ids is not None else [])
     if not branches:
         return []
     rows = conn.execute(

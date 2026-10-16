@@ -63,3 +63,25 @@ check(toast.textContent === "Failed to load history: operator role required", to
 check(calls[1].url === "/api/alert-history?site_id=s%201" && !button.disabled, JSON.stringify(calls[1]));
 """
     )
+
+
+def test_the_feed_of_a_board_for_some_sites():
+    """#369: the feed asks for the link's sites, so its limit counts theirs."""
+    run_js(
+        PRELUDE
+        + """
+import { config } from "@js/alerts/state.js";
+import { readScope } from "@js/lib/scope.js";
+
+const kind = element("down", { dataset: { feedKind: "down" } });
+kind.setAttribute("aria-pressed", "true");
+Object.assign(els, { feedList: element("feed"), feedPanel: element("panel"), feedFilterButtons: [kind] });
+answer = json({ events: [] });
+config.scope = readScope("?tenant=Acme%20Corp&q=DNK&q=aarhus");
+await loadFeed();
+check(calls[0].url === "/api/alert-feed?tenant=Acme+Corp&q=DNK&q=aarhus&limit=100&kinds=down", calls[0].url);
+config.scope = null;
+await loadFeed();
+check(calls[1].url === "/api/alert-feed?limit=100&kinds=down", calls[1].url);
+"""
+    )

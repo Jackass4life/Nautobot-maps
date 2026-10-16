@@ -35,6 +35,7 @@ Object.assign(els, {
   moreFilters: byId("more-filters"),
   clearAlertFiltersBtn: byId("clear-alert-filters"),
   copyWallLinkBtn: byId("copy-wall-link"),
+  feedTitle: byId("feed-title"),
   toggleNonOperational: byId("toggle-non-operational"),
   summaryLine: byId("summary-line-text"),
   summaryAlarms: byId("summary-alarms"),

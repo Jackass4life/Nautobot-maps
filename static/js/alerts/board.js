@@ -184,6 +184,8 @@ export async function loadAlertBoard(forceRefresh = false, { background = false 
     if (config.scope) {
       state.scopeLabel = scopeLabel(config.scope, state.allAlerts);
       if (els.boardScopeLabel) els.boardScopeLabel.textContent = state.scopeLabel;
+      // The feed is for the same sites (#369).
+      if (els.feedTitle) els.feedTitle.textContent = `Activity · ${state.scopeLabel}`;
     }
     renderSummary(config.scope ? scopeSummary(state.allAlerts) : payload.summary || {});
     applyFilters(payload);
