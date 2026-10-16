@@ -274,6 +274,11 @@ def alert_board():
         case_url_template=settings.CASE_URL_TEMPLATE,
         tier_definitions=alerts.alert_level_definitions(),
         wall_view=request.args.get("view") == "wall",
+        # ?tenant= / ?q= (#364), kept on the Wall view and Operator view links.
+        scope_query=urlencode(
+            [("tenant", name) for name in request.args.getlist("tenant") if name.strip()]
+            + [("q", text) for text in [request.args.get("q", "")] if text.strip()]
+        ),
     )
 
 

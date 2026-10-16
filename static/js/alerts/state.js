@@ -11,6 +11,8 @@ export const config = {
   // Wall-screen view, /alerts?view=wall (#243): alarms only, every site
   // expanded, no controls.
   wallView: false,
+  // ?tenant= / ?q= on the link: these sites only, or null (#364).
+  scope: null,
 };
 
 export const DEFAULT_SEVERITY_FILTER = "alarms";
@@ -33,6 +35,8 @@ export const state = {
   // Sites the operator opened; with allSitesExpanded, the ones they closed.
   expandedSiteIds: new Set(),
   allSitesExpanded: false,
+  // What a link's ?tenant= / ?q= shows, worked out once per load (#364).
+  scopeLabel: "",
 };
 
 export function findSite(siteId) {

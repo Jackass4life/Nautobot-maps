@@ -99,6 +99,26 @@ def test_the_wall_view_has_no_controls(page):
     assert page.locator("#wall-sound").is_visible()
 
 
+def test_a_wall_for_some_sites(page):
+    """?q= and ?tenant= (#364): the wall, and the board behind it, show those sites only."""
+    page.goto(f"{BASE_URL}/alerts?view=wall&q=Etage")
+    page.wait_for_selector(".site-row")
+    rows = page.locator(".site-row .site-name").all_inner_texts()
+    assert rows and all("Etage" in name for name in rows), rows
+    page.locator("#wall-updated", has_text="Updated").wait_for()
+    assert page.locator("#wall-updated").inner_text().startswith("“Etage” · Updated")
+    page.locator(".wall-exit").click()
+    page.wait_for_selector(".site-row")
+    assert page.url.endswith("/alerts?q=Etage")
+    assert page.locator("#board-scope").inner_text() == "Only “Etage” · Show all sites"
+    assert all("Etage" in name for name in page.locator(".site-row .site-name").all_inner_texts())
+    assert page.locator(".app-nav-link", has_text="Wall view").get_attribute("href") == "/alerts?view=wall&q=Etage"
+    # A link that matches no site is a warning, never the green all-clear.
+    page.goto(f"{BASE_URL}/alerts?view=wall&tenant=nobody%20at%20all")
+    page.locator(".scope-no-match", has_text="No site matches nobody at all.").wait_for()
+    assert page.locator(".all-clear").count() == 0
+
+
 def test_the_map_shows_markers(page):
     page.goto(f"{BASE_URL}/")
     page.locator(".leaflet-marker-icon").first.wait_for(timeout=20000)

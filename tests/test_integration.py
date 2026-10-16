@@ -2392,3 +2392,127 @@ fitToSites(map, [sites[1], sites[2]]);
 check(fits.length === 1, "no site to fit: the view stays");
 """
         )
+
+
+# The board's elements loadAlertBoard draws into (#364 tests).
+BOARD_ELS = """
+const boardEls = ["boardStatus", "alertsTableBody", "refreshBtn", "filterSite", "filterStatus", "filterType",
+  "filterTenant", "sortBy", "summaryAlarms", "summaryNoData", "summaryMaintenance", "summaryTotal", "wallUpdatedEl"];
+boardEls.forEach((name) => { els[name] = element(name); });
+els.sortBy.value = "newest";
+"""
+
+
+class TestScopedBoardInTheBrowser:
+    """?tenant= (repeatable) and ?q=: a board or wall for some sites only (#364)."""
+
+    def test_scope_from_the_link(self):
+        run_js(
+            """
+import { inScope, readScope, scopeLabel, scopeSummary } from "@js/alerts/scope.js";
+
+check(readScope("") === null && readScope("?view=wall") === null && readScope("?tenant=+&q=") === null, "no scope");
+const scope = readScope("?view=wall&tenant=acme%20corp&tenant=Nordic%20Net&q=DNK");
+check(JSON.stringify(scope.tenants) === '["acme corp","Nordic Net"]' && scope.text === "DNK", JSON.stringify(scope));
+check(scopeLabel(scope) === "acme corp, Nordic Net · “DNK”", "as typed before the sites are in: " + scopeLabel(scope));
+check(scopeLabel(readScope("?q=EMEA")) === "“EMEA”", scopeLabel(readScope("?q=EMEA")));
+
+const aarhus = { name: "Aarhus", ancestor_path: "EMEA › DNK", tenant: "Acme Corp", alert_level: "critical" };
+const oslo = { name: "Oslo", ancestor_path: "EMEA › NOR", tenant: "Nordic Net", alert_level: "low" };
+const lyon = { name: "Lyon", ancestor_path: "EMEA › FRA", tenant: "EuroIX", alert_level: "maintenance" };
+check(inScope(aarhus, scope) && !inScope(oslo, scope) && !inScope(lyon, scope), "tenants (any, any case) and the path");
+const tenants = readScope("?tenant=ACME%20CORP&tenant=nordic%20net");
+check(inScope(aarhus, tenants) && inScope(oslo, tenants) && !inScope(lyon, tenants), "either tenant");
+check(inScope(lyon, null), "no scope: every site");
+check(scopeLabel(scope, [aarhus, oslo]) === "Acme Corp, Nordic Net · “DNK”", "as Nautobot spells them: " + scopeLabel(scope, [aarhus, oslo]));
+
+const summary = scopeSummary([aarhus, oslo, lyon, { name: "x" }]);
+check(JSON.stringify(summary) === '{"total":4,"critical":1,"low":1,"maintenance":1,"no_data":1}', JSON.stringify(summary));
+"""
+        )
+
+    def test_board_and_wall_show_only_those_sites(self):
+        run_js(
+            """
+import { loadAlertBoard } from "@js/alerts/board.js";
+import { readScope } from "@js/alerts/scope.js";
+import { config, els, state } from "@js/alerts/state.js";
+import { renderWallStatus } from "@js/alerts/wall.js";
+"""
+            + BOARD_ELS
+            + """const sites = [
+  { id: "a", name: "Aarhus", tenant: "Acme Corp", alert_level: "critical", down_device_count: 1, down_devices: [{ device_name: "a1" }] },
+  { id: "c", name: "Copenhagen", tenant: "Acme Corp", alert_level: "ok" },
+  { id: "o", name: "Oslo", tenant: "Nordic Net", alert_level: "medium", down_device_count: 2, down_devices: [{ device_name: "o1" }] },
+];
+// The server's summary counts every site; the scoped board counts its own.
+const payload = { alerts: sites, summary: { total: 3, critical: 1, medium: 1, non_ok: 2 } };
+globalThis.fetch = async () => new Response(JSON.stringify(payload));
+
+config.wallView = true;
+config.scope = readScope("?view=wall&tenant=Acme%20Corp");
+await loadAlertBoard(false, { background: true });
+check(state.allAlerts.map((s) => s.id).join() === "a,c", state.allAlerts.map((s) => s.id).join());
+check(els.summaryAlarms.textContent === 1 && els.summaryTotal.textContent === 2,
+  `alarms ${els.summaryAlarms.textContent}, total ${els.summaryTotal.textContent}`);
+check(els.alertsTableBody.innerHTML.includes("Aarhus") && !els.alertsTableBody.innerHTML.includes("Oslo"), "rows");
+renderWallStatus(state.lastLoadedAt);
+check(els.wallUpdatedEl.textContent.startsWith("Acme Corp · Updated ")
+  && els.wallUpdatedEl.textContent.includes("1 site with alarms"), els.wallUpdatedEl.textContent);
+
+// A tenant with nothing in alarm: the all-clear, for whom.
+config.scope = readScope("?view=wall&tenant=acme%20corp");
+payload.alerts = sites.filter((s) => s.id !== "a");
+await loadAlertBoard(false, { background: true });
+check(els.alertsTableBody.innerHTML.includes("No active alarms for Acme Corp.")
+  && els.alertsTableBody.innerHTML.includes("all-clear"), els.alertsTableBody.innerHTML);
+
+// A link that matches no site (a typo, a renamed tenant) is a warning, never the all-clear.
+config.scope = readScope("?view=wall&tenant=Acme%20Crop");
+await loadAlertBoard(false, { background: true });
+const empty = els.alertsTableBody.innerHTML;
+check(empty.includes("No site matches Acme Crop. Check the link") && empty.includes("scope-no-match") && !empty.includes("all-clear"), empty);
+
+// The link's text is the visitor's: shown, never markup.
+config.scope = readScope("?view=wall&q=" + encodeURIComponent('<img src=x onerror="alert(1)">'));
+await loadAlertBoard(false, { background: true });
+const escaped = els.alertsTableBody.innerHTML;
+check(!escaped.includes("<img") && escaped.includes("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"), escaped);
+""",
+            tz="UTC",
+        )
+
+    def test_at_scale(self):
+        """1,200 sites, 30 tenants, ~100 down devices: one tenant's wall, quickly."""
+        run_js(
+            """
+import { loadAlertBoard } from "@js/alerts/board.js";
+import { readScope } from "@js/alerts/scope.js";
+import { config, els, state } from "@js/alerts/state.js";
+"""
+            + BOARD_ELS
+            + """const levels = ["critical", "medium", "low"];
+const sites = Array.from({ length: 1200 }, (_, i) => {
+  const down = i % 40 === 0 ? 3 : 0; // 30 sites in alarm, ~90 devices down
+  return {
+    id: `s${i}`, name: `Site ${i}`, ancestor_path: `EMEA › C${i % 12}`, tenant: `Tenant ${i % 30}`,
+    tenants: [`Tenant ${i % 30}`, `Tenant ${(i + 7) % 30}`],
+    alert_level: down ? levels[i % 3] : "ok", down_device_count: down,
+    down_devices: Array.from({ length: down }, (_, d) => ({ device_name: `s${i}-sw${d}`, device_id: `d${i}-${d}` })),
+  };
+});
+sites[0].down_devices = Array.from({ length: 34 }, (_, d) => ({ device_name: `s0-sw${d}`, device_id: `d0-${d}` }));
+sites[0].down_device_count = 34;
+globalThis.fetch = async () => new Response(JSON.stringify({ alerts: sites, summary: {} }));
+config.wallView = true;
+config.scope = readScope("?view=wall&tenant=tenant%200");
+const started = performance.now();
+await loadAlertBoard(false, { background: true });
+const took = performance.now() - started;
+// Tenant 0: its own sites (i % 30 == 0) and those it is linked to ((i + 7) % 30 == 0).
+check(state.allAlerts.length === 80, "sites of tenant 0: " + state.allAlerts.length);
+check(state.allAlerts.every((s) => s.tenants.includes("Tenant 0")), "only its sites");
+check(els.summaryTotal.textContent === 80, "tiles count its sites: " + els.summaryTotal.textContent);
+check(took < 1000, `${took.toFixed(0)} ms for 1,200 sites`);
+"""
+        )

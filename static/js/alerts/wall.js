@@ -2,7 +2,7 @@
 // banner, and a chime and a notification for a new Critical (#290).
 import { formatClock } from "../lib/format.js";
 import { hasActiveAlarm, siteCaseState } from "./rows.js";
-import { ALARM_LEVELS, els, state } from "./state.js";
+import { ALARM_LEVELS, config, els, state } from "./state.js";
 
 // The wall reloads on its own every minute as well, so a screen nobody
 // touches recovers from errors and an unknown next update.
@@ -24,10 +24,12 @@ export function renderWallStatus(now = Date.now()) {
   const withoutCase = alarmSites.filter((item) => siteCaseState(item).state !== "handled").length;
   const planned = allAlerts.filter((item) => item.alert_level === "maintenance").length;
   const stale = now - lastLoadedAt >= WALL_STALE_MS;
+  // A screen for some sites says which, so it isn't read as the whole network (#364).
+  const scope = config.scope ? `${state.scopeLabel} · ` : "";
   wallUpdatedEl.classList.toggle("wall-stale", stale);
   wallUpdatedEl.textContent = stale
-    ? `NOT UPDATED since ${formatClock(lastLoadedAt)}`
-    : `Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case or ack`
+    ? `${scope}NOT UPDATED since ${formatClock(lastLoadedAt)}`
+    : `${scope}Updated ${formatClock(lastLoadedAt)} · ${alarms} site${alarms === 1 ? "" : "s"} with alarms · ${withoutCase} without case or ack`
       + (planned ? ` · ${planned} in maintenance` : "");
 }
 

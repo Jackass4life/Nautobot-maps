@@ -6,6 +6,7 @@ import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
 import { filtersInUse, getFilteredAlerts, isSiteExpanded, populateFilters, renderMoreFiltersLabel } from "./filters.js";
 import { fullWidthRow, hasActiveAlarm, siteRowsHtml, summaryText } from "./rows.js";
+import { inScope, scopeLabel, scopeSummary } from "./scope.js";
 import { ALARM_LEVELS, config, els, state } from "./state.js";
 import { announceNewAlarms, renderWallStatus, showWallError } from "./wall.js";
 
@@ -65,10 +66,17 @@ export function emptyBoardText(payload) {
   if (payload.sync_pending && !state.allAlerts.length) {
     return { text: "Inventory sync in progress – the board will update automatically.", className: "empty-state" };
   }
+  // A link whose tenant= / q= matches nothing must not look like an all-clear (#364).
+  if (config.scope && !state.allAlerts.length && (payload.alerts || []).length) {
+    return {
+      text: `No site matches ${state.scopeLabel}. Check the link's tenant= and q=.`,
+      className: "empty-state scope-no-match",
+    };
+  }
   if (state.severityFilter === "alarms" && !state.allAlerts.some(hasActiveAlarm)) {
     return {
       text: config.wallView
-        ? "No active alarms."
+        ? `No active alarms${config.scope ? ` for ${state.scopeLabel}` : ""}.`
         : "No site has an active alarm. Choose All sites to see every site.",
       className: "empty-state all-clear",
     };
@@ -79,7 +87,8 @@ export function emptyBoardText(payload) {
 export function renderTableRows(alerts, payload) {
   if (!alerts.length) {
     const { text, className } = emptyBoardText(payload);
-    els.alertsTableBody.innerHTML = fullWidthRow(text, className);
+    // Plain text, and it can carry a link's ?q= (#364): escaped.
+    els.alertsTableBody.innerHTML = fullWidthRow(escHtml(text), className);
     formatBoardStatus(payload, 0);
     return;
   }
@@ -158,11 +167,16 @@ export async function loadAlertBoard(forceRefresh = false, { background = false 
     const payload = await getJson(`/api/alerts${query ? `?${query}` : ""}`);
     if (seq !== loadSeq) return; // A newer load started meanwhile.
     state.latestPayload = payload;
-    state.allAlerts = payload.alerts || [];
+    // Only the sites a link's ?tenant= / ?q= asks for (#364).
+    state.allAlerts = (payload.alerts || []).filter((item) => inScope(item, config.scope));
     state.lastLoadedAt = Date.now();
     if (els.wallErrorEl) els.wallErrorEl.hidden = true;
     populateFilters(state.allAlerts);
-    renderSummary(payload.summary || {});
+    if (config.scope) {
+      state.scopeLabel = scopeLabel(config.scope, state.allAlerts);
+      if (els.boardScopeLabel) els.boardScopeLabel.textContent = state.scopeLabel;
+    }
+    renderSummary(config.scope ? scopeSummary(state.allAlerts) : payload.summary || {});
     applyFilters(payload);
     if (config.wallView) announceNewAlarms(state.allAlerts);
     scheduleSyncPoll(payload);

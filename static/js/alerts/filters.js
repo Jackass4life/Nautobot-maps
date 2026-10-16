@@ -106,18 +106,18 @@ export function caseSortRank(item) {
   return siteCaseState(item).state === "handled" ? 1 : 0;
 }
 
+// What the filter box (and a link's ?q=) searches: name, path, address, country.
+export function siteSearchText(item) {
+  return [item.name, item.ancestor_path || item.parent, formatLocationAddress(item), item.country].join(" ").toLowerCase();
+}
+
 // The sites that pass *criteria*, sorted: {site (search text), status, type,
 // tenant, sort, severityFilter, wallView}.
 export function filterSites(sites, criteria) {
   const siteNeedle = (criteria.site || "").trim().toLowerCase();
   const { status, type, tenant, sort, wallView } = criteria;
   const filtered = sites.filter((item) => {
-    const searchableText = [
-      item.name,
-      item.ancestor_path || item.parent,
-      formatLocationAddress(item),
-      item.country,
-    ].join(" ").toLowerCase();
+    const searchableText = siteSearchText(item);
     // The wall view also lists sites in maintenance, at the bottom (#283).
     if (!matchesSeverityFilter(item, criteria.severityFilter) && !(wallView && item.alert_level === "maintenance")) return false;
     if (siteNeedle && !searchableText.includes(siteNeedle)) return false;

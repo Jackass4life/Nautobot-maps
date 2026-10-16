@@ -127,4 +127,16 @@ Syncs are incremental (only what changed in Nautobot since the last one); a dail
 - When the board can't be loaded it shows a red banner and keeps the last board on screen, so a frozen screen never looks like "all OK".
 - With `AUTH_REQUIRE_VIEWER=true`, the screen's browser needs to sign in through your proxy like any other viewer.
 
+**A wall for some sites only** (#364): add `tenant=` and/or `q=` to the link, and the screen shows only those sites, e.g. a team that looks after two customers in Denmark:
+
+```
+/alerts?view=wall&tenant=Acme%20Corp&tenant=Nordic%20Net&q=DNK
+```
+
+- `tenant=` (repeat it for more than one) keeps the sites with any of those tenants: the site's own and those linked to it, as on the board's tenant filter; capitals don't matter.
+- `q=` keeps the sites whose name, site path (`EMEA › DNK`), address or country contains it, as the board's filter box does.
+- The top line starts with what it shows ("Acme Corp, Nordic Net · “DNK” · Updated 14:05 · …"), so a filtered screen isn't read as the whole network; its counts and its sound cover only those sites. Nothing in alarm there: "No active alarms for Acme Corp".
+- The same link without `view=wall` opens the board for those sites, with "Only … · **Show all sites**" under the summary; the tiles count only those sites, and the board's own filters narrow further. **Operator view** on a filtered wall keeps the filter.
+- The activity feed isn't filtered. Filtering happens in the browser on the board's usual data, so a filtered screen costs the server nothing extra.
+
 **Sound** (top right of the wall view, #290): **Sound on** plays a short chime and shows a browser notification ("London HQ is Critical") once when a site becomes Critical, and once when a site in alarm has nobody on it (no case, no acknowledgement); not on every refresh, and not for what was already wrong when the page opened. It is remembered on that screen; after the page reloads, browsers play sound only after a first click anywhere on it. Notifications need the browser's permission, asked when you turn sound on.
