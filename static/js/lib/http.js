@@ -1,3 +1,14 @@
+// An HTML error page (a proxy's 502, say) as its words, not its markup (#350);
+// the first 200 characters are enough for a toast.
+function pageText(html) {
+  return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 // The JSON of an API answer; an error page's text as {error} (#294).
 export async function readJsonResponse(resp) {
   const contentType = resp.headers.get("content-type") || "";
@@ -9,7 +20,7 @@ export async function readJsonResponse(resp) {
   try {
     return JSON.parse(text);
   } catch (_err) {
-    return { error: text };
+    return { error: contentType.includes("html") ? pageText(text) : text };
   }
 }
 

@@ -2,6 +2,7 @@
 // page's elements, wires the controls and loads the locations.  The only map
 // module that looks at the page when it loads (#294).  Leaflet (L) is loaded
 // before this, as a plain script.
+import { getJson } from "../lib/http.js";
 import { initThemeToggle } from "../lib/theme.js";
 import { showError } from "../lib/toast.js";
 import { initInfoTips } from "../lib/tooltip.js";
@@ -206,10 +207,7 @@ function showLoading(visible, message) {
 async function loadLocations(levelsLoaded) {
   showLoading(true, "Loading locations from Nautobot…");
   try {
-    const resp = await fetch("/api/locations");
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
+    const data = await getJson("/api/locations");
     state.allLocations = data.locations || [];
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
     await levelsLoaded;

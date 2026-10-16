@@ -838,16 +838,6 @@ a.case-pill:focus-visible {
   text-align: left;
 }
 
-.action-btn-disabled {
-  color: var(--color-text-muted);
-  cursor: default;
-  opacity: 0.6;
-}
-
-.action-btn-disabled:hover {
-  border-color: var(--color-border);
-}
-
 .case-form {
   display: flex;
   flex-direction: column;

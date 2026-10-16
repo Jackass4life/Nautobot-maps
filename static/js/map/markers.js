@@ -213,10 +213,6 @@ export function redrawMarkers() {
   if (!drawnSearch) redrawAll();
 }
 
-export function isSearchShown() {
-  return drawnSearch;
-}
-
 // Redraw the marker (or co-located stack) holding *locId* after its level changed.
 export function refreshMarkerIcon(locId) {
   const marker = markerByLocId[locId];

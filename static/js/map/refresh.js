@@ -1,4 +1,5 @@
 // Alert levels of every location, so markers are coloured without a click (#234).
+import { getJson } from "../lib/http.js";
 import { applyLevelToOpenPanel } from "./inspector.js";
 import { crossesClusterLine, redrawMarkers, refreshMarkerIcon } from "./markers.js";
 import { renderAlarmList } from "./alarms.js";
@@ -16,9 +17,7 @@ function setAlertLevelsNote(show) {
 export async function loadLocationAlerts() {
   let data;
   try {
-    const resp = await fetch("/api/location-alerts");
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    data = await resp.json();
+    data = await getJson("/api/location-alerts");
   } catch (err) {
     // Markers keep their last colours; a click still loads the site's level.
     // Never loaded: grey would read as "no data", so say so (#311).
