@@ -3356,6 +3356,7 @@ class TestInventoryCacheSync:
                 "location_type": "Data Center",
                 "parent": "",
                 "parent_id": "",
+                "ancestor_path": "",
                 "latitude": 1.0,
                 "longitude": 2.0,
                 "description": "",
