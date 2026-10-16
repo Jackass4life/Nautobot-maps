@@ -2,8 +2,9 @@
 
 Such sites are missing from the map, or pull its first view (#362) out over
 the sea, and are hard to find in Nautobot.  The check runs over the alert
-board's rows: the sites the NOC watches.  Regions, countries and floors have
-no coordinates by design and are not rows, so they are not listed.
+board's rows: the sites the NOC watches.  A row without coordinates is listed
+only when it has devices: regions and buildings above the sites have none by
+design (they are rows when every location is one).
 
 Problems, worst first:
 
@@ -69,6 +70,10 @@ def check(rows: list[dict]) -> list[dict]:
         point = _coordinates(row)
         km = None
         if point is None:
+            # A region or building with no devices has none by design; a site with
+            # devices the board watches and the map can't show is the problem.
+            if not row.get("device_count"):
+                continue
             problem = "missing"
         elif point == (0.0, 0.0):
             problem = "zero"

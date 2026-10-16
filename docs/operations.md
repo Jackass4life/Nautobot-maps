@@ -165,5 +165,5 @@ A site without coordinates is missing from the map, and one with wrong coordinat
 | `far` | More than 2,000 km, or 4 × the median distance if the network is wider, from the median of all sites: check it (a lone site abroad can be right) |
 | `missing` | No coordinates: on the board, not on the map |
 
-Only the board's sites are checked: regions, countries and floors have no coordinates by design. It reads the stored board, so it costs no Nautobot call. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`. On a map for some sites only (`?tenant=`, `?q=`), the line covers those sites.
+Only the board's sites are checked, and one without coordinates only when it has devices: regions and buildings above the sites have none by design. It reads the stored board, so it costs no Nautobot call. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`. On a map for some sites only (`?tenant=`, `?q=`), the line covers those sites.
 

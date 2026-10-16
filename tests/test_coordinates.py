@@ -27,11 +27,12 @@ class TestCheck:
 
     def test_each_problem_worst_first(self):
         rows = europe() + [
-            site("nowhere", None, None, ancestor_path="EMEA › DNK", tenant="Acme Corp"),
+            site("nowhere", None, None, ancestor_path="EMEA › DNK", tenant="Acme Corp", device_count=3),
+            site("region", None, None, device_count=0),  # no devices: a region, not a site
             site("null-island", 0, 0),
             site("swapped", 12.57, 55.68),  # Copenhagen, latitude and longitude the wrong way round
             site("new-york", 40.71, -74.0),  # far, and swapping doesn't help
-            site("text", "", "x"),  # unreadable: as good as none
+            site("text", "", "x", device_count=1),  # unreadable: as good as none
         ]
         found = coordinates.check(rows)
         assert [(item["site_id"], item["problem"]) for item in found] == [
@@ -64,7 +65,7 @@ class TestCheck:
 class TestApi:
     @pytest.fixture
     def client(self, monkeypatch):
-        rows = europe(100) + [site("nowhere", None, None), site("swapped", 12.57, 55.68)]
+        rows = europe(100) + [site("nowhere", None, None, device_count=2), site("swapped", 12.57, 55.68)]
         monkeypatch.setattr(alerts, "board", lambda trigger="request", **kwargs: {"alerts": rows})
         flask_app.app.config["TESTING"] = True
         with flask_app.app.test_client() as test_client:
