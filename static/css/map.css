@@ -804,10 +804,12 @@ body.inspector-open #map {
   color: var(--color-text);
 }
 
-/* A link that matches no site: a warning, not an empty map with no reason. */
+/* A link that matches no site: a warning, not an empty map with no reason.
+   Amber as a bar, the text in the text colour: amber text is too faint on white. */
 .map-scope.scope-no-match {
-  color: var(--color-warning);
+  color: var(--color-text);
   font-weight: 700;
+  border-left: 6px solid var(--color-warning);
 }
 
 .alert-levels-note {

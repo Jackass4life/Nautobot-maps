@@ -1556,10 +1556,12 @@ a.case-pill:focus-visible {
   color: var(--color-success);
 }
 
-/* A link that matches no site (#364): a warning, never the green all-clear. */
+/* A link that matches no site (#364): a warning, never the green all-clear.
+   Amber as a bar, the text in the text colour: amber text is too faint on white. */
 .empty-state.scope-no-match {
-  color: var(--color-warning);
+  color: var(--color-text);
   font-weight: 700;
+  border-left: 6px solid var(--color-warning);
 }
 
 /* Availability report (#287). */

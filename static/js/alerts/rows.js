@@ -4,11 +4,8 @@ import { casePill } from "../lib/cases.js";
 import { formatDuration, formatFeedTime } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { maintenanceHistoryHref } from "../lib/maintenance-form.js";
-import { siteTenants } from "../lib/scope.js";
+import { formatLocationAddress, siteTenants } from "../lib/scope.js";
 import { ALARM_LEVELS, SEVERITY_ORDER } from "./state.js";
-
-// Shared with the map (#367); still imported from here by the board.
-export { siteTenants };
 
 // The board's columns (templates/alerts.html), for rows that span them all.
 const BOARD_COLUMNS = 5;
@@ -165,10 +162,6 @@ export function alertBadge(level, reason) {
 export function maintenanceNote(until, reason) {
   const when = formatFeedTime(until);
   return [when ? `until ${when}` : "", reason || ""].filter(Boolean).map(escHtml).join(" · ");
-}
-
-export function formatLocationAddress(item) {
-  return item.physical_address || item.facility || "";
 }
 
 // A time with what it means (#275): "in alarm 3h 40m" for a site (since its

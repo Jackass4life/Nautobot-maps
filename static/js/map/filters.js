@@ -3,7 +3,7 @@ import { isAlarm, renderAlarmList } from "./alarms.js";
 import { openLocationFromQuery } from "./inspector.js";
 import { renderMarkers } from "./markers.js";
 import { scopeLabel } from "../lib/scope.js";
-import { config, els, locationAlerts, state } from "./state.js";
+import { config, els, getLocationById, locationAlerts, state } from "./state.js";
 
 const ALARMS_ONLY_KEY = "nautobot-maps-map-alarms-only";
 
@@ -19,21 +19,28 @@ const FILTERS = [
 // site (a typo, a renamed tenant) says so instead of an empty map (#367).
 // *siteCount*: the sites before the scope.
 export function showScope(siteCount) {
-  const { mapScope, mapScopeLabel } = els;
+  const { mapScope } = els;
   if (!config.scope || !mapScope) return;
   const label = scopeLabel(config.scope, state.allLocations);
   const noMatch = siteCount > 0 && !state.allLocations.length;
   mapScope.classList.toggle("scope-no-match", noMatch);
-  if (noMatch) {
-    mapScope.textContent = `No site matches ${label}. Check the link's tenant= and q=. `;
-    const all = document.createElement("a");
-    all.href = "/";
-    all.textContent = "Show all sites";
-    mapScope.append(all);
-  } else {
-    mapScopeLabel.textContent = label;
-  }
+  // Built whole each time, so it can be shown again either way.
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  const all = document.createElement("a");
+  all.href = "/";
+  all.textContent = "Show all sites";
+  mapScope.replaceChildren(
+    ...(noMatch ? ["No site matches ", strong, ". Check the link's tenant= and q=. "] : ["Only ", strong, " · "]),
+    all,
+  );
   mapScope.hidden = false;
+}
+
+// A link to a site (?location_id=) the scope leaves out: say why it doesn't open.
+export function linkedSiteOutOfScope(everySite) {
+  const locId = state.initialLocationId;
+  return Boolean(locId) && !getLocationById(locId) && everySite.some((loc) => loc.id === locId);
 }
 
 export function populateFilters(locations) {

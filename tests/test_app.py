@@ -1633,6 +1633,18 @@ class TestIndex:
         plain = client.get("/alerts").get_data(as_text=True)
         assert 'href="/alerts?view=wall"' in plain
 
+    def test_live_locations_have_their_path(self, monkeypatch):
+        """Without the cache (a map-only setup), /api/locations' paths still come along (#367)."""
+        import mock_nautobot
+
+        monkeypatch.setattr(inventory, "read_locations", lambda include_without_coordinates=False, conn=None: [])
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: None)
+        monkeypatch.setattr(inventory, "live_tenant_descriptions", lambda: {})
+        monkeypatch.setattr(nautobot, "fetch_all_pages", lambda path, **kwargs: list(mock_nautobot.LOCATIONS))
+        everywhere = {loc["id"]: loc for loc in inventory.get_locations(include_without_coordinates=True)}
+        assert everywhere["loc-aar-bld-a-f2"]["ancestor_path"] == "EMEA › DNK › Aarhus Campus › Bygning A"
+        assert {loc["id"]: loc["ancestor_path"] for loc in inventory.get_locations()}["loc-cph"] == ""
+
     def test_map_and_board_links_keep_a_scope(self, client):
         """?tenant= / ?q= (#367) stay on the links between the map, the board and the wall."""
         html = client.get("/?tenant=Acme%20Corp&q=DNK").get_data(as_text=True)

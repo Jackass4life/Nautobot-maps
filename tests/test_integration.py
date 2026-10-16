@@ -2419,7 +2419,10 @@ import { inScope, readScope, scopeLabel, scopeSummary } from "@js/alerts/scope.j
 
 check(readScope("") === null && readScope("?view=wall") === null && readScope("?tenant=+&q=") === null, "no scope");
 const scope = readScope("?view=wall&tenant=acme%20corp&tenant=Nordic%20Net&q=DNK");
-check(JSON.stringify(scope.tenants) === '["acme corp","Nordic Net"]' && scope.text === "DNK", JSON.stringify(scope));
+check(JSON.stringify(scope.tenants) === '["acme corp","Nordic Net"]' && JSON.stringify(scope.texts) === '["DNK"]', JSON.stringify(scope));
+// Several q= (#366): every one must match.
+const two = readScope("?q=EMEA&q=%20DNK%20");
+check(JSON.stringify(two.texts) === '["EMEA","DNK"]' && scopeLabel(two) === "“EMEA” · “DNK”", scopeLabel(two));
 check(scopeLabel(scope) === "acme corp, Nordic Net · “DNK”", "as typed before the sites are in: " + scopeLabel(scope));
 check(scopeLabel(readScope("?q=EMEA")) === "“EMEA”", scopeLabel(readScope("?q=EMEA")));
 
@@ -2427,6 +2430,7 @@ const aarhus = { name: "Aarhus", ancestor_path: "EMEA › DNK", tenant: "Acme Co
 const oslo = { name: "Oslo", ancestor_path: "EMEA › NOR", tenant: "Nordic Net", alert_level: "low" };
 const lyon = { name: "Lyon", ancestor_path: "EMEA › FRA", tenant: "EuroIX", alert_level: "maintenance" };
 check(inScope(aarhus, scope) && !inScope(oslo, scope) && !inScope(lyon, scope), "tenants (any, any case) and the path");
+check(inScope(aarhus, two) && !inScope(lyon, two), "every q= word");
 const tenants = readScope("?tenant=ACME%20CORP&tenant=nordic%20net");
 check(inScope(aarhus, tenants) && inScope(oslo, tenants) && !inScope(lyon, tenants), "either tenant");
 check(inScope(lyon, null), "no scope: every site");
@@ -2531,16 +2535,17 @@ class TestScopedLinksInTheBrowser:
         run_js(
             """
 import { wallLinkFor } from "@js/alerts/filters.js";
-import { readScope, scopeQuery } from "@js/lib/scope.js";
+import { readScope } from "@js/lib/scope.js";
 
 check(wallLinkFor({ tenant: "", text: "  ", scope: null }) === null, "nothing narrows the board: no link");
 check(wallLinkFor({ tenant: "Acme Corp", text: "", scope: null }) === "/alerts?view=wall&tenant=Acme+Corp", "the tenant menu");
 check(wallLinkFor({ tenant: "", text: " DNK ", scope: null }) === "/alerts?view=wall&q=DNK", "the filter box");
 const scope = readScope("?tenant=Acme%20Corp&tenant=Nordic%20Net&q=EMEA");
 check(wallLinkFor({ tenant: "", text: "", scope }) === "/alerts?view=wall&tenant=Acme+Corp&tenant=Nordic+Net&q=EMEA", "the link's scope");
-check(wallLinkFor({ tenant: "Nordic Net", text: "Oslo", scope }) === "/alerts?view=wall&tenant=Nordic+Net&q=Oslo", "the menu and box win");
+// The box narrows the link's q=, never replaces it: the wall is no wider than the board.
+check(wallLinkFor({ tenant: "Nordic Net", text: "Oslo", scope }) === "/alerts?view=wall&tenant=Nordic+Net&q=EMEA&q=Oslo",
+  wallLinkFor({ tenant: "Nordic Net", text: "Oslo", scope }));
 check(wallLinkFor({ tenant: "", text: "a&b=<c>", scope: null }) === "/alerts?view=wall&q=a%26b%3D%3Cc%3E", "encoded");
-check(scopeQuery(scope) === "tenant=Acme+Corp&tenant=Nordic+Net&q=EMEA" && scopeQuery(null) === "", scopeQuery(scope));
 """
         )
 
@@ -2549,27 +2554,42 @@ check(scopeQuery(scope) === "tenant=Acme+Corp&tenant=Nordic+Net&q=EMEA" && scope
             MAP_FAKES
             + """
 import { readScope } from "@js/lib/scope.js";
-import { showScope } from "@js/map/filters.js";
+import { linkedSiteOutOfScope, showScope } from "@js/map/filters.js";
 import { doSearch } from "@js/map/search.js";
 import { config, els, state } from "@js/map/state.js";
 
 state.markerLayer = fakeLayer();
 state.clusterLayer = fakeLayer();
 els.mapScope = element("map-scope", { hidden: true });
-els.mapScopeLabel = element("map-scope-label");
-els.mapScope.append = (child) => { els.mapScope.appended = child; };
+document.createElement = (tag) => element(tag);
+els.mapScope.replaceChildren = (...children) => {
+  els.mapScope.children = children;
+  els.mapScope.text = children.map((child) => (typeof child === "string" ? child : child.textContent)).join("");
+};
 
 config.scope = readScope("?tenant=acme%20corp");
 state.allLocations = [{ id: "a", name: "Aarhus", tenant: "Acme Corp", latitude: 56, longitude: 10 }];
 showScope(1200);
-check(!els.mapScope.hidden && els.mapScopeLabel.textContent === "Acme Corp", els.mapScopeLabel.textContent);
+check(!els.mapScope.hidden && els.mapScope.text === "Only Acme Corp · Show all sites", els.mapScope.text);
 check(!els.mapScope.classList.contains("scope-no-match"), "sites match");
 
 state.allLocations = [];
 showScope(1200);
 check(els.mapScope.classList.contains("scope-no-match")
-  && els.mapScope.textContent.startsWith("No site matches acme corp. Check the link") && els.mapScope.appended.href === "/",
-  els.mapScope.textContent);
+  && els.mapScope.text === "No site matches acme corp. Check the link's tenant= and q=. Show all sites"
+  && els.mapScope.children.at(-1).href === "/", els.mapScope.text);
+// Shown again after a no-match: the note is whole again, not a stale warning.
+state.allLocations = [{ id: "a", name: "Aarhus", tenant: "Acme Corp", latitude: 56, longitude: 10 }];
+showScope(1200);
+check(els.mapScope.text === "Only Acme Corp · Show all sites" && !els.mapScope.classList.contains("scope-no-match"), els.mapScope.text);
+
+// A link to a site the scope leaves out says why it doesn't open.
+state.initialLocationId = "n1";
+check(linkedSiteOutOfScope([{ id: "a" }, { id: "n1" }]), "outside the scope");
+check(!linkedSiteOutOfScope([{ id: "a" }]), "gone altogether: nothing to say");
+state.initialLocationId = "a";
+check(!linkedSiteOutOfScope([{ id: "a" }]), "in the scope");
+state.initialLocationId = null;
 
 // Search on a scoped map: the nearby sites among them only.
 const toast = element("error-toast");

@@ -384,7 +384,8 @@ def ancestor_path(loc: dict, by_id: dict[str, dict]) -> str:
 def with_ancestor_paths(locations: list[dict], all_locations: list[dict]) -> list[dict]:
     """*locations*, each with its ``ancestor_path`` (#178)."""
     by_id = {loc.get("id"): loc for loc in all_locations if loc.get("id")}
-    return [{**loc, "ancestor_path": ancestor_path(loc, by_id)} for loc in locations]
+    # read_locations has worked them out already (#367).
+    return [loc if "ancestor_path" in loc else {**loc, "ancestor_path": ancestor_path(loc, by_id)} for loc in locations]
 
 
 def read_locations(include_without_coordinates: bool = False, conn=None) -> list:
@@ -1238,7 +1239,11 @@ def get_locations(include_without_coordinates: bool = False, snapshot_only: bool
     if cached:
         return cached
     raw = nautobot.fetch_all_pages("dcim/locations/")
-    locations = normalize_locations(raw, include_without_coordinates=include_without_coordinates)
+    # Every location for the paths above them (#367), as read_locations has.
+    everywhere = normalize_locations(raw, include_without_coordinates=True)
+    locations = with_ancestor_paths(
+        normalize_locations(raw, include_without_coordinates=include_without_coordinates), everywhere
+    )
     # Without the database (a map-only setup) the tenant (i) still works (#263).
     descriptions = live_tenant_descriptions()
     for loc in locations:

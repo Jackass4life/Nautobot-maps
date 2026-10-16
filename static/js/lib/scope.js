@@ -8,28 +8,43 @@ export function siteTenants(item) {
   return item.tenant ? [item.tenant] : [];
 }
 
-// What a filter box (and a link's ?q=) searches: name, path, address, country.
-export function siteSearchText(item) {
-  const address = item.physical_address || item.facility || "";
-  return [item.name, item.ancestor_path || item.parent, address, item.country].join(" ").toLowerCase();
+// The address shown for a site, and searched.
+export function formatLocationAddress(item) {
+  return item.physical_address || item.facility || "";
 }
 
-// {tenants, text} from a query string, as typed, plus their lower case for
-// matching; null when it has neither.
+// What a filter box (and a link's ?q=) searches: name, path, address, country.
+export function siteSearchText(item) {
+  return [item.name, item.ancestor_path || item.parent, formatLocationAddress(item), item.country]
+    .join(" ")
+    .toLowerCase();
+}
+
+// {tenants, texts} from a query string, as typed, plus their lower case for
+// matching; null when it has neither.  ?tenant= is any of them, ?q= every one
+// of them (#366: the wall link can carry the board's own filter too).
 export function readScope(search) {
   const params = new URLSearchParams(search || "");
-  const tenants = params.getAll("tenant").map((value) => value.trim()).filter(Boolean);
-  const text = (params.get("q") || "").trim();
-  if (!tenants.length && !text) return null;
-  return { tenants, text, lowerTenants: tenants.map((name) => name.toLowerCase()), lowerText: text.toLowerCase() };
+  const clean = (name) => params.getAll(name).map((value) => value.trim()).filter(Boolean);
+  const tenants = clean("tenant");
+  const texts = clean("q");
+  if (!tenants.length && !texts.length) return null;
+  return {
+    tenants,
+    texts,
+    lowerTenants: tenants.map((name) => name.toLowerCase()),
+    lowerTexts: texts.map((text) => text.toLowerCase()),
+  };
 }
 
 // Typed by hand into a link, so case doesn't matter.
 export function inScope(site, scope) {
   if (!scope) return true;
-  const { lowerTenants, lowerText } = scope;
+  const { lowerTenants, lowerTexts } = scope;
   if (lowerTenants.length && !siteTenants(site).some((name) => lowerTenants.includes(name.toLowerCase()))) return false;
-  return !lowerText || siteSearchText(site).includes(lowerText);
+  if (!lowerTexts.length) return true;
+  const text = siteSearchText(site);
+  return lowerTexts.every((needle) => text.includes(needle));
 }
 
 // "Acme Corp, Nordic Net · “DNK”": what the page shows, each tenant as
@@ -38,15 +53,5 @@ export function scopeLabel(scope, sites = []) {
   if (!scope) return "";
   const known = new Map(sites.flatMap(siteTenants).map((name) => [name.toLowerCase(), name]));
   const tenants = scope.tenants.map((name) => known.get(name.toLowerCase()) || name);
-  return [tenants.join(", "), scope.text && `“${scope.text}”`].filter(Boolean).join(" · ");
-}
-
-// The link's ?tenant= / ?q= as a query string ("" without them), for links
-// to the same sites on another page.
-export function scopeQuery(scope) {
-  if (!scope) return "";
-  const params = new URLSearchParams();
-  scope.tenants.forEach((name) => params.append("tenant", name));
-  if (scope.text) params.set("q", scope.text);
-  return params.toString();
+  return [tenants.join(", "), ...scope.texts.map((text) => `“${text}”`)].filter(Boolean).join(" · ");
 }

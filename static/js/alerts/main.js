@@ -9,7 +9,7 @@ import { showError } from "../lib/toast.js";
 import { applyFilters, loadAlertBoard, renderNextUpdate } from "./board.js";
 import { initCasePanel, openCasePanel, sendAck } from "./case-panel.js";
 import { FEED_COLLAPSED_KEY, feedStartsCollapsed, loadFeed, rememberFeedCollapsed, setFeedCollapsed } from "./feed.js";
-import { currentWallLink, rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
+import { currentWallLink, filtersLeftOffTheWall, rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
 import { initMaintenancePanel, openMaintenancePanel } from "./maintenance.js";
 import { closeSidePanel, copySite, copyText, initPanels, openHistory, openPanel } from "./panels.js";
 import { readScope, scopeLabel } from "./scope.js";
@@ -123,8 +123,13 @@ if (els.copyWallLinkBtn) {
     const link = currentWallLink();
     if (!link) return;
     const copied = await copyText(new URL(link, window.location.origin).href);
-    els.copyWallLinkBtn.textContent = copied ? "Copied" : "Copy failed";
-    if (els.copyStatus) els.copyStatus.textContent = copied ? "Copied the wall link" : "Could not copy the wall link";
+    // Say what the wall won't filter by, rather than drop it silently.
+    const leftOff = filtersLeftOffTheWall();
+    const without = leftOff.length ? ` (without ${leftOff.join(" and ")})` : "";
+    els.copyWallLinkBtn.textContent = copied ? `Copied${without}` : "Copy failed";
+    if (els.copyStatus) {
+      els.copyStatus.textContent = copied ? `Copied the wall link${without}` : "Could not copy the wall link";
+    }
     setTimeout(() => {
       els.copyWallLinkBtn.textContent = "Copy wall link";
     }, 2000);

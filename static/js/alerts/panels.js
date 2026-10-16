@@ -5,7 +5,7 @@ import { formatDuration, formatReportTime, formatTimestamp } from "../lib/format
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
-import { formatLocationAddress, siteTenants } from "./rows.js";
+import { formatLocationAddress, siteTenants } from "../lib/scope.js";
 import { config, els, findSite } from "./state.js";
 
 const COPIED_LABEL_MS = 2000;

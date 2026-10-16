@@ -8,7 +8,15 @@ import { initThemeToggle } from "../lib/theme.js";
 import { showError } from "../lib/toast.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { renderAlarmList, toggleAlarmList } from "./alarms.js";
-import { applyFilters, clearFilters, populateFilters, restoreAlarmsOnly, setAlarmsOnly, showScope } from "./filters.js";
+import {
+  applyFilters,
+  clearFilters,
+  linkedSiteOutOfScope,
+  populateFilters,
+  restoreAlarmsOnly,
+  setAlarmsOnly,
+  showScope,
+} from "./filters.js";
 import {
   closeInspector,
   handleMarkerActivation,
@@ -78,7 +86,6 @@ Object.assign(els, {
   quickStatusButtons: Array.from(document.querySelectorAll("[data-quick-status]")),
   locationCount: byId("location-count"),
   mapScope: byId("map-scope"),
-  mapScopeLabel: byId("map-scope-label"),
   searchInput: byId("search-input"),
   searchBtn: byId("search-btn"),
   searchResults: byId("search-results"),
@@ -221,6 +228,9 @@ async function loadLocations(levelsLoaded) {
     // count and first view all follow from here (#367).
     state.allLocations = everySite.filter((loc) => inScope(loc, config.scope));
     showScope(everySite.length);
+    if (linkedSiteOutOfScope(everySite)) {
+      showError("The linked site isn't among the sites this link shows (tenant= / q=): Show all sites to open it.");
+    }
     showLoading(true, `Processing ${state.allLocations.length} locations…`);
     await levelsLoaded;
     // Every site, not only the filtered ones, before the markers are drawn; a
