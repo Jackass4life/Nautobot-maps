@@ -2394,13 +2394,22 @@ check(fits.length === 1, "no site to fit: the view stays");
         )
 
 
+# The board's elements loadAlertBoard draws into (#364 tests).
+BOARD_ELS = """
+const boardEls = ["boardStatus", "alertsTableBody", "refreshBtn", "filterSite", "filterStatus", "filterType",
+  "filterTenant", "sortBy", "summaryAlarms", "summaryNoData", "summaryMaintenance", "summaryTotal", "wallUpdatedEl"];
+boardEls.forEach((name) => { els[name] = element(name); });
+els.sortBy.value = "newest";
+"""
+
+
 class TestScopedBoardInTheBrowser:
     """?tenant= (repeatable) and ?q=: a board or wall for some sites only (#364)."""
 
     def test_scope_from_the_link(self):
         run_js(
             """
-import { inScope, readScope, scopeLabel, scopeSummary, scopedHref } from "@js/alerts/scope.js";
+import { inScope, readScope, scopeLabel, scopeSummary } from "@js/alerts/scope.js";
 
 check(readScope("") === null && readScope("?view=wall") === null && readScope("?tenant=+&q=") === null, "no scope");
 const scope = readScope("?view=wall&tenant=acme%20corp&tenant=Nordic%20Net&q=DNK");
@@ -2416,13 +2425,9 @@ const tenants = readScope("?tenant=ACME%20CORP&tenant=nordic%20net");
 check(inScope(aarhus, tenants) && inScope(oslo, tenants) && !inScope(lyon, tenants), "either tenant");
 check(inScope(lyon, null), "no scope: every site");
 check(scopeLabel(scope, [aarhus, oslo]) === "Acme Corp, Nordic Net · “DNK”", "as Nautobot spells them: " + scopeLabel(scope, [aarhus, oslo]));
-check(scopedHref("/alerts?view=wall", "?view=wall&tenant=Acme%20Corp&q=DNK") === "/alerts?view=wall&tenant=Acme+Corp&q=DNK", "Wall view keeps it");
-check(scopedHref("/alerts", "?view=wall&tenant=Acme%20Corp") === "/alerts?tenant=Acme+Corp", "Operator view keeps it");
-check(scopedHref("/alerts", "?view=wall") === "/alerts", "nothing to keep");
 
 const summary = scopeSummary([aarhus, oslo, lyon, { name: "x" }]);
-check(summary.total === 4 && summary.critical === 1 && summary.low === 1 && summary.medium === 0
-  && summary.maintenance === 1 && summary.no_data === 1 && summary.non_ok === 2, JSON.stringify(summary));
+check(JSON.stringify(summary) === '{"total":4,"critical":1,"low":1,"maintenance":1,"no_data":1}', JSON.stringify(summary));
 """
         )
 
@@ -2433,12 +2438,9 @@ import { loadAlertBoard } from "@js/alerts/board.js";
 import { readScope } from "@js/alerts/scope.js";
 import { config, els, state } from "@js/alerts/state.js";
 import { renderWallStatus } from "@js/alerts/wall.js";
-
-const names = ["boardStatus", "alertsTableBody", "refreshBtn", "filterSite", "filterStatus", "filterType",
-  "filterTenant", "sortBy", "summaryAlarms", "summaryNoData", "summaryMaintenance", "summaryTotal", "wallUpdatedEl"];
-names.forEach((name) => { els[name] = element(name); });
-els.sortBy.value = "newest";
-const sites = [
+"""
+            + BOARD_ELS
+            + """const sites = [
   { id: "a", name: "Aarhus", tenant: "Acme Corp", alert_level: "critical", down_device_count: 1, down_devices: [{ device_name: "a1" }] },
   { id: "c", name: "Copenhagen", tenant: "Acme Corp", alert_level: "ok" },
   { id: "o", name: "Oslo", tenant: "Nordic Net", alert_level: "medium", down_device_count: 2, down_devices: [{ device_name: "o1" }] },
@@ -2481,12 +2483,9 @@ check(empty.includes("No site matches Acme Crop. Check the link") && empty.inclu
 import { loadAlertBoard } from "@js/alerts/board.js";
 import { readScope } from "@js/alerts/scope.js";
 import { config, els, state } from "@js/alerts/state.js";
-
-const names = ["boardStatus", "alertsTableBody", "refreshBtn", "filterSite", "filterStatus", "filterType",
-  "filterTenant", "sortBy", "summaryAlarms", "summaryNoData", "summaryMaintenance", "summaryTotal", "wallUpdatedEl"];
-names.forEach((name) => { els[name] = element(name); });
-els.sortBy.value = "newest";
-const levels = ["critical", "medium", "low"];
+"""
+            + BOARD_ELS
+            + """const levels = ["critical", "medium", "low"];
 const sites = Array.from({ length: 1200 }, (_, i) => {
   const down = i % 40 === 0 ? 3 : 0; // 30 sites in alarm, ~90 devices down
   return {

@@ -12,7 +12,7 @@ import { FEED_COLLAPSED_KEY, feedStartsCollapsed, loadFeed, rememberFeedCollapse
 import { rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
 import { initMaintenancePanel, openMaintenancePanel } from "./maintenance.js";
 import { closeSidePanel, copySite, initPanels, openHistory, openPanel } from "./panels.js";
-import { readScope, scopeLabel, scopedHref } from "./scope.js";
+import { readScope, scopeLabel } from "./scope.js";
 import { DEFAULT_SEVERITY_FILTER, DEFAULT_SORT, config, els, state } from "./state.js";
 import { WALL_RELOAD_MS, initWallSound, renderWallStatus } from "./wall.js";
 
@@ -76,15 +76,12 @@ config.wallView = document.body.classList.contains("wall-view");
 config.scope = readScope(window.location.search);
 if (config.scope) {
   // Spelt as typed until the sites are in; then as Nautobot has it (board.js).
+  state.scopeLabel = scopeLabel(config.scope);
   els.boardScopeLabel = byId("board-scope-label");
   if (els.boardScopeLabel) {
-    els.boardScopeLabel.textContent = scopeLabel(config.scope);
+    els.boardScopeLabel.textContent = state.scopeLabel;
     byId("board-scope").hidden = false;
   }
-  // Wall view and Operator view show the same sites.
-  document.querySelectorAll('a[href="/alerts?view=wall"], .wall-exit').forEach((link) => {
-    link.href = scopedHref(link.getAttribute("href"), window.location.search);
-  });
 }
 // "https://itsm.example.com/ticket/{case}" (#289); "" when not set.
 setCaseUrlTemplate(appConfig.caseUrlTemplate || "");

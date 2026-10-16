@@ -1623,6 +1623,16 @@ class TestIndex:
         assert config["tile-url"] == "https://tiles.internal/{z}/{x}/{y}.png"
         assert config["tile-attribution"] == '<a href="https://x">"Ours" & co</a>'
 
+    def test_wall_and_operator_links_keep_a_scope(self, client):
+        """?tenant= / ?q= (#364) stay on the Wall view and Operator view links; nothing else does."""
+        html = client.get("/alerts?view=wall&tenant=Acme%20Corp&tenant=%20&tenant=Nordic%20Net&q=DNK&x=1").get_data(
+            as_text=True
+        )
+        assert 'href="/alerts?view=wall&amp;tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in html
+        assert 'class="wall-exit" href="/alerts?tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in html
+        plain = client.get("/alerts").get_data(as_text=True)
+        assert 'href="/alerts?view=wall"' in plain
+
     def test_default_view_reaches_the_page(self, client, monkeypatch):
         """MAP_DEFAULT_VIEW (#362); empty: the map fits itself to the sites."""
         config = self._app_config(client.get("/"))

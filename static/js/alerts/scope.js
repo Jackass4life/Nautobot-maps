@@ -4,7 +4,6 @@
 // (the activity feed is the whole network's).
 import { siteSearchText } from "./filters.js";
 import { siteTenants } from "./rows.js";
-import { ALARM_LEVELS, SEVERITY_ORDER } from "./state.js";
 
 // {tenants, text} from a query string, as typed, plus their lower case for
 // matching; null when it has neither.
@@ -24,17 +23,14 @@ export function inScope(site, scope) {
   return !lowerText || siteSearchText(site).includes(lowerText);
 }
 
-// The server's summary, for the sites in scope only.
+// The server's summary, for the sites in scope only: sites per level (the
+// tiles add up the alarms themselves).
 export function scopeSummary(sites) {
-  const summary = { total: sites.length, maintenance: 0 };
-  SEVERITY_ORDER.forEach((level) => {
-    summary[level] = 0;
-  });
+  const summary = { total: sites.length };
   sites.forEach((site) => {
     const level = site.alert_level || "no_data";
     summary[level] = (summary[level] || 0) + 1;
   });
-  summary.non_ok = ALARM_LEVELS.reduce((sum, level) => sum + summary[level], 0);
   return summary;
 }
 
@@ -45,14 +41,4 @@ export function scopeLabel(scope, sites = []) {
   const known = new Map(sites.flatMap(siteTenants).map((name) => [name.toLowerCase(), name]));
   const tenants = scope.tenants.map((name) => known.get(name.toLowerCase()) || name);
   return [tenants.join(", "), scope.text && `“${scope.text}”`].filter(Boolean).join(" · ");
-}
-
-// The link's other parameters on *path*: the Wall view and Operator view
-// links keep the scope (?view= is theirs to set).
-export function scopedHref(path, search) {
-  const params = new URLSearchParams(search || "");
-  params.delete("view");
-  const kept = params.toString();
-  if (!kept) return path;
-  return `${path}${path.includes("?") ? "&" : "?"}${kept}`;
 }
