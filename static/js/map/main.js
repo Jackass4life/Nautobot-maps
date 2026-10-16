@@ -41,11 +41,6 @@ state.map = L.map("map", {
   zoom: fixedView ? Number(appConfig.viewZoom) : 3,
   preferCanvas: true,
 });
-// Zoomed or dragged while the sites load: keep that view (#362).
-let movedByHand = false;
-state.map.once("zoomstart dragstart", () => {
-  movedByHand = true;
-});
 
 // MAP_TILE_URL / MAP_TILE_ATTRIBUTION; default OpenStreetMap.
 L.tileLayer(appConfig.tileUrl || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -221,7 +216,8 @@ async function loadLocations(levelsLoaded) {
     await levelsLoaded;
     // Every site, not only the filtered ones; a link to a site flies there itself.
     const linked = linkedSiteOnMap(state.allLocations, state.initialLocationId);
-    if (!fixedView && !movedByHand && !linked) fitToSites(state.map, state.allLocations);
+    // No hand on the map yet: the loading overlay covers it until this is done.
+    if (!fixedView && !linked) fitToSites(state.map, state.allLocations);
     populateFilters(state.allLocations);
     applyFilters();
   } catch (err) {
