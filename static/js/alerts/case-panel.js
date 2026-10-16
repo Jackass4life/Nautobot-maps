@@ -1,7 +1,7 @@
 // The + Case panel (#179, #273) and acknowledgements (#288).
 import { casePill } from "../lib/cases.js";
 import { escHtml } from "../lib/html.js";
-import { getJson, readJsonResponse } from "../lib/http.js";
+import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { loadAlertBoard } from "./board.js";
 import { hideSidePanel, openSidePanel, restorePanelFocus } from "./panels.js";
@@ -147,18 +147,11 @@ async function saveCase(form) {
   }
   caseBtn.disabled = true;
   try {
-    const resp = await fetch("/api/alert-cases", {
+    await getJson("/api/alert-cases", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ site_id: siteId, device_ids: deviceIds, case_number: caseNumber }),
     });
-    const payload = await readJsonResponse(resp);
-    if (!resp.ok || payload.error) {
-      const missing = Array.isArray(payload.missing_device_ids) && payload.missing_device_ids.length
-        ? ` (no longer down: ${payload.missing_device_ids.map((id) => deviceNameById[id] || id).join(", ")} – untick and try again)`
-        : "";
-      throw new Error(`${payload.error || `HTTP ${resp.status}`}${missing}`);
-    }
     // Saved: close the panel.  The server drops its cached board when a case
     // is added; a plain reload is enough and must not trigger a full
     // inventory sync.  Focus returns to the row's (re-rendered) + Case button.
@@ -166,7 +159,12 @@ async function saveCase(form) {
     await loadAlertBoard(false);
     restorePanelFocus();
   } catch (err) {
-    showError(`Failed to add case: ${err.message}`);
+    // Devices that came back up meanwhile: the API names them.
+    const missingIds = err.payload?.missing_device_ids;
+    const missing = Array.isArray(missingIds) && missingIds.length
+      ? ` (no longer down: ${missingIds.map((id) => deviceNameById[id] || id).join(", ")} – untick and try again)`
+      : "";
+    showError(`Failed to add case: ${err.message}${missing}`);
   } finally {
     caseBtn.disabled = false;
   }

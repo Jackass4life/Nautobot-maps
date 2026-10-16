@@ -249,7 +249,8 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
     ).fetchall()
     by_site: dict[str, list] = {}
     for row in rows:
-        by_site.setdefault(row["site_id"], []).append(row)
+        # Each change's time parsed once, not in every filter below.
+        by_site.setdefault(row["site_id"], []).append({**row, "at": timeutil.as_utc_datetime(row["changed_at"])})
     sites = {}
     first_seen = {}
     for row in conn.execute(
@@ -259,16 +260,13 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
         if row["site_id"] in by_site or row["alert_level"] != "critical":
             continue
         # Critical since it was first seen, never changed.
-        seen = max(
-            timeutil.as_utc_datetime(row["first_seen_at"]) or timeutil.as_utc_datetime(row["updated_at"]) or start,
-            start,
-        )
+        seen = max(first_seen[row["site_id"]] or timeutil.as_utc_datetime(row["updated_at"]) or start, start)
         if seen < end:
             sites[row["site_id"]] = {"name": row["site_name"] or "", "intervals": [(seen, end)]}
     for site_id, changes in by_site.items():
-        before = [c for c in changes if timeutil.as_utc_datetime(c["changed_at"]) <= start]
-        during = [c for c in changes if start < timeutil.as_utc_datetime(c["changed_at"]) < end]
-        after = [c for c in changes if timeutil.as_utc_datetime(c["changed_at"]) >= end]
+        before = [c for c in changes if c["at"] <= start]
+        during = [c for c in changes if start < c["at"] < end]
+        after = [c for c in changes if c["at"] >= end]
         intervals = []
         since = start
         if before:
@@ -280,7 +278,7 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
             if first_seen.get(site_id) and first_seen[site_id] > start:
                 since = min(first_seen[site_id], end)
         for change in during:
-            at = timeutil.as_utc_datetime(change["changed_at"])
+            at = change["at"]
             if level == "critical":
                 intervals.append((since, at))
             level, since = change["to_level"], at

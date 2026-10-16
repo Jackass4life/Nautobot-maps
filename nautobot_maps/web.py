@@ -651,11 +651,9 @@ def api_alert_feed():
     limit = max(1, min(limit, MAX_FEED_ENTRIES))
     since = (request.args.get("since") or "").strip() or None
     if since:
-        parsed_since = timeutil.parse_iso_datetime(since)
+        parsed_since = timeutil.as_utc_datetime(since)
         if parsed_since is None:
             return jsonify({"error": "since must be an ISO-8601 timestamp"}), 400
-        if parsed_since.tzinfo is None:
-            parsed_since = parsed_since.replace(tzinfo=UTC)
         since = parsed_since.astimezone(UTC).isoformat()
     kinds = [kind.strip() for kind in (request.args.get("kinds") or "").split(",") if kind.strip()]
     unknown = sorted(set(kinds) - set(alerts.FEED_KINDS))
@@ -692,18 +690,14 @@ def api_alert_history():
     end_at = (request.args.get("end_at") or "").strip()
     try:
         if start_at:
-            parsed_start_at = timeutil.parse_iso_datetime(start_at)
+            parsed_start_at = timeutil.as_utc_datetime(start_at)
             if parsed_start_at is None:
                 return jsonify({"error": "start_at must be an ISO-8601 timestamp"}), 400
-            if parsed_start_at.tzinfo is None:
-                parsed_start_at = parsed_start_at.replace(tzinfo=UTC)
             start_at = parsed_start_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         if end_at:
-            parsed_end_at = timeutil.parse_iso_datetime(end_at)
+            parsed_end_at = timeutil.as_utc_datetime(end_at)
             if parsed_end_at is None:
                 return jsonify({"error": "end_at must be an ISO-8601 timestamp"}), 400
-            if parsed_end_at.tzinfo is None:
-                parsed_end_at = parsed_end_at.replace(tzinfo=UTC)
             end_at = parsed_end_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         conditions = []
         params = []

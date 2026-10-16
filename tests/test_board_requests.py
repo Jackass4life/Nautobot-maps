@@ -26,14 +26,18 @@ def test_an_acknowledgement_shows_the_apis_error():
     run_js(
         PRELUDE
         + """
-answer = json({ error: "Not down any more" }, 409);
+answer = json({ error: "Not down any more", missing_device_ids: ["d1"] }, 409);
 let message = "";
-try { await sendAck("s1", ["d1"], "on it", false); } catch (err) { message = err.message; }
+let payload = null;
+try { await sendAck("s1", ["d1"], "on it", false); } catch (err) { ({ message, payload } = err); }
 check(message === "Not down any more", message);
+// The answer goes with the error, for its details (the case save names recovered devices).
+check(payload?.missing_device_ids?.[0] === "d1", JSON.stringify(payload));
 check(calls.length === 1 && calls[0].url === "/api/alert-acks" && calls[0].method === "POST", JSON.stringify(calls));
 check(JSON.parse(calls[0].body).device_ids[0] === "d1", calls[0].body);
 // An error page that isn't JSON: its text, not a parse error.
 answer = () => new Response("Bad gateway", { status: 502 });
+message = "";
 try { await sendAck("s1", null, "", true); } catch (err) { message = err.message; }
 check(message === "Bad gateway" && calls[1].url === "/api/alert-acks/remove", message);
 """
