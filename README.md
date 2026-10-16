@@ -54,6 +54,7 @@ Without Docker (for development): `pip install -r requirements.txt`, then `pytho
 
 | | |
 |---|---|
+| [How it works](docs/how-it-works.md) | The building blocks, the data flow, setup, and what the app can and can't do |
 | [Configuration](docs/configuration.md) | Every setting |
 | [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, automatic updates, wall view |
 | [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
