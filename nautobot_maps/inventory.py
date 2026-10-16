@@ -408,11 +408,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
         tenant_descriptions = read_tenant_descriptions(conn)
         rows = [db.row_to_dict(row) for row in rows]
         # Every location, with coordinates or not, for the paths above them (#367).
-        by_id = {
-            data["location_id"]: {"name": data.get("name", ""), "parent_id": data.get("parent_id", "")}
-            for data in rows
-            if data.get("location_id")
-        }
+        by_id = {data["location_id"]: data for data in rows if data.get("location_id")}
         locations = []
         for data in rows:
             lat = data.get("latitude")
@@ -1239,11 +1235,14 @@ def get_locations(include_without_coordinates: bool = False, snapshot_only: bool
     if cached:
         return cached
     raw = nautobot.fetch_all_pages("dcim/locations/")
-    # Every location for the paths above them (#367), as read_locations has.
+    # Every location, for the paths above them (#367) as read_locations has;
+    # then only those with coordinates unless asked for all.
     everywhere = normalize_locations(raw, include_without_coordinates=True)
-    locations = with_ancestor_paths(
-        normalize_locations(raw, include_without_coordinates=include_without_coordinates), everywhere
-    )
+    locations = [
+        loc
+        for loc in with_ancestor_paths(everywhere, everywhere)
+        if include_without_coordinates or (loc.get("latitude") is not None and loc.get("longitude") is not None)
+    ]
     # Without the database (a map-only setup) the tenant (i) still works (#263).
     descriptions = live_tenant_descriptions()
     for loc in locations:

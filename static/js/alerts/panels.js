@@ -8,7 +8,7 @@ import { showError } from "../lib/toast.js";
 import { formatLocationAddress, siteTenants } from "../lib/scope.js";
 import { config, els, findSite } from "./state.js";
 
-const COPIED_LABEL_MS = 2000;
+export const COPIED_LABEL_MS = 2000;
 
 // Selector of the button that opened the side panel.  Rows are re-rendered
 // on every board update, so the button itself may be gone when it closes.

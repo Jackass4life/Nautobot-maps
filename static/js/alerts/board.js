@@ -2,6 +2,7 @@
 import { formatCountdown } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
+import { SCOPE_NO_MATCH_HINT } from "../lib/scope.js";
 import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
 import {
@@ -76,7 +77,7 @@ export function emptyBoardText(payload) {
   // A link whose tenant= / q= matches nothing must not look like an all-clear (#364).
   if (config.scope && !state.allAlerts.length && (payload.alerts || []).length) {
     return {
-      text: `No site matches ${state.scopeLabel}. Check the link's tenant= and q=.`,
+      text: `No site matches ${state.scopeLabel}. ${SCOPE_NO_MATCH_HINT}`,
       className: "empty-state scope-no-match",
     };
   }

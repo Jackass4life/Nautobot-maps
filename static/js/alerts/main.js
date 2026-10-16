@@ -11,7 +11,7 @@ import { initCasePanel, openCasePanel, sendAck } from "./case-panel.js";
 import { FEED_COLLAPSED_KEY, feedStartsCollapsed, loadFeed, rememberFeedCollapsed, setFeedCollapsed } from "./feed.js";
 import { currentWallLink, filtersLeftOffTheWall, rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
 import { initMaintenancePanel, openMaintenancePanel } from "./maintenance.js";
-import { closeSidePanel, copySite, copyText, initPanels, openHistory, openPanel } from "./panels.js";
+import { COPIED_LABEL_MS, closeSidePanel, copySite, copyText, initPanels, openHistory, openPanel } from "./panels.js";
 import { readScope, scopeLabel } from "./scope.js";
 import { DEFAULT_SEVERITY_FILTER, DEFAULT_SORT, config, els, state } from "./state.js";
 import { WALL_RELOAD_MS, initWallSound, renderWallStatus } from "./wall.js";
@@ -132,7 +132,7 @@ if (els.copyWallLinkBtn) {
     }
     setTimeout(() => {
       els.copyWallLinkBtn.textContent = "Copy wall link";
-    }, 2000);
+    }, COPIED_LABEL_MS);
   });
 }
 

@@ -8,6 +8,9 @@ export function siteTenants(item) {
   return item.tenant ? [item.tenant] : [];
 }
 
+// After "No site matches …" on the board, the wall and the map.
+export const SCOPE_NO_MATCH_HINT = "Check the link's tenant= and q=.";
+
 // The address shown for a site, and searched.
 export function formatLocationAddress(item) {
   return item.physical_address || item.facility || "";
