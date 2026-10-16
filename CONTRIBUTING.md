@@ -201,6 +201,12 @@ The suite:
 - `tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
 
+### Screenshots
+
+The README's pictures (`docs/images/`) come from `scripts/screenshots.py`, run against the
+scale demo (`MOCK_SCALE=1200`, [demo/README.md](demo/README.md)) and an empty database; its
+docstring has the steps. Run it again when a page they show changes.
+
 ### How the inventory sync works
 
 Requests never call Nautobot or LibreNMS for the alert board: they read the snapshot in

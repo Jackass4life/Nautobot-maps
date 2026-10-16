@@ -16,6 +16,9 @@ services:
       context: ..
       dockerfile: Dockerfile
     command: python demo/mock_nautobot.py
+    environment:
+      # MOCK_SCALE=1200 adds 1,200 generated sites (demo/README.md).
+      MOCK_SCALE: ${MOCK_SCALE:-0}
     volumes:
       # demo/ is excluded from the image by .dockerignore; mount the mock in.
       - ./mock_nautobot.py:/app/demo/mock_nautobot.py:ro
