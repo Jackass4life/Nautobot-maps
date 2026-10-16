@@ -133,7 +133,7 @@ def test_the_map_and_wall_link_for_some_sites(page):
     page.wait_for_selector(".site-row")
     assert page.locator("#copy-wall-link").is_hidden()
     page.evaluate(
-        "window.__copied = []; navigator.clipboard.writeText = async (text) => { window.__copied.push(text); };"
+        "() => { window.__copied = []; navigator.clipboard.writeText = async (text) => { window.__copied.push(text); }; }"
     )
     page.locator("#filter-site").fill("London")
     page.locator("#copy-wall-link").click()
