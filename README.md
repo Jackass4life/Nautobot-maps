@@ -2,24 +2,40 @@
 
 Your Nautobot sites on a map, and an alert board that shows which sites are down, since when, and who has a case on them.
 
-<!-- Screenshots: add the images to docs/images/ and remove this comment around them.
-![The map](docs/images/map.png)
-![The alert board](docs/images/alert-board.png)
-![The wall view](docs/images/wall-view.png)
--->
+![From the map to a case: a site in alarm, its down devices, the alert board, a case number](docs/images/tour.gif)
+
+*1,200 sites, 29 in alarm: the map, a site with 34 devices down, the alert board, and a case on the top row (the [scale demo](demo/README.md#scenario-7--a-nocs-real-load)).*
 
 ## Features
 
+Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a normal day. Lists summarise and put what needs action first.
+
 - **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom. Click a site for its devices, ASNs and circuits; search by address or `lat,lon` for sites within 5 km.
-- **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, downtime, and case numbers. It opens on sites with alarms and updates itself.
+- **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, the likely cause, downtime, tenants and case numbers. It opens on sites with alarms, the ones nobody is on first, and updates itself.
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating.
-- **Cases and ITSM**: attach a case number to down devices, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
-- **LibreNMS** status (optional) next to Nautobot's, pushed within seconds by LibreNMS alerts.
-- **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers.
-- **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm.
+- **Cases and ITSM**: attach a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
+- **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm. A history of every window, with CSV.
+- **Availability** per site and tenant for any period, with maintenance left out, and CSV exports down to every incident.
+- **Tenant status page**: "are we affected?" for one tenant, shareable with a customer.
+- **More sources**: LibreNMS status (optional) next to Nautobot's, pushed within seconds by LibreNMS alerts; Prometheus Alertmanager and a generic webhook can mark devices down.
+- **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers, summarised, never one per device.
 - **Sign-in and roles** through your SSO proxy (viewer, operator, admin), and **API tokens** for scripts and MCP clients.
 - **MCP server** (optional) so AI assistants can read the board and add cases.
+- **Operations**: Prometheus `/metrics`, a `/healthz` probe, JSON logs, released Docker images.
 - **Read-only towards Nautobot**: the app never changes anything there, so a read-only API token is enough.
+
+### Screenshots
+
+| | |
+|---|---|
+| ![The map: Europe with the sites in alarm as pins, the rest in numbered clusters, and the In alarm list](docs/images/map.png) | ![The site panel: Copenhagen Office 01, Critical, 34 of 40 devices down](docs/images/site-panel.png) |
+| **Map**: sites in alarm stand out; the rest cluster | **Site panel**: the level, why, and every device |
+| ![The alert board: 29 alarms, 8 critical, 9 medium, 12 low](docs/images/alert-board.png) | ![The alert board in dark mode](docs/images/alert-board-dark.png) |
+| **Alert board**: worst and newest first, with cases | **Dark mode**, on every page |
+| ![The wall view: alarms with their down devices, no buttons](docs/images/wall-view.png) | ![Availability: per tenant for October, with downtime](docs/images/availability.png) |
+| **Wall view** for the NOC screen | **Availability** per site and tenant |
+
+The pictures come from `scripts/screenshots.py` with the scale demo.
 
 ## Try it
 

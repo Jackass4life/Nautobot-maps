@@ -39,11 +39,12 @@ without one to show that the alert board ignores devices without a primary IP.
 ## Demo scenarios to try
 
 ### Scenario 1 – Browse all locations
-All 9 locations appear as colour-coded pins:
-- **Green** = Active
-- **Orange** = Planned
+The 9 locations appear on the map, coloured by alert level as on the board (the
+legend says what each colour means). London HQ is in alarm, so it is always its
+own pin; quiet sites group into numbered circles when zoomed out.
 
-Click any pin to see its location details (tenant, ASN, address), then watch the popup expand with the full device list.
+Click a pin, or a site under **In alarm**, to open the site panel: tenant, ASN,
+address, the devices with their status, and the circuits.
 
 ### Scenario 2 – Search by address
 Type `Copenhagen` in the search box and press Enter.
@@ -67,11 +68,24 @@ the board fills in by itself after a few seconds.
 > **Copy** on London HQ, and **Wall view** in the top bar.
 
 ### Scenario 6 – Tenant descriptions
-On the alert board, London HQ has four tenants; the row shows the first three
-and "+1 more". Hover over the **(i)** after *Acme Corp* or *DataCenter GmbH* to
+On the alert board, London HQ has four tenants; the row shows the first and
+**+3** for the rest. Hover over the **(i)** after *Acme Corp* or *DataCenter GmbH* to
 read the tenant's description from Nautobot; *EuroIX* has none, so it has no
 (i). On the map, click Copenhagen DC: its tenant has the same (i) in the site
 panel.
+
+### Scenario 7 – A NOC's real load
+`MOCK_SCALE=1200` adds 1,200 generated sites across Europe (about 9,600
+devices) to the nine above, 27 of them in alarm (Critical, Medium and Low; 29
+on the board with London HQ and Etage 2). One is a core outage: *Copenhagen
+Office 01* has 34 of its 40 devices down, across eight tenants. The sites and
+devices are the same on every start; the outages begin when the mock starts.
+
+```bash
+MOCK_SCALE=1200 docker compose -f demo/docker-compose.yml up --build
+```
+
+This is how the README's screenshots are made (`scripts/screenshots.py`).
 
 ## Stopping the demo
 

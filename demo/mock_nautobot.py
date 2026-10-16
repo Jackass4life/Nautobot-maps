@@ -15,6 +15,10 @@ Endpoints implemented:
 Token auth: any request must carry  Authorization: Token <any non-empty value>
 """
 
+import os
+import random
+from datetime import UTC, datetime, timedelta
+
 from flask import Flask, abort, jsonify, request
 
 app = Flask(__name__)
@@ -231,8 +235,8 @@ LOCATIONS = [
 ]
 
 
-def _hierarchy_location(location_id: str, name: str, location_type: str, parent: tuple[str, str] | None) -> dict:
-    """A location without coordinates, so the map and proximity search are unaffected."""
+def _location(location_id: str, name: str, location_type: str, parent: tuple[str, str] | None = None, **fields) -> dict:
+    """A generated location; without coordinates unless given (*fields* override)."""
     return {
         "id": location_id,
         "name": name,
@@ -248,16 +252,17 @@ def _hierarchy_location(location_id: str, name: str, location_type: str, parent:
         "asn": None,
         "time_zone": "Europe/Copenhagen",
         "url": f"http://mock-nautobot:8080/api/dcim/locations/{location_id}/",
+        **fields,
     }
 
 
 # EMEA › DNK › Aarhus Campus (Site) › Bygning A › Etage 2 (#158).
 LOCATIONS += [
-    _hierarchy_location("loc-emea", "EMEA", "lt-region", None),
-    _hierarchy_location("loc-dnk", "DNK", "lt-country", ("loc-emea", "EMEA")),
-    _hierarchy_location("loc-aar", "Aarhus Campus", "lt-site", ("loc-dnk", "DNK")),
-    _hierarchy_location("loc-aar-bld-a", "Bygning A", "lt-building", ("loc-aar", "Aarhus Campus")),
-    _hierarchy_location("loc-aar-bld-a-f2", "Etage 2", "lt-floor", ("loc-aar-bld-a", "Bygning A")),
+    _location("loc-emea", "EMEA", "lt-region", None),
+    _location("loc-dnk", "DNK", "lt-country", ("loc-emea", "EMEA")),
+    _location("loc-aar", "Aarhus Campus", "lt-site", ("loc-dnk", "DNK")),
+    _location("loc-aar-bld-a", "Bygning A", "lt-building", ("loc-aar", "Aarhus Campus")),
+    _location("loc-aar-bld-a-f2", "Etage 2", "lt-floor", ("loc-aar-bld-a", "Bygning A")),
 ]
 
 # Devices keyed by location_id
@@ -518,6 +523,174 @@ DEVICES_WITHOUT_PRIMARY_IP = {"dev-lon-7"}
 MOCK_LAST_UPDATED = "2026-01-01T00:00:00Z"
 
 
+# ---------------------------------------------------------------------------
+# Scale mode: MOCK_SCALE=<sites> adds that many generated sites, for screenshots
+# and checks at a NOC's real load (1,200 sites, ~25 in alarm, one with 30+
+# devices down). The same sites and devices every start (the outages begin when
+# the mock starts); off by default.
+# ---------------------------------------------------------------------------
+SCALE_CITIES = [
+    ("Copenhagen", "DK", 55.68, 12.57),
+    ("Aarhus", "DK", 56.16, 10.20),
+    ("Odense", "DK", 55.40, 10.39),
+    ("Stockholm", "SE", 59.33, 18.07),
+    ("Gothenburg", "SE", 57.71, 11.97),
+    ("Malmö", "SE", 55.60, 13.00),
+    ("Oslo", "NO", 59.91, 10.75),
+    ("Bergen", "NO", 60.39, 5.32),
+    ("Helsinki", "FI", 60.17, 24.94),
+    ("Hamburg", "DE", 53.55, 9.99),
+    ("Berlin", "DE", 52.52, 13.40),
+    ("Munich", "DE", 48.14, 11.58),
+    ("Frankfurt", "DE", 50.11, 8.68),
+    ("Cologne", "DE", 50.94, 6.96),
+    ("Amsterdam", "NL", 52.37, 4.90),
+    ("Rotterdam", "NL", 51.92, 4.48),
+    ("Brussels", "BE", 50.85, 4.35),
+    ("Paris", "FR", 48.86, 2.35),
+    ("Lyon", "FR", 45.76, 4.84),
+    ("Marseille", "FR", 43.30, 5.37),
+    ("London", "GB", 51.51, -0.13),
+    ("Manchester", "GB", 53.48, -2.24),
+    ("Dublin", "IE", 53.35, -6.26),
+    ("Madrid", "ES", 40.42, -3.70),
+    ("Barcelona", "ES", 41.39, 2.17),
+    ("Lisbon", "PT", 38.72, -9.14),
+    ("Milan", "IT", 45.46, 9.19),
+    ("Rome", "IT", 41.90, 12.50),
+    ("Zurich", "CH", 47.38, 8.54),
+    ("Vienna", "AT", 48.21, 16.37),
+    ("Prague", "CZ", 50.08, 14.44),
+    ("Warsaw", "PL", 52.23, 21.01),
+    ("Budapest", "HU", 47.50, 19.04),
+]
+SCALE_CUSTOMERS = [
+    "Northwind Bank",
+    "Bluefin Retail",
+    "Helix Health",
+    "Polar Logistics",
+    "Fjord Energy",
+    "Kestrel Air",
+    "Atlas Insurance",
+    "Granite Telecom",
+    "Lumen Pharma",
+    "Orbit Media",
+    "Pioneer Foods",
+    "Quartz Labs",
+    "Redwood Hotels",
+    "Summit Schools",
+    "Tidal Ports",
+    "Vantage Cars",
+]
+# (sites, down devices of 8, a core device down): Critical, Medium, Low.
+SCALE_ALARMS = [(6, 1, True), (8, 3, False), (12, 1, False)]
+
+
+def _scale_device(site_id, index, name, role, model, status, tenant, down_minutes=None):
+    device = {
+        "id": f"dev-{site_id}-{index}",
+        "name": name,
+        "device_type": {"model": model[1], "manufacturer": {"name": model[0]}},
+        "role": {"name": role},
+        "status": {"label": status},
+        "platform": {"name": "IOS-XE" if model[0] == "Cisco" else "Junos"},
+        "serial": f"SC{site_id[-4:]}{index:02d}",
+        "tenant": tenant,
+    }
+    if down_minutes is not None:
+        # The outage began down_minutes ago: Nautobot's last change.
+        changed = datetime.now(UTC) - timedelta(minutes=down_minutes)
+        device["last_updated"] = changed.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return device
+
+
+def _scale_site_devices(site_id, prefix, switches, down, core, core_model, since, tenant_of):
+    """A core router and *switches* access switches; the core (when *core*) and the first *down* switches down."""
+    devices = [
+        _scale_device(
+            site_id,
+            0,
+            f"{prefix}-core-rt01",
+            "Core Router",
+            core_model,
+            "Offline" if core else "Active",
+            tenant_of(0),
+            since if core else None,
+        )
+    ]
+    for i in range(1, switches + 1):
+        is_down = i <= down
+        devices.append(
+            _scale_device(
+                site_id,
+                i,
+                f"{prefix}-acc-sw{i:02d}",
+                "Access Switch",
+                ("Cisco", "Catalyst 9200"),
+                "Offline" if is_down else "Active",
+                tenant_of(i),
+                since if is_down else None,
+            )
+        )
+    return devices
+
+
+def _add_scale_sites(count: int) -> None:
+    rnd = random.Random(1200)
+    customers = []
+    for name in SCALE_CUSTOMERS:
+        slug = name.lower().replace(" ", "-")
+        tenant = {"id": f"ten-{slug}", "name": name, "slug": slug, "description": "", "tenant_group": None}
+        TENANTS[tenant["id"]] = tenant
+        customers.append(tenant)
+    alarms = [(down, core) for sites, down, core in SCALE_ALARMS for _ in range(sites)][: count - 1]
+    alarm_at = dict(zip(sorted(rnd.sample(range(1, count), len(alarms))), alarms, strict=True))
+    for n in range(count):
+        city, country, lat, lon = SCALE_CITIES[n % len(SCALE_CITIES)]
+        kind = rnd.choices(["lt-office", "lt-pop", "lt-dc"], weights=[70, 25, 5])[0]
+        site_id = f"loc-sc{n:04d}"
+        tenant = customers[n % len(customers)]
+        label = LOCATION_TYPES[kind]["name"].replace("Data Center", "DC")
+        LOCATIONS.append(
+            _location(
+                site_id,
+                f"{city} {label} {n // len(SCALE_CITIES) + 1:02d}",
+                kind,
+                latitude=f"{lat + rnd.uniform(-0.6, 0.6):.4f}",
+                longitude=f"{lon + rnd.uniform(-0.9, 0.9):.4f}",
+                physical_address=f"{rnd.randint(1, 120)} Harbour Street, {city}, {country}",
+                tenant=tenant,
+            )
+        )
+        prefix = f"{city[:3].lower()}{n:04d}"
+        if n == 0:
+            # A core outage's burst: the core and 33 of 39 switches down, devices of eight customers.
+            DEVICES[site_id] = _scale_site_devices(
+                site_id,
+                prefix,
+                39,
+                33,
+                True,
+                ("Cisco", "ASR 9006"),
+                37,
+                lambda i, t=tenant: t if i == 0 else customers[i % 8],
+            )
+            continue
+        down, core = alarm_at.get(n, (0, False))
+        since = rnd.choice([4, 12, 35, 80, 190, 420, 1500])
+        DEVICES[site_id] = _scale_site_devices(
+            site_id, prefix, 7, down, core, ("Juniper", "MX204"), since, lambda i, t=tenant: t
+        )
+
+
+_scale = os.environ.get("MOCK_SCALE", "").replace(",", "").replace("_", "").strip() or "0"
+if not _scale.isdigit():
+    raise SystemExit(f"MOCK_SCALE must be a number of sites, e.g. 1200 (got {_scale!r})")
+SCALE_SITES = int(_scale)
+if SCALE_SITES > 0:
+    _add_scale_sites(SCALE_SITES)
+
+
 def _attach_location_and_primary_ip() -> None:
     for location in LOCATIONS:
         location.setdefault("last_updated", MOCK_LAST_UPDATED)
@@ -531,7 +704,8 @@ def _attach_location_and_primary_ip() -> None:
             if device["id"] in DEVICES_WITHOUT_PRIMARY_IP:
                 device["primary_ip4"] = None
                 continue
-            host = f"10.0.{loc_index}.{dev_index}"
+            # 10.<site/256>.<site%256>.<device>: valid past 255 sites (scale mode).
+            host = f"10.{loc_index // 256}.{loc_index % 256}.{dev_index}"
             device["primary_ip4"] = {
                 "id": f"ip-{device['id']}",
                 "address": f"{host}/32",
@@ -540,6 +714,7 @@ def _attach_location_and_primary_ip() -> None:
 
 
 _attach_location_and_primary_ip()
+ALL_DEVICES = [d for devs in DEVICES.values() for d in devs]
 
 # ASNs keyed by location_id
 ASNS = {
@@ -732,7 +907,7 @@ def devices():
     if location_id:
         items = DEVICES.get(location_id, [])
     else:
-        items = [d for devs in DEVICES.values() for d in devs]
+        items = ALL_DEVICES
     return jsonify(_paginate(items))
 
 
