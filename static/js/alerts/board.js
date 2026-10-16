@@ -66,10 +66,17 @@ export function emptyBoardText(payload) {
   if (payload.sync_pending && !state.allAlerts.length) {
     return { text: "Inventory sync in progress – the board will update automatically.", className: "empty-state" };
   }
+  // A link whose tenant= / q= matches nothing must not look like an all-clear (#364).
+  if (config.scope && !state.allAlerts.length && (payload.alerts || []).length) {
+    return {
+      text: `No site matches ${scopeLabel(config.scope)}. Check the link's tenant= and q=.`,
+      className: "empty-state scope-no-match",
+    };
+  }
   if (state.severityFilter === "alarms" && !state.allAlerts.some(hasActiveAlarm)) {
     return {
       text: config.wallView
-        ? `No active alarms${config.scope ? ` for ${scopeLabel(config.scope)}` : ""}.`
+        ? `No active alarms${config.scope ? ` for ${scopeLabel(config.scope, state.allAlerts)}` : ""}.`
         : "No site has an active alarm. Choose All sites to see every site.",
       className: "empty-state all-clear",
     };
@@ -165,6 +172,7 @@ export async function loadAlertBoard(forceRefresh = false, { background = false 
     if (els.wallErrorEl) els.wallErrorEl.hidden = true;
     populateFilters(state.allAlerts);
     renderSummary(config.scope ? scopeSummary(state.allAlerts) : payload.summary || {});
+    if (config.scope && els.boardScopeLabel) els.boardScopeLabel.textContent = scopeLabel(config.scope, state.allAlerts);
     applyFilters(payload);
     if (config.wallView) announceNewAlarms(state.allAlerts);
     scheduleSyncPoll(payload);

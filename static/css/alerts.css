@@ -1556,6 +1556,12 @@ a.case-pill:focus-visible {
   color: var(--color-success);
 }
 
+/* A link that matches no site (#364): a warning, never the green all-clear. */
+.empty-state.scope-no-match {
+  color: var(--color-warning);
+  font-weight: 700;
+}
+
 /* Availability report (#287). */
 .availability-form {
   display: flex;

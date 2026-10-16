@@ -26,7 +26,7 @@ export function renderWallStatus(now = Date.now()) {
   const planned = allAlerts.filter((item) => item.alert_level === "maintenance").length;
   const stale = now - lastLoadedAt >= WALL_STALE_MS;
   // A screen for some sites says which, so it isn't read as the whole network (#364).
-  const scope = config.scope ? `${scopeLabel(config.scope)} · ` : "";
+  const scope = config.scope ? `${scopeLabel(config.scope, allAlerts)} · ` : "";
   wallUpdatedEl.classList.toggle("wall-stale", stale);
   wallUpdatedEl.textContent = stale
     ? `${scope}NOT UPDATED since ${formatClock(lastLoadedAt)}`

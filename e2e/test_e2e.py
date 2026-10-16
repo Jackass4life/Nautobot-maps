@@ -112,8 +112,11 @@ def test_a_wall_for_some_sites(page):
     assert page.url.endswith("/alerts?q=Etage")
     assert page.locator("#board-scope").inner_text() == "Only “Etage” · Show all sites"
     assert all("Etage" in name for name in page.locator(".site-row .site-name").all_inner_texts())
+    assert page.locator(".app-nav-link", has_text="Wall view").get_attribute("href") == "/alerts?view=wall&q=Etage"
+    # A link that matches no site is a warning, never the green all-clear.
     page.goto(f"{BASE_URL}/alerts?view=wall&tenant=nobody%20at%20all")
-    page.locator(".empty-state", has_text="No active alarms for nobody at all.").wait_for()
+    page.locator(".scope-no-match", has_text="No site matches nobody at all.").wait_for()
+    assert page.locator(".all-clear").count() == 0
 
 
 def test_the_map_shows_markers(page):
