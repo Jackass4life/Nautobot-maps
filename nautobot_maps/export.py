@@ -137,24 +137,15 @@ def read_device_summary(conn, site_id: str, since: datetime | None, now: datetim
     return [db.row_to_dict(row) for row in rows]
 
 
-def _as_datetime(value) -> datetime | None:
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
-    parsed = timeutil.parse_iso_datetime(value) if value else None
-    if parsed is not None and parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
-
-
 def utc_text(value) -> str:
     """ "2026-10-14 21:05" in UTC, as the exports write times; "" without one."""
-    parsed = _as_datetime(value)
+    parsed = timeutil.as_utc_datetime(value)
     return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M") if parsed else ""
 
 
 def duration_seconds(row: dict, now: datetime) -> int:
     """How long the incident was down; until *now* while it still is."""
-    started = _as_datetime(row.get("down_started_at"))
+    started = timeutil.as_utc_datetime(row.get("down_started_at"))
     if row.get("status") == "open" or row.get("resolved_at") is None:
         return max(0, int((now - started).total_seconds())) if started else 0
     return int(row.get("total_downtime_seconds") or 0)

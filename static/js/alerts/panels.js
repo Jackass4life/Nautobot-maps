@@ -3,7 +3,7 @@
 import { caseWithUrl, casePill } from "../lib/cases.js";
 import { formatDuration, formatReportTime, formatTimestamp } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
-import { readJsonResponse } from "../lib/http.js";
+import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { formatLocationAddress, siteTenants } from "./rows.js";
 import { config, els, findSite } from "./state.js";
@@ -214,9 +214,7 @@ export async function openHistory(historyBtn) {
   if (!siteId) return;
   historyBtn.disabled = true;
   try {
-    const resp = await fetch(`/api/alert-history?site_id=${encodeURIComponent(siteId)}`);
-    const payload = await readJsonResponse(resp);
-    if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+    const payload = await getJson(`/api/alert-history?site_id=${encodeURIComponent(siteId)}`);
     renderAlertHistory(siteId, Array.isArray(payload.instances) ? payload.instances : []);
     openSidePanel(els.historyPanel, `.history-btn[data-site-id="${CSS.escape(siteId)}"]`, els.historyCloseBtn);
   } catch (err) {

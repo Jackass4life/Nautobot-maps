@@ -25,7 +25,7 @@ from urllib.parse import quote, urlsplit
 
 from flask import current_app, jsonify, request
 
-from nautobot_maps import alerts, auth, caching, settings
+from nautobot_maps import alerts, auth, caching, settings, status
 
 logger = logging.getLogger(__name__)
 
@@ -198,11 +198,11 @@ def _site(item: dict) -> dict:
     return {
         "id": item.get("id"),
         "name": item.get("name"),
-        "path": item.get("ancestor_path") or item.get("parent") or "",
+        "path": status.site_path(item),
         "address": item.get("physical_address") or item.get("facility") or "",
         "status": item.get("status") or "",
         "location_type": item.get("location_type") or "",
-        "tenants": item.get("tenants") or ([item["tenant"]] if item.get("tenant") else []),
+        "tenants": status.site_tenants(item),
         "alert_level": item.get("alert_level") or "no_data",
         "alert_reason": item.get("alert_reason") or "",
         "device_count": item.get("device_count") or 0,
@@ -231,7 +231,7 @@ def _matches_filter(item: dict, level_filter: str) -> bool:
 def _matches_search(item: dict, needle: str) -> bool:
     fields = (
         item.get("name"),
-        item.get("ancestor_path") or item.get("parent"),
+        status.site_path(item),
         item.get("physical_address") or item.get("facility"),
         item.get("country"),
     )
@@ -250,7 +250,7 @@ def tool_get_alert_board(args: dict) -> dict:
         item
         for item in board.get("alerts") or []
         if _matches_filter(item, level_filter)
-        and (not tenant or tenant in (item.get("tenants") or [item.get("tenant")]))
+        and (not tenant or tenant in status.site_tenants(item))
         and (not needle or _matches_search(item, needle))
     ]
     result = {

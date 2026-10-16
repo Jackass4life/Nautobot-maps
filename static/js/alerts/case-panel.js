@@ -1,7 +1,7 @@
 // The + Case panel (#179, #273) and acknowledgements (#288).
 import { casePill } from "../lib/cases.js";
 import { escHtml } from "../lib/html.js";
-import { readJsonResponse } from "../lib/http.js";
+import { getJson, readJsonResponse } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { loadAlertBoard } from "./board.js";
 import { hideSidePanel, openSidePanel, restorePanelFocus } from "./panels.js";
@@ -123,13 +123,11 @@ export function ackRequestBody(siteId, deviceIds, note) {
 
 // Acknowledge (#288) or remove it; reloads the board.
 export async function sendAck(siteId, deviceIds, note, remove) {
-  const resp = await fetch(remove ? "/api/alert-acks/remove" : "/api/alert-acks", {
+  await getJson(remove ? "/api/alert-acks/remove" : "/api/alert-acks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(ackRequestBody(siteId, deviceIds, note)),
   });
-  const payload = await readJsonResponse(resp);
-  if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
   await loadAlertBoard(false);
 }
 
@@ -154,7 +152,7 @@ async function saveCase(form) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ site_id: siteId, device_ids: deviceIds, case_number: caseNumber }),
     });
-    const payload = await resp.json();
+    const payload = await readJsonResponse(resp);
     if (!resp.ok || payload.error) {
       const missing = Array.isArray(payload.missing_device_ids) && payload.missing_device_ids.length
         ? ` (no longer down: ${payload.missing_device_ids.map((id) => deviceNameById[id] || id).join(", ")} – untick and try again)`

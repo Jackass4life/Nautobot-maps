@@ -1,7 +1,7 @@
 // The activity feed next to the board (#180).
 import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
-import { readJsonResponse } from "../lib/http.js";
+import { getJson } from "../lib/http.js";
 import { alertBadge } from "./rows.js";
 import { els } from "./state.js";
 
@@ -73,9 +73,7 @@ export async function loadFeed() {
   }
   try {
     const params = new URLSearchParams({ limit: String(FEED_LIMIT), kinds: kinds.join(",") });
-    const resp = await fetch(`/api/alert-feed?${params}`, { cache: "no-store" });
-    const payload = await readJsonResponse(resp);
-    if (!resp.ok || payload.error) throw new Error(payload.error || `HTTP ${resp.status}`);
+    const payload = await getJson(`/api/alert-feed?${params}`);
     feedList.innerHTML = renderFeed(payload, kinds);
   } catch (err) {
     // The board refreshes often; no toast for every failed feed load.

@@ -28,7 +28,7 @@ from email.message import EmailMessage
 
 import requests
 
-from nautobot_maps import db, itsm, settings, timeutil
+from nautobot_maps import db, itsm, settings, status, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -122,9 +122,9 @@ def build_event(kind: str, from_level: str, to_level: str, site: dict, changed_a
         "site": {
             "id": site_id,
             "name": site.get("name") or "",
-            "path": site.get("ancestor_path") or site.get("parent") or "",
+            "path": status.site_path(site),
             "address": site.get("physical_address") or site.get("facility") or "",
-            "tenants": site.get("tenants") or ([site["tenant"]] if site.get("tenant") else []),
+            "tenants": status.site_tenants(site),
         },
         "reason": site.get("alert_reason") or "",
         "tier": site.get("tier") or "",
@@ -182,7 +182,7 @@ def enqueue_change(
     if not channels or kind is None or (quiet_recovery and kind == "recovery"):
         return 0
     site = site or {"id": site_id}
-    if not tenant_matches(site.get("tenants") or ([site["tenant"]] if site.get("tenant") else [])):
+    if not tenant_matches(status.site_tenants(site)):
         return 0
     payload = json.dumps(build_event(kind, from_level, to_level, site, changed_at), sort_keys=True)
     for channel in channels:
