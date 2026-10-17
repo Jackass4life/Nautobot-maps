@@ -2,12 +2,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --color-bg: #1e1e2e;
-  --color-surface: #2a2a3e;
   --color-text: #e0e0f0;
   --color-text-muted: #9090b0;
   --color-primary: #0d6efd;
   --color-primary-dark: #0b5ed7;
-  --color-border: #44445a;
   --radius: 8px;
 }
 html, body {

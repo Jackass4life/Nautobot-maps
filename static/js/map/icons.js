@@ -1,6 +1,6 @@
 // Marker icons (Leaflet divIcons).  Made on first use, not on import: Leaflet
 // is a global from vendor/leaflet.js, and the tests import this without it.
-import { LEVEL_COLORS, displayLevel } from "./levels.js";
+import { LEVEL_COLORS, displayLevel, knownLevel } from "./levels.js";
 
 const PIN_PATH = "M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24S24 21 24 12C24 5.373 18.627 0 12 0z";
 
@@ -16,9 +16,6 @@ function pinSvg(color) {
 // each marker's box from iconSize (from script, which the CSP allows) and the
 // icon fills it; colours are level-bg-* classes in map.css (the pin's SVG
 // fill is an attribute, which is allowed).
-export function knownLevel(level) {
-  return Object.hasOwn(LEVEL_COLORS, level) ? level : "no_data";
-}
 
 function makeIcon(color, pulse) {
   return L.divIcon({

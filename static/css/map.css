@@ -865,8 +865,6 @@ body.inspector-open #map {
   flex-shrink: 0;
 }
 
-.dot-ok       { background: #2ecc71; }
-.dot-no-data  { background: #94a3b8; }
 /* The searched point is a ring, not a colour (#311). */
 .dot-search   { background: transparent; border: 3px solid #334155; box-sizing: border-box; }
 
@@ -1181,18 +1179,23 @@ body.inspector-open #loading-overlay {
   100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
 }
 
-/* Markers without inline styles (#370): each fills the box Leaflet sizes from
-   its iconSize; the colours are map/levels.js LEVEL_COLORS (a test keeps them
-   the same). */
-.pin-icon,
-.quiet-cluster,
-.quiet-dot { width: 100%; height: 100%; }
+/* Markers without inline styles (#370): a pin fills the box Leaflet sizes from
+   its iconSize (quiet dots and clusters below).  One palette for the markers
+   and the legend: map/levels.js LEVEL_COLORS (a test keeps them the same). */
+.pin-icon { width: 100%; height: 100%; }
 .pin-stacked { position: relative; }
+.dot-critical,
 .level-bg-critical { background: #e74c3c; }
+.dot-medium,
 .level-bg-medium { background: #ff8c00; }
+.dot-low,
 .level-bg-low { background: #eab308; }
+.dot-maintenance,
 .level-bg-maintenance { background: #2563eb; }
+.dot-ok,
 .level-bg-ok { background: #2ecc71; }
+.dot-no-data,
+.dot-no_data,
 .level-bg-no_data { background: #94a3b8; }
 
 .marker-pulse {
@@ -1200,11 +1203,6 @@ body.inspector-open #loading-overlay {
   animation: markerPulse 1.4s ease-out infinite;
 }
 
-/* Alert legend dots */
-.dot-low      { background: #eab308; }
-.dot-medium   { background: #ff8c00; }
-.dot-critical { background: #e74c3c; }
-.dot-maintenance { background: #2563eb; }
 
 /* =========================================================
    Responsive (collapse sidebar on small screens)
@@ -1273,6 +1271,9 @@ body.inspector-open #loading-overlay {
    of the sites that need attention stand out. */
 .quiet-cluster,
 .quiet-dot {
+  /* The box Leaflet sizes from iconSize (#370). */
+  width: 100%;
+  height: 100%;
   box-sizing: border-box;
   display: flex;
   align-items: center;

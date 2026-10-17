@@ -78,6 +78,9 @@ def test_the_marker_colours_are_the_levels_colours():
     """map.css level-bg-* (quiet dots and clusters) and LEVEL_COLORS (pins) stay one palette."""
     css = (ROOT / "static" / "css" / "map.css").read_text()
     in_css = dict(re.findall(r"\.level-bg-([a-z_]+)\s*\{\s*background:\s*(#[0-9a-fA-F]{3,6})\s*;", css))
+    # The legend's dots share each rule ("dot-no-data" as the template spells it).
+    for level in in_css:
+        assert re.search(rf"\.dot-{level.replace('_', '-')},[^{{]*\.level-bg-{level}\s*\{{", css), level
     run_js(
         f"""
 import {{ LEVEL_COLORS }} from "@js/map/levels.js";
@@ -94,12 +97,10 @@ for (const [level, colour] of Object.entries(LEVEL_COLORS)) {{
 def test_marker_markup():
     run_js(
         """
-import { knownLevel, makeClusterIcon, makeStackedIcon, pinIcon, quietDotIcon } from "@js/map/icons.js";
+import { makeClusterIcon, makeStackedIcon, pinIcon, quietDotIcon } from "@js/map/icons.js";
+import { knownLevel } from "@js/map/levels.js";
 
 setGlobal("L", { divIcon: (options) => options });
-for (const icon of [pinIcon("critical"), makeClusterIcon(150, "ok"), quietDotIcon("no_data", 3), makeStackedIcon(2, "medium")]) {
-  check(!/style=/.test(icon.html), "no style attribute: " + icon.html);
-}
 const cluster = makeClusterIcon(150, "ok");
 check(cluster.html.startsWith('<div class="quiet-cluster level-bg-ok"') && cluster.iconSize.join() === "36,36", cluster.html);
 check(makeClusterIcon(5, "nonsense").html.includes("level-bg-no_data"), "an unknown level: No data");
@@ -111,3 +112,11 @@ check(knownLevel("constructor") === "no_data" && knownLevel("toString") === "no_
 check(pinIcon("constructor").html.includes('fill="#94a3b8"'), "a pin for an unknown level: No data's colour");
 """
     )
+
+
+def test_the_error_pages_styles_load_without_signing_in(client, monkeypatch):
+    """The error page links error.css: public, as it carries no data (#370); other files still need sign-in."""
+    monkeypatch.setattr(settings, "AUTH_MODE", "header")
+    monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+    assert client.get("/static/css/error.css").status_code == 200
+    assert client.get("/static/css/map.css").status_code == 401

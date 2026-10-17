@@ -202,7 +202,9 @@ def require_role(required_role: str, open_when_disabled: bool = False):
 # Reachable without the viewer role even with AUTH_REQUIRE_VIEWER: probes and
 # Prometheus scrapes send no identity headers.  /metrics has only counts,
 # no site or device names (#200).
-PUBLIC_PATHS = {"/healthz", "/metrics"}
+# error.css: the error page's styles, no longer inline (#370); any error
+# page may need them, signed in or not, and they carry no data.
+PUBLIC_PATHS = {"/healthz", "/metrics", "/static/css/error.css"}
 # A tenant's status page (#291): the page and its assets carry no data, so a
 # customer's browser loads them without SSO; /api/status/ checks access itself
 # (``status_access``).
@@ -211,9 +213,6 @@ STATUS_API_PREFIX = "/api/status/"
 # Every module the page loads, imports included (#294); a test checks the list.
 STATUS_PAGE_ASSETS = {
     "/static/css/alerts.css",
-    # The error page's styles, no longer inline (#370): a status page's
-    # visitor who gets an error page still gets its look.
-    "/static/css/error.css",
     "/static/js/status/main.js",
     "/static/js/status/page.js",
     "/static/js/lib/format.js",
