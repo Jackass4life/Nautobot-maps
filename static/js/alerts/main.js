@@ -6,7 +6,7 @@ import { revealTenantRest } from "../lib/html.js";
 import { initThemeToggle } from "../lib/theme.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { showError } from "../lib/toast.js";
-import { applyFilters, loadAlertBoard, renderNextUpdate } from "./board.js";
+import { applyFilters, loadAlertBoard, renderNextUpdate, showScopeLabel } from "./board.js";
 import { initCasePanel, openCasePanel, sendAck } from "./case-panel.js";
 import { FEED_COLLAPSED_KEY, feedStartsCollapsed, loadFeed, rememberFeedCollapsed, setFeedCollapsed } from "./feed.js";
 import { currentWallLink, filtersLeftOffTheWall, rememberSort, restoreSort, setSeverityFilter } from "./filters.js";
@@ -35,6 +35,7 @@ Object.assign(els, {
   moreFilters: byId("more-filters"),
   clearAlertFiltersBtn: byId("clear-alert-filters"),
   copyWallLinkBtn: byId("copy-wall-link"),
+  feedTitle: byId("feed-title"),
   toggleNonOperational: byId("toggle-non-operational"),
   summaryLine: byId("summary-line-text"),
   summaryAlarms: byId("summary-alarms"),
@@ -77,12 +78,9 @@ config.wallView = document.body.classList.contains("wall-view");
 config.scope = readScope(window.location.search);
 if (config.scope) {
   // Spelt as typed until the sites are in; then as Nautobot has it (board.js).
-  state.scopeLabel = scopeLabel(config.scope);
   els.boardScopeLabel = byId("board-scope-label");
-  if (els.boardScopeLabel) {
-    els.boardScopeLabel.textContent = state.scopeLabel;
-    byId("board-scope").hidden = false;
-  }
+  if (els.boardScopeLabel) byId("board-scope").hidden = false;
+  showScopeLabel(scopeLabel(config.scope));
 }
 // "https://itsm.example.com/ticket/{case}" (#289); "" when not set.
 setCaseUrlTemplate(appConfig.caseUrlTemplate || "");

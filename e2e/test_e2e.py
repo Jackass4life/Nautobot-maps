@@ -113,6 +113,9 @@ def test_a_wall_for_some_sites(page):
     assert page.locator("#board-scope").inner_text() == "Only “Etage” · Show all sites"
     assert all("Etage" in name for name in page.locator(".site-row .site-name").all_inner_texts())
     assert page.locator(".app-nav-link", has_text="Wall view").get_attribute("href") == "/alerts?view=wall&q=Etage"
+    # Activity for the same sites (#369).
+    # (the panel may be collapsed at this width: its title, not its visibility)
+    page.locator("#feed-title", has_text="Activity · “Etage”").wait_for(state="attached")
     # A link that matches no site is a warning, never the green all-clear.
     page.goto(f"{BASE_URL}/alerts?view=wall&tenant=nobody%20at%20all")
     page.locator(".scope-no-match", has_text="No site matches nobody at all.").wait_for()

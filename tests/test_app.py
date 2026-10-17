@@ -6010,6 +6010,34 @@ class TestAlertFeed:
         since = self._feed(client, "?since=2026-09-28T12:05:00Z")["events"]
         assert [e["kind"] for e in since] == ["severity", "up"]
 
+    def test_a_board_for_some_sites_reads_their_feed(self, board, client, pg_database):
+        """?tenant= / ?q= (#369): only those sites' entries, and the limit counts them."""
+        build, set_status = board
+        pg_database.execute("UPDATE nautobot_location_cache SET tenant = 'Acme Corp' WHERE location_id = 'loc-1'")
+        pg_database.execute(
+            "INSERT INTO nautobot_location_cache (location_id, name, location_type, status, tenant) "
+            "VALUES ('loc-2', 'Site Two', 'Office', 'Active', 'Nordic Net')"
+        )
+        pg_database.execute(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
+            "VALUES ('d-3', 'loc-2', 'sw03', 'access', 'Active', '10.0.0.3/32')"
+        )
+        build("2026-09-28T12:00:00+00:00")
+        set_status("d-1", "Offline")
+        build("2026-09-28T12:05:00+00:00")
+        set_status("d-3", "Offline")  # newer: Site Two's events come first in the whole feed
+        build("2026-09-28T12:10:00+00:00")
+
+        every = self._feed(client)["events"]
+        assert {e["site_name"] for e in every} == {"Site One", "Site Two"}
+        acme = self._feed(client, "?tenant=acme%20corp")["events"]
+        assert acme and {e["site_name"] for e in acme} == {"Site One"}
+        assert {e["site_name"] for e in self._feed(client, "?q=two")["events"]} == {"Site Two"}
+        # The limit counts the matching entries, not the whole feed's newest.
+        one = self._feed(client, "?tenant=Acme%20Corp&limit=1")["events"]
+        assert len(one) == 1 and one[0]["site_name"] == "Site One"
+        assert self._feed(client, "?tenant=nobody")["events"] == []
+
     def test_bad_parameters_are_rejected(self, pg_database, client):
         assert client.get("/api/alert-feed?limit=many").status_code == 400
         assert client.get("/api/alert-feed?since=yesterday").status_code == 400
@@ -6670,7 +6698,8 @@ class TestApiExplorer:
         detail = by_key[("/api/locations/<location_id>/detail", "GET")]
         assert detail["path_params"] == ["location_id"] and detail["query_params"] == ["location_type"]
         assert detail["group"] == "API" and detail["required_role"] is None
-        assert by_key[("/api/alert-feed", "GET")]["query_params"] == ["limit", "since", "kinds"]
+        assert by_key[("/api/alert-feed", "GET")]["query_params"] == ["limit", "since", "kinds", "tenant", "q"]
+        assert by_key[("/api/locations/coordinate-check", "GET")]["query_params"] == ["tenant", "q"]
         assert by_key[("/api/alert-history", "GET")]["required_role"] == "operator"
         assert by_key[("/metrics", "GET")]["group"] == "Monitoring"
         assert by_key[("/alerts", "GET")]["group"] == "Pages"

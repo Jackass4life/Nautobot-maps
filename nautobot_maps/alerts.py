@@ -1670,16 +1670,30 @@ def maybe_prune_alert_history(conn) -> dict | None:
 FEED_KINDS = ("down", "up", "severity")
 
 
-def read_alert_feed(conn, limit: int, since: str | None = None, kinds=FEED_KINDS) -> list[dict]:
+def read_alert_feed(
+    conn, limit: int, since: str | None = None, kinds=FEED_KINDS, site_ids: list[str] | None = None
+) -> list[dict]:
     """What changed on the board, newest first (#180).
 
     ``down`` (an alert opened) and ``up`` (resolved) come from the alert
     events; ``severity`` from the logged site level changes.  *since* keeps
-    only entries after that time.
+    only entries after that time; *site_ids* (a page for some sites only,
+    #369) only those sites' entries, before the limit.
     """
+
+    def filters(time_column: str, site_column: str) -> tuple[str, list]:
+        """ " AND …" for *since* and *site_ids* on one branch, and its params."""
+        sql, values = "", []
+        if since:
+            sql, values = sql + f" AND {time_column} > %s", [*values, since]
+        if site_ids is not None:
+            sql, values = sql + f" AND {site_column} = ANY(%s)", [*values, site_ids]
+        return sql, values
+
     branches, params = [], []
     event_types = [event for kind, event in (("down", "opened"), ("up", "resolved")) if kind in kinds]
     if event_types:
+        extra, values = filters("e.event_at", "i.site_id")
         branches.append(
             f"""
             SELECT CASE e.event_type WHEN 'opened' THEN 'down' ELSE 'up' END AS kind,
@@ -1688,21 +1702,22 @@ def read_alert_feed(conn, limit: int, since: str | None = None, kinds=FEED_KINDS
                    '' AS from_level, '' AS to_level
             FROM alert_events e
             JOIN alert_instances i ON i.id = e.alert_instance_id
-            WHERE e.event_type = ANY(%s) {"AND e.event_at > %s" if since else ""}
+            WHERE e.event_type = ANY(%s){extra}
             """
         )
-        params += [event_types] + ([since] if since else [])
+        params += [event_types, *values]
     if "severity" in kinds:
+        extra, values = filters("c.changed_at", "c.site_id")
         branches.append(
             f"""
             SELECT 'severity' AS kind, c.changed_at AS at, c.id AS seq, c.site_id, c.site_name,
                    '' AS device_id, '' AS device_name, c.to_level AS level,
                    NULL::timestamptz AS down_since, c.from_level, c.to_level
             FROM site_level_changes c
-            {"WHERE c.changed_at > %s" if since else ""}
+            WHERE TRUE{extra}
             """
         )
-        params += [since] if since else []
+        params += values
     if not branches:
         return []
     rows = conn.execute(
