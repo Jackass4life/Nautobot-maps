@@ -373,12 +373,6 @@ def api_location_alerts():
         return jsonify({"error": "Internal server error"}), 500
 
 
-def _coordinate_problems(page_scope=None) -> list[dict]:
-    """The board's sites with missing or wrong coordinates (#368), from the
-    stored board (no Nautobot call); only those in *page_scope* when given."""
-    return coordinates.check(alerts.board("request").get("alerts") or [], page_scope)
-
-
 @bp.route("/api/locations/coordinate-check")
 @bp.route("/api/locations/coordinate-check.csv")
 def api_coordinate_check():
@@ -386,7 +380,9 @@ def api_coordinate_check():
     first: impossible, at 0,0, latitude and longitude swapped, far from the
     rest, none.  JSON with counts, or CSV (one row per site)."""
     try:
-        problems = _coordinate_problems(scope.read_scope(request.args))
+        # From the stored board (no Nautobot call); a page's ?tenant= / ?q= narrow it.
+        rows = alerts.board("request").get("alerts") or []
+        problems = coordinates.check(rows, scope.read_scope(request.args))
     except Exception as exc:
         logger.exception("Coordinate check failed: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
@@ -720,11 +716,8 @@ def api_alert_feed():
             # a database read, never a board build.
             locations = inventory.read_locations(include_without_coordinates=True, conn=conn)
             site_ids = [str(loc["id"]) for loc in locations if loc.get("id") and scope.in_scope(loc, page_scope)]
-        events = (
-            alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
-            if site_ids is None or site_ids
-            else []
-        )
+        # No matching site: an empty list matches no row.
+        events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
         return jsonify({"events": events, "persistence_configured": True})
     except Exception as exc:
         logger.exception("Could not read the alert feed: %s", exc)

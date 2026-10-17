@@ -9,6 +9,9 @@ activity feed, whose limit must count the matching events (#369).
 
 from nautobot_maps import status
 
+# The query parameters a scoped endpoint takes (the API page lists them).
+QUERY_PARAMS = ("tenant", "q")
+
 
 def read_scope(args) -> tuple[list[str], list[str]] | None:
     """(tenants, texts), lower case, from request args; None without either."""

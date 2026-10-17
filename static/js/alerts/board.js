@@ -104,6 +104,14 @@ export function renderTableRows(alerts, payload) {
   formatBoardStatus(payload, alerts.length);
 }
 
+// What a link's ?tenant= / ?q= shows (#364): "Only …" on the board, and the
+// feed's title, which is for the same sites (#369).
+export function showScopeLabel(label) {
+  state.scopeLabel = label;
+  if (els.boardScopeLabel) els.boardScopeLabel.textContent = label;
+  if (els.feedTitle) els.feedTitle.textContent = `Activity · ${label}`;
+}
+
 export function applyFilters(payload) {
   const filtered = getFilteredAlerts();
   renderTableRows(filtered, payload);
@@ -181,12 +189,7 @@ export async function loadAlertBoard(forceRefresh = false, { background = false 
     state.lastLoadedAt = Date.now();
     if (els.wallErrorEl) els.wallErrorEl.hidden = true;
     populateFilters(state.allAlerts);
-    if (config.scope) {
-      state.scopeLabel = scopeLabel(config.scope, state.allAlerts);
-      if (els.boardScopeLabel) els.boardScopeLabel.textContent = state.scopeLabel;
-      // The feed is for the same sites (#369).
-      if (els.feedTitle) els.feedTitle.textContent = `Activity · ${state.scopeLabel}`;
-    }
+    if (config.scope) showScopeLabel(scopeLabel(config.scope, state.allAlerts));
     renderSummary(config.scope ? scopeSummary(state.allAlerts) : payload.summary || {});
     applyFilters(payload);
     if (config.wallView) announceNewAlarms(state.allAlerts);
