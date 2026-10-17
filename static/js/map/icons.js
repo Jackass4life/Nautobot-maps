@@ -12,10 +12,12 @@ function pinSvg(color) {
   </svg>`;
 }
 
-// No style attributes: the CSP allows no inline styles (#370), so sizes and
-// colours are classes in map.css (the pin's SVG fill is an attribute, allowed).
-function knownLevel(level) {
-  return level in LEVEL_COLORS ? level : "no_data";
+// No style attributes: the CSP allows no inline styles (#370). Leaflet sizes
+// each marker's box from iconSize (from script, which the CSP allows) and the
+// icon fills it; colours are level-bg-* classes in map.css (the pin's SVG
+// fill is an attribute, which is allowed).
+export function knownLevel(level) {
+  return Object.hasOwn(LEVEL_COLORS, level) ? level : "no_data";
 }
 
 function makeIcon(color, pulse) {
@@ -48,7 +50,7 @@ export function iconForLocation(loc) {
 export function makeClusterIcon(count, alertLevel) {
   const size = count < 10 ? 24 : count < 100 ? 30 : 36;
   const label = `${count} location${count === 1 ? "" : "s"} without an alarm, zoom in`;
-  const classes = `quiet-cluster quiet-size-${size} level-bg-${knownLevel(alertLevel)}`;
+  const classes = `quiet-cluster level-bg-${knownLevel(alertLevel)}`;
   return L.divIcon({
     html: `<div class="${classes}" role="img" aria-label="${label}">${count}</div>`,
     iconSize: [size, size],
@@ -62,7 +64,7 @@ export function makeClusterIcon(count, alertLevel) {
 export function quietDotIcon(level, count = 1) {
   const size = count > 1 ? 18 : 12;
   return L.divIcon({
-    html: `<div class="quiet-dot quiet-size-${size} level-bg-${knownLevel(level)}">${count > 1 ? count : ""}</div>`,
+    html: `<div class="quiet-dot level-bg-${knownLevel(level)}">${count > 1 ? count : ""}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
     popupAnchor: [0, -size / 2],
@@ -72,7 +74,7 @@ export function quietDotIcon(level, count = 1) {
 
 // Several sites at the same coordinates: one pin with a count.
 export function makeStackedIcon(count, alertLevel) {
-  const color = LEVEL_COLORS[alertLevel] || LEVEL_COLORS.no_data;
+  const color = LEVEL_COLORS[knownLevel(alertLevel)];
   const pulse = alertLevel === "critical" ? " marker-pulse" : "";
   return L.divIcon({
     html: `<div class="pin-icon pin-stacked${pulse}">${pinSvg(color)}<span class="colocated-badge">${count}</span></div>`,

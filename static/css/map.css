@@ -1181,15 +1181,13 @@ body.inspector-open #loading-overlay {
   100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
 }
 
-/* Marker sizes and colours as classes (#370: no inline styles under the CSP);
-   the colours are map/levels.js LEVEL_COLORS. */
-.pin-icon { width: 24px; height: 36px; }
+/* Markers without inline styles (#370): each fills the box Leaflet sizes from
+   its iconSize; the colours are map/levels.js LEVEL_COLORS (a test keeps them
+   the same). */
+.pin-icon,
+.quiet-cluster,
+.quiet-dot { width: 100%; height: 100%; }
 .pin-stacked { position: relative; }
-.quiet-size-12 { width: 12px; height: 12px; }
-.quiet-size-18 { width: 18px; height: 18px; }
-.quiet-size-24 { width: 24px; height: 24px; }
-.quiet-size-30 { width: 30px; height: 30px; }
-.quiet-size-36 { width: 36px; height: 36px; }
 .level-bg-critical { background: #e74c3c; }
 .level-bg-medium { background: #ff8c00; }
 .level-bg-low { background: #eab308; }
