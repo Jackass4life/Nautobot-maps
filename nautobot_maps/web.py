@@ -54,16 +54,18 @@ def tile_source() -> str:
 
 
 def content_security_policy() -> str:
-    """Only this app's own scripts run; images may also come from the tile server (#198).
+    """Only this app's own scripts and styles; images may also come from the tile server (#198).
 
-    Inline styles stay allowed: Leaflet markers and popups render HTML with
-    style attributes, and the error page has a <style> block.
+    No inline styles (#370): an HTML injection can't restyle the page (an
+    overlay with a fake link).  Markers and the error page use classes and
+    CSS files; style set from script (Leaflet's own, element.style) is
+    allowed by the CSP, as it isn't markup.
     """
     return "; ".join(
         [
             "default-src 'self'",
             "script-src 'self'",
-            "style-src 'self' 'unsafe-inline'",
+            "style-src 'self'",
             f"img-src 'self' data: {tile_source()}".strip(),
             "connect-src 'self'",
             "object-src 'none'",

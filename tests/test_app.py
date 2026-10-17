@@ -6119,7 +6119,8 @@ class TestSecurityHeaders:
         assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
         csp = resp.headers["Content-Security-Policy"]
         assert "script-src 'self';" in csp and "frame-ancestors 'none'" in csp
-        assert "unsafe-inline" not in csp.split("script-src")[1].split(";")[0]
+        # No inline script or style anywhere (#370): an injection can't restyle the page.
+        assert "style-src 'self';" in csp and "unsafe-inline" not in csp
 
     def test_images_allowed_from_the_tile_server(self, client, monkeypatch):
         monkeypatch.setattr(settings, "MAP_TILE_URL", "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")

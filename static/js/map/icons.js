@@ -12,10 +12,15 @@ function pinSvg(color) {
   </svg>`;
 }
 
+// No style attributes: the CSP allows no inline styles (#370), so sizes and
+// colours are classes in map.css (the pin's SVG fill is an attribute, allowed).
+function knownLevel(level) {
+  return level in LEVEL_COLORS ? level : "no_data";
+}
+
 function makeIcon(color, pulse) {
-  const cls = pulse ? ' class="marker-pulse"' : '';
   return L.divIcon({
-    html: `<div${cls} style="width:24px;height:36px">${pinSvg(color)}</div>`,
+    html: `<div class="pin-icon${pulse ? " marker-pulse" : ""}">${pinSvg(color)}</div>`,
     iconSize: [24, 36],
     iconAnchor: [12, 36],
     popupAnchor: [0, -36],
@@ -27,7 +32,7 @@ function makeIcon(color, pulse) {
 const pinIcons = {};
 
 export function pinIcon(level) {
-  const known = level in LEVEL_COLORS ? level : "no_data";
+  const known = knownLevel(level);
   if (!pinIcons[known]) pinIcons[known] = makeIcon(LEVEL_COLORS[known], known === "critical");
   return pinIcons[known];
 }
@@ -41,11 +46,11 @@ export function iconForLocation(loc) {
 // out; a little bigger for more sites.  Leaflet makes the marker a button;
 // the label says what is in it.
 export function makeClusterIcon(count, alertLevel) {
-  const color = LEVEL_COLORS[alertLevel] || LEVEL_COLORS.no_data;
   const size = count < 10 ? 24 : count < 100 ? 30 : 36;
   const label = `${count} location${count === 1 ? "" : "s"} without an alarm, zoom in`;
+  const classes = `quiet-cluster quiet-size-${size} level-bg-${knownLevel(alertLevel)}`;
   return L.divIcon({
-    html: `<div class="quiet-cluster" role="img" aria-label="${label}" style="width:${size}px;height:${size}px;background:${color}">${count}</div>`,
+    html: `<div class="${classes}" role="img" aria-label="${label}">${count}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
     className: "",
@@ -55,10 +60,9 @@ export function makeClusterIcon(count, alertLevel) {
 // A quiet site (OK, No data) on its own: a dot, not a pin (#334); with a
 // count for several sites at the same coordinates.
 export function quietDotIcon(level, count = 1) {
-  const color = LEVEL_COLORS[level] || LEVEL_COLORS.no_data;
   const size = count > 1 ? 18 : 12;
   return L.divIcon({
-    html: `<div class="quiet-dot" style="width:${size}px;height:${size}px;background:${color}">${count > 1 ? count : ""}</div>`,
+    html: `<div class="quiet-dot quiet-size-${size} level-bg-${knownLevel(level)}">${count > 1 ? count : ""}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
     popupAnchor: [0, -size / 2],
@@ -69,9 +73,9 @@ export function quietDotIcon(level, count = 1) {
 // Several sites at the same coordinates: one pin with a count.
 export function makeStackedIcon(count, alertLevel) {
   const color = LEVEL_COLORS[alertLevel] || LEVEL_COLORS.no_data;
-  const cls = alertLevel === "critical" ? ' class="marker-pulse"' : '';
+  const pulse = alertLevel === "critical" ? " marker-pulse" : "";
   return L.divIcon({
-    html: `<div${cls} style="width:24px;height:36px;position:relative">${pinSvg(color)}<span class="colocated-badge">${count}</span></div>`,
+    html: `<div class="pin-icon pin-stacked${pulse}">${pinSvg(color)}<span class="colocated-badge">${count}</span></div>`,
     iconSize: [24, 36],
     iconAnchor: [12, 36],
     popupAnchor: [0, -36],

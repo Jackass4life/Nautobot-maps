@@ -211,6 +211,9 @@ STATUS_API_PREFIX = "/api/status/"
 # Every module the page loads, imports included (#294); a test checks the list.
 STATUS_PAGE_ASSETS = {
     "/static/css/alerts.css",
+    # The error page's styles, no longer inline (#370): a status page's
+    # visitor who gets an error page still gets its look.
+    "/static/css/error.css",
     "/static/js/status/main.js",
     "/static/js/status/page.js",
     "/static/js/lib/format.js",

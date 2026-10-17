@@ -573,6 +573,11 @@ body.inspector-open #map {
 }
 
 #search-results-list li:last-child { border-bottom: none; }
+#search-results-list li.search-none {
+  padding: 10px 16px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
 #search-results-list li:hover { background: var(--color-surface-2); }
 
 .result-name {
@@ -1175,6 +1180,22 @@ body.inspector-open #loading-overlay {
   70%  { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
   100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
 }
+
+/* Marker sizes and colours as classes (#370: no inline styles under the CSP);
+   the colours are map/levels.js LEVEL_COLORS. */
+.pin-icon { width: 24px; height: 36px; }
+.pin-stacked { position: relative; }
+.quiet-size-12 { width: 12px; height: 12px; }
+.quiet-size-18 { width: 18px; height: 18px; }
+.quiet-size-24 { width: 24px; height: 24px; }
+.quiet-size-30 { width: 30px; height: 30px; }
+.quiet-size-36 { width: 36px; height: 36px; }
+.level-bg-critical { background: #e74c3c; }
+.level-bg-medium { background: #ff8c00; }
+.level-bg-low { background: #eab308; }
+.level-bg-maintenance { background: #2563eb; }
+.level-bg-ok { background: #2ecc71; }
+.level-bg-no_data { background: #94a3b8; }
 
 .marker-pulse {
   border-radius: 50% 50% 50% 0;

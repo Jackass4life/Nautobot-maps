@@ -58,7 +58,11 @@ def test_every_page_loads_a_module_and_its_imports_exist():
 
 def test_the_status_page_assets_are_what_it_loads():
     """A customer's browser loads these without signing in (#291): no more, no less."""
-    expected = {f"/static/js/{path}" for path in imported_files("status/main.js")} | {"/static/css/alerts.css"}
+    # error.css: the error page's styles, which a status page's visitor may see (#370).
+    expected = {f"/static/js/{path}" for path in imported_files("status/main.js")} | {
+        "/static/css/alerts.css",
+        "/static/css/error.css",
+    }
     assert auth.STATUS_PAGE_ASSETS == expected
 
 
