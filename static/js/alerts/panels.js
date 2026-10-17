@@ -1,7 +1,7 @@
 // The side panels (#179): one open at a time, Escape closes it and focus
 // returns to the button that opened it.  Also History and Copy.
 import { caseWithUrl, casePill } from "../lib/cases.js";
-import { formatDuration, formatReportTime, formatTimestamp } from "../lib/format.js";
+import { formatDuration, formatReportTime, formatTimestamp, nautobotLocationUrl } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
@@ -69,7 +69,7 @@ export function siteReport(item, nautobotUrl = "") {
   lines.push(`Severity: ${level === "no_data" ? "NO DATA" : level.toUpperCase()} (${item.down_device_count || 0} of ${item.device_count || 0} devices down)`);
   if (item.alert_reason) lines.push(`Reason: ${item.alert_reason}`);
   if (Array.isArray(item.active_cases) && item.active_cases.length) lines.push(`Cases: ${item.active_cases.map(caseWithUrl).join(", ")}`);
-  if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotUrl.replace(/\/+$/, "")}/dcim/locations/${encodeURIComponent(item.id)}/`);
+  if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotLocationUrl(nautobotUrl, item.id)}`);
 
   // The likely cause first (#285), then newest down first.
   const devices = (Array.isArray(item.down_devices) ? [...item.down_devices] : [])

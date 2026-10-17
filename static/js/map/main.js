@@ -30,6 +30,7 @@ import {
 import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js";
 import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
+import { COORDINATE_REFRESH_MS, initCoordinateCheck, loadCoordinateCheck } from "./coordinates.js";
 import { config, detailCache, els, state } from "./state.js";
 import { fitToSites } from "./view.js";
 
@@ -86,6 +87,10 @@ Object.assign(els, {
   quickStatusButtons: Array.from(document.querySelectorAll("[data-quick-status]")),
   locationCount: byId("location-count"),
   mapScope: byId("map-scope"),
+  coordinateNote: byId("coordinate-note"),
+  coordinateText: byId("coordinate-text"),
+  coordinateToggle: byId("coordinate-toggle"),
+  coordinateList: byId("coordinate-list"),
   searchInput: byId("search-input"),
   searchBtn: byId("search-btn"),
   searchResults: byId("search-results"),
@@ -245,4 +250,9 @@ async function loadLocations(levelsLoaded) {
   }
 }
 
-loadLocations(loadLocationAlerts()).then(() => startLocationAlertRefresh({ loadNow: false }));
+initCoordinateCheck();
+loadLocations(loadLocationAlerts()).then(() => {
+  startLocationAlertRefresh({ loadNow: false });
+  loadCoordinateCheck();
+  setInterval(loadCoordinateCheck, COORDINATE_REFRESH_MS);
+});

@@ -141,6 +141,16 @@ def test_the_map_and_wall_link_for_some_sites(page):
     assert page.evaluate("window.__copied") == [f"{BASE_URL}/alerts?view=wall&q=London"]
 
 
+def test_the_map_lists_sites_with_missing_coordinates(page):
+    """#368: the demo's Danish campus and floor have devices but no coordinates."""
+    page.goto(f"{BASE_URL}/")
+    page.locator("#coordinate-note", has_text="aren't on the map").wait_for(timeout=20000)
+    page.locator("#coordinate-toggle").click()
+    names = page.locator(".coordinate-site").all_inner_texts()
+    assert any("Etage 2" in name for name in names), names
+    assert page.locator(".coordinate-csv").get_attribute("href") == "/api/locations/coordinate-check.csv"
+
+
 def test_the_map_shows_markers(page):
     page.goto(f"{BASE_URL}/")
     page.locator(".leaflet-marker-icon").first.wait_for(timeout=20000)

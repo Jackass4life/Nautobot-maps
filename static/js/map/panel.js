@@ -1,4 +1,5 @@
 // Pieces of the site panel, as HTML: no page access, so the tests run them as they are.
+import { nautobotLocationUrl } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { maintenanceHistoryHref } from "../lib/maintenance-form.js";
 import { ALERT_RANK } from "./levels.js";
@@ -46,7 +47,7 @@ export function deviceFilterLabel(filterKey) {
 
 export function buildNautobotLink(loc) {
   if (!config.nautobotUrl || !loc.id) return "";
-  return `<a class="nautobot-link" href="${escHtml(config.nautobotUrl)}/dcim/locations/${encodeURIComponent(loc.id)}/" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`;
+  return `<a class="nautobot-link" href="${escHtml(nautobotLocationUrl(config.nautobotUrl, loc.id))}" target="_blank" rel="noopener noreferrer">Open in Nautobot ↗</a>`;
 }
 
 // The site's maintenance history (#353), as on the board's ⋯ menu.

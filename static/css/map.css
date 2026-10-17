@@ -791,6 +791,61 @@ body.inspector-open #map {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* The board's sites with missing or wrong coordinates (#368), under the count. */
+.coordinate-note {
+  padding: 8px 16px 10px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.coordinate-toggle,
+.coordinate-show {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.coordinate-list {
+  margin-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.coordinate-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.coordinate-items li {
+  padding: 6px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.coordinate-site {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.coordinate-site a {
+  color: inherit;
+}
+
+.coordinate-path {
+  display: block;
+}
+
+.coordinate-csv {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--color-text);
+}
+
 /* "Only Acme Corp · Show all sites" (#367), at the top of the sidebar. */
 .map-scope {
   margin: 0;

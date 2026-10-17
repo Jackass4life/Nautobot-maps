@@ -24,6 +24,7 @@ from nautobot_maps import (
     caching,
     compression,
     contract,
+    coordinates,
     db,
     export,
     inventory,
@@ -32,6 +33,7 @@ from nautobot_maps import (
     metrics,
     notify,
     scheduler,
+    scope,
     settings,
     status,
     timeutil,
@@ -191,7 +193,7 @@ def _scope_query() -> str:
     them: kept on the links between the map, the board and the wall."""
     return urlencode(
         [("tenant", name) for name in request.args.getlist("tenant") if name.strip()]
-        + [("q", text) for text in [request.args.get("q", "")] if text.strip()]
+        + [("q", text) for text in request.args.getlist("q") if text.strip()]
     )
 
 
@@ -265,6 +267,14 @@ def prometheus_metrics():
     except Exception as exc:
         logger.warning("Metrics: database unavailable: %s", exc)
         body = metrics.collect(None)
+    try:
+        # Sites with missing or wrong coordinates (#368): from the board already
+        # stored, never a build (a scrape must stay cheap); left out without one.
+        stored = caching.get(alerts.BOARD_CACHE_KEY)
+        if stored is not None:
+            body += metrics.coordinate_problems(coordinates.counts(coordinates.check(stored.get("alerts") or [])))
+    except Exception as exc:
+        logger.warning("Metrics: coordinate check unavailable: %s", exc)
     finally:
         if conn is not None:
             conn.close()
@@ -361,6 +371,33 @@ def api_location_alerts():
     except Exception as exc:
         logger.exception("Could not compute location alert levels: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
+
+
+def _coordinate_problems() -> list[dict]:
+    """The board's sites with missing or wrong coordinates (#368), from the
+    stored board (no Nautobot call); only those a page's ?tenant= / ?q= ask for."""
+    rows = alerts.board("request").get("alerts") or []
+    return coordinates.check(rows, scope.read_scope(request.args))
+
+
+@bp.route("/api/locations/coordinate-check")
+@bp.route("/api/locations/coordinate-check.csv")
+def api_coordinate_check():
+    """The alert board's sites with missing or wrong coordinates (#368), worst
+    first: impossible, at 0,0, latitude and longitude swapped, far from the
+    rest, none.  JSON with counts, or CSV (one row per site)."""
+    try:
+        problems = _coordinate_problems()
+    except Exception as exc:
+        logger.exception("Coordinate check failed: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
+    if request.path.endswith(".csv"):
+        return Response(
+            "".join(coordinates.csv_lines(problems)),
+            mimetype="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="coordinate-check.csv"'},
+        )
+    return jsonify({"counts": coordinates.counts(problems), "sites": problems})
 
 
 @bp.route("/api/alerts")

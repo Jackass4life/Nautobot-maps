@@ -108,6 +108,12 @@
     </div>
 
     <div id="location-count"></div>
+    <!-- The board's sites with missing or wrong coordinates (#368). -->
+    <div id="coordinate-note" class="coordinate-note" hidden>
+      <span id="coordinate-text"></span>
+      · <button id="coordinate-toggle" class="coordinate-toggle" type="button" aria-expanded="false" aria-controls="coordinate-list">Check</button>
+      <div id="coordinate-list" class="coordinate-list" hidden></div>
+    </div>
     <div id="alert-levels-note" class="alert-levels-note" role="status" hidden>
       Alert levels could not be loaded: markers are grey until they can be.
     </div>
