@@ -38,7 +38,7 @@ services:
 ## What the container does
 
 - **Logs** go to `docker compose logs`: the app's messages (unexpected errors with their stack trace) and an access log line per request with the signed-in user, status and response time in ms (successful `/healthz` probes are left out). The bundled `docker-compose.yml` caps each container's log at 5 × 10 MB. `LOG_FORMAT=json` gives one JSON object per line.
-- **Security headers** on every response: a Content-Security-Policy that only runs the app's own scripts and loads images only from the app and the `MAP_TILE_URL` host, plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
+- **Security headers** on every response: a Content-Security-Policy that only runs the app's own scripts and styles (no inline ones: an HTML injection can't restyle the page, #370) and loads images only from the app and the `MAP_TILE_URL` host, plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
 - **Compression** (#349): text answers over 1 KB (pages, JSON, CSS, JS, CSV) are gzipped for browsers that accept it, with `Vary: Accept-Encoding`. At 1,200 sites the board's data (about 1.3 MB) and the map's (0.8 MB) shrink to about a tenth, which matters with many boards and wall screens refreshing. Streamed exports, partial and not-modified answers, and a new API token's answer are left as they are. The access log's response size is then the compressed size. To compress in your proxy instead, set `COMPRESS_RESPONSES=false` there and, for nginx, turn it on for proxied JSON (by default nginx compresses only HTML, and nothing proxied):
   ```nginx
   gzip on;
