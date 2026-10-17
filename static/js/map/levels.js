@@ -18,6 +18,11 @@ export const ALERT_RANK = { low: 1, medium: 2, critical: 3 };
 // What a stack or cluster shows: its worst member (#234, #311).
 export const DISPLAY_RANK = { no_data: 0, ok: 1, maintenance: 2, low: 3, medium: 4, critical: 5 };
 
+// A level for its colour: an unknown one (or Object.prototype's keys) is No data.
+export function knownLevel(level) {
+  return Object.hasOwn(LEVEL_COLORS, level) ? level : "no_data";
+}
+
 // A location's level for its colour; without one it has no monitored devices.
 export function displayLevel(locId) {
   const level = locationAlerts[locId];

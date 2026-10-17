@@ -366,13 +366,13 @@ def test_the_map_at_scale(page):
     assert 0 < clusters.count() < 100, f"{clusters.count()} clusters at the first zoom"
     assert loaded < 10, f"{loaded:.1f} s to show 1,200 sites"
     # No cluster wears an alarm colour: the alarms are the pins.
-    for colour in ("#e74c3c", "#ff8c00", "#eab308"):
+    for level in ("critical", "medium", "low"):
         assert (
             page.locator(
-                f".leaflet-marker-icon:has(.quiet-cluster[style*='{colour}'], .quiet-dot[style*='{colour}'])"
+                f".leaflet-marker-icon:has(.quiet-cluster.level-bg-{level}, .quiet-dot.level-bg-{level})"
             ).count()
             == 0
-        ), colour
+        ), level
 
     # The sidebar lists them: worst first, then newest; ten and "+15 more" (#334).
     assert page.locator("#alarm-count").inner_text() == "(25)"

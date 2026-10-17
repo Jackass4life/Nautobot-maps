@@ -34,7 +34,7 @@ export async function doSearch() {
 
     if (count === 0) {
       searchResultsList.innerHTML =
-        '<li style="padding:10px 16px;color:var(--color-text-muted);font-size:.85rem">No Nautobot locations found within 5 km.</li>';
+        '<li class="search-none">No Nautobot locations found within 5 km.</li>';
     } else {
       for (const loc of locations) {
         const li = document.createElement("li");
