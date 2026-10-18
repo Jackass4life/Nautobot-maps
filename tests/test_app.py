@@ -6040,7 +6040,13 @@ class TestAlertFeed:
         later = self._feed(client, "?q=two&since=2026-09-28T12:05:00Z")["events"]
         assert later and {(e["site_name"], e["at"]) for e in later} == {("Site Two", "2026-09-28T12:10:00Z")}
         assert self._feed(client, "?tenant=Acme%20Corp&since=2026-09-28T12:05:00Z")["events"] == []
-        assert self._feed(client, "?tenant=nobody")["events"] == []
+        assert self._feed(client, "?tenant=nobody") == {
+            "events": [],
+            "persistence_configured": True,
+            "matching_sites": 0,
+        }
+        assert self._feed(client, "?q=site")["matching_sites"] == 2
+        assert "matching_sites" not in self._feed(client)
 
     def test_a_scoped_feed_without_stored_sites_says_so(self, pg_database, client):
         """No stored locations (not synced yet, or the read failed): an error,

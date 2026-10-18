@@ -24,8 +24,9 @@ import time
 from urllib.parse import quote, urlsplit
 
 from flask import current_app, jsonify, request
+from werkzeug.datastructures import MultiDict
 
-from nautobot_maps import alerts, auth, caching, settings, status
+from nautobot_maps import alerts, auth, caching, scope, settings, status
 
 logger = logging.getLogger(__name__)
 
@@ -228,30 +229,23 @@ def _matches_filter(item: dict, level_filter: str) -> bool:
     return level == level_filter
 
 
-def _matches_search(item: dict, needle: str) -> bool:
-    fields = (
-        item.get("name"),
-        status.site_path(item),
-        status.site_address(item),
-        item.get("country"),
-    )
-    return needle in " ".join(value or "" for value in fields).lower()
+def _scope_query(args: dict) -> dict:
+    """A tool's tenant / search as the board link's ?tenant= / ?q= (#375)."""
+    return {"tenant": _text(args, "tenant"), "q": _text(args, "search")}
 
 
 def tool_get_alert_board(args: dict) -> dict:
     level_filter = _text(args, "filter") or "alarms"
     if level_filter not in BOARD_FILTERS:
         raise ToolError(f"filter must be one of: {', '.join(BOARD_FILTERS)}")
-    tenant = _text(args, "tenant")
-    needle = _text(args, "search").lower()
+    # The routes' own reading of ?tenant= / ?q=, so the tools match as the board does.
+    site_scope = scope.read_scope(MultiDict(_scope_query(args)))
     limit = _integer(args, "limit", DEFAULT_SITE_LIMIT, MAX_SITE_LIMIT)
     board = _board(_flag(args, "include_non_operational"))
     sites = [
         item
         for item in board.get("alerts") or []
-        if _matches_filter(item, level_filter)
-        and (not tenant or tenant in status.site_tenants(item))
-        and (not needle or _matches_search(item, needle))
+        if _matches_filter(item, level_filter) and scope.in_scope(item, site_scope)
     ]
     result = {
         "summary": board.get("summary") or {},
@@ -308,8 +302,14 @@ def tool_get_alert_feed(args: dict) -> dict:
         "limit": str(_integer(args, "limit", 50, 500)),
         "since": _text(args, "since", max_length=64),
         "kinds": ",".join(kinds),
+        # One tenant's or one search's changes, filtered before the limit (#369, #375).
+        **_scope_query(args),
     }
-    return api_or_tool_error("GET", "/api/alert-feed", query)
+    data = api_or_tool_error("GET", "/api/alert-feed", query)
+    if data.get("matching_sites") == 0:
+        # Not "nothing changed": a misspelt tenant must not read as an all-clear.
+        data["note"] = "No site matches tenant/search; get_alert_board with filter=all lists the tenants."
+    return data
 
 
 def tool_get_alert_history(args: dict) -> dict:
@@ -354,6 +354,10 @@ def _schema(properties: dict, required: tuple = ()) -> dict:
     return schema
 
 
+# The same site matching as the board's ?tenant= / ?q= link (#375).
+_TENANT_PROPERTY = {"type": "string", "description": "Only sites of this tenant (its whole name, case ignored)"}
+_SEARCH_PROPERTY = {"type": "string", "description": "Text in the site name, path, address or country"}
+
 TOOLS = {
     "get_alert_board": {
         "handler": tool_get_alert_board,
@@ -368,8 +372,8 @@ TOOLS = {
                     "enum": list(BOARD_FILTERS),
                     "description": "alarms (default): critical, medium and low; one level; or all sites",
                 },
-                "tenant": {"type": "string", "description": "Only sites of this tenant (exact name)"},
-                "search": {"type": "string", "description": "Text in the site name, path, address or country"},
+                "tenant": _TENANT_PROPERTY,
+                "search": _SEARCH_PROPERTY,
                 "include_non_operational": {
                     "type": "boolean",
                     "description": "Also sites the board hides by default (e.g. warehouses, decommissioning)",
@@ -410,7 +414,7 @@ TOOLS = {
         "handler": tool_get_alert_feed,
         "title": "Recent changes",
         "description": "What changed on the alert board, newest first: devices going down and back up, and site "
-        "level changes." + _UNTRUSTED,
+        "level changes; for one tenant or search, only those sites' changes." + _UNTRUSTED,
         "inputSchema": _schema(
             {
                 "since": {"type": "string", "description": "ISO-8601 time; only newer changes"},
@@ -419,6 +423,8 @@ TOOLS = {
                     "items": {"type": "string", "enum": list(alerts.FEED_KINDS)},
                     "description": "Which changes (default all)",
                 },
+                "tenant": _TENANT_PROPERTY,
+                "search": _SEARCH_PROPERTY,
                 "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
             }
         ),

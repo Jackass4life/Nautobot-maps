@@ -287,6 +287,10 @@ class TestTools:
         assert names({"filter": "all"}) == ["Aarhus HQ", "Oslo", "Aarhus Lab"]
         assert names({"filter": "ok"}) == ["Oslo"]
         assert names({"tenant": "Acme"}) == ["Aarhus HQ", "Aarhus Lab"]
+        # As the board's ?tenant= link (#375): case ignored, the whole name.
+        assert names({"tenant": "acme"}) == ["Aarhus HQ", "Aarhus Lab"]
+        assert names({"tenant": "Acm"}) == []
+        assert names({"tenant": "acme", "search": "lab"}) == ["Aarhus Lab"]
         assert names({"search": "dnk"}) == ["Aarhus HQ"]
         limited = call(client, "get_alert_board", {"filter": "all", "limit": 1})["structuredContent"]
         assert len(limited["sites"]) == 1 and "Showing 1 of 3" in limited["truncated"]
@@ -313,6 +317,46 @@ class TestTools:
     def test_feed_validation_comes_from_the_route(self, client):
         result = call(client, "get_alert_feed", {"since": "yesterday"})
         assert result["isError"] and "since must be an ISO-8601 timestamp (HTTP 400)" in result["content"][0]["text"]
+
+    def test_feed_for_one_tenant_or_search(self, client, monkeypatch):
+        """tenant / search reach the route as ?tenant= / ?q= (#375); the route's filtering is tested in test_app."""
+        calls, answers = [], [{"events": [], "matching_sites": 2}, {"events": []}, {"events": [], "matching_sites": 0}]
+        monkeypatch.setattr(mcp, "call_api", lambda *args, **kwargs: calls.append(args) or (200, answers.pop(0)))
+        scoped = call(client, "get_alert_feed", {"tenant": " Acme Corp ", "search": "DNK", "limit": 5})
+        every = call(client, "get_alert_feed", {})
+        (_, path, scoped_query, *_), (_, _, every_query, *_) = calls[:2]
+        assert path == "/api/alert-feed"
+        assert scoped_query["tenant"] == "Acme Corp" and scoped_query["q"] == "DNK" and scoped_query["limit"] == "5"
+        assert every_query["tenant"] == "" and every_query["q"] == ""
+        assert "note" not in scoped["structuredContent"] and "note" not in every["structuredContent"]
+        # No site matches: said so, not an empty feed that reads as "nothing changed".
+        typo = call(client, "get_alert_feed", {"tenant": "Acme Corp."})["structuredContent"]
+        assert typo["events"] == [] and "No site matches" in typo["note"]
+        assert call(client, "get_alert_feed", {"tenant": 5})["isError"]
+
+    def test_feed_scope_reaches_the_route(self, client, monkeypatch):
+        """Through the real route: the scope picks the sites, and no scope sends none (#375)."""
+        from nautobot_maps import db, inventory
+
+        class Conn:
+            def close(self):
+                pass
+
+        seen = []
+        monkeypatch.setattr(db, "get_conn", Conn)
+        monkeypatch.setattr(
+            inventory,
+            "read_locations",
+            lambda **kwargs: [
+                {"id": "loc-1", "name": "Aarhus HQ", "tenants": ["Acme Corp"]},
+                {"id": "loc-2", "name": "Oslo", "tenants": ["Nordic"]},
+            ],
+        )
+        monkeypatch.setattr(alerts, "read_alert_feed", lambda *args: seen.append(args[-1]) or [])
+        assert call(client, "get_alert_feed", {"tenant": "acme corp"})["structuredContent"]["matching_sites"] == 1
+        assert "note" in call(client, "get_alert_feed", {"search": "bergen"})["structuredContent"]
+        assert "matching_sites" not in call(client, "get_alert_feed")["structuredContent"]
+        assert seen == [["loc-1"], [], None]
 
     def test_search_uses_the_route(self, client, monkeypatch):
         from nautobot_maps import inventory

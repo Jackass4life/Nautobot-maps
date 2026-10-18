@@ -689,7 +689,8 @@ def api_alert_feed():
     parameters: ``limit`` (default 100, at most 500), ``since`` (ISO-8601;
     only newer entries) and ``kinds`` (comma-separated ``down``, ``up``,
     ``severity``; default all).  ``tenant=`` / ``q=`` (as the board's link,
-    #369): only those sites' entries.
+    #369): only those sites' entries, and ``matching_sites``, how many sites
+    match (#375).
     """
     try:
         limit = int(request.args.get("limit") or 100)
@@ -723,7 +724,11 @@ def api_alert_feed():
                 return jsonify({"error": "The site list is not stored yet; try again after the next sync"}), 503
             site_ids = [str(loc["id"]) for loc in locations if loc.get("id") and scope.in_scope(loc, page_scope)]
         events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
-        return jsonify({"events": events, "persistence_configured": True})
+        result = {"events": events, "persistence_configured": True}
+        if site_ids is not None:
+            # 0 tells "no site matches" from "nothing changed" (#375).
+            result["matching_sites"] = len(site_ids)
+        return jsonify(result)
     except Exception as exc:
         logger.exception("Could not read the alert feed: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
