@@ -24,6 +24,7 @@ import time
 from urllib.parse import quote, urlsplit
 
 from flask import current_app, jsonify, request
+from werkzeug.datastructures import MultiDict
 
 from nautobot_maps import alerts, auth, caching, scope, settings, status
 
@@ -228,20 +229,17 @@ def _matches_filter(item: dict, level_filter: str) -> bool:
     return level == level_filter
 
 
-def _scope(args: dict) -> tuple[list[str], list[str]] | None:
-    """A tool's tenant / search, matched as the board's ?tenant= / ?q= (#375)."""
-    tenant = _text(args, "tenant").lower()
-    needle = _text(args, "search").lower()
-    if not tenant and not needle:
-        return None
-    return ([tenant] if tenant else [], [needle] if needle else [])
+def _scope_query(args: dict) -> dict:
+    """A tool's tenant / search as the board link's ?tenant= / ?q= (#375)."""
+    return {"tenant": _text(args, "tenant"), "q": _text(args, "search")}
 
 
 def tool_get_alert_board(args: dict) -> dict:
     level_filter = _text(args, "filter") or "alarms"
     if level_filter not in BOARD_FILTERS:
         raise ToolError(f"filter must be one of: {', '.join(BOARD_FILTERS)}")
-    site_scope = _scope(args)
+    # The routes' own reading of ?tenant= / ?q=, so the tools match as the board does.
+    site_scope = scope.read_scope(MultiDict(_scope_query(args)))
     limit = _integer(args, "limit", DEFAULT_SITE_LIMIT, MAX_SITE_LIMIT)
     board = _board(_flag(args, "include_non_operational"))
     sites = [
@@ -305,10 +303,13 @@ def tool_get_alert_feed(args: dict) -> dict:
         "since": _text(args, "since", max_length=64),
         "kinds": ",".join(kinds),
         # One tenant's or one search's changes, filtered before the limit (#369, #375).
-        "tenant": _text(args, "tenant"),
-        "q": _text(args, "search"),
+        **_scope_query(args),
     }
-    return api_or_tool_error("GET", "/api/alert-feed", query)
+    data = api_or_tool_error("GET", "/api/alert-feed", query)
+    if data.get("matching_sites") == 0:
+        # Not "nothing changed": a misspelt tenant must not read as an all-clear.
+        data["note"] = "No site matches tenant/search; get_alert_board with filter=all lists the tenants."
+    return data
 
 
 def tool_get_alert_history(args: dict) -> dict:
@@ -354,7 +355,7 @@ def _schema(properties: dict, required: tuple = ()) -> dict:
 
 
 # The same site matching as the board's ?tenant= / ?q= link (#375).
-_TENANT_PROPERTY = {"type": "string", "description": "Only sites of this tenant (case ignored)"}
+_TENANT_PROPERTY = {"type": "string", "description": "Only sites of this tenant (its whole name, case ignored)"}
 _SEARCH_PROPERTY = {"type": "string", "description": "Text in the site name, path, address or country"}
 
 TOOLS = {
