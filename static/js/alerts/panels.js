@@ -93,6 +93,7 @@ export function siteReport(item, nautobotUrl = "") {
       since ? `Down since ${since}` : "",
       cases.length ? `Case ${cases.map(caseWithUrl).join(", ")}` : "",
       device.core ? "Core device" : "",
+      device.set_level ? `Set ${device.set_level} in Nautobot` : "",
       device.probable_cause ? `Likely caused by ${device.probable_cause}` : "",
     ];
     lines.push(`- ${fields.filter(Boolean).join(" | ")}`);

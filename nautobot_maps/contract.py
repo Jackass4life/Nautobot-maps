@@ -244,6 +244,13 @@ CONTRACT: tuple[Endpoint, ...] = (
                 becomes="last_updated",
                 rule="the incremental sync's watermark",
             ),
+            Field(
+                "custom_fields",
+                ("object", "null"),
+                becomes="criticality",
+                rule="the DEVICE_CRITICALITY_FIELD custom field (a value, or a select's value or label), "
+                "lowercased; only critical, medium or low",
+            ),
         ),
         request="all pages, depth=1; incremental with last_updated__gte",
         stored_in="nautobot_device_cache",

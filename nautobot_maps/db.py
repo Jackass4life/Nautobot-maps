@@ -666,6 +666,15 @@ def add_site_level_changes_site(conn) -> None:
     )
 
 
+def add_device_criticality(conn) -> None:
+    """A device's level when down, from a Nautobot custom field (#377), and per
+    site what the last build saw: its devices' levels and its down devices, so
+    a level change from a Nautobot edit alone is logged but not notified."""
+    conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN IF NOT EXISTS criticality TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE site_alert_levels ADD COLUMN IF NOT EXISTS criticality_key TEXT")
+    conn.execute("ALTER TABLE site_alert_levels ADD COLUMN IF NOT EXISTS down_key TEXT")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -692,6 +701,7 @@ MIGRATIONS = (
     (20, "board_build_stats", add_board_build_stats),
     (21, "maintenance_windows.batch_id", add_maintenance_batches),
     (22, "site_level_changes (site_id, changed_at) index", add_site_level_changes_site),
+    (23, "device criticality", add_device_criticality),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

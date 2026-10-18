@@ -248,6 +248,15 @@ SITE_TIER_FIELD = os.getenv("SITE_TIER_FIELD", "").strip()
 SITE_TIERS = [
     t.strip().lower() for t in (os.getenv("SITE_TIERS", "").strip() or "gold,silver,bronze").split(",") if t.strip()
 ]
+# A device's level when down (#377): a Nautobot custom field on the device
+# (critical / medium / low), and a default per site tier ("gold:critical").
+DEVICE_CRITICALITY_FIELD = os.getenv("DEVICE_CRITICALITY_FIELD", "").strip()
+DEVICE_LEVELS = ("critical", "medium", "low")
+TIER_DEVICE_LEVEL = {
+    tier.strip().lower(): level.strip().lower()
+    for tier, _, level in (item.partition(":") for item in os.getenv("TIER_DEVICE_LEVEL", "").split(",") if ":" in item)
+    if tier.strip() and level.strip().lower() in DEVICE_LEVELS
+}
 # "gold:low,silver:medium": NOTIFY_MIN_LEVEL for those tiers.
 NOTIFY_MIN_LEVEL_BY_TIER = {
     tier.strip().lower(): level.strip().lower()

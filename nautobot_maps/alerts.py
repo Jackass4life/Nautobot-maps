@@ -4,6 +4,7 @@ history, the alert board build and the location detail for the map.
 Called as ``alerts.function()`` so tests can replace it on this module.
 """
 
+import hashlib
 import json
 import logging
 import time
@@ -58,10 +59,14 @@ def alert_level_definitions() -> dict:
         "alarms": "Sites at Critical, Medium or Low: the ones that need attention. The board opens here.",
         "critical": (
             "At least one core device is down (its role matches a critical keyword, "
-            f"or it is marked critical by an override), or {critical_share}."
+            "it is marked critical by an override, or set critical in Nautobot or by the site's tier), "
+            f"or {critical_share}."
         ),
-        "medium": f"More than {medium}% of the site's monitored devices are down and no core device is down.",
-        "low": f"At least one monitored device is down, but {medium}% or fewer and no core device.",
+        "medium": (
+            f"More than {medium}% of the site's monitored devices are down, or a device set to Medium "
+            "(in Nautobot or by the site's tier) is down, and no core device is down."
+        ),
+        "low": f"At least one monitored device is down, but {medium}% or fewer, and none set higher.",
         "no_data": "The site has no monitored devices, or its state could not be computed. Not counted as an alert.",
         "ok": "The site has monitored devices and none of them is down.",
         "total": "All sites on the board. Only devices with a Nautobot primary IP are monitored.",
@@ -248,10 +253,49 @@ def down_core_devices(devices: list, location_type: str | None = None, override_
     ]
 
 
+# Why a device has its level (#377), in the board's reason line.
+LEVEL_SOURCE_TEXT = {"nautobot": "set in Nautobot", "override": "override", "role": "core role"}
+
+
+def device_level(device: dict, core_keywords, override_map: dict, tier: str = "") -> tuple[str, str]:
+    """``(level, source)``: what this device makes its site when down (#377).
+
+    The first that applies: the device's Nautobot custom field
+    (``nautobot``), the app's override (``override``; not critical stops
+    here), the site tier's default from TIER_DEVICE_LEVEL (``tier``), a core
+    role keyword (``role``).  ``("", "")``: only the share of devices down counts.
+    """
+    if device.get("criticality") in settings.DEVICE_LEVELS:
+        return device["criticality"], "nautobot"
+    device_id = device.get("id") or ""
+    if device_id in override_map:
+        return ("critical", "override") if override_map[device_id] else ("", "")
+    tier_level = settings.TIER_DEVICE_LEVEL.get((tier or "").strip().lower(), "")
+    if tier_level:
+        return tier_level, "tier"
+    role = (device.get("role") or "").lower()
+    if any(keyword in role for keyword in core_keywords):
+        return "critical", "role"
+    return "", ""
+
+
+def _devices_reason(level: str, names: list, sources: list, tier: str) -> str:
+    """ "Core device(s) offline: core01", or with why: "(set in Nautobot)", "(gold site)"."""
+    listed = ", ".join(names[:3])
+    suffix = f" (+{len(names) - 3} more)" if len(names) > 3 else ""
+    if level == "critical" and set(sources) <= {"override", "role"}:
+        return f"Core device(s) offline: {listed}{suffix}"  # as before #377
+    why = ", ".join(
+        dict.fromkeys(f"{tier.strip().lower()} site" if src == "tier" else LEVEL_SOURCE_TEXT[src] for src in sources)
+    )
+    return f"{level.capitalize()} device(s) offline: {listed}{suffix} ({why})"
+
+
 def compute_alert_level(
     devices: list,
     location_type: str | None = None,
     override_map: dict | None = None,
+    tier: str = "",
 ) -> dict:
     """Return the NOC alert level for a location based on its device list.
 
@@ -259,13 +303,12 @@ def compute_alert_level(
 
         {"level": "critical" | "medium" | "low" | "no_data" | "ok", "reason": "<human-readable text>"}
 
-    Rules (#124):
-    * **critical** – at least one device whose role contains a core-network
-      keyword has a down status, or every device is down.  The keyword set is
-      resolved from ``CRITICAL_ROLE_KEYWORDS`` / ``CRITICALITY_RULES_FILE`` /
-      the per-device ``is_critical`` override stored in the database.
-    * **medium**   – more than 25 % of all devices have a down status.
-    * **low**      – at least one device is down, 25 % or fewer.
+    Rules (#124, #377): the worst of
+    * the down devices' own levels (``device_level``: the Nautobot custom
+      field, the override, the site *tier*'s default, a core role keyword);
+    * every device down: **critical**;
+    * the share down: **critical** at ALERT_CRITICAL_PERCENT, **medium**
+      above ALERT_MEDIUM_PERCENT, else **low**.
     * **no_data**  – there are no devices to judge.
     * **ok**       – devices present, none down.
 
@@ -295,49 +338,47 @@ def compute_alert_level(
             finally:
                 conn.close()
 
-    down_names: list = []
-    core_down_names: list = []
-
+    down_count = 0
+    # The worst level the down devices give, and which of them give it.
+    device_worst, worst_names, worst_sources = "", [], []
     for device in devices:
         status = (device.get("status") or "").lower().strip()
         if status not in DOWN_STATUSES:
             continue
-        name = device.get("name") or "Unknown"
-        down_names.append(name)
-        if is_core_device(device, core_keywords, override_map):
-            core_down_names.append(name)
+        down_count += 1
+        level, source = device_level(device, core_keywords, override_map, tier)
+        if not level:
+            continue
+        rank, worst_rank = notify.LEVEL_RANK[level], notify.LEVEL_RANK.get(device_worst, 0)
+        if rank > worst_rank:
+            device_worst, worst_names, worst_sources = level, [], []
+        if rank >= worst_rank:
+            worst_names.append(device.get("name") or "Unknown")
+            worst_sources.append(source)
 
-    if core_down_names:
-        listed = ", ".join(core_down_names[:3])
-        suffix = f" (+{len(core_down_names) - 3} more)" if len(core_down_names) > 3 else ""
-        return {
-            "level": "critical",
-            "reason": f"Core device(s) offline: {listed}{suffix}",
-        }
+    if device_worst == "critical":
+        return {"level": "critical", "reason": _devices_reason("critical", worst_names, worst_sources, tier)}
 
     total = len(devices)
-    down_count = len(down_names)
     if down_count == total:
         return {
             "level": "critical",
             "reason": f"All {total} monitored device{'s' if total != 1 else ''} offline",
         }
+    if not down_count:
+        return {"level": "ok", "reason": ""}
     pct = round(down_count / total * 100)
+    share = f"{down_count}/{total} devices offline ({pct}%)"
     # Thresholds from the settings (#293), read now so a test or a reload sees them.
     if down_count * 100 >= total * settings.ALERT_CRITICAL_PERCENT:
-        return {"level": "critical", "reason": f"{down_count}/{total} devices offline ({pct}%)"}
-    if down_count * 100 > total * settings.ALERT_MEDIUM_PERCENT:
-        return {
-            "level": "medium",
-            "reason": f"{down_count}/{total} devices offline ({pct}%)",
-        }
-    if down_count:
-        return {
-            "level": "low",
-            "reason": f"{down_count}/{total} devices offline ({pct}%)",
-        }
-
-    return {"level": "ok", "reason": ""}
+        share_level = "critical"
+    elif down_count * 100 > total * settings.ALERT_MEDIUM_PERCENT:
+        share_level = "medium"
+    else:
+        share_level = "low"
+    if notify.LEVEL_RANK.get(device_worst, 0) > notify.LEVEL_RANK[share_level]:
+        return {"level": device_worst, "reason": _devices_reason(device_worst, worst_names, worst_sources, tier)}
+    return {"level": share_level, "reason": share}
 
 
 def load_librenms_id_map() -> dict:
@@ -558,8 +599,9 @@ def get_location_devices_and_alert(
     lnms_index: dict | None = None,
     new_librenms_maps: dict | None = None,
     webhook_index: dict | None = None,
+    tier: str = "",
 ) -> tuple[list, dict]:
-    """Return ``(devices, alert)`` for a location.
+    """Return ``(devices, alert)`` for a location (*tier*: the site's, #377).
 
     Devices whose Nautobot status is in *excluded_device_statuses* are dropped
     before scoring and before the LibreNMS merge (#151).
@@ -594,6 +636,7 @@ def get_location_devices_and_alert(
                 "tenant": d.get("tenant", ""),
                 "location_path": d.get("location_path", ""),
                 "last_updated": d.get("last_updated", ""),
+                "criticality": d.get("criticality", ""),
             }
             for d in devices_data
         ]
@@ -616,7 +659,7 @@ def get_location_devices_and_alert(
         new_librenms_maps=new_librenms_maps,
     )
     enriched = enrich_with_webhooks(enriched, webhooks.load_index() if webhook_index is None else webhook_index)
-    return enriched, compute_alert_level(enriched, location_type, override_map=override_map)
+    return enriched, compute_alert_level(enriched, location_type, override_map=override_map, tier=tier)
 
 
 def tier_rank(tier: str) -> int:
@@ -1546,13 +1589,39 @@ def read_alert_board_data(conn) -> dict:
     }
 
 
+def _fingerprint(items) -> str:
+    return hashlib.sha256("\n".join(sorted(items)).encode()).hexdigest()[:16]
+
+
+def site_level_keys(devices: list, down_devices: list, site: dict, override_map: dict) -> tuple[str, str]:
+    """A site's ``(criticality, down devices)`` fingerprints this build (#377).
+
+    Criticality: the counted devices that have a level of their own and that
+    level, so a plain device added or removed doesn't count as an edit.
+    """
+    keywords = get_critical_keywords(site.get("location_type") or None)
+    tier = site.get("tier") or ""
+    levels = []
+    for device in devices:
+        level, _ = device_level(device, keywords, override_map, tier)
+        if level:
+            levels.append(f"{device.get('id') or device.get('name')}:{level}")
+    return _fingerprint(levels), _fingerprint(d.get("id") or d.get("name") or "" for d in down_devices)
+
+
 def record_site_level_changes(
     levels: dict[str, tuple[str, str]],
     checked_at: str,
     sites: dict[str, dict] | None = None,
     quiet_sites: set[str] | None = None,
+    level_keys: dict[str, tuple[str, str]] | None = None,
 ) -> int:
     """Remember each site's alert level and log the changes, for the alert feed (#180).
+
+    *level_keys*: each site's ``(criticality, down devices)`` fingerprints
+    (``site_level_keys``).  A change whose criticality changed while its down
+    devices did not came from an edit in Nautobot or the settings: logged,
+    not notified (#377).
 
     *levels* maps site id to ``(site_name, alert_level)``.  A site seen for the
     first time only gets its level stored: a new database or a newly added site
@@ -1570,20 +1639,27 @@ def record_site_level_changes(
     try:
         with db.transaction(conn):
             rows = conn.execute(
-                "SELECT site_id, alert_level FROM site_alert_levels "
+                "SELECT site_id, alert_level, criticality_key, down_key FROM site_alert_levels "
                 "WHERE site_id = ANY(%s) ORDER BY site_id FOR UPDATE",
                 (sorted(levels),),
             ).fetchall()
-            previous = {row["site_id"]: row["alert_level"] for row in map(db.row_to_dict, rows)}
+            previous = {row["site_id"]: row for row in map(db.row_to_dict, rows)}
             for site_id in sorted(levels):
                 site_name, level = levels[site_id]
-                if site_id not in previous:
+                criticality_key, down_key = (level_keys or {}).get(site_id, (None, None))
+                before = previous.get(site_id)
+                if before is None:
                     conn.execute(
-                        "INSERT INTO site_alert_levels (site_id, site_name, alert_level, updated_at, first_seen_at) "
-                        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (site_id) DO NOTHING",
-                        (site_id, site_name, level, checked_at, checked_at),
+                        "INSERT INTO site_alert_levels "
+                        "(site_id, site_name, alert_level, updated_at, first_seen_at, criticality_key, down_key) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (site_id) DO NOTHING",
+                        (site_id, site_name, level, checked_at, checked_at, criticality_key, down_key),
                     )
-                elif previous[site_id] != level:
+                    continue
+                keys_changed = criticality_key is not None and (
+                    (before["criticality_key"], before["down_key"]) != (criticality_key, down_key)
+                )
+                if before["alert_level"] != level:
                     conn.execute(
                         "UPDATE site_alert_levels SET site_name = %s, alert_level = %s, updated_at = %s "
                         "WHERE site_id = %s",
@@ -1592,18 +1668,31 @@ def record_site_level_changes(
                     conn.execute(
                         "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
                         "VALUES (%s, %s, %s, %s, %s)",
-                        (site_id, site_name, previous[site_id], level, checked_at),
+                        (site_id, site_name, before["alert_level"], level, checked_at),
                     )
-                    notify.enqueue_change(
-                        conn,
-                        site_id,
-                        previous[site_id],
-                        level,
-                        (sites or {}).get(site_id),
-                        checked_at,
-                        quiet_recovery=site_id in (quiet_sites or ()),
+                    # Only the criticality changed (or unknown before: the first build
+                    # after the upgrade), the same devices down: an edit, not news (#377).
+                    edited = (
+                        criticality_key is not None
+                        and before["criticality_key"] != criticality_key
+                        and before["down_key"] in (None, down_key)
                     )
+                    if not edited:
+                        notify.enqueue_change(
+                            conn,
+                            site_id,
+                            before["alert_level"],
+                            level,
+                            (sites or {}).get(site_id),
+                            checked_at,
+                            quiet_recovery=site_id in (quiet_sites or ()),
+                        )
                     changes += 1
+                if keys_changed:
+                    conn.execute(
+                        "UPDATE site_alert_levels SET criticality_key = %s, down_key = %s WHERE site_id = %s",
+                        (criticality_key, down_key, site_id),
+                    )
     finally:
         conn.close()
     return changes
@@ -1765,6 +1854,8 @@ def build_alert_board_payload(
     observed_levels: dict[str, tuple[str, str]] = {}
     # Each observed site's row, for the notification of a level change (#282).
     observed_sites: dict[str, dict] = {}
+    # Each observed site's (criticality, down devices) fingerprints (#377).
+    level_keys: dict[str, tuple[str, str]] = {}
     lnms_devices = None
     lnms_id_map = None
     lnms_index = None
@@ -1885,6 +1976,7 @@ def build_alert_board_payload(
                     new_librenms_maps=new_librenms_maps,
                     webhook_index=webhook_index,
                     snapshot_only=snapshot_only,
+                    tier=loc.get("tier") or "",
                     **board_device_rules(),
                     **bulk_kwargs,
                 )
@@ -1905,7 +1997,10 @@ def build_alert_board_payload(
                 level_with_them = (alert.get("level") or "ok").lower()
                 devices = [d for d in devices if (d.get("id") or "") not in in_maintenance["devices"]]
                 alert = compute_alert_level(
-                    devices, loc.get("location_type") or None, override_map=bulk_kwargs.get("override_map")
+                    devices,
+                    loc.get("location_type") or None,
+                    override_map=bulk_kwargs.get("override_map"),
+                    tier=loc.get("tier") or "",
                 )
                 if notify.LEVEL_RANK.get(level_with_them, 0) > notify.LEVEL_RANK.get(alert.get("level"), 0):
                     quiet_sites.add(site_id)
@@ -1979,7 +2074,10 @@ def build_alert_board_payload(
                     recompute = True
             if recompute:
                 alert = compute_alert_level(
-                    devices, loc.get("location_type") or None, override_map=bulk_kwargs.get("override_map")
+                    devices,
+                    loc.get("location_type") or None,
+                    override_map=bulk_kwargs.get("override_map"),
+                    tier=loc.get("tier") or "",
                 )
                 if not devices and pending_devices:
                     # Only devices still within the delay: monitored, and OK so
@@ -2143,7 +2241,11 @@ def build_alert_board_payload(
                 merged_down_devices.append(item)
                 if item_key:
                     seen_down_device_keys.add(item_key)
+            # A level set on the device in Nautobot, marked on the board (#377).
+            own_levels = {d.get("id"): d["criticality"] for d in devices if d.get("id") and d.get("criticality")}
             for item in merged_down_devices:
+                if item.get("device_id") in own_levels:
+                    item["set_level"] = own_levels[item["device_id"]]
                 stored_cause = item.pop("stored_probable_cause", "")
                 stored_core = item.pop("stored_core", False)
                 window = in_maintenance["devices"].get(item.get("device_id") or "")
@@ -2179,6 +2281,7 @@ def build_alert_board_payload(
             summary[level] = summary.get(level, 0) + 1
             if observation_succeeded and site_id:
                 observed_levels[site_id] = (loc.get("name") or "", level)
+                level_keys[site_id] = site_level_keys(devices, down_devices, loc, bulk_kwargs.get("override_map") or {})
             alerts.append(
                 {
                     **loc,
@@ -2239,7 +2342,7 @@ def build_alert_board_payload(
 
     if not persistence_unavailable and not maintenance_unknown:
         try:
-            record_site_level_changes(observed_levels, timeutil.iso_utc_now(), observed_sites, quiet_sites)
+            record_site_level_changes(observed_levels, timeutil.iso_utc_now(), observed_sites, quiet_sites, level_keys)
         except Exception as exc:
             logger.warning("Could not record site alert level changes: %s", exc, exc_info=True)
 
@@ -2530,6 +2633,7 @@ def build_location_alert_levels() -> dict:
             webhook_index=webhook_index,
             snapshot_only=True,
             override_map=override_map,
+            tier=loc.get("tier") or "",
             **board_device_rules(),
         )
         if alert["level"] in ALERT_LEVELS_NON_OK or alert["level"] == "ok":
