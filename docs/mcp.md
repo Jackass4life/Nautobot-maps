@@ -8,11 +8,13 @@ With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/
 | `get_site` | One site by id or name | viewer\* |
 | `get_location_detail` | All devices, ASNs and circuits at a location | viewer\* |
 | `search_locations` | Locations within 5 km of an address or `lat,lon` | viewer\* |
-| `get_alert_feed` | Recent changes: devices down/up, level changes | viewer\* |
+| `get_alert_feed` | Recent changes: devices down/up, level changes; for one tenant or text, only those sites' changes | viewer\* |
 | `get_alert_history` | Past and open incidents, downtime, cases | operator |
 | `add_case` | Attach a case number to a site's down devices (all of them by default), like **+ Case** on the board | operator |
 
 \*only with `AUTH_REQUIRE_VIEWER=true`.
+
+`tenant` and `search` match sites as the board's `?tenant=` / `?q=` link does: the tenant's whole name with case ignored, and the text in the site's name, path, address or country (#375). For `get_alert_feed` the server filters before the limit, so the newest changes asked for are that tenant's, not the whole network's.
 
 The tools run the same code and the same sign-in and role checks as the web pages, so an assistant can never do more than its user could on the board. `add_case` is the only change it can make; nothing is ever written to Nautobot.
 

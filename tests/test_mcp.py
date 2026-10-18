@@ -287,6 +287,10 @@ class TestTools:
         assert names({"filter": "all"}) == ["Aarhus HQ", "Oslo", "Aarhus Lab"]
         assert names({"filter": "ok"}) == ["Oslo"]
         assert names({"tenant": "Acme"}) == ["Aarhus HQ", "Aarhus Lab"]
+        # As the board's ?tenant= link (#375): case ignored, the whole name.
+        assert names({"tenant": "acme"}) == ["Aarhus HQ", "Aarhus Lab"]
+        assert names({"tenant": "Acm"}) == []
+        assert names({"tenant": "acme", "search": "lab"}) == ["Aarhus Lab"]
         assert names({"search": "dnk"}) == ["Aarhus HQ"]
         limited = call(client, "get_alert_board", {"filter": "all", "limit": 1})["structuredContent"]
         assert len(limited["sites"]) == 1 and "Showing 1 of 3" in limited["truncated"]
@@ -313,6 +317,19 @@ class TestTools:
     def test_feed_validation_comes_from_the_route(self, client):
         result = call(client, "get_alert_feed", {"since": "yesterday"})
         assert result["isError"] and "since must be an ISO-8601 timestamp (HTTP 400)" in result["content"][0]["text"]
+
+    def test_feed_for_one_tenant_or_search(self, client, monkeypatch):
+        """tenant / search reach the route as ?tenant= / ?q=, which filters before the limit (#375)."""
+        calls = []
+        monkeypatch.setattr(mcp, "call_api", lambda *args, **kwargs: calls.append(args) or (200, {"events": []}))
+        call(client, "get_alert_feed", {"tenant": " Acme Corp ", "search": "DNK", "limit": 5})
+        call(client, "get_alert_feed", {})
+        (_, path, scoped, *_), (_, _, every, *_) = calls
+        assert path == "/api/alert-feed"
+        assert scoped["tenant"] == "Acme Corp" and scoped["q"] == "DNK" and scoped["limit"] == "5"
+        assert every["tenant"] == "" and every["q"] == ""  # dropped from the request by call_api
+        bad = call(client, "get_alert_feed", {"tenant": 5})
+        assert bad["isError"]
 
     def test_search_uses_the_route(self, client, monkeypatch):
         from nautobot_maps import inventory

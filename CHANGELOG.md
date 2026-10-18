@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **AI assistants: activity for one tenant or search** (#375): the MCP `get_alert_feed` tool takes `tenant` and `search`, and `get_alert_board` now matches the tenant with case ignored, as the board's `?tenant=` link does
 - **Activity on a board for some sites only** (#369): with `?tenant=` / `?q=`, the board's Activity lists only those sites' changes ("Activity · Acme Corp"), and its limit counts theirs; `GET /api/alert-feed` takes `tenant=` and `q=`
 - **Sites with missing or wrong coordinates** (#368): the map says how many of the board's sites aren't on it or may be misplaced (at 0,0, latitude and longitude swapped, far from the rest), with a list to fix them in Nautobot and a CSV; `GET /api/locations/coordinate-check` (and `.csv`), `nautobot_maps_sites_coordinate_problems` on /metrics. See docs/operations.md
 - **The map for some sites only, and Copy wall link** (#366, #367): the map takes the board's `?tenant=` / `?q=` (`/?tenant=Acme%20Corp&q=DNK`) with "Only … · Show all sites", and the Map, Alert Board and Wall view links keep it; **Copy wall link** on a filtered board copies the wall's address for those sites. `/api/locations` adds each site's `ancestor_path`
