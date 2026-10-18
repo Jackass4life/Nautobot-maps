@@ -260,23 +260,24 @@ LEVEL_SOURCE_TEXT = {"nautobot": "set in Nautobot", "override": "override", "rol
 def device_level(device: dict, core_keywords, override_map: dict, tier: str = "") -> tuple[str, str]:
     """``(level, source)``: what this device makes its site when down (#377).
 
-    The first that applies: the device's Nautobot custom field
-    (``nautobot``), the app's override (``override``; not critical stops
-    here), the site tier's default from TIER_DEVICE_LEVEL (``tier``), a core
-    role keyword (``role``).  ``("", "")``: only the share of devices down counts.
+    The device's Nautobot custom field (``nautobot``) wins, in either
+    direction.  Else the worst of: the app's override (``override``: critical;
+    "not critical" only cancels the role), a core role keyword (``role``), the
+    site tier's default from TIER_DEVICE_LEVEL (``tier``), which so never
+    lowers a core device.  ``("", "")``: only the share of devices down counts.
     """
     if device.get("criticality") in settings.DEVICE_LEVELS:
         return device["criticality"], "nautobot"
     device_id = device.get("id") or ""
     if device_id in override_map:
-        return ("critical", "override") if override_map[device_id] else ("", "")
+        own = ("critical", "override") if override_map[device_id] else ("", "")
+    else:
+        role = (device.get("role") or "").lower()
+        own = ("critical", "role") if any(keyword in role for keyword in core_keywords) else ("", "")
     tier_level = settings.TIER_DEVICE_LEVEL.get((tier or "").strip().lower(), "")
-    if tier_level:
+    if notify.LEVEL_RANK.get(tier_level, 0) > notify.LEVEL_RANK.get(own[0], 0):
         return tier_level, "tier"
-    role = (device.get("role") or "").lower()
-    if any(keyword in role for keyword in core_keywords):
-        return "critical", "role"
-    return "", ""
+    return own
 
 
 def _devices_reason(level: str, names: list, sources: list, tier: str) -> str:
@@ -1596,17 +1597,18 @@ def _fingerprint(items) -> str:
 def site_level_keys(devices: list, down_devices: list, site: dict, override_map: dict) -> tuple[str, str]:
     """A site's ``(criticality, down devices)`` fingerprints this build (#377).
 
-    Criticality: the counted devices that have a level of their own and that
-    level, so a plain device added or removed doesn't count as an edit.
+    Criticality: what can be edited: the tier's default, and the devices with
+    a level set on them (Nautobot field or override), in maintenance or not.
+    A plain device added, removed or put in maintenance doesn't change it.
     """
-    keywords = get_critical_keywords(site.get("location_type") or None)
-    tier = site.get("tier") or ""
-    levels = []
+    edits = [f"tier:{settings.TIER_DEVICE_LEVEL.get((site.get('tier') or '').strip().lower(), '')}"]
     for device in devices:
-        level, _ = device_level(device, keywords, override_map, tier)
-        if level:
-            levels.append(f"{device.get('id') or device.get('name')}:{level}")
-    return _fingerprint(levels), _fingerprint(d.get("id") or d.get("name") or "" for d in down_devices)
+        device_id = device.get("id") or device.get("name") or ""
+        if device.get("criticality"):
+            edits.append(f"{device_id}:{device['criticality']}")
+        elif device_id in override_map:
+            edits.append(f"{device_id}:override:{bool(override_map[device_id])}")
+    return _fingerprint(edits), _fingerprint(d.get("id") or d.get("name") or "" for d in down_devices)
 
 
 def record_site_level_changes(
@@ -1670,12 +1672,14 @@ def record_site_level_changes(
                         "VALUES (%s, %s, %s, %s, %s)",
                         (site_id, site_name, before["alert_level"], level, checked_at),
                     )
-                    # Only the criticality changed (or unknown before: the first build
-                    # after the upgrade), the same devices down: an edit, not news (#377).
+                    # Only the criticality changed, the same devices down: an edit, not
+                    # news (#377).  Unknown before (the first build after the upgrade):
+                    # notified as before, so a real outage then still pages.
                     edited = (
                         criticality_key is not None
+                        and before["criticality_key"] is not None
                         and before["criticality_key"] != criticality_key
-                        and before["down_key"] in (None, down_key)
+                        and before["down_key"] == down_key
                     )
                     if not edited:
                         notify.enqueue_change(
@@ -2281,7 +2285,12 @@ def build_alert_board_payload(
             summary[level] = summary.get(level, 0) + 1
             if observation_succeeded and site_id:
                 observed_levels[site_id] = (loc.get("name") or "", level)
-                level_keys[site_id] = site_level_keys(devices, down_devices, loc, bulk_kwargs.get("override_map") or {})
+                level_keys[site_id] = site_level_keys(
+                    [*devices, *maintenance_devices, *pending_devices],
+                    down_devices,
+                    loc,
+                    bulk_kwargs.get("override_map") or {},
+                )
             alerts.append(
                 {
                     **loc,

@@ -30,8 +30,11 @@ class TestDeviceLevel:
         keywords = ("core",)
         core = device("core01", role="Core Router")
         assert alerts.device_level(core, keywords, {}) == ("critical", "role")
-        assert alerts.device_level(core, keywords, {}, "silver") == ("medium", "tier"), "the tier before the role"
-        assert alerts.device_level(core, keywords, {"core01": False}, "gold") == ("", ""), "override: not critical"
+        assert alerts.device_level(core, keywords, {}, "silver") == ("critical", "role"), "a tier never lowers a core"
+        assert alerts.device_level(device("sw1"), keywords, {}, "silver") == ("medium", "tier")
+        # Not critical by override: the role no longer counts, the tier still does.
+        assert alerts.device_level(core, keywords, {"core01": False}) == ("", "")
+        assert alerts.device_level(core, keywords, {"core01": False}, "silver") == ("medium", "tier")
         assert alerts.device_level(device("sw1"), keywords, {"sw1": True}, "silver") == ("critical", "override")
         # The Nautobot field wins over everything, in either direction.
         low_core = {**core, "criticality": "low"}
@@ -41,6 +44,11 @@ class TestDeviceLevel:
             "nautobot",
         )
         assert alerts.device_level(device("sw1"), keywords, {}, "bronze") == ("", ""), "a tier not listed"
+
+    def test_a_low_tier_keeps_core_devices_critical(self, monkeypatch):
+        monkeypatch.setattr(settings, "TIER_DEVICE_LEVEL", {"bronze": "low"})
+        devices = [device("core01", "Offline", role="Core Router")] + [device(f"sw{n}") for n in range(9)]
+        assert level(devices, "bronze") == {"level": "critical", "reason": "Core device(s) offline: core01"}
 
     def test_read_from_the_custom_field(self, monkeypatch):
         monkeypatch.setattr(settings, "DEVICE_CRITICALITY_FIELD", "criticality")
@@ -57,6 +65,28 @@ class TestDeviceLevel:
         env = {**os.environ, "TIER_DEVICE_LEVEL": "Gold:Critical, silver:medium,bronze:urgent,:low"}
         out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
         assert out.stdout.strip() == "{'gold': 'critical', 'silver': 'medium'}"
+        assert "'bronze:urgent' ignored" in out.stderr and "':low' ignored" in out.stderr, "a typo is logged"
+
+    def test_setting_a_field_forces_a_full_resync(self, monkeypatch):
+        """Not a wait for the daily reconcile: the stored devices don't have the field yet."""
+        state = {"cache_version": inventory.cache_version()}
+        assert not inventory.cache_version_mismatch(state)
+        monkeypatch.setattr(settings, "DEVICE_CRITICALITY_FIELD", "criticality")
+        assert inventory.cache_version_mismatch(state)
+        assert not inventory.cache_version_mismatch({"cache_version": inventory.cache_version()})
+
+    def test_the_fingerprint_is_the_edits(self, tiers):
+        """A plain device added or put in maintenance doesn't look like an edit; a tier or field change does."""
+        site = {"tier": "gold"}
+        devices = [device("sw0", "Offline"), device("sw1")]
+        key = alerts.site_level_keys(devices, devices[:1], site, {})
+        assert alerts.site_level_keys([*devices, device("sw2")], devices[:1], site, {}) == key
+        assert alerts.site_level_keys(devices, devices[:1], {"tier": "silver"}, {})[0] != key[0]
+        assert alerts.site_level_keys(devices, devices[:1], {"tier": "bronze"}, {})[0] != key[0]
+        marked = [devices[0], device("sw1", criticality="low")]
+        assert alerts.site_level_keys(marked, devices[:1], site, {})[0] != key[0]
+        assert alerts.site_level_keys(devices, devices[:1], site, {"sw1": True})[0] != key[0]
+        assert alerts.site_level_keys(devices, [], site, {})[1] != key[1]
 
 
 class TestSiteLevel:
@@ -220,14 +250,15 @@ class TestEditsAreNotNotified:
         assert build(board, "2026-10-18T12:01:00Z")["a"]["alert_level"] == "critical"
         assert outbox_sites() == ["a"]
 
-    def test_the_first_build_after_the_upgrade_is_quiet(self, board, tiers):
-        """Rows from before #377 have no fingerprints: that build's changes are logged, not notified."""
+    def test_the_first_build_after_the_upgrade_notifies_as_before(self, board, tiers):
+        """Rows from before #377 have no fingerprints: nothing is known, so a change is notified
+        (a real outage during the upgrade must still page), and the fingerprints are stored."""
         write({"a": ""}, site_devices("a", down=1))
         build(board, "2026-10-18T12:00:00Z")
         query("UPDATE site_alert_levels SET criticality_key = NULL, down_key = NULL RETURNING site_id")
         write({"a": "gold"}, [])
         assert build(board, "2026-10-18T12:01:00Z")["a"]["alert_level"] == "critical"
-        assert outbox_sites() == []
+        assert outbox_sites() == ["a"]
         stored = query("SELECT criticality_key, down_key FROM site_alert_levels")
         assert stored[0]["criticality_key"] and stored[0]["down_key"]
 

@@ -90,7 +90,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `SITE_TIER_FIELD` | — | Nautobot custom field on the location with its importance tier (e.g. `tier`) ([importance](alert-board.md#importance-tier)) |
 | `SITE_TIERS` | `gold,silver,bronze` | The tier values, most important first; other values are no tier |
 | `TIER_DEVICE_LEVEL` | — | What any down device makes a site of that tier, e.g. `gold:critical,silver:medium`; a device's own field overrides it ([device and site criticality](alert-board.md#device-and-site-criticality)) |
-| `DEVICE_CRITICALITY_FIELD` | — | Nautobot custom field on the device (a select: `critical`, `medium`, `low`): what that device makes its site when down; it wins over the tier, the overrides and the role keywords |
+| `DEVICE_CRITICALITY_FIELD` | — | Nautobot custom field on the device (a select: `critical`, `medium`, `low`): what that device makes its site when down; it wins over the tier, the overrides and the role keywords. Setting it makes the next sync a full one |
 | `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`) |
 | `AVAILABILITY_BASIS` | `any_down` | What the [availability report](availability.md) counts as downtime: `any_down` (any monitored device of the site down) or `critical` (the site at Critical) |
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |

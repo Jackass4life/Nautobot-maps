@@ -632,8 +632,15 @@ def sync_due(source: str, interval_seconds: int, conn=None) -> bool:
     return (datetime.now(UTC) - completed_at).total_seconds() >= max(0, interval_seconds)
 
 
+def cache_version() -> str:
+    """CACHE_VERSION, and the custom fields read at sync time: setting or
+    changing one forces a full resync, not a wait for the daily one (#377)."""
+    fields = [settings.SITE_TIER_FIELD, settings.DEVICE_CRITICALITY_FIELD]
+    return f"{CACHE_VERSION}+{','.join(fields)}" if any(fields) else CACHE_VERSION
+
+
 def cache_version_mismatch(state: dict | None) -> bool:
-    return (state or {}).get("cache_version") != CACHE_VERSION
+    return (state or {}).get("cache_version") != cache_version()
 
 
 def snapshot_initialized(conn=None) -> bool:
@@ -1069,7 +1076,7 @@ def sync_nautobot(force: bool = False) -> None:
                 last_started_at=started_at,
                 last_completed_at=completed_at,
                 last_successful_sync=watermark,
-                cache_version=CACHE_VERSION,
+                cache_version=cache_version(),
                 status="idle",
                 error_message="",
             )
@@ -1080,7 +1087,7 @@ def sync_nautobot(force: bool = False) -> None:
                     last_started_at=started_at,
                     last_completed_at=completed_at,
                     last_successful_sync=watermark,
-                    cache_version=CACHE_VERSION,
+                    cache_version=cache_version(),
                     status="idle",
                     error_message="",
                 )

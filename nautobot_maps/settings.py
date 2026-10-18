@@ -252,11 +252,15 @@ SITE_TIERS = [
 # (critical / medium / low), and a default per site tier ("gold:critical").
 DEVICE_CRITICALITY_FIELD = os.getenv("DEVICE_CRITICALITY_FIELD", "").strip()
 DEVICE_LEVELS = ("critical", "medium", "low")
-TIER_DEVICE_LEVEL = {
-    tier.strip().lower(): level.strip().lower()
-    for tier, _, level in (item.partition(":") for item in os.getenv("TIER_DEVICE_LEVEL", "").split(",") if ":" in item)
-    if tier.strip() and level.strip().lower() in DEVICE_LEVELS
-}
+TIER_DEVICE_LEVEL = {}
+for _item in filter(None, (item.strip() for item in os.getenv("TIER_DEVICE_LEVEL", "").split(","))):
+    _tier, _, _level = (part.strip().lower() for part in _item.partition(":"))
+    if _tier and _level in DEVICE_LEVELS:
+        TIER_DEVICE_LEVEL[_tier] = _level
+    else:
+        logging.getLogger(__name__).warning(
+            "TIER_DEVICE_LEVEL entry %r ignored: expected tier:level, the level critical, medium or low", _item
+        )
 # "gold:low,silver:medium": NOTIFY_MIN_LEVEL for those tiers.
 NOTIFY_MIN_LEVEL_BY_TIER = {
     tier.strip().lower(): level.strip().lower()
