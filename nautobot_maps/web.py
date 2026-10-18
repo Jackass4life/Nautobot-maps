@@ -717,8 +717,11 @@ def api_alert_feed():
             # (every one, excluded ones too, as they are now: tenant, path, name),
             # a database read, never a board build.
             locations = inventory.read_locations(include_without_coordinates=True, conn=conn)
+            if not locations:
+                # Not synced yet, or the read failed: an empty feed would look like
+                # an all-clear for these sites, so say so instead.
+                return jsonify({"error": "The site list is not stored yet; try again after the next sync"}), 503
             site_ids = [str(loc["id"]) for loc in locations if loc.get("id") and scope.in_scope(loc, page_scope)]
-        # No matching site: an empty list matches no row.
         events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
         return jsonify({"events": events, "persistence_configured": True})
     except Exception as exc:

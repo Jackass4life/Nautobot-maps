@@ -6036,7 +6036,19 @@ class TestAlertFeed:
         # The limit counts the matching entries, not the whole feed's newest.
         one = self._feed(client, "?tenant=Acme%20Corp&limit=1")["events"]
         assert len(one) == 1 and one[0]["site_name"] == "Site One"
+        # since and the scope together.
+        later = self._feed(client, "?q=two&since=2026-09-28T12:05:00Z")["events"]
+        assert later and {(e["site_name"], e["at"]) for e in later} == {("Site Two", "2026-09-28T12:10:00Z")}
+        assert self._feed(client, "?tenant=Acme%20Corp&since=2026-09-28T12:05:00Z")["events"] == []
         assert self._feed(client, "?tenant=nobody")["events"] == []
+
+    def test_a_scoped_feed_without_stored_sites_says_so(self, pg_database, client):
+        """No stored locations (not synced yet, or the read failed): an error,
+        not an empty feed that looks like an all-clear (#369)."""
+        resp = client.get("/api/alert-feed?tenant=Acme")
+        assert resp.status_code == 503
+        assert "not stored yet" in resp.get_json()["error"]
+        assert self._feed(client)["events"] == []  # the whole network's feed still answers
 
     def test_bad_parameters_are_rejected(self, pg_database, client):
         assert client.get("/api/alert-feed?limit=many").status_code == 400

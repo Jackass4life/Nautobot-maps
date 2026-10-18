@@ -1681,19 +1681,25 @@ def read_alert_feed(
     #369) only those sites' entries, before the limit.
     """
 
-    def filters(time_column: str, site_column: str) -> tuple[str, list]:
-        """ " AND …" for *since* and *site_ids* on one branch, and its params."""
-        sql, values = "", []
+    if site_ids is not None and not site_ids:
+        return []  # No site matches the page's scope (#369).
+
+    def filters(time_column: str, site_column: str) -> tuple[list[str], list]:
+        """The conditions for *since* and *site_ids* on one branch, and their params."""
+        clauses, values = [], []
         if since:
-            sql, values = sql + f" AND {time_column} > %s", [*values, since]
+            clauses.append(f"{time_column} > %s")
+            values.append(since)
         if site_ids is not None:
-            sql, values = sql + f" AND {site_column} = ANY(%s)", [*values, site_ids]
-        return sql, values
+            clauses.append(f"{site_column} = ANY(%s)")
+            values.append(site_ids)
+        return clauses, values
 
     branches, params = [], []
     event_types = [event for kind, event in (("down", "opened"), ("up", "resolved")) if kind in kinds]
     if event_types:
-        extra, values = filters("e.event_at", "i.site_id")
+        clauses, values = filters("e.event_at", "i.site_id")
+        where = " AND ".join(["e.event_type = ANY(%s)", *clauses])
         branches.append(
             f"""
             SELECT CASE e.event_type WHEN 'opened' THEN 'down' ELSE 'up' END AS kind,
@@ -1702,19 +1708,20 @@ def read_alert_feed(
                    '' AS from_level, '' AS to_level
             FROM alert_events e
             JOIN alert_instances i ON i.id = e.alert_instance_id
-            WHERE e.event_type = ANY(%s){extra}
+            WHERE {where}
             """
         )
         params += [event_types, *values]
     if "severity" in kinds:
-        extra, values = filters("c.changed_at", "c.site_id")
+        clauses, values = filters("c.changed_at", "c.site_id")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         branches.append(
             f"""
             SELECT 'severity' AS kind, c.changed_at AS at, c.id AS seq, c.site_id, c.site_name,
                    '' AS device_id, '' AS device_name, c.to_level AS level,
                    NULL::timestamptz AS down_since, c.from_level, c.to_level
             FROM site_level_changes c
-            WHERE TRUE{extra}
+            {where}
             """
         )
         params += values
