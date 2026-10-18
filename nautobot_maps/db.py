@@ -658,6 +658,14 @@ def add_maintenance_batches(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS maintenance_windows_ended ON maintenance_windows (ended_at)")
 
 
+def add_site_level_changes_site(conn) -> None:
+    """A board for some sites only reads their severity changes on every
+    refresh (#369), newest first, without scanning the whole history."""
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_site_level_changes_site_time ON site_level_changes (site_id, changed_at)"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -683,6 +691,7 @@ MIGRATIONS = (
     (19, "webhook_device_alerts", add_webhook_device_alerts),
     (20, "board_build_stats", add_board_build_stats),
     (21, "maintenance_windows.batch_id", add_maintenance_batches),
+    (22, "site_level_changes (site_id, changed_at) index", add_site_level_changes_site),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

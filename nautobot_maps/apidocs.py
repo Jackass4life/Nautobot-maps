@@ -11,6 +11,14 @@ import re
 
 from flask import Flask
 
+from nautobot_maps import scope
+
+# Endpoints that read a page's ?tenant= / ?q= (#368, #369) through scope.read_scope.
+SCOPED_ENDPOINTS = {
+    "web.api_alert_feed": scope.QUERY_PARAMS,
+    "web.api_coordinate_check": scope.QUERY_PARAMS,
+}
+
 # Example JSON bodies for the write endpoints, keyed by endpoint name.
 EXAMPLE_BODIES = {
     "web.api_set_criticality_override": {
@@ -99,7 +107,7 @@ def endpoints(app: Flask) -> list[dict]:
                 "summary": _ISSUE_REFS.sub("", " ".join(summary.split())),
                 "description": description.strip(),
                 "path_params": sorted(rule.arguments),
-                "query_params": _query_params(view),
+                "query_params": list(dict.fromkeys([*_query_params(view), *SCOPED_ENDPOINTS.get(rule.endpoint, ())])),
                 "required_role": getattr(view, "required_role", None),
                 "example_body": example_body,
                 # Pre-formatted for the page's body field, keys in the order above.

@@ -2,8 +2,9 @@
 import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
+import { scopeParams } from "../lib/scope.js";
 import { alertBadge } from "./rows.js";
-import { els } from "./state.js";
+import { config, els } from "./state.js";
 
 const FEED_LIMIT = 100;
 export const FEED_COLLAPSED_KEY = "nautobot-maps-feed-collapsed";
@@ -72,7 +73,10 @@ export async function loadFeed() {
     return;
   }
   try {
-    const params = new URLSearchParams({ limit: String(FEED_LIMIT), kinds: kinds.join(",") });
+    // A board for some sites only: their activity (#369).
+    const params = scopeParams(config.scope);
+    params.set("limit", String(FEED_LIMIT));
+    params.set("kinds", kinds.join(","));
     const payload = await getJson(`/api/alert-feed?${params}`);
     feedList.innerHTML = renderFeed(payload, kinds);
   } catch (err) {
