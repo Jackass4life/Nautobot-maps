@@ -252,6 +252,23 @@ CONTRACT: tuple[Endpoint, ...] = (
                 rule="the DEVICE_CRITICALITY_FIELD custom field (a value, or a select's value or label), "
                 "lowercased; only critical, medium or low",
             ),
+            Field(
+                "virtual_chassis",
+                NESTED,
+                becomes="vc_id, vc_name, vc_master",
+                rule="the stack it is in (#400): its id and name, and whether its master is this device",
+            ),
+            Field("virtual_chassis.id", ("string",)),
+            *_names("virtual_chassis", "name", "display"),
+            Field("virtual_chassis.master", NESTED),
+            Field("virtual_chassis.master.id", ("string",)),
+            Field("vc_position", ("integer", "null"), becomes="vc_position", rule="its place in the stack"),
+            Field(
+                "display",
+                ("string", "null"),
+                becomes="name",
+                rule='a nameless stack member\'s name ("sw-stack01:2"), else its chassis and position',
+            ),
         ),
         request="all pages, depth=1; incremental with last_updated__gte",
         stored_in="nautobot_device_cache",

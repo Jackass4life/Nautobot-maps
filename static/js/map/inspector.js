@@ -15,6 +15,7 @@ import {
   deviceRowHtml,
   filterDevicesForInspector,
   foldHtml,
+  groupStacks,
   inspectorRow,
   sortDownDevices,
   statusLineHtml,
@@ -148,7 +149,9 @@ export function renderInspectorContent() {
   } else if (inspectorLoading) {
     body = `<div class="inspector-empty">Loading devices…</div>`;
   } else {
-    body = downDevicesHtml(devices) + foldsHtml(loc, detail, devices);
+    // Stacks worked out once per redraw (#400), for both lists.
+    const stacks = groupStacks(devices);
+    body = downDevicesHtml(devices, stacks) + foldsHtml(loc, detail, devices, stacks);
   }
 
   inspectorContent.innerHTML = `
@@ -164,11 +167,17 @@ export function renderInspectorContent() {
 // The down devices first (#394): the worst eight, then "Show all 34".
 const DOWN_SHOWN = 8;
 
-function downDevicesHtml(devices) {
+function downDevicesHtml(devices, stacks) {
   const down = sortDownDevices(devices);
   if (!down.length) return "";
+  // A stack's lead brings its members, as under All devices (#400), but not
+  // those that have their own row here.
+  const own = new Set(down);
+  const membersOf = new Map(stacks.map(({ device, members }) => [device, members.filter((member) => !own.has(member))]));
   const shown = state.inspectorDownExpanded ? down : down.slice(0, DOWN_SHOWN);
-  const rows = shown.map((device) => deviceRowHtml(device, state.inspectorOpenDevices.has(deviceKey(device)))).join("");
+  const rows = shown
+    .map((device) => deviceRowHtml(device, state.inspectorOpenDevices.has(deviceKey(device)), membersOf.get(device) || []))
+    .join("");
   const more = down.length > DOWN_SHOWN
     ? `<button class="panel-more" type="button" data-down-toggle>${state.inspectorDownExpanded ? "Show fewer" : `Show all ${down.length}`}</button>`
     : "";
@@ -202,7 +211,7 @@ function foldOpen(key, byDefault) {
   return state.inspectorFolds.has(key) ? state.inspectorFolds.get(key) : byDefault;
 }
 
-function foldsHtml(loc, detail, devices) {
+function foldsHtml(loc, detail, devices, stacks) {
   const { inspectorDeviceFilter, inspectorDeviceSearch } = state;
   const folds = [];
   if (devices.length) {
@@ -221,12 +230,21 @@ function foldsHtml(loc, detail, devices) {
       </div>`;
     }
     const listed = devices.length > 10 ? filterDevicesForInspector(devices, inspectorDeviceFilter, inspectorDeviceSearch) : devices;
-    const rows = listed.map((device) => deviceRowHtml(device, state.inspectorOpenDevices.has(deviceKey(device)))).join("");
+    // A stack is one row, its members in its details (#400); a filter or search
+    // keeps a stack whole when any of its devices matches.
+    const matching = new Set(listed);
+    const rows = stacks
+      .filter(({ device, members }) => [device, ...members].some((d) => matching.has(d)))
+      .map(({ device, members }) => deviceRowHtml(device, state.inspectorOpenDevices.has(deviceKey(device)), members))
+      .join("");
     const list = listed.length
       ? `<ul class="inspector-device-list device-rows" aria-label="Devices">${rows}</ul>`
       : `<div class="inspector-empty">No device matches.</div>`;
     const quiet = !sortDownDevices(devices).length;
-    folds.push(foldHtml("devices", "All devices", devices.length, toolbar + list, foldOpen("devices", quiet && devices.length <= 10)));
+    // "12 (4 in stacks)": every device counted, the members folded into their stack's row.
+    const inStacks = devices.length - stacks.length;
+    const count = inStacks ? `${devices.length} (${inStacks} in stacks)` : devices.length;
+    folds.push(foldHtml("devices", "All devices", count, toolbar + list, foldOpen("devices", quiet && devices.length <= 10)));
   }
 
   const circuits = Array.isArray(detail?.circuits) ? detail.circuits : [];

@@ -1516,3 +1516,12 @@ body.inspector-open #loading-overlay {
 .leaflet-marker-icon:focus-visible .quiet-dot {
   opacity: 1;
 }
+
+/* A stack's other members, in its row's details (#400). */
+.stack-members {
+  margin-top: 6px;
+}
+
+.stack-member {
+  padding-left: 10px;
+}

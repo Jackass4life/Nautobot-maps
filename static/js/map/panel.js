@@ -145,15 +145,60 @@ export function sortDownDevices(devices) {
       || (a.name || "").localeCompare(b.name || ""));
 }
 
+// Stacks (#400): a virtual chassis of two or more as one entry, led by its
+// master (else the member with an IP, else the first by position), the
+// others its *members*; every other device on its own.  In the given order.
+export function groupStacks(devices) {
+  const chassis = new Map();
+  for (const device of devices) {
+    if (!device.vc_id) continue;
+    if (!chassis.has(device.vc_id)) chassis.set(device.vc_id, []);
+    chassis.get(device.vc_id).push(device);
+  }
+  const stacks = new Map();
+  for (const [id, all] of chassis) {
+    if (all.length < 2) continue;
+    const byPosition = [...all].sort((a, b) => (a.vc_position ?? Infinity) - (b.vc_position ?? Infinity));
+    const lead = byPosition.find((d) => d.vc_master) || byPosition.find((d) => d.primary_ip) || byPosition[0];
+    stacks.set(id, { lead, members: byPosition.filter((d) => d !== lead) });
+  }
+  const entries = [];
+  for (const device of devices) {
+    const stack = device.vc_id ? stacks.get(device.vc_id) : null;
+    if (!stack) entries.push({ device, members: [] });
+    else if (stack.lead === device) entries.push({ device, members: stack.members });
+  }
+  return entries;
+}
+
+// A stack's other members, in its details: place, name, model, serial, and
+// that one is down.  (Members without an IP not being monitored is the norm
+// for a stack: not said on each.)
+function memberHtml(member) {
+  const facts = [
+    member.device_type,
+    member.serial ? `Serial ${member.serial}` : "",
+    normalizeDeviceHealth(member.status) === "down" ? member.status || "Down" : "",
+  ].filter(Boolean).join(" · ");
+  const place = member.vc_position !== null && member.vc_position !== undefined ? `${member.vc_position}. ` : "";
+  return `<div class="device-meta stack-member">${escHtml(place + (member.name || "Unnamed device"))}${facts ? ` · ${escHtml(facts)}` : ""}</div>`;
+}
+
 // One line per device: its status dot, name and role; *open* shows the rest
 // (hardware, IP, serial, software, tenant, why it isn't counted) in place.
-export function deviceRowHtml(device, open = false) {
+// A stack's lead with its *members* (#400) says "Stack of 4" and lists them.
+export function deviceRowHtml(device, open = false, members = []) {
   const health = normalizeDeviceHealth(device.status);
-  const dot = health === "down" ? "critical" : health === "active" ? "ok" : "no-data";
+  // A stack with a member down shows it on the closed row too (#400).
+  const membersDown = members.filter((member) => normalizeDeviceHealth(member.status) === "down").length;
+  const dot = health === "down" || membersDown ? "critical" : health === "active" ? "ok" : "no-data";
   const key = deviceKey(device);
-  // Why it doesn't count, where the role would be: clear without opening it (#316).
-  const aside = device.not_monitored ? "Not monitored" : device.maintenance_until ? "Maintenance"
-    : device.alert_pending ? "Alert delay" : device.role;
+  const stack = members.length ? `Stack of ${members.length + 1}${membersDown ? ` · ${membersDown} down` : ""}` : "";
+  // Why it doesn't count, where the role would be: clear without opening it (#316);
+  // a stack says so as well.
+  const note = device.not_monitored ? "Not monitored" : device.maintenance_until ? "Maintenance"
+    : device.alert_pending ? "Alert delay" : "";
+  const aside = note ? [stack, note].filter(Boolean).join(" · ") : stack || device.role;
   const facts = [
     aside !== device.role ? device.role || "" : "",
     [device.manufacturer, device.device_type].filter(Boolean).join(" "),
@@ -164,13 +209,14 @@ export function deviceRowHtml(device, open = false) {
     device.status && health !== "active" ? `Status ${device.status}` : "",
   ].filter(Boolean);
   const details = open
-    ? `<div class="device-details">${facts.map((fact) => `<div class="device-meta">${escHtml(fact)}</div>`).join("")}${deviceCountNote(device)}</div>`
+    ? `<div class="device-details">${facts.map((fact) => `<div class="device-meta">${escHtml(fact)}</div>`).join("")}${deviceCountNote(device)}`
+      + `${members.length ? `<div class="stack-members"><div class="device-meta">${escHtml(`Stack of ${members.length + 1}`)}:</div>${members.map(memberHtml).join("")}</div>` : ""}</div>`
     : "";
   return `<li class="device-row-item${open ? " open" : ""}">`
     + `<button class="device-row" type="button" data-device-key="${escHtml(key)}" aria-expanded="${open ? "true" : "false"}">`
     + `<span class="legend-dot dot-${dot}" aria-hidden="true"></span>`
     + `<span class="device-row-name">${escHtml(device.name || "Unnamed device")}</span>`
-    + `<span class="device-row-role${aside === device.role ? "" : " device-row-note"}">${escHtml(aside || "")}</span></button>${details}</li>`;
+    + `<span class="device-row-role${note ? " device-row-note" : ""}">${escHtml(aside || "")}</span></button>${details}</li>`;
 }
 
 // A folded section with its count (#394): "Circuits · 3".

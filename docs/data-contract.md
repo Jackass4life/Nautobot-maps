@@ -112,6 +112,14 @@ The devices a site's alert level is computed from.
 | `serial` | string or null |  | serial | — |
 | `last_updated` | string | yes | last_updated | the incremental sync's watermark |
 | `custom_fields` | object or null |  | criticality | the DEVICE_CRITICALITY_FIELD custom field (a value, or a select's value or label), lowercased; only critical, medium or low |
+| `virtual_chassis` | object or null |  | vc_id, vc_name, vc_master | the stack it is in (#400): its id and name, and whether its master is this device |
+| `virtual_chassis.id` | string |  | — | — |
+| `virtual_chassis.name` | string or null |  | — | — |
+| `virtual_chassis.display` | string or null |  | — | — |
+| `virtual_chassis.master` | object or null |  | — | — |
+| `virtual_chassis.master.id` | string |  | — | — |
+| `vc_position` | integer or null |  | vc_position | its place in the stack |
+| `display` | string or null |  | name | a nameless stack member's name ("sw-stack01:2"), else its chassis and position |
 
 ### `tenancy/tenants/`
 

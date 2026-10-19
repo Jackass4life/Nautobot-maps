@@ -391,6 +391,29 @@ DEVICES = {
             "serial": "FCZ1955C5K5",
             "tenant": TENANTS["ten-acme"],
         },
+        # A stack of four (#400): only the master has a name and a primary IP.
+        *(
+            {
+                "id": f"dev-par-stk-{position}",
+                "name": "par-stack01" if position == 1 else None,
+                # As Nautobot shows a nameless member: its chassis, place and UUID.
+                "display": "par-stack01" if position == 1 else f"par-stack01:{position} (dev-par-stk-{position})",
+                "device_type": {"model": "C9300-48P", "manufacturer": {"name": "Cisco"}},
+                "role": {"name": "Access Switch"},
+                "status": {"label": "Active"},
+                "platform": {"name": "IOS-XE"},
+                "serial": f"FOC2401STK{position}",
+                "tenant": TENANTS["ten-acme"],
+                "virtual_chassis": {
+                    "id": "vc-par-1",
+                    "name": "par-stack01",
+                    "display": "par-stack01",
+                    "master": {"id": "dev-par-stk-1"},
+                },
+                "vc_position": position,
+            }
+            for position in range(1, 5)
+        ),
     ],
     "loc-lon2": [
         {
@@ -522,7 +545,7 @@ DEVICES["loc-aar-bld-a-f2"] = [
     }
 ]
 
-DEVICES_WITHOUT_PRIMARY_IP = {"dev-lon-7"}
+DEVICES_WITHOUT_PRIMARY_IP = {"dev-lon-7", "dev-par-stk-2", "dev-par-stk-3", "dev-par-stk-4"}
 
 
 # Nautobot returns last_updated on every object; the incremental sync and the
@@ -942,6 +965,15 @@ def tenant_groups():
 def statuses():
     _check_auth()
     return jsonify(_paginate(list(STATUSES.values())))
+
+
+@app.route("/api/dcim/virtual-chassis/")
+def virtual_chassis():
+    """The stacks (#400); none changes while the mock runs."""
+    _check_auth()
+    if request.args.get("last_updated__gte"):
+        return jsonify(_paginate([]))
+    return jsonify(_paginate([{"id": "vc-par-1", "name": "par-stack01", "master": {"id": "dev-par-stk-1"}}]))
 
 
 @app.route("/api/dcim/devices/")

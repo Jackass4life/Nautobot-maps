@@ -553,3 +553,21 @@ def test_the_calm_site_panel(page):
     assert page.evaluate(
         "(() => { const p = document.querySelector('.inspector-shell'); return p.scrollHeight <= p.clientHeight; })()"
     )
+
+
+def test_a_stack_is_one_device(page):
+    """#400: a virtual chassis whose members have no name is one row, "Stack of 4"."""
+    page.goto(f"{BASE_URL}/?location_id=loc-par")
+    page.locator("#inspector-title", has_text="Paris PoP").wait_for(timeout=20000)
+    fold = page.locator('[data-fold="devices"]')
+    assert fold.locator(".panel-fold-title").inner_text() == "All devices · 5 (3 in stacks)"
+    # Open by default: a healthy site of ten devices or fewer.
+    assert fold.evaluate("el => el.open")
+    names = fold.locator(".device-row-name").all_inner_texts()
+    assert names == ["par-rt01", "par-stack01"], names
+    assert "Unknown" not in fold.inner_text()
+    stack = fold.locator(".device-row", has_text="par-stack01")
+    assert "Stack of 4" in stack.inner_text()
+    stack.click()
+    members = fold.locator(".stack-member").all_inner_texts()
+    assert [m.split(" · ")[0] for m in members] == ["2. par-stack01:2", "3. par-stack01:3", "4. par-stack01:4"], members

@@ -169,7 +169,7 @@ CIRCUITS = [
 
 class TestSitePanel:
     @pytest.fixture(autouse=True)
-    def _synced(self, pg_database, client, monkeypatch):
+    def _synced(self, client, pg_database, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")

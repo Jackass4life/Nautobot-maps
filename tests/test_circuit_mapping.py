@@ -9,7 +9,7 @@ from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 
 
 @pytest.fixture
-def synced(pg_database, client, monkeypatch):
+def synced(client, pg_database, monkeypatch):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
