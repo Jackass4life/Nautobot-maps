@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
 # (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293;
-# 6: devices store criticality, #377; 7: locations their address key, #383).
-CACHE_VERSION = "7"
+# 6: devices store criticality, #377; 7: locations their address key, #383;
+# 8: countries from the location hierarchy, not a town, #386).
+CACHE_VERSION = "8"
 sync_lock = threading.Lock()
 SYNC_THREAD_NAME = "inventory-sync"
 
@@ -39,11 +40,61 @@ def json_load_list(value) -> list:
         return []
 
 
+# "5000" or "114 35" on its own: the part after it is the town (#386).
+POSTCODE_ONLY = re.compile(r"\d{3,5}(?: \d{2})?")
+
+
+def address_country(physical_address: str) -> str:
+    """The address's last part as its country (#309), only when it can be one
+    (#386): no digits in it, and not the town after a street and number or a
+    postcode.  ``…, 2300 Copenhagen, Denmark`` and ``Copenhagen, Denmark``
+    give Denmark; ``Roersvej 33, 5000 Odense C``, ``Roersvej 33, Odense`` and
+    ``Roersvej 33, 5000, Odense C`` give "".  A town in an address of other
+    forms can still slip through: a Country location above the site is sure."""
+    parts = [part.strip() for part in (physical_address or "").replace("\n", ",").split(",") if part.strip()]
+    if len(parts) < 2 or any(char.isdigit() for char in parts[-1]):
+        return ""
+    before = parts[-2]
+    if POSTCODE_ONLY.fullmatch(before):
+        return ""
+    if len(parts) == 2 and any(char.isdigit() for char in before) and not before[0].isdigit():
+        return ""  # "Roersvej 33, Odense": a street and number, then the town
+    return parts[-1]
+
+
+def hierarchy_country(location_id: str, tree: dict[str, dict]) -> str:
+    """The name of the nearest location of type COUNTRY_LOCATION_TYPE at or
+    above *location_id* (#386); *tree* is ``read_location_tree``'s."""
+    country_type = settings.COUNTRY_LOCATION_TYPE.strip().lower()
+    return next(
+        (
+            node["name"]
+            for node in location_chain(location_id, tree)
+            if (node.get("location_type") or "").strip().lower() == country_type and node.get("name")
+        ),
+        "",
+    )
+
+
+def location_type_name(loc: dict, lt_map: dict) -> str:
+    lt_obj = loc.get("location_type") or {}
+    lt_id = lt_obj.get("id", "") if isinstance(lt_obj, dict) else ""
+    return nautobot.nested_str(lt_obj, "name", "display") or lt_map.get(lt_id, "")
+
+
+def location_parent_id(loc: dict) -> str:
+    parent_obj = loc.get("parent") or {}
+    return parent_obj.get("id", "") if isinstance(parent_obj, dict) else ""
+
+
 def normalize_locations(
     raw: list,
     include_without_coordinates: bool = False,
     existing_location_name_map: dict | None = None,
+    existing_location_tree: dict | None = None,
 ) -> list:
+    """*existing_location_tree* (``read_location_tree``): the stored locations,
+    so an incremental sync finds a location's country above it (#386)."""
     tenant_map = nautobot.id_name_map("tenancy/tenants/")
     status_map = nautobot.id_name_map("extras/statuses/")
     lt_map = nautobot.id_name_map("dcim/location-types/")
@@ -51,12 +102,18 @@ def normalize_locations(
     tenant_group_map = nautobot.tenant_group_map()
 
     loc_name_map = dict(existing_location_name_map or {})
+    tree = dict(existing_location_tree or {})
     for loc in raw:
         uid = loc.get("id")
         if uid:
             name = nautobot.nested_str(loc, "name", "display")
             if name:
                 loc_name_map[uid] = name
+            tree[uid] = {
+                "name": name or "",
+                "location_type": location_type_name(loc, lt_map),
+                "parent_id": location_parent_id(loc),
+            }
 
     if raw:
         logger.debug(
@@ -78,11 +135,9 @@ def normalize_locations(
         if isinstance(raw_country, str) and raw_country.strip():
             return raw_country.strip()
 
-        if physical_address:
-            parts = [part.strip() for part in physical_address.split(",") if part.strip()]
-            if parts:
-                return parts[-1]
-        return ""
+        # Then a Country location above it, then the address only when its
+        # last part can be a country, never a town (#386).
+        return hierarchy_country(location.get("id") or "", tree) or address_country(physical_address)
 
     locations = []
     for loc in raw:
@@ -110,12 +165,9 @@ def normalize_locations(
         status_id = status_obj.get("id", "") if isinstance(status_obj, dict) else ""
         status_name = nautobot.nested_str(status_obj, "label", "name", "display") or status_map.get(status_id, "")
 
-        lt_obj = loc.get("location_type") or {}
-        lt_id = lt_obj.get("id", "") if isinstance(lt_obj, dict) else ""
-        location_type_name = nautobot.nested_str(lt_obj, "name", "display") or lt_map.get(lt_id, "")
-
+        type_name = location_type_name(loc, lt_map)
         parent_obj = loc.get("parent") or {}
-        parent_id = parent_obj.get("id", "") if isinstance(parent_obj, dict) else ""
+        parent_id = location_parent_id(loc)
         parent_name = nautobot.nested_str(parent_obj, "name", "display") or loc_name_map.get(parent_id, "")
 
         tenant_group_name = tenant_group_map.get(tenant_id, "")
@@ -139,7 +191,7 @@ def normalize_locations(
                 "name": loc.get("name", "Unknown"),
                 "slug": loc.get("slug", ""),
                 "status": status_name,
-                "location_type": location_type_name,
+                "location_type": type_name,
                 "parent": parent_name,
                 "parent_id": parent_id,
                 "latitude": lat,
@@ -436,6 +488,49 @@ def normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> li
     return devices
 
 
+def tree_change(stored_tree: dict[str, dict], locations: list[dict]) -> bool:
+    """Whether a synced location that others are under has a new name, type or parent (#386)."""
+    parents = {node["parent_id"] for node in stored_tree.values() if node["parent_id"]}
+    return any(
+        loc["id"] in parents
+        and stored_tree[loc["id"]]
+        != {
+            "parent_id": loc.get("parent_id") or "",
+            "location_type": loc.get("location_type") or "",
+            "name": loc.get("name") or "",
+        }
+        for loc in locations
+    )
+
+
+def read_location_tree(conn=None) -> dict[str, dict]:
+    """The stored locations' ``{location_id: {"parent_id", "location_type", "name"}}`` (#386)."""
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT location_id, parent_id, location_type, name FROM nautobot_location_cache"
+        ).fetchall()
+        return {
+            data["location_id"]: {
+                "parent_id": data.get("parent_id") or "",
+                "location_type": data.get("location_type") or "",
+                "name": data.get("name") or "",
+            }
+            for data in map(db.row_to_dict, rows)
+            if data.get("location_id")
+        }
+    except Exception as exc:
+        logger.debug("Could not read cached locations: %s", exc)
+        return {}
+    finally:
+        if owns_conn:
+            conn.close()
+
+
 def read_location_name_map(conn=None) -> dict:
     owns_conn = conn is None
     if owns_conn:
@@ -719,6 +814,8 @@ def cache_version() -> str:
     """CACHE_VERSION, and the custom fields read at sync time: setting or
     changing one forces a full resync, not a wait for the daily one (#377)."""
     fields = [settings.SITE_TIER_FIELD, settings.DEVICE_CRITICALITY_FIELD]
+    if settings.COUNTRY_LOCATION_TYPE.strip().lower() != "country":  # not the default (#386)
+        fields.append(settings.COUNTRY_LOCATION_TYPE)
     return f"{CACHE_VERSION}+{','.join(fields)}" if any(fields) else CACHE_VERSION
 
 
@@ -1187,12 +1284,17 @@ def sync_nautobot(force: bool = False) -> None:
                 raise RuntimeError(
                     "Full inventory reconcile returned an empty dataset; keeping the existing cached snapshot"
                 )
-        existing_location_name_map = read_location_name_map(conn=conn)
+        stored_tree = read_location_tree(conn)
         locations = normalize_locations(
             raw_locations,
             include_without_coordinates=True,
-            existing_location_name_map=existing_location_name_map,
+            existing_location_name_map={uid: node["name"] for uid, node in stored_tree.items() if node["name"]},
+            existing_location_tree=stored_tree,
         )
+        # A location with others under it renamed, retyped or moved changes their
+        # country (and path), but an incremental sync brings only it: the next
+        # sync is a full one (#386).
+        tree_changed = not full_reconcile and tree_change(stored_tree, locations)
         devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
         check_lookup_endpoints()
         tenant_links = fetch_location_tenant_links()
@@ -1229,6 +1331,9 @@ def sync_nautobot(force: bool = False) -> None:
                 status="idle",
                 error_message="",
             )
+            if tree_changed:
+                logger.info("A location with others under it changed: the next Nautobot sync is a full one")
+                record_sync_state(conn, reconcile_source, cache_version=cache_version())
             if full_reconcile:
                 record_sync_state(
                     conn,

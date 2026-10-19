@@ -5,17 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-import app as flask_app
 from nautobot_maps import alerts, caching, inventory, nautobot, settings
 from tests.js_modules import run_js
-
-
-@pytest.fixture
-def client():
-    flask_app.app.config["TESTING"] = True
-    caching.cache.clear()
-    with flask_app.app.test_client() as c:
-        yield c
 
 
 @pytest.mark.parametrize(

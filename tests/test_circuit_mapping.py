@@ -5,11 +5,11 @@ import pytest
 from nautobot_maps import caching, inventory, nautobot, settings
 from tests.js_modules import run_js
 from tests.test_app import auth_config
-from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit, client  # noqa: F401
+from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 
 
 @pytest.fixture
-def synced(pg_database, client, monkeypatch):  # noqa: F811
+def synced(pg_database, client, monkeypatch):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
@@ -28,7 +28,7 @@ def synced(pg_database, client, monkeypatch):  # noqa: F811
     caching.cache.clear()
 
 
-def test_groups_worst_first_with_their_sites(client, synced):  # noqa: F811
+def test_groups_worst_first_with_their_sites(client, synced):
     data = client.get("/api/circuit-mapping").get_json()
     rows = [(c["group"], c["cid"], [s["name"] for s in c["sites"]]) for c in data["circuits"]]
     assert rows == [
@@ -47,7 +47,7 @@ def test_groups_worst_first_with_their_sites(client, synced):  # noqa: F811
     assert (aarhus["provider"], aarhus["commit_rate"], aarhus["status"]) == ("Telia", "1 Gbps", "Active")
 
 
-def test_csv_one_row_per_circuit_formula_safe(client, synced):  # noqa: F811
+def test_csv_one_row_per_circuit_formula_safe(client, synced):
     resp = client.get("/api/circuit-mapping.csv")
     assert resp.status_code == 200
     assert resp.mimetype == "text/csv"
@@ -65,7 +65,7 @@ def test_csv_one_row_per_circuit_formula_safe(client, synced):  # noqa: F811
     assert ',"\'@Roersvej 33, 5000 Odense",' in lines[2]
 
 
-def test_left_out_and_sorted(client, monkeypatch, pg_database):  # noqa: F811
+def test_left_out_and_sorted(client, monkeypatch, pg_database):
     """Decommissioned circuits aren't work; an unnamed one sorts as "Unnamed circuit"."""
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
@@ -84,7 +84,7 @@ def test_left_out_and_sorted(client, monkeypatch, pg_database):  # noqa: F811
     assert data["summary"]["total"] == 3
 
 
-def test_a_site_off_the_map_links_through_its_building(client, monkeypatch, pg_database):  # noqa: F811
+def test_a_site_off_the_map_links_through_its_building(client, monkeypatch, pg_database):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
     address = "Roersvej 33, 5000 Odense C"
@@ -109,7 +109,7 @@ def test_a_site_off_the_map_links_through_its_building(client, monkeypatch, pg_d
     ]
 
 
-def test_page_and_nav(client, synced):  # noqa: F811
+def test_page_and_nav(client, synced):
     page = client.get("/circuits")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
@@ -119,13 +119,13 @@ def test_page_and_nav(client, synced):  # noqa: F811
         assert 'href="/circuits"' in client.get(path).get_data(as_text=True), path
 
 
-def test_without_a_database(client, monkeypatch):  # noqa: F811
+def test_without_a_database(client, monkeypatch):
     monkeypatch.setattr(inventory.db, "get_conn", lambda *args, **kwargs: None)
     assert client.get("/api/circuit-mapping").status_code == 503
     assert client.get("/api/circuit-mapping.csv").status_code == 503
 
 
-def test_viewers_only_when_required(client, monkeypatch):  # noqa: F811
+def test_viewers_only_when_required(client, monkeypatch):
     monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
     with auth_config(mode="header", viewer_groups={"noc"}):
         for path in ("/circuits", "/api/circuit-mapping", "/api/circuit-mapping.csv"):

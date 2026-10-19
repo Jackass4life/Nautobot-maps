@@ -153,7 +153,8 @@ CONTRACT: tuple[Endpoint, ...] = (
                 "country",
                 ("object", "string", "null"),
                 becomes="country",
-                rule="name, display or label; else country_name; else the last part of physical_address",
+                rule="name, display or label; else country_name; else the name of a location of type Country above it; "
+                "else the last part of physical_address when it has three parts or more and no digits, else none",
             ),
             *_names("country", "name", "display", "label"),
             Field("country_name", ("string", "null"), becomes="country"),

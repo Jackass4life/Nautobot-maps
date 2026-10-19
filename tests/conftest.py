@@ -262,3 +262,15 @@ def pg_database(monkeypatch):
             pytest.fail(f"Background threads still running after the test: {running}; schema {schema} kept")
         with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
             admin.execute(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+@pytest.fixture
+def client():
+    """A Flask test client (test_app.py has its own, the same)."""
+    import app as flask_app
+    from nautobot_maps import caching
+
+    flask_app.app.config["TESTING"] = True
+    caching.cache.clear()
+    with flask_app.app.test_client() as c:
+        yield c
