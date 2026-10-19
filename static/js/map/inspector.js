@@ -153,6 +153,7 @@ export function renderInspectorContent() {
 
   inspectorContent.innerHTML = `
     <div class="inspector-section site-summary">
+      ${siteInfoHtml(loc, detail)}
       ${status}
       ${lifecycle || links ? `<div class="inspector-actions-row">${lifecycle}${links}</div>` : ""}
     </div>
@@ -175,6 +176,25 @@ function downDevicesHtml(devices) {
     <h3 id="inspector-down-title" class="panel-heading">Down · ${down.length}</h3>
     <ul class="inspector-device-list device-rows" aria-label="Down devices">${rows}</ul>${more}
   </section>`;
+}
+
+// The site's basic facts under its name, from the start (#398): the rows that
+// have a value.  Type and parent are in the line under the name already, and
+// the site's ASN is left to the ASNs fold when that lists them.
+function siteInfoHtml(loc, detail) {
+  const asnListed = Array.isArray(detail?.asns) && detail.asns.length > 0;
+  const rows = [
+    // No Country row (#386): read from addresses it showed a town; the address says it.
+    inspectorRow("Address", loc.physical_address),
+    tenantRow(loc),
+    inspectorRow("Tenant group", loc.tenant_group),
+    inspectorRow("Facility", loc.facility),
+    asnListed ? "" : inspectorRow("ASN", loc.asn),
+    inspectorRow("Time zone", loc.time_zone),
+    inspectorRow("Tags", Array.isArray(loc.tags) && loc.tags.length > 0 ? loc.tags.join(", ") : ""),
+    inspectorRow("Description", loc.description),
+  ].filter(Boolean).join("");
+  return rows ? `<div class="site-info">${rows}</div>` : "";
 }
 
 // Whether a fold is open: as the operator left it, else its default.
@@ -223,20 +243,6 @@ function foldsHtml(loc, detail, devices) {
     folds.push(foldHtml("asns", "ASNs", asns.length, tags, foldOpen("asns", false)));
   }
 
-  const rows = [
-    inspectorRow("Type", loc.location_type),
-    inspectorRow("Parent", loc.parent),
-    // No Country row (#386): read from addresses it showed a town; the address says it.
-    inspectorRow("Address", loc.physical_address),
-    inspectorRow("Facility", loc.facility),
-    tenantRow(loc),
-    inspectorRow("Tenant group", loc.tenant_group),
-    inspectorRow("ASN", loc.asn),
-    inspectorRow("Time zone", loc.time_zone),
-    inspectorRow("Tags", Array.isArray(loc.tags) && loc.tags.length > 0 ? loc.tags.join(", ") : ""),
-    inspectorRow("Description", loc.description),
-  ].filter(Boolean).join("");
-  if (rows) folds.push(foldHtml("details", "Details", null, rows, foldOpen("details", false)));
   if (!devices.length && !folds.length) return `<div class="inspector-empty">No devices at this site.</div>`;
   if (!devices.length) folds.unshift(`<div class="inspector-empty">No devices at this site.</div>`);
   return `<div class="inspector-section panel-folds">${folds.join("")}</div>`;

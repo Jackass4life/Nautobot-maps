@@ -43,9 +43,9 @@ The 9 locations appear on the map, coloured by alert level as on the board (the
 **i** in the map's corner says what each colour means). London HQ is in alarm, so it is always its
 own pin; quiet sites group into numbered circles when zoomed out.
 
-Click a pin, or a site under **1 in alarm**, to open the site panel: its state in
-one line, the devices that are down, and folded below them all devices,
-circuits, ASNs and details (tenant, address). Copenhagen DC,
+Click a pin, or a site under **1 in alarm**, to open the site panel: its address
+and tenant, its state in one line, the devices that are down, and folded below
+them all devices, circuits and ASNs. Copenhagen DC,
 Stockholm PoP and Frankfurt DC also list a circuit **By address** (its
 description is the site's address, written a little differently); London HQ and
 London Colo share one, marked *address shared with 1 other site*.
