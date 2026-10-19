@@ -282,6 +282,43 @@ CONTRACT: tuple[Endpoint, ...] = (
     ),
     Endpoint(
         NAUTOBOT,
+        "circuits/circuits/",
+        "Circuits whose description is a site's address, in the site panel (#383)",
+        (
+            Field("id", ("string",), required=True, becomes="circuit_id"),
+            Field("cid", ("string",), required=True, becomes="cid", rule="cid, else display"),
+            Field("display", ("string", "null")),
+            Field("provider", NESTED, becomes="provider"),
+            *_names("provider", "name", "display"),
+            Field("circuit_type", NESTED, becomes="circuit_type"),
+            *_names("circuit_type", "name", "display"),
+            Field("status", NESTED, becomes="status"),
+            *_names("status", "name", "label", "display"),
+            Field("tenant", NESTED, becomes="tenant"),
+            *_names("tenant", "name", "display"),
+            Field("commit_rate", ("integer", "null"), becomes="commit_rate", rule="Kbps"),
+            Field(
+                "description",
+                ("string", "null"),
+                becomes="description, address_key",
+                rule='the key: street, number and postcode ("Roersvej 33, 5000 Odense C" → roersvej 33|5000), '
+                "else the words of a full address; matched against a location's physical_address",
+            ),
+            Field(
+                "circuit_termination_a",
+                NESTED,
+                becomes="terminated",
+                rule="a termination (A or Z) with a location: never matched by address",
+            ),
+            Field("circuit_termination_a.location", NESTED),
+            Field("circuit_termination_z", NESTED),
+            Field("circuit_termination_z.location", NESTED),
+        ),
+        request="all pages, depth=1; read in full on every sync; a 404 (no circuits app) is no circuits",
+        stored_in="nautobot_circuit_cache",
+    ),
+    Endpoint(
+        NAUTOBOT,
         "extras/relationships/",
         "Which Relationships link locations and tenants",
         (

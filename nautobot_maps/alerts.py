@@ -2771,6 +2771,8 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             for a in asns_data
         ]
     circuits, circuits_error = location_circuits(location_id)
+    if not circuits_error:  # without the terminations, they couldn't be told apart (#383)
+        circuits += address_circuits(location_id, {circuit["id"] for circuit in circuits})
     return {
         "devices": devices,
         "alert": alert,
@@ -2836,3 +2838,51 @@ def location_circuits(location_id: str) -> tuple[list[dict], str]:
         )
     circuits.sort(key=lambda item: (item["cid"].lower(), item["term_side"]))
     return circuits, ""
+
+
+def address_circuits(location_id: str, terminated_ids: set) -> list[dict]:
+    """The cached circuits without a termination whose description is this
+    location's address (#383), after those terminated at it (*terminated_ids*,
+    not repeated).
+
+    ``shared_with``: how many other sites have the same address; a location and
+    its parent or children at that address (a building of the site) are one
+    site.  Without a database, or on an error: none.
+    """
+    conn = db.get_conn() if db.dialect() else None
+    if conn is None:
+        return []
+    try:
+        key, parents = inventory.read_locations_at_address(conn, location_id)
+        circuits = inventory.read_circuits_at_address(conn, key)
+    except Exception as exc:
+        logger.warning("Could not match circuits by address for location %s: %s", location_id, exc)
+        return []
+    finally:
+        conn.close()
+
+    def site(loc_id: str) -> str:
+        """The highest location above *loc_id* at the same address."""
+        seen = {loc_id}
+        while parents.get(loc_id) in parents and parents[loc_id] not in seen:
+            loc_id = parents[loc_id]
+            seen.add(loc_id)
+        return loc_id
+
+    shared_with = len({site(loc_id) for loc_id in parents} - {site(location_id)})
+    return [
+        {
+            "id": circuit["circuit_id"],
+            "cid": circuit["cid"] or "Unnamed circuit",
+            "provider": circuit["provider"],
+            "circuit_type": circuit["circuit_type"],
+            "status": circuit["status"],
+            "tenant": circuit["tenant"],
+            "commit_rate": circuit_speed(circuit["commit_rate"]),
+            "description": circuit["description"],
+            "match": "address",
+            "shared_with": shared_with,
+        }
+        for circuit in circuits
+        if circuit["circuit_id"] not in terminated_ids
+    ]

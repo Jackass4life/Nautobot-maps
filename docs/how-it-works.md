@@ -59,6 +59,17 @@ flowchart LR
 | **Health / metrics** | `/healthz`, `/metrics` | Liveness probe and Prometheus metrics |
 | **MCP** | `/mcp` *(off by default)* | AI assistants read the board and add cases |
 
+### Circuits in the site panel
+
+The site panel lists a site's circuits in two ways (#235, #383):
+
+- **Terminated there**: a circuit termination in Nautobot at the location. This is the proper link.
+- **By address**: a circuit **without a termination at any location** whose **description is the site's physical address**. They are marked *By address*, after the terminated ones. Once a circuit has a termination (at this site, one of its buildings or anywhere else), it is no longer matched by address.
+
+Addresses written as *street number, postcode town* match by **street, number and postcode**: `Roersvej 33, 5000 Odense C`, `Roersvej 33, 5000 Odense` and `Roersvej 33 st. tv, 5000 Odense` are the same; the town, a floor and door (`st. tv`, `2. th`) and a country don't count, and `33A` is `33 A` but not `33`. A full address in another form (`1 Canada Square, London E14 5AB`), or a description with more than the address (`Fibre 1G – Roersvej 33, …`), only matches exactly the same text. Anything shorter, such as a town or a street without a postcode, is never matched. When the address belongs to more than one site, the card says *address shared with N other sites* (a site's own buildings at the same address don't count). If the site's terminations can't be read from Nautobot, the panel says so and lists no circuits by address either.
+
+Circuits are read from Nautobot in full with every inventory sync, so a new termination counts at the next sync (one request for a few hundred circuits; nothing per site). They and each location's address key are stored, so opening a panel is two indexed database lookups. Nautobot without the circuits app is simply no circuits. To link a circuit for good, add a termination at the location in Nautobot.
+
 ## Setup
 
 ### Quick start (demo, no Nautobot needed)

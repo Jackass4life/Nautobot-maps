@@ -63,7 +63,15 @@ export function deviceStatusClass(status) {
   return "device-status-other";
 }
 
-// One card per circuit termination at the site (#235).
+// Found by its description being the site's address, not a termination (#383).
+export function circuitMatchNote(circuit) {
+  if (circuit.match !== "address") return "";
+  const others = Number(circuit.shared_with) || 0;
+  const shared = others > 0 ? ` · address shared with ${others} other site${others === 1 ? "" : "s"}` : "";
+  return `<div class="device-meta circuit-match" title="The circuit's description is this site's address; it has no termination here in Nautobot">By address${shared}</div>`;
+}
+
+// One card per circuit termination at the site (#235), then those found by address (#383).
 export function buildCircuitCard(circuit) {
   const { nautobotUrl } = config;
   const title = nautobotUrl && circuit.id
@@ -81,6 +89,7 @@ export function buildCircuitCard(circuit) {
       <span class="device-status-badge ${deviceStatusClass(circuit.status)}">${escHtml(circuit.status || "Unknown")}</span>
     </div>
     <div class="device-card-body">
+      ${circuitMatchNote(circuit)}
       ${kind ? `<div class="device-meta">${kind}</div>` : ""}
       ${termination ? `<div class="device-meta">${termination}</div>` : ""}
       ${circuit.commit_rate ? `<div class="device-meta">Commit rate: ${escHtml(circuit.commit_rate)}</div>` : ""}

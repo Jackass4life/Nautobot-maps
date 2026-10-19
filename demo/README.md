@@ -44,7 +44,10 @@ legend says what each colour means). London HQ is in alarm, so it is always its
 own pin; quiet sites group into numbered circles when zoomed out.
 
 Click a pin, or a site under **In alarm**, to open the site panel: tenant, ASN,
-address, the devices with their status, and the circuits.
+address, the devices with their status, and the circuits. Copenhagen DC,
+Stockholm PoP and Frankfurt DC also list a circuit **By address** (its
+description is the site's address, written a little differently); London HQ and
+London Colo share one, marked *address shared with 1 other site*.
 
 ### Scenario 2 – Search by address
 Type `Copenhagen` in the search box and press Enter.
