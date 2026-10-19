@@ -4,7 +4,7 @@
 // before this, as a plain script.
 import { getJson } from "../lib/http.js";
 import { inScope, readScope } from "../lib/scope.js";
-import { initThemeToggle } from "../lib/theme.js";
+import { initTopBar } from "../lib/nav.js";
 import { showError } from "../lib/toast.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { renderAlarmList, toggleAlarmList } from "./alarms.js";
@@ -30,8 +30,9 @@ import {
 import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js";
 import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
+import { matchSites, siteMatchesHtml } from "./sitesearch.js";
 import { COORDINATE_REFRESH_MS, initCoordinateCheck, loadCoordinateCheck } from "./coordinates.js";
-import { config, detailCache, els, state } from "./state.js";
+import { config, detailCache, els, locationAlerts, state } from "./state.js";
 import { fitToSites } from "./view.js";
 
 const byId = (id) => document.getElementById(id);
@@ -96,8 +97,14 @@ Object.assign(els, {
   searchResults: byId("search-results"),
   searchResultsHeader: byId("search-results-header"),
   searchResultsList: byId("search-results-list"),
+  siteMatches: byId("site-matches"),
+  filtersToggle: byId("filters-toggle"),
+  filterSection: byId("filter-section"),
+  filterChips: byId("filter-chips"),
+  filterCount: byId("filter-count"),
   alarmList: byId("alarm-list"),
   alarmCount: byId("alarm-count"),
+  alarmBreakdown: byId("alarm-breakdown"),
   alarmMore: byId("alarm-more"),
   alarmsOnlyBtn: byId("alarms-only"),
 });
@@ -166,7 +173,18 @@ document.addEventListener("keydown", (event) => {
 });
 renderInspectorContent();
 
-// Filters.
+// Filters, folded behind one button (#392); a chip removes its filter.
+els.filtersToggle.addEventListener("click", () => {
+  const open = els.filterSection.hidden;
+  els.filterSection.hidden = !open;
+  els.filtersToggle.setAttribute("aria-expanded", open ? "true" : "false");
+});
+els.filterChips.addEventListener("click", (event) => {
+  const chip = event.target.closest(".filter-chip");
+  if (!chip || !els[chip.dataset.filter]) return;
+  els[chip.dataset.filter].value = "";
+  applyFilters();
+});
 [els.filterStatus, els.filterType, els.filterParent, els.filterTenant, els.filterTenantGroup].forEach((select) => {
   select.addEventListener("change", applyFilters);
 });
@@ -200,20 +218,98 @@ els.alarmsOnlyBtn.addEventListener("click", () => {
 });
 renderAlarmList();
 
-initThemeToggle(byId("theme-toggle"));
+initTopBar();
 
-// Search.
-const { searchInput, searchBtn, searchResults } = els;
-searchBtn.addEventListener("click", doSearch);
+// Search (#392): the matching sites as you type; Enter, the button or the
+// list's last row search the map for an address or coordinates.
+const { searchInput, searchBtn, searchResults, siteMatches } = els;
+function hideSiteMatches() {
+  siteMatches.hidden = true;
+  siteMatches.innerHTML = "";
+}
+function mapSearch() {
+  hideSiteMatches();
+  doSearch();
+}
+searchBtn.addEventListener("click", mapSearch);
+// Enter opens the first site listed; with none (a place, coordinates), the map search.
+function openSiteMatch(id) {
+  hideSiteMatches();
+  searchInput.value = "";
+  // Back to the whole map after a map search (its pins and results go).
+  searchResults.classList.add("hidden");
+  applyFilters();
+  if (openLocationById(id, { focusInspector: false })) return;
+  // A site the filters leave out: every site, for now (a saved Alarms only stays).
+  clearFilters({ remember: false });
+  openLocationById(id, { focusInspector: false });
+}
 searchInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doSearch();
+  if (e.key === "Enter") {
+    const first = siteMatches.hidden ? null : siteMatches.querySelector("[data-location-id]");
+    if (first) openSiteMatch(first.dataset.locationId);
+    else mapSearch();
+  }
+  else if (e.key === "ArrowDown" && !siteMatches.hidden) {
+    e.preventDefault();
+    siteMatches.querySelector("button")?.focus();
+  } else if (e.key === "Escape" && !siteMatches.hidden) {
+    e.stopPropagation(); // the list, not also the site panel
+    hideSiteMatches();
+  }
 });
-// Clear search results when input is cleared
 searchInput.addEventListener("input", () => {
-  if (!searchInput.value.trim()) {
+  const query = searchInput.value;
+  if (!query.trim()) {
+    hideSiteMatches();
     searchResults.classList.add("hidden");
     applyFilters();
+    return;
   }
+  siteMatches.innerHTML = siteMatchesHtml(matchSites(state.allLocations, query), query, locationAlerts);
+  siteMatches.hidden = false;
+});
+// A click on the list keeps focus in the field (Safari doesn't focus buttons).
+siteMatches.addEventListener("mousedown", (event) => event.preventDefault());
+siteMatches.addEventListener("click", (event) => {
+  const button = event.target.closest(".site-match");
+  if (!button) return;
+  if (button.classList.contains("site-match-map")) {
+    mapSearch();
+    return;
+  }
+  openSiteMatch(button.dataset.locationId);
+});
+siteMatches.addEventListener("keydown", (event) => {
+  const buttons = Array.from(siteMatches.querySelectorAll("button"));
+  const at = buttons.indexOf(document.activeElement);
+  if (event.key === "ArrowDown" && at < buttons.length - 1) buttons[at + 1].focus();
+  else if (event.key === "ArrowUp") (at > 0 ? buttons[at - 1] : searchInput).focus();
+  else if (event.key === "Escape") {
+    event.stopPropagation();
+    hideSiteMatches();
+    searchInput.focus();
+  } else return;
+  event.preventDefault();
+});
+// Leaving the search (not into its list) closes the list.
+byId("search-section").addEventListener("focusout", (event) => {
+  if (!byId("search-section").contains(event.relatedTarget)) hideSiteMatches();
+});
+
+// The legend (#392): on the map, behind a small button; clicks there stay off the map.
+const legend = byId("map-legend");
+const legendControl = L.control({ position: "bottomleft" });
+legendControl.onAdd = () => {
+  L.DomEvent.disableClickPropagation(legend);
+  L.DomEvent.disableScrollPropagation(legend);
+  return legend;
+};
+legendControl.addTo(state.map);
+byId("legend-toggle").addEventListener("click", () => {
+  const panel = byId("legend");
+  panel.hidden = !panel.hidden;
+  byId("legend-toggle").setAttribute("aria-expanded", panel.hidden ? "false" : "true");
 });
 
 function showLoading(visible, message) {

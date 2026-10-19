@@ -1,12 +1,13 @@
-// The sidebar's "In alarm (N)" list (#334): the sites that need action, worst
-// first and then newest, the first ten and "+N more".  A row opens the site.
+// The sidebar's alarm list (#334): "28 in alarm", the count per level, the
+// sites that need action worst first and then newest, the first eight and
+// "Show all 28" (#392).  A row opens the site.
 import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
-import { els, locationAlertInfo, locationAlerts, state } from "./state.js";
+import { config, els, locationAlertInfo, locationAlerts, state } from "./state.js";
 
 const ALARM_RANK = { critical: 0, medium: 1, low: 2 };
 const LEVEL_LABELS = { critical: "Critical", medium: "Medium", low: "Low" };
-export const ALARM_LIST_SHOWN = 10;
+export const ALARM_LIST_SHOWN = 8;
 
 // Whether the list shows every site, after "+N more".
 let expanded = false;
@@ -43,16 +44,26 @@ export function alarmItemHtml(entry, now = new Date()) {
     + `${meta ? `<span class="alarm-meta">${escHtml(meta)}</span>` : ""}</button></li>`;
 }
 
+// "8 critical · 9 medium · 11 low", the levels that have sites.
+export function levelBreakdown(sites) {
+  return Object.keys(ALARM_RANK)
+    .map((level) => [level, sites.filter((entry) => entry.level === level).length])
+    .filter(([, count]) => count)
+    .map(([level, count]) => `${count} ${level}`)
+    .join(" · ");
+}
+
 export function toggleAlarmList() {
   expanded = !expanded;
   renderAlarmList();
 }
 
 export function renderAlarmList() {
-  const { alarmList, alarmCount, alarmMore } = els;
+  const { alarmList, alarmCount, alarmMore, alarmBreakdown } = els;
   if (!alarmList) return;
   if (!state.levelsLoaded) {
-    alarmCount.textContent = "";
+    alarmCount.textContent = "Alarms";
+    alarmBreakdown.textContent = "";
     alarmList.innerHTML = '<li class="alarm-empty">Alert levels not loaded yet.</li>';
     alarmMore.hidden = true;
     return;
@@ -60,9 +71,13 @@ export function renderAlarmList() {
   // locationAlerts can be newer than locationAlertInfo (a site panel's level).
   const info = Object.fromEntries(Object.entries(locationAlertInfo).map(([id, entry]) => [id, { ...entry, level: locationAlerts[id] }]));
   const sites = alarmSites(state.filteredLocations, info);
-  alarmCount.textContent = `(${sites.length})`;
+  // "All sites OK" only for every site; a filter or a link's scope may hide alarms.
+  const everySite = !config.scope && state.filteredLocations.length === state.allLocations.length;
+  alarmCount.textContent = sites.length ? `${sites.length.toLocaleString("en")} in alarm`
+    : everySite && state.allLocations.length ? "All sites OK" : "No site in alarm";
+  alarmBreakdown.textContent = levelBreakdown(sites);
   if (!sites.length) {
-    alarmList.innerHTML = '<li class="alarm-empty">No site in alarm.</li>';
+    alarmList.innerHTML = "";
     alarmMore.hidden = true;
     return;
   }
@@ -71,6 +86,6 @@ export function renderAlarmList() {
   alarmList.innerHTML = shown.map((entry) => alarmItemHtml(entry, now)).join("");
   const hidden = sites.length - ALARM_LIST_SHOWN;
   alarmMore.hidden = hidden <= 0;
-  alarmMore.textContent = expanded ? "Show fewer" : `+${hidden} more`;
+  alarmMore.textContent = expanded ? "Show fewer" : `Show all ${sites.length.toLocaleString("en")}`;
   alarmMore.setAttribute("aria-expanded", expanded ? "true" : "false");
 }

@@ -417,14 +417,25 @@ body.inspector-open #map {
 /* =========================================================
    Sidebar header
    ========================================================= */
+/* While the menu of pages is open (#392): the panel above the site panel
+   (1200) and its backdrop, and not clipping the menu. */
+.app-menu-open #sidebar {
+  z-index: 1300;
+  overflow: visible;
+}
+
+/* One line (#392): the name, then the theme and the menu of pages. */
 #sidebar-header {
-  padding: 20px 16px 14px;
-  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 10px 10px 16px;
   background: var(--color-surface);
 }
 
 #sidebar-header h1 {
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -433,17 +444,6 @@ body.inspector-open #map {
   letter-spacing: 0.02em;
 }
 
-.theme-toggle {
-  min-height: 32px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  color: var(--color-text);
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-}
 
 #sidebar-header h1 svg {
   width: 22px;
@@ -451,49 +451,15 @@ body.inspector-open #map {
   flex-shrink: 0;
 }
 
-.app-nav {
-  display: flex;
-  gap: 6px; /* Map, Alert Board, API and the theme toggle fit on one line (#230) */
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
 
-.app-nav-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  padding: 0 9px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  text-decoration: none;
-  font-size: 0.82rem;
-}
 
-.app-nav-link.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: #fff;
-}
 
 /* =========================================================
    Search
    ========================================================= */
 #search-section {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-#search-section label {
-  display: block;
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  margin-bottom: 6px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  position: relative;
+  padding: 2px 16px 12px;
 }
 
 #search-row {
@@ -517,8 +483,8 @@ body.inspector-open #map {
 #search-input:focus { border-color: var(--color-primary); }
 
 #search-btn {
-  background: var(--color-primary);
-  border: none;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius);
   width: 36px;
   min-width: 36px;
@@ -529,18 +495,87 @@ body.inspector-open #map {
   transition: background 0.2s;
 }
 
-#search-btn:hover { background: var(--color-primary-dark); }
+#search-btn:hover { border-color: var(--color-primary); }
 
 #search-btn svg {
   width: 16px;
   height: 16px;
-  color: #fff;
+  color: var(--color-text-muted);
 }
 
+/* Only while the empty field has focus: what it can find (#392). */
 #search-hint {
+  display: none;
   margin-top: 6px;
   font-size: 0.75rem;
   color: var(--color-text-muted);
+}
+
+#search-section:focus-within:has(#search-input:placeholder-shown) #search-hint {
+  display: block;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* The sites matching the search, as you type (#392). */
+.site-matches {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: var(--shadow);
+}
+
+.site-match {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.site-match:hover,
+.site-match:focus-visible {
+  background: var(--color-surface-2);
+  outline: none;
+}
+
+.site-match-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.site-match-meta {
+  grid-column: 2;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.site-match-more {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.site-match-map {
+  display: block;
+  margin-top: 2px;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 6px 6px;
+  color: var(--color-primary);
+  font-size: 0.85rem;
 }
 
 /* =========================================================
@@ -611,8 +646,8 @@ body.inspector-open #map {
    In alarm (#334): the sites that need action, at the top
    ========================================================= */
 #alarm-section {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border);
+  flex: 1 0 auto;
+  padding: 8px 16px 12px;
 }
 
 .alarm-header {
@@ -623,13 +658,22 @@ body.inspector-open #map {
   margin-bottom: 6px;
 }
 
+/* The headline (#392): "28 in alarm", or "All sites OK". */
 .alarm-header h2 {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 1.15rem;
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.alarm-breakdown {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
   color: var(--color-text-muted);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+}
+
+.alarm-breakdown:empty {
+  display: none;
 }
 
 .alarm-count {
@@ -698,12 +742,71 @@ body.inspector-open #map {
 /* =========================================================
    Filter section
    ========================================================= */
-#filter-section {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border);
+/* The quiet bottom of the panel (#392): Filters and the count, the filters
+   themselves when asked for, and notes only when they apply. */
+#sidebar-footer {
+  margin-top: auto;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.filters-toggle {
+  padding: 5px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filters-toggle[aria-expanded="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-chips[hidden] {
+  display: none;
+}
+
+.filter-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+#filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#filter-section[hidden],
+#filter-section select[hidden] {
+  display: none;
 }
 
 .quick-filters {
@@ -729,39 +832,13 @@ body.inspector-open #map {
   color: #fff;
 }
 
-.advanced-filters {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface-2);
-  padding: 4px 8px;
-}
 
-.advanced-filters summary {
-  cursor: pointer;
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  font-weight: 600;
-  padding: 4px 0;
-}
 
-.advanced-filter-grid {
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-}
 
 .secondary-btn {
   width: fit-content;
 }
 
-#filter-section label {
-  display: block;
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
 
 #filter-section select {
   width: 100%;
@@ -795,18 +872,14 @@ body.inspector-open #map {
    Location count & legend
    ========================================================= */
 #location-count {
-  padding: 10px 16px;
   font-size: 0.8rem;
   color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border);
 }
 
 /* The board's sites with missing or wrong coordinates (#368), under the count. */
 .coordinate-note {
-  padding: 8px 16px 10px;
   font-size: 0.8rem;
   color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border);
 }
 
 .coordinate-toggle,
@@ -878,7 +951,7 @@ body.inspector-open #map {
 }
 
 .alert-levels-note {
-  margin: 0 16px 12px;
+  margin: 0;
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(217, 119, 6, 0.14);
@@ -886,10 +959,53 @@ body.inspector-open #map {
   font-size: 0.8rem;
 }
 
+/* The legend (#392): a small button on the map, the colours above it. */
+.map-legend {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.legend-toggle {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: 700 0.9rem/1 Georgia, serif;
+  font-style: italic;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.legend-toggle[aria-expanded="true"] {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
 #legend {
-  padding: 12px 16px;
-  margin-top: auto;
-  border-top: 1px solid var(--color-border);
+  max-width: 280px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow);
+}
+
+#legend[hidden] {
+  display: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .legend-title {
@@ -1019,13 +1135,7 @@ body.inspector-open #loading-overlay {
     background: linear-gradient(180deg, color-mix(in oklab, var(--color-bg) 90%, #9db9ff 10%), var(--color-bg));
   }
 
-  #sidebar-header {
-    background: color-mix(in oklab, var(--color-surface) 88%, var(--color-primary) 12%);
-  }
 
-  .advanced-filters {
-    background: color-mix(in oklab, var(--color-surface-2) 92%, var(--color-primary) 8%);
-  }
 
   #loading-overlay {
     background: color-mix(in oklab, var(--color-bg) 75%, #000 25%);

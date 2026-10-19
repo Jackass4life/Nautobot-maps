@@ -3,7 +3,7 @@
 // page when it loads (#294).
 import { setCaseUrlTemplate } from "../lib/cases.js";
 import { revealTenantRest } from "../lib/html.js";
-import { initThemeToggle } from "../lib/theme.js";
+import { initTopBar } from "../lib/nav.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { showError } from "../lib/toast.js";
 import { applyFilters, loadAlertBoard, renderNextUpdate, showScopeLabel } from "./board.js";
@@ -311,4 +311,4 @@ if (config.wallView) {
   setFeedCollapsed(true);
 }
 loadAlertBoard();
-initThemeToggle(byId("theme-toggle"));
+initTopBar();

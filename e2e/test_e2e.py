@@ -351,7 +351,7 @@ def test_the_map_at_scale(page):
 
     started = time.monotonic()
     page.goto(f"{BASE_URL}/")
-    page.locator("#location-count", has_text="1200 locations").wait_for(timeout=20000)
+    page.locator("#location-count", has_text="1,200 sites").wait_for(timeout=20000)
     alarm_pins = page.locator(".leaflet-marker-icon:has(svg)")
     # The 28 pins come once the levels are in; the clusters are the rest.
     for _ in range(100):
@@ -374,10 +374,11 @@ def test_the_map_at_scale(page):
             == 0
         ), level
 
-    # The sidebar lists them: worst first, then newest; ten and "+15 more" (#334).
-    assert page.locator("#alarm-count").inner_text() == "(25)"
-    assert page.locator(".alarm-item").count() == 10
-    assert page.locator("#alarm-more").inner_text() == "+15 more"
+    # The sidebar lists them: worst first, then newest; eight and "Show all 25" (#334, #392).
+    assert page.locator("#alarm-count").inner_text() == "25 in alarm"
+    assert page.locator("#alarm-breakdown").inner_text() == "9 critical · 8 medium · 8 low"
+    assert page.locator(".alarm-item").count() == 8
+    assert page.locator("#alarm-more").inner_text() == "Show all 25"
     assert page.locator(".alarm-item .alarm-name").first.inner_text() == "Site 0960"  # critical, 08:24
     page.locator(".alarm-item").first.click()
     page.locator("#inspector-title", has_text="Site 0960").wait_for()
@@ -400,7 +401,8 @@ def test_the_map_at_scale(page):
     # Alarms only: the 25 pins and nothing else.
     page.locator("#alarms-only").click()
     assert page.locator(".leaflet-marker-icon").count() == 25
-    assert "25 locations in alarm" in page.locator("#location-count").inner_text()
+    assert page.locator("#location-count").inner_text() == "25 sites in alarm"
+    page.locator("#filters-toggle").click()
     page.locator("#clear-filters").click()
     assert page.locator(".leaflet-marker-icon:has(.quiet-cluster)").count() > 0
 
@@ -416,3 +418,59 @@ def test_the_site_panel_shows_the_address_and_no_country(page):
     labels = page.locator(".inspector-row-label").all_inner_texts()
     assert "Address" in labels
     assert "Country" not in labels
+
+
+def test_the_calm_panel_search_filters_legend_and_menu(page):
+    """#392: one search (sites as you type, then the map), filters folded with
+    chips, the legend on the map, and the pages in one menu."""
+    page.goto(f"{BASE_URL}/")
+    page.locator("#alarm-count", has_text="in alarm").wait_for(timeout=20000)
+    # Nothing to scroll in the first screen.
+    assert page.evaluate("document.querySelector('#sidebar').scrollHeight <= innerHeight")
+
+    # The sites as you type; a click opens one.
+    page.fill("#search-input", "london h")
+    page.locator(".site-match", has_text="London HQ").click()
+    page.locator("#inspector-title", has_text="London HQ").wait_for()
+    assert page.locator("#site-matches").is_hidden()
+    page.keyboard.press("Escape")
+    # Enter opens the first site listed.
+    page.fill("#search-input", "copenhagen dc")
+    page.locator(".site-match[data-location-id]", has_text="Copenhagen DC").wait_for()
+    page.press("#search-input", "Enter")
+    page.locator("#inspector-title", has_text="Copenhagen DC").wait_for()
+
+    # The menu opens over the site panel, every link reachable; Escape closes the menu, not the panel.
+    page.locator(".app-menu summary").click()
+    wall = page.locator(".app-menu .app-nav-link", has_text="Wall view")
+    box = wall.bounding_box()
+    middle = [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2]
+    assert page.evaluate("([x, y]) => document.elementFromPoint(x, y)?.textContent", middle) == "Wall view"
+    page.keyboard.press("Escape")
+    assert page.locator(".app-menu .app-nav").is_hidden()
+    assert page.locator("#location-inspector:not(.hidden)").count() == 1
+    page.keyboard.press("Escape")
+    # The last row searches the map.
+    page.fill("#search-input", "Copenhagen")
+    page.locator(".site-match-map", has_text="Search the map for “Copenhagen”").wait_for()
+
+    # Filters are folded; one in use shows as a chip that removes it.
+    page.fill("#search-input", "")
+    assert page.locator("#filter-section").is_hidden()
+    page.locator("#filters-toggle").click()
+    page.select_option("#filter-type", "Data Center")
+    assert page.locator("#filters-toggle").inner_text() == "Filters · 1"
+    page.locator(".filter-chip", has_text="Data Center").click()
+    assert page.locator("#filters-toggle").inner_text() == "Filters"
+
+    # The legend is on the map, behind its button.
+    assert page.locator("#legend").is_hidden()
+    page.locator("#legend-toggle").click()
+    page.locator("#legend", has_text="Critical").wait_for()
+
+    # Every page is in the menu, which closes on a click outside it.
+    page.locator(".app-menu summary").click()
+    links = page.locator(".app-menu .app-nav-link").all_inner_texts()
+    assert links == ["Map", "Alert Board", "Availability", "Maintenance", "Circuits", "API", "Wall view"], links
+    page.mouse.click(700, 300)
+    assert page.locator(".app-menu .app-nav").is_hidden()

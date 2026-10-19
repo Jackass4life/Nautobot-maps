@@ -10,7 +10,7 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 
 Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a normal day. Lists summarise and put what needs action first.
 
-- **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom. Click a site for its devices, ASNs and circuits (also those whose description is the site's address, [circuits by address](docs/how-it-works.md#circuits-in-the-site-panel)); search by address or `lat,lon` for sites within 5 km.
+- **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom. Click a site for its devices, ASNs and circuits (also those whose description is the site's address, [circuits by address](docs/how-it-works.md#circuits-in-the-site-panel)); one search box finds a site by name or address as you type, or a place or `lat,lon` with the sites within 5 km.
 - **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, the likely cause, downtime, tenants and case numbers. It opens on sites with alarms, the ones nobody is on first, and updates itself.
 - **Criticality from Nautobot**: mark which sites and devices matter with custom fields in Nautobot. A gold site makes every down device Critical; one device can be set Critical (or Low) on its own, and the device's field wins. With nothing set, the share of devices down decides, and all down is still Critical. Editing these doesn't page anyone ([set it up](#criticality-in-nautobot)).
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating. A link with `?tenant=` / `?q=` gives a team its own wall, board and map, with **Copy wall link** on the board.
@@ -94,7 +94,7 @@ Then say what a site's tier makes its devices, e.g. `TIER_DEVICE_LEVEL=gold:crit
 | [Sign-in and roles](docs/authentication.md) | SSO proxy setup, what each role can do, API tokens |
 | [Data contract](docs/data-contract.md) | What is read from Nautobot and LibreNMS, and what it becomes |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
-| API | **API** in the app's top bar opens `/docs`: every endpoint with its parameters and a **Try it** button |
+| API | **API** in the ☰ menu opens `/docs`: every endpoint with its parameters and a **Try it** button |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests, code layout |
 

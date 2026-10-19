@@ -12,10 +12,11 @@
 
   <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/map.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/nav.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
 </head>
 <body class="map-page">
-  <!-- Sidebar / search panel -->
+  <!-- The left panel (#392): what needs action first, one search, the rest a click away. -->
   <div id="sidebar">
     <div id="sidebar-header">
       <h1>
@@ -29,37 +30,21 @@
         </svg>
         Nautobot Maps
       </h1>
-      <div class="app-nav">
-        <a class="app-nav-link active" href="/">Map</a>
-        <a class="app-nav-link" href="/alerts{{ '?' ~ scope_query if scope_query }}">Alert Board</a>
-        <a class="app-nav-link" href="/availability">Availability</a>
-        <a class="app-nav-link" href="/maintenance" title="Current and planned maintenance, and planning more">Maintenance</a>
-        <a class="app-nav-link" href="/circuits" title="Circuits without a termination, and their likely site">Circuits</a>
-        <a class="app-nav-link" href="/docs" title="Every endpoint, with Try it">API</a>
-        <a class="app-nav-link" href="/alerts?view=wall{{ '&' ~ scope_query if scope_query }}" title="For a wall screen: alarms only, no controls">Wall view</a>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
-      </div>
+      {% set active = "map" %}{% include "_nav.html" %}
     </div>
 
     <!-- A link for some sites only (?tenant=, ?q=, #367) says so, above everything else. -->
     <p id="map-scope" class="map-scope" hidden></p>
-    <!-- The sites that need action, worst first, then newest (#334). -->
-    <section id="alarm-section" aria-labelledby="alarm-title">
-      <div class="alarm-header">
-        <h2 id="alarm-title">In alarm <span id="alarm-count" class="alarm-count"></span></h2>
-        <button id="alarms-only" class="quick-filter-btn" type="button" aria-pressed="false" title="Show only the sites in alarm on the map">Alarms only</button>
-      </div>
-      <ol id="alarm-list" class="alarm-list"></ol>
-      <button id="alarm-more" class="alarm-more" type="button" aria-controls="alarm-list" hidden></button>
-    </section>
 
+    <!-- One search (#392): the sites whose name, path or address match, as you
+         type; then the map's address / GPS search within 5 km. -->
     <div id="search-section">
-      <label for="search-input">Search address or GPS&nbsp;coordinates</label>
       <div id="search-row">
-        <input id="search-input" type="text"
-               placeholder="e.g. Copenhagen, DK  or  55.6761, 12.5683" />
-        <button id="search-btn" title="Search">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+        <input id="search-input" type="search" autocomplete="off" spellcheck="false"
+               placeholder="Find a site or place" aria-label="Find a site or place"
+               aria-controls="site-matches" aria-describedby="search-hint" />
+        <button id="search-btn" type="button" aria-label="Search the map" title="Search the map for an address or coordinates">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
             <path fill-rule="evenodd"
               d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452
                  4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0
@@ -67,7 +52,8 @@
           </svg>
         </button>
       </div>
-      <div id="search-hint">Results show locations within <strong>5 km</strong> of the searched point.</div>
+      <div id="search-hint">A site's name or address, a place, or <span class="nowrap">55.6761, 12.5683</span>.</div>
+      <ul id="site-matches" class="site-matches" aria-label="Matching sites" hidden></ul>
     </div>
 
     <div id="search-results" class="hidden">
@@ -75,81 +61,84 @@
       <ul id="search-results-list"></ul>
     </div>
 
-    <div id="filter-section">
-      <label>Filter locations</label>
-      <div class="quick-filters" role="group" aria-label="Quick filters">
-        <button class="quick-filter-btn active" type="button" data-quick-status="" aria-pressed="true">All</button>
-        <button class="quick-filter-btn" type="button" data-quick-status="Active" aria-pressed="false">Active</button>
-        <button class="quick-filter-btn" type="button" data-quick-status="Planned" aria-pressed="false">Planned</button>
+    <!-- The sites that need action, worst first, then newest (#334). -->
+    <section id="alarm-section" aria-labelledby="alarm-title">
+      <div class="alarm-header">
+        <h2 id="alarm-title"><span id="alarm-count" class="alarm-count"></span></h2>
+        <button id="alarms-only" class="quick-filter-btn" type="button" aria-pressed="false" title="Show only the sites in alarm on the map">Alarms only</button>
       </div>
-      <select id="filter-type" title="Filter by location type">
-        <option value="">All types</option>
-      </select>
-      <details class="advanced-filters">
-        <summary>Advanced filters</summary>
-        <div class="advanced-filter-grid">
-          <!-- Every status; the buttons above are the common ones (#311). -->
-          <select id="filter-status" title="Filter by status">
-            <option value="">All statuses</option>
-          </select>
-          <select id="filter-parent" title="Filter by parent location">
-            <option value="">All parents</option>
-          </select>
-          <select id="filter-tenant" title="Filter by tenant">
-            <option value="">All tenants</option>
-          </select>
-          <select id="filter-tenant-group" title="Filter by tenant group">
-            <option value="">All tenant groups</option>
-          </select>
+      <p id="alarm-breakdown" class="alarm-breakdown"></p>
+      <ol id="alarm-list" class="alarm-list"></ol>
+      <button id="alarm-more" class="alarm-more" type="button" aria-controls="alarm-list" hidden></button>
+    </section>
+
+    <!-- The rest, quiet at the bottom (#392): filters behind one button, the
+         count, and notes only when they apply. -->
+    <div id="sidebar-footer">
+      <div id="filter-chips" class="filter-chips" role="group" aria-label="Active filters"></div>
+      <div class="footer-row">
+        <button id="filters-toggle" class="filters-toggle" type="button" aria-expanded="false" aria-controls="filter-section">
+          Filters<span id="filter-count" class="filter-count"></span>
+        </button>
+        <span id="location-count"></span>
+      </div>
+      <div id="filter-section" hidden>
+        <div class="quick-filters" role="group" aria-label="Status">
+          <button class="quick-filter-btn active" type="button" data-quick-status="" aria-pressed="true">All</button>
+          <button class="quick-filter-btn" type="button" data-quick-status="Active" aria-pressed="false">Active</button>
+          <button class="quick-filter-btn" type="button" data-quick-status="Planned" aria-pressed="false">Planned</button>
         </div>
-      </details>
-      <button id="clear-filters" class="secondary-btn" title="Clear all filters">
-        Clear Filters
-      </button>
+        <!-- Every status; the buttons above are the common ones (#311). -->
+        <select id="filter-status" aria-label="Status">
+          <option value="">All statuses</option>
+        </select>
+        <select id="filter-type" aria-label="Location type">
+          <option value="">All types</option>
+        </select>
+        <select id="filter-tenant" aria-label="Tenant">
+          <option value="">All tenants</option>
+        </select>
+        <select id="filter-tenant-group" aria-label="Tenant group">
+          <option value="">All tenant groups</option>
+        </select>
+        <select id="filter-parent" aria-label="Parent location">
+          <option value="">All parents</option>
+        </select>
+        <button id="clear-filters" class="secondary-btn" type="button">Clear filters</button>
+      </div>
+      <!-- The board's sites with missing or wrong coordinates (#368). -->
+      <div id="coordinate-note" class="coordinate-note" hidden>
+        <span id="coordinate-text"></span>
+        · <button id="coordinate-toggle" class="coordinate-toggle" type="button" aria-expanded="false" aria-controls="coordinate-list">Check</button>
+        <div id="coordinate-list" class="coordinate-list" hidden></div>
+      </div>
+      <div id="alert-levels-note" class="alert-levels-note" role="status" hidden>
+        Alert levels could not be loaded: markers are grey until they can be.
+      </div>
     </div>
+  </div>
 
-    <div id="location-count"></div>
-    <!-- The board's sites with missing or wrong coordinates (#368). -->
-    <div id="coordinate-note" class="coordinate-note" hidden>
-      <span id="coordinate-text"></span>
-      · <button id="coordinate-toggle" class="coordinate-toggle" type="button" aria-expanded="false" aria-controls="coordinate-list">Check</button>
-      <div id="coordinate-list" class="coordinate-list" hidden></div>
-    </div>
-    <div id="alert-levels-note" class="alert-levels-note" role="status" hidden>
-      Alert levels could not be loaded: markers are grey until they can be.
-    </div>
-
-    <div id="legend">
+  <!-- The legend (#392): on the map, behind a small button, not in the panel. -->
+  <div id="map-legend" class="map-legend">
+    <button id="legend-toggle" class="legend-toggle" type="button" aria-expanded="false" aria-controls="legend" title="What the colours mean">
+      <span aria-hidden="true">i</span><span class="visually-hidden">Legend</span>
+    </button>
+    <div id="legend" hidden>
       <div class="legend-title">Legend</div>
       <!-- One meaning per colour: the alert level, as on the board (#311). -->
-      <div class="legend-item">
-        <span class="legend-dot dot-critical"></span> Critical: a core device or every device down
-      </div>
-      <div class="legend-item">
-        <span class="legend-dot dot-medium"></span> Medium: more than 25% of devices down
-      </div>
-      <div class="legend-item">
-        <span class="legend-dot dot-low"></span> Low: a device down
-      </div>
-      <div class="legend-item">
-        <span class="legend-dot dot-ok"></span> OK
-      </div>
-      <div class="legend-item">
-        <span class="legend-dot dot-maintenance"></span> Maintenance
-      </div>
-      <div class="legend-item">
-        <span class="legend-dot dot-no-data"></span> No data (no monitored devices)
-      </div>
-      <div class="legend-item">
-        <span class="legend-dot dot-search"></span> Searched point
-      </div>
+      <div class="legend-item"><span class="legend-dot dot-critical"></span> Critical: a core device or every device down</div>
+      <div class="legend-item"><span class="legend-dot dot-medium"></span> Medium: more than 25% of devices down</div>
+      <div class="legend-item"><span class="legend-dot dot-low"></span> Low: a device down</div>
+      <div class="legend-item"><span class="legend-dot dot-ok"></span> OK</div>
+      <div class="legend-item"><span class="legend-dot dot-maintenance"></span> Maintenance</div>
+      <div class="legend-item"><span class="legend-dot dot-no-data"></span> No data (no monitored devices)</div>
+      <div class="legend-item"><span class="legend-dot dot-search"></span> Searched point</div>
       <!-- #334: what a circle with a number means. -->
       <div class="legend-item legend-note">
         Sites in alarm or maintenance are always their own pin. Sites without an alarm are small dots, grouped into numbered circles when zoomed out.
       </div>
     </div>
   </div>
-
   <!-- Map container -->
   <div id="map"></div>
 

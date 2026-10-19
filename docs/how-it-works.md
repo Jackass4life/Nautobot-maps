@@ -47,6 +47,8 @@ flowchart LR
 
 ## The pages
 
+Every page has the same top bar (#392): the theme button and a **☰** menu with every page below.
+
 | Page | Address | For |
 |---|---|---|
 | **Map** | `/` | Every location with coordinates, coloured by level; sites in alarm always stand out. Click for devices, ASNs, circuits |
@@ -73,7 +75,7 @@ Circuits are read from Nautobot in full with every inventory sync, so a new term
 
 ### Circuit mapping
 
-**Circuits** in the top bar (`/circuits`, #385) is the worklist for adding those terminations: every circuit without a termination at a location (Decommissioned ones left out), grouped by what its description's address found, worst first:
+**Circuits** in the ☰ menu (`/circuits`, #385) is the worklist for adding those terminations: every circuit without a termination at a location (Decommissioned ones left out), grouped by what its description's address found, worst first:
 
 1. **Several sites**: the address belongs to more than one site; someone chooses where to terminate it.
 2. **No site**: the description isn't an address of any site (more text, another form, an address no location has, or none).

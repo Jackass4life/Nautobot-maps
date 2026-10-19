@@ -1,12 +1,14 @@
-// The Dark mode / Light mode button (#294): the stored choice, else the system's.
+// The theme button (#294; an icon, #392): the stored choice, else the system's.
 const THEME_KEY = "nautobot-maps-theme";
 
 export function applyTheme(theme, themeToggle) {
   document.documentElement.setAttribute("data-theme", theme);
   if (themeToggle) {
     const darkEnabled = theme === "dark";
-    themeToggle.textContent = darkEnabled ? "Light mode" : "Dark mode";
-    themeToggle.setAttribute("aria-label", darkEnabled ? "Switch to light mode" : "Switch to dark mode");
+    // An icon (#392): what a click does is its label and tooltip.
+    const label = darkEnabled ? "Switch to light mode" : "Switch to dark mode";
+    themeToggle.setAttribute("aria-label", label);
+    themeToggle.title = darkEnabled ? "Light mode" : "Dark mode";
     themeToggle.setAttribute("aria-pressed", darkEnabled ? "true" : "false");
   }
 }

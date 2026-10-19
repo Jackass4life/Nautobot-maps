@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Availability · Nautobot Maps</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/nav.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
 </head>
 <body>
@@ -14,16 +15,7 @@
         <p class="eyebrow">Nautobot Maps</p>
         <h1>Availability</h1>
       </div>
-      <nav class="app-nav" aria-label="Primary">
-        <a class="app-nav-link" href="/">Map</a>
-        <a class="app-nav-link" href="/alerts">Alert Board</a>
-        <a class="app-nav-link active" href="/availability" aria-current="page">Availability</a>
-        <a class="app-nav-link" href="/maintenance" title="Current and planned maintenance, and planning more">Maintenance</a>
-        <a class="app-nav-link" href="/circuits" title="Circuits without a termination, and their likely site">Circuits</a>
-        <a class="app-nav-link" href="/docs" title="Every endpoint, with Try it">API</a>
-        <a class="app-nav-link" href="/alerts?view=wall" title="For a wall screen: alarms only, no controls">Wall view</a>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
-      </nav>
+      {% set active = "availability" %}{% include "_nav.html" %}
     </header>
 
     <!-- The period and what counts as down (#287).  Without script, two date
