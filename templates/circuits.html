@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Circuits · Nautobot Maps</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Nautobot Maps</p>
+        <h1>Circuit mapping</h1>
+      </div>
+      <nav class="app-nav" aria-label="Primary">
+        <a class="app-nav-link" href="/">Map</a>
+        <a class="app-nav-link" href="/alerts">Alert Board</a>
+        <a class="app-nav-link" href="/availability">Availability</a>
+        <a class="app-nav-link" href="/maintenance">Maintenance</a>
+        <a class="app-nav-link active" href="/circuits" aria-current="page">Circuits</a>
+        <a class="app-nav-link" href="/docs" title="Every endpoint, with Try it">API</a>
+        <a class="app-nav-link" href="/alerts?view=wall" title="For a wall screen: alarms only, no controls">Wall view</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
+      </nav>
+    </header>
+
+    <!-- Circuits without a termination at a location, and the site their description's address points to (#385). -->
+    <p class="availability-note">Circuits in Nautobot without a termination at a location, and the site their description's address points to. Add the termination in Nautobot and the circuit leaves this list at the next sync.</p>
+    <section class="toolbar maint-toolbar">
+      <input id="circuit-search" class="avail-search" type="search" placeholder="Search circuit, provider, address or site" aria-label="Search circuits" autocomplete="off" />
+      <a id="circuit-csv" class="secondary-filter-btn maint-csv" href="/api/circuit-mapping.csv" download>Download CSV</a>
+      <p id="circuit-status" class="maint-status" role="status">Loading…</p>
+    </section>
+
+    <div id="circuit-groups" class="maint-groups"></div>
+    <noscript><p class="availability-note">This page needs JavaScript. The data is at <a href="/api/circuit-mapping.csv">/api/circuit-mapping.csv</a>.</p></noscript>
+  </div>
+  <div id="app-config" hidden data-nautobot-url="{{ nautobot_url or '' }}"></div>
+  <script type="module" src="{{ url_for('static', filename='js/circuits/main.js') }}"></script>
+</body>
+</html>

@@ -2861,28 +2861,24 @@ def address_circuits(location_id: str, terminated_ids: set) -> list[dict]:
     finally:
         conn.close()
 
-    def site(loc_id: str) -> str:
-        """The highest location above *loc_id* at the same address."""
-        seen = {loc_id}
-        while parents.get(loc_id) in parents and parents[loc_id] not in seen:
-            loc_id = parents[loc_id]
-            seen.add(loc_id)
-        return loc_id
-
-    shared_with = len({site(loc_id) for loc_id in parents} - {site(location_id)})
+    sites = {inventory.address_site(loc_id, parents) for loc_id in parents}
+    shared_with = len(sites - {inventory.address_site(location_id, parents)})
     return [
-        {
-            "id": circuit["circuit_id"],
-            "cid": circuit["cid"] or "Unnamed circuit",
-            "provider": circuit["provider"],
-            "circuit_type": circuit["circuit_type"],
-            "status": circuit["status"],
-            "tenant": circuit["tenant"],
-            "commit_rate": circuit_speed(circuit["commit_rate"]),
-            "description": circuit["description"],
-            "match": "address",
-            "shared_with": shared_with,
-        }
+        {**cached_circuit(circuit), "match": "address", "shared_with": shared_with}
         for circuit in circuits
         if circuit["circuit_id"] not in terminated_ids
     ]
+
+
+def cached_circuit(circuit: dict) -> dict:
+    """A stored circuit as the site panel and the circuit mapping show it (#383, #385)."""
+    return {
+        "id": circuit["circuit_id"],
+        "cid": circuit["cid"] or "Unnamed circuit",
+        "provider": circuit["provider"],
+        "circuit_type": circuit["circuit_type"],
+        "status": circuit["status"],
+        "tenant": circuit["tenant"],
+        "commit_rate": circuit_speed(circuit["commit_rate"]),
+        "description": circuit["description"],
+    }

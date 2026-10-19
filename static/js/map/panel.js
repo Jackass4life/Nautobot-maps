@@ -1,5 +1,5 @@
 // Pieces of the site panel, as HTML: no page access, so the tests run them as they are.
-import { nautobotLocationUrl } from "../lib/format.js";
+import { nautobotCircuitUrl, nautobotLocationUrl } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { maintenanceHistoryHref } from "../lib/maintenance-form.js";
 import { ALERT_RANK } from "./levels.js";
@@ -75,7 +75,7 @@ export function circuitMatchNote(circuit) {
 export function buildCircuitCard(circuit) {
   const { nautobotUrl } = config;
   const title = nautobotUrl && circuit.id
-    ? `<a class="circuit-link" href="${escHtml(nautobotUrl)}/circuits/circuits/${encodeURIComponent(circuit.id)}/" target="_blank" rel="noopener noreferrer">${escHtml(circuit.cid)}</a>`
+    ? `<a class="circuit-link" href="${escHtml(nautobotCircuitUrl(nautobotUrl, circuit.id))}" target="_blank" rel="noopener noreferrer">${escHtml(circuit.cid)}</a>`
     : escHtml(circuit.cid);
   const kind = [circuit.provider, circuit.circuit_type].filter(Boolean).map(escHtml).join(" · ");
   let speed = circuit.port_speed || "";

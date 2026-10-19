@@ -2341,3 +2341,21 @@ a.action-btn {
   color: inherit;
   text-decoration: none;
 }
+
+/* Circuit mapping (#385): the circuit links to Nautobot, its sites to the map. */
+.circuit-link,
+.circuit-site {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.circuit-link:hover,
+.circuit-site:hover {
+  color: var(--color-primary);
+}
+
+.circuit-sites {
+  flex: 0 1 280px;
+  color: var(--color-text-muted);
+}

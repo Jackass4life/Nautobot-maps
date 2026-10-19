@@ -15,6 +15,7 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 - **Criticality from Nautobot**: mark which sites and devices matter with custom fields in Nautobot. A gold site makes every down device Critical; one device can be set Critical (or Low) on its own, and the device's field wins. With nothing set, the share of devices down decides, and all down is still Critical. Editing these doesn't page anyone ([set it up](#criticality-in-nautobot)).
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating. A link with `?tenant=` / `?q=` gives a team its own wall, board and map, with **Copy wall link** on the board.
 - **Cases and ITSM**: attach a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
+- **Circuit mapping**: circuits without a termination in Nautobot, grouped by the site their description's address points to (one, several, none), with CSV: the worklist for linking them properly ([circuit mapping](docs/how-it-works.md#circuit-mapping)).
 - **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm. A history of every window, with CSV.
 - **Availability** per site and tenant for any period, with maintenance left out, and CSV exports down to every incident.
 - **Tenant status page**: "are we affected?" for one tenant, shareable with a customer.
