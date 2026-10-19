@@ -2727,6 +2727,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     # only), the same rule on the devices read now.
     in_window: dict = {}
     pending: set = set()
+    overrides: dict = {}
     conn = db.get_conn() if db.dialect() else None
     if conn is not None:
         try:
@@ -2734,9 +2735,19 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             pending = pending_device_ids(conn, timeutil.iso_utc_now())
         except Exception as exc:
             logger.warning("Could not read maintenance and alert delay for the site panel: %s", exc)
+        try:
+            ids = [d.get("id") for d in devices if d.get("id")]
+            overrides = read_criticality_overrides(conn, ids) if ids else {}
+        except Exception as exc:
+            logger.warning("Could not read criticality overrides for the site panel: %s", exc)
         finally:
             conn.close()
+    # The panel's down list in the board's order (#394): each device's level as
+    # the board weighs it (#377), and whether it is core, the likely cause (#285).
+    core_keywords = get_critical_keywords(location_type)
     for device in devices:
+        device["core"] = is_core_device(device, core_keywords, overrides)
+        device["level"] = device_level(device, core_keywords, overrides)[0]
         device["not_monitored"] = not_monitored_reason(device)
         # Monitored, but left out of the counts for now: say why (#316).
         window = in_window.get(device.get("id") or "")

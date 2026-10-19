@@ -35,6 +35,11 @@ export const state = {
   inspectorLoading: false,
   inspectorDeviceFilter: "all",
   inspectorDeviceSearch: "",
+  // #394: folds the operator opened or closed (key -> open), devices opened,
+  // and whether every down device is listed.
+  inspectorFolds: new Map(),
+  inspectorOpenDevices: new Set(),
+  inspectorDownExpanded: false,
   lastInspectorTrigger: null,
 };
 

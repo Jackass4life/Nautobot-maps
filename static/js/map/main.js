@@ -147,6 +147,35 @@ inspectorContent.addEventListener("click", (event) => {
     return;
   }
 
+  // A device opens in place; "Show all" lists every down device (#394).
+  const row = event.target.closest(".device-row");
+  if (row) {
+    const key = row.dataset.deviceKey;
+    // The same device can be in the Down list and under All devices: focus stays in the list clicked.
+    const list = row.closest("ul")?.getAttribute("aria-label") || "";
+    if (state.inspectorOpenDevices.has(key)) state.inspectorOpenDevices.delete(key);
+    else state.inspectorOpenDevices.add(key);
+    renderInspectorContent();
+    els.inspectorContent
+      .querySelector(`ul[aria-label="${CSS.escape(list)}"] .device-row[data-device-key="${CSS.escape(key)}"]`)
+      ?.focus();
+    return;
+  }
+  // A fold the operator opens or closes stays so while the panel is redrawn
+  // (#394); one open by default isn't remembered as chosen.
+  const foldTitle = event.target.closest(".panel-fold-title");
+  if (foldTitle) {
+    const fold = foldTitle.parentElement;
+    state.inspectorFolds.set(fold.dataset.fold, !fold.open);
+    return;
+  }
+  if (event.target.closest("[data-down-toggle]")) {
+    state.inspectorDownExpanded = !state.inspectorDownExpanded;
+    renderInspectorContent();
+    els.inspectorContent.querySelector("[data-down-toggle]")?.focus();
+    return;
+  }
+
   const filterButton = event.target.closest("[data-device-filter]");
   if (!filterButton) return;
   state.inspectorDeviceFilter = filterButton.dataset.deviceFilter || "all";

@@ -15,6 +15,11 @@ export const LEVEL_COLORS = {
 // "ok" and "no_data" are not alerts (#124).
 export const ALERT_RANK = { low: 1, medium: 2, critical: 3 };
 
+// Each level's name, for the alarm list and the site panel's status line.
+export const LEVEL_NAMES = {
+  critical: "Critical", medium: "Medium", low: "Low", ok: "OK", maintenance: "In maintenance", no_data: "No data",
+};
+
 // What a stack or cluster shows: its worst member (#234, #311).
 export const DISPLAY_RANK = { no_data: 0, ok: 1, maintenance: 2, low: 3, medium: 4, critical: 5 };
 

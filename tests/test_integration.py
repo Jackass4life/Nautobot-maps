@@ -107,7 +107,8 @@ class TestMapUI:
         assert "loadLocationDetail" in js
         assert "detailCache" in js
         assert "inspector-device-search" in js
-        assert "Loading alert status…" in js
+        panel = integration_client.get("/static/js/map/panel.js").data.decode()
+        assert "Loading alert status…" in panel
 
     def test_css_contains_inspector_layout(self, integration_client):
         """The CSS defines the responsive inspector drawer/bottom-sheet layout."""
@@ -1038,12 +1039,14 @@ check(alertBadge(undefined).includes("NO DATA"), "missing level shows as No data
 
     def test_map_renders_the_new_levels(self):
         run_js("""
-import { buildAlertBanner } from "@js/map/panel.js";
-check(buildAlertBanner({ level: "no_data", reason: "No monitored devices" }) === "", "no banner for No data");
-check(buildAlertBanner({ level: "ok" }) === "", "no banner for OK");
-const low = buildAlertBanner({ level: "low", reason: "1/20 devices offline (5%)" });
-check(low.includes("alert-low") && low.includes("LOW") && low.includes("1/20"), low);
-check(buildAlertBanner({ level: "medium" }).includes("alert-medium"), "medium banner");
+import { statusLineHtml } from "@js/map/panel.js";
+const noData = statusLineHtml({ alert: { level: "no_data", reason: "No monitored devices" } });
+check(noData.includes("No data · no monitored devices") && !noData.includes("site-status-reason"), noData);
+const ok = statusLineHtml({ alert: { level: "ok", reason: "" }, counts: { down: 0, monitored: 3 } });
+check(ok.includes("is-ok") && ok.includes("OK · 3 devices"), ok);
+const low = statusLineHtml({ alert: { level: "low", reason: "1/20 devices offline (5%)" }, counts: { down: 1, monitored: 20 } });
+check(low.includes("is-low") && low.includes("Low · 1 of 20 down") && low.includes("1/20 devices offline"), low);
+check(statusLineHtml({ alert: { level: "medium" }, counts: { down: 6, monitored: 20 }, since: "14:05" }).includes("Medium · 6 of 20 down · since 14:05"), "medium");
 """)
 
     def test_board_page_has_low_and_no_data_tiles_and_filters(self, integration_client):
@@ -2378,12 +2381,12 @@ applyLevelToOpenPanel({ "loc-lon": { level: "medium", reason: "2/7", down: 2, mo
 check(renders === 0 && loads.length === 0, "nothing changed: not re-drawn or reloaded (a search being typed stays)");
 applyLevelToOpenPanel({ "loc-lon": { level: "critical", reason: "Core down", down: 3, monitored: 7 } });
 check(renders === 1 && state.selectedDetail.alert.level === "critical" && state.selectedDetail.counts.down === 3, JSON.stringify(state.selectedDetail));
-check(content.includes("3 down · 7 monitored") && content.includes("CRITICAL"), "the panel shows it");
+check(content.includes("Critical · 3 of 7 down"), "the panel shows it");
 // ...and the devices' notes are reloaded (not the stale cache).
 check(loads.join() === "/api/locations/loc-lon/detail" && !detailCache.has("loc-lon"), "reloaded: " + loads);
 await new Promise((resolve) => setTimeout(resolve, 0));
 check(renders === 2 && state.selectedDetail.devices[0].maintenance_until, JSON.stringify(state.selectedDetail));
-check(content.includes("In maintenance until"), "the device's note is shown");
+check(content.includes(">Maintenance<"), "the device says why it isn't counted");
 """)
 
 

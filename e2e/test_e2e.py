@@ -412,10 +412,10 @@ def test_the_map_at_scale(page):
 
 
 def test_a_click_on_a_tenant_info_keeps_its_description_open(page):
-    """#390: the (i) in the site panel's More metadata stays open after a click."""
+    """#390: the (i) in the site panel's Details stays open after a click."""
     page.goto(f"{BASE_URL}/?location_id=loc-lon")
     page.locator("#inspector-title", has_text="London HQ").wait_for(timeout=20000)
-    page.get_by_text("More metadata").first.click()
+    page.locator('[data-fold="details"] > summary').click()
     tip = page.locator(".inspector-row .info-tip").first
     tip.click()
     page.mouse.move(1, 1)  # the pointer leaves the (i)
@@ -438,6 +438,7 @@ def test_the_site_panel_shows_the_address_and_no_country(page):
     """#386: from addresses the Country row showed a town; it is gone."""
     page.goto(f"{BASE_URL}/?location_id=loc-cph")
     page.locator("#inspector-title", has_text="Copenhagen DC").wait_for(timeout=20000)
+    page.locator('[data-fold="details"] > summary').click()
     labels = page.locator(".inspector-row-label").all_inner_texts()
     assert "Address" in labels
     assert "Country" not in labels
@@ -497,3 +498,43 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert links == ["Map", "Alert Board", "Availability", "Maintenance", "Circuits", "API", "Wall view"], links
     page.mouse.click(700, 300)
     assert page.locator(".app-menu .app-nav").is_hidden()
+
+
+def test_the_calm_site_panel(page):
+    """#394: what is wrong first (one status line, the down devices, core first),
+    the rest folded with counts; a device opens in place."""
+    page.goto(f"{BASE_URL}/?location_id=loc-lon")
+    page.locator("#inspector-title", has_text="London HQ").wait_for(timeout=20000)
+    page.locator(".site-status-line", has_text="Medium · 2 of 7 down").wait_for()
+    # Two sites at one address: the tabs, and the header says so.
+    assert "2 locations here" in page.locator("#inspector-subtitle").inner_text()
+    assert page.locator(".site-status-reason").inner_text() == "2/7 devices offline (29%)"
+    # No pill and banner saying the level twice, no "Location inspector" label.
+    assert page.locator(".inspector-kicker, .alert-banner, .inspector-pill").count() == 0
+    assert page.locator("#inspector-down-title").inner_text() == "Down · 2"
+    down = page.locator(".device-rows[aria-label='Down devices'] .device-row-name").all_inner_texts()
+    assert down == ["lon-acc-sw01", "lon-acc-sw02"], down
+    # A device opens in place, and closes again.
+    first = page.locator(".device-rows[aria-label='Down devices'] .device-row").first
+    first.click()
+    page.locator(".device-rows[aria-label='Down devices'] .device-details", has_text="Serial").wait_for()
+    assert first.get_attribute("aria-expanded") == "true"
+    page.locator(".device-rows[aria-label='Down devices'] .device-row").first.click()
+    assert page.locator(".device-rows[aria-label='Down devices'] .device-details").count() == 0
+    # Folded, with counts; a fold with nothing in it isn't there.
+    folds = page.locator(".panel-fold-title").all_inner_texts()
+    assert folds[0] == "All devices · 8" and "Details" in folds[-1], folds
+    assert page.locator(".panel-fold[open]").count() == 0
+    # A fold stays open while the panel is drawn again (a device opened).
+    page.locator('[data-fold="devices"] > summary').click()
+    page.locator(".device-rows[aria-label='Down devices'] .device-row").first.click()
+    assert page.locator('[data-fold="devices"][open]').count() == 1
+
+    # A healthy site: one green line, its few devices listed.
+    page.goto(f"{BASE_URL}/?location_id=loc-ams")
+    page.locator(".site-status-line", has_text="OK · 3 devices").wait_for(timeout=20000)
+    assert page.locator('[data-fold="devices"][open] .device-row').count() == 3
+    assert page.locator("#inspector-down-title").count() == 0
+    assert page.evaluate(
+        "(() => { const p = document.querySelector('.inspector-shell'); return p.scrollHeight <= p.clientHeight; })()"
+    )

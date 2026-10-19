@@ -2,7 +2,7 @@
 import { nautobotCircuitUrl, nautobotLocationUrl } from "../lib/format.js";
 import { escHtml, infoTipHtml, ownDescription } from "../lib/html.js";
 import { maintenanceHistoryHref } from "../lib/maintenance-form.js";
-import { ALERT_RANK } from "./levels.js";
+import { ALERT_RANK, LEVEL_NAMES, knownLevel } from "./levels.js";
 import { config } from "./state.js";
 
 export function badgeClass(status) {
@@ -101,17 +101,83 @@ export function buildCircuitCard(circuit) {
   </li>`;
 }
 
-export function buildAlertBanner(alert) {
-  if (!alert || !ALERT_RANK[alert.level]) return "";
-  const lvl = alert.level;
-  const icon = { critical: "🔴", medium: "🟠", low: "🟡" }[lvl];
-  return `<div class="alert-banner alert-${escHtml(lvl)}">
-    <span class="alert-banner-icon">${icon}</span>
-    <div>
-      <div class="alert-banner-level">${escHtml(lvl.toUpperCase())}</div>
-      ${alert.reason ? `<div class="alert-banner-reason">${escHtml(alert.reason)}</div>` : ""}
-    </div>
-  </div>`;
+// The site's state in one line (#394): its level's colour and name, how many
+// are down, since when, and the reason under it.  Replaces a pill and a banner.
+export function statusLineHtml({ alert, counts, since = "", loading = false, error = "" }) {
+  if (loading) return `<div class="site-status is-loading">Loading alert status…</div>`;
+  if (error) return `<div class="site-status is-no_data">Alert status unavailable</div>`;
+  const level = knownLevel(alert?.level || "no_data");
+  const monitored = counts && Number.isFinite(counts.monitored) ? counts.monitored : null;
+  let what;
+  if (ALERT_RANK[level] && monitored !== null) what = `${counts.down || 0} of ${monitored} down`;
+  else if (level === "ok" && monitored !== null) what = `${monitored} device${monitored === 1 ? "" : "s"}`;
+  else if (level === "no_data") what = "no monitored devices";
+  const parts = [LEVEL_NAMES[level], what, ALERT_RANK[level] && since ? `since ${since}` : ""].filter(Boolean);
+  // The reason says more than the line only for an alarm or maintenance.
+  const reason = ALERT_RANK[level] || level === "maintenance" ? alert?.reason || "" : "";
+  return `<div class="site-status is-${level}">`
+    + `<div class="site-status-line"><span class="legend-dot dot-${level.replace("_", "-")}" aria-hidden="true"></span>${escHtml(parts.join(" · "))}</div>`
+    + `${reason ? `<div class="site-status-reason">${escHtml(reason)}</div>` : ""}</div>`;
+}
+
+// A device's key in the panel's open/closed state: its id, else what tells
+// it apart (a map without the database has no ids).
+export function deviceKey(device) {
+  return String(device.id || [device.name, device.serial, device.primary_ip].join("|"));
+}
+
+// Whether a down device counts towards the site's level: not in maintenance,
+// within the alert delay or unmonitored (#316).
+function counts(device) {
+  return !device.not_monitored && !device.maintenance_until && !device.alert_pending;
+}
+
+// The down devices that count, in the board's order (#394): the level each
+// gives the site (its Nautobot field, the override, the tier or a core role,
+// #377), core devices first within it (the likely cause, #285), then by name.
+// Those that don't count are under All devices, saying why.
+const DEVICE_RANK = { critical: 0, medium: 1, low: 2 };
+export function sortDownDevices(devices) {
+  const rank = (device) => DEVICE_RANK[device.level] ?? 3;
+  return devices
+    .filter((device) => normalizeDeviceHealth(device.status) === "down" && counts(device))
+    .sort((a, b) => rank(a) - rank(b) || Number(Boolean(b.core)) - Number(Boolean(a.core))
+      || (a.name || "").localeCompare(b.name || ""));
+}
+
+// One line per device: its status dot, name and role; *open* shows the rest
+// (hardware, IP, serial, software, tenant, why it isn't counted) in place.
+export function deviceRowHtml(device, open = false) {
+  const health = normalizeDeviceHealth(device.status);
+  const dot = health === "down" ? "critical" : health === "active" ? "ok" : "no-data";
+  const key = deviceKey(device);
+  // Why it doesn't count, where the role would be: clear without opening it (#316).
+  const aside = device.not_monitored ? "Not monitored" : device.maintenance_until ? "Maintenance"
+    : device.alert_pending ? "Alert delay" : device.role;
+  const facts = [
+    aside !== device.role ? device.role || "" : "",
+    [device.manufacturer, device.device_type].filter(Boolean).join(" "),
+    device.primary_ip ? `IP ${String(device.primary_ip).split("/")[0]}` : "",
+    device.platform ? `Software ${device.platform}` : "",
+    device.serial ? `Serial ${device.serial}` : "",
+    device.tenant ? `Tenant ${device.tenant}` : "",
+    device.status && health !== "active" ? `Status ${device.status}` : "",
+  ].filter(Boolean);
+  const details = open
+    ? `<div class="device-details">${facts.map((fact) => `<div class="device-meta">${escHtml(fact)}</div>`).join("")}${deviceCountNote(device)}</div>`
+    : "";
+  return `<li class="device-row-item${open ? " open" : ""}">`
+    + `<button class="device-row" type="button" data-device-key="${escHtml(key)}" aria-expanded="${open ? "true" : "false"}">`
+    + `<span class="legend-dot dot-${dot}" aria-hidden="true"></span>`
+    + `<span class="device-row-name">${escHtml(device.name || "Unnamed device")}</span>`
+    + `<span class="device-row-role${aside === device.role ? "" : " device-row-note"}">${escHtml(aside || "")}</span></button>${details}</li>`;
+}
+
+// A folded section with its count (#394): "Circuits · 3".
+export function foldHtml(key, title, count, body, open = false) {
+  const label = count === null || count === undefined ? title : `${title} · ${count}`;
+  return `<details class="panel-fold" data-fold="${escHtml(key)}"${open ? " open" : ""}>`
+    + `<summary class="panel-fold-title">${escHtml(label)}</summary><div class="panel-fold-body">${body}</div></details>`;
 }
 
 export function buildHealthSummary(devices) {
@@ -159,22 +225,4 @@ export function deviceCountNote(device) {
     text = "Down less than the alert delay: not an alarm yet";
   }
   return text ? `<div class="device-meta device-not-monitored">${escHtml(text)}</div>` : "";
-}
-
-export function deviceCard(device) {
-  const hardware = [device.manufacturer, device.device_type].filter(Boolean).map(escHtml).join(" · ");
-  return `<li class="device-card">
-          <div class="device-card-header">
-            <div class="device-card-title">${escHtml(device.name || "Unnamed device")}</div>
-            <span class="device-status-badge ${deviceStatusClass(device.status)}">${escHtml(device.status || "Unknown")}</span>
-          </div>
-          <div class="device-card-body">
-            ${hardware ? `<div class="device-meta">${hardware}</div>` : ""}
-            ${device.role ? `<div class="device-meta device-role">Role: ${escHtml(device.role)}</div>` : ""}
-            ${device.platform ? `<div class="device-meta device-platform">Software: ${escHtml(device.platform)}</div>` : ""}
-            ${device.serial ? `<div class="device-meta">Serial: ${escHtml(device.serial)}</div>` : ""}
-            ${device.tenant ? `<div class="device-meta">Tenant: ${escHtml(device.tenant)}</div>` : ""}
-            ${deviceCountNote(device)}
-          </div>
-        </li>`;
 }
