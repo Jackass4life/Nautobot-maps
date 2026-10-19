@@ -1120,7 +1120,9 @@ class TestAlertBoard:
         assert data["summary"]["no_data"] == 2
         assert data["summary"]["non_ok"] == 0
         assert [item["alert_level"] for item in data["alerts"]] == ["no_data", "no_data"]
-        ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
+        ensure_snapshot.assert_called_once_with(
+            force=True, full=False, wait=False, cooldown_seconds=inventory.FORCED_SYNC_COOLDOWN_SECONDS
+        )
 
     def test_get_alert_board_data_uses_nautobot_alerts_when_librenms_unavailable(self):
         caching.cache.clear()
@@ -2810,7 +2812,9 @@ class TestAlertLifecycleTracking:
         assert cache_set.call_count == 1
         assert ensure_snapshot.call_count == 2
         assert all(
-            call.args == () and call.kwargs == {"force": True, "full": False, "wait": False}
+            call.args == ()
+            and call.kwargs
+            == {"force": True, "full": False, "wait": False, "cooldown_seconds": inventory.FORCED_SYNC_COOLDOWN_SECONDS}
             for call in ensure_snapshot.call_args_list
         )
         # The stored board outlives the sync interval a little (#295).
@@ -2835,7 +2839,9 @@ class TestAlertLifecycleTracking:
 
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
         build_payload.assert_called_once_with(snapshot_only=True)
-        ensure_snapshot.assert_called_once_with(force=True, full=False, wait=False)
+        ensure_snapshot.assert_called_once_with(
+            force=True, full=False, wait=False, cooldown_seconds=inventory.FORCED_SYNC_COOLDOWN_SECONDS
+        )
 
     def test_get_alert_board_data_does_not_cache_empty_payload_before_snapshot_init(self):
         caching.cache.clear()
@@ -4803,7 +4809,9 @@ class TestAlertBoardSyncProgress:
         ):
             resp = client.get("/api/alerts?refresh=1")
         assert resp.status_code == 200
-        ensure.assert_called_once_with(force=True, full=False, wait=False)
+        ensure.assert_called_once_with(
+            force=True, full=False, wait=False, cooldown_seconds=inventory.FORCED_SYNC_COOLDOWN_SECONDS
+        )
         assert resp.get_json()["sync_pending"] is True
 
     def test_timestamp_refresh_value_does_not_trigger_sync(self, client):

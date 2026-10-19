@@ -859,7 +859,11 @@ def get_sync_state(source: str, conn=None) -> dict:
 
 
 def sync_due(source: str, interval_seconds: int, conn=None) -> bool:
-    state = get_sync_state(source, conn=conn)
+    return state_due(get_sync_state(source, conn=conn), interval_seconds)
+
+
+def state_due(state: dict | None, interval_seconds: int) -> bool:
+    """Whether a source with this sync *state* is due after *interval_seconds*."""
     if not state:
         return True
     if state.get("status") == "running":
@@ -1504,10 +1508,50 @@ def sync_librenms(force: bool = False) -> None:
         conn.close()
 
 
-def ensure_snapshot(force: bool = False, wait: bool = False, full: bool | None = None) -> bool:
+# A forced sync (the board's ?refresh=1) of a source that finished less than
+# this long ago is skipped (#382): a script polling with it can't make
+# LibreNMS or Nautobot build their whole lists every few seconds.
+FORCED_SYNC_COOLDOWN_SECONDS = 60
+
+
+def synced_within(state: dict | None, seconds: int) -> bool:
+    """A sync finished successfully less than *seconds* ago (#382).  A failed
+    one doesn't count, so ↻ retries at once after an outage."""
+    if seconds <= 0 or not state or state.get("status") != "idle":
+        return False
+    completed = timeutil.parse_iso_datetime(state.get("last_completed_at"))
+    return completed is not None and (datetime.now(UTC) - completed).total_seconds() < seconds
+
+
+def sources_to_sync(conn, force: bool = False, cooldown_seconds: int = 0) -> tuple[bool, bool]:
+    """``(Nautobot, LibreNMS)``: which configured sources to sync now: due,
+    Nautobot's cache from an older version, or *force*d, but not one that
+    synced successfully less than *cooldown_seconds* ago.  One state read per source."""
+    nautobot_on = bool(settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN)
+    librenms_on = bool((settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip())
+    needs_nautobot = needs_librenms = False
+    if nautobot_on:
+        state = get_sync_state("nautobot_inventory", conn=conn)
+        needs_nautobot = (
+            (force and not synced_within(state, cooldown_seconds))
+            or cache_version_mismatch(state)
+            or state_due(state, settings.INVENTORY_SYNC_INTERVAL_SECONDS)
+        )
+    if librenms_on:
+        state = get_sync_state("librenms_inventory", conn=conn)
+        needs_librenms = (force and not synced_within(state, cooldown_seconds)) or state_due(
+            state, settings.LIBRENMS_SYNC_INTERVAL_SECONDS
+        )
+    return needs_nautobot, needs_librenms
+
+
+def ensure_snapshot(
+    force: bool = False, wait: bool = False, full: bool | None = None, cooldown_seconds: int = 0
+) -> bool:
     """Run the inventory syncs that are due, in the background unless *wait*.
 
-    ``force`` runs them now even if their interval has not passed.  ``full``
+    ``force`` runs them now even if their interval has not passed, but not a
+    source whose last sync finished less than *cooldown_seconds* ago.  ``full``
     makes the Nautobot sync a full reconcile (re-fetch everything, ignoring
     the watermark); it defaults to ``force``.  Pass ``force=True, full=False``
     for a cheap "sync now" that only pulls changes since the last sync.
@@ -1515,6 +1559,17 @@ def ensure_snapshot(force: bool = False, wait: bool = False, full: bool | None =
     """
     if full is None:
         full = force
+    # With a cooldown, decide before starting anything: a forced call with every
+    # source just synced starts no thread and says so, so the board doesn't
+    # show "Updating…" for nothing (#382).
+    if force and cooldown_seconds > 0:
+        conn = db.get_conn()
+        if conn is not None:
+            try:
+                if not any(sources_to_sync(conn, force, cooldown_seconds)):
+                    return False
+            finally:
+                conn.close()
 
     def _run_with_lock() -> bool:
         conn = None
@@ -1526,26 +1581,7 @@ def ensure_snapshot(force: bool = False, wait: bool = False, full: bool | None =
             conn = db.get_conn()
             if conn is None:
                 return False
-            nautobot_state = get_sync_state("nautobot_inventory", conn=conn)
-            needs_nautobot = bool(settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN) and (
-                force
-                or cache_version_mismatch(nautobot_state)
-                or sync_due(
-                    "nautobot_inventory",
-                    settings.INVENTORY_SYNC_INTERVAL_SECONDS,
-                    conn=conn,
-                )
-            )
-            needs_librenms = bool(
-                (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip()
-            ) and (
-                force
-                or sync_due(
-                    "librenms_inventory",
-                    settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
-                    conn=conn,
-                )
-            )
+            needs_nautobot, needs_librenms = sources_to_sync(conn, force, cooldown_seconds)
             if not needs_nautobot and not needs_librenms:
                 return False
             if needs_nautobot:

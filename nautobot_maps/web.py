@@ -403,8 +403,9 @@ def api_alerts():
     """Return alert-board summaries for all Nautobot locations.
 
     Read from the persisted inventory snapshot; never calls Nautobot or
-    LibreNMS inline.  Query parameters: ``refresh=1`` queues an incremental
-    sync now, ``include_non_operational=1`` includes the excluded locations.
+    LibreNMS inline.  Query parameters: ``refresh=1`` (the board's ↻) queues an
+    incremental sync now, except of a source synced less than a minute ago (#382);
+    ``include_non_operational=1`` includes the excluded locations.
     A normal request also queues a sync when one is due.
 
     Response: ``alerts`` (one entry per site: ``alert_level``,
