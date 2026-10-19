@@ -22,8 +22,9 @@ FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
 # (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293;
 # 6: devices store criticality, #377; 7: locations their address key, #383;
-# 8: countries from the location hierarchy, not a town, #386).
-CACHE_VERSION = "8"
+# 8: countries from the location hierarchy, not a town, #386; 9: devices
+# their virtual chassis, #400).
+CACHE_VERSION = "9"
 sync_lock = threading.Lock()
 SYNC_THREAD_NAME = "inventory-sync"
 
@@ -432,6 +433,51 @@ def is_ip_literal(value: str) -> bool:
     return True
 
 
+def virtual_chassis_fields(device: dict) -> dict:
+    """A stack member's chassis (#400): ``vc_id``, ``vc_name``, ``vc_position``
+    and ``vc_master`` (this device is the chassis' master); empty when the
+    device isn't in one.  The depth=1 answer has the chassis' name and master."""
+    chassis = device.get("virtual_chassis")
+    if not isinstance(chassis, dict) or not chassis.get("id"):
+        return {"vc_id": "", "vc_name": "", "vc_position": None, "vc_master": False}
+    master = chassis.get("master")
+    position = device.get("vc_position")
+    return {
+        "vc_id": str(chassis["id"]),
+        "vc_name": nautobot.nested_str(chassis, "name", "display"),
+        "vc_position": position if isinstance(position, int) and not isinstance(position, bool) else None,
+        "vc_master": isinstance(master, dict) and bool(device.get("id")) and master.get("id") == device.get("id"),
+    }
+
+
+def device_name(device: dict, chassis: dict) -> str:
+    """The device's name; a nameless stack member (#400) by its chassis and
+    place, "sw-stack01:2" (Nautobot's display adds the device's UUID), else that
+    display; else "Unknown"."""
+    if device.get("name"):
+        return device["name"]
+    if chassis["vc_id"]:
+        if chassis["vc_name"] and chassis["vc_position"] is not None:
+            return f"{chassis['vc_name']}:{chassis['vc_position']}"
+        display = (device.get("display") or "").strip()
+        if display:
+            return display
+        if chassis["vc_name"]:
+            return f"{chassis['vc_name']} member"
+    return "Unknown"
+
+
+def virtual_chassis_changed(since: str) -> bool:
+    """Whether a stack was renamed or given another master since *since* (#400).
+    That saves the chassis, not its members, so an incremental sync of devices
+    misses it.  A failed read is no change: the daily full sync catches it."""
+    try:
+        return bool(nautobot.fetch_all_pages("dcim/virtual-chassis/", {"last_updated__gte": since}, use_cache=False))
+    except Exception as exc:
+        logger.debug("Could not read changed virtual chassis: %s", exc)
+        return False
+
+
 def normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> list:
     if lookup_maps is None:
         lookup_maps = nautobot.device_lookup_maps()
@@ -460,10 +506,12 @@ def normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> li
         st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
         st_name = nautobot.nested_str(st_obj, "label", "name", "display") or status_map.get(st_id, "")
 
+        chassis = virtual_chassis_fields(d)
         devices.append(
             {
                 "id": d.get("id") or "",
-                "name": d.get("name") or "Unknown",
+                "name": device_name(d, chassis),
+                **chassis,
                 "device_type": (
                     nautobot.nested_str(d.get("device_type"), "model", "display") or dt_model_map.get(dt_id, "")
                 ),
@@ -661,14 +709,16 @@ def read_devices(location_id: str | None = None, conn=None) -> list:
             marker = db.placeholders(1)
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant, last_updated, criticality FROM nautobot_device_cache "
+                "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
+                "FROM nautobot_device_cache "
                 f"WHERE location_id = {marker} ORDER BY name ASC"
             )
             params = (location_id,)
         else:
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant, last_updated, criticality FROM nautobot_device_cache "
+                "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
+                "FROM nautobot_device_cache "
                 "ORDER BY location_id, name ASC"
             )
         rows = conn.execute(query, params).fetchall()
@@ -688,6 +738,11 @@ def read_devices(location_id: str | None = None, conn=None) -> list:
                 # When Nautobot last changed the device, e.g. its status (#166).
                 "last_updated": data.get("last_updated") or "",
                 "criticality": data.get("criticality") or "",
+                # Its stack (#400).
+                "vc_id": data.get("vc_id") or "",
+                "vc_name": data.get("vc_name") or "",
+                "vc_position": data.get("vc_position"),
+                "vc_master": bool(data.get("vc_master")),
             }
             for data in (db.row_to_dict(row) for row in rows)
         ]
@@ -1018,13 +1073,14 @@ def read_location_tenant_links(conn) -> dict[str, list[str]]:
 
 
 def write_devices(conn, devices: list) -> None:
-    placeholders = db.placeholders(13).split(",")
+    placeholders = db.placeholders(17).split(",")
     for device in devices:
         conn.execute(
             f"""
             INSERT INTO nautobot_device_cache
                 (device_id, location_id, name, device_type, manufacturer, role, status,
-                 primary_ip, platform, serial, tenant, last_updated, criticality, synced_at)
+                 primary_ip, platform, serial, tenant, last_updated, criticality,
+                 vc_id, vc_name, vc_position, vc_master, synced_at)
             VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(device_id) DO UPDATE SET
                 location_id = excluded.location_id,
@@ -1039,6 +1095,10 @@ def write_devices(conn, devices: list) -> None:
                 tenant = excluded.tenant,
                 last_updated = excluded.last_updated,
                 criticality = excluded.criticality,
+                vc_id = excluded.vc_id,
+                vc_name = excluded.vc_name,
+                vc_position = excluded.vc_position,
+                vc_master = excluded.vc_master,
                 synced_at = excluded.synced_at
             """,
             (
@@ -1055,6 +1115,10 @@ def write_devices(conn, devices: list) -> None:
                 coalesce_text(device.get("tenant", "")),
                 device.get("last_updated") or None,
                 coalesce_text(device.get("criticality", "")),
+                coalesce_text(device.get("vc_id", "")),
+                coalesce_text(device.get("vc_name", "")),
+                device.get("vc_position"),
+                bool(device.get("vc_master")),
             ),
         )
 
@@ -1295,6 +1359,9 @@ def sync_nautobot(force: bool = False) -> None:
         # country (and path), but an incremental sync brings only it: the next
         # sync is a full one (#386).
         tree_changed = not full_reconcile and tree_change(stored_tree, locations)
+        # A stack renamed or given another master changes its members, which an
+        # incremental sync doesn't bring: the next sync is a full one too (#400).
+        stack_changed = bool(params) and virtual_chassis_changed(params["last_updated__gte"])
         devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
         check_lookup_endpoints()
         tenant_links = fetch_location_tenant_links()
@@ -1331,8 +1398,9 @@ def sync_nautobot(force: bool = False) -> None:
                 status="idle",
                 error_message="",
             )
-            if tree_changed:
-                logger.info("A location with others under it changed: the next Nautobot sync is a full one")
+            if tree_changed or stack_changed:
+                what = "A location with others under it" if tree_changed else "A virtual chassis"
+                logger.info("%s changed: the next Nautobot sync is a full one", what)
                 record_sync_state(conn, reconcile_source, cache_version=cache_version())
             if full_reconcile:
                 record_sync_state(

@@ -638,6 +638,10 @@ def get_location_devices_and_alert(
                 "location_path": d.get("location_path", ""),
                 "last_updated": d.get("last_updated", ""),
                 "criticality": d.get("criticality", ""),
+                "vc_id": d.get("vc_id", ""),
+                "vc_name": d.get("vc_name", ""),
+                "vc_position": d.get("vc_position"),
+                "vc_master": d.get("vc_master", False),
             }
             for d in devices_data
         ]

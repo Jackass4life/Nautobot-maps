@@ -705,6 +705,15 @@ def add_circuit_cache(conn) -> None:
     )
 
 
+def add_device_virtual_chassis(conn) -> None:
+    """A device's stack (#400): its virtual chassis, place in it, and whether
+    it is the master, so the site panel shows a stack as one device."""
+    conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN IF NOT EXISTS vc_id TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN IF NOT EXISTS vc_name TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN IF NOT EXISTS vc_position INTEGER")
+    conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN IF NOT EXISTS vc_master BOOLEAN NOT NULL DEFAULT FALSE")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -733,6 +742,7 @@ MIGRATIONS = (
     (22, "site_level_changes (site_id, changed_at) index", add_site_level_changes_site),
     (23, "device criticality", add_device_criticality),
     (24, "nautobot_circuit_cache", add_circuit_cache),
+    (25, "nautobot_device_cache virtual chassis", add_device_virtual_chassis),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

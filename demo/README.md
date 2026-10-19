@@ -29,7 +29,7 @@ open http://localhost:5000
 | Oslo Office | 🇳🇴 Oslo | Planned | Nordic Net | — | 0 |
 | Amsterdam IX | 🇳🇱 Amsterdam | Active | EuroIX | AS65020, AS65021 | 3 (Juniper PTX/QFX) |
 | Frankfurt DC | 🇩🇪 Frankfurt | Active | DataCenter GmbH | AS65030 | 2 (Nokia SR, Cisco Nexus) |
-| Paris PoP | 🇫🇷 Paris | Active | Acme Corp | AS65040 | 1 (Cisco ASR) |
+| Paris PoP | 🇫🇷 Paris | Active | Acme Corp | AS65040 | 5 (Cisco ASR, a stack of 4 switches: only the master has a name and an IP) |
 | London HQ | 🇬🇧 London | Active | Acme Corp | AS65050, AS65051 | 8 (Cisco ASR9006, Palo Alto, F5, …) – 2 access switches **Offline** |
 | London Colo | 🇬🇧 London | Active | Nordic Net | AS65052 | 1 (Juniper MX204) – same coordinates as London HQ |
 
