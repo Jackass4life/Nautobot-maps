@@ -43,7 +43,7 @@ Map markers, the alert board's rows and their hierarchy.
 | `latitude` | number, string or null | yes | latitude | float; a location without both coordinates has no map marker |
 | `longitude` | number, string or null | yes | longitude | float |
 | `physical_address` | string or null |  | physical_address | trimmed |
-| `country` | object, string or null |  | country | name, display or label; else country_name; else the last part of physical_address |
+| `country` | object, string or null |  | country | name, display or label; else country_name; else the name of a location of type Country above it; else the last part of physical_address when it has three parts or more and no digits, else none |
 | `country.name` | string or null |  | — | — |
 | `country.display` | string or null |  | — | — |
 | `country.label` | string or null |  | — | — |

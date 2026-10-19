@@ -248,6 +248,9 @@ SITE_TIER_FIELD = os.getenv("SITE_TIER_FIELD", "").strip()
 SITE_TIERS = [
     t.strip().lower() for t in (os.getenv("SITE_TIERS", "").strip() or "gold,silver,bronze").split(",") if t.strip()
 ]
+# The location type whose locations are countries (#386): their name is the
+# country of every location under them.  Case ignored.
+COUNTRY_LOCATION_TYPE = os.getenv("COUNTRY_LOCATION_TYPE", "").strip() or "Country"
 # A device's level when down (#377): a Nautobot custom field on the device
 # (critical / medium / low), and a default per site tier ("gold:critical").
 DEVICE_CRITICALITY_FIELD = os.getenv("DEVICE_CRITICALITY_FIELD", "").strip()

@@ -87,6 +87,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | — | Device statuses ignored: not counted, not listed |
 | `ALERT_MEDIUM_PERCENT` | `25` | More than this share of a site's monitored devices down is **Medium** ([alert levels](alert-board.md#alert-levels)) |
 | `ALERT_CRITICAL_PERCENT` | `100` | This share or more down is **Critical** (100: only when all are down); a down core device is always Critical, and a device or tier set to a level gives at least that level |
+| `COUNTRY_LOCATION_TYPE` | `Country` | The Nautobot location type whose locations are countries (case ignored): a site's country is the nearest one above it, before the address is looked at ([country](alert-board.md#one-row-per-site)). Changing it makes the next sync a full one |
 | `SITE_TIER_FIELD` | — | Nautobot custom field on the location with its importance tier (e.g. `tier`) ([importance](alert-board.md#importance-tier)) |
 | `SITE_TIERS` | `gold,silver,bronze` | The tier values, most important first; other values are no tier |
 | `TIER_DEVICE_LEVEL` | — | What any down device makes a site of that tier, e.g. `gold:critical,silver:medium`; a device's own field overrides it ([device and site criticality](alert-board.md#device-and-site-criticality)) |
