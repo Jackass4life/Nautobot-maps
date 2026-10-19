@@ -407,3 +407,12 @@ def test_the_map_at_scale(page):
     # A quiet site inside a cluster opens from a link: the map zooms to it.
     page.goto(f"{BASE_URL}/?location_id=s613")
     page.locator("#inspector-title", has_text="Site 0613").wait_for(timeout=20000)
+
+
+def test_the_site_panel_shows_the_address_and_no_country(page):
+    """#386: from addresses the Country row showed a town; it is gone."""
+    page.goto(f"{BASE_URL}/?location_id=loc-cph")
+    page.locator("#inspector-title", has_text="Copenhagen DC").wait_for(timeout=20000)
+    labels = page.locator(".inspector-row-label").all_inner_texts()
+    assert "Address" in labels
+    assert "Country" not in labels
