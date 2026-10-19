@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from nautobot_maps import alerts, caching, db, inventory, settings, timeutil
+from nautobot_maps import alerts, caching, db, inventory, settings
 from tests.test_app import _snapshot_device, _snapshot_location
 
 NOW = "2026-10-18T12:00:00Z"
@@ -143,19 +143,6 @@ class TestSiteLevel:
 # ---------------------------------------------------------------------------
 # Through board builds: a level change from an edit is logged, not notified.
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def board(pg_database, monkeypatch):
-    clock = {"now": NOW}
-    monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
-    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
-    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
-    monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
-    return clock
 
 
 def write(sites: dict[str, str], devices: list[dict]) -> None:

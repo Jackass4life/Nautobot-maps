@@ -274,3 +274,20 @@ def client():
     caching.cache.clear()
     with flask_app.app.test_client() as c:
         yield c
+
+
+@pytest.fixture
+def board(pg_database, monkeypatch):
+    """A board built from the database only (no Nautobot, no LibreNMS), at a
+    clock the test sets: ``board["now"]`` (shared by #377 and #402's tests)."""
+    from nautobot_maps import inventory, settings, timeutil
+
+    clock = {"now": "2026-10-18T12:00:00Z"}
+    monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
+    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
+    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
+    monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
+    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    return clock

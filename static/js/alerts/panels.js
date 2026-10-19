@@ -6,6 +6,7 @@ import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
 import { showError } from "../lib/toast.js";
 import { formatLocationAddress, siteTenants } from "../lib/scope.js";
+import { stackText } from "./rows.js";
 import { config, els, findSite } from "./state.js";
 
 export const COPIED_LABEL_MS = 2000;
@@ -88,6 +89,7 @@ export function siteReport(item, nautobotUrl = "") {
       device.device_name || device.device_id || "Unknown device",
       `IP ${device.device_ip || "—"}`,
       `Role ${device.role || "—"}`,
+      stackText(device.stack),
       `Status ${device.status || "—"}`,
       device.location_path ? `Location ${device.location_path}` : "",
       since ? `Down since ${since}` : "",

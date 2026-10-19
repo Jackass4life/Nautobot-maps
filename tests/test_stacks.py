@@ -134,3 +134,71 @@ def test_a_changed_stack_makes_the_next_sync_full(client, pg_database, monkeypat
     changed.clear()
     inventory.sync_nautobot()
     assert "last_updated__gte" not in calls[-1], "so this one is full"
+
+
+def test_the_board_says_which_stack_a_down_device_is_in(board):
+    """The board and its Copy say a down device is in a stack, and where (#400)."""
+    from tests.test_app import _snapshot_device
+    from tests.test_criticality import NOW, build, write
+
+    def member(position, status, ip):
+        return {
+            **_snapshot_device(f"a-stk{position}", "a", "Access Switch", status),
+            "name": "sw-stack01" if position == 1 else f"sw-stack01:{position}",
+            "primary_ip": ip,
+            "vc_id": "vc-1",
+            "vc_name": "sw-stack01",
+            "vc_position": position,
+            "vc_master": position == 1,
+        }
+
+    devices = [
+        member(1, "Offline", "10.0.0.1/32"),
+        member(2, "Offline", "10.0.0.2/32"),  # its own IP: monitored
+        member(3, "Offline", ""),  # no IP: not on the board, but in the stack's size
+        member(4, "Active", ""),
+        _snapshot_device("a-rt", "a", "Edge Router", "Offline"),
+        # A fifth member at another location: the stack's size is the whole stack.
+        {**member(5, "Active", ""), "location_id": "b"},
+        # An excluded status still counts: it is still in the chassis.
+        {**member(6, "Decommissioning", "")},
+    ]
+    write({"a": "", "b": ""}, devices)
+    down = {d["device_id"]: d.get("stack") for d in build(board, NOW)["a"]["down_devices"]}
+    assert down == {
+        "a-stk1": {"name": "sw-stack01", "position": 1, "size": 6, "master": True},
+        "a-stk2": {"name": "sw-stack01", "position": 2, "size": 6, "master": False},
+        "a-rt": None,
+    }
+    # The assistant (MCP) gets it too.
+    from nautobot_maps import mcp
+
+    row = build(board, NOW)["a"]
+    by_id = {d["device_id"]: d for d in mcp._site(row)["down_devices"]}
+    assert by_id["a-stk2"]["stack"] == {"name": "sw-stack01", "position": 2, "size": 6, "master": False}
+    assert "stack" not in by_id["a-rt"]
+
+
+def test_stack_text_on_the_board_and_in_copy():
+    run_js(
+        """
+import { stackText } from "@js/alerts/rows.js";
+import { siteReport } from "@js/alerts/panels.js";
+check(stackText({ name: "sw-stack01", position: 2, size: 4, master: false }) === "Stack sw-stack01, member 2 of 4", "member");
+check(stackText({ name: "sw-stack01", position: 1, size: 4, master: true }) === "Stack sw-stack01, master of 4", "master");
+check(stackText({ name: "", position: null, size: 3 }) === "Stack, member of 3", "no name or place");
+check(stackText(undefined) === "" && stackText({ size: 1 }) === "", "not a stack");
+check(stackText({ name: "s", size: "4" }) === "", "a size must be a number");
+
+const text = siteReport({
+  name: "Site A", alert_level: "medium",
+  down_devices: [
+    { device_name: "sw-stack01:2", device_ip: "10.0.0.2", role: "Access Switch", status: "Offline",
+      stack: { name: "sw-stack01", position: 2, size: 4, master: false } },
+    { device_name: "edge", role: "Edge Router", status: "Offline" },
+  ],
+});
+check(text.includes("- sw-stack01:2 | IP 10.0.0.2 | Role Access Switch | Stack sw-stack01, member 2 of 4 | Status Offline"), text);
+check(!text.split("\\n").find((line) => line.startsWith("- edge")).includes("Stack"), "not in a stack: nothing said");
+"""
+    )

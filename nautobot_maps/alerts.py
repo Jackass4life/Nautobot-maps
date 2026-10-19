@@ -80,6 +80,20 @@ ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
 ALERT_LEVELS_NON_OK = ("critical", "medium", "low")
 
 
+def stack_of(device: dict, sizes: dict[str, int]) -> dict:
+    """A down device's stack for the board and its Copy (#400): ``name``,
+    ``position``, ``size`` and ``master``; {} when it isn't in a stack of two or more."""
+    size = sizes.get(device.get("vc_id") or "", 0)
+    if size < 2:
+        return {}
+    return {
+        "name": device.get("vc_name") or "",
+        "position": device.get("vc_position"),
+        "size": size,
+        "master": bool(device.get("vc_master")),
+    }
+
+
 def board_device_rules() -> dict:
     """Which devices count, wherever a level is worked out (#316): those with
     a primary IP, not of an excluded status.  The board, the map's marker
@@ -1904,6 +1918,8 @@ def build_alert_board_payload(
     # that drop is planned, not a recovery to notify.
     quiet_sites: set[str] = set()
     # Since when each device is down (#286): read once, written once after the loop.
+    # Virtual chassis id -> its members (#402); empty: no stack is named.
+    stack_sizes: dict[str, int] = {}
     device_states = None
     alarmed_device_ids: set[str] = set()
     # {device_id: (site_id, state row or None)} as this build saw them.
@@ -1925,6 +1941,11 @@ def build_alert_board_payload(
         except Exception as exc:
             device_states = None
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
+        try:
+            # Each stack's size (#402): every member, wherever it is, once a build.
+            stack_sizes = inventory.read_stack_sizes(read_conn)
+        except Exception as exc:
+            logger.warning("Could not read stack sizes; stacks aren't named this build: %s", exc)
         try:
             webhook_index = webhooks.read_index(read_conn)
         except Exception as exc:
@@ -2201,6 +2222,8 @@ def build_alert_board_payload(
                     **({"flapping": True, "flap_changes": device["flap_changes"]} if device.get("flapping") else {}),
                     # Down per Alertmanager or a webhook, not Nautobot (#292).
                     **({"down_reason": webhook_reason(device)} if device.get("webhook_since") else {}),
+                    # Part of a stack: which, and its place in it (#400).
+                    **({"stack": stack} if (stack := stack_of(device, stack_sizes)) else {}),
                 }
                 # Down devices in maintenance are listed (marked below) but not counted (#283).
                 for device in down_devices
@@ -2216,6 +2239,7 @@ def build_alert_board_payload(
                     "status": device.get("status") or "",
                     "role": device.get("role") or "",
                     **({"location_path": device["location_path"]} if device.get("location_path") else {}),
+                    **({"stack": stack} if (stack := stack_of(device, stack_sizes)) else {}),
                 }
                 for device in maintenance_devices
             }
@@ -2240,6 +2264,8 @@ def build_alert_board_payload(
                     merged["flap_changes"] = current_item["flap_changes"]
                 if current_item.get("down_reason"):
                     merged["down_reason"] = current_item["down_reason"]
+                if current_item.get("stack"):
+                    merged["stack"] = current_item["stack"]
                 merged["device_ip"] = device_ip_by_key.get(item_key, "")
                 merged.setdefault("status", "")
                 merged.setdefault("role", "")
