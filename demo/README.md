@@ -40,10 +40,10 @@ without one to show that the alert board ignores devices without a primary IP.
 
 ### Scenario 1 – Browse all locations
 The 9 locations appear on the map, coloured by alert level as on the board (the
-legend says what each colour means). London HQ is in alarm, so it is always its
+**i** in the map's corner says what each colour means). London HQ is in alarm, so it is always its
 own pin; quiet sites group into numbered circles when zoomed out.
 
-Click a pin, or a site under **In alarm**, to open the site panel: tenant, ASN,
+Click a pin, or a site under **1 in alarm**, to open the site panel: tenant, ASN,
 address, the devices with their status, and the circuits. Copenhagen DC,
 Stockholm PoP and Frankfurt DC also list a circuit **By address** (its
 description is the site's address, written a little differently); London HQ and

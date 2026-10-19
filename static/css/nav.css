@@ -1,0 +1,83 @@
+/* The top bar on every page (#392): a theme icon and a menu of the pages.
+   Calm by default: two icons, the pages one click away. */
+.app-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.icon-btn::-webkit-details-marker {
+  display: none;
+}
+
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.icon-btn:hover,
+.app-menu[open] > .icon-btn {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.app-menu {
+  position: relative;
+}
+
+.app-menu > .app-nav {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1300; /* on the map, the panel holding it is lifted while it is open */
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.app-nav-link {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+
+.app-nav-link:hover,
+.app-nav-link:focus-visible {
+  background: var(--color-surface-2);
+  outline: none;
+}
+
+.app-nav-link.active {
+  color: var(--color-primary);
+  font-weight: 600;
+}

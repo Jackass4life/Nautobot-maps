@@ -8,7 +8,7 @@ import { escHtml, revealTenantRest } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
 import { devicesHtml, windowRequest } from "../lib/maintenance-form.js";
 import { initPeriodPicker } from "../lib/period-picker.js";
-import { initThemeToggle } from "../lib/theme.js";
+import { initTopBar } from "../lib/nav.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { localDay, mountWhen } from "../lib/when.js";
 import { batchMatches, batchesOf, groupsHtml, historyHtml } from "./list.js";
@@ -62,7 +62,7 @@ function updateCsvLink() {
   els.csv.href = `/api/maintenance/history.csv?${historyQuery(tenant)}`;
 }
 
-initThemeToggle($("theme-toggle"));
+initTopBar();
 initInfoTips();
 
 function setStatus(text, isError = false) {

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nautobot Alert Board</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/nav.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
 </head>
 <body{% if wall_view %} class="wall-view"{% endif %}>
@@ -24,16 +25,7 @@
         <p class="eyebrow">Nautobot Maps</p>
         <h1>Alert Board</h1>
       </div>
-      <nav class="app-nav" aria-label="Primary">
-        <a class="app-nav-link" href="/{{ '?' ~ scope_query if scope_query }}">Map</a>
-        <a class="app-nav-link active" href="/alerts" aria-current="page">Alert Board</a>
-        <a class="app-nav-link" href="/availability" title="Availability per site and tenant, by month">Availability</a>
-        <a class="app-nav-link" href="/maintenance" title="Current and planned maintenance, and planning more">Maintenance</a>
-        <a class="app-nav-link" href="/circuits" title="Circuits without a termination, and their likely site">Circuits</a>
-        <a class="app-nav-link" href="/docs" title="Every endpoint, with Try it">API</a>
-        <a class="app-nav-link" href="/alerts?view=wall{{ '&' ~ scope_query if scope_query }}" title="For a wall screen: alarms only, no controls">Wall view</a>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
-      </nav>
+      {% set active = "alerts" %}{% include "_nav.html" %}
     </header>
     <!-- One line of what is wrong, and the chips that choose which sites
          are listed; the board opens on Alarms (#311). -->

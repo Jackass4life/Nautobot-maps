@@ -113,8 +113,8 @@ export function renderInspectorContent() {
   const primaryRows = [
     inspectorRow("Type", loc.location_type),
     inspectorRow("Parent", loc.parent),
+    // No Country row (#386): read from addresses it showed a town; the address says it.
     inspectorRow("Address", loc.physical_address),
-    inspectorRow("Country", loc.country),
     inspectorRow("Facility", loc.facility),
   ].filter(Boolean).join("");
   const secondaryRows = [

@@ -8,11 +8,11 @@ import { config, els, getLocationById, locationAlerts, state } from "./state.js"
 const ALARMS_ONLY_KEY = "nautobot-maps-map-alarms-only";
 
 const FILTERS = [
-  ["filterStatus", "status", "All statuses"],
-  ["filterType", "location_type", "All types"],
-  ["filterParent", "parent", "All parents"],
-  ["filterTenant", "tenant", "All tenants"],
-  ["filterTenantGroup", "tenant_group", "All tenant groups"],
+  ["filterStatus", "status", "All statuses", "Status"],
+  ["filterType", "location_type", "All types", "Type"],
+  ["filterParent", "parent", "All parents", "Parent"],
+  ["filterTenant", "tenant", "All tenants", "Tenant"],
+  ["filterTenantGroup", "tenant_group", "All tenant groups", "Tenant group"],
 ];
 
 // "Only Acme Corp · Show all sites" under the count; a link that matches no
@@ -54,7 +54,39 @@ export function populateFilters(locations) {
       opt.textContent = value;
       select.appendChild(opt);
     }
+    // Nothing to choose between: not shown (#392).
+    select.hidden = values.length < 2;
   }
+  // The status buttons only for statuses some site has, and only with a choice.
+  const statuses = new Set(locations.map((loc) => loc.status).filter(Boolean));
+  for (const button of els.quickStatusButtons || []) {
+    const status = button.dataset.quickStatus || "";
+    button.hidden = statuses.size < 2 || (status !== "" && !statuses.has(status));
+  }
+}
+
+// The filters in use, as [element name, what it is, value] (#392).
+export function activeFilters() {
+  return FILTERS.filter(([name]) => els[name]?.value).map(([name, , , what]) => [name, what, els[name].value]);
+}
+
+// "Filters · 2" and a chip per filter in use, each removable, so it is clear
+// why sites are missing while the filters are folded away (#392).
+export function renderFilterChips() {
+  const { filterChips, filterCount } = els;
+  if (!filterChips) return;
+  const active = activeFilters();
+  filterCount.textContent = active.length ? ` · ${active.length}` : "";
+  filterChips.replaceChildren(...active.map(([name, what, value]) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "filter-chip";
+    chip.dataset.filter = name;
+    chip.setAttribute("aria-label", `Remove filter ${what}: ${value}`);
+    chip.textContent = `${value} ×`;
+    return chip;
+  }));
+  filterChips.hidden = !active.length;
 }
 
 // The locations matching *criteria*: {status, location_type, parent, tenant,
@@ -71,7 +103,7 @@ function alarmsOnlyApplies() {
 
 export function updateLocationCount(count) {
   const scope = alarmsOnlyApplies() ? " in alarm" : "";
-  els.locationCount.textContent = `${count} location${count !== 1 ? "s" : ""}${scope} with GPS coordinates loaded`;
+  els.locationCount.textContent = `${count.toLocaleString("en")} site${count !== 1 ? "s" : ""}${scope}`;
 }
 
 // "Alarms only" (#334): remembered in this browser, like the board's sort.
@@ -115,11 +147,14 @@ export function applyFilters() {
   updateLocationCount(drawn.length);
   openLocationFromQuery();
   syncQuickStatusButtons();
+  renderFilterChips();
   renderAlarmList();
 }
 
-export function clearFilters() {
+// *remember* false: for the moment only, so a saved Alarms only stays saved
+// (a site picked from the search that the filters hid, #392).
+export function clearFilters({ remember = true } = {}) {
   for (const [name] of FILTERS) els[name].value = "";
-  setAlarmsOnly(false);
+  setAlarmsOnly(false, { remember });
   applyFilters();
 }

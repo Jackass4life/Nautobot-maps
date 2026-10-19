@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nautobot Maps API</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/nav.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/docs.css') }}" />
 </head>
 <body>
@@ -19,16 +20,7 @@
           The same list as JSON: <a href="/api/endpoints">/api/endpoints</a>.
         </p>
       </div>
-      <nav class="app-nav" aria-label="Primary">
-        <a class="app-nav-link" href="/">Map</a>
-        <a class="app-nav-link" href="/alerts">Alert Board</a>
-        <a class="app-nav-link" href="/availability">Availability</a>
-        <a class="app-nav-link" href="/maintenance" title="Current and planned maintenance, and planning more">Maintenance</a>
-        <a class="app-nav-link" href="/circuits" title="Circuits without a termination, and their likely site">Circuits</a>
-        <a class="app-nav-link active" href="/docs" aria-current="page">API</a>
-        <a class="app-nav-link" href="/alerts?view=wall" title="For a wall screen: alarms only, no controls">Wall view</a>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme">Dark mode</button>
-      </nav>
+      {% set active = "docs" %}{% include "_nav.html" %}
     </header>
 
     <div class="docs-filter">
