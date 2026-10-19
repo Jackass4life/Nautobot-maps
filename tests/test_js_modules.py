@@ -46,6 +46,7 @@ def test_every_page_loads_a_module_and_its_imports_exist():
     assert scripts == {
         "alerts/main.js",
         "availability.js",
+        "circuits/main.js",
         "docs/main.js",
         "maintenance/main.js",
         "map/main.js",

@@ -859,6 +859,17 @@ def read_circuits_at_address(conn, key: str) -> list[dict]:
     return [db.row_to_dict(row) for row in rows]
 
 
+def address_site(location_id: str, parents: dict[str, str]) -> str:
+    """The site *location_id* is part of at its address (#383): the highest
+    location above it in *parents* ({location_id: parent_id} of the locations
+    at one address), so a site and its buildings there are one."""
+    seen = {location_id}
+    while parents.get(location_id) in parents and parents[location_id] not in seen:
+        location_id = parents[location_id]
+        seen.add(location_id)
+    return location_id
+
+
 def read_locations_at_address(conn, location_id: str) -> tuple[str, dict[str, str]]:
     """``(key, {location_id: parent_id})``: *location_id*'s address key and
     every location with the same one, itself included (#383)."""

@@ -69,3 +69,8 @@ export function hasAllWords(text, words) {
 export function nautobotLocationUrl(nautobotUrl, locationId) {
   return `${nautobotUrl.replace(/\/+$/, "")}/dcim/locations/${encodeURIComponent(locationId)}/`;
 }
+
+// A circuit's page in Nautobot (the map's panel #235, the circuit mapping #385).
+export function nautobotCircuitUrl(nautobotUrl, circuitId) {
+  return `${nautobotUrl.replace(/\/+$/, "")}/circuits/circuits/${encodeURIComponent(circuitId)}/`;
+}

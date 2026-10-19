@@ -831,11 +831,12 @@ for _circ, _description in zip(
     _circ["description"] = _description
 # Terminated at Copenhagen DC and its address too: listed once, as terminated.
 CIRCUIT_TERMINATIONS["loc-cph"][0]["circuit"]["description"] = "Vermlandsgade 51, 2300 Copenhagen"
-# Scale mode: every third generated site has a circuit by address (#383).
+# Scale mode: every third generated site has a circuit by address (#383);
+# every 30th says more than the address, so it matches no site (#385).
 ADDRESS_CIRCUITS += [
     {
         **_circuit(f"cir-{loc['id']}", f"SC-{index:05d}", "prov-gtt", "ct-mpls", "Active", 1_000_000),
-        "description": loc["physical_address"],
+        "description": f"Fibre – {loc['physical_address']}" if index % 30 == 0 else loc["physical_address"],
     }
     for index, loc in enumerate(loc for loc in LOCATIONS if loc["id"].startswith("loc-sc"))
     if index % 3 == 0

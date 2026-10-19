@@ -53,6 +53,7 @@ flowchart LR
 | **Alert board** | `/alerts` | The NOC's work list: sites in alarm, down devices, since when, cases, acknowledge, maintenance, history, CSV |
 | **Wall view** | `/alerts?view=wall` | A screen nobody clicks on: alarms only, "NO CASE" stands out, a loud warning when it stops updating |
 | **Availability** | `/availability` | Uptime per site and tenant for any period, maintenance not counted; CSV exports |
+| **Circuits** | `/circuits` | Circuit mapping: circuits without a termination and the site their address points to, with CSV |
 | **Maintenance** | `/maintenance` | Plan windows for many sites or devices at once, see and end them, history |
 | **Tenant status** | `/status/<tenant>` | "Are we affected?" for one customer, without the whole board |
 | **API docs** | `/docs` | Every API endpoint, with a **Try it** button |
@@ -69,6 +70,16 @@ The site panel lists a site's circuits in two ways (#235, #383):
 Addresses written as *street number, postcode town* match by **street, number and postcode**: `Roersvej 33, 5000 Odense C`, `Roersvej 33, 5000 Odense` and `Roersvej 33 st. tv, 5000 Odense` are the same; the town, a floor and door (`st. tv`, `2. th`) and a country don't count, and `33A` is `33 A` but not `33`. A full address in another form (`1 Canada Square, London E14 5AB`), or a description with more than the address (`Fibre 1G – Roersvej 33, …`), only matches exactly the same text. Anything shorter, such as a town or a street without a postcode, is never matched. When the address belongs to more than one site, the card says *address shared with N other sites* (a site's own buildings at the same address don't count). If the site's terminations can't be read from Nautobot, the panel says so and lists no circuits by address either.
 
 Circuits are read from Nautobot in full with every inventory sync, so a new termination counts at the next sync (one request for a few hundred circuits; nothing per site). They and each location's address key are stored, so opening a panel is two indexed database lookups. Nautobot without the circuits app is simply no circuits. To link a circuit for good, add a termination at the location in Nautobot.
+
+### Circuit mapping
+
+**Circuits** in the top bar (`/circuits`, #385) is the worklist for adding those terminations: every circuit without a termination at a location (Decommissioned ones left out), grouped by what its description's address found, worst first:
+
+1. **Several sites**: the address belongs to more than one site; someone chooses where to terminate it.
+2. **No site**: the description isn't an address of any site (more text, another form, an address no location has, or none).
+3. **One site**: ready; add the termination at that site.
+
+The groups start folded, with their counts; each shows 100 circuits at a time. The search looks in the circuit, provider, type, status, tenant, description and sites. A circuit links to it in Nautobot, a site to its panel on the map (a site without coordinates through a building of it at the address, else to the site in Nautobot). **Download CSV** (`/api/circuit-mapping.csv`) has every circuit with its group, commit rate, suggested sites and Nautobot id, for bulk work in Nautobot; the JSON is `/api/circuit-mapping`. It reads the stored circuits and locations (two queries, nothing asked of Nautobot), so a circuit leaves the list at the next sync after it gets a termination. Viewers and up, like the board.
 
 ## Setup
 
