@@ -472,6 +472,25 @@ class TestPages:
         with flask_app.app.test_client() as test_client:
             yield test_client
 
+    def test_the_page_explains_itself(self, client):
+        """A help (i) for someone new to the page: what it shows, each choice and figure."""
+        html = client.get("/availability?month=2026-10").get_data(as_text=True)
+        assert html.count('class="info-tip help-tip"') == 9
+        for text in (
+            "How much of the time each site and tenant was up",  # the title
+            "What counts as down",  # the Downtime choice
+            "1 − downtime ÷ period",  # the Availability card
+            "An incident is one device going down",  # the Downtime card
+            "up less than 99.9 % of the period",  # Below target, with the target
+            "The tenant with the lowest availability",
+            "the average of its sites",  # Tenants
+            "Every monitored site, the worst first",  # Sites
+            "Every incident: each device outage",  # the CSV links
+        ):
+            assert text in html, text
+        # Read aloud as help.
+        assert 'aria-label="Help: How much of the time' in html
+
     def test_page_json_and_csv(self, client):
         page = client.get("/availability?month=2026-10").get_data(as_text=True)
         assert "=Oslo" in page and "90.000 %" in page and "(so far)" in page
