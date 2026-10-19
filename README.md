@@ -31,7 +31,7 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 | | |
 |---|---|
 | ![The map: Europe with the sites in alarm as pins, the rest in numbered clusters, and the In alarm list](docs/images/map.png) | ![The site panel: Copenhagen Office 01, Critical, 34 of 40 devices down](docs/images/site-panel.png) |
-| **Map**: sites in alarm stand out; the rest cluster | **Site panel**: the level, why, and every device |
+| **Map**: sites in alarm stand out; the rest cluster | **Site panel**: what is wrong, the devices down first, the rest folded |
 | ![The alert board: 29 alarms, 8 critical, 9 medium, 12 low](docs/images/alert-board.png) | ![The alert board in dark mode](docs/images/alert-board-dark.png) |
 | **Alert board**: worst and newest first, with cases | **Dark mode**, on every page |
 | ![The wall view: alarms with their down devices, no buttons](docs/images/wall-view.png) | ![Availability: per tenant for October, with downtime](docs/images/availability.png) |

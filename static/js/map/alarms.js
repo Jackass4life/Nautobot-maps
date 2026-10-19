@@ -3,10 +3,10 @@
 // "Show all 28" (#392).  A row opens the site.
 import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
+import { LEVEL_NAMES } from "./levels.js";
 import { config, els, locationAlertInfo, locationAlerts, state } from "./state.js";
 
 const ALARM_RANK = { critical: 0, medium: 1, low: 2 };
-const LEVEL_LABELS = { critical: "Critical", medium: "Medium", low: "Low" };
 export const ALARM_LIST_SHOWN = 8;
 
 // Whether the list shows every site, after "+N more".
@@ -37,7 +37,7 @@ export function alarmItemHtml(entry, now = new Date()) {
     Number.isFinite(entry.monitored) ? `${entry.down || 0}/${entry.monitored} down` : "",
     since ? `since ${since}` : "",
   ].filter(Boolean).join(" · ");
-  const label = [`${LEVEL_LABELS[level]}: ${name}`, meta].filter(Boolean).join(", ");
+  const label = [`${LEVEL_NAMES[level]}: ${name}`, meta].filter(Boolean).join(", ");
   return `<li><button class="alarm-item" type="button" data-location-id="${escHtml(loc.id)}" aria-label="${escHtml(label)}">`
     + `<span class="legend-dot dot-${level}" aria-hidden="true"></span>`
     + `<span class="alarm-name">${escHtml(name)}</span>`
