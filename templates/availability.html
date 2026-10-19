@@ -9,11 +9,14 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
 </head>
 <body>
+  {#- A small (i) that explains what is next to it, for someone new to the page:
+      hover, focus or tap it (lib/tooltip.js). #}
+  {%- macro help(text) %}<span class="info-tip help-tip" tabindex="0" role="img" aria-label="Help: {{ text }}" data-info-tip="{{ text }}">i</span>{% endmacro %}
   <div class="page-shell">
     <header class="page-header">
       <div>
         <p class="eyebrow">Nautobot Maps</p>
-        <h1>Availability</h1>
+        <h1>Availability {{ help("How much of the time each site and tenant was up in a period. Pick the period and what counts as down, then Show. The worst come first. Maintenance windows are never downtime.") }}</h1>
       </div>
       {% set active = "availability" %}{% include "_nav.html" %}
     </header>
@@ -33,6 +36,7 @@
         {% include "_period_popover.html" %}
       </div>
       <label for="availability-basis">Downtime</label>
+      {{ help("What counts as down. Any monitored device down: a site is down while at least one of its monitored devices is down (several at once count once). Site at Critical: only the time the site was at Critical on the board.") }}
       <select id="availability-basis" name="basis">
         <option value="any_down"{% if basis == "any_down" %} selected{% endif %}>Any monitored device down</option>
         <option value="critical"{% if basis == "critical" %} selected{% endif %}>Site at Critical</option>
@@ -65,7 +69,7 @@
     <p class="availability-note">
       {{ report.period.start[:10] }} to {{ report.period.end[:16] | replace("T", " ") }} UTC{% if not report.period.complete %} (so far){% endif %}
       · maintenance is not downtime ·
-      CSV: <a href="/api/availability.csv?{{ csv_query }}&amp;view=sites&amp;header=1">sites</a>,
+      CSV {{ help("For a spreadsheet, with the period and totals at the top. Sites and tenants: the tables below, with more detail per site. Every incident: each device outage in the period, to check the figures. Times are UTC, downtime in minutes.") }}: <a href="/api/availability.csv?{{ csv_query }}&amp;view=sites&amp;header=1">sites</a>,
       <a href="/api/availability.csv?{{ csv_query }}&amp;view=tenants&amp;header=1">tenants</a>,
       <a href="/api/availability.csv?{{ csv_query }}&amp;view=incidents&amp;header=1" title="Every outage in the period, to check the figures">every incident</a>
     </p>
@@ -73,22 +77,22 @@
     <!-- The answer first (#342): four cards, then the worst tenants and sites. -->
     <section class="avail-cards" aria-label="Summary">
       <div class="avail-card">
-        <span class="avail-card-label">Availability</span>
+        <span class="avail-card-label">Availability {{ help("For each site: the share of the period it was up (1 − downtime ÷ period, in UTC). This card is the average of all sites, each site counting the same. Below " ~ summary.target ~ " % is red.") }}</span>
         <span class="avail-card-value{% if summary.availability < summary.target %} is-below{% endif %}">{{ "%.3f" | format(summary.availability) }} %</span>
         <span class="avail-card-note">average of {{ plural(summary.sites, "site") }}</span>
       </div>
       <div class="avail-card">
-        <span class="avail-card-label">Downtime</span>
+        <span class="avail-card-label">Downtime {{ help("All sites' downtime in the period added up, without maintenance. An incident is one device going down and coming back.") }}</span>
         <span class="avail-card-value">{{ summary.downtime_seconds | downtime }}</span>
         <span class="avail-card-note">{{ plural(summary.incidents, "incident") }}, all sites</span>
       </div>
       <div class="avail-card">
-        <span class="avail-card-label">Below {{ summary.target }} %</span>
+        <span class="avail-card-label">Below {{ summary.target }} % {{ help("How many sites were up less than " ~ summary.target ~ " % of the period (the target, shown in red), and how many had no downtime at all.") }}</span>
         <span class="avail-card-value{% if summary.below_target %} is-below{% endif %}">{{ summary.below_target | thousands }}</span>
         <span class="avail-card-note">of {{ plural(summary.sites, "site") }} · {{ summary.no_downtime | thousands }} with no downtime</span>
       </div>
       <div class="avail-card">
-        <span class="avail-card-label">Worst tenant</span>
+        <span class="avail-card-label">Worst tenant {{ help("The tenant with the lowest availability: the average of its sites, each site counting the same.") }}</span>
         {%- if summary.worst_tenant %}
         <span class="avail-card-value avail-card-name">{{ tenant_name(summary.worst_tenant.tenant) }}</span>
         <span class="avail-card-note{% if summary.worst_tenant.availability < summary.target %} is-below{% endif %}">{{ "%.3f" | format(summary.worst_tenant.availability) }} %</span>
@@ -101,7 +105,7 @@
 
     <section class="table-shell availability-section" aria-labelledby="availability-tenants" data-avail-table="tenants" data-limit="10">
       <div class="avail-section-head">
-        <h2 id="availability-tenants" class="availability-heading" tabindex="-1">Tenants <span class="avail-count">{{ report.tenants | length | thousands }}</span></h2>
+        <h2 id="availability-tenants" class="availability-heading" tabindex="-1">Tenants <span class="avail-count">{{ report.tenants | length | thousands }}</span> {{ help("Each tenant's availability is the average of its sites. The worst first; click a column to sort by it.") }}</h2>
       </div>
       <table class="avail-table">
         <thead><tr>
@@ -129,7 +133,7 @@
 
     <section class="table-shell availability-section" aria-labelledby="availability-sites" data-avail-table="sites" data-limit="25" data-tenant-descriptions='{{ report.tenant_descriptions | tojson }}'>
       <div class="avail-section-head">
-        <h2 id="availability-sites" class="availability-heading" tabindex="-1">Sites <span class="avail-count">{{ report.sites | length | thousands }}</span></h2>
+        <h2 id="availability-sites" class="availability-heading" tabindex="-1">Sites <span class="avail-count">{{ report.sites | length | thousands }}</span> {{ help("Every monitored site, the worst first. Click a column to sort; search for a site or pick a tenant. Incidents: device outages in the period. The bar runs from 98 to 100 %.") }}</h2>
         <div class="avail-filters" hidden>
           <input class="avail-search" type="search" placeholder="Search sites" aria-label="Search sites" autocomplete="off" />
           <select class="avail-tenant" aria-label="Tenant">

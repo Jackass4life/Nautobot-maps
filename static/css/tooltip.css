@@ -54,3 +54,8 @@
 .info-tip-box[hidden] {
   display: none;
 }
+
+/* A help (i) next to a title or label, for someone new to a page: centred on its text. */
+.help-tip {
+  vertical-align: middle;
+}

@@ -498,6 +498,19 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert page.locator(".app-menu .app-nav").is_hidden()
 
 
+def test_the_availability_page_explains_itself(page):
+    """A click on an (i) says what the page or a figure means, for someone new to it."""
+    page.goto(f"{BASE_URL}/availability")
+    page.wait_for_selector(".avail-card")
+    assert page.locator(".help-tip").count() == 9
+    page.locator("h1 .help-tip").click()
+    page.mouse.move(1, 1)
+    box = page.locator(".info-tip-box")
+    assert "How much of the time each site and tenant was up" in box.inner_text()
+    page.keyboard.press("Escape")
+    assert box.is_hidden()
+
+
 def test_the_calm_site_panel(page):
     """#394: what is wrong first (one status line, the down devices, core first),
     the rest folded with counts; a device opens in place."""
