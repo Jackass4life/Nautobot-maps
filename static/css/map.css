@@ -246,6 +246,15 @@ body.inspector-open #map {
   margin-top: 10px;
 }
 
+/* The site's basic facts under its name, before its state. */
+.site-info {
+  margin-bottom: 14px;
+}
+
+.site-info .inspector-row:first-child {
+  margin-top: 0;
+}
+
 .inspector-row-label {
   color: var(--color-text-muted);
   min-width: 96px;

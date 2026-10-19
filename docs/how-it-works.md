@@ -64,9 +64,9 @@ Every page has the same top bar (#392): the theme button and a **☰** menu with
 
 ### The site panel
 
-Click a site on the map (or in its panel's list) and the panel on the right opens with what is wrong first (#394): the site's name with its type and path, **one status line** ("Critical · 34 of 40 down · since 14:05", the reason under it; a healthy site "OK · 40 devices"), and the links to Nautobot and the maintenance history. Then the **down devices**, core devices first (the likely cause), then those set Critical or Medium in Nautobot, eight at a time with **Show all**. Each device is one line (status, name, role); a device in maintenance, within the alert delay or not monitored says so in place of its role. Click a device for its model, IP, software, serial and tenant.
+Click a site on the map (or in its panel's list) and the panel on the right opens with what is wrong first (#394): the site's name with its type and path, its **basic info** from the start (address, tenant with its (i), tenant group, facility, time zone, tags, description: the ones it has, #398), **one status line** ("Critical · 34 of 40 down · since 14:05", the reason under it; a healthy site "OK · 40 devices"), and the links to Nautobot and the maintenance history. Then the **down devices**, core devices first (the likely cause), then those set Critical or Medium in Nautobot, eight at a time with **Show all**. Each device is one line (status, name, role); a device in maintenance, within the alert delay or not monitored says so in place of its role. Click a device for its model, IP, software, serial and tenant.
 
-The rest is folded, each with its count, and left out when empty: **All devices** (open for a healthy site with ten or fewer; filters and a search from eleven devices), **Circuits**, **ASNs** and **Details** (type, address, tenant with its (i), tenant group, ASN, time zone, tags, description). A fold stays as you left it while the panel refreshes.
+The rest is folded, each with its count, and left out when empty: **All devices** (open for a healthy site with ten or fewer; filters and a search from eleven devices), **Circuits** and **ASNs**. A fold stays as you left it while the panel refreshes.
 
 ### Circuits in the site panel
 

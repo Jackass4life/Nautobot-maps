@@ -412,10 +412,9 @@ def test_the_map_at_scale(page):
 
 
 def test_a_click_on_a_tenant_info_keeps_its_description_open(page):
-    """#390: the (i) in the site panel's Details stays open after a click."""
+    """#390: the tenant's (i) in the site panel stays open after a click."""
     page.goto(f"{BASE_URL}/?location_id=loc-lon")
     page.locator("#inspector-title", has_text="London HQ").wait_for(timeout=20000)
-    page.locator('[data-fold="details"] > summary').click()
     tip = page.locator(".inspector-row .info-tip").first
     tip.click()
     page.mouse.move(1, 1)  # the pointer leaves the (i)
@@ -438,7 +437,6 @@ def test_the_site_panel_shows_the_address_and_no_country(page):
     """#386: from addresses the Country row showed a town; it is gone."""
     page.goto(f"{BASE_URL}/?location_id=loc-cph")
     page.locator("#inspector-title", has_text="Copenhagen DC").wait_for(timeout=20000)
-    page.locator('[data-fold="details"] > summary').click()
     labels = page.locator(".inspector-row-label").all_inner_texts()
     assert "Address" in labels
     assert "Country" not in labels
@@ -523,7 +521,11 @@ def test_the_calm_site_panel(page):
     assert page.locator(".device-rows[aria-label='Down devices'] .device-details").count() == 0
     # Folded, with counts; a fold with nothing in it isn't there.
     folds = page.locator(".panel-fold-title").all_inner_texts()
-    assert folds[0] == "All devices · 8" and "Details" in folds[-1], folds
+    assert folds[0] == "All devices · 8" and "Details" not in folds, folds
+    # The site's basic facts under its name, from the start (#398).
+    info = page.locator(".site-info .inspector-row-label").all_inner_texts()
+    assert info[:2] == ["Address", "Tenant"], info
+    assert "1 Canada Square" in page.locator(".site-info").inner_text()
     assert page.locator(".panel-fold[open]").count() == 0
     # A fold stays open while the panel is drawn again (a device opened).
     page.locator('[data-fold="devices"] > summary').click()
