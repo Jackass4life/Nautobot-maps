@@ -675,6 +675,36 @@ def add_device_criticality(conn) -> None:
     conn.execute("ALTER TABLE site_alert_levels ADD COLUMN IF NOT EXISTS down_key TEXT")
 
 
+def add_circuit_cache(conn) -> None:
+    """Every Nautobot circuit with its address key, and each location's (#383):
+    the site panel also lists the circuits without a termination whose
+    description is the site's address."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nautobot_circuit_cache (
+            circuit_id   TEXT PRIMARY KEY,
+            cid          TEXT NOT NULL DEFAULT '',
+            provider     TEXT NOT NULL DEFAULT '',
+            circuit_type TEXT NOT NULL DEFAULT '',
+            status       TEXT NOT NULL DEFAULT '',
+            tenant       TEXT NOT NULL DEFAULT '',
+            commit_rate  BIGINT,
+            description  TEXT NOT NULL DEFAULT '',
+            address_key  TEXT NOT NULL DEFAULT '',
+            terminated   BOOLEAN NOT NULL DEFAULT FALSE
+        )
+        """
+    )
+    # Plain indexes: a partial one is skipped by a generic plan for "= $1".
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS nautobot_circuit_cache_address_key ON nautobot_circuit_cache (address_key)"
+    )
+    conn.execute("ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS address_key TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS nautobot_location_cache_address_key ON nautobot_location_cache (address_key)"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -702,6 +732,7 @@ MIGRATIONS = (
     (21, "maintenance_windows.batch_id", add_maintenance_batches),
     (22, "site_level_changes (site_id, changed_at) index", add_site_level_changes_site),
     (23, "device criticality", add_device_criticality),
+    (24, "nautobot_circuit_cache", add_circuit_cache),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

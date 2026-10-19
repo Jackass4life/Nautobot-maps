@@ -133,6 +133,38 @@ Tenant names, descriptions (tooltip) and tenant groups.
 | `tenant_group.name` | string or null |  | — | — |
 | `tenant_group.display` | string or null |  | — | — |
 
+### `circuits/circuits/`
+
+Circuits whose description is a site's address, in the site panel (#383).
+
+- Request: all pages, depth=1; read in full on every sync; a 404 (no circuits app) is no circuits
+- Stored in: `nautobot_circuit_cache`
+
+| Field | Type | Required | Becomes | Rule |
+|---|---|---|---|---|
+| `id` | string | yes | circuit_id | — |
+| `cid` | string | yes | cid | cid, else display |
+| `display` | string or null |  | — | — |
+| `provider` | object or null |  | provider | — |
+| `provider.name` | string or null |  | — | — |
+| `provider.display` | string or null |  | — | — |
+| `circuit_type` | object or null |  | circuit_type | — |
+| `circuit_type.name` | string or null |  | — | — |
+| `circuit_type.display` | string or null |  | — | — |
+| `status` | object or null |  | status | — |
+| `status.name` | string or null |  | — | — |
+| `status.label` | string or null |  | — | — |
+| `status.display` | string or null |  | — | — |
+| `tenant` | object or null |  | tenant | — |
+| `tenant.name` | string or null |  | — | — |
+| `tenant.display` | string or null |  | — | — |
+| `commit_rate` | integer or null |  | commit_rate | Kbps |
+| `description` | string or null |  | description, address_key | the key: street, number and postcode ("Roersvej 33, 5000 Odense C" → roersvej 33\|5000), else the words of a full address; matched against a location's physical_address |
+| `circuit_termination_a` | object or null |  | terminated | a termination (A or Z) with a location: never matched by address |
+| `circuit_termination_a.location` | object or null |  | — | — |
+| `circuit_termination_z` | object or null |  | — | — |
+| `circuit_termination_z.location` | object or null |  | — | — |
+
 ### `extras/relationships/`
 
 Which Relationships link locations and tenants.

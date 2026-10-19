@@ -8,8 +8,11 @@ Called as ``inventory.function()`` so tests can replace it on this module.
 import ipaddress
 import json
 import logging
+import re
 import threading
 from datetime import UTC, datetime
+
+import requests
 
 from nautobot_maps import caching, contract, db, librenms, nautobot, settings, timeutil
 
@@ -18,8 +21,8 @@ logger = logging.getLogger(__name__)
 FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
 # (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293;
-# 6: devices store criticality, #377).
-CACHE_VERSION = "6"
+# 6: devices store criticality, #377; 7: locations their address key, #383).
+CACHE_VERSION = "7"
 sync_lock = threading.Lock()
 SYNC_THREAD_NAME = "inventory-sync"
 
@@ -259,6 +262,86 @@ def fetch_tenants() -> list[dict] | None:
         for tenant in tenants
         if tenant.get("id")
     ]
+
+
+# "Roersvej 33" / "33A" / "33 A", maybe a floor and door ("33 st tv", "33 1 th"), and
+# a postcode starting a later part: "5000 Odense C", "114 35 Stockholm" (#383).
+STREET_NUMBER = re.compile(r"^(\D+?) ?(\d+)(?: ?([^\W\d_]))?(?: (?:st|kl|\d{1,2})(?: (?:tv|th|mf|\d{1,3}))?)?$")
+POSTCODE = re.compile(r"^(\d{3} \d{2}|\d{4,5})(?: |$)")
+
+
+def address_key(text: str) -> str:
+    """A key for matching addresses written slightly differently (#383).
+
+    ``Roersvej 33, 5000 Odense C`` and ``Roersvej 33 st. tv, 5000 Odense``
+    both give ``roersvej 33|5000``: street, number and postcode; the town, a
+    floor or a country don't count.  A full address in another form (four
+    words or more, with a number) gives its words, so it only matches the same
+    text; anything shorter ("Odense", "Roersvej 33") gives "": never matched.
+    """
+    parts = [" ".join(part.replace(".", " ").split()) for part in re.split(r"[,\n]", (text or "").lower())]
+    parts = [part for part in parts if part]
+    if not parts:
+        return ""
+    street = STREET_NUMBER.match(parts[0])
+    if street:
+        for part in parts[1:]:
+            postcode = POSTCODE.match(part)
+            if postcode:
+                number = street.group(2) + (street.group(3) or "")
+                return f"{street.group(1).strip()} {number}|{postcode.group(1).replace(' ', '')}"
+    words = " ".join(parts)
+    return "text:" + words if len(words.split()) >= 4 and any(c.isdigit() for c in words) else ""
+
+
+def fetch_circuits() -> list[dict] | None:
+    """Every Nautobot circuit, with the address key of its description (#383).
+
+    Read in full on every sync (hundreds of circuits are one page), so a new
+    termination counts at the next sync.  ``terminated``: it has a termination
+    at a location, so it is never matched by address.  ``[]``
+    when Nautobot has no circuits app (404); ``None`` when it could not be
+    read, so the caller keeps what it has.
+    """
+    try:
+        circuits = nautobot.fetch_all_pages("circuits/circuits/", {"depth": 1}, use_cache=False)
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return []
+        logger.warning("Could not read circuits from Nautobot: %s", exc)
+        return None
+    except Exception as exc:
+        logger.warning("Could not read circuits from Nautobot: %s", exc)
+        return None
+    contract.check_and_record(contract.NAUTOBOT, "circuits/circuits/", circuits)
+    result = []
+    for circuit in circuits:
+        if not circuit.get("id"):
+            continue
+        description = str(circuit.get("description") or "").strip()
+        commit_rate = circuit.get("commit_rate")
+        result.append(
+            {
+                "circuit_id": str(circuit["id"]),
+                "cid": str(circuit.get("cid") or circuit.get("display") or ""),
+                "provider": nautobot.nested_str(circuit.get("provider"), "name", "display"),
+                "circuit_type": nautobot.nested_str(circuit.get("circuit_type"), "name", "display"),
+                "status": nautobot.nested_str(circuit.get("status"), "name", "label", "display"),
+                "tenant": nautobot.nested_str(circuit.get("tenant"), "name", "display"),
+                "commit_rate": commit_rate
+                if isinstance(commit_rate, int) and not isinstance(commit_rate, bool)
+                else None,
+                "description": description,
+                "address_key": address_key(description),
+                "terminated": any(
+                    isinstance(term, dict)
+                    and isinstance(term.get("location"), dict)
+                    and bool(term["location"].get("id"))
+                    for term in (circuit.get("circuit_termination_a"), circuit.get("circuit_termination_z"))
+                ),
+            }
+        )
+    return result
 
 
 def extract_primary_ip(device: dict) -> str:
@@ -656,14 +739,14 @@ def coalesce_text(value):
 
 
 def write_locations(conn, locations: list) -> None:
-    placeholders = db.placeholders(22).split(",")
+    placeholders = db.placeholders(23).split(",")
     for loc in locations:
         conn.execute(
             f"""
             INSERT INTO nautobot_location_cache
                 (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                 time_zone, tags_json, url, last_updated, country, tier, synced_at)
+                 time_zone, tags_json, url, last_updated, country, tier, address_key, synced_at)
             VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
@@ -687,6 +770,7 @@ def write_locations(conn, locations: list) -> None:
                 last_updated = excluded.last_updated,
                 country = excluded.country,
                 tier = excluded.tier,
+                address_key = excluded.address_key,
                 synced_at = excluded.synced_at
             """,
             (
@@ -712,6 +796,7 @@ def write_locations(conn, locations: list) -> None:
                 loc.get("last_updated") or None,
                 coalesce_text(loc.get("country", "")),
                 coalesce_text(loc.get("tier", "")),
+                address_key(loc.get("physical_address") or ""),
             ),
         )
 
@@ -736,6 +821,56 @@ def write_tenants(conn, tenants: list[dict]) -> None:
             f"VALUES ({db.placeholders(3)}) ON CONFLICT DO NOTHING",
             (tenant["tenant_id"], tenant.get("name") or "", tenant.get("description") or ""),
         )
+
+
+CIRCUIT_COLUMNS = (
+    "circuit_id",
+    "cid",
+    "provider",
+    "circuit_type",
+    "status",
+    "tenant",
+    "commit_rate",
+    "description",
+    "address_key",
+    "terminated",
+)
+
+
+def write_circuits(conn, circuits: list[dict]) -> None:
+    """Replace the cached circuits (#383), in one batch."""
+    conn.execute("DELETE FROM nautobot_circuit_cache")
+    conn.cursor().executemany(
+        f"INSERT INTO nautobot_circuit_cache ({', '.join(CIRCUIT_COLUMNS)}) "
+        f"VALUES ({db.placeholders(len(CIRCUIT_COLUMNS))}) ON CONFLICT DO NOTHING",
+        [tuple(circuit.get(column) for column in CIRCUIT_COLUMNS) for circuit in circuits],
+    )
+
+
+def read_circuits_at_address(conn, key: str) -> list[dict]:
+    """The cached circuits without a termination whose description has this address key (#383)."""
+    if not key:
+        return []
+    rows = conn.execute(
+        f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
+        f"WHERE address_key = {db.placeholders(1)} AND NOT terminated ORDER BY lower(cid), circuit_id",
+        (key,),
+    ).fetchall()
+    return [db.row_to_dict(row) for row in rows]
+
+
+def read_locations_at_address(conn, location_id: str) -> tuple[str, dict[str, str]]:
+    """``(key, {location_id: parent_id})``: *location_id*'s address key and
+    every location with the same one, itself included (#383)."""
+    marker = db.placeholders(1)
+    rows = conn.execute(
+        "SELECT location_id, parent_id, address_key FROM nautobot_location_cache WHERE address_key <> '' "
+        f"AND address_key = (SELECT address_key FROM nautobot_location_cache WHERE location_id = {marker})",
+        (location_id,),
+    ).fetchall()
+    found = [db.row_to_dict(row) for row in rows]
+    key = found[0]["address_key"] if found else ""
+    return key, {loc["location_id"]: loc.get("parent_id") or "" for loc in found}
 
 
 def read_tenant_descriptions(conn=None) -> dict[str, str]:
@@ -1051,6 +1186,7 @@ def sync_nautobot(force: bool = False) -> None:
         check_lookup_endpoints()
         tenant_links = fetch_location_tenant_links()
         tenants = fetch_tenants()
+        circuits = fetch_circuits()
         completed_at = timeutil.iso_utc_now()
         watermark = last_successful_sync
         observed_last_updated = timeutil.max_last_updated(raw_locations + raw_devices)
@@ -1070,6 +1206,8 @@ def sync_nautobot(force: bool = False) -> None:
                 write_location_tenant_links(conn, tenant_links)
             if tenants is not None:
                 write_tenants(conn, tenants)
+            if circuits is not None:
+                write_circuits(conn, circuits)
             record_sync_state(
                 conn,
                 source,

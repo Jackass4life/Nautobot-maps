@@ -394,6 +394,11 @@ body.inspector-open #map {
   color: var(--color-primary);
 }
 
+/* A circuit found by its description being the site's address (#383). */
+.circuit-match {
+  font-style: italic;
+}
+
 .inspector-empty,
 .inspector-error {
   margin-top: 12px;

@@ -10,6 +10,7 @@ Endpoints implemented:
   GET /api/dcim/devices/        (filterable by ?location_id=)
   GET /api/ipam/asns/           (filterable by ?location_id=)
   GET /api/circuits/circuit-terminations/  (filterable by ?location=)
+  GET /api/circuits/circuits/
   GET /api/extras/relationships/, /api/extras/relationship-associations/
 
 Token auth: any request must carry  Authorization: Token <any non-empty value>
@@ -804,6 +805,43 @@ CIRCUIT_TERMINATIONS = {
 }
 
 
+# Circuits whose description is the site's address, without a termination
+# there (#383): the site panel lists them "By address".
+ADDRESS_CIRCUITS = [
+    # Same street, number and postcode; the town written differently.
+    _circuit("cir-cph-addr", "TDC-FIB-1001", "prov-telia", "ct-mpls", "Active", 1_000_000),
+    _circuit("cir-sto-addr", "TEL-STO-2001", "prov-telia", "ct-transit", "Active", 500_000),
+    _circuit("cir-fra-addr", "GTT-FRA-3001", "prov-gtt", "ct-mpls", "Planned", None),
+    # One address, two sites (London HQ and London Colo).
+    _circuit("cir-lon-addr", "GTT-LON-4001", "prov-gtt", "ct-transit", "Active", 10_000_000),
+    # Not just the address: not matched.
+    _circuit("cir-par-addr", "TEL-PAR-5001", "prov-telia", "ct-transit", "Active", 1_000_000),
+]
+for _circ, _description in zip(
+    ADDRESS_CIRCUITS,
+    (
+        "Vermlandsgade 51, 2300 København S",
+        "Stureplan 4, 11435 Stockholm",
+        "Hanauer Landstrasse 298, 60314 Frankfurt am Main",
+        "1 Canada Square, Canary Wharf, London E14 5AB, UK",
+        "Fibre 1G – Rue de la Paix 10, 75002 Paris",
+    ),
+    strict=True,
+):
+    _circ["description"] = _description
+# Terminated at Copenhagen DC and its address too: listed once, as terminated.
+CIRCUIT_TERMINATIONS["loc-cph"][0]["circuit"]["description"] = "Vermlandsgade 51, 2300 Copenhagen"
+# Scale mode: every third generated site has a circuit by address (#383).
+ADDRESS_CIRCUITS += [
+    {
+        **_circuit(f"cir-{loc['id']}", f"SC-{index:05d}", "prov-gtt", "ct-mpls", "Active", 1_000_000),
+        "description": loc["physical_address"],
+    }
+    for index, loc in enumerate(loc for loc in LOCATIONS if loc["id"].startswith("loc-sc"))
+    if index % 3 == 0
+]
+
+
 # Location <-> Tenant relationship: London HQ hosts three customers (#238).
 RELATIONSHIPS = [
     {
@@ -937,6 +975,18 @@ def circuit_terminations():
     else:
         items = [t for terms in CIRCUIT_TERMINATIONS.values() for t in terms]
     return jsonify(_paginate(items))
+
+
+@app.route("/api/circuits/circuits/")
+def circuits():
+    _check_auth()
+    terminated = {}
+    for location_id, terms in CIRCUIT_TERMINATIONS.items():
+        for term in terms:
+            side = f"circuit_termination_{term['term_side'].lower()}"
+            circuit = terminated.setdefault(term["circuit"]["id"], {**term["circuit"]})
+            circuit[side] = {"id": term["id"], "term_side": term["term_side"], "location": {"id": location_id}}
+    return jsonify(_paginate([*terminated.values(), *ADDRESS_CIRCUITS]))
 
 
 @app.route("/api/extras/relationships/")
