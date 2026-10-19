@@ -111,6 +111,7 @@ The devices a site's alert level is computed from.
 | `tenant.display` | string or null |  | — | — |
 | `serial` | string or null |  | serial | — |
 | `last_updated` | string | yes | last_updated | the incremental sync's watermark |
+| `custom_fields` | object or null |  | criticality | the DEVICE_CRITICALITY_FIELD custom field (a value, or a select's value or label), lowercased; only critical, medium or low |
 
 ### `tenancy/tenants/`
 

@@ -44,6 +44,9 @@ services:
       CACHE_TTL: "60"
       # The mock gives London HQ and Paris PoP an importance tier.
       SITE_TIER_FIELD: tier
+      # Criticality (#377): cph-fw01 is set critical, London's access switches low.
+      DEVICE_CRITICALITY_FIELD: criticality
+      TIER_DEVICE_LEVEL: gold:critical,silver:medium
       # The alert board reads from the persisted inventory snapshot, so the
       # demo needs a database (throwaway: no volume).
       NAUTOBOT_MAPS_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@postgres:5432/nautobot_maps

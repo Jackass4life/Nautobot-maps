@@ -681,6 +681,20 @@ tbody td:last-child:has(details.row-menu[open]) {
   vertical-align: middle;
 }
 
+/* A level set on the device in Nautobot (#377): quiet, like the tier pill. */
+.set-level-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+}
+
 /* Someone is on it, without a case (#288). */
 .ack-note {
   margin-top: 2px;

@@ -297,6 +297,8 @@ DEVICES = {
             "platform": {"name": "PAN-OS"},
             "serial": "013201006938",
             "tenant": TENANTS["ten-acme"],
+            # The device criticality custom field (#377), read with DEVICE_CRITICALITY_FIELD=criticality.
+            "custom_fields": {"criticality": "critical"},
         },
     ],
     "loc-cph2": [
@@ -441,6 +443,8 @@ DEVICES = {
             "platform": {"name": "IOS-XE"},
             "serial": "FCW2301A00Z",
             "tenant": TENANTS["ten-acme"],
+            # The device criticality custom field (#377), read with DEVICE_CRITICALITY_FIELD=criticality.
+            "custom_fields": {"criticality": "low"},
         },
         {
             "id": "dev-lon-5",
@@ -451,6 +455,8 @@ DEVICES = {
             "platform": {"name": "IOS-XE"},
             "serial": "FCW2301A00Y",
             "tenant": TENANTS["ten-acme"],
+            # The device criticality custom field (#377), read with DEVICE_CRITICALITY_FIELD=criticality.
+            "custom_fields": {"criticality": "low"},
         },
         {
             "id": "dev-lon-6",

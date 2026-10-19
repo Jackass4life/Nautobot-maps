@@ -86,9 +86,11 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ALERT_BOARD_EXCLUDED_LOCATION_NAMES` | — | Location names hidden from the board (fallback) |
 | `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` | — | Device statuses ignored: not counted, not listed |
 | `ALERT_MEDIUM_PERCENT` | `25` | More than this share of a site's monitored devices down is **Medium** ([alert levels](alert-board.md#alert-levels)) |
-| `ALERT_CRITICAL_PERCENT` | `100` | This share or more down is **Critical** (100: only when all are down); a down core device is always Critical |
+| `ALERT_CRITICAL_PERCENT` | `100` | This share or more down is **Critical** (100: only when all are down); a down core device is always Critical, and a device or tier set to a level gives at least that level |
 | `SITE_TIER_FIELD` | — | Nautobot custom field on the location with its importance tier (e.g. `tier`) ([importance](alert-board.md#importance-tier)) |
 | `SITE_TIERS` | `gold,silver,bronze` | The tier values, most important first; other values are no tier |
+| `TIER_DEVICE_LEVEL` | — | What any down device makes a site of that tier, e.g. `gold:critical,silver:medium`; a device's own field overrides it ([device and site criticality](alert-board.md#device-and-site-criticality)) |
+| `DEVICE_CRITICALITY_FIELD` | — | Nautobot custom field on the device (a select: `critical`, `medium`, `low`): what that device makes its site when down; it wins over the tier, the overrides and the role keywords. Setting it makes the next sync a full one |
 | `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`) |
 | `AVAILABILITY_BASIS` | `any_down` | What the [availability report](availability.md) counts as downtime: `any_down` (any monitored device of the site down) or `critical` (the site at Critical) |
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |

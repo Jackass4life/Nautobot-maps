@@ -208,6 +208,13 @@ export function flappingBadge(device) {
   return ` <span class="flap-badge" title="Up and down ${times} in the last 30 minutes">FLAPPING</span>`;
 }
 
+// A level set on the device in Nautobot (#377): only known levels reach the page.
+export function setLevelBadge(device) {
+  const level = ["critical", "medium", "low"].includes(device.set_level) ? device.set_level : "";
+  if (!level) return "";
+  return ` <span class="set-level-badge" title="Set ${level} in Nautobot: what this device makes its site when down">SET ${level.toUpperCase()}</span>`;
+}
+
 export function renderCases(item) {
   const cases = Array.isArray(item.active_cases) ? item.active_cases : [];
   if (!cases.length) return "—";
@@ -229,7 +236,7 @@ export function renderDownDeviceRows(item, isExpanded, extraClass) {
   const rows = downDevices.map((device) => `
     <tr class="down-device-row${hidden}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
-        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}${device.core ? ' <span class="core-badge" title="A core device: the likely cause of the other devices down here">CORE</span>' : ""}${flappingBadge(device)}</div>
+        <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}${device.core ? ' <span class="core-badge" title="A core device: the likely cause of the other devices down here">CORE</span>' : ""}${setLevelBadge(device)}${flappingBadge(device)}</div>
         <div class="site-meta">${[device.location_path, device.role, device.flapping ? "" : device.status, device.down_reason].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
         ${ackNote(device)}
         ${device.probable_cause ? `<div class="cause-note">Likely caused by ${escHtml(device.probable_cause)}</div>` : ""}

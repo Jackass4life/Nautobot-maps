@@ -16,13 +16,31 @@ Each site gets one level, from its **monitored devices**: devices with a Nautobo
 
 | Level | When |
 |---|---|
-| **Critical** | A core device is down, or at least `ALERT_CRITICAL_PERCENT` of the monitored devices are down (default 100: all of them) |
+| **Critical** | A core or critical device is down, or at least `ALERT_CRITICAL_PERCENT` of the monitored devices are down (default 100: all of them) |
 | **Medium** | More than `ALERT_MEDIUM_PERCENT` of the monitored devices are down (default 25%) |
 | **Low** | At least one monitored device is down, `ALERT_MEDIUM_PERCENT` or fewer |
 | **No data** | No monitored devices, or the level could not be computed. Not an alarm |
 | **OK** | Monitored devices, none down |
 
 A device is **core** when its role matches a critical keyword, or when it's marked critical by an override (`/api/criticality-overrides`). The keywords are `CRITICAL_ROLE_KEYWORDS` (default `core,spine,distribution,router,gateway`), or per location type from `CRITICALITY_RULES_FILE` (see `criticality_rules.json`).
+
+### Device and site criticality
+
+Which devices matter can be set in Nautobot (#377). Each down device gives its site a level, from the first of these that applies:
+
+1. **The device's own field**: a custom field on the device named by `DEVICE_CRITICALITY_FIELD`, a select with `critical`, `medium` or `low`.
+2. Else the worst of:
+   - **an override** in this app (`/api/criticality-overrides`): critical; "not critical" only stops its role from making it critical;
+   - **a core role keyword**: critical;
+   - **the site's tier**, through `TIER_DEVICE_LEVEL`, e.g. `gold:critical,silver:medium`: every device of a gold site counts as critical. A tier not listed sets nothing, and a tier's default never lowers a core device.
+
+The site's level is the worst of its down devices' levels, the share of devices down (the table above), and Critical when all are down. So a device set to `low` on a gold site doesn't make it Critical, but many `low` devices down still raise it by their share. With nothing set, the levels are as before.
+
+The reason says why: "Critical device(s) offline: fw01 (set in Nautobot)", "Medium device(s) offline: sw03 (silver site)"; a core role or an override keeps "Core device(s) offline: core01". A down device with a level set on it in Nautobot has a quiet **SET LOW** / **SET MEDIUM** / **SET CRITICAL** mark; a tier's default isn't marked, as it would be on every device of the site.
+
+**Editing these in Nautobot doesn't page anyone.** When a site's level changes but its down devices are the same as at the last board build (a field or tier was changed, or a setting), the change is in the activity feed but not notified. A device going down or coming back is notified as usual, also in the same minute as an edit. Right after the upgrade nothing is known yet, so the first build's changes are notified as before; turn on `TIER_DEVICE_LEVEL` after that build to keep it quiet. The availability report's `critical` basis follows these levels from then on; past downtime is not recalculated.
+
+The field is read with the device sync. Setting or changing `DEVICE_CRITICALITY_FIELD` or `SITE_TIER_FIELD` makes the next sync a full one, so the values arrive within one sync.
 
 Down/up status comes from Nautobot's device status, and from LibreNMS when it's configured.
 

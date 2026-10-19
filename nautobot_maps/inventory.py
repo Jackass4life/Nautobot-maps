@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 
 FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
-# (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293).
-CACHE_VERSION = "5"
+# (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293;
+# 6: devices store criticality, #377).
+CACHE_VERSION = "6"
 sync_lock = threading.Lock()
 SYNC_THREAD_NAME = "inventory-sync"
 
@@ -159,15 +160,26 @@ def normalize_locations(
     return locations
 
 
-def location_tier(location: dict) -> str:
-    """The location's value of the SITE_TIER_FIELD custom field, lowercased, or "" (#293)."""
-    if not settings.SITE_TIER_FIELD:
+def custom_field_value(obj: dict, field: str) -> str:
+    """A Nautobot object's custom field *field*, lowercased, or "" (#293, #377)."""
+    if not field:
         return ""
-    fields = location.get("custom_fields")
-    value = fields.get(settings.SITE_TIER_FIELD) if isinstance(fields, dict) else None
+    fields = obj.get("custom_fields")
+    value = fields.get(field) if isinstance(fields, dict) else None
     if isinstance(value, dict):  # a select field can come as {"value": ..., "label": ...}
         value = value.get("value") or value.get("label")
     return str(value).strip().lower() if isinstance(value, (str, int)) and str(value).strip() else ""
+
+
+def location_tier(location: dict) -> str:
+    """The location's value of the SITE_TIER_FIELD custom field, lowercased, or "" (#293)."""
+    return custom_field_value(location, settings.SITE_TIER_FIELD)
+
+
+def device_criticality(device: dict) -> str:
+    """The device's DEVICE_CRITICALITY_FIELD: critical, medium or low; "" when unset or unknown (#377)."""
+    value = custom_field_value(device, settings.DEVICE_CRITICALITY_FIELD)
+    return value if value in settings.DEVICE_LEVELS else ""
 
 
 LOCATION_TYPE = "dcim.location"
@@ -335,6 +347,7 @@ def normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> li
                 "tenant": ten_name,
                 "last_updated": d.get("last_updated") or "",
                 "location_id": (d.get("location", {}).get("id", "") if isinstance(d.get("location"), dict) else ""),
+                "criticality": device_criticality(d),
             }
         )
     return devices
@@ -470,14 +483,14 @@ def read_devices(location_id: str | None = None, conn=None) -> list:
             marker = db.placeholders(1)
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant, last_updated FROM nautobot_device_cache "
+                "primary_ip, platform, serial, tenant, last_updated, criticality FROM nautobot_device_cache "
                 f"WHERE location_id = {marker} ORDER BY name ASC"
             )
             params = (location_id,)
         else:
             query = (
                 "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant, last_updated FROM nautobot_device_cache "
+                "primary_ip, platform, serial, tenant, last_updated, criticality FROM nautobot_device_cache "
                 "ORDER BY location_id, name ASC"
             )
         rows = conn.execute(query, params).fetchall()
@@ -496,6 +509,7 @@ def read_devices(location_id: str | None = None, conn=None) -> list:
                 "tenant": data.get("tenant", ""),
                 # When Nautobot last changed the device, e.g. its status (#166).
                 "last_updated": data.get("last_updated") or "",
+                "criticality": data.get("criticality") or "",
             }
             for data in (db.row_to_dict(row) for row in rows)
         ]
@@ -618,8 +632,15 @@ def sync_due(source: str, interval_seconds: int, conn=None) -> bool:
     return (datetime.now(UTC) - completed_at).total_seconds() >= max(0, interval_seconds)
 
 
+def cache_version() -> str:
+    """CACHE_VERSION, and the custom fields read at sync time: setting or
+    changing one forces a full resync, not a wait for the daily one (#377)."""
+    fields = [settings.SITE_TIER_FIELD, settings.DEVICE_CRITICALITY_FIELD]
+    return f"{CACHE_VERSION}+{','.join(fields)}" if any(fields) else CACHE_VERSION
+
+
 def cache_version_mismatch(state: dict | None) -> bool:
-    return (state or {}).get("cache_version") != CACHE_VERSION
+    return (state or {}).get("cache_version") != cache_version()
 
 
 def snapshot_initialized(conn=None) -> bool:
@@ -754,13 +775,13 @@ def read_location_tenant_links(conn) -> dict[str, list[str]]:
 
 
 def write_devices(conn, devices: list) -> None:
-    placeholders = db.placeholders(12).split(",")
+    placeholders = db.placeholders(13).split(",")
     for device in devices:
         conn.execute(
             f"""
             INSERT INTO nautobot_device_cache
                 (device_id, location_id, name, device_type, manufacturer, role, status,
-                 primary_ip, platform, serial, tenant, last_updated, synced_at)
+                 primary_ip, platform, serial, tenant, last_updated, criticality, synced_at)
             VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(device_id) DO UPDATE SET
                 location_id = excluded.location_id,
@@ -774,6 +795,7 @@ def write_devices(conn, devices: list) -> None:
                 serial = excluded.serial,
                 tenant = excluded.tenant,
                 last_updated = excluded.last_updated,
+                criticality = excluded.criticality,
                 synced_at = excluded.synced_at
             """,
             (
@@ -789,6 +811,7 @@ def write_devices(conn, devices: list) -> None:
                 coalesce_text(device.get("serial", "")),
                 coalesce_text(device.get("tenant", "")),
                 device.get("last_updated") or None,
+                coalesce_text(device.get("criticality", "")),
             ),
         )
 
@@ -1053,7 +1076,7 @@ def sync_nautobot(force: bool = False) -> None:
                 last_started_at=started_at,
                 last_completed_at=completed_at,
                 last_successful_sync=watermark,
-                cache_version=CACHE_VERSION,
+                cache_version=cache_version(),
                 status="idle",
                 error_message="",
             )
@@ -1064,7 +1087,7 @@ def sync_nautobot(force: bool = False) -> None:
                     last_started_at=started_at,
                     last_completed_at=completed_at,
                     last_successful_sync=watermark,
-                    cache_version=CACHE_VERSION,
+                    cache_version=cache_version(),
                     status="idle",
                     error_message="",
                 )
