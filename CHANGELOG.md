@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **The board and Copy say when a down device is in a stack** (#402): "Stack sw-stack01, member 2 of 4" or "master of 4" on the down device's line, in the copied text for a ticket and for AI assistants (MCP)
 - **The Availability page explains itself** (#396): an **(i)** next to the title, the Downtime choice, each summary card, the Tenants and Sites lists and the CSV links says what it means, for someone new to the page
 - **Circuit mapping page** (#385): **Circuits** in the ☰ menu lists every circuit without a termination at a location, grouped worst first by what its description's address found (several sites, no site, one site), with search, links to Nautobot and the map, and a CSV (`/api/circuit-mapping.csv`) for adding the terminations in Nautobot
 - **Circuits by address in the site panel** (#383): a circuit without a termination whose description is the site's physical address (e.g. `Roersvej 33, 5000 Odense C`) is listed with the site's circuits, marked *By address*. Street, number and postcode must match (the town, a floor and door or a country don't count); a town or street alone never matches; an address shared by several sites says so. Circuits are read once per sync and stored, nothing per site; the first sync after the upgrade is a full one

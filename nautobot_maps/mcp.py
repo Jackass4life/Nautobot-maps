@@ -191,6 +191,9 @@ def _device(device: dict) -> dict:
     keys = ("device_id", "device_name", "device_ip", "role", "status", "location_path", "down_started_at")
     result = {key: device[key] for key in keys if device.get(key) not in (None, "")}
     result["case_numbers"] = device.get("case_numbers") or []
+    # In a stack: which, its place and size (#402).
+    if device.get("stack"):
+        result["stack"] = device["stack"]
     return result
 
 

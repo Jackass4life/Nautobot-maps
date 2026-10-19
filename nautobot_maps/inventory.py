@@ -697,6 +697,15 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             conn.close()
 
 
+def read_stack_sizes(conn) -> dict[str, int]:
+    """``{virtual chassis id: its members}`` over every cached device (#402):
+    a stack's size wherever its members are, in one query."""
+    rows = conn.execute(
+        "SELECT vc_id, COUNT(*) AS members FROM nautobot_device_cache WHERE vc_id <> '' GROUP BY vc_id"
+    ).fetchall()
+    return {data["vc_id"]: int(data["members"]) for data in map(db.row_to_dict, rows)}
+
+
 def read_devices(location_id: str | None = None, conn=None) -> list:
     owns_conn = conn is None
     if owns_conn:

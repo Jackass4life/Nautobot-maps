@@ -208,6 +208,14 @@ export function flappingBadge(device) {
   return ` <span class="flap-badge" title="Up and down ${times} in the last 30 minutes">FLAPPING</span>`;
 }
 
+// A down device's stack (#400, #402), for its line and the Copy: "Stack sw-stack01,
+// member 2 of 4", "Stack sw-stack01, master of 4"; "" when it isn't in one.
+export function stackText(stack) {
+  if (!stack || !Number.isInteger(stack.size) || stack.size < 2) return "";
+  const where = stack.master ? "master" : Number.isInteger(stack.position) ? `member ${stack.position}` : "member";
+  return `Stack${stack.name ? ` ${stack.name}` : ""}, ${where} of ${stack.size}`;
+}
+
 // A level set on the device in Nautobot (#377): only known levels reach the page.
 export function setLevelBadge(device) {
   const level = ["critical", "medium", "low"].includes(device.set_level) ? device.set_level : "";
@@ -237,7 +245,7 @@ export function renderDownDeviceRows(item, isExpanded, extraClass) {
     <tr class="down-device-row${hidden}">
       <td class="down-device-cell" aria-label="Down device for ${siteLabel}">
         <div class="down-device-name"><span class="visually-hidden">Down device for ${siteLabel}: </span>↳ ${escHtml(device.device_name || device.device_id || "Unknown device")}${device.device_ip ? ` <span class="device-ip">${escHtml(device.device_ip)}</span>` : ""}${device.core ? ' <span class="core-badge" title="A core device: the likely cause of the other devices down here">CORE</span>' : ""}${setLevelBadge(device)}${flappingBadge(device)}</div>
-        <div class="site-meta">${[device.location_path, device.role, device.flapping ? "" : device.status, device.down_reason].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
+        <div class="site-meta">${[device.location_path, device.role, stackText(device.stack), device.flapping ? "" : device.status, device.down_reason].filter(Boolean).map(escHtml).join(" · ") || "Down device"}</div>
         ${ackNote(device)}
         ${device.probable_cause ? `<div class="cause-note">Likely caused by ${escHtml(device.probable_cause)}</div>` : ""}
         ${device.maintenance_until ? `<div class="maintenance-note"><span class="alert-badge alert-maintenance">MAINTENANCE</span> ${maintenanceNote(device.maintenance_until, device.maintenance_reason)}</div>` : ""}
