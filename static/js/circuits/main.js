@@ -1,7 +1,7 @@
 // The Circuit mapping page (#385): an entry module, like */main.js.
 import { searchWords } from "../lib/format.js";
 import { getJson } from "../lib/http.js";
-import { initThemeToggle } from "../lib/theme.js";
+import { initTopBar } from "../lib/nav.js";
 import { groupsHtml, matches, prepare, STEP, summaryText } from "./list.js";
 
 const els = {
@@ -47,7 +47,7 @@ els.search.addEventListener("input", () => {
   render();
 });
 
-initThemeToggle(document.getElementById("theme-toggle"));
+initTopBar();
 try {
   const data = await getJson("/api/circuit-mapping");
   state.circuits = prepare(data.circuits || []);

@@ -4,10 +4,10 @@
 // sortable and searchable, the worst first (#342).  An entry module, like */main.js.
 import { initAvailabilityTable } from "./availability/table.js";
 import { initPeriodPicker } from "./lib/period-picker.js";
-import { initThemeToggle } from "./lib/theme.js";
+import { initTopBar } from "./lib/nav.js";
 import { initInfoTips } from "./lib/tooltip.js";
 
-initThemeToggle(document.getElementById("theme-toggle"));
+initTopBar();
 initInfoTips();
 for (const section of document.querySelectorAll("[data-avail-table]")) initAvailabilityTable(section);
 

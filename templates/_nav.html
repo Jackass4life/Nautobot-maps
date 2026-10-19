@@ -1,0 +1,27 @@
+{#- One top bar for every page (#392): the theme, and the pages in a menu.
+    *active*: this page's key; *scope_query* (map, board): ?tenant= / ?q= kept. -#}
+{%- set scope = scope_query if scope_query is defined and scope_query else "" -%}
+{%- set pages = [
+  ("map", "/" ~ ("?" ~ scope if scope else ""), "Map", "Every site on a map"),
+  ("alerts", "/alerts" ~ ("?" ~ scope if scope else ""), "Alert Board", "The sites in alarm, cases and history"),
+  ("availability", "/availability", "Availability", "Availability per site and tenant, by month"),
+  ("maintenance", "/maintenance", "Maintenance", "Current and planned maintenance, and planning more"),
+  ("circuits", "/circuits", "Circuits", "Circuits without a termination, and their likely site"),
+  ("docs", "/docs", "API", "Every endpoint, with Try it"),
+  ("wall", "/alerts?view=wall" ~ ("&" ~ scope if scope else ""), "Wall view", "For a wall screen: alarms only, no controls"),
+] -%}
+<div class="app-actions">
+  <button id="theme-toggle" class="icon-btn theme-toggle" type="button" aria-label="Switch to dark mode" title="Dark mode">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.75a7.25 7.25 0 0 1 0 14.5z" fill="currentColor"/></svg>
+  </button>
+  <details class="app-menu">
+    <summary class="icon-btn" aria-label="Pages" title="Pages">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </summary>
+    <nav class="app-nav" aria-label="Primary">
+      {%- for key, href, label, title in pages %}
+      <a class="app-nav-link{% if key == active %} active{% endif %}" title="{{ title }}"{% if key == active %} aria-current="page"{% endif %} href="{{ href }}">{{ label }}</a>
+      {%- endfor %}
+    </nav>
+  </details>
+</div>

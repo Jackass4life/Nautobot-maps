@@ -1,5 +1,5 @@
 // The API explorer page (templates/docs.html, #230).
-import { initThemeToggle } from "../lib/theme.js";
+import { initTopBar } from "../lib/nav.js";
 import { filterEndpoints, tryEndpoint } from "./explorer.js";
 
 const endpointFilter = document.getElementById("endpoint-filter");
@@ -22,4 +22,4 @@ document.addEventListener("submit", (event) => {
 endpointFilter?.addEventListener("input", applyFilter);
 applyFilter();
 
-initThemeToggle(document.getElementById("theme-toggle"));
+initTopBar();
