@@ -131,14 +131,6 @@ body.inspector-open #map {
   min-width: 0;
 }
 
-.inspector-kicker,
-.inspector-section-title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-}
 
 #inspector-title {
   font-size: 1.25rem;
@@ -211,29 +203,17 @@ body.inspector-open #map {
   min-height: 0;
 }
 
-.inspector-meta,
 .inspector-device-list {
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
-.inspector-header-row,
 .inspector-actions-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.inspector-header-row {
-  align-items: center;
-  justify-content: space-between;
-}
 
-.inspector-status-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 
 .inspector-section {
   margin-top: 16px;
@@ -277,59 +257,155 @@ body.inspector-open #map {
   word-break: break-word;
 }
 
-.inspector-meta details {
-  margin-top: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface-2);
-  padding: 8px 10px;
-}
 
-.inspector-meta summary {
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
 
 .inspector-actions-row {
-  margin-top: 12px;
+  margin-top: 10px;
+  align-items: center;
 }
 
-.inspector-pill {
-  display: inline-flex;
+/* The site's state in one line, the reason under it (#394). */
+.site-status-line {
+  display: flex;
   align-items: center;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 0.74rem;
+  gap: 8px;
+  font-size: 1rem;
   font-weight: 700;
 }
 
-.inspector-alert-pill {
-  background: rgba(255, 140, 0, 0.16);
-  color: var(--color-warning);
+.site-status.is-critical .site-status-line { color: var(--color-danger); }
+.site-status.is-medium .site-status-line { color: var(--color-warning); }
+.site-status.is-ok .site-status-line { color: var(--color-success); }
+.site-status.is-no_data .site-status-line,
+.site-status.is-loading { color: var(--color-text-muted); font-weight: 600; }
+
+.site-status-reason {
+  margin: 4px 0 0 20px;
+  font-size: 0.84rem;
+  color: var(--color-text-muted);
 }
 
-.inspector-alert-pill.is-low {
-  background: rgba(234, 179, 8, 0.16);
-  color: #a16207;
+/* Quiet links under the state, not pills. */
+.site-summary .nautobot-link {
+  margin: 0 14px 0 0;
+  padding: 0;
+  background: none;
+  font-size: 0.84rem;
 }
 
-.inspector-alert-pill.is-critical {
-  background: rgba(231, 76, 60, 0.16);
-  color: var(--color-danger);
+.site-summary .nautobot-link:hover {
+  background: none;
+  color: var(--color-primary-dark);
+  text-decoration: underline;
 }
 
-.inspector-alert-pill.is-maintenance {
-  background: rgba(37, 99, 235, 0.16);
-  color: #2563eb;
+.panel-heading {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
 }
+
+/* One line per device; a click opens its details in place (#394). */
+.device-rows {
+  margin-top: 6px;
+}
+
+.device-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.device-row:hover,
+.device-row:focus-visible,
+.device-row-item.open > .device-row {
+  background: var(--color-surface-2);
+}
+
+.device-row-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-row-role {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.device-row-note {
+  font-style: italic;
+}
+
+.device-details {
+  padding: 2px 6px 8px 26px;
+}
+
+.panel-more {
+  margin-top: 4px;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The rest, folded, each with its count (#394). */
+.panel-fold {
+  border-top: 1px solid var(--color-border);
+}
+
+.panel-fold:first-child {
+  border-top: 0;
+}
+
+.panel-fold-title {
+  padding: 11px 2px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.panel-fold-title::-webkit-details-marker {
+  display: none;
+}
+
+.panel-fold-title::before {
+  content: "▸ ";
+  color: var(--color-text-muted);
+}
+
+.panel-fold[open] > .panel-fold-title::before {
+  content: "▾ ";
+}
+
+.panel-fold-body {
+  padding: 0 2px 12px;
+}
+
+
+
+
+
 
 /* "2 down · 7 monitored", as on the board (#316). */
-.inspector-counts {
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
-}
 
 /* A device that doesn't count towards the level, and why. */
 .device-not-monitored {
@@ -1209,8 +1285,6 @@ body.inspector-open #loading-overlay {
   font-size: 0.73rem;
 }
 
-.device-role  { color: #a0c4ff; }
-.device-platform { color: #b9f2b9; }
 /* Note: these colours supplement the explicit "Role:" / "Software:" text labels */
 
 /* Device status badge inside popup device list */
@@ -1295,52 +1369,13 @@ body.inspector-open #loading-overlay {
 /* =========================================================
    NOC alert banner (shown inside popup after detail loads)
    ========================================================= */
-.alert-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  border-radius: 6px;
-  padding: 7px 10px;
-  margin-bottom: 8px;
-  font-size: 0.82rem;
-}
 
-.alert-banner.alert-critical {
-  background: rgba(231, 76, 60, 0.18);
-  border: 1px solid rgba(231, 76, 60, 0.5);
-}
 
-.alert-banner.alert-medium {
-  background: rgba(255, 140, 0, 0.18);
-  border: 1px solid rgba(255, 140, 0, 0.5);
-}
 
-.alert-banner.alert-low {
-  background: rgba(234, 179, 8, 0.16);
-  border: 1px solid rgba(234, 179, 8, 0.5);
-}
 
-.alert-banner-icon {
-  font-size: 1rem;
-  flex-shrink: 0;
-  line-height: 1.4;
-}
 
-.alert-banner-level {
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  font-size: 0.75rem;
-}
 
-.alert-critical .alert-banner-level { color: var(--color-danger); }
-.alert-medium   .alert-banner-level { color: #ff8c00; }
-.alert-low      .alert-banner-level { color: #a16207; }
 
-.alert-banner-reason {
-  font-size: 0.76rem;
-  color: var(--color-text-muted);
-  margin-top: 1px;
-}
 
 /* Pulsing ring for critical markers */
 @keyframes markerPulse {

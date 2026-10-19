@@ -1594,7 +1594,7 @@ class TestIndex:
         # No Pinned button: the panel stays open while the map is used (#311).
         assert b'id="inspector-pin"' not in resp.data
         assert b'id="inspector-close"' in resp.data
-        assert b'aria-label="Close location inspector"' in resp.data
+        assert b'aria-label="Close the site panel"' in resp.data
 
     @staticmethod
     def _app_config(resp) -> dict:
@@ -6858,6 +6858,26 @@ class TestLocationAlertLevels:
                 detail = alerts.get_location_detail(location_id, location_type="Data Center")
                 expected = levels.get(location_id, {}).get("level", "ok")
                 assert detail["alert"]["level"] == expected
+
+    def test_the_site_panel_marks_core_devices(self, client):
+        """Core devices first in the panel's down list (#394): by role, or an override."""
+        with patch.object(nautobot, "fetch_all_pages", return_value=[]):
+            detail = alerts.get_location_detail("loc-core", location_type="Data Center")
+        assert {d["name"]: d["core"] for d in detail["devices"]} == {"core-1": True, "acc-1": False}
+        # And the level each gives the site, as the board weighs it (#377).
+        assert {d["name"]: d["level"] for d in detail["devices"]} == {"core-1": "critical", "acc-1": ""}
+        conn = db.get_conn()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
+                    " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
+                )
+        finally:
+            conn.close()
+        with patch.object(nautobot, "fetch_all_pages", return_value=[]):
+            detail = alerts.get_location_detail("loc-few", location_type="Data Center")
+        assert [d["id"] for d in detail["devices"] if d["core"]] == ["few-1"]
 
     def test_criticality_override_is_applied(self, client):
         conn = db.get_conn()

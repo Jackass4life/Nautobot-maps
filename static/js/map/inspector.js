@@ -1,20 +1,23 @@
 // The site panel ("inspector"): opens from a marker, a search result or
 // ?location_id=, shows the site's level, devices, circuits and ASNs.
+import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
-import { ALERT_RANK } from "./levels.js";
 import { getColocatedLocationIds, updateMarkerForAlert } from "./markers.js";
 import {
   badgeClass,
-  buildAlertBanner,
   buildCircuitCard,
   buildHealthSummary,
   buildMaintenanceHistoryLink,
   buildNautobotLink,
-  deviceCard,
   deviceFilterLabel,
+  deviceKey,
+  deviceRowHtml,
   filterDevicesForInspector,
+  foldHtml,
   inspectorRow,
+  sortDownDevices,
+  statusLineHtml,
   tenantRow,
 } from "./panel.js";
 import {
@@ -23,6 +26,7 @@ import {
   els,
   getLocationById,
   inFlightDetailRequests,
+  locationAlertInfo,
   markerByLocId,
   state,
 } from "./state.js";
@@ -93,7 +97,7 @@ function renderInspectorTabs() {
 
 export function renderInspectorContent() {
   const { inspectorTitle, inspectorSubtitle, inspectorTabs, inspectorState, inspectorContent } = els;
-  const { selectedLocationId, selectedDetail, inspectorLoading, inspectorError, inspectorDeviceFilter, inspectorDeviceSearch } = state;
+  const { selectedLocationId, selectedDetail, inspectorLoading, inspectorError } = state;
   if (!selectedLocationId) {
     inspectorTitle.textContent = "Select a location";
     inspectorSubtitle.textContent = "Click a map marker to inspect a location.";
@@ -109,15 +113,122 @@ export function renderInspectorContent() {
   const loc = getLocationById(selectedLocationId);
   if (!loc) return;
 
-  const statusLabel = loc.status || "Unknown";
-  const primaryRows = [
+  // What is wrong first, the rest folded with counts (#394).
+  inspectorTitle.textContent = loc.name || "Site";
+  // Co-located sites (the tabs below) say so: the status is the chosen one's.
+  const here = state.selectedGroupIds.length > 1 ? `${state.selectedGroupIds.length} locations here` : "";
+  inspectorSubtitle.textContent = [loc.location_type, loc.ancestor_path || loc.parent, here].filter(Boolean).join(" · ");
+  renderInspectorTabs();
+  inspectorState.classList.add("hidden");
+  inspectorContent.classList.remove("hidden");
+
+  const detail = !inspectorLoading && !inspectorError ? selectedDetail : null;
+  const devices = detail && Array.isArray(detail.devices) ? detail.devices : [];
+  const since = locationAlertInfo[selectedLocationId]?.since;
+  const status = statusLineHtml({
+    alert: detail?.alert || null,
+    counts: detail?.counts || null,
+    since: since ? formatFeedTime(since) : "",
+    loading: inspectorLoading,
+    error: inspectorError,
+  });
+  // Planned, Decommissioning...: said; Active is the norm and isn't.
+  const lifecycle = loc.status && loc.status.toLowerCase() !== "active"
+    ? `<span class="popup-badge ${badgeClass(loc.status)}">${escHtml(loc.status)}</span>` : "";
+  const links = [buildNautobotLink(loc), buildMaintenanceHistoryLink(loc)].filter(Boolean).join("");
+
+  let body;
+  if (inspectorError) {
+    body = `<div class="inspector-error">
+      Could not load details: ${escHtml(inspectorError)}
+      <div class="inspector-actions-row">
+        <button id="inspector-retry" class="secondary-btn" type="button">Retry</button>
+      </div>
+    </div>`;
+  } else if (inspectorLoading) {
+    body = `<div class="inspector-empty">Loading devices…</div>`;
+  } else {
+    body = downDevicesHtml(devices) + foldsHtml(loc, detail, devices);
+  }
+
+  inspectorContent.innerHTML = `
+    <div class="inspector-section site-summary">
+      ${status}
+      ${lifecycle || links ? `<div class="inspector-actions-row">${lifecycle}${links}</div>` : ""}
+    </div>
+    ${body}
+  `;
+}
+
+// The down devices first (#394): the worst eight, then "Show all 34".
+const DOWN_SHOWN = 8;
+
+function downDevicesHtml(devices) {
+  const down = sortDownDevices(devices);
+  if (!down.length) return "";
+  const shown = state.inspectorDownExpanded ? down : down.slice(0, DOWN_SHOWN);
+  const rows = shown.map((device) => deviceRowHtml(device, state.inspectorOpenDevices.has(deviceKey(device)))).join("");
+  const more = down.length > DOWN_SHOWN
+    ? `<button class="panel-more" type="button" data-down-toggle>${state.inspectorDownExpanded ? "Show fewer" : `Show all ${down.length}`}</button>`
+    : "";
+  return `<section class="inspector-section" aria-labelledby="inspector-down-title">
+    <h3 id="inspector-down-title" class="panel-heading">Down · ${down.length}</h3>
+    <ul class="inspector-device-list device-rows" aria-label="Down devices">${rows}</ul>${more}
+  </section>`;
+}
+
+// Whether a fold is open: as the operator left it, else its default.
+function foldOpen(key, byDefault) {
+  return state.inspectorFolds.has(key) ? state.inspectorFolds.get(key) : byDefault;
+}
+
+function foldsHtml(loc, detail, devices) {
+  const { inspectorDeviceFilter, inspectorDeviceSearch } = state;
+  const folds = [];
+  if (devices.length) {
+    // Filters and a search only where they help: more than ten devices.
+    let toolbar = "";
+    if (devices.length > 10) {
+      const summary = buildHealthSummary(devices);
+      const counts = { all: devices.length, active: summary.active, down: summary.down, unknown: summary.unknown };
+      const buttons = ["all", "active", "down", "unknown"]
+        .filter((key) => key === "all" || counts[key])
+        .map((key) => `<button class="device-filter-btn${inspectorDeviceFilter === key ? " active" : ""}" type="button" data-device-filter="${key}" aria-pressed="${inspectorDeviceFilter === key ? "true" : "false"}">${deviceFilterLabel(key)} ${counts[key]}</button>`)
+        .join("");
+      toolbar = `<div class="inspector-device-toolbar">
+        <div class="device-filters" aria-label="Device filters">${buttons}</div>
+        <input id="inspector-device-search" class="inspector-device-search" type="search" value="${escHtml(inspectorDeviceSearch)}" placeholder="Search devices" aria-label="Search devices" />
+      </div>`;
+    }
+    const listed = devices.length > 10 ? filterDevicesForInspector(devices, inspectorDeviceFilter, inspectorDeviceSearch) : devices;
+    const rows = listed.map((device) => deviceRowHtml(device, state.inspectorOpenDevices.has(deviceKey(device)))).join("");
+    const list = listed.length
+      ? `<ul class="inspector-device-list device-rows" aria-label="Devices">${rows}</ul>`
+      : `<div class="inspector-empty">No device matches.</div>`;
+    const quiet = !sortDownDevices(devices).length;
+    folds.push(foldHtml("devices", "All devices", devices.length, toolbar + list, foldOpen("devices", quiet && devices.length <= 10)));
+  }
+
+  const circuits = Array.isArray(detail?.circuits) ? detail.circuits : [];
+  if (detail?.circuits_error) {
+    folds.push(foldHtml("circuits", "Circuits", null, `<div class="inspector-empty">${escHtml(detail.circuits_error)}</div>`, foldOpen("circuits", false)));
+  } else if (circuits.length) {
+    folds.push(foldHtml("circuits", "Circuits", circuits.length,
+      `<ul class="inspector-device-list" aria-label="Circuit list">${circuits.map(buildCircuitCard).join("")}</ul>`, foldOpen("circuits", false)));
+  }
+
+  const asns = Array.isArray(detail?.asns) ? detail.asns : [];
+  if (asns.length) {
+    const tags = asns.map((asn) => `<span class="asn-tag" title="${escHtml(asn.description || "")}">AS${escHtml(asn.asn)}${asn.tenant ? ` · ${escHtml(asn.tenant)}` : ""}</span>`).join("");
+    folds.push(foldHtml("asns", "ASNs", asns.length, tags, foldOpen("asns", false)));
+  }
+
+  const rows = [
     inspectorRow("Type", loc.location_type),
     inspectorRow("Parent", loc.parent),
     // No Country row (#386): read from addresses it showed a town; the address says it.
     inspectorRow("Address", loc.physical_address),
     inspectorRow("Facility", loc.facility),
-  ].filter(Boolean).join("");
-  const secondaryRows = [
     tenantRow(loc),
     inspectorRow("Tenant group", loc.tenant_group),
     inspectorRow("ASN", loc.asn),
@@ -125,142 +236,10 @@ export function renderInspectorContent() {
     inspectorRow("Tags", Array.isArray(loc.tags) && loc.tags.length > 0 ? loc.tags.join(", ") : ""),
     inspectorRow("Description", loc.description),
   ].filter(Boolean).join("");
-
-  const devices = selectedDetail && Array.isArray(selectedDetail.devices) ? selectedDetail.devices : [];
-  const summary = buildHealthSummary(devices);
-  const filteredDevices = filterDevicesForInspector(devices, inspectorDeviceFilter, inspectorDeviceSearch);
-  const asns = selectedDetail && Array.isArray(selectedDetail.asns) ? selectedDetail.asns : [];
-  const alert = selectedDetail && selectedDetail.alert ? selectedDetail.alert : null;
-  let alertPill = `<span class="inspector-pill">${escHtml("Healthy")}</span>`;
-  if (inspectorLoading) {
-    alertPill = `<span class="inspector-pill">${escHtml("Loading alert status…")}</span>`;
-  } else if (inspectorError) {
-    alertPill = `<span class="inspector-pill">${escHtml("Alert status unavailable")}</span>`;
-  } else if (alert && ALERT_RANK[alert.level]) {
-    alertPill = `<span class="inspector-pill inspector-alert-pill is-${escHtml(alert.level)}">${escHtml(alert.level.toUpperCase())}</span>`;
-  } else if (alert && alert.level === "maintenance") {
-    alertPill = `<span class="inspector-pill inspector-alert-pill is-maintenance">MAINTENANCE</span>`;
-  } else if (alert && alert.level === "no_data") {
-    alertPill = `<span class="inspector-pill">${escHtml("No monitored devices")}</span>`;
-  }
-  // The board's count (#316): the devices that decide the level.
-  const counts = !inspectorLoading && !inspectorError && selectedDetail && selectedDetail.counts;
-  const countsLine = counts && Number.isFinite(counts.monitored)
-    ? `<span class="inspector-counts">${counts.down || 0} down · ${counts.monitored} monitored</span>`
-    : "";
-
-  inspectorTitle.textContent = loc.name || "Location inspector";
-  inspectorSubtitle.textContent = state.selectedGroupIds.length > 1
-    ? `${state.selectedGroupIds.length} co-located locations`
-    : "Location details";
-  renderInspectorTabs();
-  inspectorState.classList.add("hidden");
-  inspectorContent.classList.remove("hidden");
-
-  let equipmentBody;
-  if (inspectorLoading) {
-    equipmentBody = `<div class="inspector-empty">Loading equipment and health details…</div>`;
-  } else if (inspectorError) {
-    equipmentBody = `<div class="inspector-error">
-      Could not load details: ${escHtml(inspectorError)}
-      <div class="inspector-actions-row">
-        <button id="inspector-retry" class="secondary-btn" type="button">Retry</button>
-      </div>
-    </div>`;
-  } else if (devices.length === 0) {
-    equipmentBody = `<div class="inspector-empty">No equipment found for this location.</div>`;
-  } else {
-    const filterCounts = {
-      all: devices.length,
-      active: summary.active,
-      down: summary.down,
-      unknown: summary.unknown,
-    };
-    const filterButtons = ["all", "active", "down", "unknown"]
-      .map(
-        (key) =>
-          `<button class="device-filter-btn${inspectorDeviceFilter === key ? " active" : ""}" type="button" data-device-filter="${key}" aria-pressed="${inspectorDeviceFilter === key ? "true" : "false"}">${deviceFilterLabel(key)} (${filterCounts[key] || 0})</button>`
-      )
-      .join("");
-    const cards = filteredDevices.map(deviceCard).join("");
-    equipmentBody = `<div class="inspector-device-toolbar">
-      <div class="device-filters" aria-label="Equipment health filters">${filterButtons}</div>
-      <input id="inspector-device-search" class="inspector-device-search" type="search" value="${escHtml(inspectorDeviceSearch)}" placeholder="Search equipment" aria-label="Search equipment" />
-    </div>
-    ${filteredDevices.length > 0
-      ? `<ul class="inspector-device-list" aria-label="Equipment list">${cards}</ul>`
-      : `<div class="inspector-empty">No equipment matches the current filter.</div>`}`;
-  }
-
-  let asnBody;
-  if (inspectorLoading) {
-    asnBody = `<div class="inspector-empty">Loading ASN details…</div>`;
-  } else if (inspectorError) {
-    asnBody = `<div class="inspector-empty">Retry loading to retrieve ASN details.</div>`;
-  } else if (asns.length === 0) {
-    asnBody = `<div class="inspector-empty">No ASN or network information found for this location.</div>`;
-  } else {
-    asnBody = asns
-      .map(
-        (asn) =>
-          `<span class="asn-tag" title="${escHtml(asn.description || "")}">AS${escHtml(asn.asn)}${asn.tenant ? ` · ${escHtml(asn.tenant)}` : ""}</span>`
-      )
-      .join("");
-  }
-
-  const circuits = selectedDetail && Array.isArray(selectedDetail.circuits) ? selectedDetail.circuits : [];
-  const circuitsError = selectedDetail ? selectedDetail.circuits_error || "" : "";
-  let circuitBody;
-  if (inspectorLoading) {
-    circuitBody = `<div class="inspector-empty">Loading circuits…</div>`;
-  } else if (inspectorError) {
-    circuitBody = `<div class="inspector-empty">Retry loading to retrieve circuits.</div>`;
-  } else if (circuitsError) {
-    circuitBody = `<div class="inspector-empty">${escHtml(circuitsError)}</div>`;
-  } else if (circuits.length === 0) {
-    circuitBody = `<div class="inspector-empty">No circuits found for this location.</div>`;
-  } else {
-    circuitBody = `<ul class="inspector-device-list" aria-label="Circuit list">${circuits.map(buildCircuitCard).join("")}</ul>`;
-  }
-  const circuitCount = !inspectorLoading && !inspectorError && circuits.length > 0 ? ` (${circuits.length})` : "";
-
-  inspectorContent.innerHTML = `
-    <div class="inspector-section">
-      <div class="inspector-header-row">
-        <div class="inspector-status-group">
-          <span class="popup-badge ${badgeClass(statusLabel)}">${escHtml(statusLabel)}</span>
-          ${alertPill}
-          ${countsLine}
-        </div>
-      </div>
-      ${buildAlertBanner(alert)}
-      <div class="inspector-actions-row">
-        ${buildNautobotLink(loc)}
-        ${buildMaintenanceHistoryLink(loc)}
-      </div>
-    </div>
-
-    <section class="inspector-section inspector-meta" aria-labelledby="inspector-meta-title">
-      <div id="inspector-meta-title" class="inspector-section-title">Location metadata</div>
-      ${primaryRows || `<div class="inspector-empty">No primary metadata available for this location.</div>`}
-      ${secondaryRows ? `<details><summary>More metadata</summary>${secondaryRows}</details>` : ""}
-    </section>
-
-    <section class="inspector-section" aria-labelledby="inspector-equipment-title">
-      <div id="inspector-equipment-title" class="inspector-section-title">Network equipment</div>
-      ${equipmentBody}
-    </section>
-
-    <section class="inspector-section" aria-labelledby="inspector-circuits-title">
-      <div id="inspector-circuits-title" class="inspector-section-title">Circuits${circuitCount}</div>
-      ${circuitBody}
-    </section>
-
-    <section class="inspector-section" aria-labelledby="inspector-asn-title">
-      <div id="inspector-asn-title" class="inspector-section-title">ASN and network information</div>
-      ${asnBody}
-    </section>
-  `;
+  if (rows) folds.push(foldHtml("details", "Details", null, rows, foldOpen("details", false)));
+  if (!devices.length && !folds.length) return `<div class="inspector-empty">No devices at this site.</div>`;
+  if (!devices.length) folds.unshift(`<div class="inspector-empty">No devices at this site.</div>`);
+  return `<div class="inspector-section panel-folds">${folds.join("")}</div>`;
 }
 
 // The site's details, once per site until the levels refresh; concurrent
@@ -287,6 +266,17 @@ export async function loadLocationDetail(locId) {
   }
 }
 
+// What the operator opened in a site's panel; a new site starts closed (#394).
+function resetPanelState() {
+  Object.assign(state, {
+    inspectorDeviceFilter: "all",
+    inspectorDeviceSearch: "",
+    inspectorFolds: new Map(),
+    inspectorOpenDevices: new Set(),
+    inspectorDownExpanded: false,
+  });
+}
+
 export function openInspectorForLocation(locId, options = {}) {
   const loc = getLocationById(locId);
   if (!loc) return;
@@ -297,10 +287,7 @@ export function openInspectorForLocation(locId, options = {}) {
   state.selectedDetail = detailCache.get(locId) || null;
   state.inspectorError = "";
   state.inspectorLoading = !state.selectedDetail;
-  if (locationChanged) {
-    state.inspectorDeviceFilter = "all";
-    state.inspectorDeviceSearch = "";
-  }
+  if (locationChanged) resetPanelState();
   if (options.focusElement) {
     state.lastInspectorTrigger = options.focusElement;
   }
@@ -352,9 +339,8 @@ export function closeInspector(options = {}) {
     selectedDetail: null,
     inspectorError: "",
     inspectorLoading: false,
-    inspectorDeviceFilter: "all",
-    inspectorDeviceSearch: "",
   });
+  resetPanelState();
   renderInspectorContent();
   updateLocationQuery(null);
 
