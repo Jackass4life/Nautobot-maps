@@ -119,7 +119,7 @@ Planned work is not an alarm. A **maintenance window** covers a whole site or so
 
 ## Tenants
 
-The line under each site's name lists the site's own tenant and those linked to it by a Nautobot Relationship (`SITE_TENANT_RELATIONSHIPS`). A tenant with a **description** in Nautobot gets an **(i)**: hover over it, or tab to it, to read the description. The map's site panel and the wall view show the same (i) (#351). Descriptions are read on every sync, so an edit in Nautobot shows up after the next one.
+The line under each site's name lists the site's own tenant and those linked to it by a Nautobot Relationship (`SITE_TENANT_RELATIONSHIPS`). A tenant with a **description** in Nautobot gets an **(i)**: hover over it, or tab to it, to read the description; click or tap it to keep it open until you click elsewhere, click it again, press Escape or scroll (#390). The map's site panel and the wall view show the same (i) (#351). Descriptions are read on every sync, so an edit in Nautobot shows up after the next one.
 
 ## Cases, Copy and history
 
