@@ -407,3 +407,26 @@ def test_the_map_at_scale(page):
     # A quiet site inside a cluster opens from a link: the map zooms to it.
     page.goto(f"{BASE_URL}/?location_id=s613")
     page.locator("#inspector-title", has_text="Site 0613").wait_for(timeout=20000)
+
+
+def test_a_click_on_a_tenant_info_keeps_its_description_open(page):
+    """#390: the (i) in the site panel's More metadata stays open after a click."""
+    page.goto(f"{BASE_URL}/?location_id=loc-lon")
+    page.locator("#inspector-title", has_text="London HQ").wait_for(timeout=20000)
+    page.get_by_text("More metadata").first.click()
+    tip = page.locator(".inspector-row .info-tip").first
+    tip.click()
+    page.mouse.move(1, 1)  # the pointer leaves the (i)
+    box = page.locator(".info-tip-box")
+    assert box.is_visible()
+    assert "Retail bank" in box.inner_text()
+    # On top, not behind the site panel: what is under its middle is the box.
+    rect = box.bounding_box()
+    middle = (rect["x"] + rect["width"] / 2, rect["y"] + rect["height"] / 2)
+    on_top = page.evaluate("([x, y]) => document.elementFromPoint(x, y)?.className || ''", list(middle))
+    assert "info-tip-box" in on_top, on_top
+    page.mouse.click(*middle)  # a click in it keeps it, so its text can be selected
+    assert box.is_visible()
+    page.keyboard.press("Escape")  # closes the tip, not the panel
+    assert not box.is_visible()
+    assert page.locator("#location-inspector:not(.hidden)").count() == 1

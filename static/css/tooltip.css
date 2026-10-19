@@ -30,7 +30,9 @@
 
 .info-tip-box {
   position: fixed;
-  z-index: 1000;
+  /* Above the map's site panel (1200), or the tip opens behind it (#390);
+     below the loading overlay (2000). */
+  z-index: 1500;
   max-width: min(320px, calc(100vw - 16px));
   padding: 8px 10px;
   border-radius: 8px;
@@ -42,6 +44,11 @@
   white-space: pre-line;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+
+/* Pinned by a click (#390): it takes clicks, so its text can be selected. */
+.info-tip-box.pinned {
+  pointer-events: auto;
 }
 
 .info-tip-box[hidden] {
