@@ -123,6 +123,8 @@ services:
       - METRICS_ENABLED=${METRICS_ENABLED:-}
       # MCP server for AI assistants at /mcp (optional; default off)
       - MCP_ENABLED=${MCP_ENABLED:-}
+      # gzip large answers (optional; default on; false where a proxy compresses)
+      - COMPRESS_RESPONSES=${COMPRESS_RESPONSES:-}
       # Notifications when a site's level changes (optional; see docs/notifications.md)
       - NOTIFY_MIN_LEVEL=${NOTIFY_MIN_LEVEL:-}
       - NOTIFY_TENANTS=${NOTIFY_TENANTS:-}

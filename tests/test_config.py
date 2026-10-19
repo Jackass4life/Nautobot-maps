@@ -22,7 +22,9 @@ def _settings_read_by_code() -> set[str]:
     names = set()
     for name in ("app.py", "gunicorn_config.py", "nautobot_maps/settings.py"):
         source = (REPO_ROOT / name).read_text(encoding="utf-8")
-        names |= set(re.findall(r'os\.(?:getenv|environ\.get)\(\s*"([A-Z0-9_]+)"', source))
+        # Any call with a setting's name first: os.getenv(...) and helpers such as
+        # _flag("COMPRESS_RESPONSES", True), which the os.getenv-only match missed.
+        names |= set(re.findall(r'\w\(\s*"([A-Z][A-Z0-9_]+)"', source))
     return names
 
 
