@@ -12,6 +12,7 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 
 - **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom. Click a site for its devices, ASNs and circuits; search by address or `lat,lon` for sites within 5 km.
 - **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, the likely cause, downtime, tenants and case numbers. It opens on sites with alarms, the ones nobody is on first, and updates itself.
+- **Criticality from Nautobot**: mark which sites and devices matter with custom fields in Nautobot. A gold site makes every down device Critical; one device can be set Critical (or Low) on its own, and the device's field wins. With nothing set, the share of devices down decides, and all down is still Critical. Editing these doesn't page anyone ([set it up](#criticality-in-nautobot)).
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating. A link with `?tenant=` / `?q=` gives a team its own wall, board and map, with **Copy wall link** on the board.
 - **Cases and ITSM**: attach a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
 - **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm. A history of every window, with CSV.
@@ -65,6 +66,17 @@ docker compose up --build -d
 The bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created. For LibreNMS, sign-in and everything else, see [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
 
 Without Docker (for development): `pip install -r requirements.txt`, then `python app.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Criticality in Nautobot
+
+Optional, and read-only like the rest: the app only reads these fields. In Nautobot, under **Extensibility → Custom Fields**, add:
+
+| Custom field | Content type | Type and choices | Setting in `.env` |
+|---|---|---|---|
+| `tier` | `dcim \| location` | Selection: `gold`, `silver`, `bronze` | `SITE_TIER_FIELD=tier` |
+| `criticality` | `dcim \| device` | Selection: `critical`, `medium`, `low` | `DEVICE_CRITICALITY_FIELD=criticality` |
+
+Then say what a site's tier makes its devices, e.g. `TIER_DEVICE_LEVEL=gold:critical,silver:medium`. The setting uses the custom field's key, and changing one makes the next sync a full one. How the levels combine: [device and site criticality](docs/alert-board.md#device-and-site-criticality).
 
 ## Documentation
 
