@@ -274,7 +274,7 @@ def device_level(device: dict, core_keywords, override_map: dict, tier: str = ""
     else:
         role = (device.get("role") or "").lower()
         own = ("critical", "role") if any(keyword in role for keyword in core_keywords) else ("", "")
-    tier_level = settings.TIER_DEVICE_LEVEL.get((tier or "").strip().lower(), "")
+    tier_level = tier_device_level(tier)
     if notify.LEVEL_RANK.get(tier_level, 0) > notify.LEVEL_RANK.get(own[0], 0):
         return tier_level, "tier"
     return own
@@ -661,6 +661,11 @@ def get_location_devices_and_alert(
     )
     enriched = enrich_with_webhooks(enriched, webhooks.load_index() if webhook_index is None else webhook_index)
     return enriched, compute_alert_level(enriched, location_type, override_map=override_map, tier=tier)
+
+
+def tier_device_level(tier: str | None) -> str:
+    """The TIER_DEVICE_LEVEL default for this site tier, or "" (#377)."""
+    return settings.TIER_DEVICE_LEVEL.get((tier or "").strip().lower(), "")
 
 
 def tier_rank(tier: str) -> int:
@@ -1601,7 +1606,7 @@ def site_level_keys(devices: list, down_devices: list, site: dict, override_map:
     a level set on them (Nautobot field or override), in maintenance or not.
     A plain device added, removed or put in maintenance doesn't change it.
     """
-    edits = [f"tier:{settings.TIER_DEVICE_LEVEL.get((site.get('tier') or '').strip().lower(), '')}"]
+    edits = [f"tier:{tier_device_level(site.get('tier'))}"]
     for device in devices:
         device_id = device.get("id") or device.get("name") or ""
         if device.get("criticality"):
