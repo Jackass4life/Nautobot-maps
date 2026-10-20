@@ -89,7 +89,7 @@ export function siteReport(item, nautobotUrl = "") {
       device.device_name || device.device_id || "Unknown device",
       `IP ${device.device_ip || "—"}`,
       `Role ${device.role || "—"}`,
-      stackText(device.stack),
+      stackText(device.stack, { names: true }),
       `Status ${device.status || "—"}`,
       device.location_path ? `Location ${device.location_path}` : "",
       since ? `Down since ${since}` : "",

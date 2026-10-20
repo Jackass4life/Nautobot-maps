@@ -80,17 +80,77 @@ ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
 ALERT_LEVELS_NON_OK = ("critical", "medium", "low")
 
 
-def stack_of(device: dict, sizes: dict[str, int]) -> dict:
-    """A down device's stack for the board and its Copy (#400): ``name``,
-    ``position``, ``size`` and ``master``; {} when it isn't in a stack of two or more."""
-    size = sizes.get(device.get("vc_id") or "", 0)
-    if size < 2:
+# What a down member passes to its stack's lead (#405): its status, and who
+# says it is down and since when.
+STACK_DOWN_FIELDS = ("status", "down_source", "webhook_since", "webhook_summary", "last_updated")
+
+
+def stack_groups(devices: list) -> list[tuple[dict, list, dict | None]]:
+    """The stacks among *devices* (#405), each ``(lead, others, down)``: a
+    stack of two or more is one logical device, its IPs the stack's.  The lead
+    stands for it: its master, else its first member by place (the map
+    panel's rule, given the monitored devices).  *down* is the member that
+    makes it down, the lead first; None when every member is up."""
+    chassis: dict[str, list] = {}
+    for device in devices:
+        if device.get("vc_id"):
+            chassis.setdefault(device["vc_id"], []).append(device)
+    groups = []
+    for members in chassis.values():
+        if len(members) < 2:
+            continue
+        ordered = sorted(
+            members,
+            key=lambda d: (not d.get("vc_master"), d.get("vc_position") is None, d.get("vc_position") or 0),
+        )
+        down = next((d for d in ordered if (d.get("status") or "").lower().strip() in DOWN_STATUSES), None)
+        groups.append((ordered[0], ordered[1:], down))
+    return groups
+
+
+def merge_stacks(devices: list) -> list:
+    """*devices* (the monitored ones) with each stack as one device, its lead
+    (#405): any of its IPs not answering means the whole stack is down, so a
+    down member makes the lead down, and the others aren't counted."""
+    replace: dict[int, dict] = {}
+    dropped: set[int] = set()
+    for lead, others, down in stack_groups(devices):
+        dropped.update(id(d) for d in others)
+        if down is not None and down is not lead:
+            replace[id(lead)] = {**lead, **{key: down[key] for key in STACK_DOWN_FIELDS if key in down}}
+    return [replace.get(id(d), d) for d in devices if id(d) not in dropped]
+
+
+def board_stacks(stacks: dict[str, list[dict]]) -> dict[str, dict]:
+    """Each stack's ``members`` for one board build, worked out once (#405):
+    those of an excluded status, such as Decommissioning, left out; and their
+    ``names``.  Only stacks of two or more."""
+    excluded = settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES
+    result = {}
+    for vc_id, all_members in stacks.items():
+        members = [m for m in all_members if not status_is_excluded(m["status"], excluded)]
+        if len(members) >= 2:
+            result[vc_id] = {"members": members, "names": [m["name"] for m in members]}
+    return result
+
+
+def stack_of(device: dict, stacks: dict[str, dict], counted: bool = True) -> dict:
+    """A down stack, for the board, Copy and MCP (#402, #405): ``name``,
+    ``size``, ``position``, ``master``, and ``whole``: on the board a stack is
+    one device (``merge_stacks``), so down and *counted* (not in maintenance,
+    not just flapping) it is down with every member; then ``members`` lists
+    their names.  {} when it isn't in a stack of two or more."""
+    stack = stacks.get(device.get("vc_id") or "")
+    if not stack:
         return {}
+    whole = counted and device.get("down_source") != "flapping"
     return {
         "name": device.get("vc_name") or "",
         "position": device.get("vc_position"),
-        "size": size,
+        "size": len(stack["members"]),
         "master": bool(device.get("vc_master")),
+        "whole": whole,
+        **({"members": stack["names"]} if whole else {}),
     }
 
 
@@ -678,6 +738,9 @@ def get_location_devices_and_alert(
         new_librenms_maps=new_librenms_maps,
     )
     enriched = enrich_with_webhooks(enriched, webhooks.load_index() if webhook_index is None else webhook_index)
+    if require_primary_ip:
+        # Counted as the board counts: a stack is one device (#405).
+        enriched = merge_stacks(enriched)
     return enriched, compute_alert_level(enriched, location_type, override_map=override_map, tier=tier)
 
 
@@ -1918,8 +1981,8 @@ def build_alert_board_payload(
     # that drop is planned, not a recovery to notify.
     quiet_sites: set[str] = set()
     # Since when each device is down (#286): read once, written once after the loop.
-    # Virtual chassis id -> its members (#402); empty: no stack is named.
-    stack_sizes: dict[str, int] = {}
+    # Virtual chassis id -> its members and lead (#402, #405); empty: no stack is named.
+    stacks: dict[str, dict] = {}
     device_states = None
     alarmed_device_ids: set[str] = set()
     # {device_id: (site_id, state row or None)} as this build saw them.
@@ -1942,10 +2005,10 @@ def build_alert_board_payload(
             device_states = None
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
         try:
-            # Each stack's size (#402): every member, wherever it is, once a build.
-            stack_sizes = inventory.read_stack_sizes(read_conn)
+            # Every stack's members (#402, #405), wherever they are, once a build.
+            stacks = board_stacks(inventory.read_stacks(read_conn))
         except Exception as exc:
-            logger.warning("Could not read stack sizes; stacks aren't named this build: %s", exc)
+            logger.warning("Could not read the stacks; they aren't named this build: %s", exc)
         try:
             webhook_index = webhooks.read_index(read_conn)
         except Exception as exc:
@@ -2208,6 +2271,7 @@ def build_alert_board_payload(
                 (device.get("id") or device.get("name") or ""): device_display_ip(device)
                 for device in devices + maintenance_devices
             }
+            maintenance_ids = {d.get("id") for d in maintenance_devices}
             current_down_devices = [
                 {
                     "device_id": device.get("id") or "",
@@ -2223,7 +2287,12 @@ def build_alert_board_payload(
                     # Down per Alertmanager or a webhook, not Nautobot (#292).
                     **({"down_reason": webhook_reason(device)} if device.get("webhook_since") else {}),
                     # Part of a stack: which, and its place in it (#400).
-                    **({"stack": stack} if (stack := stack_of(device, stack_sizes)) else {}),
+                    # In maintenance it isn't counted: not "all members down" (#405).
+                    **(
+                        {"stack": stack}
+                        if (stack := stack_of(device, stacks, device.get("id") not in maintenance_ids))
+                        else {}
+                    ),
                 }
                 # Down devices in maintenance are listed (marked below) but not counted (#283).
                 for device in down_devices
@@ -2239,7 +2308,7 @@ def build_alert_board_payload(
                     "status": device.get("status") or "",
                     "role": device.get("role") or "",
                     **({"location_path": device["location_path"]} if device.get("location_path") else {}),
-                    **({"stack": stack} if (stack := stack_of(device, stack_sizes)) else {}),
+                    **({"stack": stack} if (stack := stack_of(device, stacks, counted=False)) else {}),
                 }
                 for device in maintenance_devices
             }
@@ -2438,12 +2507,14 @@ def site_monitored_devices(site_id: str, include_non_operational: bool = False) 
         devices = devices_by_row.get(site_id, [])
     else:
         devices = [device for device in devices if (device.get("location_id") or "") == site_id]
-    monitored = [
-        device
-        for device in devices
-        if device_has_primary_ip(device)
-        and not status_is_excluded(device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
-    ]
+    monitored = merge_stacks(
+        [
+            device
+            for device in devices
+            if device_has_primary_ip(device)
+            and not status_is_excluded(device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
+        ]
+    )
     return sorted(
         (
             {
@@ -2787,6 +2858,15 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             device["maintenance_until"] = window["ends_at"]
         if (device.get("id") or "") in pending and not device["not_monitored"]:
             device["alert_pending"] = True
+    # A stack is one device (#405): its lead is down when any of its IPs is,
+    # and its other members are monitored with it, not on their own.
+    for lead, others, down in stack_groups([d for d in devices if not d["not_monitored"]]):
+        if down is not None and down is not lead:
+            lead.update({key: down[key] for key in STACK_DOWN_FIELDS if key in down})
+        for member in others:
+            member["not_monitored"] = "monitored with its stack"
+            member.pop("maintenance_until", None)
+            member.pop("alert_pending", None)
     level = get_location_alert_levels()["levels"].get(location_id) if db.dialect() else None
     if level is not None:
         alert = {"level": level["level"], "reason": level.get("reason", "")}

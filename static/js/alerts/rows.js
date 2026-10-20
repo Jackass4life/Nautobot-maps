@@ -208,12 +208,20 @@ export function flappingBadge(device) {
   return ` <span class="flap-badge" title="Up and down ${times} in the last 30 minutes">FLAPPING</span>`;
 }
 
-// A down device's stack (#400, #402), for its line and the Copy: "Stack sw-stack01,
-// member 2 of 4", "Stack sw-stack01, master of 4"; "" when it isn't in one.
-export function stackText(stack) {
+// A down device's stack (#402, #405).  *whole*: the stack is down as one (its
+// lead counted down, no member with an IP of its own up), so every member is:
+// "Stack sw-stack01: all 4 members down", with *names* the members too, for a
+// ticket.  Else just this device: "Stack sw-stack01, member 2 of 4", "…, master
+// of 4".  "" when it isn't a stack.
+export function stackText(stack, { names = false } = {}) {
   if (!stack || !Number.isInteger(stack.size) || stack.size < 2) return "";
-  const where = stack.master ? "master" : Number.isInteger(stack.position) ? `member ${stack.position}` : "member";
-  return `Stack${stack.name ? ` ${stack.name}` : ""}, ${where} of ${stack.size}`;
+  const name = `Stack${stack.name ? ` ${stack.name}` : ""}`;
+  if (!stack.whole) {
+    const where = stack.master ? "master" : `member${Number.isInteger(stack.position) ? ` ${stack.position}` : ""}`;
+    return `${name}, ${where} of ${stack.size}`;
+  }
+  const members = names && Array.isArray(stack.members) && stack.members.length ? ` (${stack.members.join(", ")})` : "";
+  return `${name}: all ${stack.size} members down${members}`;
 }
 
 // A level set on the device in Nautobot (#377): only known levels reach the page.

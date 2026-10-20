@@ -186,3 +186,33 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, monkeypa
     caching.cache.clear()
     _, levels = three_views()
     assert "loc-aar-bld-a-f2" not in levels, "no monitored device: no data"
+
+
+def test_a_stack_is_one_device_everywhere(synced):
+    """Paris's stack of four: an IP on member 2 is the stack's, and not
+    answering, the whole stack is down: one device down on the board, the map
+    and in the panel (#405)."""
+    from nautobot_maps import db
+
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            conn.execute(
+                "UPDATE nautobot_device_cache SET primary_ip = '10.0.6.9', status = 'Offline' "
+                "WHERE device_id = 'dev-par-stk-2'"
+            )
+    finally:
+        conn.close()
+    caching.cache.clear()
+    board, levels = three_views()
+    row = board["loc-par"]
+    assert (row["down_device_count"], row["device_count"]) == (1, 2), "the router and the stack"
+    assert [d["device_id"] for d in row["down_devices"]] == ["dev-par-stk-1"], "the stack, by its master"
+    assert row["down_devices"][0]["stack"]["whole"] is True
+    assert (levels["loc-par"]["down"], levels["loc-par"]["monitored"]) == (1, 2)
+    detail = alerts.get_location_detail("loc-par", row.get("location_type"))
+    assert detail["counts"] == {"down": 1, "monitored": 2}
+    by_id = {d["id"]: d for d in detail["devices"]}
+    assert by_id["dev-par-stk-1"]["status"] == "Offline", "the panel's stack row is red"
+    assert by_id["dev-par-stk-2"]["not_monitored"] == "monitored with its stack"
+    assert len(detail["devices"]) == 5, "the panel still lists every member"
