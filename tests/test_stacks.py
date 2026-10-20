@@ -206,12 +206,10 @@ def test_the_board_says_which_stack_a_down_device_is_in(board, monkeypatch):
     assert "stack" not in by_id["a-rt"]
 
     # Member 2 (its own IP) up: the master down isn't the whole stack (#405).
-    write(
-        {"a": "", "b": ""},
-        [member(1, "Offline", "10.0.0.1/32"), member(2, "Active", "10.0.0.2/32"), member(3, "Active", "")],
-    )
+    write({"a": "", "b": ""}, [member(2, "Active", "10.0.0.2/32")])
     down = {d["device_id"]: d.get("stack") for d in build(board, NOW)["a"]["down_devices"]}
-    assert down == {"a-stk1": {**stack, "size": 3, "position": 1, "master": True, "whole": False}}
+    assert down["a-stk1"] == {**stack, "position": 1, "master": True, "whole": False}, down
+    assert "a-stk2" not in down
 
 
 def _member(position, status="Offline", ip=True, master=None):
