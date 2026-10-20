@@ -145,9 +145,11 @@ export function sortDownDevices(devices) {
       || (a.name || "").localeCompare(b.name || ""));
 }
 
-// Stacks (#400): a virtual chassis of two or more as one entry, led by its
-// master (else the member with an IP, else the first by position), the
-// others its *members*; every other device on its own.  In the given order.
+// Stacks (#400): a virtual chassis of two or more as one entry, led by the
+// member it is monitored through (#405): its master with a primary IP, else
+// the first member with one, else its master, else the first by position (the
+// board's rule); the others are its *members*, every other device on its own.
+// In the given order.
 export function groupStacks(devices) {
   const chassis = new Map();
   for (const device of devices) {
@@ -159,7 +161,8 @@ export function groupStacks(devices) {
   for (const [id, all] of chassis) {
     if (all.length < 2) continue;
     const byPosition = [...all].sort((a, b) => (a.vc_position ?? Infinity) - (b.vc_position ?? Infinity));
-    const lead = byPosition.find((d) => d.vc_master) || byPosition.find((d) => d.primary_ip) || byPosition[0];
+    const lead = byPosition.find((d) => d.vc_master && d.primary_ip) || byPosition.find((d) => d.primary_ip)
+      || byPosition.find((d) => d.vc_master) || byPosition[0];
     stacks.set(id, { lead, members: byPosition.filter((d) => d !== lead) });
   }
   const entries = [];
@@ -171,24 +174,37 @@ export function groupStacks(devices) {
   return entries;
 }
 
-// A stack's other members, in its details: place, name, model, serial.  Their
-// own status isn't shown: the stack is up or down as one (#405).
+// A down member that is monitored on its own (an IP of its own, #405): it
+// counts, as on the board.  A member's status otherwise says nothing: the
+// stack is monitored as one, through its lead.
+function memberDown(member) {
+  return Boolean(member.primary_ip) && counts(member) && normalizeDeviceHealth(member.status) === "down";
+}
+
+// A stack's other members, in its details: place, name, model, serial, and
+// the status of one down on its own.
 function memberHtml(member) {
-  const facts = [member.device_type, member.serial ? `Serial ${member.serial}` : ""].filter(Boolean).join(" · ");
+  const facts = [
+    member.device_type,
+    member.serial ? `Serial ${member.serial}` : "",
+    memberDown(member) ? member.status || "Down" : "",
+  ].filter(Boolean).join(" · ");
   const place = member.vc_position !== null && member.vc_position !== undefined ? `${member.vc_position}. ` : "";
   return `<div class="device-meta stack-member">${escHtml(place + (member.name || "Unnamed device"))}${facts ? ` · ${escHtml(facts)}` : ""}</div>`;
 }
 
 // One line per device: its status dot, name and role; *open* shows the rest
 // (hardware, IP, serial, software, tenant, why it isn't counted) in place.
-// A stack's lead with its *members* (#400) says "Stack of 4" and lists them.
-export function deviceRowHtml(device, open = false, members = []) {
+// A stack's lead with its *members* (#400) says "Stack of 4" and lists them;
+// *size* is the whole stack's when some members are listed elsewhere.
+export function deviceRowHtml(device, open = false, members = [], size = members.length + 1) {
   const health = normalizeDeviceHealth(device.status);
-  // A stack is one device, its lead (#405): its state is the whole stack's,
-  // whatever a member's own status says.
-  const dot = health === "down" ? "critical" : health === "active" ? "ok" : "no-data";
+  // A stack is up or down with its lead (#405); a member monitored on its own
+  // and down makes it red too ("· 1 down"), as it is on the board.
+  const membersDown = members.filter(memberDown).length;
+  const dot = health === "down" || membersDown ? "critical" : health === "active" ? "ok" : "no-data";
   const key = deviceKey(device);
-  const stack = members.length ? `Stack of ${members.length + 1}` : "";
+  const stack = members.length ? `Stack of ${size}${membersDown ? ` · ${membersDown} down` : ""}` : "";
   // Why it doesn't count, where the role would be: clear without opening it (#316);
   // a stack says so as well.
   const note = device.not_monitored ? "Not monitored" : device.maintenance_until ? "Maintenance"
@@ -203,11 +219,15 @@ export function deviceRowHtml(device, open = false, members = []) {
     device.tenant ? `Tenant ${device.tenant}` : "",
     device.status && health !== "active" ? `Status ${device.status}` : "",
   ].filter(Boolean);
+  // The whole stack is down when its lead is counted down and no member with
+  // an IP of its own is up (the board's rule).  No number: this site may not
+  // have every member.
+  const memberUp = (member) => Boolean(member.primary_ip) && normalizeDeviceHealth(member.status) !== "down";
+  const whole = health === "down" && !note && !members.some(memberUp);
   const details = open
     ? `<div class="device-details">${facts.map((fact) => `<div class="device-meta">${escHtml(fact)}</div>`).join("")}${deviceCountNote(device)}`
-      + `${members.length ? `<div class="stack-members"><div class="device-meta">${escHtml(health === "down"
-        && !note ? `The whole stack is down: all ${members.length + 1} members.`
-        : `Stack of ${members.length + 1}, monitored as one device:`)}</div>${members.map(memberHtml).join("")}</div>` : ""}</div>`
+      + `${members.length ? `<div class="stack-members"><div class="device-meta">${escHtml(whole
+        ? "The whole stack is down, all its members:" : `Stack of ${size}:`)}</div>${members.map(memberHtml).join("")}</div>` : ""}</div>`
     : "";
   return `<li class="device-row-item${open ? " open" : ""}">`
     + `<button class="device-row" type="button" data-device-key="${escHtml(key)}" aria-expanded="${open ? "true" : "false"}">`

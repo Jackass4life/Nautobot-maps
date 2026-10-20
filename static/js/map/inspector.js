@@ -171,12 +171,16 @@ function downDevicesHtml(devices, stacks) {
   const down = sortDownDevices(devices);
   if (!down.length) return "";
   // A stack's lead brings its members, as under All devices (#400), but not
-  // those that have their own row here.
+  // those that have their own row here; it still says the stack's size (#405).
   const own = new Set(down);
-  const membersOf = new Map(stacks.map(({ device, members }) => [device, members.filter((member) => !own.has(member))]));
+  const stackOf = new Map(stacks.map(({ device, members }) => [device, members]));
   const shown = state.inspectorDownExpanded ? down : down.slice(0, DOWN_SHOWN);
   const rows = shown
-    .map((device) => deviceRowHtml(device, state.inspectorOpenDevices.has(deviceKey(device)), membersOf.get(device) || []))
+    .map((device) => {
+      const members = stackOf.get(device) || [];
+      const open = state.inspectorOpenDevices.has(deviceKey(device));
+      return deviceRowHtml(device, open, members.filter((member) => !own.has(member)), members.length + 1);
+    })
     .join("");
   const more = down.length > DOWN_SHOWN
     ? `<button class="panel-more" type="button" data-down-toggle>${state.inspectorDownExpanded ? "Show fewer" : `Show all ${down.length}`}</button>`

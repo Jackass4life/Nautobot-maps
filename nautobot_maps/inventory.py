@@ -699,10 +699,10 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
 
 def read_stacks(conn) -> dict[str, list[dict]]:
     """``{virtual chassis id: its members by place}`` over every cached device
-    (#402, #405), each ``{"id", "name", "status", "has_ip"}``: a whole stack
+    (#402, #405), each ``{"id", "name", "status", "has_ip", "master"}``: a whole stack
     wherever its members are, in one query."""
     rows = conn.execute(
-        "SELECT vc_id, device_id, name, status, primary_ip FROM nautobot_device_cache WHERE vc_id <> '' "
+        "SELECT vc_id, device_id, name, status, primary_ip, vc_master FROM nautobot_device_cache WHERE vc_id <> '' "
         "ORDER BY vc_id, vc_position NULLS LAST, name"
     ).fetchall()
     stacks: dict[str, list[dict]] = {}
@@ -713,6 +713,7 @@ def read_stacks(conn) -> dict[str, list[dict]]:
                 "name": data.get("name") or "",
                 "status": data.get("status") or "",
                 "has_ip": bool((data.get("primary_ip") or "").strip()),
+                "master": bool(data.get("vc_master")),
             }
         )
     return stacks
