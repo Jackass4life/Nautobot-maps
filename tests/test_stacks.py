@@ -86,32 +86,27 @@ check(entries.map((e) => e.device.id).join() === "r1,m1,solo", entries.map((e) =
 const stack = entries[1];
 check(stack.members.map((m) => m.id).join() === "m2,m3", "members by position");
 
-// Without a master: the member with an IP leads, else the first by position.
+// Without a master: the monitored member leads, else the first by position.
 const noMaster = groupStacks([member("a", "a", 2), member("b", "b", 1), member("c", "c", 3, { primary_ip: "10.0.0.9" })]);
 check(noMaster.length === 1 && noMaster[0].device.id === "c", "the one with an IP leads");
 check(groupStacks([member("a", "a", 2), member("b", "b", 1)])[0].device.id === "b", "else the first");
-// A master without an IP isn't how the stack is monitored: the member with one leads (#405).
+// A master without an IP doesn't stand for the stack: the monitored member does, as on the board (#405).
 const ipless = groupStacks([member("a", "a", 1, { vc_master: true }), member("b", "b", 2, { primary_ip: "10.0.0.9" })]);
-check(ipless[0].device.id === "b", "the monitored member leads, as on the board");
+check(ipless[0].device.id === "b", "the monitored member leads");
+// Members the server says are monitored with their stack don't lead.
+const withStack = groupStacks([member("a", "a", 1, { primary_ip: "10.0.0.8", not_monitored: "monitored with its stack" }), member("b", "b", 2, { primary_ip: "10.0.0.9" })]);
+check(withStack[0].device.id === "b", "the server's lead");
 
 const closed = deviceRowHtml(stack.device, false, stack.members);
-// Member 2's own Offline means nothing: the stack is its lead, which is up (#405).
+// A member's own status means nothing: the stack is one device, its lead (#405).
 check(closed.includes(">Stack of 3<") && closed.includes("dot-ok") && !closed.includes("stack-member"), closed);
 const open = deviceRowHtml(stack.device, true, stack.members);
 check(open.includes("Access Switch") && open.includes(">Stack of 3:<"), "its role, then the members");
 check(open.includes(">2. sw-stack01:2 · C9300<") && open.includes(">3. sw-stack01:3 · C9300 · Serial S3<"), "members without their own status: " + open);
 check(closed.includes('class="device-row-role">Stack of 3<'), "a stack isn't styled as a note");
-// The lead down: the whole stack is.
+// The lead down (the server makes it down when any of the stack's IPs is): the whole stack is.
 const down = deviceRowHtml({ ...stack.device, status: "Offline" }, true, stack.members);
 check(down.includes("dot-critical") && down.includes(">The whole stack is down, all its members:<"), down);
-// A member with an IP of its own is monitored on its own: down, it shows (as on the board) ...
-const own = [{ ...stack.members[0], primary_ip: "10.0.0.6/32" }, stack.members[1]];
-const ownDown = deviceRowHtml(stack.device, true, own);
-check(ownDown.includes(">Stack of 3 · 1 down<") && ownDown.includes("dot-critical") && ownDown.includes(">2. sw-stack01:2 · C9300 · Offline<"), ownDown);
-check(!ownDown.includes("whole stack"), "the lead is up");
-// ... and up, the stack isn't down whole when its lead is.
-const ownUp = deviceRowHtml({ ...stack.device, status: "Offline" }, true, [{ ...own[0], status: "Active" }, own[1]]);
-check(ownUp.includes("dot-critical") && !ownUp.includes("whole stack") && ownUp.includes(">Stack of 3:<"), ownUp);
 // In the Down list a member with its own row is left out, the size isn't.
 check(deviceRowHtml(stack.device, false, [stack.members[1]], 3).includes(">Stack of 3<"), "the whole stack's size");
 // A lead in maintenance (or the alert delay) isn't an outage: not said.
@@ -172,10 +167,10 @@ def test_the_board_says_which_stack_a_down_device_is_in(board, monkeypatch):
         }
 
     devices = [
-        member(1, "Offline", "10.0.0.1/32"),
-        # An IP of its own: monitored on its own, so just itself when down.
+        member(1, "Active", "10.0.0.1/32"),
+        # An IP on a member is the stack's: not answering, the whole stack is down (#405).
         member(2, "Offline", "10.0.0.2/32"),
-        member(3, "Offline", ""),  # no IP: not on the board, but in the stack's size
+        member(3, "Offline", ""),  # no IP: its own status means nothing
         member(4, "Active", ""),
         _snapshot_device("a-rt", "a", "Edge Router", "Offline"),
         # A fifth member at another location: the stack's size is the whole stack.
@@ -188,69 +183,77 @@ def test_the_board_says_which_stack_a_down_device_is_in(board, monkeypatch):
     row = build(board, NOW)["a"]
     # The whole stack wherever its members are (5 at b), without the Decommissioning one.
     names = ["sw-stack01", "sw-stack01:2", "sw-stack01:3", "sw-stack01:4", "sw-stack01:5"]
-    stack = {"name": "sw-stack01", "size": 5}
-    assert {d["device_id"]: d.get("stack") for d in row["down_devices"]} == {
-        # The master is how the stack is monitored: down means every member is (#405).
-        "a-stk1": {**stack, "position": 1, "master": True, "whole": True, "members": names},
-        # A member with an IP of its own is just itself.
-        "a-stk2": {**stack, "position": 2, "master": False, "whole": False},
-        "a-rt": None,
+    down = {d["device_id"]: d for d in row["down_devices"]}
+    # One line for the stack, its master's, never one for a member.
+    assert set(down) == {"a-stk1", "a-rt"}, set(down)
+    assert down["a-stk1"]["stack"] == {
+        "name": "sw-stack01",
+        "size": 5,
+        "position": 1,
+        "master": True,
+        "whole": True,
+        "members": names,
     }
-    # Counting is as before: the devices with a primary IP.
-    assert row["device_count"] == 3, row["device_count"]
+    assert down["a-stk1"]["status"] == "Offline", "the member's status is the stack's"
+    assert "stack" not in down["a-rt"]
+    # The stack counts once: it and the router.
+    assert (row["device_count"], row["down_device_count"]) == (2, 2), row
     # The assistant (MCP) gets it too.
     from nautobot_maps import mcp
 
     by_id = {d["device_id"]: d for d in mcp._site(row)["down_devices"]}
     assert by_id["a-stk1"]["stack"]["whole"] is True and by_id["a-stk1"]["stack"]["members"] == names
-    assert "stack" not in by_id["a-rt"]
 
-    # Member 2 (its own IP) up: the master down isn't the whole stack (#405).
+    # Every IP answering: the stack is up, whatever a member without one says.
     write({"a": "", "b": ""}, [member(2, "Active", "10.0.0.2/32")])
-    down = {d["device_id"]: d.get("stack") for d in build(board, NOW)["a"]["down_devices"]}
-    assert down["a-stk1"] == {**stack, "position": 1, "master": True, "whole": False}, down
-    assert "a-stk2" not in down
+    assert set(d["device_id"] for d in build(board, NOW)["a"]["down_devices"]) == {"a-rt"}
 
 
-def _member(position, status="Offline", ip=True, master=None):
+def _dev(position, status="Active", master=None, **extra):
     return {
         "id": f"m{position}",
         "name": f"s:{position}",
         "status": status,
-        "has_ip": ip,
-        "master": position == 1 if master is None else master,
+        "primary_ip": f"10.0.0.{position}",
+        "vc_id": "vc-1",
+        "vc_position": position,
+        "vc_master": position == 1 if master is None else master,
+        **extra,
     }
 
 
-@pytest.mark.parametrize(
-    ("members", "device", "counted", "whole"),
-    [
-        # The master, down and counted, the others without an IP: the whole stack.
-        ([_member(1), _member(2, "Active", ip=False)], {"id": "m1", "status": "Offline"}, True, True),
-        # In maintenance it isn't counted: not said.
-        ([_member(1), _member(2, "Active", ip=False)], {"id": "m1", "status": "Offline"}, False, False),
-        # Flapping, up for now: not said.
-        (
-            [_member(1), _member(2, "Active", ip=False)],
-            {"id": "m1", "status": "Flapping", "down_source": "flapping"},
-            True,
-            False,
-        ),
-        # A member, not the lead.
-        ([_member(1), _member(2)], {"id": "m2", "status": "Offline"}, True, False),
-        # The master without an IP: the member with one leads.
-        ([_member(1, ip=False), _member(2), _member(3, ip=False)], {"id": "m2", "status": "Offline"}, True, True),
-        # Two monitored, not the master: the first leads, and is whole only with the other down.
-        ([_member(1, ip=False), _member(2), _member(3, "Active")], {"id": "m2", "status": "Offline"}, True, False),
-        ([_member(1, ip=False), _member(2), _member(3)], {"id": "m2", "status": "Offline"}, True, True),
-    ],
-)
-def test_when_a_stack_is_down_whole(members, device, counted, whole):
-    """The board's rule for "all N members down" (#405)."""
+def test_a_stack_counts_as_one_device():
+    """Any of a stack's IPs down makes its lead down; the others aren't counted (#405)."""
     from nautobot_maps import alerts
 
-    stacks = alerts.board_stacks({"vc-1": members})
-    stack = alerts.stack_of({**device, "vc_id": "vc-1", "vc_name": "s"}, stacks, counted)
+    solo = {"id": "r", "status": "Active"}
+    merged = alerts.merge_stacks([_dev(2, "offline", down_source="librenms"), solo, _dev(1), _dev(3)])
+    assert [d["id"] for d in merged] == ["r", "m1"], "the master stands for the stack"
+    assert merged[1]["status"] == "offline" and merged[1]["down_source"] == "librenms"
+    # All up: the lead as it is.
+    lead = _dev(1)
+    assert alerts.merge_stacks([lead, _dev(2)]) == [lead]
+    # No master among them: the first by place leads.
+    assert [d["id"] for d in alerts.merge_stacks([_dev(3, master=False), _dev(2, master=False)])] == ["m2"]
+    # A chassis of one is just a device.
+    assert alerts.merge_stacks([_dev(1)]) == [_dev(1)]
+
+
+@pytest.mark.parametrize(
+    ("device", "counted", "whole"),
+    [
+        ({"status": "Offline"}, True, True),
+        # In maintenance it isn't counted: not said.
+        ({"status": "Offline"}, False, False),
+        # Flapping, up for now: not said.
+        ({"status": "Flapping", "down_source": "flapping"}, True, False),
+    ],
+)
+def test_when_a_stack_is_down_whole(device, counted, whole):
+    from nautobot_maps import alerts
+
+    stacks = alerts.board_stacks({"vc-1": [{"name": "s", "status": "Active"}, {"name": "s:2", "status": "Active"}]})
+    stack = alerts.stack_of({**device, "id": "m1", "vc_id": "vc-1", "vc_name": "s"}, stacks, counted)
     assert stack["whole"] is whole, stack
     assert ("members" in stack) is whole, "the names only when they are all down"
 
@@ -259,7 +262,9 @@ def test_a_stack_of_one_left_after_exclusions_is_not_a_stack(monkeypatch):
     from nautobot_maps import alerts
 
     monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"})
-    stacks = alerts.board_stacks({"vc-1": [_member(1), _member(2, "Decommissioning")]})
+    stacks = alerts.board_stacks(
+        {"vc-1": [{"name": "s", "status": "Active"}, {"name": "s:2", "status": "Decommissioning"}]}
+    )
     assert alerts.stack_of({"id": "m1", "vc_id": "vc-1"}, stacks) == {}
 
 
