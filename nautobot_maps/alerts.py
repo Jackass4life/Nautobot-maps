@@ -2566,7 +2566,9 @@ def get_alert_board_data(
     if force_refresh:
         # "Sync now": incremental, not a full reconcile (#135).  Deletions are
         # still caught by the scheduled full reconcile.
-        sync_enqueued = inventory.ensure_snapshot(force=True, full=False, wait=False)
+        sync_enqueued = inventory.ensure_snapshot(
+            force=True, full=False, wait=False, cooldown_seconds=inventory.FORCED_SYNC_COOLDOWN_SECONDS
+        )
     sync_due, next_update_in_seconds = inventory_update_schedule()
     if not sync_enqueued and sync_due:
         # A sync is due (or none has run yet): start it in the background, so
