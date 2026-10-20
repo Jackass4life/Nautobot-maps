@@ -80,17 +80,28 @@ ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
 ALERT_LEVELS_NON_OK = ("critical", "medium", "low")
 
 
-def stack_of(device: dict, sizes: dict[str, int]) -> dict:
-    """A down device's stack for the board and its Copy (#400): ``name``,
-    ``position``, ``size`` and ``master``; {} when it isn't in a stack of two or more."""
-    size = sizes.get(device.get("vc_id") or "", 0)
-    if size < 2:
+def stack_of(device: dict, stacks: dict[str, list[dict]]) -> dict:
+    """A down device's stack, for the board, Copy and MCP (#402, #405):
+    ``name``, ``size`` and ``members`` (their names, by place; members of an
+    excluded status, such as Decommissioning, left out), ``position``,
+    ``master``, and ``whole``: this device is how the stack is monitored (its
+    master, or its only member with a primary IP), so LibreNMS seeing it down
+    means every member is down.  {} when it isn't in a stack of two or more."""
+    members = [
+        member
+        for member in stacks.get(device.get("vc_id") or "", [])
+        if not status_is_excluded(member["status"], settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
+    ]
+    if len(members) < 2:
         return {}
+    others_monitored = any(m["has_ip"] for m in members if m["id"] != (device.get("id") or ""))
     return {
         "name": device.get("vc_name") or "",
         "position": device.get("vc_position"),
-        "size": size,
+        "size": len(members),
+        "members": [m["name"] for m in members],
         "master": bool(device.get("vc_master")),
+        "whole": bool(device.get("vc_master")) or not others_monitored,
     }
 
 
@@ -1918,8 +1929,8 @@ def build_alert_board_payload(
     # that drop is planned, not a recovery to notify.
     quiet_sites: set[str] = set()
     # Since when each device is down (#286): read once, written once after the loop.
-    # Virtual chassis id -> its members (#402); empty: no stack is named.
-    stack_sizes: dict[str, int] = {}
+    # Virtual chassis id -> its members' names (#402, #405); empty: no stack is named.
+    stacks: dict[str, list[dict]] = {}
     device_states = None
     alarmed_device_ids: set[str] = set()
     # {device_id: (site_id, state row or None)} as this build saw them.
@@ -1942,10 +1953,10 @@ def build_alert_board_payload(
             device_states = None
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
         try:
-            # Each stack's size (#402): every member, wherever it is, once a build.
-            stack_sizes = inventory.read_stack_sizes(read_conn)
+            # Every stack's members (#402, #405), wherever they are, once a build.
+            stacks = inventory.read_stacks(read_conn)
         except Exception as exc:
-            logger.warning("Could not read stack sizes; stacks aren't named this build: %s", exc)
+            logger.warning("Could not read the stacks; they aren't named this build: %s", exc)
         try:
             webhook_index = webhooks.read_index(read_conn)
         except Exception as exc:
@@ -2223,7 +2234,7 @@ def build_alert_board_payload(
                     # Down per Alertmanager or a webhook, not Nautobot (#292).
                     **({"down_reason": webhook_reason(device)} if device.get("webhook_since") else {}),
                     # Part of a stack: which, and its place in it (#400).
-                    **({"stack": stack} if (stack := stack_of(device, stack_sizes)) else {}),
+                    **({"stack": stack} if (stack := stack_of(device, stacks)) else {}),
                 }
                 # Down devices in maintenance are listed (marked below) but not counted (#283).
                 for device in down_devices
@@ -2239,7 +2250,7 @@ def build_alert_board_payload(
                     "status": device.get("status") or "",
                     "role": device.get("role") or "",
                     **({"location_path": device["location_path"]} if device.get("location_path") else {}),
-                    **({"stack": stack} if (stack := stack_of(device, stack_sizes)) else {}),
+                    **({"stack": stack} if (stack := stack_of(device, stacks)) else {}),
                 }
                 for device in maintenance_devices
             }

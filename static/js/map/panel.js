@@ -171,15 +171,10 @@ export function groupStacks(devices) {
   return entries;
 }
 
-// A stack's other members, in its details: place, name, model, serial, and
-// that one is down.  (Members without an IP not being monitored is the norm
-// for a stack: not said on each.)
+// A stack's other members, in its details: place, name, model, serial.  Their
+// own status isn't shown: the stack is up or down as one (#405).
 function memberHtml(member) {
-  const facts = [
-    member.device_type,
-    member.serial ? `Serial ${member.serial}` : "",
-    normalizeDeviceHealth(member.status) === "down" ? member.status || "Down" : "",
-  ].filter(Boolean).join(" · ");
+  const facts = [member.device_type, member.serial ? `Serial ${member.serial}` : ""].filter(Boolean).join(" · ");
   const place = member.vc_position !== null && member.vc_position !== undefined ? `${member.vc_position}. ` : "";
   return `<div class="device-meta stack-member">${escHtml(place + (member.name || "Unnamed device"))}${facts ? ` · ${escHtml(facts)}` : ""}</div>`;
 }
@@ -189,11 +184,11 @@ function memberHtml(member) {
 // A stack's lead with its *members* (#400) says "Stack of 4" and lists them.
 export function deviceRowHtml(device, open = false, members = []) {
   const health = normalizeDeviceHealth(device.status);
-  // A stack with a member down shows it on the closed row too (#400).
-  const membersDown = members.filter((member) => normalizeDeviceHealth(member.status) === "down").length;
-  const dot = health === "down" || membersDown ? "critical" : health === "active" ? "ok" : "no-data";
+  // A stack is one device, its lead (#405): its state is the whole stack's,
+  // whatever a member's own status says.
+  const dot = health === "down" ? "critical" : health === "active" ? "ok" : "no-data";
   const key = deviceKey(device);
-  const stack = members.length ? `Stack of ${members.length + 1}${membersDown ? ` · ${membersDown} down` : ""}` : "";
+  const stack = members.length ? `Stack of ${members.length + 1}` : "";
   // Why it doesn't count, where the role would be: clear without opening it (#316);
   // a stack says so as well.
   const note = device.not_monitored ? "Not monitored" : device.maintenance_until ? "Maintenance"
@@ -210,7 +205,9 @@ export function deviceRowHtml(device, open = false, members = []) {
   ].filter(Boolean);
   const details = open
     ? `<div class="device-details">${facts.map((fact) => `<div class="device-meta">${escHtml(fact)}</div>`).join("")}${deviceCountNote(device)}`
-      + `${members.length ? `<div class="stack-members"><div class="device-meta">${escHtml(`Stack of ${members.length + 1}`)}:</div>${members.map(memberHtml).join("")}</div>` : ""}</div>`
+      + `${members.length ? `<div class="stack-members"><div class="device-meta">${escHtml(health === "down"
+        && !note ? `The whole stack is down: all ${members.length + 1} members.`
+        : `Stack of ${members.length + 1}, monitored as one device:`)}</div>${members.map(memberHtml).join("")}</div>` : ""}</div>`
     : "";
   return `<li class="device-row-item${open ? " open" : ""}">`
     + `<button class="device-row" type="button" data-device-key="${escHtml(key)}" aria-expanded="${open ? "true" : "false"}">`

@@ -3,7 +3,7 @@ panel shows a stack as one device."""
 
 import pytest
 
-from nautobot_maps import inventory, nautobot
+from nautobot_maps import inventory, nautobot, settings
 from tests.js_modules import run_js
 
 CHASSIS = {"id": "vc-1", "name": "sw-stack01", "display": "sw-stack01", "master": {"id": "m1"}}
@@ -92,12 +92,18 @@ check(noMaster.length === 1 && noMaster[0].device.id === "c", "the one with an I
 check(groupStacks([member("a", "a", 2), member("b", "b", 1)])[0].device.id === "b", "else the first");
 
 const closed = deviceRowHtml(stack.device, false, stack.members);
-// Member 2 is down: the closed row says so, and is red though the master is up.
-check(closed.includes(">Stack of 3 · 1 down<") && closed.includes("dot-critical") && !closed.includes("stack-member"), closed);
+// Member 2's own Offline means nothing: the stack is its lead, which is up (#405).
+check(closed.includes(">Stack of 3<") && closed.includes("dot-ok") && !closed.includes("stack-member"), closed);
 const open = deviceRowHtml(stack.device, true, stack.members);
-check(open.includes("Access Switch") && open.includes(">Stack of 3:<"), "its role in the details, then the members");
-check(open.includes(">2. sw-stack01:2 · C9300 · Offline<") && open.includes(">3. sw-stack01:3 · C9300 · Serial S3<"), open);
-check(closed.includes('class="device-row-role">Stack of 3 · 1 down<'), "a stack isn't styled as a note");
+check(open.includes("Access Switch") && open.includes(">Stack of 3, monitored as one device:<"), "its role, then the members");
+check(open.includes(">2. sw-stack01:2 · C9300<") && open.includes(">3. sw-stack01:3 · C9300 · Serial S3<"), "members without their own status: " + open);
+check(closed.includes('class="device-row-role">Stack of 3<'), "a stack isn't styled as a note");
+// The lead down: the whole stack is.
+const down = deviceRowHtml({ ...stack.device, status: "Offline" }, true, stack.members);
+check(down.includes("dot-critical") && down.includes(">The whole stack is down: all 3 members.<"), down);
+// A lead in maintenance (or the alert delay) isn't an outage: not said.
+const held = deviceRowHtml({ ...stack.device, status: "Offline", maintenance_until: "2026-10-20T21:00:00Z" }, true, stack.members);
+check(!held.includes("whole stack is down") && held.includes("Stack of 3 · Maintenance"), held);
 // A lead in maintenance or unmonitored still says it is a stack.
 const quiet = deviceRowHtml({ ...stack.device, not_monitored: "no primary IP" }, false, [stack.members[1]]);
 check(quiet.includes(">Stack of 2 · Not monitored<") && quiet.includes("device-row-note") && quiet.includes("dot-ok"), quiet);
@@ -136,8 +142,8 @@ def test_a_changed_stack_makes_the_next_sync_full(client, pg_database, monkeypat
     assert "last_updated__gte" not in calls[-1], "so this one is full"
 
 
-def test_the_board_says_which_stack_a_down_device_is_in(board):
-    """The board and its Copy say a down device is in a stack, and where (#400)."""
+def test_the_board_says_which_stack_a_down_device_is_in(board, monkeypatch):
+    """The board and its Copy say a down stack is down with all its members (#402, #405)."""
     from tests.test_app import _snapshot_device
     from tests.test_criticality import NOW, build, write
 
@@ -154,28 +160,36 @@ def test_the_board_says_which_stack_a_down_device_is_in(board):
 
     devices = [
         member(1, "Offline", "10.0.0.1/32"),
-        member(2, "Offline", "10.0.0.2/32"),  # its own IP: monitored
+        # An IP of its own: monitored on its own, so just itself when down.
+        member(2, "Offline", "10.0.0.2/32"),
         member(3, "Offline", ""),  # no IP: not on the board, but in the stack's size
         member(4, "Active", ""),
         _snapshot_device("a-rt", "a", "Edge Router", "Offline"),
         # A fifth member at another location: the stack's size is the whole stack.
         {**member(5, "Active", ""), "location_id": "b"},
-        # An excluded status still counts: it is still in the chassis.
+        # An excluded status: not one of the members down.
         {**member(6, "Decommissioning", "")},
     ]
+    monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"})
     write({"a": "", "b": ""}, devices)
-    down = {d["device_id"]: d.get("stack") for d in build(board, NOW)["a"]["down_devices"]}
-    assert down == {
-        "a-stk1": {"name": "sw-stack01", "position": 1, "size": 6, "master": True},
-        "a-stk2": {"name": "sw-stack01", "position": 2, "size": 6, "master": False},
+    row = build(board, NOW)["a"]
+    # The whole stack wherever its members are (5 at b), without the Decommissioning one.
+    names = ["sw-stack01", "sw-stack01:2", "sw-stack01:3", "sw-stack01:4", "sw-stack01:5"]
+    stack = {"name": "sw-stack01", "size": 5, "members": names}
+    assert {d["device_id"]: d.get("stack") for d in row["down_devices"]} == {
+        # The master is how the stack is monitored: down means every member is (#405).
+        "a-stk1": {**stack, "position": 1, "master": True, "whole": True},
+        # A member with an IP of its own is just itself.
+        "a-stk2": {**stack, "position": 2, "master": False, "whole": False},
         "a-rt": None,
     }
+    # Counting is as before: the devices with a primary IP.
+    assert row["device_count"] == 3, row["device_count"]
     # The assistant (MCP) gets it too.
     from nautobot_maps import mcp
 
-    row = build(board, NOW)["a"]
     by_id = {d["device_id"]: d for d in mcp._site(row)["down_devices"]}
-    assert by_id["a-stk2"]["stack"] == {"name": "sw-stack01", "position": 2, "size": 6, "master": False}
+    assert by_id["a-stk1"]["stack"]["whole"] is True and by_id["a-stk1"]["stack"]["members"] == names
     assert "stack" not in by_id["a-rt"]
 
 
@@ -184,21 +198,23 @@ def test_stack_text_on_the_board_and_in_copy():
         """
 import { stackText } from "@js/alerts/rows.js";
 import { siteReport } from "@js/alerts/panels.js";
-check(stackText({ name: "sw-stack01", position: 2, size: 4, master: false }) === "Stack sw-stack01, member 2 of 4", "member");
-check(stackText({ name: "sw-stack01", position: 1, size: 4, master: true }) === "Stack sw-stack01, master of 4", "master");
-check(stackText({ name: "", position: null, size: 3 }) === "Stack, member of 3", "no name or place");
+const stack = { name: "sw-stack01", position: 1, size: 4, master: true, whole: true, members: ["sw-stack01", "sw-stack01:2", "sw-stack01:3", "sw-stack01:4"] };
+// A member monitored on its own: just itself.
+check(stackText({ ...stack, position: 2, master: false, whole: false }, { names: true }) === "Stack sw-stack01, member 2 of 4", "member");
+check(stackText(stack) === "Stack sw-stack01: all 4 members down", stackText(stack));
+check(stackText(stack, { names: true }) === "Stack sw-stack01: all 4 members down (sw-stack01, sw-stack01:2, sw-stack01:3, sw-stack01:4)", "with names");
+check(stackText({ name: "", size: 3, whole: true }, { names: true }) === "Stack: all 3 members down", "no name, no member names");
 check(stackText(undefined) === "" && stackText({ size: 1 }) === "", "not a stack");
 check(stackText({ name: "s", size: "4" }) === "", "a size must be a number");
 
 const text = siteReport({
   name: "Site A", alert_level: "medium",
   down_devices: [
-    { device_name: "sw-stack01:2", device_ip: "10.0.0.2", role: "Access Switch", status: "Offline",
-      stack: { name: "sw-stack01", position: 2, size: 4, master: false } },
+    { device_name: "sw-stack01", device_ip: "10.0.0.1", role: "Access Switch", status: "Offline", stack },
     { device_name: "edge", role: "Edge Router", status: "Offline" },
   ],
 });
-check(text.includes("- sw-stack01:2 | IP 10.0.0.2 | Role Access Switch | Stack sw-stack01, member 2 of 4 | Status Offline"), text);
+check(text.includes("- sw-stack01 | IP 10.0.0.1 | Role Access Switch | Stack sw-stack01: all 4 members down (sw-stack01, sw-stack01:2, sw-stack01:3, sw-stack01:4) | Status Offline"), text);
 check(!text.split("\\n").find((line) => line.startsWith("- edge")).includes("Stack"), "not in a stack: nothing said");
 """
     )
