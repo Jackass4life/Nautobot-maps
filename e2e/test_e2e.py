@@ -532,9 +532,7 @@ def test_find_and_pick_two_tenants(page, path):
     payload = api(endpoint)
     sites = payload["locations" if path == "/" else "alerts"]
     expected = [
-        site
-        for site in sites
-        if {"Acme Corp", "Nordic Net"}.intersection(site.get("tenants") or [site.get("tenant")])
+        site for site in sites if {"Acme Corp", "Nordic Net"}.intersection(site.get("tenants") or [site.get("tenant")])
     ]
     if path == "/":
         assert page.locator("#location-count").inner_text() == f"{len(expected):,} sites"
