@@ -38,9 +38,40 @@ const html = siteMatchesHtml(matchSites(sites, "copenhagen"), "copenhagen", { c1
 check(html.includes('data-location-id="c1"') && html.includes("dot-critical"), "its level's dot");
 check(html.includes("dot-no-data"), "unknown level: no data");
 check(html.includes("Bank &lt;HQ&gt;") && html.includes('data-location-id="x&lt;1"') && !html.includes("<HQ>"), "escaped");
-check(html.includes("Search the map for “copenhagen”"), "the map search last");
+check(html.includes("Search the map for “copenhagen”"), "the map search");
 check(siteMatchesHtml({ matches: many.slice(0, 8), more: 22 }, "site").includes("22 more: keep typing"), "more");
 check(siteMatchesHtml({ matches: [], more: 0 }, "<b>").includes("for “&lt;b&gt;”"), "query escaped");
+"""
+    )
+
+
+def test_site_search_default_enter_target_at_scale():
+    run_js(
+        SITES
+        + """
+import { matchSites, siteMatchesHtml } from "@js/map/sitesearch.js";
+sites.push({ id: "cph", name: "CPH-01", physical_address: "Main Street 2, Copenhagen" });
+sites.push(...Array.from({ length: 1200 }, (_, i) => ({
+  id: `s${i}`, name: `Site ${i}`, ancestor_path: "Denmark",
+  physical_address: "Main Street 3, Copenhagen",
+})));
+// Enter uses the first button, just like ArrowDown from the input.
+const firstButton = (query) => {
+  const result = matchSites(sites, query);
+  return siteMatchesHtml(result, query).split("</button>")[0];
+};
+check(firstButton("  cPh-01  ").includes('data-location-id="cph"'), "full name opens the site");
+check(firstButton("Copenhagen DC 02").includes('data-location-id="c2"'), "full name first");
+for (const query of ["Copenhagen", "Main Street", "Denmark", "55.6761, 12.5683", "nowhere"]) {
+  check(firstButton(query).includes("site-match-map"), `${query}: Enter searches the map`);
+}
+const city = matchSites(sites, "Copenhagen");
+check(city.matches.length === 8 && city.more === 1196, "address suggestions stay capped at scale");
+const html = siteMatchesHtml(city, "Copenhagen");
+check(html.indexOf("site-match-map") < html.indexOf("data-location-id"), "map before suggestions");
+check(html.includes('data-location-id="c2"'), "partial names remain selectable");
+const exact = siteMatchesHtml(matchSites(sites, "CPH-01"), "CPH-01");
+check(exact.indexOf("data-location-id") < exact.indexOf("site-match-map"), "name before map");
 """
     )
 

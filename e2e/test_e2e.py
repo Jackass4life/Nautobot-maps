@@ -328,9 +328,11 @@ def test_the_map_at_scale(page):
             "longitude": -5 + (i // 40) * 0.8,
             "status": "Active",
             "location_type": "Site",
+            "physical_address": "Main Street 3, Copenhagen",
         }
         for i in range(1200)
     ]
+    sites[-1]["name"] = "Copenhagen DC"
     levels = {f"s{i}": {"level": "ok", "down": 0, "monitored": 8} for i in range(1200)}
     for n in range(25):
         levels[f"s{n * 40}"] = {
@@ -386,6 +388,8 @@ def test_the_map_at_scale(page):
 
     # During a search a row for a site outside it goes back to the whole map and opens it (#337).
     nearby = [{**sites[1], "distance_km": 0.0}]
+    searches = []
+    page.on("request", lambda request: searches.append(request.url) if "/api/search?" in request.url else None)
     page.route(
         "**/api/search*",
         lambda route: route.fulfill(json={"search_lat": 40, "search_lon": -5, "count": 1, "locations": nearby}),
@@ -393,6 +397,37 @@ def test_the_map_at_scale(page):
     page.fill("#search-input", "40,-5")
     page.press("#search-input", "Enter")
     page.locator("#search-results-header", has_text="1 location within 5 km").wait_for()
+    assert len(searches) == 1
+    # A city also in a site's name, and an address-only match: Enter searches
+    # nearby, not the first suggested site (#411).
+    for count, query in enumerate(("Copenhagen", "Main Street"), start=2):
+        page.fill("#search-input", query)
+        buttons = page.locator("#site-matches button")
+        assert "site-match-map" in buttons.first.get_attribute("class")
+        assert page.locator("#site-matches [data-location-id]").count() == 8
+        assert len(searches) == count - 1, "typing stays local"
+        # Address matches remain reachable from the first (map) row.
+        page.press("#search-input", "ArrowDown")
+        assert buttons.first.evaluate("el => el === document.activeElement")
+        page.keyboard.press("ArrowDown")
+        assert buttons.nth(1).evaluate("el => el === document.activeElement")
+        page.focus("#search-input")
+        with page.expect_response("**/api/search?*"):
+            page.press("#search-input", "Enter")
+        assert len(searches) == count
+        page.locator("#search-results-header", has_text="1 location within 5 km").wait_for()
+        assert page.locator("#search-results").is_visible()
+        assert page.locator(".result-distance").inner_text() == "0 km"
+        assert page.locator(".search-point-marker").count() == 1
+        assert page.locator(".leaflet-overlay-pane canvas").is_visible()
+        assert page.evaluate(
+            """async () => {
+                const { state } = await import("/static/js/map/state.js");
+                return state.markerLayer.getLayers().filter(layer => layer instanceof L.Circle)
+                    .map(circle => circle.getRadius());
+            }"""
+        ) == [5000]
+        assert page.locator("#location-inspector").is_hidden()
     page.locator(".alarm-item").first.click()
     page.locator("#inspector-title", has_text="Site 0960").wait_for()
     assert page.locator("#search-results").get_attribute("class") == "hidden"
@@ -456,7 +491,7 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.locator("#inspector-title", has_text="London HQ").wait_for()
     assert page.locator("#site-matches").is_hidden()
     page.keyboard.press("Escape")
-    # Enter opens the first site listed.
+    # Enter opens a full site-name match.
     page.fill("#search-input", "copenhagen dc")
     page.locator(".site-match[data-location-id]", has_text="Copenhagen DC").wait_for()
     page.press("#search-input", "Enter")
@@ -472,7 +507,7 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert page.locator(".app-menu .app-nav").is_hidden()
     assert page.locator("#location-inspector:not(.hidden)").count() == 1
     page.keyboard.press("Escape")
-    # The last row searches the map.
+    # A city makes the map search the first row.
     page.fill("#search-input", "Copenhagen")
     page.locator(".site-match-map", has_text="Search the map for “Copenhagen”").wait_for()
 
