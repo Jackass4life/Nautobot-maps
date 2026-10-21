@@ -60,6 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **A simpler map** (#311): markers are coloured by alert level only (green OK, yellow Low, orange Medium, red Critical, blue Maintenance, grey No data), the same in pins, stacks and clusters; before, orange and red each had two meanings (Planned / >25% down, search result / core down). The searched point is a ring. The status dropdown moved into Advanced filters (the All / Active / Planned buttons stay). The site panel has no Health summary tiles (the equipment chips show the same counts) and no Pinned button. `/api/location-alerts` also returns `ok` for locations with monitored devices
 
 ### Security
+- **certifi 2026.10.19** (GHSA-6q48-6c7w-9gw2, critical): the CA bundle no longer trusts the emSign roots whose intermediate CA keys were compromised. The CI audit and the image scan failed on every PR until this update
 - **No inline styles** (#370): the Content-Security-Policy's `style-src` is now `'self'` only, so injected HTML can no longer restyle a page (an overlay with a fake link); the map's markers and the error page use classes and a CSS file, and a test keeps inline styles out
 
 ### Fixed
