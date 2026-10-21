@@ -174,7 +174,7 @@ CONTRACT: tuple[Endpoint, ...] = (
             Field(
                 "custom_fields",
                 ("object", "null"),
-                becomes="tier, tenant role scope",
+                becomes="tier, tenant_scopes",
                 rule="SITE_TIER_FIELD (a value, or a select's value or label), lowercased; TENANT_SCOPE_FIELD (a JSON object mapping tenant names to device-role names)",
             ),
         ),

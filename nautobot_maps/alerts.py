@@ -461,32 +461,36 @@ def tenant_scoped_alerts(
     tenants: list[str],
     devices: list[dict],
     pending_devices: list[dict],
+    maintenance_devices: list[dict],
     site_window: dict | None,
     checked_at: str,
     location_type: str | None,
     override_map: dict,
     tier: str,
 ) -> dict:
-    """Levels for configured tenants, reusing the site's already-monitored devices (#410)."""
+    """Levels for configured tenants, reusing the site's already-monitored devices (#410).
+
+    *devices* are those the site's level counts; *maintenance_devices* are left
+    out of it, as on the board, but still the tenant's: with only those, the
+    tenant sees maintenance, not a hidden site."""
     tenant_names = {tenant.strip().casefold() for tenant in tenants if tenant}
     scoped = {}
     for tenant, roles in scopes.items():
         if tenant not in tenant_names:
             continue
         role_set = set(roles)
-        matches = [
-            device
-            for device in (*devices, *pending_devices)
-            if (device.get("role") or "").strip().casefold() in role_set
-        ]
-        active = [
-            device for device in devices if (device.get("role") or "").strip().casefold() in role_set
-        ]
+
+        def theirs(group: list[dict], role_set=role_set) -> list[dict]:
+            return [device for device in group if (device.get("role") or "").strip().casefold() in role_set]
+
+        active, pending, in_maintenance = theirs(devices), theirs(pending_devices), theirs(maintenance_devices)
+        matches = len(active) + len(pending) + len(in_maintenance)
         if active:
-            alert = compute_alert_level(active, location_type, override_map=override_map, tier=tier)
+            level = compute_alert_level(active, location_type, override_map=override_map, tier=tier)["level"]
         else:
-            alert = {"level": "ok" if matches else "no_data", "reason": ""}
-        level = "maintenance" if site_window is not None and matches else alert["level"]
+            level = "ok" if pending else "no_data"
+        if matches and (site_window is not None or (in_maintenance and not active)):
+            level = "maintenance"
         downtime = max(
             (
                 int(seconds_between(device.get("first_seen_down_at") or down_since(device, checked_at), checked_at))
@@ -497,7 +501,7 @@ def tenant_scoped_alerts(
         )
         scoped[tenant] = {
             "alert_level": level,
-            "device_count": len(matches),
+            "device_count": matches,
             "current_downtime_seconds": max(0, downtime),
         }
     return scoped
@@ -2449,6 +2453,7 @@ def build_alert_board_payload(
                 tenants,
                 devices,
                 pending_devices,
+                maintenance_devices,
                 site_window,
                 checked_at,
                 loc.get("location_type") or None,

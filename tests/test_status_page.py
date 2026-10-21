@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from nautobot_maps import alerts, auth, inventory, nautobot, settings, status
+from nautobot_maps import alerts, auth, db, inventory, nautobot, settings, status
 from tests import test_tokens
 from tests.js_modules import run_js
 from tests.test_app import auth_config
@@ -85,6 +85,7 @@ class TestTenantScopes:
             ["Acme Corp"],
             devices,
             [],
+            [],
             None,
             checked_at,
             None,
@@ -118,7 +119,7 @@ class TestTenantScopes:
 
     def test_no_matching_role_hides_site(self):
         scoped = alerts.tenant_scoped_alerts(
-            {"acme corp": ["firewall"]}, ["Acme Corp"], [], [], None, "2026-10-09T12:00:00Z", None, {}, ""
+            {"acme corp": ["firewall"]}, ["Acme Corp"], [], [], [], None, "2026-10-09T12:00:00Z", None, {}, ""
         )
         board = {
             "alerts": [
@@ -141,6 +142,7 @@ class TestTenantScopes:
             ["Acme Corp"],
             active,
             [],
+            [],
             window,
             "2026-10-09T12:00:00Z",
             None,
@@ -160,6 +162,7 @@ class TestTenantScopes:
             ["Acme Corp"],
             stack,
             [],
+            [],
             None,
             "2026-10-09T12:00:00Z",
             None,
@@ -168,6 +171,26 @@ class TestTenantScopes:
         )
         assert stacked["acme corp"]["alert_level"] == "critical"
         assert stacked["acme corp"]["device_count"] == 1
+
+    def test_scoped_devices_all_in_maintenance_show_maintenance(self):
+        """Only the tenant's devices in a window: maintenance, not a hidden site (#410 review)."""
+        firewall = {"id": "fw", "role": "Firewall", "status": "Offline"}
+        core = {"id": "core", "role": "Core Router", "status": "Active"}
+        scoped = alerts.tenant_scoped_alerts(
+            {"acme corp": ["firewall"]},
+            ["Acme Corp"],
+            [core],
+            [],
+            [firewall],
+            None,
+            "2026-10-09T12:00:00Z",
+            None,
+            {},
+            "",
+        )
+        assert scoped["acme corp"] == {"alert_level": "maintenance", "device_count": 1, "current_downtime_seconds": 0}
+        board = {"alerts": [{"name": "Fw work", "tenant": "Acme Corp", "alert_level": "ok", "tenant_alerts": scoped}]}
+        assert status.tenant_status(board, "Acme Corp")["sites"][0]["state"] == "maintenance"
 
     def test_location_scope_parsing_and_one_warning_for_bad_fields(self, monkeypatch, caplog):
         monkeypatch.setattr(settings, "TENANT_SCOPE_FIELD", "tenant_scope")
@@ -185,10 +208,7 @@ class TestTenantScopes:
         normalized = inventory.normalize_locations([location], include_without_coordinates=True)
         assert normalized[0]["tenant_scopes"] == {"acme corp": ["access switch", "firewall"]}
 
-        malformed = [
-            {**location, "id": f"loc-{index}", "custom_fields": {"tenant_scope": "{bad"}}
-            for index in (2, 3)
-        ]
+        malformed = [{**location, "id": f"loc-{index}", "custom_fields": {"tenant_scope": "{bad"}} for index in (2, 3)]
         normalized = inventory.normalize_locations(malformed, include_without_coordinates=True)
         assert [item["tenant_scopes"] for item in normalized] == [{}, {}]
         warnings = [record for record in caplog.records if "Invalid tenant_scope custom field" in record.message]
@@ -208,7 +228,7 @@ class TestAccess:
         assert response.status_code == 403
 
     def test_a_revoked_status_token_gets_401(self, client, board):
-        from nautobot_maps import db, tokens
+        from nautobot_maps import tokens
 
         created = make("acme-status", "status", tenant="Acme Corp")
         conn = db.get_conn()
