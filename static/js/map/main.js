@@ -250,7 +250,7 @@ renderAlarmList();
 initTopBar();
 
 // Search (#392): the matching sites as you type; Enter, the button or the
-// list's last row search the map for an address or coordinates.
+// map row search the map for an address or coordinates.
 const { searchInput, searchBtn, searchResults, siteMatches } = els;
 function hideSiteMatches() {
   siteMatches.hidden = true;
@@ -261,7 +261,7 @@ function mapSearch() {
   doSearch();
 }
 searchBtn.addEventListener("click", mapSearch);
-// Enter opens the first site listed; with none (a place, coordinates), the map search.
+// Enter follows the first row: a full site name, otherwise the map search (#411).
 function openSiteMatch(id) {
   hideSiteMatches();
   searchInput.value = "";
@@ -275,8 +275,8 @@ function openSiteMatch(id) {
 }
 searchInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
-    const first = siteMatches.hidden ? null : siteMatches.querySelector("[data-location-id]");
-    if (first) openSiteMatch(first.dataset.locationId);
+    const first = siteMatches.hidden ? null : siteMatches.querySelector("button");
+    if (first?.dataset.locationId) openSiteMatch(first.dataset.locationId);
     else mapSearch();
   }
   else if (e.key === "ArrowDown" && !siteMatches.hidden) {
