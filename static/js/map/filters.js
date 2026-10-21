@@ -2,7 +2,8 @@
 import { isAlarm, renderAlarmList } from "./alarms.js";
 import { openLocationFromQuery } from "./inspector.js";
 import { renderMarkers } from "./markers.js";
-import { SCOPE_NO_MATCH_HINT, scopeLabel } from "../lib/scope.js";
+import { matchesValues, selectedValues, setFilterOptions, setSelectedValues } from "../lib/multi-select.js";
+import { SCOPE_NO_MATCH_HINT, scopeLabel, siteTenants, updateTenantLinks } from "../lib/scope.js";
 import { config, els, getLocationById, locationAlerts, state } from "./state.js";
 
 const ALARMS_ONLY_KEY = "nautobot-maps-map-alarms-only";
@@ -45,17 +46,8 @@ export function linkedSiteOutOfScope(everySite) {
 
 export function populateFilters(locations) {
   for (const [name, field, label] of FILTERS) {
-    const select = els[name];
-    const values = [...new Set(locations.map((loc) => loc[field]).filter(Boolean))].sort();
-    select.innerHTML = `<option value="">${label}</option>`;
-    for (const value of values) {
-      const opt = document.createElement("option");
-      opt.value = value;
-      opt.textContent = value;
-      select.appendChild(opt);
-    }
-    // Nothing to choose between: not shown (#392).
-    select.hidden = values.length < 2;
+    const values = [...new Set(locations.flatMap((loc) => field === "tenant" ? siteTenants(loc) : [loc[field]]).filter(Boolean))].sort();
+    setFilterOptions(els[name], values, label);
   }
   // The status buttons only for statuses some site has, and only with a choice.
   const statuses = new Set(locations.map((loc) => loc.status).filter(Boolean));
@@ -67,7 +59,7 @@ export function populateFilters(locations) {
 
 // The filters in use, as [element name, what it is, value] (#392).
 export function activeFilters() {
-  return FILTERS.filter(([name]) => els[name]?.value).map(([name, , , what]) => [name, what, els[name].value]);
+  return FILTERS.flatMap(([name, , , what]) => selectedValues(els[name]).map((value) => [name, what, value]));
 }
 
 // "Filters · 2" and a chip per filter in use, each removable, so it is clear
@@ -82,6 +74,7 @@ export function renderFilterChips() {
     chip.type = "button";
     chip.className = "filter-chip";
     chip.dataset.filter = name;
+    chip.dataset.value = value;
     chip.setAttribute("aria-label", `Remove filter ${what}: ${value}`);
     chip.textContent = `${value} ×`;
     return chip;
@@ -90,9 +83,11 @@ export function renderFilterChips() {
 }
 
 // The locations matching *criteria*: {status, location_type, parent, tenant,
-// tenant_group}, each "" for any.
+// tenant_group}, each an array of values (empty for any).
 export function filterLocations(locations, criteria) {
-  return locations.filter((loc) => FILTERS.every(([, field]) => !criteria[field] || loc[field] === criteria[field]));
+  return locations.filter((loc) => FILTERS.every(([, field]) => matchesValues(
+    field === "tenant" ? siteTenants(loc) : loc[field], criteria[field],
+  )));
 }
 
 // "Alarms only" once the levels are in: before (or if they fail) every site is
@@ -131,15 +126,17 @@ export function setAlarmsOnly(on, { remember = true } = {}) {
 }
 
 export function syncQuickStatusButtons() {
+  const statuses = selectedValues(els.filterStatus);
   (els.quickStatusButtons || []).forEach((button) => {
-    const isActive = (button.dataset.quickStatus || "") === els.filterStatus.value;
+    const status = button.dataset.quickStatus || "";
+    const isActive = status ? statuses.includes(status) : !statuses.length;
     button.classList.toggle("active", isActive);
     button.setAttribute("aria-pressed", isActive ? "true" : "false");
   });
 }
 
 export function applyFilters() {
-  const criteria = Object.fromEntries(FILTERS.map(([name, field]) => [field, els[name].value]));
+  const criteria = Object.fromEntries(FILTERS.map(([name, field]) => [field, selectedValues(els[name])]));
   const filtered = filterLocations(state.allLocations, criteria);
   state.filteredLocations = filtered;
   const drawn = alarmsOnlyApplies() ? filtered.filter((loc) => isAlarm(locationAlerts[loc.id])) : filtered;
@@ -148,13 +145,14 @@ export function applyFilters() {
   openLocationFromQuery();
   syncQuickStatusButtons();
   renderFilterChips();
+  updateTenantLinks(criteria.tenant, config.scope);
   renderAlarmList();
 }
 
 // *remember* false: for the moment only, so a saved Alarms only stays saved
 // (a site picked from the search that the filters hid, #392).
 export function clearFilters({ remember = true } = {}) {
-  for (const [name] of FILTERS) els[name].value = "";
+  for (const [name] of FILTERS) setSelectedValues(els[name], []);
   setAlarmsOnly(false, { remember });
   applyFilters();
 }

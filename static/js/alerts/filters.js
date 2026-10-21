@@ -1,30 +1,21 @@
 // Which sites the board shows, in which order (#294).
 import { siteSearchText, siteTenants } from "../lib/scope.js";
+import { matchesValues, selectedValues, setFilterOptions } from "../lib/multi-select.js";
 import { hasActiveAlarm, severityWeight, siteCaseState } from "./rows.js";
 import { DEFAULT_SEVERITY_FILTER, DEFAULT_SORT, SORT_KEY, config, els, state } from "./state.js";
 
-function populateSelect(selectEl, values, label) {
-  selectEl.innerHTML = `<option value="">${label}</option>`;
-  values.forEach((value) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    selectEl.appendChild(option);
-  });
-}
-
 export function populateFilters(alerts) {
-  populateSelect(
+  setFilterOptions(
     els.filterStatus,
     [...new Set(alerts.map((item) => item.status).filter(Boolean))].sort(),
     "All statuses"
   );
-  populateSelect(
+  setFilterOptions(
     els.filterType,
     [...new Set(alerts.map((item) => item.location_type).filter(Boolean))].sort(),
     "All location types"
   );
-  populateSelect(
+  setFilterOptions(
     els.filterTenant,
     [...new Set(alerts.flatMap(siteTenants))].sort(),
     "All tenants"
@@ -117,9 +108,9 @@ export function filterSites(sites, criteria) {
     // The wall view also lists sites in maintenance, at the bottom (#283).
     if (!matchesSeverityFilter(item, criteria.severityFilter) && !(wallView && item.alert_level === "maintenance")) return false;
     if (siteNeedle && !searchableText.includes(siteNeedle)) return false;
-    if (status && item.status !== status) return false;
-    if (type && item.location_type !== type) return false;
-    if (tenant && !siteTenants(item).includes(tenant)) return false;
+    if (!matchesValues(item.status, status)) return false;
+    if (!matchesValues(item.location_type, type)) return false;
+    if (!matchesValues(siteTenants(item), tenant)) return false;
     return true;
   });
 
@@ -133,9 +124,9 @@ export function filterSites(sites, criteria) {
 export function getFilteredAlerts() {
   return filterSites(state.allAlerts, {
     site: els.filterSite.value,
-    status: els.filterStatus.value,
-    type: els.filterType.value,
-    tenant: els.filterTenant.value,
+    status: selectedValues(els.filterStatus),
+    type: selectedValues(els.filterType),
+    tenant: selectedValues(els.filterTenant),
     sort: els.sortBy.value,
     severityFilter: state.severityFilter,
     wallView: config.wallView,
@@ -147,31 +138,34 @@ export function getFilteredAlerts() {
 // match, as on the board).  null when nothing narrows the board.
 export function wallLinkFor({ tenant, text, scope }) {
   const params = new URLSearchParams({ view: "wall" });
-  (tenant ? [tenant] : scope?.tenants || []).forEach((name) => params.append("tenant", name));
+  const tenants = (Array.isArray(tenant) ? tenant : [tenant]).filter(Boolean);
+  (tenants.length ? tenants : scope?.tenants || []).forEach((name) => params.append("tenant", name));
   [...(scope?.texts || []), (text || "").trim()].filter(Boolean).forEach((q) => params.append("q", q));
   return params.has("tenant") || params.has("q") ? `/alerts?${params}` : null;
 }
 
 // Board filters a wall can't take: it shows alarms, whatever their status or type.
 export function filtersLeftOffTheWall() {
-  return [els.filterStatus?.value && "Status", els.filterType?.value && "Type"].filter(Boolean);
+  return [els.filterStatus && selectedValues(els.filterStatus).length && "Status",
+    els.filterType && selectedValues(els.filterType).length && "Type"].filter(Boolean);
 }
 
 export function currentWallLink() {
-  return wallLinkFor({ tenant: els.filterTenant.value, text: els.filterSite.value, scope: config.scope });
+  return wallLinkFor({ tenant: selectedValues(els.filterTenant), text: els.filterSite.value, scope: config.scope });
 }
 
 // "More filters (2)": the hidden filters say when they are in use.
 export function moreFiltersInUse() {
   const sorted = els.sortBy.value !== DEFAULT_SORT;
-  return [els.filterStatus?.value, els.filterType?.value, els.toggleNonOperational?.checked, sorted].filter(Boolean).length;
+  return [els.filterStatus && selectedValues(els.filterStatus).length,
+    els.filterType && selectedValues(els.filterType).length, els.toggleNonOperational?.checked, sorted].filter(Boolean).length;
 }
 
 // Reset is shown only when there is something to reset (#311).
 export function filtersInUse() {
   return Boolean(
     els.filterSite.value.trim()
-      || els.filterTenant.value
+      || selectedValues(els.filterTenant).length
       || moreFiltersInUse()
       || els.sortBy.value !== DEFAULT_SORT
       || state.severityFilter !== DEFAULT_SEVERITY_FILTER

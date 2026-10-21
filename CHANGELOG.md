@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Searchable multi-select filters** (#412): the map, alert board, Availability and Maintenance share type-to-find lists with ticks, compact labels and keyboard support; map chips remove individual picks, and staff links keep all selected tenants.
 - **The board and Copy say when a down device is in a stack** (#402): "Stack sw-stack01, member 2 of 4" or "master of 4" on the down device's line, in the copied text for a ticket and for AI assistants (MCP)
 - **The Availability page explains itself** (#396): an **(i)** next to the title, the Downtime choice, each summary card, the Tenants and Sites lists and the CSV links says what it means, for someone new to the page
 - **Circuit mapping page** (#385): **Circuits** in the ☰ menu lists every circuit without a termination at a location, grouped worst first by what its description's address found (several sites, no site, one site), with search, links to Nautobot and the map, and a CSV (`/api/circuit-mapping.csv`) for adding the terminations in Nautobot
