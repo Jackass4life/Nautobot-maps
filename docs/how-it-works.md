@@ -118,7 +118,7 @@ This starts three containers: `nautobot-maps` (the app), `postgres` and `redis`.
 - Run a **released image**, not a local build ([operations](operations.md#run-a-released-version)).
 - Put a **proxy with HTTPS** in front. For sign-in, `AUTH_MODE=header` with your SSO proxy passing the user and groups; roles are **viewer**, **operator**, **admin** ([sign-in and roles](authentication.md)). Let the app trust identity headers only from the proxy (`AUTH_TRUSTED_PROXIES`).
 - Set your own `POSTGRES_PASSWORD` **before the first start**, and back up the database ([backup and restore](operations.md#backup-and-restore)).
-- Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ITSM (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
+- Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ITSM (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), tenant role scopes on status pages (`TENANT_SCOPE_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
 - Monitor `/healthz` and scrape `/metrics` ([monitoring](operations.md#monitoring)).
 - API tokens for scripts, Alertmanager and MCP: `docker compose exec nautobot-maps python -m nautobot_maps token create <name> --role operator`.
 

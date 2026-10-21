@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Per-site device-role scopes on tenant status pages** (#410): `TENANT_SCOPE_FIELD` names a Location JSON custom field mapping tenants to the device roles that count; unlisted tenants still see the whole site, and a site with no matching devices is hidden
 - **The board and Copy say when a down device is in a stack** (#402): "Stack sw-stack01, member 2 of 4" or "master of 4" on the down device's line, in the copied text for a ticket and for AI assistants (MCP)
 - **The Availability page explains itself** (#396): an **(i)** next to the title, the Downtime choice, each summary card, the Tenants and Sites lists and the CSV links says what it means, for someone new to the page
 - **Circuit mapping page** (#385): **Circuits** in the ☰ menu lists every circuit without a termination at a location, grouped worst first by what its description's address found (several sites, no site, one site), with search, links to Nautobot and the map, and a CSV (`/api/circuit-mapping.csv`) for adding the terminations in Nautobot

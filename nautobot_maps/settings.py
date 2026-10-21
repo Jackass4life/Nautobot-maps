@@ -248,6 +248,8 @@ SITE_TIER_FIELD = os.getenv("SITE_TIER_FIELD", "").strip()
 SITE_TIERS = [
     t.strip().lower() for t in (os.getenv("SITE_TIERS", "").strip() or "gold,silver,bronze").split(",") if t.strip()
 ]
+# Device roles that count for each tenant's status page, per Location.
+TENANT_SCOPE_FIELD = os.getenv("TENANT_SCOPE_FIELD", "").strip()
 # The location type whose locations are countries (#386): their name is the
 # country of every location under them.  Case ignored.
 COUNTRY_LOCATION_TYPE = os.getenv("COUNTRY_LOCATION_TYPE", "").strip() or "Country"

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from nautobot_maps import alerts, auth, inventory, settings, status
+from nautobot_maps import alerts, auth, inventory, nautobot, settings, status
 from tests import test_tokens
 from tests.js_modules import run_js
 from tests.test_app import auth_config
@@ -69,6 +69,131 @@ class TestTenantStatus:
 
     def test_unknown_tenant(self):
         assert status.tenant_status(BOARD, "Nobody") is None
+
+
+class TestTenantScopes:
+    def test_scoped_level_and_since_use_only_the_matching_roles(self):
+        checked_at = "2026-10-09T12:00:00Z"
+        devices = [
+            {"role": "Firewall", "status": "Offline", "first_seen_down_at": "2026-10-09T11:00:00Z"},
+            {"role": "Firewall", "status": "Active"},
+            {"role": "Core Router", "status": "Offline", "first_seen_down_at": "2026-10-09T10:00:00Z"},
+        ]
+        assert alerts.compute_alert_level(devices)["level"] == "critical"
+        scoped = alerts.tenant_scoped_alerts(
+            {"acme corp": ["firewall"]},
+            ["Acme Corp"],
+            devices,
+            [],
+            None,
+            checked_at,
+            None,
+            {},
+            "",
+        )
+        assert scoped == {
+            "acme corp": {
+                "alert_level": "medium",
+                "device_count": 2,
+                "current_downtime_seconds": 3600,
+            }
+        }
+        board = {
+            "checked_at": checked_at,
+            "alerts": [
+                {
+                    "name": "Scoped site",
+                    "tenant": "Acme Corp",
+                    "alert_level": "critical",
+                    "current_downtime_seconds": 7200,
+                    "tenant_alerts": scoped,
+                }
+            ],
+        }
+        result = status.tenant_status(board, "ACME CORP")
+        assert result["sites"] == [
+            {"name": "Scoped site", "state": "degraded", "since": "2026-10-09T11:00:00Z", "until": None}
+        ]
+        assert "Firewall" not in json.dumps(result)
+
+    def test_no_matching_role_hides_site(self):
+        scoped = alerts.tenant_scoped_alerts(
+            {"acme corp": ["firewall"]}, ["Acme Corp"], [], [], None, "2026-10-09T12:00:00Z", None, {}, ""
+        )
+        board = {
+            "alerts": [
+                {
+                    "name": "No firewall here",
+                    "tenant": "Acme Corp",
+                    "alert_level": "critical",
+                    "device_count": 30,
+                    "tenant_alerts": scoped,
+                }
+            ]
+        }
+        assert status.tenant_status(board, "Acme Corp") is None
+
+    def test_maintenance_and_stacks_follow_board_counting(self):
+        window = {"until": "2026-10-09T14:00:00Z"}
+        active = [{"id": "fw", "role": "Firewall", "status": "Offline"}]
+        maintenance = alerts.tenant_scoped_alerts(
+            {"acme corp": ["firewall"]},
+            ["Acme Corp"],
+            active,
+            [],
+            window,
+            "2026-10-09T12:00:00Z",
+            None,
+            {},
+            "",
+        )
+        assert maintenance["acme corp"]["alert_level"] == "maintenance"
+
+        stack = alerts.merge_stacks(
+            [
+                {"id": "lead", "role": "Access Switch", "status": "Active", "vc_id": "vc1", "vc_master": True},
+                {"id": "member", "role": "Access Switch", "status": "Offline", "vc_id": "vc1", "vc_position": 2},
+            ]
+        )
+        stacked = alerts.tenant_scoped_alerts(
+            {"acme corp": ["access switch"]},
+            ["Acme Corp"],
+            stack,
+            [],
+            None,
+            "2026-10-09T12:00:00Z",
+            None,
+            {},
+            "",
+        )
+        assert stacked["acme corp"]["alert_level"] == "critical"
+        assert stacked["acme corp"]["device_count"] == 1
+
+    def test_location_scope_parsing_and_one_warning_for_bad_fields(self, monkeypatch, caplog):
+        monkeypatch.setattr(settings, "TENANT_SCOPE_FIELD", "tenant_scope")
+        monkeypatch.setattr(nautobot, "id_name_map", lambda endpoint: {})
+        monkeypatch.setattr(nautobot, "tenant_group_map", lambda: {})
+        location = {
+            "id": "loc-1",
+            "name": "Scoped",
+            "latitude": 55.0,
+            "longitude": 12.0,
+            "tenant": {"name": "Acme Corp"},
+            "location_type": {"name": "Site"},
+            "custom_fields": {"tenant_scope": '{"Acme Corp":["Access Switch","Firewall"]}'},
+        }
+        normalized = inventory.normalize_locations([location], include_without_coordinates=True)
+        assert normalized[0]["tenant_scopes"] == {"acme corp": ["access switch", "firewall"]}
+
+        malformed = [
+            {**location, "id": f"loc-{index}", "custom_fields": {"tenant_scope": "{bad"}}
+            for index in (2, 3)
+        ]
+        normalized = inventory.normalize_locations(malformed, include_without_coordinates=True)
+        assert [item["tenant_scopes"] for item in normalized] == [{}, {}]
+        warnings = [record for record in caplog.records if "Invalid tenant_scope custom field" in record.message]
+        assert len(warnings) == 1
+        assert "2 locations" in warnings[0].message
 
 
 class TestAccess:

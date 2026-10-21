@@ -23,8 +23,8 @@ FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293;
 # 6: devices store criticality, #377; 7: locations their address key, #383;
 # 8: countries from the location hierarchy, not a town, #386; 9: devices
-# their virtual chassis, #400).
-CACHE_VERSION = "9"
+# their virtual chassis, #400; 10: tenant status role scopes, #410).
+CACHE_VERSION = "10"
 sync_lock = threading.Lock()
 SYNC_THREAD_NAME = "inventory-sync"
 
@@ -39,6 +39,16 @@ def json_load_list(value) -> list:
         return parsed if isinstance(parsed, list) else []
     except Exception:
         return []
+
+
+def _load_tenant_scopes(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 # "5000" or "114 35" on its own: the part after it is the town (#386).
@@ -141,6 +151,7 @@ def normalize_locations(
         return hierarchy_country(location.get("id") or "", tree) or address_country(physical_address)
 
     locations = []
+    invalid_tenant_scopes = 0
     for loc in raw:
         lat = None
         lon = None
@@ -185,6 +196,8 @@ def normalize_locations(
 
         physical_address = (loc.get("physical_address") or "").strip()
         country = _extract_location_country(loc, physical_address)
+        tenant_scopes, invalid_scope = location_tenant_scopes(loc)
+        invalid_tenant_scopes += invalid_scope
 
         locations.append(
             {
@@ -211,7 +224,14 @@ def normalize_locations(
                 "last_updated": loc.get("last_updated") or "",
                 # Importance (#293): the custom field SITE_TIER_FIELD, as given.
                 "tier": location_tier(loc),
+                "tenant_scopes": tenant_scopes,
             }
+        )
+    if invalid_tenant_scopes:
+        logger.warning(
+            "Invalid %s custom field on %d locations; tenant status will use all monitored devices there",
+            settings.TENANT_SCOPE_FIELD,
+            invalid_tenant_scopes,
         )
     return locations
 
@@ -225,6 +245,34 @@ def custom_field_value(obj: dict, field: str) -> str:
     if isinstance(value, dict):  # a select field can come as {"value": ..., "label": ...}
         value = value.get("value") or value.get("label")
     return str(value).strip().lower() if isinstance(value, (str, int)) and str(value).strip() else ""
+
+
+def location_tenant_scopes(location: dict) -> tuple[dict, bool]:
+    """A Location's tenant -> roles mapping, case-folded; malformed values disable the scope."""
+    if not settings.TENANT_SCOPE_FIELD:
+        return {}, False
+    fields = location.get("custom_fields")
+    raw = fields.get(settings.TENANT_SCOPE_FIELD) if isinstance(fields, dict) else None
+    if raw is None or raw == "":
+        return {}, False
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}, True
+    if not isinstance(raw, dict):
+        return {}, True
+    scopes = {}
+    for tenant, roles in raw.items():
+        if not isinstance(tenant, str) or not tenant.strip() or not isinstance(roles, list):
+            return {}, True
+        if any(not isinstance(role, str) or not role.strip() for role in roles):
+            return {}, True
+        key = tenant.strip().casefold()
+        scopes.setdefault(key, [])
+        scopes[key].extend(role.strip().casefold() for role in roles)
+        scopes[key] = list(dict.fromkeys(scopes[key]))
+    return scopes, False
 
 
 def location_tier(location: dict) -> str:
@@ -638,7 +686,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             """
             SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                    description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                   time_zone, tags_json, url, country, tier
+                   time_zone, tags_json, url, country, tier, tenant_scope_json
             FROM nautobot_location_cache
             ORDER BY name ASC
             """
@@ -673,6 +721,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
                     "physical_address": data.get("physical_address", ""),
                     "country": data.get("country", ""),
                     "tier": data.get("tier", ""),
+                    "tenant_scopes": _load_tenant_scopes(data.get("tenant_scope_json")),
                     "facility": data.get("facility", ""),
                     "tenant": data.get("tenant", ""),
                     "tenant_id": data.get("tenant_id", ""),
@@ -894,7 +943,7 @@ def state_due(state: dict | None, interval_seconds: int) -> bool:
 def cache_version() -> str:
     """CACHE_VERSION, and the custom fields read at sync time: setting or
     changing one forces a full resync, not a wait for the daily one (#377)."""
-    fields = [settings.SITE_TIER_FIELD, settings.DEVICE_CRITICALITY_FIELD]
+    fields = [settings.SITE_TIER_FIELD, settings.DEVICE_CRITICALITY_FIELD, settings.TENANT_SCOPE_FIELD]
     if settings.COUNTRY_LOCATION_TYPE.strip().lower() != "country":  # not the default (#386)
         fields.append(settings.COUNTRY_LOCATION_TYPE)
     return f"{CACHE_VERSION}+{','.join(fields)}" if any(fields) else CACHE_VERSION
@@ -917,14 +966,14 @@ def coalesce_text(value):
 
 
 def write_locations(conn, locations: list) -> None:
-    placeholders = db.placeholders(23).split(",")
+    placeholders = db.placeholders(24).split(",")
     for loc in locations:
         conn.execute(
             f"""
             INSERT INTO nautobot_location_cache
                 (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                 time_zone, tags_json, url, last_updated, country, tier, address_key, synced_at)
+                 time_zone, tags_json, url, last_updated, country, tier, address_key, tenant_scope_json, synced_at)
             VALUES ({", ".join(placeholders)}, {db.sql_now()})
             ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
@@ -949,6 +998,7 @@ def write_locations(conn, locations: list) -> None:
                 country = excluded.country,
                 tier = excluded.tier,
                 address_key = excluded.address_key,
+                tenant_scope_json = excluded.tenant_scope_json,
                 synced_at = excluded.synced_at
             """,
             (
@@ -975,6 +1025,7 @@ def write_locations(conn, locations: list) -> None:
                 coalesce_text(loc.get("country", "")),
                 coalesce_text(loc.get("tier", "")),
                 address_key(loc.get("physical_address") or ""),
+                json.dumps(loc.get("tenant_scopes") or {}, separators=(",", ":"), sort_keys=True),
             ),
         )
 

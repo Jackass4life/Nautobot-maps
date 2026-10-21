@@ -59,14 +59,17 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
         match = next((t for t in site_tenants(row) if t.casefold() == wanted), None)
         if match is None:
             continue
-        # Nothing monitored there (a region, a building): nothing to report.
-        if row.get("alert_level") == "no_data" and not row.get("device_count"):
+        # Nothing monitored there (a region, a building), or no role matched this tenant.
+        scoped = (row.get("tenant_alerts") or {}).get(match.casefold())
+        if scoped is not None and not scoped.get("device_count"):
+            continue
+        if scoped is None and row.get("alert_level") == "no_data" and not row.get("device_count"):
             continue
         name = name or match
-        state = STATES.get(row.get("alert_level") or "", "unknown")
+        state = STATES.get((scoped or {}).get("alert_level") or row.get("alert_level") or "", "unknown")
         site = {"name": row.get("name") or "", "state": state, "since": None, "until": None}
         if state in ("outage", "degraded"):
-            site["since"] = _since(row, checked_at)
+            site["since"] = _since({**row, **(scoped or {})}, checked_at)
         elif state == "maintenance":
             site["until"] = (row.get("maintenance") or {}).get("until")
         sites.append(site)
