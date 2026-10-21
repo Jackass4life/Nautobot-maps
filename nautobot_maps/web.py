@@ -380,8 +380,9 @@ def api_location_alerts():
 @bp.route("/api/locations/coordinate-check.csv")
 def api_coordinate_check():
     """The alert board's sites with missing or wrong coordinates (#368), worst
-    first: impossible, at 0,0, latitude and longitude swapped, far from the
-    rest, none.  JSON with counts, or CSV (one row per site)."""
+    first: impossible, at 0,0, latitude and longitude swapped, none, then far
+    from the rest of their region (a hint, #416).  JSON with counts, or CSV
+    (one row per site)."""
     try:
         # From the stored board (no Nautobot call); a page's ?tenant= / ?q= narrow it.
         rows = alerts.board("request").get("alerts") or []

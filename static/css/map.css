@@ -1008,6 +1008,12 @@ body.inspector-open #map {
   display: block;
 }
 
+/* The "far" hints, after the sites that are wrong (#416). */
+.coordinate-items .coordinate-group {
+  padding-top: 12px;
+  font-weight: 600;
+}
+
 .coordinate-csv {
   display: inline-block;
   margin-top: 8px;

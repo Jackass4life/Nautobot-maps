@@ -156,15 +156,19 @@ An example alert, for a sync interval of 5 minutes:
 
 ## Sites with missing or wrong coordinates
 
-A site without coordinates is missing from the map, and one with wrong coordinates pulls the map's first view out over the sea (#368). The map shows a line under its count when the alert board has any, e.g. "12 sites aren't on the map · 2 may be misplaced · **Check**"; **Check** lists them worst first (the first 50, the rest in the CSV), each with a link to fix it in Nautobot and **Show** for those on the map.
+A site without coordinates is missing from the map, and one with wrong coordinates pulls the map's first view out over the sea (#368). The map shows a line under its count when the alert board has any, e.g. "12 sites aren't on the map · 2 have wrong coordinates · **Check**"; **Check** lists them worst first (the first 50, the rest in the CSV), each with a link to fix it in Nautobot and **Show** for those on the map.
 
 | Problem | Meaning |
 |---|---|
 | `invalid` | Impossible coordinates: latitude beyond ±90 or longitude beyond ±180 |
 | `zero` | At 0,0: the coordinates were never set |
-| `swapped` | Far from the other sites, but not with latitude and longitude swapped |
-| `far` | More than 2,000 km, or 4 × the median distance if the network is wider, from the median of all sites: check it (a lone site abroad can be right) |
+| `swapped` | Far from the other sites in its region, but not with latitude and longitude swapped |
 | `missing` | No coordinates: on the board, not on the map |
+| `far` | Far from the other sites in its region: a hint to check (a lone site abroad can be right) |
 
-Only the board's sites are checked, and one without coordinates (or at 0,0) only when it has devices, in maintenance or down ones included: regions and buildings above the sites have none by design. "Far" is measured from the median of the sites per axis, so a network across the 180° meridian gets wrong results: set `MAP_DEFAULT_VIEW` there and read `far` with care. It reads the stored board, so it costs no Nautobot call; the map checks again every 15 minutes. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`, both taking `tenant=` and `q=` like the map: on a map for some sites only, the line, the list and the CSV cover those sites. The metric is left out until a board is stored (a scrape never builds one).
+**"Far" is measured within the site's region** (#416), not from the middle of the whole network, so a network on several continents isn't flagged. The region is the closest part of the site's Nautobot location tree ("EMEA › DNK", then "EMEA") with at least 3 sites with coordinates; with none, the whole network. A site is far when it is more than 4 × the region's typical distance from the region's middle (the median point), and at least 1,000 km (2,000 km for the whole network). Each one says what it is compared with: "9,194 km from the other sites in EMEA › DNK". A page for some sites only (`?tenant=`) still compares them with every site in their region.
+
+`far` is only a hint: the line counts the sites that are missing or wrong, and the far ones come last in the list under their own heading ("2 sites are far from the others" only when nothing else is wrong).
+
+Only the board's sites are checked, and one without coordinates (or at 0,0) only when it has devices, in maintenance or down ones included: regions and buildings above the sites have none by design. The middle is a median per axis, so a region across the 180° meridian gets wrong results: read `far` there with care (and set `MAP_DEFAULT_VIEW`, #362). It reads the stored board, so it costs no Nautobot call; the map checks again every 15 minutes. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`, both taking `tenant=` and `q=` like the map: on a map for some sites only, the line, the list and the CSV cover those sites. The metric is left out until a board is stored (a scrape never builds one).
 
