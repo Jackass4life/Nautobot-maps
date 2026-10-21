@@ -69,8 +69,10 @@ export function updateTenantLinks(tenants, scope) {
     const href = link.getAttribute("href") || "";
     const path = href.split("?")[0];
     if (path !== "/" && path !== "/alerts") continue;
-    const query = new URLSearchParams(params);
+    // "view=wall" first, as the page writes it.
+    const query = new URLSearchParams();
     if (new URLSearchParams(href.split("?")[1]).get("view") === "wall") query.set("view", "wall");
+    params.forEach((value, key) => query.append(key, value));
     link.setAttribute("href", `${path}${query.size ? `?${query}` : ""}`);
   }
 }
