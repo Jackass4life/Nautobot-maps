@@ -13,3 +13,6 @@ proxy_set_header X-Auth-Proxy-Secret "${AUTH_PROXY_SECRET}";
 # Exports and the board's history stream; MCP keeps a stream open.
 proxy_read_timeout 300s;
 proxy_buffering off;
+# The app's headers stay small; the request's (cookie, groups) are set above.
+proxy_buffer_size 16k;
+proxy_buffers 8 16k;

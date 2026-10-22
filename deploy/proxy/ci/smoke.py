@@ -36,6 +36,15 @@ def get(url, headers=None):
         return error.code, dict(error.headers), error.read().decode("utf-8", "replace")
 
 
+def post(url, headers=None):
+    request = urllib.request.Request(url, data=b"", headers=headers or {}, method="POST")
+    try:
+        with OPENER.open(request, timeout=20) as response:
+            return response.status, dict(response.headers), response.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as error:
+        return error.code, dict(error.headers), error.read().decode("utf-8", "replace")
+
+
 def check(name, condition, detail=""):
     print(("ok   " if condition else "FAIL ") + name + (f": {detail}" if not condition else ""))
     return condition
@@ -66,6 +75,13 @@ results.append(check("not the forged user", "mallory" not in body, "mallory"))
 # app from the proxy it trusts (address and AUTH_PROXY_SECRET).
 status, _, _ = get(f"{HTTPS}/api/alert-history", SIGNED_IN)
 results.append(check("signed in as an operator (noc-operators)", status == 200, status))
+
+status, _, _ = get(f"{HTTPS}/api/alert-history", {"Cookie": "_nautobot_maps=many"})
+results.append(check("a user in 150 groups (about 5 KB of IDs) gets in", status == 200, status))
+
+# A page elsewhere posting with the signed-in user's cookie (CSRF).
+status, _, body = post(f"{HTTPS}/api/maintenance/1/end", SIGNED_IN | {"Sec-Fetch-Site": "cross-site"})
+results.append(check("a change from another site is refused", status == 403 and "another site" in body, status))
 
 status, _, body = get(f"{HTTPS}/api/alerts", {"Authorization": "Bearer nmt_not-a-real-token"} | FORGED)
 results.append(

@@ -94,7 +94,8 @@ What it does:
   - is no longer published on a host port;
   - trusts identity headers only from nginx's fixed address (`PROXY_IP`, default `172.30.0.10` on its own network `PROXY_SUBNET`; change both if that range is taken) and only with the secret;
   - runs with `AUTH_REQUIRE_VIEWER=true`.
-- **Sessions** last 12 hours and are refreshed while in use. The identity provider is not asked on every request.
+- **Sessions** last 12 hours and are refreshed while in use. The identity provider is not asked on every request. The session cookie is `SameSite=Lax`, so a browser never sends it with a POST from another site.
+- **Users in many groups** (Entra ID sends an ID of 36 characters each) are fine: nginx's header buffers are raised to 32 KB.
 
 **Entra ID (Azure AD):**
 - `OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0` and `OIDC_EMAIL_CLAIM=preferred_username`.
@@ -104,6 +105,17 @@ What it does:
 - `OIDC_ISSUER_URL=https://keycloak.example.com/realms/<realm>`.
 - Use a confidential client.
 - Add a **Group Membership** mapper with the claim name `groups`, *Full group path* off, added to the ID token.
+
+### Changes from another site are refused
+
+Behind any sign-in proxy, the browser's session cookie comes along with every request, so a page on another site could make a signed-in user send a change (a form posting to `/api/maintenance/<id>/end`, say).
+
+The app refuses any change (POST, PUT, PATCH, DELETE) that the browser marks as coming from another site (`Sec-Fetch-Site`, else `Origin`), with **403**. This works in every mode.
+- The app's own pages are not affected.
+- Scripts, webhooks and MCP clients send no such headers or use an API token, so they are not affected either.
+- `/mcp` keeps its own rule (`MCP_ALLOWED_ORIGINS`).
+
+With your own proxy, also set its session cookie to `SameSite=Lax`.
 
 ### Requiring sign-in everywhere
 

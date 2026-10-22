@@ -43,6 +43,8 @@ services:
       - OAUTH2_PROXY_REDIRECT_URL=https://${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}/oauth2/callback
       - OAUTH2_PROXY_COOKIE_SECRET=${OAUTH2_COOKIE_SECRET:?set OAUTH2_COOKIE_SECRET}
       - OAUTH2_PROXY_COOKIE_SECURE=true
+      # Never sent on a cross-site POST: no change from another site's page.
+      - OAUTH2_PROXY_COOKIE_SAMESITE=lax
       - OAUTH2_PROXY_COOKIE_NAME=_nautobot_maps
       # Sign in again after 12 hours; the session is refreshed while in use.
       - OAUTH2_PROXY_COOKIE_EXPIRE=12h

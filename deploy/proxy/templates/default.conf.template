@@ -27,7 +27,7 @@ server {
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
     location / {
-        return 301 https://$host$request_uri;
+        return 301 https://${PUBLIC_HOSTNAME}$request_uri;
     }
 }
 
@@ -46,6 +46,9 @@ server {
     add_header Strict-Transport-Security "max-age=31536000" always;
 
     client_max_body_size 2m;
+    # The session cookie and the groups grow with a user's groups (Entra ID:
+    # a 36-character ID each); nginx's 4-8 KB defaults would refuse them.
+    large_client_header_buffers 4 32k;
     # The app compresses its answers (COMPRESS_RESPONSES); passed through as they are.
     gzip off;
 
@@ -58,6 +61,8 @@ server {
     # oauth2-proxy: the login pages and the callback.
     location /oauth2/ {
         proxy_pass http://oauth2-proxy:4180;
+        proxy_buffer_size 32k;
+        proxy_buffers 4 32k;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
@@ -76,10 +81,12 @@ server {
         proxy_set_header X-Forwarded-Uri $request_uri;
         proxy_set_header Content-Length "";
         proxy_pass_request_body off;
+        proxy_buffer_size 32k;
+        proxy_buffers 4 32k;
     }
 
     location @login {
-        return 302 /oauth2/start?rd=$scheme://$host$request_uri;
+        return 302 /oauth2/start?rd=https://${PUBLIC_HOSTNAME}$request_uri;
     }
 
     # No login (the app checks access itself), and no identity passed on.
