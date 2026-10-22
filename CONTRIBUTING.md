@@ -100,9 +100,12 @@ Everything else lives in modules under `nautobot_maps/` (#165):
 - `nautobot_maps/web.py`: the wiring: security headers and the CSP, error pages, the sign-in
   check, and `web.register(app)`, which registers the routes.
 - `nautobot_maps/routes/`: the routes, one Flask blueprint per area (#424): `pages` (map, board,
-  API explorer), `ops` (health, metrics, app status, MCP, endpoint list), and helpers in `common`.
-  Routes not moved yet are still in `web.py`. `tests/route_table.json` freezes every URL, method
-  and role: `python -m tests.test_route_table` rewrites it after a deliberate change.
+  API explorer), `locations` (the map's API and search), `board` (the board's API: feed, history,
+  cases, acks, criticality), `maintenance`, `availability`, `circuits` and `status` (each with
+  its page), `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test
+  notification, contract), `ops` (health, metrics, app status, MCP, endpoint list), and helpers
+  in `common`. `tests/route_table.json` freezes every URL, method and role:
+  `python -m tests.test_route_table` rewrites it after a deliberate change.
 - `nautobot_maps/auth.py`: optional header-based authentication and roles
   (`@auth.require_role("operator")`).
 - `nautobot_maps/timeutil.py`: time helpers; tests freeze time with
