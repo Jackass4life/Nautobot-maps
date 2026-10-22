@@ -3,6 +3,7 @@
 import pytest
 
 from nautobot_maps import alerts, caching, settings
+from nautobot_maps.repositories import board as board_store
 from tests import test_alert_delay
 from tests.js_modules import run_js
 from tests.test_alert_delay import LONG_AGO, build, rows, set_devices
@@ -183,7 +184,7 @@ class TestMapWindow:
                         "2026-10-10T11:40:00Z",
                     ),
                 )
-            assert alerts.flapping_device_ids(conn, "2026-10-10T12:00:00Z") == {"busy"}
+            assert board_store.flapping_device_ids(conn, "2026-10-10T12:00:00Z", alerts.FLAP_WINDOW) == {"busy"}
         finally:
             conn.close()
 

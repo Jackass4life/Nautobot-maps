@@ -3,6 +3,7 @@
 import pytest
 
 from nautobot_maps import alerts, caching, db, inventory, settings, timeutil
+from nautobot_maps.repositories import board as board_store
 from tests.test_app import _snapshot_device, _snapshot_location
 
 NOW = "2026-10-10T12:00:00Z"
@@ -117,7 +118,7 @@ class TestDelay:
         def broken(conn):
             raise RuntimeError("bulk read failed")
 
-        monkeypatch.setattr(alerts, "read_alert_board_data", broken)
+        monkeypatch.setattr(board_store, "read_alert_board_data", broken)
         monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
         clock["now"] = "2026-10-10T12:01:00Z"
         assert build()["down_device_count"] == 1
