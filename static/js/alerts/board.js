@@ -2,7 +2,8 @@
 import { formatCountdown } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { getJson } from "../lib/http.js";
-import { SCOPE_NO_MATCH_HINT } from "../lib/scope.js";
+import { SCOPE_NO_MATCH_HINT, updateTenantLinks } from "../lib/scope.js";
+import { selectedValues } from "../lib/multi-select.js";
 import { showError } from "../lib/toast.js";
 import { loadFeed } from "./feed.js";
 import {
@@ -113,6 +114,7 @@ export function showScopeLabel(label) {
 }
 
 export function applyFilters(payload) {
+  updateTenantLinks(selectedValues(els.filterTenant), config.scope);
   const filtered = getFilteredAlerts();
   renderTableRows(filtered, payload);
   renderMoreFiltersLabel();

@@ -3,6 +3,7 @@
 // module that looks at the page when it loads (#294).  Leaflet (L) is loaded
 // before this, as a plain script.
 import { getJson } from "../lib/http.js";
+import { selectedValues, setSelectedValues } from "../lib/multi-select.js";
 import { inScope, readScope } from "../lib/scope.js";
 import { initTopBar } from "../lib/nav.js";
 import { showError } from "../lib/toast.js";
@@ -211,7 +212,8 @@ els.filtersToggle.addEventListener("click", () => {
 els.filterChips.addEventListener("click", (event) => {
   const chip = event.target.closest(".filter-chip");
   if (!chip || !els[chip.dataset.filter]) return;
-  els[chip.dataset.filter].value = "";
+  const select = els[chip.dataset.filter];
+  setSelectedValues(select, selectedValues(select).filter((value) => value !== chip.dataset.value));
   applyFilters();
 });
 [els.filterStatus, els.filterType, els.filterParent, els.filterTenant, els.filterTenantGroup].forEach((select) => {
@@ -220,7 +222,10 @@ els.filterChips.addEventListener("click", (event) => {
 byId("clear-filters").addEventListener("click", clearFilters);
 els.quickStatusButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    els.filterStatus.value = button.dataset.quickStatus || "";
+    const status = button.dataset.quickStatus;
+    const selected = selectedValues(els.filterStatus);
+    setSelectedValues(els.filterStatus, !status ? [] : selected.includes(status)
+      ? selected.filter((value) => value !== status) : [...selected, status]);
     applyFilters();
   });
 });

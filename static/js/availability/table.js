@@ -5,6 +5,7 @@
 
 import { hasAllWords, searchWords } from "../lib/format.js";
 import { revealTenantRest } from "../lib/html.js";
+import { initMultiSelect, matchesValues, selectedValues } from "../lib/multi-select.js";
 
 // Which way a column sorts first: the worst first.
 const FIRST_DIRECTION = { name: "asc", availability: "asc", downtime: "desc", incidents: "desc", sites: "desc" };
@@ -46,7 +47,7 @@ export function sortRows(rows, key = "availability", dir = "asc") {
 export function filterRows(sorted, { query = "", tenant = "", limit = Infinity } = {}) {
   const words = searchWords(query);
   const matched = sorted.filter((row) => hasAllWords(row.search, words)
-    && (!tenant || row.tenants.includes(tenant)));
+    && matchesValues(row.tenants, tenant));
   return { shown: matched.slice(0, limit), rest: matched.slice(limit), matched: matched.length };
 }
 
@@ -84,6 +85,7 @@ export function initAvailabilityTable(section) {
   const more = section.querySelector(".avail-more");
   const search = section.querySelector(".avail-search");
   const tenant = section.querySelector(".avail-tenant");
+  if (tenant) initMultiSelect(tenant);
   const step = Number(section.dataset.limit) || 25;
   const state = { key: "availability", dir: "asc", limit: step };
   let sorted = sortRows(rows, state.key, state.dir);
@@ -130,7 +132,7 @@ export function initAvailabilityTable(section) {
 
   // Only rows that come or go are touched; the shown ones are moved only when their order changed.
   function render() {
-    const view = filterRows(sorted, { query: search?.value || "", tenant: tenant?.value || "", limit: state.limit });
+    const view = filterRows(sorted, { query: search?.value || "", tenant: tenant ? selectedValues(tenant) : [], limit: state.limit });
     const next = new Set(view.shown);
     for (const row of shown) if (!next.has(row)) row.el.hidden = true;
     if (view.shown.some((row, i) => shown[i] !== row)) {

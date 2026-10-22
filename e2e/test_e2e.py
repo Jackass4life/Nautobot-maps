@@ -9,6 +9,7 @@ import io
 import json
 import os
 import time
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -515,7 +516,10 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.fill("#search-input", "")
     assert page.locator("#filter-section").is_hidden()
     page.locator("#filters-toggle").click()
-    page.select_option("#filter-type", "Data Center")
+    page.get_by_role("combobox", name="Location type", exact=True).click()
+    page.get_by_role("combobox", name="Search Location type", exact=True).fill("Data Center")
+    page.get_by_role("option", name="Data Center", exact=True).click()
+    page.keyboard.press("Escape")
     assert page.locator("#filters-toggle").inner_text() == "Filters · 1"
     page.locator(".filter-chip", has_text="Data Center").click()
     assert page.locator("#filters-toggle").inner_text() == "Filters"
@@ -531,6 +535,58 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert links == ["Map", "Alert Board", "Availability", "Maintenance", "Circuits", "API", "Wall view"], links
     page.mouse.click(700, 300)
     assert page.locator(".app-menu .app-nav").is_hidden()
+
+
+@pytest.mark.parametrize("path", ["/", "/alerts"])
+def test_find_and_pick_two_tenants(page, path):
+    """The real control searches locally, keeps both picks, and scopes staff links."""
+    endpoint = "/api/locations" if path == "/" else "/api/alerts"
+    requests = []
+    page.on("request", lambda request: requests.append(request.url))
+    page.goto(f"{BASE_URL}{path}")
+    if path == "/":
+        page.locator("#loading-overlay").wait_for(state="hidden", timeout=30000)
+        page.locator("#filters-toggle").click()
+    else:
+        page.wait_for_selector(".site-row")
+        page.locator('[data-severity-filter="all"]').click()
+    control = page.get_by_role("combobox", name="Tenant", exact=True)
+    control.click()
+    search = page.get_by_role("combobox", name="Search Tenant", exact=True)
+    before = sum(endpoint in url for url in requests)
+    search.fill("acm")
+    assert page.get_by_role("option").all_text_contents() == ["Acme Corp"]
+    search.press("Enter")
+    search.fill("nord")
+    search.press("Enter")
+    search.press("Escape")
+    assert control.inner_text() == "Acme Corp +1"
+    assert control.get_attribute("aria-expanded") == "false"
+    assert sum(endpoint in url for url in requests) == before, "typing and picks make no requests"
+
+    payload = api(endpoint)
+    sites = payload["locations" if path == "/" else "alerts"]
+    expected = [
+        site for site in sites if {"Acme Corp", "Nordic Net"}.intersection(site.get("tenants") or [site.get("tenant")])
+    ]
+    if path == "/":
+        assert page.locator("#location-count").inner_text() == f"{len(expected):,} sites"
+        assert page.locator(".filter-chip").count() == 2
+        page.locator(".filter-chip", has_text="Acme Corp").click()
+        assert control.inner_text() == "Nordic Net"
+        assert page.locator(".filter-chip").count() == 1
+        # Put the second pick back before checking the outgoing links.
+        control.click()
+        search.fill("acm")
+        search.press("Enter")
+        search.press("Escape")
+    else:
+        names = page.locator(".site-row .site-name").all_inner_texts()
+        assert sorted(names) == sorted(site["name"] for site in expected)
+    page.locator(".app-menu summary").click()
+    href = page.locator(".app-nav-link", has_text="Alert Board").get_attribute("href")
+    params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+    assert set(params["tenant"]) == {"Acme Corp", "Nordic Net"}
 
 
 def test_the_availability_page_explains_itself(page):

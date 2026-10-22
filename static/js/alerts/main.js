@@ -4,6 +4,7 @@
 import { setCaseUrlTemplate } from "../lib/cases.js";
 import { revealTenantRest } from "../lib/html.js";
 import { initTopBar } from "../lib/nav.js";
+import { setSelectedValues } from "../lib/multi-select.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { showError } from "../lib/toast.js";
 import { applyFilters, loadAlertBoard, renderNextUpdate, showScopeLabel } from "./board.js";
@@ -138,9 +139,7 @@ if (els.clearAlertFiltersBtn) {
   els.clearAlertFiltersBtn.addEventListener("click", () => {
     if (refreshBtn.disabled) return;
     filterSite.value = "";
-    filterStatus.value = "";
-    filterType.value = "";
-    filterTenant.value = "";
+    [filterStatus, filterType, filterTenant].forEach((select) => setSelectedValues(select, []));
     setSeverityFilter(DEFAULT_SEVERITY_FILTER);
     sortBy.value = DEFAULT_SORT;
     rememberSort(DEFAULT_SORT);

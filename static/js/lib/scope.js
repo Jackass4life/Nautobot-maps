@@ -58,6 +58,25 @@ export function scopeParams(scope) {
   return params;
 }
 
+// Staff page links follow the tenant picks, keeping the link's text scope.
+export function updateTenantLinks(tenants, scope) {
+  const params = scopeParams(scope);
+  if (tenants.length) {
+    params.delete("tenant");
+    tenants.forEach((name) => params.append("tenant", name));
+  }
+  for (const link of document.querySelectorAll(".app-nav-link")) {
+    const href = link.getAttribute("href") || "";
+    const path = href.split("?")[0];
+    if (path !== "/" && path !== "/alerts") continue;
+    // "view=wall" first, as the page writes it.
+    const query = new URLSearchParams();
+    if (new URLSearchParams(href.split("?")[1]).get("view") === "wall") query.set("view", "wall");
+    params.forEach((value, key) => query.append(key, value));
+    link.setAttribute("href", `${path}${query.size ? `?${query}` : ""}`);
+  }
+}
+
 // "Acme Corp, Nordic Net · “DNK”": what the page shows, each tenant as
 // Nautobot spells it when one of *sites* has it.
 export function scopeLabel(scope, sites = []) {
