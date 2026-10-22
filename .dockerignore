@@ -22,3 +22,6 @@ docker-compose.override.yml
 requirements-dev.txt
 .pre-commit-config.yaml
 node_modules
+
+# The proxy setup and its certificates never go into the app image (#423).
+deploy/

@@ -324,3 +324,39 @@ jobs:
       - name: Dump container logs on failure
         if: failure()
         run: docker compose -f demo/docker-compose.yml logs --tail=200
+
+  # -----------------------------------------------------------------------
+  # The HTTPS and sign-in proxy (#423): the real nginx config and compose
+  # files, a stub in place of oauth2-proxy, and the mock Nautobot.
+  # -----------------------------------------------------------------------
+  proxy-smoke:
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_FILE: docker-compose.yml:deploy/proxy/compose.yml:deploy/proxy/ci/compose.yml
+      PUBLIC_HOSTNAME: localhost
+      AUTH_PROXY_SECRET: ci-proxy-secret-not-for-production
+      OIDC_ISSUER_URL: https://idp.example.com
+      OIDC_CLIENT_ID: nautobot-maps
+      OIDC_CLIENT_SECRET: unused-by-the-stub
+      OAUTH2_COOKIE_SECRET: 0123456789abcdef0123456789abcdef
+      NAUTOBOT_URL: http://mock-nautobot:8080
+      NAUTOBOT_TOKEN: demo-token
+      AUTH_OPERATOR_GROUPS: noc-operators
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: A self-signed certificate
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
+            -keyout deploy/proxy/certs/privkey.pem -out deploy/proxy/certs/fullchain.pem
+
+      - name: Start the app behind the proxy
+        run: docker compose up -d --build --wait --wait-timeout 180
+
+      - name: The proxy's rules
+        run: python3 deploy/proxy/ci/smoke.py https://localhost:443 http://localhost:80
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200

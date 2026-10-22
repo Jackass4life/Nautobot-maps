@@ -92,7 +92,7 @@ Then say what a site's tier makes its devices, e.g. `TIER_DEVICE_LEVEL=gold:crit
 | [Tenant status page](docs/status-page.md) | "Are we affected?" for one tenant, shareable with a customer |
 | [Other monitoring sources](docs/sources.md) | Prometheus Alertmanager and a generic webhook mark devices down |
 | [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
-| [Sign-in and roles](docs/authentication.md) | SSO proxy setup, what each role can do, API tokens |
+| [Sign-in and roles](docs/authentication.md) | The bundled HTTPS and sign-in proxy (nginx + oauth2-proxy), or your own; what each role can do; API tokens |
 | [Data contract](docs/data-contract.md) | What is read from Nautobot and LibreNMS, and what it becomes |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
 | API | **API** in the ☰ menu opens `/docs`: every endpoint with its parameters and a **Try it** button |

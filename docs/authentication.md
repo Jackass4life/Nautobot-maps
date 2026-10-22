@@ -66,6 +66,45 @@ location / {
 }
 ```
 
+### The bundled proxy: HTTPS and company sign-in (#423)
+
+Instead of setting up a proxy yourself, use the one in `deploy/proxy/`: **nginx** for HTTPS and **oauth2-proxy** for the login with any OIDC provider (Entra ID, Keycloak, Okta, Google).
+
+1. **Register the app** with your identity provider. The redirect URL is `https://<your host>/oauth2/callback`, and the ID token must carry the user's groups (examples below).
+2. **Certificates:** put `fullchain.pem` and `privkey.pem` in `deploy/proxy/certs/` (never committed). To try it out, a self-signed one:
+   ```sh
+   openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=maps.example.com" \
+     -keyout deploy/proxy/certs/privkey.pem -out deploy/proxy/certs/fullchain.pem
+   ```
+3. **Settings** in `.env` (see `.env.example`, "HTTPS and sign-in"): `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml`, `PUBLIC_HOSTNAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `AUTH_PROXY_SECRET` and `OAUTH2_COOKIE_SECRET`, plus `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` with your provider's group names or IDs.
+4. `docker compose up -d`, then open `https://<your host>`.
+
+What it does:
+
+- **Port 80** only redirects to HTTPS, except `/healthz` for probes. **443** serves TLS 1.2 and 1.3 with HSTS.
+- **Every request** is checked with oauth2-proxy. Someone not signed in goes to your login page and comes back. The app gets the user (username, else e-mail) and groups as `X-Forwarded-User` / `X-Forwarded-Groups`, with `AUTH_PROXY_SECRET`. The top bar shows "olga · operator".
+- **Without the company login:**
+  - Requests with `Authorization: Bearer nmt_…` (API tokens: LibreNMS, Alertmanager, scripts, MCP). Matched on the header, not a path. The app checks the token.
+  - The tenant [status page](status-page.md) and its files, because customers have no company login. The app checks their status token.
+  - `/healthz`.
+  
+  On these, nginx clears the identity headers, so nobody can claim a user by sending them.
+- **`/metrics`** is not served through the proxy. Prometheus scrapes the app inside the network.
+- **The app:**
+  - is no longer published on a host port;
+  - trusts identity headers only from nginx's fixed address (`PROXY_IP`, default `172.30.0.10` on its own network `PROXY_SUBNET`; change both if that range is taken) and only with the secret;
+  - runs with `AUTH_REQUIRE_VIEWER=true`.
+- **Sessions** last 12 hours and are refreshed while in use. The identity provider is not asked on every request.
+
+**Entra ID (Azure AD):**
+- `OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0` and `OIDC_EMAIL_CLAIM=preferred_username`.
+- In the app registration, under **Token configuration**, add the **groups** claim to the ID token. Groups then arrive as object IDs, so use those IDs in `AUTH_*_GROUPS`. Users in more than 200 groups get no list: assign groups to the application (Enterprise app, Users and groups) or use app roles.
+
+**Keycloak:**
+- `OIDC_ISSUER_URL=https://keycloak.example.com/realms/<realm>`.
+- Use a confidential client.
+- Add a **Group Membership** mapper with the claim name `groups`, *Full group path* off, added to the ID token.
+
 ### Requiring sign-in everywhere
 
 `AUTH_REQUIRE_VIEWER=true` makes every page and API need at least the `viewer` role, except `/healthz` and `/metrics` (probes and Prometheus send no identity; `/metrics` holds only counts). This includes a wall screen's browser and MCP clients: they sign in through the proxy, or with an API token.
