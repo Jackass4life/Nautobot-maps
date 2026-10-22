@@ -155,3 +155,113 @@ applyTheme("light", button);
 check(button.attrs["aria-label"] === "Switch to dark mode" && button.title === "Dark mode", button.title);
 """
     )
+
+
+PANEL_PAGE = """
+import { els, state, locationAlerts, locationAlertInfo } from "@js/map/state.js";
+const store = new Map();
+setGlobal("localStorage", {
+  getItem: (key) => store.get(key) ?? null,
+  setItem: (key, value) => store.set(key, String(value)),
+  removeItem: (key) => store.delete(key),
+});
+setGlobal("window", { requestAnimationFrame: (fn) => fn() });
+const resized = [];
+state.map = { invalidateSize: (options) => resized.push(options) };
+document.addEventListener = () => {};
+const inside = element("alarm-item");
+els.sidebar = element("sidebar", { inert: false, contains: (node) => node === inside });
+els.panelToggle = element("panel-toggle");
+"""
+
+
+def test_the_panel_folds_away_and_is_remembered():
+    """#420: « hides the panel, the map is measured again keeping its centre,
+    and the choice is remembered; focus inside the panel moves to the toggle."""
+    run_js(
+        PANEL_PAGE
+        + """
+import { initPanelToggle, panelToggleLabel, setPanelHidden } from "@js/map/sidebar.js";
+check(panelToggleLabel(false, 23).text === "«", "open: «");
+check(panelToggleLabel(true, null).text === "»", "folded, levels not in: »");
+check(panelToggleLabel(true, 0).text === "»", "folded, nothing in alarm: »");
+check(panelToggleLabel(true, 1234).text === "» 1,234 in alarm", panelToggleLabel(true, 1234).text);
+check(panelToggleLabel(true, 23).label === "Show the panel: 23 in alarm", "its label says so");
+
+initPanelToggle();
+check(!document.body.classList.contains("panel-hidden") && !els.sidebar.inert, "open by default");
+document.activeElement = inside;
+setPanelHidden(true);
+check(document.body.classList.contains("panel-hidden"), "folded");
+check(els.sidebar.inert, "out of the tab order");
+check(focused.at(-1) === "panel-toggle", "focus moves to the toggle");
+check(els.panelToggle.attrs["aria-expanded"] === "false", "aria-expanded");
+check(store.get("nautobot-maps-map-panel-hidden") === "1", "remembered");
+check(resized.length === 2 && resized[1].animate === false && resized[1].pan !== false, "measured again, same centre");
+
+// A new page opens it folded.
+document.body.classList.remove("panel-hidden");
+initPanelToggle();
+check(document.body.classList.contains("panel-hidden"), "restored");
+setPanelHidden(false);
+check(!store.has("nautobot-maps-map-panel-hidden") && !els.sidebar.inert, "open again, forgotten");
+"""
+    )
+
+
+def test_the_panel_opens_when_storage_is_blocked():
+    run_js(
+        PANEL_PAGE
+        + """
+import { initPanelToggle, setPanelHidden } from "@js/map/sidebar.js";
+const blocked = () => { throw new Error("SecurityError"); };
+setGlobal("localStorage", { getItem: blocked, setItem: blocked, removeItem: blocked });
+initPanelToggle();
+check(!document.body.classList.contains("panel-hidden"), "open");
+setPanelHidden(true);
+check(document.body.classList.contains("panel-hidden"), "still folds for this page");
+"""
+    )
+
+
+def test_the_panel_shortcut_is_not_typing():
+    run_js(
+        """
+import { isPanelShortcut } from "@js/map/sidebar.js";
+const on = (target, extra = {}) => isPanelShortcut({ key: "[", target, ...extra });
+check(on(element("map")), "[ on the page");
+check(!on(element("input", { closest: (sel) => sel.includes("input") ? {} : null })), "typing in a field");
+check(!on(element("map"), { ctrlKey: true }), "with a modifier");
+check(!isPanelShortcut({ key: "]", target: element("map") }), "another key");
+"""
+    )
+
+
+def test_a_folded_panel_shows_the_alarm_count_at_scale():
+    """#420: folding the panel never hides that something is wrong: » shows
+    the alarm list's count (40 sites in alarm of 1,200)."""
+    run_js(
+        PANEL_PAGE
+        + """
+import { renderAlarmList } from "@js/map/alarms.js";
+import { setPanelHidden } from "@js/map/sidebar.js";
+Object.assign(els, {
+  alarmList: element("alarm-list"), alarmCount: element("alarm-count"),
+  alarmMore: element("alarm-more"), alarmBreakdown: element("alarm-breakdown"),
+});
+state.allLocations = Array.from({ length: 1200 }, (_, i) => ({ id: `s${i}`, name: `Site ${i}` }));
+state.filteredLocations = state.allLocations;
+setPanelHidden(true);
+renderAlarmList();
+check(els.panelToggle.textContent === "»", "levels not in yet: no count");
+state.levelsLoaded = true;
+state.allLocations.slice(0, 40).forEach((loc, i) => {
+  locationAlerts[loc.id] = i < 30 ? "critical" : "low";
+  locationAlertInfo[loc.id] = { level: locationAlerts[loc.id], down: 3, monitored: 8 };
+});
+renderAlarmList();
+check(els.panelToggle.textContent === "» 40 in alarm", els.panelToggle.textContent);
+setPanelHidden(false);
+check(els.panelToggle.textContent === "«", "open: the panel shows the count itself");
+"""
+    )
