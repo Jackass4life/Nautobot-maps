@@ -1,12 +1,11 @@
-"""Web routes: pages, the JSON API and error handlers (#165).
-
-A Flask blueprint registered by app.py; URLs are unchanged.
+"""The app's wiring (#165, #424): security headers and the CSP, error pages,
+the sign-in check, the top bar's user, and the routes not yet moved to
+nautobot_maps/routes/.  app.py calls register().
 """
 
 import json
 import logging
 import re
-import time
 from datetime import UTC, timedelta
 from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -19,7 +18,6 @@ from werkzeug.exceptions import HTTPException
 
 from nautobot_maps import (
     alerts,
-    apidocs,
     auth,
     availability,
     caching,
@@ -31,9 +29,8 @@ from nautobot_maps import (
     export,
     inventory,
     maintenance,
-    mcp,
-    metrics,
     notify,
+    routes,
     scheduler,
     scope,
     settings,
@@ -42,11 +39,19 @@ from nautobot_maps import (
     tokens,
     webhooks,
 )
+from nautobot_maps.routes import common
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("web", __name__)
 bp.before_app_request(auth.check_viewer)
+
+
+def register(app) -> None:
+    """This blueprint (its hooks first), then one per area."""
+    app.register_blueprint(bp)
+    for blueprint in routes.BLUEPRINTS:
+        app.register_blueprint(blueprint)
 
 
 @bp.app_context_processor
@@ -193,183 +198,9 @@ def api_unhandled_error(exc):
     return internal_server_error(exc)
 
 
-def nautobot_service_unavailable(context: str, exc: Exception):
-    logger.warning("%s: %s", context, exc)
-    return jsonify({"error": "Nautobot service unavailable"}), 503
-
-
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
-
-def _scope_query() -> str:
-    """The page's ?tenant= / ?q= (#364, #367) as a query string, "" without
-    them: kept on the links between the map, the board and the wall."""
-    return urlencode(
-        [("tenant", name) for name in request.args.getlist("tenant") if name.strip()]
-        + [("q", text) for text in request.args.getlist("q") if text.strip()]
-    )
-
-
-@bp.route("/")
-def index():
-    """The map: Nautobot locations, address and GPS search, alert banners."""
-    return render_template(
-        "index.html",
-        nautobot_url=settings.NAUTOBOT_URL,
-        tile_url=settings.MAP_TILE_URL,
-        tile_attribution=settings.MAP_TILE_ATTRIBUTION,
-        view=settings.MAP_DEFAULT_VIEW,
-        scope_query=_scope_query(),
-    )
-
-
-@bp.route("/healthz")
-def healthz():
-    """Liveness probe for Docker, load balancers and monitoring.
-
-    Makes no Nautobot or LibreNMS calls: an upstream outage must not mark this
-    app unhealthy, because restarting it cannot fix the upstream.  When
-    persistence is configured the database must answer ``SELECT 1``, since the
-    alert board cannot be served without it.
-
-    Returns 200 ``{"status": "ok", "checks": {...}}`` or 503 with
-    ``"status": "unavailable"``.  Error details are logged, never returned.
-    """
-    checks = {"app": "ok"}
-    # Informational, never a failure: restarting the app can't fix a sync
-    # that fails upstream, but monitoring can alert on its age (#200).
-    sync_age = None
-    if db.dialect():
-        conn = None
-        try:
-            # Answer within Docker's 5 s probe timeout even when the
-            # database does not (#190).
-            conn = db.get_conn(connect_timeout=2)
-            conn.execute("SELECT 1").fetchone()
-            checks["database"] = "ok"
-            sync_age = metrics.inventory_sync_age_seconds(conn)
-        except Exception as exc:
-            logger.warning("Health check: database unavailable: %s", exc)
-            checks["database"] = "unavailable"
-        finally:
-            if conn is not None:
-                conn.close()
-    healthy = all(value == "ok" for value in checks.values())
-    return (
-        jsonify(
-            {
-                "status": "ok" if healthy else "unavailable",
-                "checks": checks,
-                "inventory_sync_age_seconds": sync_age,
-            }
-        ),
-        200 if healthy else 503,
-    )
-
-
-@bp.route("/metrics")
-def prometheus_metrics():
-    """Prometheus metrics: sync health, open alerts, sites by level (#200)."""
-    if not settings.METRICS_ENABLED:
-        return jsonify({"error": "Not found"}), 404
-    conn = None
-    try:
-        if db.dialect():
-            conn = db.get_conn()
-        body = metrics.collect(conn)
-    except Exception as exc:
-        logger.warning("Metrics: database unavailable: %s", exc)
-        body = metrics.collect(None)
-    try:
-        # Sites with missing or wrong coordinates (#368): from the board already
-        # stored, never a build (a scrape must stay cheap); left out without one.
-        stored = caching.get(alerts.BOARD_CACHE_KEY)
-        if stored is not None:
-            body += metrics.coordinate_problems(coordinates.counts(coordinates.check(stored.get("alerts") or [])))
-    except Exception as exc:
-        logger.warning("Metrics: coordinate check unavailable: %s", exc)
-    finally:
-        if conn is not None:
-            conn.close()
-    return body, 200, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"}
-
-
-@bp.route("/api/app-status")
-def api_app_status():
-    """How fresh the app's data is, for the top bar on every page (#419).
-
-    Read from the sync state the scheduler records: never calls Nautobot or
-    LibreNMS, so every open tab polling once a minute adds nothing upstream.
-    Response: ``state`` (``ok``, ``stale`` or ``down``), ``updated_at`` (the
-    oldest source's last good sync) and ``sources`` (``name``, ``state``,
-    ``message``, ``last_success``).
-    """
-    # No database configured: nothing synced, not an outage.
-    rows = {} if not db.dialect() else None
-    if db.dialect():
-        conn = None
-        try:
-            conn = db.get_conn(connect_timeout=2)
-            rows = metrics.sync_rows(conn)
-        except Exception as exc:
-            logger.warning("App status: database unavailable: %s", exc)
-        finally:
-            if conn is not None:
-                conn.close()
-    body = metrics.app_status(
-        rows,
-        librenms=bool(settings.LIBRENMS_URL and settings.LIBRENMS_API_TOKEN),
-        intervals={
-            "INVENTORY_SYNC_INTERVAL_SECONDS": settings.INVENTORY_SYNC_INTERVAL_SECONDS,
-            "LIBRENMS_SYNC_INTERVAL_SECONDS": settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
-        },
-        now=time.time(),
-    )
-    return jsonify(body), 200, {"Cache-Control": "no-store"}
-
-
-@bp.route("/alerts")
-def alert_board():
-    """The alert board: every site's severity, down devices, cases and history.
-
-    ``?view=wall`` is the wall-screen view (#243): alarms only, down devices
-    listed, no controls.
-    """
-    return render_template(
-        "alerts.html",
-        nautobot_url=settings.NAUTOBOT_URL,
-        case_url_template=settings.CASE_URL_TEMPLATE,
-        tier_definitions=alerts.alert_level_definitions(),
-        wall_view=request.args.get("view") == "wall",
-        scope_query=_scope_query(),
-    )
-
-
-@bp.route("/docs")
-def api_docs():
-    """This page: every page and API endpoint, with Try it (#230)."""
-    return render_template("docs.html", groups=apidocs.grouped(current_app))
-
-
-@bp.route("/mcp", methods=["POST"])
-def mcp_endpoint():
-    """MCP server for AI assistants (#250): the alert board as tools.
-
-    Off unless MCP_ENABLED=true.  Streamable HTTP, stateless, protocol
-    2026-07-28 and the older initialize-based versions.  Tools run the
-    matching API routes with the caller's sign-in and roles.
-    """
-    if not settings.MCP_ENABLED:
-        return jsonify({"error": "Not found"}), 404
-    return mcp.handle()
-
-
-@bp.route("/api/endpoints")
-def api_endpoints():
-    """Every page and API endpoint as JSON: methods, parameters, body and role (#230)."""
-    return jsonify({"endpoints": apidocs.endpoints(current_app)})
 
 
 @bp.route("/api/locations")
@@ -379,7 +210,7 @@ def api_locations():
         locations = inventory.get_locations()
         return jsonify({"locations": locations})
     except RuntimeError as exc:
-        return nautobot_service_unavailable("Locations endpoint unavailable", exc)
+        return common.nautobot_service_unavailable("Locations endpoint unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
@@ -402,7 +233,7 @@ def api_location_detail(location_id: str):
         detail = alerts.get_location_detail(location_id, location_type=location_type)
         return jsonify(detail)
     except RuntimeError as exc:
-        return nautobot_service_unavailable("Location detail endpoint unavailable", exc)
+        return common.nautobot_service_unavailable("Location detail endpoint unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
         return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
@@ -585,7 +416,7 @@ def api_search():
     try:
         all_locations = inventory.get_locations()
     except RuntimeError as exc:
-        return nautobot_service_unavailable("Location search unavailable", exc)
+        return common.nautobot_service_unavailable("Location search unavailable", exc)
     except Exception as exc:
         logger.exception("Error fetching locations for search: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
@@ -899,18 +730,18 @@ def api_maintenance_list():
     ``device_name``; ``tenant_descriptions`` has the tenants' descriptions.
     """
     try:
-        recent_days = min(max(int(_arg("recent_days") or 0), 0), maintenance.MAX_RECENT_DAYS)
+        recent_days = min(max(int(common.arg("recent_days") or 0), 0), maintenance.MAX_RECENT_DAYS)
     except ValueError:
         return jsonify({"error": "recent_days must be a whole number of days"}), 400
     conn = db.get_conn()
     if conn is None:
         return jsonify({"error": "Persistence DB not configured"}), 503
     try:
-        site_id = _arg("site_id") or ""
+        site_id = common.arg("site_id") or ""
         windows = maintenance.list_windows(
             conn,
             site_id=site_id,
-            include_past=_flag_arg("all"),
+            include_past=common.flag_arg("all"),
             recent_days=recent_days,
             limit=maintenance.LIST_LIMIT + 1,
         )
@@ -946,7 +777,7 @@ def maintenance_page():
         "maintenance.html",
         recent_days=MAINTENANCE_PAGE_RECENT_DAYS,
         max_sites=maintenance.MAX_SITES,
-        view="history" if _arg("view") == "history" else "now",
+        view="history" if common.arg("view") == "history" else "now",
         history_days=MAINTENANCE_HISTORY_DEFAULT_DAYS,
     )
 
@@ -1002,11 +833,11 @@ def _history_request() -> tuple[dict | None, tuple | None]:
     UTC's; default UTC), ``site_id`` and ``tenant``.  The days are checked as
     the availability report's (#341)."""
     try:
-        zone = ZoneInfo(_arg("tz") or "UTC")
+        zone = ZoneInfo(common.arg("tz") or "UTC")
     except (ZoneInfoNotFoundError, ValueError):
         return None, (jsonify({"error": "tz must be a time zone, like Europe/Copenhagen"}), 400)
     at = availability.now()
-    from_date, to_date = _arg("from"), _arg("to")
+    from_date, to_date = common.arg("from"), common.arg("to")
     if not (from_date or to_date):
         today = at.astimezone(zone).date()
         to_date = today.isoformat()
@@ -1015,7 +846,7 @@ def _history_request() -> tuple[dict | None, tuple | None]:
         period = availability.resolve_period(None, from_date, to_date, at, zone)
     except availability.ReportError as exc:
         return None, (jsonify({"error": exc.message}), 400)
-    site_id, tenant = _arg("site_id") or "", _arg("tenant") or ""
+    site_id, tenant = common.arg("site_id") or "", common.arg("tenant") or ""
     sites = _board_sites()
     # One list of sites for both filters, chosen before any limit; a site no
     # longer on the board still has its history, unless a tenant rules it out.
@@ -1226,16 +1057,6 @@ def api_maintenance_end(window_id: int):
     return jsonify({"window": window})
 
 
-def _arg(name: str) -> str | None:
-    """A query-string value, stripped; None when empty."""
-    return (request.args.get(name) or "").strip() or None
-
-
-def _flag_arg(name: str) -> bool:
-    """A yes/no query-string value: 1, true or yes."""
-    return (_arg(name) or "").lower() in {"1", "true", "yes"}
-
-
 def _availability_report(conn=None, with_incidents: bool = False) -> tuple[dict | None, str, int]:
     """``(report, error, status)`` for the month or from–to and the basis in the
     query string (#287, #341).  *with_incidents* (#354): every incident too,
@@ -1253,7 +1074,13 @@ def _availability_report(conn=None, with_incidents: bool = False) -> tuple[dict 
             return None, "The alert board could not be read, so the report would miss sites; try again shortly.", 503
         return (
             availability.report(
-                conn, _arg("month"), _arg("basis"), sites, _arg("from"), _arg("to"), with_incidents=with_incidents
+                conn,
+                common.arg("month"),
+                common.arg("basis"),
+                sites,
+                common.arg("from"),
+                common.arg("to"),
+                with_incidents=with_incidents,
             ),
             "",
             200,
@@ -1285,7 +1112,7 @@ def availability_page():
     # The days shown in the form: the report's, or after an error what was
     # asked for.  The form always sends from and to; a whole month is still
     # a month (availability.resolve_period).
-    asked = report["period"] if report else {"from": _arg("from") or "", "to": _arg("to") or ""}
+    asked = report["period"] if report else {"from": common.arg("from") or "", "to": common.arg("to") or ""}
     basis = report["basis"] if report else settings.AVAILABILITY_BASIS
     return (
         render_template(
@@ -1335,7 +1162,7 @@ def api_availability_csv():
         if conn is not None:
             conn.close()
         return jsonify({"error": error}), code
-    header = _flag_arg("header")
+    header = common.flag_arg("header")
     by = auth.get_current_user().get("username") or "" if header else ""
 
     def lines():

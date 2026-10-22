@@ -11,7 +11,7 @@ logs.configure()
 logger = logging.getLogger(__name__)
 
 caching.init_app(app)
-app.register_blueprint(web.bp)
+web.register(app)
 nautobot.configure_ssl_warnings()
 # Create/migrate the database (no-op without persistence).  Called here, after
 # logging is configured, so its startup messages are shown; modules never

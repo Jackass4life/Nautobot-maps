@@ -1,0 +1,394 @@
+[
+ {
+  "path": "/",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "index"
+ },
+ {
+  "path": "/alerts",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "alert_board"
+ },
+ {
+  "path": "/api/alert-acks",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_acknowledge"
+ },
+ {
+  "path": "/api/alert-acks/remove",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_unacknowledge"
+ },
+ {
+  "path": "/api/alert-cases",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_add_alert_case"
+ },
+ {
+  "path": "/api/alert-feed",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_alert_feed"
+ },
+ {
+  "path": "/api/alert-history",
+  "methods": [
+   "GET"
+  ],
+  "required_role": "operator",
+  "view": "api_alert_history"
+ },
+ {
+  "path": "/api/alert-history.csv",
+  "methods": [
+   "GET"
+  ],
+  "required_role": "operator",
+  "view": "api_alert_history_csv"
+ },
+ {
+  "path": "/api/alertmanager",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_alertmanager"
+ },
+ {
+  "path": "/api/alerts",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_alerts"
+ },
+ {
+  "path": "/api/app-status",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_app_status"
+ },
+ {
+  "path": "/api/availability",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_availability"
+ },
+ {
+  "path": "/api/availability.csv",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_availability_csv"
+ },
+ {
+  "path": "/api/circuit-mapping",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_circuit_mapping"
+ },
+ {
+  "path": "/api/circuit-mapping.csv",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_circuit_mapping_csv"
+ },
+ {
+  "path": "/api/contract",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_contract"
+ },
+ {
+  "path": "/api/criticality-overrides",
+  "methods": [
+   "GET"
+  ],
+  "required_role": "operator",
+  "view": "api_list_criticality_overrides"
+ },
+ {
+  "path": "/api/criticality-overrides",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_set_criticality_override"
+ },
+ {
+  "path": "/api/criticality-overrides/<device_id>",
+  "methods": [
+   "DELETE"
+  ],
+  "required_role": "operator",
+  "view": "api_delete_criticality_override"
+ },
+ {
+  "path": "/api/device-status",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_device_status"
+ },
+ {
+  "path": "/api/endpoints",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_endpoints"
+ },
+ {
+  "path": "/api/librenms/alert",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_librenms_alert"
+ },
+ {
+  "path": "/api/location-alerts",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_location_alerts"
+ },
+ {
+  "path": "/api/locations",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_locations"
+ },
+ {
+  "path": "/api/locations/<location_id>/detail",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_location_detail"
+ },
+ {
+  "path": "/api/locations/coordinate-check",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_coordinate_check"
+ },
+ {
+  "path": "/api/locations/coordinate-check.csv",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_coordinate_check"
+ },
+ {
+  "path": "/api/maintenance",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_maintenance_list"
+ },
+ {
+  "path": "/api/maintenance",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_maintenance_create"
+ },
+ {
+  "path": "/api/maintenance/<int:window_id>/end",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_maintenance_end"
+ },
+ {
+  "path": "/api/maintenance/devices",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_maintenance_devices"
+ },
+ {
+  "path": "/api/maintenance/end",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "operator",
+  "view": "api_maintenance_end_many"
+ },
+ {
+  "path": "/api/maintenance/history",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_maintenance_history"
+ },
+ {
+  "path": "/api/maintenance/history.csv",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_maintenance_history_csv"
+ },
+ {
+  "path": "/api/maintenance/sites",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_maintenance_sites"
+ },
+ {
+  "path": "/api/notifications/test",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "admin",
+  "view": "api_notifications_test"
+ },
+ {
+  "path": "/api/search",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_search"
+ },
+ {
+  "path": "/api/status/<path:tenant>",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_status"
+ },
+ {
+  "path": "/api/tokens",
+  "methods": [
+   "GET"
+  ],
+  "required_role": "admin",
+  "view": "api_tokens_list"
+ },
+ {
+  "path": "/api/tokens",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "admin",
+  "view": "api_tokens_create"
+ },
+ {
+  "path": "/api/tokens/<int:token_id>/revoke",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "admin",
+  "view": "api_tokens_revoke"
+ },
+ {
+  "path": "/availability",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "availability_page"
+ },
+ {
+  "path": "/circuits",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "circuits_page"
+ },
+ {
+  "path": "/docs",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_docs"
+ },
+ {
+  "path": "/healthz",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "healthz"
+ },
+ {
+  "path": "/maintenance",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "maintenance_page"
+ },
+ {
+  "path": "/mcp",
+  "methods": [
+   "POST"
+  ],
+  "required_role": null,
+  "view": "mcp_endpoint"
+ },
+ {
+  "path": "/metrics",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "prometheus_metrics"
+ },
+ {
+  "path": "/status/<path:tenant>",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "status_page"
+ }
+]
