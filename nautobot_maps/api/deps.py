@@ -80,6 +80,21 @@ async def json_body(request: Request):
         return None
 
 
+def limited_body(limit: int):
+    """A dependency: at most *limit* + 1 bytes of the body, read as they come,
+    so an oversized (also a chunked) request is never held whole."""
+
+    async def read(request: Request) -> bytes:
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > limit:
+                return bytes(body[: limit + 1])
+        return bytes(body)
+
+    return read
+
+
 async def form_values(request: Request) -> dict:
     """The request's form (URL-encoded or multipart) as Flask's ``request.form``
     read it; empty for any other body."""

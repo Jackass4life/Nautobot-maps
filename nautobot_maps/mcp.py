@@ -23,12 +23,13 @@ import logging
 import time
 from urllib.parse import quote, urlsplit
 
-from flask import jsonify, request
-from werkzeug.datastructures import MultiDict
-
-from nautobot_maps import alerts, auth, caching, inprocess, scope, settings, status
+from nautobot_maps import alerts, auth, caching, inprocess, requestctx, scope, settings, status
 
 logger = logging.getLogger(__name__)
+
+# The request being answered (#436): /mcp is a FastAPI route; this reads its
+# headers and address the same way under either framework.
+request = requestctx.request
 
 MODERN_VERSIONS = ("2026-07-28",)
 LEGACY_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
@@ -106,7 +107,7 @@ def call_api(method: str, path: str, query: dict | None = None, body: dict | Non
     routes and Flask's alike.  The call carries this request's headers and
     address, so the route's own sign-in and role checks apply as for the caller.
     """
-    headers = [(key, value) for key, value in request.headers if key.lower() not in SUB_REQUEST_SKIPPED_HEADERS]
+    headers = [(key, value) for key, value in request.headers.items() if key.lower() not in SUB_REQUEST_SKIPPED_HEADERS]
     return inprocess.call(method, path, query=query, body=body, headers=headers, remote_addr=request.remote_addr)
 
 
@@ -242,6 +243,14 @@ def _matches_filter(item: dict, level_filter: str) -> bool:
     return level == level_filter
 
 
+class _Args(dict):
+    """A tool's values as query arguments for ``scope.read_scope`` (``getlist``)."""
+
+    def getlist(self, key: str) -> list[str]:
+        value = self.get(key)
+        return [value] if value else []
+
+
 def _scope_query(args: dict) -> dict:
     """A tool's tenant / search as the board link's ?tenant= / ?q= (#375)."""
     return {"tenant": _text(args, "tenant"), "q": _text(args, "search")}
@@ -252,7 +261,7 @@ def tool_get_alert_board(args: dict) -> dict:
     if level_filter not in BOARD_FILTERS:
         raise ToolError(f"filter must be one of: {', '.join(BOARD_FILTERS)}")
     # The routes' own reading of ?tenant= / ?q=, so the tools match as the board does.
-    site_scope = scope.read_scope(MultiDict(_scope_query(args)))
+    site_scope = scope.read_scope(_Args(_scope_query(args)))
     limit = _integer(args, "limit", DEFAULT_SITE_LIMIT, MAX_SITE_LIMIT)
     board = _board(_flag(args, "include_non_operational"))
     sites = [
@@ -650,16 +659,16 @@ def _error(code: int, message: str, status: int, request_id=None, data=None):
     payload = {"jsonrpc": "2.0", "error": error}
     if request_id is not None:
         payload["id"] = request_id
-    return jsonify(payload), status
+    return payload, status
 
 
-def handle():
-    """Answer one POST to /mcp."""
+def handle(body: bytes) -> tuple[dict | None, int]:
+    """Answer one POST to /mcp: ``(JSON answer, status)``, or ``(None, 202)``
+    for a notification.  *body*: at most ``MAX_REQUEST_BYTES`` + 1 bytes of
+    it, read by the route (a chunked request has no Content-Length to check
+    first)."""
     if not _origin_allowed():
         return _error(INVALID_REQUEST, "Origin not allowed", 403)
-    # Read at most one byte past the limit: a chunked request has no
-    # Content-Length to check first.
-    body = request.stream.read(MAX_REQUEST_BYTES + 1)
     if len(body) > MAX_REQUEST_BYTES:
         return _error(INVALID_REQUEST, f"Request larger than {MAX_REQUEST_BYTES} bytes", 413)
     try:
@@ -670,7 +679,7 @@ def handle():
         return _error(INVALID_REQUEST, "Expected one JSON-RPC 2.0 request", 400)
     if "id" not in message:
         # Notifications (e.g. notifications/initialized) need no answer.
-        return "", 202
+        return None, 202
     request_id = message["id"]
     if isinstance(request_id, bool) or not isinstance(request_id, str | int):
         return _error(INVALID_REQUEST, "id must be a string or an integer", 400)
@@ -693,4 +702,4 @@ def handle():
         return _error(INTERNAL_ERROR, "Internal error", 500, request_id)
     if era == "modern":
         result = {"resultType": "complete", **result, "_meta": {META_SERVER_INFO: SERVER_INFO}}
-    return jsonify({"jsonrpc": "2.0", "id": request_id, "result": result})
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}, 200

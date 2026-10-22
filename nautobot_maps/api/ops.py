@@ -1,13 +1,14 @@
 """For monitoring and machines (#424, on FastAPI since #436): health, metrics,
-the app's freshness for the top bar, and the endpoint list."""
+the app's freshness for the top bar, MCP and the endpoint list."""
 
 import logging
 import time
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
-from nautobot_maps import alerts, apidocs, caching, coordinates, db, metrics, settings
+from nautobot_maps import alerts, apidocs, caching, coordinates, db, mcp, metrics, settings
 from nautobot_maps.api import deps
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,23 @@ def api_app_status():
         now=time.time(),
     )
     return deps.Json(body, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/mcp", name="ops.mcp_endpoint")
+def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUEST_BYTES))]):
+    """MCP server for AI assistants (#250): the alert board as tools.
+
+    Off unless MCP_ENABLED=true.  Streamable HTTP, stateless, protocol
+    2026-07-28 and the older initialize-based versions.  Tools run the
+    matching API routes with the caller's sign-in and roles.
+    """
+    # A sync route: in a worker thread, where the tools' in-process calls run.
+    if not settings.MCP_ENABLED:
+        return deps.Json({"error": "Not found"}, status_code=404)
+    answer, status = mcp.handle(body)
+    if answer is None:
+        return Response(status_code=status)
+    return deps.Json(answer, status_code=status)
 
 
 @router.get("/api/endpoints", name="ops.api_endpoints")
