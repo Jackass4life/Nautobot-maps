@@ -41,13 +41,14 @@ class TestCheck:
             ("impossible", "invalid"),
             ("null-island", "zero"),
             ("swapped", "swapped"),
-            ("new-york", "far"),
             ("nowhere", "missing"),
             ("text", "missing"),
+            ("new-york", "far"),
         ]
-        far = found[3]
-        assert far["km_away"] > coordinates.FAR_MIN_KM and far["reason"].startswith("Far from the other sites")
-        nowhere = found[4]
+        far = found[5]
+        assert far["km_away"] > coordinates.FAR_MIN_KM and far["compared_with"] == "all sites"
+        assert far["reason"] == f"{far['km_away']:,} km from the other sites: check the coordinates"
+        nowhere = found[3]
         assert nowhere["ancestor_path"] == "EMEA › DNK" and nowhere["tenants"] == ["Acme Corp"]
         assert nowhere["latitude"] is None
         assert coordinates.counts(found) == {"invalid": 1, "zero": 1, "swapped": 1, "far": 1, "missing": 2}
@@ -64,6 +65,64 @@ class TestCheck:
             ("all-down", "zero"),
             ("in-maintenance", "missing"),
         ]
+
+    def test_three_continents_in_their_regions_have_nothing_to_report(self):
+        """The whole network's centre is in Europe; each site is compared with its region (#416)."""
+        rnd = random.Random(416)
+        rows = [
+            *(site(f"e{n}", rnd.uniform(38, 62), rnd.uniform(-9, 25), ancestor_path="EMEA › DNK") for n in range(700)),
+            *(
+                site(f"u{n}", rnd.uniform(30, 47), rnd.uniform(-120, -75), ancestor_path="Americas › USA")
+                for n in range(400)
+            ),
+            *(site(f"a{n}", rnd.uniform(1, 35), rnd.uniform(100, 140), parent="APAC") for n in range(100)),
+        ]
+        assert coordinates.check(rows) == []
+        # Without the tree, one centre for all: the Americas and Asia look far.
+        flat = [{**row, "ancestor_path": "", "parent": ""} for row in rows]
+        assert len(coordinates.check(flat)) > 100
+
+    def test_a_site_far_from_its_region(self):
+        rows = [
+            *(site(f"dk{n}", 55 + n / 100, 10 + n / 100, ancestor_path="EMEA › DNK") for n in range(30)),
+            *(site(f"br{n}", -15 - n / 100, -47 - n / 100, ancestor_path="Americas › BRA") for n in range(30)),
+            site("aarhus", -15.8, -47.9, name="Aarhus", ancestor_path="EMEA › DNK"),  # placed in Brazil
+            site("madrid", 40.4, -3.7, ancestor_path="EMEA › DNK"),  # Denmark's, placed in Spain
+            site("swapped", 10.2, 56.2, ancestor_path="EMEA › DNK"),
+        ]
+        found = {item["site_id"]: item for item in coordinates.check(rows)}
+        assert {key: item["problem"] for key, item in found.items()} == {
+            "aarhus": "far",
+            "madrid": "far",
+            "swapped": "swapped",
+        }
+        aarhus = found["aarhus"]
+        assert aarhus["compared_with"] == "EMEA › DNK" and aarhus["km_away"] > 9000
+        assert aarhus["reason"] == f"{aarhus['km_away']:,} km from the other sites in EMEA › DNK: check the coordinates"
+
+    def test_a_small_region_is_compared_with_its_parent_then_the_network(self):
+        rows = [
+            *(site(f"dk{n}", 55 + n / 100, 10 + n / 100, ancestor_path="EMEA › DNK") for n in range(30)),
+            # Two sites in Norway: too few, so EMEA (Norway's and Denmark's) is the rest.
+            site("oslo", 59.9, 10.7, ancestor_path="EMEA › NOR"),
+            site("lima", -12.0, -77.0, ancestor_path="EMEA › NOR"),
+            # No region with enough sites: the whole network.
+            site("tokyo", 35.7, 139.7, parent="APAC"),
+        ]
+        found = {item["site_id"]: item["compared_with"] for item in coordinates.check(rows)}
+        assert found == {"lima": "EMEA", "tokyo": "all sites"}
+
+    def test_a_page_for_some_sites_compares_with_every_site(self):
+        rows = [
+            *(site(f"dk{n}", 55 + n / 100, 10 + n / 100, ancestor_path="EMEA › DNK") for n in range(30)),
+            site("acme", 55.5, 10.5, tenant="Acme Corp", ancestor_path="EMEA › DNK"),
+            site("acme-2", 56.2, 10.2, tenant="Acme Corp", ancestor_path="EMEA › DNK"),
+        ]
+        page = scope.read_scope(MultiDict([("tenant", "Acme Corp")]))
+        # Two Acme sites alone are too few to be far from; with Denmark's they are fine.
+        assert coordinates.check(rows, page) == []
+        rows.append(site("acme-in-brazil", -15.8, -47.9, tenant="Acme Corp", ancestor_path="EMEA › DNK"))
+        assert [item["site_id"] for item in coordinates.check(rows, page)] == ["acme-in-brazil"]
 
     def test_far_scales_with_the_network(self):
         """A world-wide network: New York is one of the sites, not far from them."""
@@ -167,6 +226,9 @@ class TestApi:
         rows = list(csv.DictReader(io.StringIO(resp.get_data(as_text=True).lstrip("﻿"))))
         assert [row["site_id"] for row in rows] == ["swapped", "nowhere"]
         assert rows[1]["latitude"] == "" and rows[0]["problem"] == "swapped" and rows[1]["site"] == "Site nowhere"
+        # What the distance is from (#416).
+        assert int(rows[0]["km_from_centre"]) > coordinates.FAR_MIN_KM and rows[0]["compared_with"] == "all sites"
+        assert rows[1]["km_from_centre"] == "" and rows[1]["compared_with"] == ""
         scoped = client.get("/api/locations/coordinate-check.csv?tenant=Acme%20Corp").get_data(as_text=True)
         assert "nowhere" in scoped and "swapped" not in scoped
 
@@ -197,8 +259,20 @@ const invalid = { site_id: "i1", name: "Typo", problem: "invalid", reason: "Impo
 
 check(coordinateSummary([]) === "", "all well: nothing");
 check(coordinateSummary([missing(1)]) === "1 site isn't on the map", coordinateSummary([missing(1)]));
-check(coordinateSummary([missing(1), missing(2), swapped]) === "2 sites aren't on the map · 1 may be misplaced",
+check(coordinateSummary([missing(1), missing(2), swapped]) === "2 sites aren't on the map · 1 has wrong coordinates",
   coordinateSummary([missing(1), missing(2), swapped]));
+// "Far" is a hint (#416): not counted with the wrong ones, said only when nothing is wrong.
+const far = (n) => ({ site_id: `f${n}`, name: `Far ${n}`, problem: "far", latitude: 1, longitude: 2,
+  reason: "9,194 km from the other sites in EMEA › DNK: check the coordinates" });
+check(coordinateSummary([invalid, swapped, far(1)]) === "2 sites have wrong coordinates", coordinateSummary([invalid, swapped, far(1)]));
+check(coordinateSummary([missing(1), far(1)]) === "1 site isn't on the map", coordinateSummary([missing(1), far(1)]));
+check(coordinateSummary([far(1), far(2)]) === "2 sites are far from the others", coordinateSummary([far(1), far(2)]));
+const withFar = coordinateListHtml([swapped, far(1), far(2)]);
+check(withFar.indexOf('data-site-id="s1"') < withFar.indexOf("coordinate-group")
+  && withFar.indexOf("coordinate-group") < withFar.indexOf('data-site-id="f1"')
+  && (withFar.match(/coordinate-group/g) || []).length === 1, "the far ones under one heading, last");
+check(withFar.includes("9,194 km from the other sites in EMEA › DNK"), "what it is far from");
+check(!coordinateListHtml([swapped]).includes("coordinate-group"), "no heading without far ones");
 
 config.nautobotUrl = "https://nautobot.example.com";
 const many = [invalid, swapped, ...Array.from({ length: 80 }, (_, n) => missing(n))];
@@ -214,7 +288,7 @@ Object.assign(els, { coordinateNote: element("note", { hidden: true }), coordina
 renderCoordinateCheck([]);
 check(els.coordinateNote.hidden, "hidden when all is well");
 renderCoordinateCheck(many);
-check(!els.coordinateNote.hidden && els.coordinateText.textContent === "80 sites aren't on the map · 2 may be misplaced",
+check(!els.coordinateNote.hidden && els.coordinateText.textContent === "80 sites aren't on the map · 2 have wrong coordinates",
   els.coordinateText.textContent);
 """
         )

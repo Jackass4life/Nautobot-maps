@@ -9,6 +9,7 @@ import io
 import json
 import os
 import time
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -328,9 +329,11 @@ def test_the_map_at_scale(page):
             "longitude": -5 + (i // 40) * 0.8,
             "status": "Active",
             "location_type": "Site",
+            "physical_address": "Main Street 3, Copenhagen",
         }
         for i in range(1200)
     ]
+    sites[-1]["name"] = "Copenhagen DC"
     levels = {f"s{i}": {"level": "ok", "down": 0, "monitored": 8} for i in range(1200)}
     for n in range(25):
         levels[f"s{n * 40}"] = {
@@ -386,6 +389,8 @@ def test_the_map_at_scale(page):
 
     # During a search a row for a site outside it goes back to the whole map and opens it (#337).
     nearby = [{**sites[1], "distance_km": 0.0}]
+    searches = []
+    page.on("request", lambda request: searches.append(request.url) if "/api/search?" in request.url else None)
     page.route(
         "**/api/search*",
         lambda route: route.fulfill(json={"search_lat": 40, "search_lon": -5, "count": 1, "locations": nearby}),
@@ -393,6 +398,37 @@ def test_the_map_at_scale(page):
     page.fill("#search-input", "40,-5")
     page.press("#search-input", "Enter")
     page.locator("#search-results-header", has_text="1 location within 5 km").wait_for()
+    assert len(searches) == 1
+    # A city also in a site's name, and an address-only match: Enter searches
+    # nearby, not the first suggested site (#411).
+    for count, query in enumerate(("Copenhagen", "Main Street"), start=2):
+        page.fill("#search-input", query)
+        buttons = page.locator("#site-matches button")
+        assert "site-match-map" in buttons.first.get_attribute("class")
+        assert page.locator("#site-matches [data-location-id]").count() == 8
+        assert len(searches) == count - 1, "typing stays local"
+        # Address matches remain reachable from the first (map) row.
+        page.press("#search-input", "ArrowDown")
+        assert buttons.first.evaluate("el => el === document.activeElement")
+        page.keyboard.press("ArrowDown")
+        assert buttons.nth(1).evaluate("el => el === document.activeElement")
+        page.focus("#search-input")
+        with page.expect_response("**/api/search?*"):
+            page.press("#search-input", "Enter")
+        assert len(searches) == count
+        page.locator("#search-results-header", has_text="1 location within 5 km").wait_for()
+        assert page.locator("#search-results").is_visible()
+        assert page.locator(".result-distance").inner_text() == "0 km"
+        assert page.locator(".search-point-marker").count() == 1
+        assert page.locator(".leaflet-overlay-pane canvas").is_visible()
+        assert page.evaluate(
+            """async () => {
+                const { state } = await import("/static/js/map/state.js");
+                return state.markerLayer.getLayers().filter(layer => layer instanceof L.Circle)
+                    .map(circle => circle.getRadius());
+            }"""
+        ) == [5000]
+        assert page.locator("#location-inspector").is_hidden()
     page.locator(".alarm-item").first.click()
     page.locator("#inspector-title", has_text="Site 0960").wait_for()
     assert page.locator("#search-results").get_attribute("class") == "hidden"
@@ -456,7 +492,7 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.locator("#inspector-title", has_text="London HQ").wait_for()
     assert page.locator("#site-matches").is_hidden()
     page.keyboard.press("Escape")
-    # Enter opens the first site listed.
+    # Enter opens a full site-name match.
     page.fill("#search-input", "copenhagen dc")
     page.locator(".site-match[data-location-id]", has_text="Copenhagen DC").wait_for()
     page.press("#search-input", "Enter")
@@ -472,7 +508,7 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert page.locator(".app-menu .app-nav").is_hidden()
     assert page.locator("#location-inspector:not(.hidden)").count() == 1
     page.keyboard.press("Escape")
-    # The last row searches the map.
+    # A city makes the map search the first row.
     page.fill("#search-input", "Copenhagen")
     page.locator(".site-match-map", has_text="Search the map for “Copenhagen”").wait_for()
 
@@ -480,7 +516,10 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.fill("#search-input", "")
     assert page.locator("#filter-section").is_hidden()
     page.locator("#filters-toggle").click()
-    page.select_option("#filter-type", "Data Center")
+    page.get_by_role("combobox", name="Location type", exact=True).click()
+    page.get_by_role("combobox", name="Search Location type", exact=True).fill("Data Center")
+    page.get_by_role("option", name="Data Center", exact=True).click()
+    page.keyboard.press("Escape")
     assert page.locator("#filters-toggle").inner_text() == "Filters · 1"
     page.locator(".filter-chip", has_text="Data Center").click()
     assert page.locator("#filters-toggle").inner_text() == "Filters"
@@ -496,6 +535,58 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert links == ["Map", "Alert Board", "Availability", "Maintenance", "Circuits", "API", "Wall view"], links
     page.mouse.click(700, 300)
     assert page.locator(".app-menu .app-nav").is_hidden()
+
+
+@pytest.mark.parametrize("path", ["/", "/alerts"])
+def test_find_and_pick_two_tenants(page, path):
+    """The real control searches locally, keeps both picks, and scopes staff links."""
+    endpoint = "/api/locations" if path == "/" else "/api/alerts"
+    requests = []
+    page.on("request", lambda request: requests.append(request.url))
+    page.goto(f"{BASE_URL}{path}")
+    if path == "/":
+        page.locator("#loading-overlay").wait_for(state="hidden", timeout=30000)
+        page.locator("#filters-toggle").click()
+    else:
+        page.wait_for_selector(".site-row")
+        page.locator('[data-severity-filter="all"]').click()
+    control = page.get_by_role("combobox", name="Tenant", exact=True)
+    control.click()
+    search = page.get_by_role("combobox", name="Search Tenant", exact=True)
+    before = sum(endpoint in url for url in requests)
+    search.fill("acm")
+    assert page.get_by_role("option").all_text_contents() == ["Acme Corp"]
+    search.press("Enter")
+    search.fill("nord")
+    search.press("Enter")
+    search.press("Escape")
+    assert control.inner_text() == "Acme Corp +1"
+    assert control.get_attribute("aria-expanded") == "false"
+    assert sum(endpoint in url for url in requests) == before, "typing and picks make no requests"
+
+    payload = api(endpoint)
+    sites = payload["locations" if path == "/" else "alerts"]
+    expected = [
+        site for site in sites if {"Acme Corp", "Nordic Net"}.intersection(site.get("tenants") or [site.get("tenant")])
+    ]
+    if path == "/":
+        assert page.locator("#location-count").inner_text() == f"{len(expected):,} sites"
+        assert page.locator(".filter-chip").count() == 2
+        page.locator(".filter-chip", has_text="Acme Corp").click()
+        assert control.inner_text() == "Nordic Net"
+        assert page.locator(".filter-chip").count() == 1
+        # Put the second pick back before checking the outgoing links.
+        control.click()
+        search.fill("acm")
+        search.press("Enter")
+        search.press("Escape")
+    else:
+        names = page.locator(".site-row .site-name").all_inner_texts()
+        assert sorted(names) == sorted(site["name"] for site in expected)
+    page.locator(".app-menu summary").click()
+    href = page.locator(".app-nav-link", has_text="Alert Board").get_attribute("href")
+    params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+    assert set(params["tenant"]) == {"Acme Corp", "Nordic Net"}
 
 
 def test_the_availability_page_explains_itself(page):

@@ -20,13 +20,19 @@ export function coordinateQuery(scope) {
   return params ? `?${params}` : "";
 }
 
-// "12 sites aren't on the map · 2 may be misplaced", or "" when all is well.
+const plural = (n, one, many) => `${n} site${n === 1 ? "" : "s"} ${n === 1 ? one : many}`;
+const WRONG = new Set(["invalid", "zero", "swapped"]);
+
+// "12 sites aren't on the map · 2 have wrong coordinates", or "" when all is
+// well.  "Far" is a hint, not an error (#416): said only when nothing is wrong.
 export function coordinateSummary(sites) {
   const missing = sites.filter((item) => item.problem === "missing").length;
-  const misplaced = sites.length - missing;
+  const wrong = sites.filter((item) => WRONG.has(item.problem)).length;
+  const far = sites.length - missing - wrong;
   const parts = [];
-  if (missing) parts.push(`${missing} site${missing === 1 ? "" : "s"} ${missing === 1 ? "isn't" : "aren't"} on the map`);
-  if (misplaced) parts.push(`${misplaced} may be misplaced`);
+  if (missing) parts.push(plural(missing, "isn't on the map", "aren't on the map"));
+  if (wrong) parts.push(missing ? `${wrong} ${wrong === 1 ? "has" : "have"} wrong coordinates` : plural(wrong, "has wrong coordinates", "have wrong coordinates"));
+  if (!parts.length && far) parts.push(plural(far, "is far from the others", "are far from the others"));
   return parts.join(" · ");
 }
 
@@ -37,9 +43,11 @@ function siteCell(item) {
   return `<a href="${escHtml(href)}" target="_blank" rel="noopener noreferrer" title="Fix it in Nautobot">${name} ↗</a>`;
 }
 
-// The list: worst first (the server's order), the first COORDINATE_LIST_LIMIT.
+// The list: worst first (the server's order), the first COORDINATE_LIST_LIMIT;
+// the "far" hints last, under their own quiet heading (#416).
 export function coordinateListHtml(sites) {
   const shown = sites.slice(0, COORDINATE_LIST_LIMIT);
+  const firstFar = shown.findIndex((item) => item.problem === "far");
   const rows = shown.map((item) => {
     const where = item.latitude == null ? "" : ` (${item.latitude}, ${item.longitude})`;
     // Show only for a site on the map: none with no or impossible coordinates.
@@ -50,6 +58,9 @@ export function coordinateListHtml(sites) {
     return `<li><div class="coordinate-site">${siteCell(item)}${show}</div>${path}`
       + `<div class="coordinate-reason">${escHtml(item.reason)}${escHtml(where)}</div></li>`;
   });
+  if (firstFar >= 0) {
+    rows.splice(firstFar, 0, '<li class="coordinate-group">Far from the other sites in their region: worth a check</li>');
+  }
   const more = sites.length > shown.length
     ? `<li class="coordinate-more">+${sites.length - shown.length} more in the CSV</li>`
     : "";

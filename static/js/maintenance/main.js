@@ -9,6 +9,7 @@ import { getJson } from "../lib/http.js";
 import { devicesHtml, windowRequest } from "../lib/maintenance-form.js";
 import { initPeriodPicker } from "../lib/period-picker.js";
 import { initTopBar } from "../lib/nav.js";
+import { selectedValues, setFilterOptions } from "../lib/multi-select.js";
 import { initInfoTips } from "../lib/tooltip.js";
 import { localDay, mountWhen } from "../lib/when.js";
 import { batchMatches, batchesOf, groupsHtml, historyHtml } from "./list.js";
@@ -58,8 +59,9 @@ function historyQuery(extra = {}) {
 // The export: the same period, site and tenant (the search is the page's own);
 // set at once and on each change, so it is right even if a load fails.
 function updateCsvLink() {
-  const tenant = els.tenant.value ? { tenant: els.tenant.value } : {};
-  els.csv.href = `/api/maintenance/history.csv?${historyQuery(tenant)}`;
+  const query = historyQuery();
+  selectedValues(els.tenant).forEach((tenant) => query.append("tenant", tenant));
+  els.csv.href = `/api/maintenance/history.csv?${query}`;
 }
 
 initTopBar();
@@ -90,7 +92,7 @@ function restoreFocus(was) {
 
 function render() {
   const was = focusedButton();
-  const criteria = { words: searchWords(els.search.value), tenant: els.tenant.value };
+  const criteria = { words: searchWords(els.search.value), tenant: selectedValues(els.tenant) };
   const shown = state.batches.filter((batch) => batchMatches(batch, criteria));
   els.groups.innerHTML = historyView
     ? historyHtml(shown, {
@@ -106,9 +108,8 @@ function render() {
 
 function fillTenants() {
   const tenants = [...new Set(state.batches.flatMap((batch) => batch.tenants))].sort();
-  const current = els.tenant.value;
-  els.tenant.innerHTML = '<option value="">All tenants</option>'
-    + tenants.map((name) => `<option value="${escHtml(name)}"${name === current ? " selected" : ""}>${escHtml(name)}</option>`).join("");
+  setFilterOptions(els.tenant, tenants, "All tenants");
+  if (historyView) updateCsvLink();
 }
 
 async function loadList() {

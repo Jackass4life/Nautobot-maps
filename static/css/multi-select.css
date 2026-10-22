@@ -1,0 +1,107 @@
+.multi-select {
+  position: relative;
+  display: inline-block;
+  min-width: 120px;
+  max-width: 240px;
+  vertical-align: middle;
+}
+
+.multi-select[hidden],
+.multi-select [hidden] {
+  display: none !important;
+}
+
+.multi-select-button {
+  display: block;
+  width: 100%;
+  padding: 5px 24px 5px 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-border, #aaa);
+  border-radius: 4px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #222);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.multi-select-button::after {
+  position: absolute;
+  right: 8px;
+  content: "▾";
+}
+
+.multi-select-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1500;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(320px, 90vw);
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--color-border, #aaa);
+  border-radius: 5px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #222);
+  box-shadow: var(--shadow, 0 3px 12px #0003);
+}
+
+.multi-select-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--color-border, #aaa);
+  border-radius: 3px;
+  background: var(--color-surface, #fff);
+  color: inherit;
+  font: inherit;
+}
+
+.multi-select-list {
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.multi-select-option {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 5px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.multi-select-option:hover,
+.multi-select-option.is-active {
+  background: var(--color-bg, #eee);
+  outline: 1px solid var(--color-primary, #4679bd);
+  outline-offset: -1px;
+}
+
+.multi-select-tick {
+  flex: 0 0 1em;
+  color: var(--color-primary, #4679bd);
+}
+
+.multi-select-option-label {
+  overflow-wrap: anywhere;
+}
+
+.multi-select-status {
+  padding: 5px 7px;
+  color: var(--color-text-muted, #666);
+  font-size: 0.85em;
+}
+
+.multi-select-button:focus-visible,
+.multi-select-search:focus-visible,
+.multi-select-list:focus-visible {
+  outline: 2px solid var(--color-primary, #4679bd);
+  outline-offset: 2px;
+}

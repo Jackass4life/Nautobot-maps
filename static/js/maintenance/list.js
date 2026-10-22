@@ -4,6 +4,7 @@
 import { tenantCell } from "../alerts/rows.js";
 import { formatFeedTime, hasAllWords } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
+import { matchesValues } from "../lib/multi-select.js";
 
 // *days*: how far back the Ended group reaches (the page's recent_days).
 function groupsFor(days) {
@@ -63,9 +64,9 @@ export function batchesOf(windows, { keepOrder = false } = {}) {
     || (a.group === "past" ? time(b) - time(a) : time(a) - time(b)));
 }
 
-// Search (*words* from searchWords): reason, person, sites, paths, devices and tenants; and one tenant.
+// Search (*words* from searchWords): reason, person, sites, paths, devices and tenants; and any selected tenant.
 export function batchMatches(batch, { words = [], tenant = "" }) {
-  return (!tenant || batch.tenants.includes(tenant)) && hasAllWords(batch.text, words);
+  return matchesValues(batch.tenants, tenant) && hasAllWords(batch.text, words);
 }
 
 // "Aarhus", "Aarhus · sw1", "3 devices at Aarhus", "30 sites".

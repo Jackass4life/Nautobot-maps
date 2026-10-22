@@ -253,6 +253,16 @@ html, body {
   min-width: 200px;
 }
 
+/* The searchable filters (#412) look like the controls next to them. */
+.toolbar-row .multi-select-button,
+.more-filters .multi-select-button {
+  min-height: 40px;
+  padding: 0 28px 0 12px;
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  font-size: 0.8333rem;
+}
+
 /* Updating is automatic; this is "now" (#311). */
 #refresh-alerts {
   width: auto;
