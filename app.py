@@ -72,4 +72,10 @@ if __name__ == "__main__":
         port = 5000
     _log_alert_board_exclusions()
     scheduler.start()
-    app.run(host=auth.flask_run_host(), port=port, debug=debug)
+    # Development: the same ASGI app as production (#436), FastAPI with this
+    # Flask app behind it; FLASK_DEBUG reloads on code changes.
+    import uvicorn
+
+    from nautobot_maps import server
+
+    uvicorn.run("asgi:app", host=auth.flask_run_host(), port=port, reload=debug, **server.UVICORN_OPTIONS)

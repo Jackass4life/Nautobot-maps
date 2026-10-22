@@ -491,6 +491,13 @@ class TestPages:
         # Read aloud as help.
         assert 'aria-label="Help: How much of the time' in html
 
+    def test_the_streamed_csv_is_the_same_through_fastapi(self, client, asgi_client):
+        """#436: Flask streams it row by row; through a2wsgi it arrives whole and unchanged."""
+        flask_csv = client.get("/api/availability.csv?month=2026-10&view=incidents&header=1").get_data()
+        asgi = asgi_client.get("/api/availability.csv?month=2026-10&view=incidents&header=1")
+        assert asgi.status_code == 200 and asgi.headers["content-type"].startswith("text/csv")
+        assert asgi.content == flask_csv and len(flask_csv.splitlines()) > 3
+
     def test_page_json_and_csv(self, client):
         page = client.get("/availability?month=2026-10").get_data(as_text=True)
         assert "=Oslo" in page and "90.000 %" in page and "(so far)" in page

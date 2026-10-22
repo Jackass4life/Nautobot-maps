@@ -277,6 +277,22 @@ def client():
 
 
 @pytest.fixture
+def asgi_client():
+    """The whole app as production serves it (#436): FastAPI, the Flask app
+    mounted behind it, the access log around both."""
+    from fastapi.testclient import TestClient
+
+    import app as flask_app
+    import asgi
+    from nautobot_maps import caching
+
+    flask_app.app.config["TESTING"] = True
+    caching.cache.clear()
+    with TestClient(asgi.app, base_url="http://localhost") as c:
+        yield c
+
+
+@pytest.fixture
 def board(pg_database, monkeypatch):
     """A board built from the database only (no Nautobot, no LibreNMS), at a
     clock the test sets: ``board["now"]`` (shared by #377 and #402's tests)."""

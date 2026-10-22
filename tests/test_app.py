@@ -6231,7 +6231,9 @@ class TestLogging:
         import gunicorn_config
 
         config = importlib.reload(gunicorn_config)
-        assert config.accesslog == "-" and "%(M)sms" in config.access_log_format
+        # The app writes the access log itself under uvicorn (#436).
+        assert config.worker_class == "nautobot_maps.server.Worker" and config.accesslog is None
+        assert "nautobot_maps.access" in config.logconfig_dict["loggers"]
         # gunicorn refuses to start if the root logger names a missing handler.
         root_handlers = config.logconfig_dict["root"]["handlers"]
         assert set(root_handlers) <= set(config.logconfig_dict["handlers"])
