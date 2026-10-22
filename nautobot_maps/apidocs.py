@@ -15,13 +15,13 @@ from nautobot_maps import scope
 
 # Endpoints that read a page's ?tenant= / ?q= (#368, #369) through scope.read_scope.
 SCOPED_ENDPOINTS = {
-    "web.api_alert_feed": scope.QUERY_PARAMS,
-    "web.api_coordinate_check": scope.QUERY_PARAMS,
+    "board.api_alert_feed": scope.QUERY_PARAMS,
+    "locations.api_coordinate_check": scope.QUERY_PARAMS,
 }
 
 # Example JSON bodies for the write endpoints, keyed by endpoint name.
 EXAMPLE_BODIES = {
-    "web.api_set_criticality_override": {
+    "board.api_set_criticality_override": {
         "nautobot_device_id": "<device uuid>",
         "is_critical": True,
         "reason": "Core uplink for the site",
@@ -33,16 +33,16 @@ EXAMPLE_BODIES = {
         "method": "tools/call",
         "params": {"name": "get_alert_board", "arguments": {"filter": "alarms", "limit": 5}},
     },
-    "web.api_notifications_test": {},
-    "web.api_maintenance_end_many": {"ids": [1, 2]},
-    "web.api_maintenance_create": {
+    "admin.api_notifications_test": {},
+    "maintenance.api_maintenance_end_many": {"ids": [1, 2]},
+    "maintenance.api_maintenance_create": {
         "site_id": "<site id>",
         "duration_minutes": 120,
         "reason": "Core switch upgrade",
     },
-    "web.api_maintenance_end": {},
-    "web.api_librenms_alert": {"device_id": 42},
-    "web.api_alertmanager": {
+    "maintenance.api_maintenance_end": {},
+    "ingest.api_librenms_alert": {"device_id": 42},
+    "ingest.api_alertmanager": {
         "version": "4",
         "alerts": [
             {
@@ -54,12 +54,12 @@ EXAMPLE_BODIES = {
             }
         ],
     },
-    "web.api_device_status": {"device": "sw1.example.com", "status": "down", "source": "zabbix", "id": "123"},
-    "web.api_tokens_create": {"name": "librenms", "role": "operator", "expires_in_days": 365},
-    "web.api_tokens_revoke": {},
-    "web.api_acknowledge": {"site_id": "<site id>", "note": "On my way"},
-    "web.api_unacknowledge": {"site_id": "<site id>"},
-    "web.api_add_alert_case": {
+    "ingest.api_device_status": {"device": "sw1.example.com", "status": "down", "source": "zabbix", "id": "123"},
+    "admin.api_tokens_create": {"name": "librenms", "role": "operator", "expires_in_days": 365},
+    "admin.api_tokens_revoke": {},
+    "board.api_acknowledge": {"site_id": "<site id>", "note": "On my way"},
+    "board.api_unacknowledge": {"site_id": "<site id>"},
+    "board.api_add_alert_case": {
         "site_id": "<site id>",
         "device_ids": ["<device uuid>"],
         "case_number": "INC-1234",
