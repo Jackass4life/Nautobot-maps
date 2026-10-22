@@ -456,6 +456,57 @@ def compute_alert_level(
     return {"level": share_level, "reason": share}
 
 
+def tenant_scoped_alerts(
+    scopes: dict,
+    tenants: list[str],
+    devices: list[dict],
+    pending_devices: list[dict],
+    maintenance_devices: list[dict],
+    site_window: dict | None,
+    checked_at: str,
+    location_type: str | None,
+    override_map: dict,
+    tier: str,
+) -> dict:
+    """Levels for configured tenants, reusing the site's already-monitored devices (#410).
+
+    *devices* are those the site's level counts; *maintenance_devices* are left
+    out of it, as on the board, but still the tenant's: with only those, the
+    tenant sees maintenance, not a hidden site."""
+    tenant_names = {tenant.strip().casefold() for tenant in tenants if tenant}
+    scoped = {}
+    for tenant, roles in scopes.items():
+        if tenant not in tenant_names:
+            continue
+        role_set = set(roles)
+
+        def theirs(group: list[dict], role_set=role_set) -> list[dict]:
+            return [device for device in group if (device.get("role") or "").strip().casefold() in role_set]
+
+        active, pending, in_maintenance = theirs(devices), theirs(pending_devices), theirs(maintenance_devices)
+        matches = len(active) + len(pending) + len(in_maintenance)
+        if active:
+            level = compute_alert_level(active, location_type, override_map=override_map, tier=tier)["level"]
+        else:
+            level = "ok" if pending else "no_data"
+        if matches and (site_window is not None or (in_maintenance and not active)):
+            level = "maintenance"
+        downtime = max(
+            (
+                int(seconds_between(device.get("first_seen_down_at") or down_since(device, checked_at), checked_at))
+                for device in active
+                if (device.get("status") or "").lower().strip() in DOWN_STATUSES
+            ),
+            default=0,
+        )
+        scoped[tenant] = {
+            "alert_level": level,
+            "device_count": matches,
+            "current_downtime_seconds": max(0, downtime),
+        }
+    return scoped
+
+
 def load_librenms_id_map() -> dict:
     """Load persisted Nautobot UUID → LibreNMS device mapping."""
     lnms_id_map: dict = {}
@@ -2395,11 +2446,26 @@ def build_alert_board_payload(
                     loc,
                     bulk_kwargs.get("override_map") or {},
                 )
+            tenants = loc.get("tenants") or inventory.site_tenants(loc.get("tenant") or "", [])
+            tenant_scopes = loc.get("tenant_scopes") or {}
+            tenant_alerts = tenant_scoped_alerts(
+                tenant_scopes,
+                tenants,
+                devices,
+                pending_devices,
+                maintenance_devices,
+                site_window,
+                checked_at,
+                loc.get("location_type") or None,
+                bulk_kwargs.get("override_map") or {},
+                loc.get("tier") or "",
+            )
             alerts.append(
                 {
-                    **loc,
+                    **{key: value for key, value in loc.items() if key != "tenant_scopes"},
                     # Its own tenant first, then those linked by a Relationship (#238).
-                    "tenants": loc.get("tenants") or inventory.site_tenants(loc.get("tenant") or "", []),
+                    "tenants": tenants,
+                    "tenant_alerts": tenant_alerts,
                     "alert_level": level,
                     "alert_reason": alert.get("reason", ""),
                     # Importance (#293): a known tier and its rank (0 = most important).

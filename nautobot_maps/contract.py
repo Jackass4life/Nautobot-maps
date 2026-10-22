@@ -174,8 +174,8 @@ CONTRACT: tuple[Endpoint, ...] = (
             Field(
                 "custom_fields",
                 ("object", "null"),
-                becomes="tier",
-                rule="the SITE_TIER_FIELD custom field (a value, or a select's value or label), lowercased",
+                becomes="tier, tenant_scopes",
+                rule="SITE_TIER_FIELD (a value, or a select's value or label), lowercased; TENANT_SCOPE_FIELD (a JSON object mapping tenant names to device-role names)",
             ),
         ),
         request="all pages; incremental with last_updated__gte",

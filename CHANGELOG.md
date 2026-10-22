@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Per-site device-role scopes on tenant status pages** (#410): `TENANT_SCOPE_FIELD` names a Location JSON custom field mapping tenants to the device roles that count; unlisted tenants still see the whole site, and a site with no matching devices is hidden
 - **Searchable multi-select filters** (#412): the map, alert board, Availability and Maintenance share type-to-find lists with ticks, compact labels and keyboard support; map chips remove individual picks, and staff links keep all selected tenants.
 - **The board and Copy say when a down device is in a stack** (#402): "Stack sw-stack01, member 2 of 4" or "master of 4" on the down device's line, in the copied text for a ticket and for AI assistants (MCP)
 - **The Availability page explains itself** (#396): an **(i)** next to the title, the Downtime choice, each summary card, the Tenants and Sites lists and the CSV links says what it means, for someone new to the page

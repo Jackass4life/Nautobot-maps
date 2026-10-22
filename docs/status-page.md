@@ -19,6 +19,18 @@ A site belongs to the tenant when it is the site's own tenant or one linked by a
 
 The page never shows devices, IP addresses, addresses, cases, acknowledgements, maintenance reasons or other tenants. It refreshes every minute and follows the viewer's light or dark setting.
 
+## Per-site device roles
+
+Set `TENANT_SCOPE_FIELD` to the name of a JSON custom field on Nautobot Locations to choose which device **roles** count for each tenant at each site:
+
+```json
+{"Acme Corp": ["Access Switch", "Firewall"]}
+```
+
+Tenant and role names are matched without regard to case. A tenant with no entry sees the whole site, as before. A tenant with an entry sees the state and downtime start calculated from devices in those roles; no device names or IP addresses are returned. If no monitored device at a site has a matching role, the site is hidden for that tenant. Maintenance and virtual chassis stacks are counted as they are on the board.
+
+Leave `TENANT_SCOPE_FIELD` empty to turn this off. If the configured field contains malformed JSON or has an invalid shape, the sync logs one warning and that site falls back to all monitored devices.
+
 ## Who can see it
 
 - **Staff:** the same people who can see the board. With `AUTH_REQUIRE_VIEWER=true` that is the `viewer` role. Without it the page is as open as the board is.

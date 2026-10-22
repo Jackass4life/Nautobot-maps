@@ -55,7 +55,7 @@ Map markers, the alert board's rows and their hierarchy.
 | `tags` | array or null |  | tags | each tag's name or display; else extras/tags by id |
 | `url` | string or null |  | url | — |
 | `last_updated` | string | yes | last_updated | the incremental sync's watermark (last_updated__gte) |
-| `custom_fields` | object or null |  | tier | the SITE_TIER_FIELD custom field (a value, or a select's value or label), lowercased |
+| `custom_fields` | object or null |  | tier, tenant_scopes | SITE_TIER_FIELD (a value, or a select's value or label), lowercased; TENANT_SCOPE_FIELD (a JSON object mapping tenant names to device-role names) |
 
 ### `dcim/devices/`
 

@@ -611,6 +611,13 @@ def add_location_tier(conn) -> None:
     conn.execute("ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT ''")
 
 
+def add_location_tenant_scope(conn) -> None:
+    """Per-tenant device-role scope from a Nautobot Location (#410)."""
+    conn.execute(
+        "ALTER TABLE nautobot_location_cache ADD COLUMN IF NOT EXISTS tenant_scope_json TEXT NOT NULL DEFAULT '{}'"
+    )
+
+
 def add_token_tenant(conn) -> None:
     """A status token's tenant (#291): it opens only that tenant's status page."""
     conn.execute("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS tenant TEXT")
@@ -743,6 +750,7 @@ MIGRATIONS = (
     (23, "device criticality", add_device_criticality),
     (24, "nautobot_circuit_cache", add_circuit_cache),
     (25, "nautobot_device_cache virtual chassis", add_device_virtual_chassis),
+    (26, "nautobot_location_cache.tenant_scope_json", add_location_tenant_scope),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
