@@ -38,6 +38,54 @@ class AvailabilityCsv(Period):
     header: str | None = None
 
 
+class MaintenanceList(Query):
+    """``site_id``, ``all=1`` (ended and cancelled too) and ``recent_days``."""
+
+    site_id: str | None = None
+    all_: str | None = Field(None, alias="all")
+    recent_days: str | None = None
+
+
+class MaintenancePage(Query):
+    view: str | None = None
+
+
+class MaintenanceHistory(Query):
+    """The history's period (``from``/``to``, both days included), the browser's
+    ``tz``, and one ``site_id`` or ``tenant``."""
+
+    from_: str | None = Field(None, alias="from")
+    to: str | None = None
+    tz: str | None = None
+    site_id: str | None = None
+    tenant: str | None = None
+
+
+class MaintenanceDevices(Query):
+    site_id: str | None = None
+    include_non_operational: str | None = None
+
+
+# Request bodies, for the API spec (deps.body_schema); maintenance.create and
+# the routes check them, with their own messages.
+class MaintenanceCreate(BaseModel):
+    """Put a site, or some of its devices, in maintenance (#283, #343)."""
+
+    site_id: str | None = None
+    site_ids: list[str] | None = Field(None, description="Up to 200 sites at once")
+    reason: str
+    device_ids: list[str] | None = Field(None, description="One site only; leave out for the whole site")
+    starts_at: str | None = Field(None, description="ISO-8601 with a time zone; default now")
+    ends_at: str | None = None
+    duration_minutes: int | None = None
+
+
+class MaintenanceEnd(BaseModel):
+    """End or cancel several windows (#343)."""
+
+    ids: list[int]
+
+
 def flag(value: str | None) -> bool:
     """A yes/no query value: 1, true or yes (``routes.common.flag_arg``)."""
     return (value or "").strip().lower() in {"1", "true", "yes"}

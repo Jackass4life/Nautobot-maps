@@ -8,7 +8,6 @@ from nautobot_maps.routes import (
     documentation,
     ingest,
     locations,
-    maintenance,
     ops,
     pages,
 )
@@ -18,7 +17,6 @@ BLUEPRINTS = (
     pages.bp,
     locations.bp,
     board.bp,
-    maintenance.bp,
     availability.bp,
     ingest.bp,
     admin.bp,
