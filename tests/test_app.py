@@ -32,6 +32,7 @@ from nautobot_maps import (
     web,
 )
 from nautobot_maps.repositories import board as board_store
+from tests import http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -79,7 +80,7 @@ def client():
     flask_app.app.config["TESTING"] = True
     # Clear cache before each test
     caching.cache.clear()
-    with flask_app.app.test_client() as c:
+    with http_client.FlaskStyleClient() as c:
         yield c
 
 

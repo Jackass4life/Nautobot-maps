@@ -106,7 +106,10 @@ def call_api(method: str, path: str, query: dict | None = None, body: dict | Non
     authenticated user is the same) and carries its headers and address,
     so the route's own role checks apply.
     """
-    headers = [(key, value) for key, value in request.headers if key.lower() not in ("content-type", "content-length")]
+    # Not Accept-Encoding: the answer is read here, and a client asking for gzip
+    # (most do) got it compressed, unreadable as JSON, so the tool saw nothing.
+    skipped = ("content-type", "content-length", "accept-encoding")
+    headers = [(key, value) for key, value in request.headers if key.lower() not in skipped]
     with current_app.test_request_context(
         path,
         method=method,

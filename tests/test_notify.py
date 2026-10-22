@@ -9,6 +9,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import alerts, caching, db, metrics, notify, scheduler, settings, timeutil
+from tests import http_client
 from tests.test_app import auth_config
 
 NOW = "2026-10-09T12:00:00Z"
@@ -354,7 +355,7 @@ class TestTestEndpoint:
     def client(self):
         flask_app.app.config["TESTING"] = True
         caching.cache.clear()
-        with flask_app.app.test_client() as test_client:
+        with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
     def test_needs_the_admin_role(self, client, channels):

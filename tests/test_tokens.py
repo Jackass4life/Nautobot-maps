@@ -8,6 +8,7 @@ import pytest
 import app as flask_app
 from nautobot_maps import __main__ as cli
 from nautobot_maps import auth, caching, db, settings, timeutil, tokens
+from tests import http_client
 from tests.test_app import auth_config
 from tests.test_mcp import call
 
@@ -26,7 +27,7 @@ def clock(monkeypatch):
 def client(pg_database, clock):
     flask_app.app.config["TESTING"] = True
     caching.cache.clear()
-    with flask_app.app.test_client() as test_client:
+    with http_client.FlaskStyleClient() as test_client:
         yield test_client
 
 

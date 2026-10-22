@@ -20,6 +20,7 @@ from werkzeug.serving import make_server
 
 import app as flask_app
 from nautobot_maps import caching, inventory, settings
+from tests import http_client
 from tests.js_modules import js_source, run_js
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -57,7 +58,7 @@ def integration_client(mock_nautobot_server):
 
     flask_app.app.config["TESTING"] = True
 
-    with flask_app.app.test_client() as client:
+    with http_client.FlaskStyleClient() as client:
         yield client
 
     # Restore to blank so other test modules don't accidentally hit the server

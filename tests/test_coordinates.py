@@ -10,6 +10,7 @@ from werkzeug.datastructures import MultiDict
 
 import app as flask_app
 from nautobot_maps import alerts, caching, coordinates, scope, settings
+from tests import http_client
 from tests.js_modules import run_js
 
 
@@ -210,7 +211,7 @@ class TestApi:
     def client(self, monkeypatch, rows):
         monkeypatch.setattr(alerts, "board", lambda trigger="request", **kwargs: {"alerts": rows})
         flask_app.app.config["TESTING"] = True
-        with flask_app.app.test_client() as test_client:
+        with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
     def test_json(self, client):

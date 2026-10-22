@@ -20,6 +20,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import caching, contract, nautobot, settings
+from tests import http_client
 
 # ---------------------------------------------------------------------------
 # Skip entire module when no live Nautobot is available
@@ -32,7 +33,6 @@ pytestmark = pytest.mark.skipif(
     not NAUTOBOT_LIVE_URL,
     reason="NAUTOBOT_LIVE_URL not set – skipping live Nautobot tests",
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -56,7 +56,7 @@ def live_client():
 
     flask_app.app.config["TESTING"] = True
 
-    with flask_app.app.test_client() as client:
+    with http_client.FlaskStyleClient() as client:
         yield client
 
     settings.NAUTOBOT_URL = original_url

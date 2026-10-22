@@ -21,6 +21,8 @@ import psycopg
 import pytest
 from psycopg.rows import dict_row
 
+from tests import http_client
+
 # Make demo/ importable
 _demo_dir = os.path.join(os.path.dirname(__file__), "..", "demo")
 if _demo_dir not in sys.path:
@@ -272,7 +274,7 @@ def client():
 
     flask_app.app.config["TESTING"] = True
     caching.cache.clear()
-    with flask_app.app.test_client() as c:
+    with http_client.FlaskStyleClient() as c:
         yield c
 
 

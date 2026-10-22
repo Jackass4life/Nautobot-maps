@@ -11,9 +11,22 @@ from fastapi import FastAPI
 import app as flask_app
 from nautobot_maps import access_log
 
+
+def _input_ends_with_the_body(wsgi_app):
+    """a2wsgi's input ends where the request body does, also for a chunked
+    upload (no Content-Length).  Saying so lets Flask read such a body, as it
+    did under gunicorn; otherwise it would read nothing."""
+
+    def wrapped(environ, start_response):
+        environ.setdefault("wsgi.input_terminated", True)
+        return wsgi_app(environ, start_response)
+
+    return wrapped
+
+
 # The API docs come at the end of the move (#436): /docs is still Flask's explorer.
 api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-# Everything FastAPI doesn't serve itself: one thread per request, as before.
-api.mount("/", WSGIMiddleware(flask_app.app, workers=16))
+# Everything FastAPI doesn't serve itself: up to 16 requests at once per worker.
+api.mount("/", WSGIMiddleware(_input_ends_with_the_body(flask_app.app), workers=16))
 
 app = access_log.AccessLog(api)
