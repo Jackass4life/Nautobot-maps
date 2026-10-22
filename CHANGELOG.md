@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Hide the map's left panel** (#420): **«** on the panel's edge folds it away and the map fills the screen; **»** brings it back and shows the alarm count while folded ("» 23 in alarm"). Remembered in the browser; `[` toggles it
 - **Per-site device-role scopes on tenant status pages** (#410): `TENANT_SCOPE_FIELD` names a Location JSON custom field mapping tenants to the device roles that count; unlisted tenants still see the whole site, and a site with no matching devices is hidden
 - **Searchable multi-select filters** (#412): the map, alert board, Availability and Maintenance share type-to-find lists with ticks, compact labels and keyboard support; map chips remove individual picks, and staff links keep all selected tenants.
 - **The board and Copy say when a down device is in a stack** (#402): "Stack sw-stack01, member 2 of 4" or "master of 4" on the down device's line, in the copied text for a ticket and for AI assistants (MCP)

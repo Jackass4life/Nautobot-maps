@@ -674,18 +674,18 @@ def test_the_map_panel_folds_away(page):
 
     page.get_by_role("button", name="Hide the panel").click()
     toggle = page.locator("#panel-toggle")
-    page.wait_for_function("document.querySelector('#map').getBoundingClientRect().left === 0")
+    page.wait_for_function("() => document.querySelector('#map').getBoundingClientRect().left === 0")
     assert page.locator("#map").bounding_box()["width"] > width + 300
     assert toggle.inner_text() == f"» {alarms} in alarm"
     assert page.evaluate("document.querySelector('#sidebar').inert")
     # Nothing in the folded panel can be clicked or reached.
-    page.wait_for_function("document.querySelector('#sidebar').getBoundingClientRect().right <= 0")
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().right <= 0")
 
     page.reload()
     page.locator("#panel-toggle", has_text="in alarm").wait_for(timeout=20000)
     assert page.evaluate("document.body.classList.contains('panel-hidden')")
     page.keyboard.press("[")
-    page.wait_for_function("document.querySelector('#sidebar').getBoundingClientRect().left === 0")
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().left === 0")
     assert toggle.inner_text() == "«"
     # Typing [ in the search doesn't fold it.
     page.fill("#search-input", "[")
@@ -700,10 +700,10 @@ def test_the_map_panel_folds_on_a_phone(browser):
     page.goto(f"{BASE_URL}/")
     page.locator("#alarm-count", has_text="in alarm").wait_for(timeout=20000)
     page.get_by_role("button", name="Hide the panel").click()
-    page.wait_for_function("document.querySelector('#map').getBoundingClientRect().bottom === innerHeight")
-    page.wait_for_function("document.querySelector('#sidebar').getBoundingClientRect().top >= innerHeight")
+    page.wait_for_function("() => document.querySelector('#map').getBoundingClientRect().bottom === innerHeight")
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().top >= innerHeight")
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.locator("#panel-toggle").click()
-    page.wait_for_function("document.querySelector('#sidebar').getBoundingClientRect().bottom <= innerHeight + 1")
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().bottom <= innerHeight + 1")
     context.close()
     assert errors == [], errors

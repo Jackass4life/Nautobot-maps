@@ -1524,18 +1524,16 @@ body.inspector-open #loading-overlay {
     bottom: 0;
   }
 
+  /* The map's free corner: the zoom buttons and the legend are on the left. */
   .panel-toggle,
   body.panel-hidden .panel-toggle {
-    top: auto;
-    left: 10px;
-    bottom: calc(50vh + 10px);
+    top: 10px;
+    left: auto;
+    right: 10px;
+    height: 36px;
     transform: none;
     border-left: 1px solid var(--color-border);
     border-radius: 10px;
-  }
-
-  body.panel-hidden .panel-toggle {
-    bottom: 10px;
   }
 
   #loading-overlay {
