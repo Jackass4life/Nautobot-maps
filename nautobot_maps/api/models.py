@@ -104,6 +104,64 @@ class Search(Query):
     q: str | None = None
 
 
+class BoardQuery(Query):
+    """``refresh=1`` (the board's ↻) and ``include_non_operational=1``."""
+
+    refresh: str | None = None
+    include_non_operational: str | None = None
+
+
+class FeedQuery(Query):
+    """The activity feed (#180): ``limit``, ``since``, ``kinds``, and a page's
+    ``tenant`` / ``q`` (#369)."""
+
+    limit: str | None = None
+    since: str | None = None
+    kinds: str | None = None
+    tenant: list[str] = []
+    q: list[str] = []
+
+
+class HistoryQuery(Query):
+    site_id: str | None = None
+    device_id: str | None = None
+    start_at: str | None = None
+    end_at: str | None = None
+
+
+class HistoryCsvQuery(Query):
+    """A site's history as CSV (#277): ``site_id``, ``days`` and ``view``."""
+
+    site_id: str | None = None
+    days: str | None = None
+    view: str | None = None
+
+
+# Request bodies, for the API spec; the routes check them, with their own messages.
+class CriticalityOverride(BaseModel):
+    nautobot_device_id: str
+    is_critical: bool = True
+    reason: str | None = None
+    updated_by: str | None = None
+
+
+class Acknowledge(BaseModel):
+    """Acknowledge (or remove it) for a site's open alarms (#288)."""
+
+    site_id: str
+    device_ids: list[str] | None = Field(None, description="Default: every device with an open alert")
+    note: str | None = None
+
+
+class AlertCase(BaseModel):
+    """Attach a case number to devices' open alerts, all or nothing."""
+
+    site_id: str
+    case_number: str
+    device_ids: list[str] | None = None
+    device_id: str | None = None
+
+
 def flag(value: str | None) -> bool:
     """A yes/no query value: 1, true or yes (``routes.common.flag_arg``)."""
     return (value or "").strip().lower() in {"1", "true", "yes"}

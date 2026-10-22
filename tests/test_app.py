@@ -25,12 +25,12 @@ from nautobot_maps import (
     librenms,
     maintenance,
     nautobot,
-    routes,
     scheduler,
     settings,
     timeutil,
     web,
 )
+from nautobot_maps.api import board as api_board
 from nautobot_maps.api import locations as api_locations
 from nautobot_maps.repositories import board as board_store
 from tests import http_client
@@ -5047,7 +5047,7 @@ class TestMultiDeviceCases:
 
     @pytest.mark.parametrize(
         "device_ids",
-        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(routes.board.MAX_CASE_DEVICES + 1)]],
+        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(api_board.MAX_CASE_DEVICES + 1)]],
         ids=["string-not-list", "empty", "non-string-id", "too-many"],
     )
     def test_rejects_invalid_device_ids(self, client, device_ids):
