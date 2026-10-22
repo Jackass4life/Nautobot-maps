@@ -8,13 +8,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/nav.css') }}" />
 </head>
 <body>
+  {%- set active = "circuits" %}{% include "_nav.html" %}
   <div class="page-shell">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Nautobot Maps</p>
         <h1>Circuit mapping</h1>
       </div>
-      {% set active = "circuits" %}{% include "_nav.html" %}
     </header>
 
     <!-- Circuits without a termination at a location, and the site their description's address points to (#385). -->

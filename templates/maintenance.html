@@ -10,13 +10,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}" />
 </head>
 <body>
+  {%- set active = "maintenance" %}{% include "_nav.html" %}
   <div class="page-shell">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Nautobot Maps</p>
         <h1>Maintenance</h1>
       </div>
-      {% set active = "maintenance" %}{% include "_nav.html" %}
     </header>
 
     <!-- Now and planned (#343), or the history of any period (#353). -->

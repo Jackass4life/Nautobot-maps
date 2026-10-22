@@ -200,3 +200,60 @@ def coordinate_problems(counts: dict[str, int]) -> str:
         [({"problem": problem}, number) for problem, number in counts.items()],
     )
     return out.render()
+
+
+# The top bar's live status (#419): what each source's last sync says, in plain
+# words.  Data older than this many sync intervals (and at least the floor) is stale.
+STALE_INTERVALS = 3
+STALE_FLOOR_SECONDS = 15 * 60
+APP_STATUS_SOURCES = (
+    ("nautobot_inventory", "Nautobot", "INVENTORY_SYNC_INTERVAL_SECONDS"),
+    ("librenms_inventory", "LibreNMS", "LIBRENMS_SYNC_INTERVAL_SECONDS"),
+)
+_STATE_RANK = {"ok": 0, "stale": 1, "down": 2}
+
+
+def _iso(timestamp: float | None) -> str | None:
+    return datetime.fromtimestamp(timestamp, UTC).isoformat().replace("+00:00", "Z") if timestamp is not None else None
+
+
+def app_status(rows: dict | None, *, librenms: bool, intervals: dict, now: float) -> dict:
+    """How fresh the app's data is: ``state`` (ok, stale or down), ``updated_at``
+    (the oldest source's last good sync: the data is only as fresh as that) and
+    one entry per source.  *rows*: ``sync_rows``; None when the database
+    didn't answer.  Calls nothing upstream."""
+    if rows is None:
+        return {
+            "state": "down",
+            "updated_at": None,
+            "sources": [{"name": "Database", "state": "down", "message": "Can't reach the database"}],
+        }
+    sources, successes = [], []
+    for key, name, interval_setting in APP_STATUS_SOURCES:
+        if key == "librenms_inventory" and not librenms:
+            continue
+        row = rows.get(key) or {}
+        succeeded = _timestamp(row.get("last_succeeded_at"))
+        successes.append(succeeded)
+        stale_after = max(STALE_INTERVALS * int(intervals.get(interval_setting) or 0), STALE_FLOOR_SECONDS)
+        if row.get("status") == "error":
+            state, message = "down", f"Can't reach {name}"
+        elif succeeded is None:
+            state, message = "stale", f"No data from {name} yet"
+        elif now - succeeded > stale_after:
+            state, message = "stale", f"{name} data is {int((now - succeeded) // 60)} min old"
+        else:
+            state, message = "ok", f"{name} is up to date"
+        sources.append(
+            {
+                "name": name,
+                "state": state,
+                "message": message,
+                "last_success": _iso(succeeded),
+            }
+        )
+    return {
+        "state": max((source["state"] for source in sources), key=_STATE_RANK.get, default="ok"),
+        "updated_at": _iso(None if None in successes else min(successes, default=None)),
+        "sources": sources,
+    }

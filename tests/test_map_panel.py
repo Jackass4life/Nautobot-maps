@@ -131,7 +131,7 @@ def test_one_top_bar_on_every_page(client):
         ("/docs", "/docs"),
     ):
         html = client.get(path).get_data(as_text=True)
-        assert html.count('class="app-menu"') == 1, path
+        assert html.count('class="app-bar"') == 1 and html.count('class="app-menu app-popover"') == 1, path
         assert 'id="theme-toggle"' in html and 'href="/static/css/nav.css' in html, path
         assert f'aria-current="page" href="{active}"' in html, path
         assert html.count('aria-current="page"') >= 1, path

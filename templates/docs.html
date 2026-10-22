@@ -9,10 +9,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/docs.css') }}" />
 </head>
 <body>
+  {%- set active = "docs" %}{% include "_nav.html" %}
   <div class="page-shell docs-shell">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Nautobot Maps</p>
         <h1>API</h1>
         <p class="page-subtitle">
           Every page and endpoint this app serves. <strong>Try it</strong> sends a real request as you:
@@ -20,7 +20,6 @@
           The same list as JSON: <a href="/api/endpoints">/api/endpoints</a>.
         </p>
       </div>
-      {% set active = "docs" %}{% include "_nav.html" %}
     </header>
 
     <div class="docs-filter">

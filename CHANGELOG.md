@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **One top bar on every page** (#419): the app's name, **Find a site** (open it on the map or the board; `/` jumps there), how fresh the data is ("Updated 14:05", amber when a sync is late, red with "Can't reach LibreNMS"; a click explains it), who is signed in, the theme and the ☰ menu. The map's panel loses its own header. Not on the wall view or the tenant status page. `GET /api/app-status`
 - **Hide the map's left panel** (#420): **«** on the panel's edge folds it away and the map fills the screen; **»** brings it back and shows the alarm count while folded ("» 23 in alarm"). Remembered in the browser; `[` toggles it
 - **Per-site device-role scopes on tenant status pages** (#410): `TENANT_SCOPE_FIELD` names a Location JSON custom field mapping tenants to the device roles that count; unlisted tenants still see the whole site, and a site with no matching devices is hidden
 - **Searchable multi-select filters** (#412): the map, alert board, Availability and Maintenance share type-to-find lists with ticks, compact labels and keyboard support; map chips remove individual picks, and staff links keep all selected tenants.
