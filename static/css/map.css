@@ -98,37 +98,50 @@ body.panel-hidden #loading-overlay {
   left: 0;
 }
 
-/* A tab on the panel's edge, halfway down: clear of the zoom buttons and the legend. */
+/* The folded panel's tab (#420): on the map's left edge, halfway down, clear
+   of the zoom buttons and the legend.  Solid, so it is seen at once; red
+   with the alarm count while sites are in alarm. */
 .panel-toggle {
   position: fixed;
   top: calc(50% + var(--app-bar-height) / 2);
-  left: var(--sidebar-width);
+  left: 0;
   z-index: 1001;
-  min-width: 24px;
-  height: 44px;
-  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px 0 12px;
   transform: translateY(-50%);
   border: 1px solid var(--color-border);
   border-left: none;
-  border-radius: 0 10px 10px 0;
+  border-radius: 0 20px 20px 0;
   background: var(--color-surface);
-  color: var(--color-text-muted);
+  color: var(--color-text);
   box-shadow: var(--shadow);
   font: inherit;
   font-size: 0.9rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
-  transition: left 0.2s ease;
 }
 
-body.panel-hidden .panel-toggle {
-  left: 0;
-  color: var(--color-text);
+.panel-toggle[hidden] {
+  display: none;
+}
+
+.panel-toggle::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.panel-toggle.has-alarms::before {
+  background: var(--color-danger);
 }
 
 .panel-toggle:hover {
-  color: var(--color-text);
   background: var(--color-surface-2);
 }
 
@@ -138,8 +151,7 @@ body.panel-hidden .panel-toggle {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #sidebar,
-  .panel-toggle {
+  #sidebar {
     transition: none;
   }
 }
@@ -1487,15 +1499,14 @@ body.inspector-open #loading-overlay {
   }
 
   /* The map's free corner: the zoom buttons and the legend are on the left. */
-  .panel-toggle,
-  body.panel-hidden .panel-toggle {
+  .panel-toggle {
     top: calc(var(--app-bar-height) + 10px);
     left: auto;
     right: 10px;
     height: 36px;
     transform: none;
     border-left: 1px solid var(--color-border);
-    border-radius: 10px;
+    border-radius: 18px;
   }
 
   #loading-overlay {

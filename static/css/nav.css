@@ -26,6 +26,15 @@
   right: 0;
 }
 
+/* The map's sidebar button (#420): the panel's half filled while it is shown. */
+.panel-bar-toggle {
+  margin-left: -6px;
+}
+
+body.panel-hidden .panel-bar-fill {
+  opacity: 0;
+}
+
 .app-brand {
   display: inline-flex;
   align-items: center;

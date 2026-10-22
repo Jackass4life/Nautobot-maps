@@ -111,6 +111,7 @@ Object.assign(els, {
   alarmsOnlyBtn: byId("alarms-only"),
   sidebar: byId("sidebar"),
   panelToggle: byId("panel-toggle"),
+  panelBarToggle: byId("panel-bar-toggle"),
 });
 
 onMarkerActivate(handleMarkerActivation);
