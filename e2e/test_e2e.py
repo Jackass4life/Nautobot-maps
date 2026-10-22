@@ -707,3 +707,52 @@ def test_the_map_panel_folds_on_a_phone(browser):
     page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().bottom <= innerHeight + 1")
     context.close()
     assert errors == [], errors
+
+
+def test_the_top_bar(page):
+    """#419: one bar on every staff page: find a site from the board and open
+    it on the map; how fresh the data is; no bar on the wall."""
+    page.goto(f"{BASE_URL}/alerts")
+    bar = page.locator(".app-bar")
+    bar.wait_for()
+    page.locator("#app-status:not([hidden])").wait_for(timeout=20000)
+    assert page.locator("#app-status-text").inner_text()
+    page.locator("#app-status summary").click()
+    page.locator("#app-status-detail", has_text="Nautobot").wait_for()
+    page.keyboard.press("Escape")
+
+    # "/" jumps to the search; the first site opens on the map.
+    page.locator("body").click(position={"x": 5, "y": 300})
+    page.keyboard.press("/")
+    assert page.evaluate("() => document.activeElement.id") == "bar-search"
+    page.keyboard.type("london h")
+    page.locator(".bar-hit-map", has_text="London HQ").wait_for()
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")
+    page.locator("#inspector-title", has_text="London HQ").wait_for(timeout=20000)
+    # The map's bar has no search (its panel has one, for places too).
+    assert page.locator("#bar-search").count() == 0
+    assert page.locator(".app-bar").count() == 1
+
+    page.goto(f"{BASE_URL}/alerts?view=wall")
+    page.locator("#wall-updated").wait_for()
+    assert page.locator(".app-bar").count() == 0
+
+
+@pytest.mark.parametrize("path", ["/", "/alerts", "/availability", "/maintenance", "/circuits", "/docs"])
+def test_the_top_bar_fits_a_phone(browser, path):
+    context = browser.new_context(viewport={"width": 390, "height": 800})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(f"{BASE_URL}{path}")
+    page.locator(".app-bar").wait_for()
+    box = page.locator(".app-bar").bounding_box()
+    assert box["height"] <= 53 and box["width"] <= 390
+    assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth"), path
+    if path != "/":
+        page.locator("#bar-search-open").click()
+        page.locator("#bar-search").fill("london")
+        page.locator(".bar-hit-map", has_text="London HQ").wait_for()
+    context.close()
+    assert errors == [], errors

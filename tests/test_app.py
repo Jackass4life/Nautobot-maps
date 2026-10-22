@@ -1630,8 +1630,11 @@ class TestIndex:
         html = client.get("/alerts?view=wall&tenant=Acme%20Corp&tenant=%20&tenant=Nordic%20Net&q=DNK&x=1").get_data(
             as_text=True
         )
-        assert 'href="/alerts?view=wall&amp;tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in html
         assert 'class="wall-exit" href="/alerts?tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in html
+        # The wall has no top bar (#419); the board's menu links to the same wall.
+        assert 'class="app-bar"' not in html
+        board = client.get("/alerts?tenant=Acme%20Corp&tenant=%20&tenant=Nordic%20Net&q=DNK&x=1").get_data(as_text=True)
+        assert 'href="/alerts?view=wall&amp;tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in board
         plain = client.get("/alerts").get_data(as_text=True)
         assert 'href="/alerts?view=wall"' in plain
 

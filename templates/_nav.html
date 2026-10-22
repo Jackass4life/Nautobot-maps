@@ -1,4 +1,6 @@
-{#- One top bar for every page (#392): the theme, and the pages in a menu.
+{#- One top bar on every staff page (#392, #419): the app's name, a site search,
+    how fresh the data is, who is signed in, the theme and the pages in a menu.
+    Not on the wall view or the tenant status page.
     *active*: this page's key; *scope_query* (map, board): ?tenant= / ?q= kept. -#}
 {%- set scope = scope_query if scope_query is defined and scope_query else "" -%}
 {%- set pages = [
@@ -10,18 +12,46 @@
   ("docs", "/docs", "API", "Every endpoint, with Try it"),
   ("wall", "/alerts?view=wall" ~ ("&" ~ scope if scope else ""), "Wall view", "For a wall screen: alarms only, no controls"),
 ] -%}
-<div class="app-actions">
-  <button id="theme-toggle" class="icon-btn theme-toggle" type="button" aria-label="Switch to dark mode" title="Dark mode">
-    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.75a7.25 7.25 0 0 1 0 14.5z" fill="currentColor"/></svg>
-  </button>
-  <details class="app-menu">
-    <summary class="icon-btn" aria-label="Pages" title="Pages">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-    </summary>
-    <nav class="app-nav" aria-label="Primary">
-      {%- for key, href, label, title in pages %}
-      <a class="app-nav-link{% if key == active %} active{% endif %}" title="{{ title }}"{% if key == active %} aria-current="page"{% endif %} href="{{ href }}">{{ label }}</a>
-      {%- endfor %}
-    </nav>
-  </details>
-</div>
+<header class="app-bar">
+  <a class="app-brand" href="/" title="Map">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975 16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-2.003 3.5-4.697 3.5-8.327a8 8 0 10-16 0c0 3.63 1.556 6.326 3.5 8.327a19.58 19.58 0 002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+    <span>Nautobot Maps</span>
+  </a>
+  {#- The map has its own search, for places too. #}
+  {%- if active != "map" %}
+  <div class="bar-search" role="search">
+    <button id="bar-search-open" class="icon-btn bar-search-open" type="button" aria-label="Find a site" title="Find a site (/)">
+      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd"/></svg>
+    </button>
+    <input id="bar-search" type="search" autocomplete="off" spellcheck="false" placeholder="Find a site  /"
+           aria-label="Find a site" aria-controls="bar-search-results" />
+    <ul id="bar-search-results" class="bar-search-results" aria-label="Sites" hidden></ul>
+  </div>
+  {%- endif %}
+  <div class="app-actions">
+    <details id="app-status" class="app-status app-popover" hidden>
+      <summary class="app-status-summary" title="How fresh the data is">
+        <span class="app-status-dot" aria-hidden="true"></span><span id="app-status-text"></span>
+      </summary>
+      <div id="app-status-detail" class="app-popover-panel app-status-detail"></div>
+    </details>
+    {%- if bar_user %}
+    <span class="app-user" title="Signed in as {{ bar_user.name }}{{ ' (' ~ bar_user.role ~ ')' if bar_user.role }}">
+      <span class="app-user-name">{{ bar_user.name }}</span>{% if bar_user.role %}<span class="app-user-role"> · {{ bar_user.role }}</span>{% endif %}
+    </span>
+    {%- endif %}
+    <button id="theme-toggle" class="icon-btn theme-toggle" type="button" aria-label="Switch to dark mode" title="Dark mode">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.75a7.25 7.25 0 0 1 0 14.5z" fill="currentColor"/></svg>
+    </button>
+    <details class="app-menu app-popover">
+      <summary class="icon-btn" aria-label="Pages" title="Pages">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </summary>
+      <nav class="app-nav" aria-label="Primary">
+        {%- for key, href, label, title in pages %}
+        <a class="app-nav-link{% if key == active %} active{% endif %}" title="{{ title }}"{% if key == active %} aria-current="page"{% endif %} href="{{ href }}">{{ label }}</a>
+        {%- endfor %}
+      </nav>
+    </details>
+  </div>
+</header>

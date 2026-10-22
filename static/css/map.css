@@ -52,12 +52,13 @@ html, body {
 /* =========================================================
    Layout
    ========================================================= */
+/* Everything sits under the top bar (#419). */
 #sidebar {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   left: 0;
   width: var(--sidebar-width);
-  height: 100vh;
+  height: calc(100vh - var(--app-bar-height));
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   z-index: 1000;
@@ -70,7 +71,7 @@ html, body {
 
 #map {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   left: var(--sidebar-width);
   right: 0;
   bottom: 0;
@@ -100,7 +101,7 @@ body.panel-hidden #loading-overlay {
 /* A tab on the panel's edge, halfway down: clear of the zoom buttons and the legend. */
 .panel-toggle {
   position: fixed;
-  top: 50%;
+  top: calc(50% + var(--app-bar-height) / 2);
   left: var(--sidebar-width);
   z-index: 1001;
   min-width: 24px;
@@ -152,10 +153,10 @@ body.panel-hidden .panel-toggle {
 
 #location-inspector {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   right: 0;
   width: var(--inspector-width);
-  height: 100vh;
+  height: calc(100vh - var(--app-bar-height));
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);
   box-shadow: var(--shadow);
@@ -559,46 +560,6 @@ body.panel-hidden .panel-toggle {
   border-style: solid;
   border-color: rgba(220, 38, 38, 0.35);
 }
-
-/* =========================================================
-   Sidebar header
-   ========================================================= */
-/* While the menu of pages is open (#392): the panel above the site panel
-   (1200) and its backdrop, and not clipping the menu. */
-.app-menu-open #sidebar {
-  z-index: 1300;
-  overflow: visible;
-}
-
-/* One line (#392): the name, then the theme and the menu of pages. */
-#sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 14px 10px 10px 16px;
-  background: var(--color-surface);
-}
-
-#sidebar-header h1 {
-  font-size: 1.05rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-primary);
-  letter-spacing: 0.02em;
-}
-
-
-#sidebar-header h1 svg {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-}
-
-
-
 
 /* =========================================================
    Search
@@ -1211,7 +1172,7 @@ body.panel-hidden .panel-toggle {
    ========================================================= */
 #loading-overlay {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   left: var(--sidebar-width);
   right: 0;
   bottom: 0;
@@ -1491,8 +1452,9 @@ body.inspector-open #loading-overlay {
 @media (max-width: 640px) {
   :root { --sidebar-width: 100vw; }
 
+  /* Half the screen, as the map leaves it: no empty band between them (#419). */
   #sidebar {
-    height: auto;
+    height: 50vh;
     max-height: 50vh;
     position: fixed;
     top: auto;
@@ -1504,7 +1466,7 @@ body.inspector-open #loading-overlay {
   }
 
   #map {
-    top: 0;
+    top: var(--app-bar-height);
     left: 0;
     right: 0;
     bottom: 50vh;
@@ -1527,7 +1489,7 @@ body.inspector-open #loading-overlay {
   /* The map's free corner: the zoom buttons and the legend are on the left. */
   .panel-toggle,
   body.panel-hidden .panel-toggle {
-    top: 10px;
+    top: calc(var(--app-bar-height) + 10px);
     left: auto;
     right: 10px;
     height: 36px;
