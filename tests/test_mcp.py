@@ -9,6 +9,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import alerts, caching, mcp, settings
+from nautobot_maps.repositories import board as board_store
 from tests.test_app import auth_config
 
 MODERN = "2026-07-28"
@@ -352,7 +353,7 @@ class TestTools:
                 {"id": "loc-2", "name": "Oslo", "tenants": ["Nordic"]},
             ],
         )
-        monkeypatch.setattr(alerts, "read_alert_feed", lambda *args: seen.append(args[-1]) or [])
+        monkeypatch.setattr(board_store, "read_alert_feed", lambda *args: seen.append(args[-1]) or [])
         assert call(client, "get_alert_feed", {"tenant": "acme corp"})["structuredContent"]["matching_sites"] == 1
         assert "note" in call(client, "get_alert_feed", {"search": "bergen"})["structuredContent"]
         assert "matching_sites" not in call(client, "get_alert_feed")["structuredContent"]

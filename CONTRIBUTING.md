@@ -95,6 +95,11 @@ Everything else lives in modules under `nautobot_maps/` (#165):
 - `nautobot_maps/alerts.py`: the alert logic — severity scoring (`alerts.compute_alert_level()`),
   the LibreNMS status merge, alert history, the alert board (`alerts.get_alert_board_data()`) and
   the map's location detail.
+- `nautobot_maps/repositories/board.py`: the alert board's reads and writes in PostgreSQL (#424):
+  alert instances and events, device states, site levels and their changes, the feed, cases and
+  acknowledgements. `alerts.py` keeps the rules and holds no SQL; it calls these as
+  `board_store.function()` (imported under that name, since `alerts.board()` exists). Tests patch
+  them on `nautobot_maps.repositories.board`.
 - `nautobot_maps/scheduler.py`: the background scheduler (`scheduler.start()`, started by
   gunicorn in each worker).
 - `nautobot_maps/web.py`: the wiring: security headers and the CSP, error pages, the sign-in

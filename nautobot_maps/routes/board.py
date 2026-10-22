@@ -18,6 +18,7 @@ from nautobot_maps import (
     scope,
     timeutil,
 )
+from nautobot_maps.repositories import board as board_store
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +230,7 @@ def api_alert_feed():
                 # an all-clear for these sites, so say so instead.
                 return jsonify({"error": "The site list is not stored yet; try again after the next sync"}), 503
             site_ids = [str(loc["id"]) for loc in locations if loc.get("id") and scope.in_scope(loc, page_scope)]
-        events = alerts.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
+        events = board_store.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
         result = {"events": events, "persistence_configured": True}
         if site_ids is not None:
             # 0 tells "no site matches" from "nothing changed" (#375).
