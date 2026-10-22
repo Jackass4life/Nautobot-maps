@@ -5,6 +5,7 @@ from nautobot_maps.routes import (
     availability,
     board,
     circuits,
+    documentation,
     ingest,
     locations,
     maintenance,
@@ -24,5 +25,6 @@ BLUEPRINTS = (
     status.bp,
     ingest.bp,
     admin.bp,
+    documentation.bp,
     ops.bp,
 )

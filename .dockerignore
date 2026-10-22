@@ -17,6 +17,10 @@ development/
 demo/
 agents/
 *.md
+# The documentation pages, /help (#433), read these.
+!README.md
+!CONTRIBUTING.md
+!docs/*.md
 LICENSE
 docker-compose.override.yml
 requirements-dev.txt

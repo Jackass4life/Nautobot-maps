@@ -65,6 +65,7 @@ The wall view and the tenant status page have no bar. The status page is for cus
 | **Circuits** | `/circuits` | Circuit mapping: circuits without a termination and the site their address points to, with CSV |
 | **Maintenance** | `/maintenance` | Plan windows for many sites or devices at once, see and end them, history |
 | **Tenant status** | `/status/<tenant>` | "Are we affected?" for one customer, without the whole board |
+| **Documentation** | `/help` | These guides as pages in the app: the overview, how it works, setup, sign-in, operations and the rest (#433) |
 | **API docs** | `/docs` | Every API endpoint, with a **Try it** button |
 | **Health / metrics** | `/healthz`, `/metrics` | Liveness probe and Prometheus metrics |
 | **MCP** | `/mcp` *(off by default)* | AI assistants read the board and add cases |

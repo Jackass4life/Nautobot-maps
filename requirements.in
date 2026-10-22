@@ -8,3 +8,5 @@ geopy==2.5.0
 gunicorn==22.0.0
 redis==6.4.0
 psycopg[binary]==3.3.6
+# The documentation pages, /help (#433).
+markdown-it-py==4.2.0

@@ -756,3 +756,22 @@ def test_the_top_bar_fits_a_phone(browser, path):
         page.locator(".bar-hit-map", has_text="London HQ").wait_for()
     context.close()
     assert errors == [], errors
+
+
+def test_the_documentation_pages(page):
+    """#433: Documentation in the menu opens the guides; a link to another
+    guide opens it at its heading."""
+    page.goto(f"{BASE_URL}/alerts")
+    page.locator(".app-menu summary").click()
+    page.locator(".app-nav-link", has_text="Documentation").click()
+    page.wait_for_url("**/help")
+    page.locator(".help-doc h1", has_text="Nautobot Maps").wait_for()
+    page.locator(".help-nav a", has_text="Sign-in and roles").click()
+    page.wait_for_url("**/help/authentication")
+    assert page.locator('.help-nav a[aria-current="page"]').inner_text() == "Sign-in and roles"
+    page.goto(f"{BASE_URL}/help")
+    page.locator('.help-doc a[href^="/help/how-it-works#"]').first.click()
+    page.wait_for_url("**/help/how-it-works#*")
+    anchor = page.url.split("#", 1)[1]
+    assert page.locator(f"#{anchor}").count() == 1
+    assert page.evaluate("() => [...document.images].every((img) => img.complete && img.naturalWidth > 0)")
