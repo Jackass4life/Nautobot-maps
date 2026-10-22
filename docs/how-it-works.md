@@ -18,7 +18,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (read-only), asks *
 | **OpenStreetMap** tiles and **Nominatim** address search | Map background and "search by address" (both replaceable: `MAP_TILE_URL`, `GEOCODER_URL`, or off) | Free defaults; point them at your own servers if needed |
 | **Plain JavaScript (ES modules)** | The pages' code (`static/js/`), no framework, no build step | Nothing to compile; strict Content Security Policy |
 | **Docker / Docker Compose** | Packages the app with PostgreSQL and Redis (`docker-compose.yml`) | One command to start |
-| **nginx or another proxy** *(optional, yours)* | In front of the app for HTTPS and sign-in (SSO: oauth2-proxy, nginx with OIDC/SAML…) | The app has no login screen of its own and doesn't do TLS |
+| **nginx + oauth2-proxy** *(optional, bundled in `deploy/proxy/`)* | In front of the app for HTTPS and company sign-in (any OIDC provider), or your own SSO proxy instead | The app has no login screen of its own and doesn't do TLS: your identity provider signs people in |
 
 The app listens on port 5000 (in Compose, only on `127.0.0.1:5000` of the host). In production you put your proxy in front of it.
 
@@ -65,6 +65,7 @@ The wall view and the tenant status page have no bar. The status page is for cus
 | **Circuits** | `/circuits` | Circuit mapping: circuits without a termination and the site their address points to, with CSV |
 | **Maintenance** | `/maintenance` | Plan windows for many sites or devices at once, see and end them, history |
 | **Tenant status** | `/status/<tenant>` | "Are we affected?" for one customer, without the whole board |
+| **Documentation** | `/help` | These guides as pages in the app: the overview, how it works, setup, sign-in, operations and the rest (#433) |
 | **API docs** | `/docs` | Every API endpoint, with a **Try it** button |
 | **Health / metrics** | `/healthz`, `/metrics` | Liveness probe and Prometheus metrics |
 | **MCP** | `/mcp` *(off by default)* | AI assistants read the board and add cases |
@@ -123,7 +124,7 @@ This starts three containers: `nautobot-maps` (the app), `postgres` and `redis`.
 ### Production checklist
 
 - Run a **released image**, not a local build ([operations](operations.md#run-a-released-version)).
-- Put a **proxy with HTTPS** in front. For sign-in, `AUTH_MODE=header` with your SSO proxy passing the user and groups; roles are **viewer**, **operator**, **admin** ([sign-in and roles](authentication.md)). Let the app trust identity headers only from the proxy (`AUTH_TRUSTED_PROXIES`).
+- Put **HTTPS and sign-in** in front: the bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` and six settings), or your own SSO proxy with `AUTH_MODE=header`. Roles are **viewer**, **operator** and **admin**, from your groups ([sign-in and roles](authentication.md)). The app trusts identity headers only from the proxy (`AUTH_TRUSTED_PROXIES`, `AUTH_PROXY_SECRET`).
 - Set your own `POSTGRES_PASSWORD` **before the first start**, and back up the database ([backup and restore](operations.md#backup-and-restore)).
 - Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ITSM (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), tenant role scopes on status pages (`TENANT_SCOPE_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
 - Monitor `/healthz` and scrape `/metrics` ([monitoring](operations.md#monitoring)).
@@ -152,7 +153,7 @@ The app is designed for **1,200+ sites and 10,000+ devices**, with 20–30 sites
 **Can't (by design or not yet)**
 - **Change Nautobot.** It is read-only: fix a site, device or IP in Nautobot, not here.
 - **Monitor devices itself.** It doesn't ping or poll SNMP; it relies on Nautobot's status, LibreNMS, Alertmanager or webhooks.
-- **Sign people in by itself** or serve HTTPS: that is the proxy's job.
+- **Keep its own user accounts** or passwords: people sign in with your company's identity provider, through the bundled proxy or yours, which also serves HTTPS.
 - **Create tickets in your ITSM.** It stores case numbers and links to them; it doesn't open or close tickets.
 - **Show sites without coordinates on the map** (they are still on the board).
 - **Know the cabling.** "Likely caused by the core router" is a guess from device roles, not from topology.
@@ -160,7 +161,7 @@ The app is designed for **1,200+ sites and 10,000+ devices**, with 20–30 sites
 
 ## The code, briefly
 
-- `app.py`: entry point. `nautobot_maps/`: one module per job (`nautobot`/`librenms` clients, `inventory` sync, `alerts` board, `maintenance`, `availability`, `notify`, `webhooks`, `auth`/`tokens`, `mcp`, `web` routes…).
+- `app.py`: entry point. `nautobot_maps/`: one module per job (`nautobot`/`librenms` clients, `inventory` sync, `alerts` board rules, `maintenance`, `availability`, `notify`, `webhooks`, `auth`/`tokens`, `mcp`, `guide` for these pages…). The routes are in `routes/`, one file per area. The board's database reads and writes are in `repositories/board.py`. `web.py` holds what every page shares: security headers, error pages and the sign-in check.
 - `static/js/`: the pages' JavaScript, one folder per page, shared helpers in `lib/`. `templates/`: the HTML.
-- `tests/` (pytest, about 950 tests) and `e2e/` (Playwright in Chromium). CI runs lint, tests on Python 3.11 and 3.12, a real Nautobot, a Docker smoke test, a dependency audit and CodeQL.
+- `tests/` (pytest, about 1,300 tests) and `e2e/` (Playwright in Chromium). CI runs lint, tests on Python 3.11 and 3.12, a real Nautobot, a Docker smoke test, the bundled sign-in proxy with real nginx, a dependency audit and CodeQL.
 - Development setup: [CONTRIBUTING.md](../CONTRIBUTING.md).

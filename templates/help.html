@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ page.title }} · Nautobot Maps</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/alerts.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/nav.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/help.css') }}" />
+</head>
+<body>
+  {%- set active = "help" %}{% include "_nav.html" %}
+  <!-- The documentation (#433): the guides on the left, the text on the right. -->
+  <div class="page-shell help-shell">
+    <details id="help-nav" class="help-nav" open>
+      <summary>Guides</summary>
+      <nav aria-label="Guides">
+        <ul>
+          {%- for item in contents %}
+          <li><a href="{{ item.href }}"{% if item.slug == page.slug %} aria-current="page"{% endif %}>{{ item.title }}</a></li>
+          {%- endfor %}
+        </ul>
+      </nav>
+    </details>
+    <article class="help-doc">
+      {{ page.html | safe }}
+    </article>
+  </div>
+  <script type="module" src="{{ url_for('static', filename='js/help/main.js') }}"></script>
+</body>
+</html>

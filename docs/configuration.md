@@ -117,6 +117,25 @@ See [authentication](authentication.md).
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
 | `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows and sending test notifications (logged as a warning) |
 
+### The bundled HTTPS and sign-in proxy
+
+Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in-423)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PUBLIC_HOSTNAME` | required | The host name people open, e.g. `maps.example.com`; the certificate must match it |
+| `OIDC_ISSUER_URL` | required | Your identity provider, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | required | The app's registration with the identity provider |
+| `AUTH_PROXY_SECRET` | required | A long random value nginx sends to the app (`openssl rand -hex 32`) |
+| `OAUTH2_COOKIE_SECRET` | required | 32 random bytes, base64 URL-safe, for the session cookie |
+| `OIDC_GROUPS_CLAIM` | `groups` | The ID token claim with the user's groups |
+| `OIDC_EMAIL_CLAIM` | `email` | Entra ID: `preferred_username` |
+| `OIDC_SCOPE` | `openid email profile` | The scopes asked for |
+| `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on |
+| `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
+
+The certificate goes in `deploy/proxy/certs/` as `fullchain.pem` and `privkey.pem`.
+
 ## Notifications
 
 See [notifications](notifications.md). Each channel is on when its setting is filled in.

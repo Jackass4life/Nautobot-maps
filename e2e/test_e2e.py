@@ -532,7 +532,16 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     # Every page is in the menu, which closes on a click outside it.
     page.locator(".app-menu summary").click()
     links = page.locator(".app-menu .app-nav-link").all_inner_texts()
-    assert links == ["Map", "Alert Board", "Availability", "Maintenance", "Circuits", "API", "Wall view"], links
+    assert links == [
+        "Map",
+        "Alert Board",
+        "Availability",
+        "Maintenance",
+        "Circuits",
+        "Documentation",
+        "API",
+        "Wall view",
+    ], links
     page.mouse.click(700, 300)
     assert page.locator(".app-menu .app-nav").is_hidden()
 
@@ -665,7 +674,7 @@ def test_a_stack_is_one_device(page):
 
 
 def test_the_map_panel_folds_away(page):
-    """#420: « folds the panel and the map takes the room; » brings it back
+    """#420: the bar's sidebar button folds the panel and the map takes the room; a tab brings it back
     with the alarm count; remembered after a reload; `[` toggles it."""
     page.goto(f"{BASE_URL}/")
     page.locator("#alarm-count", has_text="in alarm").wait_for(timeout=20000)
@@ -676,9 +685,15 @@ def test_the_map_panel_folds_away(page):
     toggle = page.locator("#panel-toggle")
     page.wait_for_function("() => document.querySelector('#map').getBoundingClientRect().left === 0")
     assert page.locator("#map").bounding_box()["width"] > width + 300
-    assert toggle.inner_text() == f"» {alarms} in alarm"
+    assert toggle.inner_text() == f"{alarms} in alarm"
     assert page.evaluate("document.querySelector('#sidebar').inert")
     # Nothing in the folded panel can be clicked or reached.
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().right <= 0")
+    # The tab brings it back; the bar's button folds it again.
+    toggle.click()
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().left === 0")
+    assert toggle.is_hidden()
+    page.locator("#panel-bar-toggle").click()
     page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().right <= 0")
 
     page.reload()
@@ -686,7 +701,8 @@ def test_the_map_panel_folds_away(page):
     assert page.evaluate("document.body.classList.contains('panel-hidden')")
     page.keyboard.press("[")
     page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().left === 0")
-    assert toggle.inner_text() == "«"
+    assert toggle.is_hidden()
+    assert page.locator("#panel-bar-toggle").get_attribute("aria-expanded") == "true"
     # Typing [ in the search doesn't fold it.
     page.fill("#search-input", "[")
     assert not page.evaluate("document.body.classList.contains('panel-hidden')")
@@ -739,7 +755,7 @@ def test_the_top_bar(page):
     assert page.locator(".app-bar").count() == 0
 
 
-@pytest.mark.parametrize("path", ["/", "/alerts", "/availability", "/maintenance", "/circuits", "/docs"])
+@pytest.mark.parametrize("path", ["/", "/alerts", "/availability", "/maintenance", "/circuits", "/help", "/docs"])
 def test_the_top_bar_fits_a_phone(browser, path):
     context = browser.new_context(viewport={"width": 390, "height": 800})
     page = context.new_page()
@@ -756,3 +772,22 @@ def test_the_top_bar_fits_a_phone(browser, path):
         page.locator(".bar-hit-map", has_text="London HQ").wait_for()
     context.close()
     assert errors == [], errors
+
+
+def test_the_documentation_pages(page):
+    """#433: Documentation in the menu opens the guides; a link to another
+    guide opens it at its heading."""
+    page.goto(f"{BASE_URL}/alerts")
+    page.locator(".app-menu summary").click()
+    page.locator(".app-nav-link", has_text="Documentation").click()
+    page.wait_for_url("**/help")
+    page.locator(".help-doc h1", has_text="Nautobot Maps").wait_for()
+    page.locator(".help-nav a", has_text="Sign-in and roles").click()
+    page.wait_for_url("**/help/authentication")
+    assert page.locator('.help-nav a[aria-current="page"]').inner_text() == "Sign-in and roles"
+    page.goto(f"{BASE_URL}/help")
+    page.locator('.help-doc a[href^="/help/how-it-works#"]').first.click()
+    page.wait_for_url("**/help/how-it-works#*")
+    anchor = page.url.split("#", 1)[1]
+    assert page.locator(f"#{anchor}").count() == 1
+    assert page.evaluate("() => [...document.images].every((img) => img.complete && img.naturalWidth > 0)")

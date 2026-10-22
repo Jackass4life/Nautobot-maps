@@ -10,7 +10,10 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 
 Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a normal day. Lists summarise and put what needs action first.
 
-- **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom. Click a site for its devices, ASNs and circuits (also those whose description is the site's address, [circuits by address](docs/how-it-works.md#circuits-in-the-site-panel)); one search box finds a site by name or address as you type. Enter opens a full site-name match (case ignored); otherwise it searches a place or `lat,lon`, showing a point, a 5 km circle and nearby sites with distances. The first suggestion follows that same choice; other site matches remain selectable.
+- **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom.
+  - **Click a site** for its devices, ASNs and circuits, including those whose description is the site's address ([circuits by address](docs/how-it-works.md#circuits-in-the-site-panel)).
+  - **One search box** finds a site by name or address as you type, or a place or `lat,lon` with every site within 5 km.
+  - **The left panel** folds away with the sidebar button for a full-screen map, and still shows the alarm count while folded.
 - **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, the likely cause, downtime, tenants and case numbers. It opens on sites with alarms, the ones nobody is on first, and updates itself.
 - **Searchable filters** on the map, board, Availability and Maintenance: type to find a value and tick several. A site matches any pick within a filter and every filter together. Closed controls show one name and **+N**; the map's chips remove individual picks. Enter picks the first match, arrows move, Space ticks in the list, and Escape closes. Lists show at most 50 matches, with a prompt to keep typing; fewer than two choices stay hidden. Staff (viewer, operator, admin) can carry tenant picks in Map / Alert Board / Wall view links and **Copy wall link**, using repeated `?tenant=` values. Customer status pages remain single-tenant, without filters or access to the map or board.
 - **Criticality from Nautobot**: mark which sites and devices matter with custom fields in Nautobot. A gold site makes every down device Critical; one device can be set Critical (or Low) on its own, and the device's field wins. With nothing set, the share of devices down decides, and all down is still Critical. Editing these doesn't page anyone ([set it up](#criticality-in-nautobot)).
@@ -19,12 +22,14 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 - **Circuit mapping**: circuits without a termination in Nautobot, grouped by the site their description's address points to (one, several, none), with CSV: the worklist for linking them properly ([circuit mapping](docs/how-it-works.md#circuit-mapping)).
 - **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm. A history of every window, with CSV.
 - **Availability** per site and tenant for any period, with maintenance left out, and CSV exports down to every incident.
-- **Tenant status page**: "are we affected?" for one tenant, shareable with a customer.
+- **Tenant status page**: "are we affected?" for one tenant, shareable with a customer. A large tenant sees what's wrong first; the operational sites fold into one line.
 - **More sources**: LibreNMS status (optional) next to Nautobot's, pushed within seconds by LibreNMS alerts; Prometheus Alertmanager and a generic webhook can mark devices down.
 - **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers, summarised, never one per device.
-- **Sign-in and roles** through your SSO proxy (viewer, operator, admin), and **API tokens** for scripts and MCP clients.
+- **One top bar on every page**: find any site, see at a glance whether the data is fresh (amber when a sync is late, red when Nautobot or LibreNMS can't be reached), who is signed in, dark or light, and every page in the ☰ menu.
+- **HTTPS and company sign-in, ready to use**: an optional nginx + oauth2-proxy setup for Entra ID, Keycloak, Okta or Google, or your own SSO proxy. Roles: viewer, operator, admin. **API tokens** cover scripts and MCP clients, and changes sent from other sites are refused.
 - **MCP server** (optional) so AI assistants can read the board and add cases.
 - **Operations**: Prometheus `/metrics`, a `/healthz` probe, JSON logs, released Docker images.
+- **The documentation in the app**: **Documentation** in the ☰ menu shows these guides as pages (`/help`).
 - **Read-only towards Nautobot**: the app never changes anything there, so a read-only API token is enough.
 
 ### Screenshots
@@ -81,6 +86,8 @@ Optional, and read-only like the rest: the app only reads these fields. In Nauto
 Then say what a site's tier makes its devices, e.g. `TIER_DEVICE_LEVEL=gold:critical,silver:medium`. The setting uses the custom field's key, and changing one makes the next sync a full one. How the levels combine: [device and site criticality](docs/alert-board.md#device-and-site-criticality).
 
 ## Documentation
+
+Every guide below is also in the app: **Documentation** in the ☰ menu (`/help`).
 
 | | |
 |---|---|

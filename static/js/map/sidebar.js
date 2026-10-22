@@ -1,6 +1,7 @@
-// The left panel folds away (#420): « on its edge hides it and the map takes
-// the room; » brings it back, with the alarm count so a folded panel never
-// hides that something is wrong.  Remembered in this browser; `[` toggles.
+// The left panel folds away (#420): the sidebar button in the top bar hides
+// and shows it, and the map takes the room.  Folded, a tab on the map's edge
+// brings it back, with the alarm count so a folded panel never hides that
+// something is wrong.  Remembered in this browser; `[` toggles.
 import { els, state } from "./state.js";
 
 const PANEL_HIDDEN_KEY = "nautobot-maps-map-panel-hidden";
@@ -8,22 +9,31 @@ const PANEL_HIDDEN_KEY = "nautobot-maps-map-panel-hidden";
 let hidden = false;
 let alarmCount = null;
 
-// "»", "» 23 in alarm" when folded; "«" when open.  *count*: the panel's
-// alarm count, null until the alert levels are in.
+// The folded panel's tab: "23 in alarm", else "Show the panel".  *count*:
+// the panel's alarm count, null until the alert levels are in.
 export function panelToggleLabel(isHidden, count) {
-  if (!isHidden) return { text: "«", label: "Hide the panel" };
+  if (!isHidden) return { text: "", label: "Hide the panel" };
   const alarms = count ? `${count.toLocaleString("en")} in alarm` : "";
-  return { text: alarms ? `» ${alarms}` : "»", label: alarms ? `Show the panel: ${alarms}` : "Show the panel" };
+  return { text: alarms || "Show the panel", label: alarms ? `Show the panel: ${alarms}` : "Show the panel" };
 }
 
 function render() {
-  const button = els.panelToggle;
-  if (!button) return;
   const { text, label } = panelToggleLabel(hidden, alarmCount);
-  button.textContent = text;
-  button.setAttribute("aria-label", label);
-  button.title = `${label} ([)`;
-  button.setAttribute("aria-expanded", hidden ? "false" : "true");
+  const tab = els.panelToggle;
+  if (tab) {
+    tab.hidden = !hidden;
+    tab.textContent = text;
+    tab.classList.toggle("has-alarms", Boolean(hidden && alarmCount));
+    tab.setAttribute("aria-label", label);
+    tab.title = `${label} ([)`;
+  }
+  const bar = els.panelBarToggle;
+  if (bar) {
+    const action = hidden ? "Show the panel" : "Hide the panel";
+    bar.setAttribute("aria-label", action);
+    bar.title = `${action} ([)`;
+    bar.setAttribute("aria-expanded", hidden ? "false" : "true");
+  }
 }
 
 // Called by the alarm list each time it is drawn.
@@ -45,7 +55,7 @@ export function setPanelHidden(on, { remember = true } = {}) {
   document.body.classList.toggle("panel-hidden", hidden);
   if (els.sidebar) {
     // Out of the tab order and the accessibility tree while folded.
-    if (hidden && els.sidebar.contains(document.activeElement)) els.panelToggle?.focus();
+    if (hidden && els.sidebar.contains(document.activeElement)) (els.panelBarToggle || els.panelToggle)?.focus();
     els.sidebar.inert = hidden;
   }
   render();
@@ -78,7 +88,8 @@ export function isPanelShortcut(event) {
 }
 
 export function initPanelToggle() {
-  els.panelToggle.addEventListener("click", () => setPanelHidden(!hidden));
+  els.panelToggle?.addEventListener("click", () => setPanelHidden(false));
+  els.panelBarToggle?.addEventListener("click", () => setPanelHidden(!hidden));
   document.addEventListener("keydown", (event) => {
     if (!isPanelShortcut(event)) return;
     event.preventDefault();
