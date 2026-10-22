@@ -9,6 +9,7 @@ from flask import Response, jsonify
 
 import app as flask_app
 from nautobot_maps import compression, db, settings, tokens
+from tests import http_client
 
 GZIP = {"Accept-Encoding": "gzip, deflate, br"}
 BIG = {"alerts": [{"id": f"s{i}", "name": f"Site {i:04d}", "alert_level": "ok"} for i in range(1200)]}
@@ -74,8 +75,9 @@ class TestRules:
 class TestRealRequests:
     @pytest.fixture
     def client(self):
+        """The whole app (#436): Flask's routes behind FastAPI, and FastAPI's own."""
         flask_app.app.config["TESTING"] = True
-        with flask_app.app.test_client() as test_client:
+        with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
     def test_static_files_and_their_cache(self, client):

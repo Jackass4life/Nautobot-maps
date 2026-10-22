@@ -247,3 +247,73 @@ def test_a_body_is_json_only_when_it_says_so(client, monkeypatch):
     assert broken.status_code == 400 and broken.get_json() == {"error": "Expected a JSON object"}
     ids = client.post("/api/maintenance/end", data='{"ids": []}', content_type="application/merge-patch+json")
     assert ids.status_code == 400 and "ids must be a list" in ids.get_json()["error"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 (#436): pushes and admin read forms and refuse as Flask did
+# ---------------------------------------------------------------------------
+
+
+def _form_app(seen: list):
+    from typing import Annotated
+
+    from fastapi import APIRouter, Depends, FastAPI
+
+    from nautobot_maps.api import deps
+
+    router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+
+    async def remember_form(form: Annotated[dict, Depends(deps.form_values)]):
+        seen.append(form)
+        return form
+
+    @router.post("/api/form", dependencies=[deps.require_role("operator")])
+    def echo(form: Annotated[dict, Depends(remember_form)]):
+        return deps.Json(form)
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    deps.install_error_handlers(app)
+    app.include_router(router)
+    return app
+
+
+def test_forms_are_read_as_flask_read_them(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    client = TestClient(_form_app([]), base_url="http://localhost", client=("127.0.0.1", 1))
+    assert client.post("/api/form", data={"hostname": "sw1"}).json() == {"hostname": "sw1"}
+    multipart = client.post("/api/form", data={"device_id": "42"}, files={"note": ("n.txt", b"x")})
+    assert multipart.json() == {"device_id": "42"}, "fields, not uploaded files"
+    assert client.post("/api/form", json={"hostname": "sw1"}).json() == {}
+
+
+def test_a_refused_caller_never_gets_its_body_read(monkeypatch):
+    """The role check runs before the body or form is read, as Flask's decorator
+    ran before the view: no parsing on behalf of someone refused."""
+    from fastapi.testclient import TestClient
+
+    seen = []
+    client = TestClient(_form_app(seen), base_url="http://localhost", client=("127.0.0.1", 1))
+    refused = client.post("/api/form", data={"hostname": "sw1"})
+    assert refused.status_code == 403 and seen == []
+    cross = client.post("/api/form", data={"hostname": "sw1"}, headers={"Sec-Fetch-Site": "cross-site"})
+    assert cross.status_code == 403 and seen == []
+
+
+def test_a_new_token_is_never_compressed_on_fastapi(client, monkeypatch, pg_database):
+    from nautobot_maps import compression, db, tokens
+
+    monkeypatch.setattr(compression, "MIN_BYTES", 10)
+    conn = db.get_conn()
+    try:
+        admin = tokens.create(conn, {"name": "boot", "role": "admin"}, "test")["token"]
+    finally:
+        conn.close()
+    created = client.post(
+        "/api/tokens",
+        json={"name": "s", "role": "viewer"},
+        headers={"Accept-Encoding": "gzip", "Authorization": f"Bearer {admin}"},
+    )
+    assert created.status_code == 201 and "content-encoding" not in created.headers
+    assert created.headers["cache-control"] == "no-store, no-transform"

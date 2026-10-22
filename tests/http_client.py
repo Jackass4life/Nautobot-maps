@@ -8,6 +8,7 @@ Like Flask's: the client is 127.0.0.1 (a trusted proxy by default), the host
 ...}`` sends from another address.
 """
 
+import gzip
 import json as jsonlib
 from email.message import Message
 
@@ -18,31 +19,40 @@ BASE_URL = "http://localhost"
 
 
 class Response:
-    """An httpx response with Flask's test response names."""
+    """An httpx response with Flask's test response names.  ``data`` is the
+    body as sent (gzip stays gzip, as with Flask's client); ``text`` and
+    ``get_json`` read it unzipped."""
 
-    def __init__(self, response):
+    def __init__(self, response, raw: bytes):
         self._response = response
+        self._raw = raw
         self.status_code = response.status_code
         self.headers = response.headers
 
     @property
     def data(self) -> bytes:
-        return self._response.content
+        return self._raw
+
+    @property
+    def _plain(self) -> bytes:
+        if self.headers.get("content-encoding") == "gzip":
+            return gzip.decompress(self._raw)
+        return self._raw
 
     @property
     def text(self) -> str:
-        return self._response.text
+        return self._plain.decode(self._response.encoding or "utf-8")
 
     @property
     def status(self) -> str:
         return f"{self.status_code} {self._response.reason_phrase}"
 
     def get_data(self, as_text: bool = False):
-        return self._response.text if as_text else self._response.content
+        return self.text if as_text else self._raw
 
     def get_json(self, silent: bool = False):
         try:
-            return jsonlib.loads(self._response.content)
+            return jsonlib.loads(self._plain)
         except ValueError:
             if silent:
                 return None
@@ -100,6 +110,8 @@ class FlaskStyleClient:
             # Flask's test client sends no Accept: the app answers an API path
             # with JSON and a page with HTML, as it does for a browser.
             client.headers.pop("accept", None)
+            # Nor does it ask for gzip: a test that wants it says so.
+            client.headers.pop("accept-encoding", None)
             self._clients[address] = client
         return self._clients[address]
 
@@ -136,7 +148,10 @@ class FlaskStyleClient:
         elif input_stream is not None:
             # A generator body: httpx sends it chunked, with no Content-Length.
             kwargs["content"] = iter([input_stream.read()])
-        return Response(self._client(address).request(method, path, **kwargs))
+        # Read raw: the body as the app sent it, not unzipped by httpx.
+        with self._client(address).stream(method, path, **kwargs) as response:
+            raw = b"".join(response.iter_raw())
+        return Response(response, raw)
 
     def get(self, path, **kwargs):
         return self.open("GET", path, **kwargs)
