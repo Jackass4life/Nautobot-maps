@@ -1,0 +1,119 @@
+# nginx in front of Nautobot Maps (#423): HTTPS, and company sign-in through
+# oauth2-proxy.  ${PUBLIC_HOSTNAME} and ${AUTH_PROXY_SECRET} are filled in when
+# the container starts; everything else with a $ is nginx's own.
+
+# An API token (LibreNMS, Alertmanager, scripts, MCP) skips the login: the app
+# checks it.  Matched on the header, so no path is open without one.
+map $http_authorization $api_token {
+    "~*^Bearer\s+nmt_" 1;
+    default 0;
+}
+
+# The name the app shows: the username, else the e-mail address.
+map $auth_user $auth_id {
+    "" $auth_email;
+    default $auth_user;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${PUBLIC_HOSTNAME};
+    set $auth_user "";
+    set $auth_email "";
+    set $auth_groups "";
+    # Probes may use plain HTTP; everything else goes to HTTPS.
+    location = /healthz {
+        include /etc/nginx/conf.d/proxy-to-app.inc;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${PUBLIC_HOSTNAME};
+
+    ssl_certificate /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    client_max_body_size 2m;
+    # The app compresses its answers (COMPRESS_RESPONSES); passed through as they are.
+    gzip off;
+
+    # Nobody signed in until oauth2-proxy says so.
+    set $auth_user "";
+    set $auth_email "";
+    set $auth_groups "";
+    set $auth_cookie "";
+
+    # oauth2-proxy: the login pages and the callback.
+    location /oauth2/ {
+        proxy_pass http://oauth2-proxy:4180;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Auth-Request-Redirect $request_uri;
+    }
+
+    # Asked before every request below: 202 signed in, 401 not.
+    location = /oauth2/auth {
+        internal;
+        if ($api_token) {
+            return 202;
+        }
+        proxy_pass http://oauth2-proxy:4180;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Uri $request_uri;
+        proxy_set_header Content-Length "";
+        proxy_pass_request_body off;
+    }
+
+    location @login {
+        return 302 /oauth2/start?rd=$scheme://$host$request_uri;
+    }
+
+    # No login (the app checks access itself), and no identity passed on.
+    location = /healthz {
+        include /etc/nginx/conf.d/proxy-to-app.inc;
+    }
+    # The tenant status page: customers have no company login; their status
+    # token is checked by the app (#291).  Its files: auth.STATUS_PAGE_ASSETS.
+    location /status/ {
+        include /etc/nginx/conf.d/proxy-to-app.inc;
+    }
+    location /api/status/ {
+        include /etc/nginx/conf.d/proxy-to-app.inc;
+    }
+    location ~ ^/static/(css/alerts\.css|js/status/main\.js|js/status/page\.js|js/lib/format\.js|js/lib/html\.js)$ {
+        include /etc/nginx/conf.d/proxy-to-app.inc;
+    }
+    # Prometheus scrapes the app directly, inside the network.
+    location = /metrics {
+        return 404;
+    }
+
+    # Everything else: signed in, or an API token.
+    location / {
+        auth_request /oauth2/auth;
+        auth_request_set $auth_user $upstream_http_x_auth_request_preferred_username;
+        auth_request_set $auth_email $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups $upstream_http_x_auth_request_groups;
+        # A refreshed session cookie goes back to the browser.
+        auth_request_set $auth_cookie $upstream_http_set_cookie;
+        add_header Set-Cookie $auth_cookie;
+        # A location's add_header replaces the server's: HSTS again.
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        error_page 401 = @login;
+        include /etc/nginx/conf.d/proxy-to-app.inc;
+    }
+}

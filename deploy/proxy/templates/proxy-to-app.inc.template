@@ -1,0 +1,15 @@
+# The app, with who is signed in (#423).  Included by every location that
+# reaches the app.  The identity headers are always set here, empty where
+# nobody signed in, so a client can never send its own.
+proxy_pass http://nautobot-maps:5000;
+proxy_http_version 1.1;
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-Proto https;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-User $auth_id;
+proxy_set_header X-Forwarded-Groups $auth_groups;
+proxy_set_header X-Auth-Proxy-Secret "${AUTH_PROXY_SECRET}";
+# Exports and the board's history stream; MCP keeps a stream open.
+proxy_read_timeout 300s;
+proxy_buffering off;

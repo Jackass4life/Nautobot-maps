@@ -1,0 +1,27 @@
+# CI only (#423): the proxy profile with a stub in place of oauth2-proxy and
+# the demo's mock Nautobot, so no identity provider or Nautobot is needed.
+#   docker compose -f docker-compose.yml -f deploy/proxy/compose.yml -f deploy/proxy/ci/compose.yml up
+services:
+  oauth2-proxy:
+    image: python:3.12-alpine
+    command: ["python", "/stub_oauth2_proxy.py"]
+    environment: !reset []
+    volumes:
+      - ./deploy/proxy/ci/stub_oauth2_proxy.py:/stub_oauth2_proxy.py:ro
+
+  mock-nautobot:
+    build: .
+    command: python demo/mock_nautobot.py
+    # demo/ is not in the image (.dockerignore), as in demo/docker-compose.yml.
+    volumes:
+      - ./demo/mock_nautobot.py:/app/demo/mock_nautobot.py:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nautobot-maps:
+    depends_on:
+      mock-nautobot:
+        condition: service_healthy
