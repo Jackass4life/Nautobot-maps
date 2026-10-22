@@ -321,3 +321,47 @@ check(statusKey("#key=nmt_abc") === "nmt_abc" && statusKey("") === "", "key");
 check(errorText(403).includes("doesn't work"), "refused");
 """
     )
+
+
+def test_a_large_tenant_sees_what_is_wrong_first():
+    """#407: above ten sites, those that need a look (outage, degraded,
+    maintenance, no data) come first and the operational ones fold into one line."""
+    run_js(
+        """
+import { FOLD_ABOVE, sitesHtml } from "@js/status/page.js";
+const now = new Date("2026-10-22T14:00:00Z");
+const site = (i, state) => ({ name: `Site ${i}`, state });
+// 300 sites as the API sorts them: 4 outage, 3 degraded, 3 maintenance, 2 no data, then 288 operational.
+const sites = [
+  ...[0, 1, 2, 3].map((i) => site(i, "outage")),
+  ...[4, 5, 6].map((i) => site(i, "degraded")),
+  ...[7, 8, 9].map((i) => site(i, "maintenance")),
+  ...[10, 11].map((i) => site(i, "unknown")),
+  ...Array.from({ length: 288 }, (_, i) => site(12 + i, "operational")),
+];
+const rows = (html) => (html.match(/class="status-site /g) || []).length;
+const big = sitesHtml(sites, now);
+check(rows(big.attention) === 12, `attention ${rows(big.attention)}`);
+check(!big.attention.includes("status-operational"), "no operational site first");
+check(big.attention.indexOf("Site 0") < big.attention.indexOf("Site 11"), "worst first, as the API sorts");
+check(big.attention.includes("No data"), "no data needs a look");
+check(big.operational.includes("288 sites operational") && rows(big.operational) === 288, "folded");
+check(!big.operational.includes("<details class=\\"status-fold\\" open"), "closed by default");
+check(sitesHtml(sites, now, true).operational.includes("<details class=\\"status-fold\\" open>"), "stays open");
+
+// Every site operational: no empty list first, just the fold.
+const fine = sitesHtml(Array.from({ length: 300 }, (_, i) => site(i, "operational")), now);
+check(fine.attention === "" && fine.operational.includes("300 sites operational"), "all fine");
+check(sitesHtml([...sites.slice(0, 12), site(99, "operational")], now).operational.includes("1 site operational"), "one");
+
+// Ten sites or fewer: every one open, as before.
+check(FOLD_ABOVE === 10, "the agreed cut-off");
+const small = sitesHtml([site(1, "outage"), ...Array.from({ length: 9 }, (_, i) => site(i + 2, "operational"))], now);
+check(rows(small.attention) === 10 && small.operational === "", "small: all open");
+
+// Nothing operational at all: no fold.
+check(sitesHtml(sites.slice(0, 12), now).operational === "", "no fold without operational sites");
+const evil = sitesHtml([...sites.slice(0, 11), { name: "<b>x</b>", state: "operational" }], now);
+check(evil.operational.includes("&lt;b&gt;x&lt;/b&gt;") && !evil.operational.includes("<b>x</b>"), "escaped");
+"""
+    )

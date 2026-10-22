@@ -1375,6 +1375,68 @@ a.case-pill:focus-visible {
   color: var(--color-text-muted);
 }
 
+/* "296 sites operational" (#407): one quiet line under what needs a look,
+   the names a click away. */
+.status-fold {
+  margin-top: 12px;
+}
+
+.status-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.status-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.status-fold > summary::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+.status-fold > summary::after {
+  content: "Show";
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.status-fold[open] > summary::after {
+  content: "Hide";
+}
+
+.status-fold > summary:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.status-fold[open] > summary {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.status-fold > .status-sites {
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: none;
+}
+
+.status-sites:empty + #status-operational .status-fold {
+  margin-top: 0;
+}
+
 .status-updated {
   margin-top: 12px;
   color: var(--color-text-muted);
