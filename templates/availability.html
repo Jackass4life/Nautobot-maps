@@ -10,16 +10,15 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}" />
 </head>
 <body>
+  {%- set active = "availability" %}{% include "_nav.html" %}
   {#- A small (i) that explains what is next to it, for someone new to the page:
       hover, focus or tap it (lib/tooltip.js). #}
   {%- macro help(text) %}<span class="info-tip help-tip" tabindex="0" role="img" aria-label="Help: {{ text }}" data-info-tip="{{ text }}">i</span>{% endmacro %}
   <div class="page-shell">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Nautobot Maps</p>
         <h1>Availability {{ help("How much of the time each site and tenant was up in a period. Pick the period and what counts as down, then Show. The worst come first. Maintenance windows are never downtime.") }}</h1>
       </div>
-      {% set active = "availability" %}{% include "_nav.html" %}
     </header>
 
     <!-- The period and what counts as down (#287).  Without script, two date

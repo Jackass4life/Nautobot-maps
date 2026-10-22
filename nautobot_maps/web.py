@@ -6,6 +6,7 @@ A Flask blueprint registered by app.py; URLs are unchanged.
 import json
 import logging
 import re
+import time
 from datetime import UTC, timedelta
 from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -46,6 +47,17 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint("web", __name__)
 bp.before_app_request(auth.check_viewer)
+
+
+@bp.app_context_processor
+def top_bar_user():
+    """Who is signed in, for the top bar (#419): "olga · operator", a token's
+    name, or nothing with AUTH_MODE=disabled."""
+    user = auth.get_current_user()
+    name = user.get("token") or user.get("username") or ""
+    if not user.get("is_authenticated") or not name:
+        return {"bar_user": None}
+    return {"bar_user": {"name": name, "role": user.get("role") or ""}}
 
 
 def tile_source() -> str:
@@ -282,6 +294,40 @@ def prometheus_metrics():
         if conn is not None:
             conn.close()
     return body, 200, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"}
+
+
+@bp.route("/api/app-status")
+def api_app_status():
+    """How fresh the app's data is, for the top bar on every page (#419).
+
+    Read from the sync state the scheduler records: never calls Nautobot or
+    LibreNMS, so every open tab polling once a minute adds nothing upstream.
+    Response: ``state`` (``ok``, ``stale`` or ``down``), ``updated_at`` (the
+    oldest source's last good sync) and ``sources`` (``name``, ``state``,
+    ``message``, ``last_success``).
+    """
+    # No database configured: nothing synced, not an outage.
+    rows = {} if not db.dialect() else None
+    if db.dialect():
+        conn = None
+        try:
+            conn = db.get_conn(connect_timeout=2)
+            rows = metrics.sync_rows(conn)
+        except Exception as exc:
+            logger.warning("App status: database unavailable: %s", exc)
+        finally:
+            if conn is not None:
+                conn.close()
+    body = metrics.app_status(
+        rows,
+        librenms=bool(settings.LIBRENMS_URL and settings.LIBRENMS_API_TOKEN),
+        intervals={
+            "INVENTORY_SYNC_INTERVAL_SECONDS": settings.INVENTORY_SYNC_INTERVAL_SECONDS,
+            "LIBRENMS_SYNC_INTERVAL_SECONDS": settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
+        },
+        now=time.time(),
+    )
+    return jsonify(body), 200, {"Cache-Control": "no-store"}
 
 
 @bp.route("/alerts")

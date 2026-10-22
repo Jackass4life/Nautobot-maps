@@ -52,12 +52,13 @@ html, body {
 /* =========================================================
    Layout
    ========================================================= */
+/* Everything sits under the top bar (#419). */
 #sidebar {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   left: 0;
   width: var(--sidebar-width);
-  height: 100vh;
+  height: calc(100vh - var(--app-bar-height));
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   z-index: 1000;
@@ -70,7 +71,7 @@ html, body {
 
 #map {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   left: var(--sidebar-width);
   right: 0;
   bottom: 0;
@@ -82,6 +83,67 @@ body.inspector-open #map {
   right: var(--inspector-width);
 }
 
+/* The panel folds away (#420): it slides out, the map takes the room. */
+#sidebar {
+  transition: transform 0.2s ease;
+}
+
+body.panel-hidden #sidebar {
+  transform: translateX(-100%);
+  box-shadow: none;
+}
+
+body.panel-hidden #map,
+body.panel-hidden #loading-overlay {
+  left: 0;
+}
+
+/* A tab on the panel's edge, halfway down: clear of the zoom buttons and the legend. */
+.panel-toggle {
+  position: fixed;
+  top: calc(50% + var(--app-bar-height) / 2);
+  left: var(--sidebar-width);
+  z-index: 1001;
+  min-width: 24px;
+  height: 44px;
+  padding: 0 8px;
+  transform: translateY(-50%);
+  border: 1px solid var(--color-border);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  box-shadow: var(--shadow);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: left 0.2s ease;
+}
+
+body.panel-hidden .panel-toggle {
+  left: 0;
+  color: var(--color-text);
+}
+
+.panel-toggle:hover {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+}
+
+.panel-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sidebar,
+  .panel-toggle {
+    transition: none;
+  }
+}
+
 #inspector-backdrop {
   position: fixed;
   inset: 0;
@@ -91,10 +153,10 @@ body.inspector-open #map {
 
 #location-inspector {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   right: 0;
   width: var(--inspector-width);
-  height: 100vh;
+  height: calc(100vh - var(--app-bar-height));
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);
   box-shadow: var(--shadow);
@@ -498,46 +560,6 @@ body.inspector-open #map {
   border-style: solid;
   border-color: rgba(220, 38, 38, 0.35);
 }
-
-/* =========================================================
-   Sidebar header
-   ========================================================= */
-/* While the menu of pages is open (#392): the panel above the site panel
-   (1200) and its backdrop, and not clipping the menu. */
-.app-menu-open #sidebar {
-  z-index: 1300;
-  overflow: visible;
-}
-
-/* One line (#392): the name, then the theme and the menu of pages. */
-#sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 14px 10px 10px 16px;
-  background: var(--color-surface);
-}
-
-#sidebar-header h1 {
-  font-size: 1.05rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-primary);
-  letter-spacing: 0.02em;
-}
-
-
-#sidebar-header h1 svg {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-}
-
-
-
 
 /* =========================================================
    Search
@@ -1150,7 +1172,7 @@ body.inspector-open #map {
    ========================================================= */
 #loading-overlay {
   position: fixed;
-  top: 0;
+  top: var(--app-bar-height);
   left: var(--sidebar-width);
   right: 0;
   bottom: 0;
@@ -1430,8 +1452,9 @@ body.inspector-open #loading-overlay {
 @media (max-width: 640px) {
   :root { --sidebar-width: 100vw; }
 
+  /* Half the screen, as the map leaves it: no empty band between them (#419). */
   #sidebar {
-    height: auto;
+    height: 50vh;
     max-height: 50vh;
     position: fixed;
     top: auto;
@@ -1443,7 +1466,7 @@ body.inspector-open #loading-overlay {
   }
 
   #map {
-    top: 0;
+    top: var(--app-bar-height);
     left: 0;
     right: 0;
     bottom: 50vh;
@@ -1451,6 +1474,28 @@ body.inspector-open #loading-overlay {
 
   body.inspector-open #map {
     right: 0;
+  }
+
+  /* On a phone the panel is at the bottom: it folds down (#420). */
+  body.panel-hidden #sidebar {
+    transform: translateY(100%);
+  }
+
+  body.panel-hidden #map,
+  body.panel-hidden #loading-overlay {
+    bottom: 0;
+  }
+
+  /* The map's free corner: the zoom buttons and the legend are on the left. */
+  .panel-toggle,
+  body.panel-hidden .panel-toggle {
+    top: calc(var(--app-bar-height) + 10px);
+    left: auto;
+    right: 10px;
+    height: 36px;
+    transform: none;
+    border-left: 1px solid var(--color-border);
+    border-radius: 10px;
   }
 
   #loading-overlay {

@@ -17,22 +17,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tooltip.css') }}" />
 </head>
 <body class="map-page">
+  {%- set active = "map" %}{% include "_nav.html" %}
   <!-- The left panel (#392): what needs action first, one search, the rest a click away. -->
   <div id="sidebar">
-    <div id="sidebar-header">
-      <h1>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path fill-rule="evenodd"
-            d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975
-               16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-2.003 3.5-4.697
-               3.5-8.327a8 8 0 10-16 0c0 3.63 1.556 6.326 3.5 8.327a19.58 19.58 0
-               002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0
-               000 6z" clip-rule="evenodd" />
-        </svg>
-        Nautobot Maps
-      </h1>
-      {% set active = "map" %}{% include "_nav.html" %}
-    </div>
+    <h1 class="visually-hidden">Map</h1>
 
     <!-- A link for some sites only (?tenant=, ?q=, #367) says so, above everything else. -->
     <p id="map-scope" class="map-scope" hidden></p>
@@ -118,6 +106,9 @@
       </div>
     </div>
   </div>
+
+  <!-- « on the panel's edge folds it away; » brings it back with the alarm count (#420). -->
+  <button id="panel-toggle" class="panel-toggle" type="button" aria-controls="sidebar" aria-expanded="true" aria-label="Hide the panel" title="Hide the panel ([)">«</button>
 
   <!-- The legend (#392): on the map, behind a small button, not in the panel. -->
   <div id="map-legend" class="map-legend">

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}" />
 </head>
 <body{% if wall_view %} class="wall-view"{% endif %}>
+  {%- if not wall_view %}{% set active = "alerts" %}{% include "_nav.html" %}{% endif %}
   <div class="page-shell">
     {%- if wall_view %}
     <!-- Wall screen (#243): when the board last updated, and loudly when it can't. -->
@@ -23,10 +24,8 @@
     {%- endif %}
     <header class="page-header">
       <div>
-        <p class="eyebrow">Nautobot Maps</p>
         <h1>Alert Board</h1>
       </div>
-      {% set active = "alerts" %}{% include "_nav.html" %}
     </header>
     <!-- One line of what is wrong, and the chips that choose which sites
          are listed; the board opens on Alarms (#311). -->

@@ -31,6 +31,7 @@ import {
 import { onMarkerActivate, onRedrawNeeded, quietClusterIcon } from "./markers.js";
 import { loadLocationAlerts, startLocationAlertRefresh } from "./refresh.js";
 import { doSearch } from "./search.js";
+import { initPanelToggle } from "./sidebar.js";
 import { matchSites, siteMatchesHtml } from "./sitesearch.js";
 import { COORDINATE_REFRESH_MS, initCoordinateCheck, loadCoordinateCheck } from "./coordinates.js";
 import { config, detailCache, els, locationAlerts, state } from "./state.js";
@@ -108,6 +109,8 @@ Object.assign(els, {
   alarmBreakdown: byId("alarm-breakdown"),
   alarmMore: byId("alarm-more"),
   alarmsOnlyBtn: byId("alarms-only"),
+  sidebar: byId("sidebar"),
+  panelToggle: byId("panel-toggle"),
 });
 
 onMarkerActivate(handleMarkerActivation);
@@ -250,6 +253,8 @@ els.alarmsOnlyBtn.addEventListener("click", () => {
   setAlarmsOnly(!state.alarmsOnly);
   applyFilters();
 });
+// Before the alarm list is drawn, so its count lands on a folded panel's ».
+initPanelToggle();
 renderAlarmList();
 
 initTopBar();
