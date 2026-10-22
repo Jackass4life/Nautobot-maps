@@ -13,6 +13,7 @@ documentation's images, as Flask sent them.
 
 import gzip
 import mimetypes
+import os
 import pathlib
 from email.utils import formatdate
 
@@ -24,14 +25,13 @@ from nautobot_maps.api import deps
 
 
 def _inside(base: pathlib.Path, relative: str) -> pathlib.Path | None:
-    base = base.resolve()
-    try:
-        path = (base / relative).resolve()
-    except (OSError, ValueError):
+    """The file *relative* names inside *base*, or None: symlinks and ``..``
+    resolved first, then it must still be below *base* and a file."""
+    root = os.path.realpath(base)
+    candidate = os.path.realpath(os.path.join(root, relative))
+    if not candidate.startswith(root + os.sep) or not os.path.isfile(candidate):
         return None
-    if base not in path.parents or not path.is_file():
-        return None
-    return path
+    return pathlib.Path(candidate)
 
 
 def _not_modified(request: Request, etag: str) -> bool:
