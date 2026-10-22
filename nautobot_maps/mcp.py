@@ -23,10 +23,10 @@ import logging
 import time
 from urllib.parse import quote, urlsplit
 
-from flask import current_app, jsonify, request
+from flask import jsonify, request
 from werkzeug.datastructures import MultiDict
 
-from nautobot_maps import alerts, auth, caching, scope, settings, status
+from nautobot_maps import alerts, auth, caching, inprocess, scope, settings, status
 
 logger = logging.getLogger(__name__)
 
@@ -102,24 +102,31 @@ class ProtocolError(Exception):
 def call_api(method: str, path: str, query: dict | None = None, body: dict | None = None) -> tuple[int, dict]:
     """Run a route of this app as the current caller; returns (status, JSON body).
 
-    The sub-request shares this request's application context (so the
-    authenticated user is the same) and carries its headers and address,
-    so the route's own role checks apply.
+    In-process through the whole app (``inprocess.call``, #436): FastAPI's
+    routes and Flask's alike.  The call carries this request's headers and
+    address, so the route's own sign-in and role checks apply as for the caller.
     """
-    # Not Accept-Encoding: the answer is read here, and a client asking for gzip
-    # (most do) got it compressed, unreadable as JSON, so the tool saw nothing.
-    skipped = ("content-type", "content-length", "accept-encoding")
-    headers = [(key, value) for key, value in request.headers if key.lower() not in skipped]
-    with current_app.test_request_context(
-        path,
-        method=method,
-        query_string={key: value for key, value in (query or {}).items() if value not in (None, "")},
-        json=body,
-        headers=headers,
-        environ_base={"REMOTE_ADDR": request.remote_addr},
-    ):
-        response = current_app.full_dispatch_request()
-    return response.status_code, response.get_json(silent=True) or {}
+    headers = [(key, value) for key, value in request.headers if key.lower() not in SUB_REQUEST_SKIPPED_HEADERS]
+    return inprocess.call(method, path, query=query, body=body, headers=headers, remote_addr=request.remote_addr)
+
+
+# Not passed on to a tool's own API call:
+# - Content-Type/Length: the call has its own body.
+# - Accept-Encoding: the answer is read here; a client asking for gzip (most
+#   do) got it compressed, unreadable as JSON, so the tool saw nothing.
+# - Origin, Sec-Fetch-*: /mcp already checked the caller's origin
+#   (MCP_ALLOWED_ORIGINS); passed on, a browser client's own call would be
+#   refused as a change from another site.
+SUB_REQUEST_SKIPPED_HEADERS = (
+    "content-type",
+    "content-length",
+    "accept-encoding",
+    "origin",
+    "sec-fetch-site",
+    "sec-fetch-mode",
+    "sec-fetch-dest",
+    "sec-fetch-user",
+)
 
 
 def api_or_tool_error(method: str, path: str, query: dict | None = None, body: dict | None = None) -> dict:

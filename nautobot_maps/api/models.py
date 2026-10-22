@@ -86,6 +86,24 @@ class MaintenanceEnd(BaseModel):
     ids: list[int]
 
 
+class LocationDetail(Query):
+    location_type: str | None = None
+
+
+class Scope(Query):
+    """A page's sites (#364, #367): ``tenant`` (any of them) and ``q`` (every
+    one of them), each repeatable."""
+
+    tenant: list[str] = []
+    q: list[str] = []
+
+
+class Search(Query):
+    """``q``: an address, a place, or ``lat,lon``."""
+
+    q: str | None = None
+
+
 def flag(value: str | None) -> bool:
     """A yes/no query value: 1, true or yes (``routes.common.flag_arg``)."""
     return (value or "").strip().lower() in {"1", "true", "yes"}

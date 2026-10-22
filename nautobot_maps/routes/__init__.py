@@ -7,7 +7,6 @@ from nautobot_maps.routes import (
     board,
     documentation,
     ingest,
-    locations,
     ops,
     pages,
 )
@@ -15,7 +14,6 @@ from nautobot_maps.routes import (
 # Registered in this order by web.register().
 BLUEPRINTS = (
     pages.bp,
-    locations.bp,
     board.bp,
     availability.bp,
     ingest.bp,

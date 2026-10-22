@@ -1,47 +1,50 @@
-"""The map's API (#424): locations, a site's detail, alert levels, the
-coordinate check and the address / GPS search."""
+"""The map's API (#424; on FastAPI since #436): locations, a site's detail,
+alert levels, the coordinate check and the address / GPS search."""
 
 import logging
+from typing import Annotated
 from urllib.parse import urlsplit
 
 import requests
-from flask import Blueprint, Response, jsonify, request
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import Response
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 
-from nautobot_maps import (
-    alerts,
-    caching,
-    coordinates,
-    inventory,
-    scope,
-    settings,
-)
-from nautobot_maps.routes import common
+from nautobot_maps import alerts, caching, coordinates, inventory, scope, settings
+from nautobot_maps.api import deps, models
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("locations", __name__)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+
+INTERNAL_ERROR = {"error": "Internal server error"}
+UPSTREAM_ERROR = {"error": "Failed to communicate with Nautobot API"}
 
 
-@bp.route("/api/locations")
+def nautobot_service_unavailable(context: str, exc: Exception):
+    logger.warning("%s: %s", context, exc)
+    return deps.Json({"error": "Nautobot service unavailable"}, status_code=503)
+
+
+@router.get("/api/locations", name="locations.api_locations")
 def api_locations():
     """Return all Nautobot locations that have GPS coordinates."""
     try:
         locations = inventory.get_locations()
-        return jsonify({"locations": locations})
+        return deps.Json({"locations": locations})
     except RuntimeError as exc:
-        return common.nautobot_service_unavailable("Locations endpoint unavailable", exc)
+        return nautobot_service_unavailable("Locations endpoint unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
-        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
+        return deps.Json(UPSTREAM_ERROR, status_code=502)
     except Exception as exc:
         logger.exception("Unexpected error fetching locations: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
-@bp.route("/api/locations/<location_id>/detail")
-def api_location_detail(location_id: str):
+@router.get("/api/locations/{location_id}/detail", name="locations.api_location_detail")
+def api_location_detail(location_id: str, query: Annotated[models.LocationDetail, Query()]):
     """Return devices and ASNs for a specific location.
 
     Optional query parameter:
@@ -49,34 +52,36 @@ def api_location_detail(location_id: str):
         When provided, the criticality keyword set is resolved from the
         location-type-scoped rules configured via ``CRITICALITY_RULES_FILE``.
     """
-    location_type = request.args.get("location_type", "").strip() or None
     try:
-        detail = alerts.get_location_detail(location_id, location_type=location_type)
-        return jsonify(detail)
+        detail = alerts.get_location_detail(location_id, location_type=query.location_type)
+        return deps.Json(detail)
     except RuntimeError as exc:
-        return common.nautobot_service_unavailable("Location detail endpoint unavailable", exc)
+        return nautobot_service_unavailable("Location detail endpoint unavailable", exc)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error: %s", exc)
-        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
+        return deps.Json(UPSTREAM_ERROR, status_code=502)
     except Exception as exc:
         logger.exception("Unexpected error fetching location detail: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
-@bp.route("/api/location-alerts")
+@router.get("/api/location-alerts", name="locations.api_location_alerts")
 def api_location_alerts():
     """Alert level (critical, medium, low, ok, maintenance) of every map location with
     monitored devices, for the marker colours (#234, #311); a location missing has no data."""
     try:
-        return jsonify(alerts.get_location_alert_levels())
+        return deps.Json(alerts.get_location_alert_levels())
     except Exception as exc:
         logger.exception("Could not compute location alert levels: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
-@bp.route("/api/locations/coordinate-check")
-@bp.route("/api/locations/coordinate-check.csv")
-def api_coordinate_check():
+ScopeQuery = Annotated[models.Scope, Query()]
+
+
+@router.get("/api/locations/coordinate-check", name="locations.api_coordinate_check")
+@router.get("/api/locations/coordinate-check.csv", name="locations.api_coordinate_check")
+def api_coordinate_check(request: Request, query: ScopeQuery):
     """The alert board's sites with missing or wrong coordinates (#368), worst
     first: impossible, at 0,0, latitude and longitude swapped, none, then far
     from the rest of their region (a hint, #416).  JSON with counts, or CSV
@@ -84,17 +89,17 @@ def api_coordinate_check():
     try:
         # From the stored board (no Nautobot call); a page's ?tenant= / ?q= narrow it.
         rows = alerts.board("request").get("alerts") or []
-        problems = coordinates.check(rows, scope.read_scope(request.args))
+        problems = coordinates.check(rows, scope.read_scope(request.query_params))
     except Exception as exc:
         logger.exception("Coordinate check failed: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
-    if request.path.endswith(".csv"):
+        return deps.Json(INTERNAL_ERROR, status_code=500)
+    if request.url.path.endswith(".csv"):
         return Response(
             "".join(coordinates.csv_lines(problems)),
-            mimetype="text/csv",
+            media_type="text/csv",
             headers={"Content-Disposition": 'attachment; filename="coordinate-check.csv"'},
         )
-    return jsonify({"counts": coordinates.counts(problems), "sites": problems})
+    return deps.Json({"counts": coordinates.counts(problems), "sites": problems})
 
 
 GEOCODE_CACHE_SECONDS = 24 * 3600
@@ -144,8 +149,8 @@ def geocode(query: str):
     return point
 
 
-@bp.route("/api/search")
-def api_search():
+@router.get("/api/search", name="locations.api_search")
+def api_search(query: Annotated[models.Search, Query()]):
     """
     Geocode an address or parse GPS coordinates and return all Nautobot
     locations within 5 km, sorted by distance.
@@ -153,13 +158,13 @@ def api_search():
     Query parameters:
       q  – address string  OR  "lat,lon" coordinate pair
     """
-    query = request.args.get("q", "").strip()
-    if not query:
-        return jsonify({"error": "Missing query parameter 'q'"}), 400
+    text = query.q or ""
+    if not text:
+        return deps.Json({"error": "Missing query parameter 'q'"}, status_code=400)
 
     # Try to parse as raw GPS coordinates first
     lat = lon = None
-    parts = query.split(",")
+    parts = text.split(",")
     if len(parts) == 2:
         try:
             lat = float(parts[0].strip())
@@ -170,25 +175,25 @@ def api_search():
     # Fall back to geocoding
     if lat is None or lon is None:
         if not settings.GEOCODER_ENABLED:
-            return jsonify({"error": "Address search is turned off; enter coordinates as lat,lon"}), 400
+            return deps.Json({"error": "Address search is turned off; enter coordinates as lat,lon"}, status_code=400)
         try:
-            point = geocode(query)
+            point = geocode(text)
         except GeocoderBusy:
-            return jsonify({"error": "Address search is busy; try again in a second"}), 429
+            return deps.Json({"error": "Address search is busy; try again in a second"}, status_code=429)
         except GeocoderUnavailable:
-            return jsonify({"error": "Geocoding service unavailable"}), 503
+            return deps.Json({"error": "Geocoding service unavailable"}, status_code=503)
         if point is None:
-            return jsonify({"error": f"Address not found: {query}"}), 404
+            return deps.Json({"error": f"Address not found: {text}"}, status_code=404)
         lat, lon = point
 
     # Find locations within 5 km
     try:
         all_locations = inventory.get_locations()
     except RuntimeError as exc:
-        return common.nautobot_service_unavailable("Location search unavailable", exc)
+        return nautobot_service_unavailable("Location search unavailable", exc)
     except Exception as exc:
         logger.exception("Error fetching locations for search: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json(INTERNAL_ERROR, status_code=500)
 
     search_point = (lat, lon)
     nearby = []
@@ -200,7 +205,7 @@ def api_search():
 
     nearby.sort(key=lambda x: x["distance_km"])
 
-    return jsonify(
+    return deps.Json(
         {
             "search_lat": lat,
             "search_lon": lon,
