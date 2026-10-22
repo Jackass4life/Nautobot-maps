@@ -14,6 +14,8 @@
     <h1 id="status-tenant">{{ tenant }}</h1>
     <p id="status-headline" class="status-headline" role="status" aria-live="polite">Loading…</p>
     <ul id="status-sites" class="status-sites"></ul>
+    <!-- A large tenant's operational sites, folded into one line (#407). -->
+    <div id="status-operational"></div>
     <p id="status-updated" class="status-updated"></p>
   </main>
   <script type="module" src="{{ url_for('static', filename='js/status/main.js') }}"></script>

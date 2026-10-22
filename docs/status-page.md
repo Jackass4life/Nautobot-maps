@@ -5,7 +5,7 @@
 It shows:
 - the tenant;
 - one line for the whole tenant ("All 5 sites operational" or "2 of 5 sites affected");
-- each of the tenant's sites with a state and since when:
+- each of the tenant's sites with a state and since when, worst first. A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
 
 | State | Board level |
 |-------|-------------|

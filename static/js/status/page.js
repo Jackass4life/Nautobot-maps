@@ -31,6 +31,32 @@ export function siteLine(site, now) {
   </li>`;
 }
 
+// Up to this many sites, every one is listed open; above, the operational
+// ones fold into one line, so a large tenant sees what is wrong first (#407).
+export const FOLD_ABOVE = 10;
+
+// {attention, operational}: the sites to list first (outage, degraded,
+// maintenance, no data, worst first as the API sorts them) and the folded
+// operational line, as HTML.  *open*: the fold as the viewer left it.
+export function sitesHtml(sites, now, open = false) {
+  const line = (site) => siteLine(site, now);
+  if (sites.length <= FOLD_ABOVE) return { attention: sites.map(line).join(""), operational: "" };
+  const attention = sites.filter((site) => site.state !== "operational");
+  const operational = sites.filter((site) => site.state === "operational");
+  if (!operational.length) return { attention: attention.map(line).join(""), operational: "" };
+  const count = operational.length;
+  return {
+    attention: attention.map(line).join(""),
+    operational: `<details class="status-fold"${open ? " open" : ""}>
+    <summary>${count.toLocaleString("en")} site${count === 1 ? "" : "s"} operational</summary>
+    <ul class="status-sites">${operational.map(line).join("")}</ul>
+  </details>`,
+  };
+}
+
+// Whether the viewer opened the operational fold: kept across the refresh.
+let operationalOpen = false;
+
 export function statusKey(hash) {
   return new URLSearchParams(String(hash || "").replace(/^#/, "")).get("key") || "";
 }
@@ -55,6 +81,7 @@ export async function refresh() {
       headlineEl.textContent = errorText(response.status);
       headlineEl.className = "status-headline status-error";
       document.getElementById("status-sites").innerHTML = "";
+      document.getElementById("status-operational").innerHTML = "";
       return response.status >= 500;
     }
     const data = await response.json();
@@ -63,7 +90,13 @@ export async function refresh() {
     document.title = `${data.tenant} · Status`;
     headlineEl.textContent = headline(data);
     headlineEl.className = `status-headline${data.summary.affected ? " status-affected" : " status-ok"}`;
-    document.getElementById("status-sites").innerHTML = data.sites.map((site) => siteLine(site, now)).join("");
+    const { attention, operational } = sitesHtml(data.sites, now, operationalOpen);
+    document.getElementById("status-sites").innerHTML = attention;
+    const fold = document.getElementById("status-operational");
+    fold.innerHTML = operational;
+    fold.querySelector("details")?.addEventListener("toggle", (event) => {
+      operationalOpen = event.target.open;
+    });
     document.getElementById("status-updated").textContent = `Updated ${formatFeedTime(data.checked_at, now)}`;
   } catch (_err) {
     headlineEl.textContent = errorText(0);
