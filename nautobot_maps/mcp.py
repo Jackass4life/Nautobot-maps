@@ -519,7 +519,7 @@ def _rate_limited() -> bool:
     key = f"mcp-rate:{who}:{int(time.time() // 60)}"
     if caching.cache.add(key, 1, timeout=120):
         return False
-    count = caching.cache.cache.inc(key) or 0
+    count = caching.cache.inc(key) or 0
     return count > RATE_LIMIT_PER_MINUTE
 
 

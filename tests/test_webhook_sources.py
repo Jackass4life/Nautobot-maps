@@ -2,7 +2,6 @@
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import alerts, caching, db, inventory, settings, timeutil, webhooks
 from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location
@@ -48,7 +47,6 @@ def site(pg_database, monkeypatch, clock):
 
 @pytest.fixture
 def client(site):
-    flask_app.app.config["TESTING"] = True
     caching.cache.clear()
     with http_client.FlaskStyleClient() as test_client:
         yield test_client

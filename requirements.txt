@@ -4,10 +4,6 @@
 #
 #    pip-compile --allow-unsafe --generate-hashes --output-file=requirements.txt --strip-extras requirements.in
 #
-a2wsgi==1.10.10 \
-    --hash=sha256:a5bcffb52081ba39df0d5e9a884fc6f819d92e3a42389343ba77cbf809fe1f45 \
-    --hash=sha256:d2b21379479718539dc15fce53b876251a0efe7615352dfe49f6ad1bc507848d
-    # via -r requirements.in
 annotated-doc==0.0.5 \
     --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101 \
     --hash=sha256:c7e58ce09192557605d8bbd92836d7e1d520ac9580096042c0bfd197efacf1bb
@@ -20,14 +16,10 @@ anyio==4.15.1 \
     --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101 \
     --hash=sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94
     # via starlette
-blinker==1.9.0 \
-    --hash=sha256:b4ce2265a7abece45e7cc896e98dbebe6cead56bcf805a3d23136d145f5445bf \
-    --hash=sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc
-    # via flask
 cachelib==0.17.0 \
     --hash=sha256:f3c7dc8d3c1132ab699681ffdf8a52d341d9425ac1401c538cf0b1d87b1677c8 \
     --hash=sha256:f83909b6f78741c3a5d76d292d13bf24964ffb13e00ea1d18f92e20599766ce0
-    # via flask-caching
+    # via -r requirements.in
 certifi==2026.10.19 \
     --hash=sha256:035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae \
     --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b
@@ -209,22 +201,10 @@ charset-normalizer==3.5.1 \
 click==8.5.0 \
     --hash=sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360 \
     --hash=sha256:ba0d2089de75ea0310e2dde03160e6ca10009947fb95a182f9b54021bb272e34
-    # via
-    #   flask
-    #   uvicorn
+    # via uvicorn
 fastapi==0.142.4 \
     --hash=sha256:7fe2e254a0a948b88f432b02b8f627463285248233bba0998ed9640191e2ff57 \
     --hash=sha256:8a651aa071a9f92c8217cca1d0b044bf9c326f336578be0a728a1a1f22ec52d2
-    # via -r requirements.in
-flask==3.1.3 \
-    --hash=sha256:0ef0e52b8a9cd932855379197dd8f94047b359ca0a78695144304cb45f87c9eb \
-    --hash=sha256:f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c
-    # via
-    #   -r requirements.in
-    #   flask-caching
-flask-caching==2.5.1 \
-    --hash=sha256:a8591b0315f033d1f10ba67e318b82b3179e548306195ec08e8f0c5f8ef287bf \
-    --hash=sha256:f75b451fde3faac0e278da72263818134deca8c4ba6bb07b9b3b238991368dae
     # via -r requirements.in
 geographiclib==2.1 \
     --hash=sha256:6a6545e6262d0ed3522e13c515713718797e37ed8c672c31ad7b249f372ef108 \
@@ -250,14 +230,10 @@ idna==3.20 \
     # via
     #   anyio
     #   requests
-itsdangerous==2.2.0 \
-    --hash=sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef \
-    --hash=sha256:e0050c0b7da1eea53ffaf149c0cfbb5c6e2e2b69c4bef22c81fa6eb73e5f6173
-    # via flask
 jinja2==3.1.6 \
     --hash=sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d \
     --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
-    # via flask
+    # via -r requirements.in
 markdown-it-py==4.2.0 \
     --hash=sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49 \
     --hash=sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a
@@ -352,10 +328,7 @@ markupsafe==3.0.3 \
     --hash=sha256:f71a396b3bf33ecaa1626c255855702aca4d3d9fea5e051b41ac59a9c1c41edc \
     --hash=sha256:f9e130248f4462aaa8e2552d547f36ddadbeaa573879158d721bbd33dfe4743a \
     --hash=sha256:fed51ac40f757d41b7c48425901843666a6677e3e8eb0abcff09e4ba6e664f50
-    # via
-    #   flask
-    #   jinja2
-    #   werkzeug
+    # via jinja2
 mdurl==0.1.2 \
     --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8 \
     --hash=sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba
@@ -622,7 +595,3 @@ uvicorn-worker==0.4.0 \
     --hash=sha256:8ee5306070d8f38dce124adce488c3c0b50f20cf0c0222b12c66188da7214493 \
     --hash=sha256:e2ed952cef976f5e9e429d7269640bbcafbd36c80aa80f1003c8c77a6797abde
     # via -r requirements.in
-werkzeug==3.1.9 \
-    --hash=sha256:55ca7c70a75689be937aa27f8ff4b018f06ff4838fc73045560bf0f5a1291060 \
-    --hash=sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab
-    # via flask

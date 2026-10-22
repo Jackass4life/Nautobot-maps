@@ -1,17 +1,17 @@
+"""Startup (#436): logging, the cache and the database, once per process, and
+``python app.py`` to run the app for development.  The app itself is
+``asgi:app`` (FastAPI), which imports this first; gunicorn serves that.
+"""
+
 import logging
 import os
 
-from flask import Flask
-
-from nautobot_maps import auth, caching, db, logs, nautobot, scheduler, settings, web
-
-app = Flask(__name__)
+from nautobot_maps import auth, caching, db, logs, nautobot, scheduler, settings
 
 logs.configure()
 logger = logging.getLogger(__name__)
 
-caching.init_app(app)
-web.register(app)
+caching.init()
 nautobot.configure_ssl_warnings()
 # Create/migrate the database (no-op without persistence).  Called here, after
 # logging is configured, so its startup messages are shown; modules never
@@ -72,8 +72,8 @@ if __name__ == "__main__":
         port = 5000
     _log_alert_board_exclusions()
     scheduler.start()
-    # Development: the same ASGI app as production (#436), FastAPI with this
-    # Flask app behind it; FLASK_DEBUG reloads on code changes.
+    # Development: the same ASGI app as production (#436); FLASK_DEBUG (its
+    # name kept) reloads on code changes.
     import uvicorn
 
     from nautobot_maps import server

@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import alerts, availability, caching, db, inventory, settings, timeutil
 from tests import http_client
 
@@ -468,7 +467,6 @@ class TestPages:
     def client(self, pg_database, clock, monkeypatch):
         write(lambda conn: incident(conn, "s1", "d1", t(2), t(4), name="=Oslo"))
         monkeypatch.setattr(availability, "board_sites", lambda: [{"id": "s1", "name": "=Oslo", "tenants": ["Acme"]}])
-        flask_app.app.config["TESTING"] = True
         caching.cache.clear()
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
@@ -649,7 +647,6 @@ class TestPages:
 
     def test_no_database(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        flask_app.app.config["TESTING"] = True
         with http_client.FlaskStyleClient() as client:
             resp = client.get("/availability")
         assert resp.status_code == 503 and "needs the PostgreSQL database" in resp.get_data(as_text=True)

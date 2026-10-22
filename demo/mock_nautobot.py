@@ -20,9 +20,9 @@ import os
 import random
 from datetime import UTC, datetime, timedelta
 
-from flask import Flask, abort, jsonify, request
+from fastapi import FastAPI, HTTPException, Request
 
-app = Flask(__name__)
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 # ---------------------------------------------------------------------------
 # Seed data
@@ -903,24 +903,24 @@ RELATIONSHIP_ASSOCIATIONS = [
 # ---------------------------------------------------------------------------
 # Auth helper
 # ---------------------------------------------------------------------------
-def _check_auth():
+def _check_auth(request: Request):
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Token ") or len(auth) <= 6:
-        abort(403, description="Invalid or missing API token")
+        raise HTTPException(status_code=403, detail="Invalid or missing API token")
 
 
 # ---------------------------------------------------------------------------
 # Paginate helper
 # ---------------------------------------------------------------------------
-def _paginate(items: list) -> dict:
+def _paginate(request: Request, items: list) -> dict:
     from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-    limit = int(request.args.get("limit", 200))
-    offset = int(request.args.get("offset", 0))
+    limit = int(request.query_params.get("limit", 200))
+    offset = int(request.query_params.get("offset", 0))
     page = items[offset : offset + limit]
     next_url = None
     if offset + limit < len(items):
-        parsed = urlparse(request.url)
+        parsed = urlparse(str(request.url))
         params = parse_qs(parsed.query, keep_blank_values=True)
         params["offset"] = [str(offset + limit)]
         next_url = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
@@ -937,109 +937,111 @@ def _paginate(items: list) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@app.route("/api/dcim/locations/")
-def locations():
-    _check_auth()
-    return jsonify(_paginate(LOCATIONS))
+@app.get("/api/dcim/locations/")
+def locations(request: Request):
+    _check_auth(request)
+    return _paginate(request, LOCATIONS)
 
 
-@app.route("/api/dcim/location-types/")
-def location_types():
-    _check_auth()
-    return jsonify(_paginate(list(LOCATION_TYPES.values())))
+@app.get("/api/dcim/location-types/")
+def location_types(request: Request):
+    _check_auth(request)
+    return _paginate(request, list(LOCATION_TYPES.values()))
 
 
-@app.route("/api/tenancy/tenants/")
-def tenants():
-    _check_auth()
-    return jsonify(_paginate(list(TENANTS.values())))
+@app.get("/api/tenancy/tenants/")
+def tenants(request: Request):
+    _check_auth(request)
+    return _paginate(request, list(TENANTS.values()))
 
 
-@app.route("/api/tenancy/tenant-groups/")
-def tenant_groups():
-    _check_auth()
-    return jsonify(_paginate(list(TENANT_GROUPS.values())))
+@app.get("/api/tenancy/tenant-groups/")
+def tenant_groups(request: Request):
+    _check_auth(request)
+    return _paginate(request, list(TENANT_GROUPS.values()))
 
 
-@app.route("/api/extras/statuses/")
-def statuses():
-    _check_auth()
-    return jsonify(_paginate(list(STATUSES.values())))
+@app.get("/api/extras/statuses/")
+def statuses(request: Request):
+    _check_auth(request)
+    return _paginate(request, list(STATUSES.values()))
 
 
-@app.route("/api/dcim/virtual-chassis/")
-def virtual_chassis():
+@app.get("/api/dcim/virtual-chassis/")
+def virtual_chassis(request: Request):
     """The stacks (#400); none changes while the mock runs."""
-    _check_auth()
-    if request.args.get("last_updated__gte"):
-        return jsonify(_paginate([]))
-    return jsonify(_paginate([{"id": "vc-par-1", "name": "par-stack01", "master": {"id": "dev-par-stk-1"}}]))
+    _check_auth(request)
+    if request.query_params.get("last_updated__gte"):
+        return _paginate(request, [])
+    return _paginate(request, [{"id": "vc-par-1", "name": "par-stack01", "master": {"id": "dev-par-stk-1"}}])
 
 
-@app.route("/api/dcim/devices/")
-def devices():
-    _check_auth()
+@app.get("/api/dcim/devices/")
+def devices(request: Request):
+    _check_auth(request)
     # Accept both "location" (Nautobot 3.x) and "location_id" (legacy) filter params.
-    location_id = request.args.get("location") or request.args.get("location_id")
+    location_id = request.query_params.get("location") or request.query_params.get("location_id")
     if location_id:
         items = DEVICES.get(location_id, [])
     else:
         items = ALL_DEVICES
-    return jsonify(_paginate(items))
+    return _paginate(request, items)
 
 
-@app.route("/api/ipam/asns/")
-def asns():
-    _check_auth()
-    location_id = request.args.get("location_id")
+@app.get("/api/ipam/asns/")
+def asns(request: Request):
+    _check_auth(request)
+    location_id = request.query_params.get("location_id")
     if location_id:
         items = ASNS.get(location_id, [])
     else:
         items = [a for asn_list in ASNS.values() for a in asn_list]
-    return jsonify(_paginate(items))
+    return _paginate(request, items)
 
 
-@app.route("/api/circuits/circuit-terminations/")
-def circuit_terminations():
-    _check_auth()
-    location_id = request.args.get("location")
+@app.get("/api/circuits/circuit-terminations/")
+def circuit_terminations(request: Request):
+    _check_auth(request)
+    location_id = request.query_params.get("location")
     if location_id:
         items = CIRCUIT_TERMINATIONS.get(location_id, [])
     else:
         items = [t for terms in CIRCUIT_TERMINATIONS.values() for t in terms]
-    return jsonify(_paginate(items))
+    return _paginate(request, items)
 
 
-@app.route("/api/circuits/circuits/")
-def circuits():
-    _check_auth()
+@app.get("/api/circuits/circuits/")
+def circuits(request: Request):
+    _check_auth(request)
     terminated = {}
     for location_id, terms in CIRCUIT_TERMINATIONS.items():
         for term in terms:
             side = f"circuit_termination_{term['term_side'].lower()}"
             circuit = terminated.setdefault(term["circuit"]["id"], {**term["circuit"]})
             circuit[side] = {"id": term["id"], "term_side": term["term_side"], "location": {"id": location_id}}
-    return jsonify(_paginate([*terminated.values(), *ADDRESS_CIRCUITS]))
+    return _paginate(request, [*terminated.values(), *ADDRESS_CIRCUITS])
 
 
-@app.route("/api/extras/relationships/")
-def relationships():
-    _check_auth()
-    return jsonify(_paginate(RELATIONSHIPS))
+@app.get("/api/extras/relationships/")
+def relationships(request: Request):
+    _check_auth(request)
+    return _paginate(request, RELATIONSHIPS)
 
 
-@app.route("/api/extras/relationship-associations/")
-def relationship_associations():
-    _check_auth()
-    relationship = request.args.get("relationship")
+@app.get("/api/extras/relationship-associations/")
+def relationship_associations(request: Request):
+    _check_auth(request)
+    relationship = request.query_params.get("relationship")
     items = [a for a in RELATIONSHIP_ASSOCIATIONS if not relationship or a["relationship"]["id"] == relationship]
-    return jsonify(_paginate(items))
+    return _paginate(request, items)
 
 
-@app.route("/api/")
-def api_root():
-    return jsonify({"message": "Mock Nautobot API"})
+@app.get("/api/")
+def api_root(request: Request):
+    return {"message": "Mock Nautobot API"}
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="warning")

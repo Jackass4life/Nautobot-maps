@@ -2,7 +2,6 @@
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import alerts, caching, db
 from tests import http_client, test_maintenance
 from tests.js_modules import run_js
@@ -83,7 +82,6 @@ class TestApi:
     @pytest.fixture
     def client(self, site):
         build()
-        flask_app.app.config["TESTING"] = True
         caching.cache.clear()
         with http_client.FlaskStyleClient() as test_client:
             yield test_client

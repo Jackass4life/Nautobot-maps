@@ -9,8 +9,6 @@ import inspect
 import json
 import re
 
-from flask import Flask
-
 from nautobot_maps import scope
 
 # Endpoints that read a page's ?tenant= / ?q= (#368, #369) through scope.read_scope.
@@ -70,8 +68,6 @@ GROUPS = ("Pages", "API", "Monitoring")
 MONITORING_PATHS = {"/healthz", "/metrics"}
 HIDDEN_ENDPOINTS = {"static"}
 IGNORED_METHODS = {"HEAD", "OPTIONS"}
-# request.args.get("limit") / request.args.getlist("kinds") in a view's source.
-_QUERY_ARG = re.compile(r"request\.args\.get(?:list)?\(\s*[\"']([A-Za-z0-9_]+)[\"']")
 # " (#180)" / " (#227, #228)": issue references, for developers, not readers.
 _ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")
 
@@ -80,14 +76,6 @@ def _group(path: str) -> str:
     if path in MONITORING_PATHS:
         return "Monitoring"
     return "API" if path.startswith("/api/") or path == "/mcp" else "Pages"
-
-
-def _query_params(view) -> list[str]:
-    try:
-        source = inspect.getsource(inspect.unwrap(view))
-    except (OSError, TypeError):
-        return []
-    return list(dict.fromkeys(_QUERY_ARG.findall(source)))
 
 
 def _flask_style(path: str, endpoint) -> str:
@@ -121,30 +109,11 @@ def _fastapi_query_params(dependant) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def routes(app: Flask | None = None) -> list[dict]:
-    """Every route the app serves, on FastAPI or still on Flask (#436):
+def routes(app=None) -> list[dict]:
+    """Every route the app serves (#436; *app* is ignored, kept for callers):
     ``path`` (Flask's notation), ``methods``, ``endpoint``, ``view``,
     ``path_params``, ``query_params``, ``required_role``."""
-    if app is None:
-        import app as flask_module
-
-        app = flask_module.app
     found = []
-    for rule in app.url_map.iter_rules():
-        if rule.endpoint in HIDDEN_ENDPOINTS:
-            continue
-        view = app.view_functions[rule.endpoint]
-        found.append(
-            {
-                "path": rule.rule,
-                "methods": sorted(rule.methods - IGNORED_METHODS),
-                "endpoint": rule.endpoint,
-                "view": view,
-                "path_params": sorted(rule.arguments),
-                "query_params": _query_params(view),
-                "required_role": getattr(view, "required_role", None),
-            }
-        )
     from fastapi.routing import APIRoute
 
     import nautobot_maps.api
@@ -169,7 +138,7 @@ def routes(app: Flask | None = None) -> list[dict]:
     return found
 
 
-def endpoints(app: Flask | None = None) -> list[dict]:
+def endpoints(app=None) -> list[dict]:
     """Every route except static files, grouped Pages / API / Monitoring."""
     result = []
     for route in routes(app):
@@ -196,6 +165,6 @@ def endpoints(app: Flask | None = None) -> list[dict]:
     return result
 
 
-def grouped(app: Flask | None = None) -> list[tuple[str, list[dict]]]:
+def grouped(app=None) -> list[tuple[str, list[dict]]]:
     items = endpoints(app)
     return [(group, [item for item in items if item["group"] == group]) for group in GROUPS]

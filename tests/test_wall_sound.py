@@ -1,6 +1,5 @@
 """Wall view: a chime and a notification for a new Critical (#290)."""
 
-import app as flask_app
 from tests import http_client
 from tests.js_modules import run_js
 
@@ -48,7 +47,6 @@ check(newAlarms(seen, sites).events.map((e) => e.kind).join() === "nobody", "bac
 
 
 def test_the_button_is_on_the_wall_only():
-    flask_app.app.config["TESTING"] = True
     with http_client.FlaskStyleClient() as client:
         wall = client.get("/alerts?view=wall").get_data(as_text=True)
         board = client.get("/alerts").get_data(as_text=True)

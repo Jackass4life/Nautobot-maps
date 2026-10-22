@@ -1,1 +1,2 @@
-"""Nautobot Maps application modules; the Flask entry point stays in app.py (#165)."""
+"""Nautobot Maps application modules (#165): the app is asgi.py (FastAPI, #436),
+started by app.py."""

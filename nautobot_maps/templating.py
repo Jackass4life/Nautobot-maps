@@ -1,10 +1,6 @@
-"""The HTML templates (templates/) for Flask's pages and FastAPI's (#436): the
-same filters, the same context, the same escaping.
-
-Flask registers ``FILTERS`` on its Jinja environment; FastAPI's pages render
-with ``render`` (nautobot_maps/api/pages.py), which builds the context Flask
-gave every template: ``url_for('static', filename=...)`` and the top bar's
-signed-in user.
+"""The HTML templates (templates/, #436): Jinja with the filters they use, the
+same escaping Flask had, ``url_for('static', filename=...)`` and the top bar's
+signed-in user.  The pages render with ``render`` (nautobot_maps/api/pages.py).
 """
 
 import pathlib

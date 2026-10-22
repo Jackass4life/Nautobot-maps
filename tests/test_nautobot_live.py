@@ -18,7 +18,6 @@ import os
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import caching, contract, nautobot, settings
 from tests import http_client
 
@@ -53,8 +52,6 @@ def live_client():
     settings.NAUTOBOT_TOKEN = NAUTOBOT_LIVE_TOKEN
     settings.NAUTOBOT_VERIFY_SSL = False
     caching.cache.clear()
-
-    flask_app.app.config["TESTING"] = True
 
     with http_client.FlaskStyleClient() as client:
         yield client

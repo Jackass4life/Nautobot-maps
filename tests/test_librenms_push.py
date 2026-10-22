@@ -5,7 +5,6 @@ import threading
 import pytest
 import requests
 
-import app as flask_app
 from nautobot_maps import alerts, caching, db, inventory, librenms, scheduler, settings, tokens
 from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location, auth_config
@@ -76,7 +75,6 @@ def lnms(pg_database, monkeypatch):
 
 @pytest.fixture
 def client(lnms):
-    flask_app.app.config["TESTING"] = True
     with http_client.FlaskStyleClient() as test_client:
         yield test_client
 

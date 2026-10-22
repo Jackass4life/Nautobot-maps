@@ -72,21 +72,22 @@ Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After cha
 
 ### Project layout
 
-`asgi.py` is what gunicorn serves (`asgi:app`, uvicorn workers, #436): FastAPI on the outside,
-with the Flask app mounted behind it while the routes move to FastAPI area by area, and the access
-log (`nautobot_maps/access_log.py`) around both. `app.py` creates the Flask app, sets up logging,
-the cache and the database, registers the routes and logs the startup settings; `python app.py`
-runs the same ASGI app with uvicorn for development (`FLASK_DEBUG=true` reloads on changes).
+`asgi.py` is the app (FastAPI, #436): gunicorn serves `asgi:app` with uvicorn workers, and the
+access log (`nautobot_maps/access_log.py`) wraps it. `app.py` is the startup: logging, the cache,
+the database and the startup log, once per process; `python app.py` runs the app with uvicorn
+for development (`FLASK_DEBUG=true` reloads on changes; the names are kept from the Flask days).
+Every route lives in `nautobot_maps/api/`, one router per area, with `deps.ROUTER_DEPENDENCIES`
+(the sign-in check), `route_class=deps.AppRoute` (security headers, gzip, the docstring in the
+API spec) and `deps.require_role("operator")` for writes. Answer with `deps.Json` (JSON as the
+app always wrote it), raise `deps.ApiError(body, status)` to refuse, read a JSON body with
+`deps.json_body` and give its model to the spec with `openapi_extra=deps.body_schema(...)`;
+query strings are models in `api/models.py`. Code below the routes reads the request through
+`nautobot_maps/requestctx.py`. Keep a route's `name` stable (`"board.api_alerts"`): the frozen
+route table and `/api/endpoints`' examples use it.
 Every test client (`client` and the others; `tests/http_client.py`) is FastAPI's on `asgi.app`
-with Flask's test-client calls, so the tests check what production serves; `asgi_client` is the
-plain one. Routes already on FastAPI live in `nautobot_maps/api/`, one router per area:
-`api/deps.py` gives them what the Flask routes had (the sign-in check and `require_role`, the
-security headers and gzip, JSON in Flask's format, errors as `{"error": ...}`), and
-`nautobot_maps/requestctx.py` lets `auth` read the current request under either framework.
-Name a moved route as its Flask endpoint was (`name="ops.healthz"`): `/api/endpoints`' examples
-and the frozen route table carry over. A route's docstring is its summary and description in
-the API spec (`/openapi.json`, shown by Swagger UI at `/docs`); a JSON body's model goes in
-`openapi_extra=deps.body_schema(...)`.
+with the calls the tests were written with (`get_json()`, `environ_base`, …), so the tests
+check what production serves; `tests.http_client.fake_request()` binds a request for code that
+reads one outside a route.
 Everything else lives in modules under `nautobot_maps/` (#165):
 
 - `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new
@@ -101,7 +102,7 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   Nautobot is the source of truth, and changes to its data are made there.
 - `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
   `librenms.fetch_inventory()`).
-- `nautobot_maps/caching.py`: the shared response cache (Flask-Caching).
+- `nautobot_maps/caching.py`: the shared response cache (cachelib: in-process, Redis or none).
 - `nautobot_maps/http.py`: the HTTP session both clients use (one per thread, connections reused), with retries and backoff for transient upstream errors.
 - `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,
   sync state, and `inventory.ensure_snapshot()` / `inventory.get_locations()`.

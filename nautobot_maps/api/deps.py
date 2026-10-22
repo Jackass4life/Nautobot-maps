@@ -1,21 +1,25 @@
-"""What every FastAPI route shares (#436), so it answers exactly as the Flask
+"""What every route shares (#436), so it answers exactly as the Flask
 routes did: the sign-in check and roles (``auth``, the same code), the
 security headers and gzip (``compression``'s rules), JSON in Flask's format,
 and errors as ``{"error": ...}``.
 """
 
+import dataclasses
+import datetime
+import decimal
+import email.utils
 import gzip
 import inspect
 import json
 import logging
 import re
+import uuid
 
 from fastapi import Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from flask.json.provider import _default as flask_json_default
 from starlette.exceptions import HTTPException
 from starlette.responses import FileResponse, StreamingResponse
 
@@ -24,12 +28,33 @@ from nautobot_maps import auth, compression, requestctx, settings, web
 logger = logging.getLogger(__name__)
 
 
+def _json_default(value):
+    """Values JSON has no type for, as Flask wrote them: a date or datetime as
+    an HTTP date in GMT (a naive one taken as UTC), a decimal or UUID as text,
+    a dataclass as an object."""
+    if isinstance(value, datetime.date):
+        if not isinstance(value, datetime.datetime):
+            value = datetime.datetime.combine(value, datetime.time(), tzinfo=datetime.UTC)
+        elif value.tzinfo is None:
+            value = value.replace(tzinfo=datetime.UTC)
+        else:
+            value = value.astimezone(datetime.UTC)
+        return email.utils.format_datetime(value, usegmt=True)
+    if isinstance(value, (decimal.Decimal, uuid.UUID)):
+        return str(value)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return dataclasses.asdict(value)
+    if hasattr(value, "__html__"):
+        return str(value.__html__())
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 class Json(JSONResponse):
     """JSON as Flask writes it: keys sorted, non-ASCII escaped, compact, a
     newline at the end, dates and decimals as Flask turns them into JSON."""
 
     def render(self, content) -> bytes:
-        text = json.dumps(content, default=flask_json_default, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        text = json.dumps(content, default=_json_default, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         return (text + "\n").encode("utf-8")
 
 
@@ -155,7 +180,7 @@ def finish(request: Request, response):
         if name not in headers:
             headers[name] = value
     mimetype = (headers.get("content-type") or "").split(";")[0].strip().lower()
-    if not settings.COMPRESS_RESPONSES or not compression._compressible(mimetype):
+    if not settings.COMPRESS_RESPONSES or not compression.compressible(mimetype):
         return response
     vary = [part.strip() for part in headers.get("vary", "").split(",") if part.strip()]
     if "accept-encoding" not in (part.lower() for part in vary):

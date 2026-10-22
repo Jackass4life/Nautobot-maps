@@ -7,7 +7,6 @@ import logging
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import alerts, caching, db, metrics, notify, scheduler, settings, timeutil
 from tests import http_client
 from tests.test_app import auth_config
@@ -353,7 +352,6 @@ class TestScheduler:
 class TestTestEndpoint:
     @pytest.fixture
     def client(self):
-        flask_app.app.config["TESTING"] = True
         caching.cache.clear()
         with http_client.FlaskStyleClient() as test_client:
             yield test_client

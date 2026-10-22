@@ -54,7 +54,7 @@ def send(request: Request, base: pathlib.Path, relative: str, max_age: int | Non
     }
     zipped = (
         settings.COMPRESS_RESPONSES
-        and compression._compressible(media_type)
+        and compression.compressible(media_type)
         and stat.st_size <= compression.MAX_FILE_BYTES
         and request.method == "GET"
         and deps._accepts_gzip(request)
@@ -71,6 +71,6 @@ def send(request: Request, base: pathlib.Path, relative: str, max_age: int | Non
             headers={**headers, "ETag": etag, "Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
         )
     # As the file: byte ranges and the strong ETag; Vary when it might have been gzipped.
-    if compression._compressible(media_type):
+    if compression.compressible(media_type):
         headers["Vary"] = "Accept-Encoding"
     return FileResponse(path, media_type=media_type, headers={**headers, "ETag": etag}, stat_result=stat)

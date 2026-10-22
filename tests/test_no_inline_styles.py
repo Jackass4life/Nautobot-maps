@@ -7,7 +7,6 @@ import re
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import settings
 from tests import http_client
 from tests.js_modules import run_js
@@ -49,7 +48,6 @@ def test_the_pattern_catches_what_the_csp_blocks():
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-    flask_app.app.config["TESTING"] = True
     with http_client.FlaskStyleClient() as test_client:
         yield test_client
 
