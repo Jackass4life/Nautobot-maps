@@ -25,7 +25,7 @@ from nautobot_maps.repositories import board as board_store
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Alert board"])
 
 Body = Annotated[object, Depends(deps.json_body)]
 

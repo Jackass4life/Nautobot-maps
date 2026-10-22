@@ -5,10 +5,13 @@ and errors as ``{"error": ...}``.
 """
 
 import gzip
+import inspect
 import json
 import logging
+import re
 
 from fastapi import Depends, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -176,14 +179,23 @@ def finish(request: Request, response):
     return response
 
 
+# " (#180)" / " (#227, #228)": issue references, for developers, not readers.
+_ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")
+
+
 class AppRoute(APIRoute):
-    """Every route: HEAD with GET (as Flask), and ``finish`` on its answer."""
+    """Every route: ``finish`` on its answer, and in the API spec its
+    docstring's first paragraph as the summary, the rest as the description,
+    issue numbers left out.  (HEAD: ``HeadAsGet``.)"""
 
     def __init__(self, path, endpoint, **kwargs):
-        methods = set(kwargs.get("methods") or ["GET"])
-        if "GET" in methods:
-            methods.add("HEAD")
-        kwargs["methods"] = methods
+        doc = inspect.getdoc(endpoint) or ""
+        summary, _, description = doc.partition("\n\n")
+        # The router passes both, as None when the route doesn't set them.
+        if not kwargs.get("summary"):
+            kwargs["summary"] = _ISSUE_REFS.sub("", " ".join(summary.split())) or None
+        if not kwargs.get("description"):
+            kwargs["description"] = _ISSUE_REFS.sub("", description.strip())
         super().__init__(path, endpoint, **kwargs)
 
     def get_route_handler(self):
@@ -201,6 +213,85 @@ def _error_json(request: Request, body: dict, status: int):
 
 # Flask's wording for these (web.api_http_error).
 _HTTP_MESSAGES = {404: "Not found", 405: "Method not allowed", 500: "Internal server error"}
+# The page a browser gets for these (templates/error.html), as Flask's.
+ERROR_PAGES = {
+    404: ("Page Not Found", "The page you are looking for does not exist. Check the URL or head back to the map."),
+    405: ("Method Not Allowed", "The HTTP method used is not allowed for this URL."),
+    500: ("Internal Server Error", "Something went wrong on our end. Please try again later."),
+}
+
+
+def _best_match(accept: str, offers: tuple[str, ...]) -> str | None:
+    """The offer the Accept header prefers, as werkzeug's ``best_match``: each
+    offer's quality from its most specific match, the first on a tie; None
+    when the header is empty or accepts none of them."""
+    entries = []
+    for part in accept.split(","):
+        media, _, params = part.strip().partition(";")
+        media = media.strip().lower()
+        if not media:
+            continue
+        quality = 1.0
+        for param in params.split(";"):
+            name, _, value = param.strip().partition("=")
+            if name.strip() == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0.0
+        entries.append((media, quality))
+    best, best_quality = None, 0.0
+    for offer in offers:
+        kind = offer.split("/")[0]
+        matches = [(3, q) for m, q in entries if m == offer]
+        matches += [(2, q) for m, q in entries if m == f"{kind}/*"]
+        matches += [(1, q) for m, q in entries if m == "*/*"]
+        if not matches:
+            continue
+        quality = max(matches)[1]
+        if quality > best_quality:
+            best, best_quality = offer, quality
+    return best
+
+
+def wants_json(request: Request) -> bool:
+    """JSON for the API and for clients that prefer it; a page for browsers."""
+    if request.url.path.startswith("/api/"):
+        return True
+    return _best_match(request.headers.get("accept", ""), ("application/json", "text/html")) == "application/json"
+
+
+class HeadAsGet:
+    """HEAD as Flask answered it: the GET route's answer without its body
+    (headers and length included).  ASGI middleware around the app, so the
+    API spec lists each route once."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "HEAD":
+            await self.app(scope, receive, send)
+            return
+
+        async def without_body(message):
+            if message["type"] == "http.response.body":
+                message = {**message, "body": b""}
+            await send(message)
+
+        await self.app({**scope, "method": "GET"}, receive, without_body)
+
+
+def _error_page(request: Request, status: int):
+    from fastapi.responses import HTMLResponse
+
+    from nautobot_maps import templating
+
+    title, message = ERROR_PAGES[status]
+    # No top bar on it: no signed-in user to look up (the request may have
+    # matched no route, so none was bound).
+    html = templating.render("error.html", error_code=status, error_title=title, error_message=message, bar_user=None)
+    return finish(request, HTMLResponse(html, status_code=status))
 
 
 def install_error_handlers(app) -> None:
@@ -210,10 +301,23 @@ def install_error_handlers(app) -> None:
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
-        message = _HTTP_MESSAGES.get(exc.status_code) or exc.detail or "Request failed"
-        response = _error_json(request, {"error": message}, exc.status_code)
-        # E.g. a 405's Allow: the methods the path does take, as Flask sent.
+        if exc.status_code in (404, 405):
+            # As Flask, whose sign-in check ran before routing: someone not
+            # allowed in gets 401/403, not a 404 that tells which paths exist.
+            requestctx.bind(request)
+            refused = await run_in_threadpool(auth.check_viewer)
+            if refused is not None:
+                return _error_json(request, refused[0], refused[1])
+        if exc.status_code in ERROR_PAGES and not wants_json(request):
+            response = _error_page(request, exc.status_code)
+        else:
+            message = _HTTP_MESSAGES.get(exc.status_code) or exc.detail or "Request failed"
+            response = _error_json(request, {"error": message}, exc.status_code)
+        # E.g. a 405's Allow: the methods the path does take, as Flask sent;
+        # HEAD with GET (HeadAsGet).
         for name, value in (exc.headers or {}).items():
+            if name.lower() == "allow" and "GET" in value.split(", ") and "HEAD" not in value:
+                value = f"{value}, HEAD"
             response.headers[name] = value
         return response
 
@@ -227,4 +331,6 @@ def install_error_handlers(app) -> None:
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
         logger.error("Unhandled application error: %s", exc)
+        if not wants_json(request):
+            return _error_page(request, 500)
         return _error_json(request, {"error": "Internal server error"}, 500)

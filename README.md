@@ -102,7 +102,7 @@ Every guide below is also in the app: **Documentation** in the ☰ menu (`/help`
 | [Sign-in and roles](docs/authentication.md) | The bundled HTTPS and sign-in proxy (nginx + oauth2-proxy), or your own; what each role can do; API tokens |
 | [Data contract](docs/data-contract.md) | What is read from Nautobot and LibreNMS, and what it becomes |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
-| API | **API** in the ☰ menu opens `/docs`: every endpoint with its parameters and a **Try it** button |
+| API | **API** in the ☰ menu opens `/docs`: every endpoint in Swagger UI with **Try it out**, and the OpenAPI spec at `/openapi.json` |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests, code layout |
 

@@ -1809,47 +1809,6 @@ check(actionCell({ id: "f", name: "F", device_count: 3, down_devices: [{ device_
         assert 'id="maint-panel"' in html and 'id="maint-content"' in html
 
 
-class TestApiExplorerInTheBrowser:
-    """Try it on the API explorer (#230)."""
-
-    def _run(self, body):
-        run_js(
-            """
-import { buildUrl, curlCommand, fillPath, formatResponseBody } from "@js/docs/explorer.js";
-const MAX_BODY_CHARS = 50000;
-"""
-            + body
-        )
-
-    def test_urls(self):
-        self._run("""
-check(fillPath("/api/locations/<location_id>/detail", { location_id: "a b/c" }) === "/api/locations/a%20b%2Fc/detail", "encoded");
-check(fillPath("/api/x/<string:id>", { id: "7" }) === "/api/x/7", "converter");
-let url = buildUrl("/api/alert-feed", {}, { limit: "2", since: "", kinds: "down,up" });
-check(url === "/api/alert-feed?limit=2&kinds=down%2Cup", url);
-check(buildUrl("/api/alerts", {}, { refresh: "" }) === "/api/alerts", "empty query values are left out");
-""")
-
-    def test_curl_command(self):
-        self._run("""
-let cmd = curlCommand("GET", "/api/alerts?refresh=1", null, "http://maps.example");
-check(cmd === "curl -sS 'http://maps.example/api/alerts?refresh=1'", cmd);
-cmd = curlCommand("POST", "/api/alert-cases", '{"case_number": "it\\'s"}', "http://maps.example");
-check(cmd === "curl -sS -X POST -H 'Content-Type: application/json' --data '{\\"case_number\\": \\"it'\\\\''s\\"}' 'http://maps.example/api/alert-cases'", cmd);
-check(curlCommand("DELETE", "/api/x/1", null, "").startsWith("curl -sS -X DELETE '/api/x/1'"), "delete");
-""")
-
-    def test_response_bodies(self):
-        self._run("""
-check(formatResponseBody('{"a":[1,2]}', "application/json") === '{\\n  "a": [\\n    1,\\n    2\\n  ]\\n}', "pretty JSON");
-check(formatResponseBody("not json", "application/json") === "not json", "broken JSON as it is");
-check(formatResponseBody("metric 1", "text/plain") === "metric 1", "text");
-const long = "x".repeat(MAX_BODY_CHARS + 5);
-const shown = formatResponseBody(long, "text/html");
-check(shown.startsWith("x".repeat(MAX_BODY_CHARS)) && shown.endsWith("(5 more characters)"), shown.slice(-40));
-""")
-
-
 # A stand-in for Leaflet and its layers, for the map's marker tests (#334).
 # Markers record their icons; layers record what they hold.
 MAP_FAKES = """

@@ -83,8 +83,10 @@ plain one. Routes already on FastAPI live in `nautobot_maps/api/`, one router pe
 `api/deps.py` gives them what the Flask routes had (the sign-in check and `require_role`, the
 security headers and gzip, JSON in Flask's format, errors as `{"error": ...}`), and
 `nautobot_maps/requestctx.py` lets `auth` read the current request under either framework.
-Name a moved route as its Flask endpoint was (`name="ops.healthz"`): the API explorer's
-examples and the frozen route table carry over.
+Name a moved route as its Flask endpoint was (`name="ops.healthz"`): `/api/endpoints`' examples
+and the frozen route table carry over. A route's docstring is its summary and description in
+the API spec (`/openapi.json`, shown by Swagger UI at `/docs`); a JSON body's model goes in
+`openapi_extra=deps.body_schema(...)`.
 Everything else lives in modules under `nautobot_maps/` (#165):
 
 - `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new
@@ -119,13 +121,15 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   this file rendered with markdown-it-py (raw HTML off, GitHub's heading anchors, links between the
   docs rewritten). A new guide goes in `guide.PAGES`; `tests/test_help_pages.py` checks every
   internal link lands on a heading.
-- `nautobot_maps/routes/`: the routes, one Flask blueprint per area (#424): `pages` (map, board,
-  API explorer), `locations` (the map's API and search), `board` (the board's API: feed, history,
-  cases, acks, criticality), `maintenance`, `availability`, `circuits` and `status` (each with
-  its page), `documentation` (`/help`), `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test
-  notification, contract), `ops` (health, metrics, app status, MCP, endpoint list), and helpers
-  in `common`. `tests/route_table.json` freezes every URL, method and role:
-  `python -m tests.test_route_table` rewrites it after a deliberate change.
+- `nautobot_maps/api/`: the routes, on FastAPI (#424, #436), one router per area and tag in the
+  API spec: `views` (map, board, `/docs`, `/openapi.json`, `/help`, static files), `locations`
+  (the map's API and search), `board` (the board's API: feed, history, cases, acks,
+  criticality), `maintenance`, `availability`, `circuits` and `status` (each with its page),
+  `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test notification,
+  contract), `ops` (health, metrics, app status, MCP, endpoint list). `deps` holds what they
+  share, `models` the typed queries and bodies, `pages` and `files` the HTML and file answers.
+  `tests/route_table.json` freezes every URL, method and role: `python -m tests.test_route_table`
+  rewrites it after a deliberate change.
 - `nautobot_maps/auth.py`: optional header-based authentication and roles
   (`@auth.require_role("operator")`).
 - `nautobot_maps/timeutil.py`: time helpers; tests freeze time with

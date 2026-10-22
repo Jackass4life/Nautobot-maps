@@ -13,7 +13,7 @@ from nautobot_maps.api import deps
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Monitoring"])
 
 
 @router.get("/healthz", name="ops.healthz")

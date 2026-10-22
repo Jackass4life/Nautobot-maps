@@ -16,7 +16,7 @@ from nautobot_maps.api import deps, models
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Map"])
 
 INTERNAL_ERROR = {"error": "Internal server error"}
 UPSTREAM_ERROR = {"error": "Failed to communicate with Nautobot API"}

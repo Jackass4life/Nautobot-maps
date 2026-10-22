@@ -12,7 +12,7 @@ from nautobot_maps.api import deps, models, pages
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Availability"])
 
 PeriodQuery = Annotated[models.Period, Query()]
 
