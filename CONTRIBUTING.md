@@ -104,10 +104,14 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   gunicorn in each worker).
 - `nautobot_maps/web.py`: the wiring: security headers and the CSP, error pages, the sign-in
   check, and `web.register(app)`, which registers the routes.
+- `nautobot_maps/guide.py`: the documentation pages at `/help` (#433): `README.md`, `docs/*.md` and
+  this file rendered with markdown-it-py (raw HTML off, GitHub's heading anchors, links between the
+  docs rewritten). A new guide goes in `guide.PAGES`; `tests/test_help_pages.py` checks every
+  internal link lands on a heading.
 - `nautobot_maps/routes/`: the routes, one Flask blueprint per area (#424): `pages` (map, board,
   API explorer), `locations` (the map's API and search), `board` (the board's API: feed, history,
   cases, acks, criticality), `maintenance`, `availability`, `circuits` and `status` (each with
-  its page), `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test
+  its page), `documentation` (`/help`), `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test
   notification, contract), `ops` (health, metrics, app status, MCP, endpoint list), and helpers
   in `common`. `tests/route_table.json` freezes every URL, method and role:
   `python -m tests.test_route_table` rewrites it after a deliberate change.

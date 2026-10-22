@@ -85,10 +85,12 @@ def with_token(page, base, token):
 
 
 def shoot(page, out, name):
-    """A PNG of 256 colours: a third of the size, the same to the eye."""
+    """A PNG of 256 colours: a third of the size, the same to the eye.  Octree,
+    not median cut: that dropped small, rare colours such as the top bar's
+    green status dot."""
     path = out / f"{name}.png"
     shot = Image.open(io.BytesIO(page.screenshot()))
-    shot.convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT).save(path, optimize=True)
+    shot.convert("RGB").quantize(colors=256, method=Image.Quantize.FASTOCTREE).save(path, optimize=True)
     print("wrote", path, f"{path.stat().st_size // 1024} KB")
 
 

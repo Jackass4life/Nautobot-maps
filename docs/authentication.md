@@ -10,7 +10,7 @@ With `AUTH_MODE=disabled`:
 
 ## With a sign-in proxy
 
-Set `AUTH_MODE=header` and put the app behind a reverse proxy or SSO gateway (e.g. oauth2-proxy, nginx with an OIDC/SAML module) that handles the login and passes the user and their groups in headers.
+Set `AUTH_MODE=header` and put the app behind a reverse proxy or SSO gateway that handles the login and passes the user and their groups in headers. The app ships one ready to use, nginx + oauth2-proxy ([the bundled proxy](#the-bundled-proxy-https-and-company-sign-in-423)); the settings below are what it sets for you, and what your own proxy needs.
 
 ```dotenv
 AUTH_MODE=header
