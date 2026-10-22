@@ -13,6 +13,12 @@
   ("wall", "/alerts?view=wall" ~ ("&" ~ scope if scope else ""), "Wall view", "For a wall screen: alarms only, no controls"),
 ] -%}
 <header class="app-bar">
+  {%- if active == "map" %}
+  {#- Shows or hides the map's left panel (#420): always here, plainly visible. #}
+  <button id="panel-bar-toggle" class="icon-btn panel-bar-toggle" type="button" aria-controls="sidebar" aria-expanded="true" aria-label="Hide the panel" title="Hide the panel ([)">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.75 4v12" stroke="currentColor" stroke-width="1.5"/><path class="panel-bar-fill" d="M3.5 4.5h3.5v11h-3.5z" fill="currentColor"/></svg>
+  </button>
+  {%- endif %}
   <a class="app-brand" href="/" title="Map">
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975 16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-2.003 3.5-4.697 3.5-8.327a8 8 0 10-16 0c0 3.63 1.556 6.326 3.5 8.327a19.58 19.58 0 002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
     <span>Nautobot Maps</span>

@@ -172,20 +172,20 @@ document.addEventListener = () => {};
 const inside = element("alarm-item");
 els.sidebar = element("sidebar", { inert: false, contains: (node) => node === inside });
 els.panelToggle = element("panel-toggle");
+els.panelBarToggle = element("panel-bar-toggle");
 """
 
 
 def test_the_panel_folds_away_and_is_remembered():
-    """#420: « hides the panel, the map is measured again keeping its centre,
+    """#420: the bar's sidebar button hides the panel, the map is measured again keeping its centre,
     and the choice is remembered; focus inside the panel moves to the toggle."""
     run_js(
         PANEL_PAGE
         + """
 import { initPanelToggle, panelToggleLabel, setPanelHidden } from "@js/map/sidebar.js";
-check(panelToggleLabel(false, 23).text === "«", "open: «");
-check(panelToggleLabel(true, null).text === "»", "folded, levels not in: »");
-check(panelToggleLabel(true, 0).text === "»", "folded, nothing in alarm: »");
-check(panelToggleLabel(true, 1234).text === "» 1,234 in alarm", panelToggleLabel(true, 1234).text);
+check(panelToggleLabel(true, null).text === "Show the panel", "folded, levels not in");
+check(panelToggleLabel(true, 0).text === "Show the panel", "folded, nothing in alarm");
+check(panelToggleLabel(true, 1234).text === "1,234 in alarm", panelToggleLabel(true, 1234).text);
 check(panelToggleLabel(true, 23).label === "Show the panel: 23 in alarm", "its label says so");
 
 initPanelToggle();
@@ -194,8 +194,10 @@ document.activeElement = inside;
 setPanelHidden(true);
 check(document.body.classList.contains("panel-hidden"), "folded");
 check(els.sidebar.inert, "out of the tab order");
-check(focused.at(-1) === "panel-toggle", "focus moves to the toggle");
-check(els.panelToggle.attrs["aria-expanded"] === "false", "aria-expanded");
+check(els.panelBarToggle.attrs["aria-expanded"] === "false", "aria-expanded");
+check(els.panelBarToggle.attrs["aria-label"] === "Show the panel", "the bar button now shows it");
+check(focused.at(-1) === "panel-bar-toggle", "focus moves to the bar's button");
+check(els.panelToggle.hidden === false, "the tab appears");
 check(store.get("nautobot-maps-map-panel-hidden") === "1", "remembered");
 check(resized.length === 2 && resized[1].animate === false && resized[1].pan !== false, "measured again, same centre");
 
@@ -241,7 +243,7 @@ check(!isPanelShortcut({ key: "]", target: element("map") }), "another key");
 
 
 def test_a_folded_panel_shows_the_alarm_count_at_scale():
-    """#420: folding the panel never hides that something is wrong: » shows
+    """#420: folding the panel never hides that something is wrong: its tab shows
     the alarm list's count (40 sites in alarm of 1,200)."""
     run_js(
         PANEL_PAGE
@@ -256,15 +258,15 @@ state.allLocations = Array.from({ length: 1200 }, (_, i) => ({ id: `s${i}`, name
 state.filteredLocations = state.allLocations;
 setPanelHidden(true);
 renderAlarmList();
-check(els.panelToggle.textContent === "»", "levels not in yet: no count");
+check(els.panelToggle.textContent === "Show the panel", "levels not in yet: no count");
 state.levelsLoaded = true;
 state.allLocations.slice(0, 40).forEach((loc, i) => {
   locationAlerts[loc.id] = i < 30 ? "critical" : "low";
   locationAlertInfo[loc.id] = { level: locationAlerts[loc.id], down: 3, monitored: 8 };
 });
 renderAlarmList();
-check(els.panelToggle.textContent === "» 40 in alarm", els.panelToggle.textContent);
+check(els.panelToggle.textContent === "40 in alarm" && els.panelToggle.classList.contains("has-alarms"), els.panelToggle.textContent);
 setPanelHidden(false);
-check(els.panelToggle.textContent === "«", "open: the panel shows the count itself");
+check(els.panelToggle.hidden === true, "open: the tab goes, the panel shows the count itself");
 """
     )

@@ -665,7 +665,7 @@ def test_a_stack_is_one_device(page):
 
 
 def test_the_map_panel_folds_away(page):
-    """#420: « folds the panel and the map takes the room; » brings it back
+    """#420: the bar's sidebar button folds the panel and the map takes the room; a tab brings it back
     with the alarm count; remembered after a reload; `[` toggles it."""
     page.goto(f"{BASE_URL}/")
     page.locator("#alarm-count", has_text="in alarm").wait_for(timeout=20000)
@@ -676,9 +676,15 @@ def test_the_map_panel_folds_away(page):
     toggle = page.locator("#panel-toggle")
     page.wait_for_function("() => document.querySelector('#map').getBoundingClientRect().left === 0")
     assert page.locator("#map").bounding_box()["width"] > width + 300
-    assert toggle.inner_text() == f"» {alarms} in alarm"
+    assert toggle.inner_text() == f"{alarms} in alarm"
     assert page.evaluate("document.querySelector('#sidebar').inert")
     # Nothing in the folded panel can be clicked or reached.
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().right <= 0")
+    # The tab brings it back; the bar's button folds it again.
+    toggle.click()
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().left === 0")
+    assert toggle.is_hidden()
+    page.locator("#panel-bar-toggle").click()
     page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().right <= 0")
 
     page.reload()
@@ -686,7 +692,8 @@ def test_the_map_panel_folds_away(page):
     assert page.evaluate("document.body.classList.contains('panel-hidden')")
     page.keyboard.press("[")
     page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().left === 0")
-    assert toggle.inner_text() == "«"
+    assert toggle.is_hidden()
+    assert page.locator("#panel-bar-toggle").get_attribute("aria-expanded") == "true"
     # Typing [ in the search doesn't fold it.
     page.fill("#search-input", "[")
     assert not page.evaluate("document.body.classList.contains('panel-hidden')")
