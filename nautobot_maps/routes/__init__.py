@@ -1,4 +1,5 @@
-"""The app's routes, one blueprint per area (#424); web.py wires them up."""
+"""The app's routes still on Flask, one blueprint per area (#424); web.py wires
+them up.  Those moved to FastAPI are in nautobot_maps/api/ (#436)."""
 
 from nautobot_maps.routes import (
     admin,
@@ -11,7 +12,6 @@ from nautobot_maps.routes import (
     maintenance,
     ops,
     pages,
-    status,
 )
 
 # Registered in this order by web.register().
@@ -22,7 +22,6 @@ BLUEPRINTS = (
     maintenance.bp,
     availability.bp,
     circuits.bp,
-    status.bp,
     ingest.bp,
     admin.bp,
     documentation.bp,
