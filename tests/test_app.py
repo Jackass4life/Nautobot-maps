@@ -6707,12 +6707,23 @@ def _retry_kwargs(policy) -> dict:
 # ---------------------------------------------------------------------------
 class TestApiExplorer:
     def _routes(self):
-        return {
+        """Flask's routes and those already on FastAPI (#436), in Flask's notation."""
+        import nautobot_maps.api
+        from nautobot_maps import apidocs
+
+        flask_routes = {
             (rule.rule, method)
             for rule in flask_app.app.url_map.iter_rules()
             if rule.endpoint != "static"
             for method in rule.methods - {"HEAD", "OPTIONS"}
         }
+        fastapi_routes = {
+            (apidocs._flask_style(route.path, route.endpoint), method)
+            for router in nautobot_maps.api.ROUTERS
+            for route in router.routes
+            for method in route.methods - {"HEAD", "OPTIONS"}
+        }
+        return flask_routes | fastapi_routes
 
     def test_every_route_is_listed(self, client):
         listed = client.get("/api/endpoints").get_json()["endpoints"]
@@ -6724,9 +6735,10 @@ class TestApiExplorer:
     def test_every_write_has_an_example_body(self):
         from nautobot_maps import apidocs
 
-        for rule in flask_app.app.url_map.iter_rules():
-            if rule.methods & {"POST", "PUT", "PATCH"}:
-                assert rule.endpoint in apidocs.EXAMPLE_BODIES, f"add an example body for {rule.endpoint} to apidocs"
+        for route in apidocs.routes():
+            if set(route["methods"]) & {"POST", "PUT", "PATCH"}:
+                endpoint = route["endpoint"]
+                assert endpoint in apidocs.EXAMPLE_BODIES, f"add an example body for {endpoint} to apidocs"
 
     def test_what_each_endpoint_takes(self, client):
         listed = client.get("/api/endpoints").get_json()["endpoints"]

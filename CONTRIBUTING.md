@@ -77,7 +77,14 @@ with the Flask app mounted behind it while the routes move to FastAPI area by ar
 log (`nautobot_maps/access_log.py`) around both. `app.py` creates the Flask app, sets up logging,
 the cache and the database, registers the routes and logs the startup settings; `python app.py`
 runs the same ASGI app with uvicorn for development (`FLASK_DEBUG=true` reloads on changes).
-A test reaching the whole stack uses the `asgi_client` fixture; `client` is Flask's alone.
+Every test client (`client` and the others; `tests/http_client.py`) is FastAPI's on `asgi.app`
+with Flask's test-client calls, so the tests check what production serves; `asgi_client` is the
+plain one. Routes already on FastAPI live in `nautobot_maps/api/`, one router per area:
+`api/deps.py` gives them what the Flask routes had (the sign-in check and `require_role`, the
+security headers and gzip, JSON in Flask's format, errors as `{"error": ...}`), and
+`nautobot_maps/requestctx.py` lets `auth` read the current request under either framework.
+Name a moved route as its Flask endpoint was (`name="ops.healthz"`): the API explorer's
+examples and the frozen route table carry over.
 Everything else lives in modules under `nautobot_maps/` (#165):
 
 - `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new

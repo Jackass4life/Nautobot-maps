@@ -10,19 +10,18 @@ IGNORED = {"HEAD", "OPTIONS"}
 
 
 def route_table(app) -> list[dict]:
-    rows = []
-    for rule in app.url_map.iter_rules():
-        if rule.endpoint == "static":
-            continue
-        view = app.view_functions[rule.endpoint]
-        rows.append(
-            {
-                "path": rule.rule,
-                "methods": sorted(rule.methods - IGNORED),
-                "required_role": getattr(view, "required_role", None),
-                "view": view.__name__,
-            }
-        )
+    """Flask's routes and FastAPI's (#436), in Flask's notation."""
+    from nautobot_maps import apidocs
+
+    rows = [
+        {
+            "path": route["path"],
+            "methods": route["methods"],
+            "required_role": route["required_role"],
+            "view": route["view"].__name__,
+        }
+        for route in apidocs.routes(app)
+    ]
     return sorted(rows, key=lambda row: (row["path"], row["methods"]))
 
 

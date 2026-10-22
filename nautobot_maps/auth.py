@@ -13,9 +13,13 @@ import re
 from functools import wraps
 from urllib.parse import urlsplit
 
-from flask import g, jsonify, request
+from nautobot_maps import requestctx, settings, tokens
 
-from nautobot_maps import settings, tokens
+# The request being answered, Flask's or FastAPI's (#436).  Refusals are
+# (body, status) pairs: Flask sends a dict as JSON, and FastAPI's routes do the
+# same (nautobot_maps.api.deps), so both answer exactly alike.
+request = requestctx.request
+g = requestctx.g
 
 logger = logging.getLogger(__name__)
 
@@ -159,39 +163,44 @@ def disabled_mode_allows(method: str, open_when_disabled: bool) -> bool:
     return method in ("GET", "HEAD", "OPTIONS") or open_when_disabled or settings.ALLOW_UNAUTHENTICATED_WRITES
 
 
+def role_problem(required_role: str, open_when_disabled: bool = False):
+    """None when the current request may use a route needing *required_role*,
+    else the refusal as ``(body, status)``; see ``disabled_mode_allows`` for
+    AUTH_MODE=disabled.  Shared by Flask's ``require_role`` and FastAPI's."""
+    required_role = normalize_role(required_role)
+    # A token is checked like a signed-in user, also with AUTH_MODE=disabled.
+    if settings.AUTH_MODE == "disabled" and not get_current_user().get("token"):
+        if disabled_mode_allows(request.method, open_when_disabled):
+            return None
+        return {
+            "error": "Authentication required for this change",
+            "detail": "Set AUTH_MODE=header behind an authenticating proxy, "
+            "or ALLOW_UNAUTHENTICATED_WRITES=true to allow it without authentication.",
+        }, 403
+    if not is_config_valid():
+        return {"error": "Unsupported AUTH_MODE configuration"}, 503
+
+    current_user = get_current_user()
+    if not current_user["is_authenticated"]:
+        return {"error": "Authentication required"}, 401
+    if role_level(current_user["role"]) < role_level(required_role):
+        return {
+            "error": "Insufficient permissions",
+            "required_role": required_role,
+            "current_role": current_user["role"] or None,
+        }, 403
+    return None
+
+
 def require_role(required_role: str, open_when_disabled: bool = False):
-    """Require *required_role*; see ``disabled_mode_allows`` for AUTH_MODE=disabled."""
+    """Require *required_role* on a Flask view (``role_problem``)."""
     normalized_required_role = normalize_role(required_role)
 
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # A token is checked like a signed-in user, also with AUTH_MODE=disabled.
-            if settings.AUTH_MODE == "disabled" and not get_current_user().get("token"):
-                if disabled_mode_allows(request.method, open_when_disabled):
-                    return func(*args, **kwargs)
-                return jsonify(
-                    {
-                        "error": "Authentication required for this change",
-                        "detail": "Set AUTH_MODE=header behind an authenticating proxy, "
-                        "or ALLOW_UNAUTHENTICATED_WRITES=true to allow it without authentication.",
-                    }
-                ), 403
-            if not is_config_valid():
-                return jsonify({"error": "Unsupported AUTH_MODE configuration"}), 503
-
-            current_user = get_current_user()
-            if not current_user["is_authenticated"]:
-                return jsonify({"error": "Authentication required"}), 401
-            if role_level(current_user["role"]) < role_level(normalized_required_role):
-                return jsonify(
-                    {
-                        "error": "Insufficient permissions",
-                        "required_role": normalized_required_role,
-                        "current_role": current_user["role"] or None,
-                    }
-                ), 403
-            return func(*args, **kwargs)
+            refused = role_problem(normalized_required_role, open_when_disabled)
+            return refused if refused is not None else func(*args, **kwargs)
 
         # Shown by the API explorer (#230).
         wrapper.required_role = normalized_required_role
@@ -236,16 +245,16 @@ def status_access(tenant: str):
         if is_status_token(current_user):
             if current_user.get("tenant", "").casefold() == tenant.strip().casefold():
                 return None
-            return jsonify({"error": "This token is for another tenant"}), 403
+            return {"error": "This token is for another tenant"}, 403
         if role_level(current_user["role"]) >= role_level("viewer"):
             return None
-        return jsonify({"error": "Insufficient permissions", "required_role": "viewer"}), 403
+        return {"error": "Insufficient permissions", "required_role": "viewer"}, 403
     if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER:
         return None
     if not current_user["is_authenticated"]:
-        return jsonify({"error": "Authentication required"}), 401
+        return {"error": "Authentication required"}, 401
     if role_level(current_user["role"]) < role_level("viewer"):
-        return jsonify({"error": "Insufficient permissions", "required_role": "viewer"}), 403
+        return {"error": "Insufficient permissions", "required_role": "viewer"}, 403
     return None
 
 
@@ -286,24 +295,24 @@ def check_viewer():
         logger.warning(
             "Refused a cross-site %s %s (Origin %r)", request.method, request.path, request.headers.get("Origin")
         )
-        return jsonify({"error": "Changes from another site are refused"}), 403
+        return {"error": "Changes from another site are refused"}, 403
     if request.path in PUBLIC_PATHS:
         return None
     # A wrong, expired or revoked token is refused on every path but the
     # public ones above, also where anyone may read: a script should learn
     # its token stopped working.
     if bearer_token() and get_current_user().get("token_rejected"):
-        return jsonify({"error": "Invalid, expired or revoked API token"}), 401
+        return {"error": "Invalid, expired or revoked API token"}, 401
     status_path = request.path.startswith((STATUS_PAGE_PREFIX, STATUS_API_PREFIX)) or request.path in STATUS_PAGE_ASSETS
     if bearer_token() and is_status_token(get_current_user()) and not status_path:
-        return jsonify({"error": "This token only opens its tenant's status page"}), 403
+        return {"error": "This token only opens its tenant's status page"}, 403
     if status_path:
         return None
     if settings.AUTH_MODE != "header" or not settings.AUTH_REQUIRE_VIEWER:
         return None
     current_user = get_current_user()
     if not current_user["is_authenticated"]:
-        return jsonify({"error": "Authentication required"}), 401
+        return {"error": "Authentication required"}, 401
     if role_level(current_user["role"]) < role_level("viewer"):
-        return jsonify({"error": "Insufficient permissions", "required_role": "viewer"}), 403
+        return {"error": "Insufficient permissions", "required_role": "viewer"}, 403
     return None
