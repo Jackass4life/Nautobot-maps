@@ -12,13 +12,15 @@ def _env_int(name: str, default: int) -> int:
 # Header auth trusts identity headers only from AUTH_TRUSTED_PROXIES (#187).
 bind = os.getenv("GUNICORN_BIND", "").strip() or "0.0.0.0:5000"
 workers = _env_int("GUNICORN_WORKERS", 4)
+# uvicorn workers serving asgi:app (#436); proxy headers off (see server.py).
+worker_class = "nautobot_maps.server.Worker"
 timeout = max(120, _env_int("GUNICORN_TIMEOUT", 120))
 
-# Access log (#193): client, user (from the auth proxy's header), request,
-# status, size and response time in ms.  Successful health checks are left
-# out (see logs.SkipSuccessfulHealthChecks).
-accesslog = "-"
-access_log_format = '%(h)s "%({' + settings.AUTH_HEADER_USER.lower() + '}i)s" "%(r)s" %(s)s %(b)s %(M)sms "%(a)s"'
+# Access log (#193): written by the app itself (nautobot_maps.access_log, the
+# same fields as before: client, user from the auth proxy's header, request,
+# status, size, time in ms), not by gunicorn or uvicorn.  Successful health
+# checks are left out (logs.SkipSuccessfulHealthChecks).
+accesslog = None
 loglevel = settings.LOG_LEVEL.lower()
 logconfig_dict = logs.gunicorn_logconfig()
 

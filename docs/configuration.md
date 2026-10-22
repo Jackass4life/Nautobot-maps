@@ -182,7 +182,7 @@ By default viewers' browsers load tiles from `tile.openstreetmap.org`, and the a
 
 | Variable | Default | Description |
 |---|---|---|
-| `GUNICORN_WORKERS` | `4` | Worker processes (Docker image) |
+| `GUNICORN_WORKERS` | `4` | Worker processes (Docker image): gunicorn runs uvicorn workers, each serving several requests at once |
 | `GUNICORN_TIMEOUT` | `120` | Worker timeout in seconds; lower values are raised to 120 |
 | `GUNICORN_BIND` | `0.0.0.0:5000` | Listen address |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |

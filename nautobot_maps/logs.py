@@ -77,5 +77,8 @@ def gunicorn_logconfig() -> dict:
         "loggers": {
             "gunicorn.error": {"level": settings.LOG_LEVEL, "handlers": ["error_console"], "propagate": False},
             "gunicorn.access": {"level": "INFO", "handlers": ["access_console"], "propagate": False},
+            # The app's own access log under uvicorn (#436); uvicorn's is off.
+            "nautobot_maps.access": {"level": "INFO", "handlers": ["access_console"], "propagate": False},
+            "uvicorn.error": {"level": settings.LOG_LEVEL, "handlers": ["error_console"], "propagate": False},
         },
     }

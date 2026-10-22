@@ -72,8 +72,12 @@ Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After cha
 
 ### Project layout
 
-`app.py` is the entry point (`app:app` for gunicorn): it creates the Flask app, sets up
-logging, the cache and the database, registers the routes, and logs the startup settings.
+`asgi.py` is what gunicorn serves (`asgi:app`, uvicorn workers, #436): FastAPI on the outside,
+with the Flask app mounted behind it while the routes move to FastAPI area by area, and the access
+log (`nautobot_maps/access_log.py`) around both. `app.py` creates the Flask app, sets up logging,
+the cache and the database, registers the routes and logs the startup settings; `python app.py`
+runs the same ASGI app with uvicorn for development (`FLASK_DEBUG=true` reloads on changes).
+A test reaching the whole stack uses the `asgi_client` fixture; `client` is Flask's alone.
 Everything else lives in modules under `nautobot_maps/` (#165):
 
 - `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new
