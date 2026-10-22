@@ -82,6 +82,67 @@ body.inspector-open #map {
   right: var(--inspector-width);
 }
 
+/* The panel folds away (#420): it slides out, the map takes the room. */
+#sidebar {
+  transition: transform 0.2s ease;
+}
+
+body.panel-hidden #sidebar {
+  transform: translateX(-100%);
+  box-shadow: none;
+}
+
+body.panel-hidden #map,
+body.panel-hidden #loading-overlay {
+  left: 0;
+}
+
+/* A tab on the panel's edge, halfway down: clear of the zoom buttons and the legend. */
+.panel-toggle {
+  position: fixed;
+  top: 50%;
+  left: var(--sidebar-width);
+  z-index: 1001;
+  min-width: 24px;
+  height: 44px;
+  padding: 0 8px;
+  transform: translateY(-50%);
+  border: 1px solid var(--color-border);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  box-shadow: var(--shadow);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: left 0.2s ease;
+}
+
+body.panel-hidden .panel-toggle {
+  left: 0;
+  color: var(--color-text);
+}
+
+.panel-toggle:hover {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+}
+
+.panel-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sidebar,
+  .panel-toggle {
+    transition: none;
+  }
+}
+
 #inspector-backdrop {
   position: fixed;
   inset: 0;
@@ -1451,6 +1512,28 @@ body.inspector-open #loading-overlay {
 
   body.inspector-open #map {
     right: 0;
+  }
+
+  /* On a phone the panel is at the bottom: it folds down (#420). */
+  body.panel-hidden #sidebar {
+    transform: translateY(100%);
+  }
+
+  body.panel-hidden #map,
+  body.panel-hidden #loading-overlay {
+    bottom: 0;
+  }
+
+  /* The map's free corner: the zoom buttons and the legend are on the left. */
+  .panel-toggle,
+  body.panel-hidden .panel-toggle {
+    top: 10px;
+    left: auto;
+    right: 10px;
+    height: 36px;
+    transform: none;
+    border-left: 1px solid var(--color-border);
+    border-radius: 10px;
   }
 
   #loading-overlay {

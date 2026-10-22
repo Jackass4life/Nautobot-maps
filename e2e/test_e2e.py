@@ -662,3 +662,48 @@ def test_a_stack_is_one_device(page):
     stack.click()
     members = fold.locator(".stack-member").all_inner_texts()
     assert [m.split(" · ")[0] for m in members] == ["2. par-stack01:2", "3. par-stack01:3", "4. par-stack01:4"], members
+
+
+def test_the_map_panel_folds_away(page):
+    """#420: « folds the panel and the map takes the room; » brings it back
+    with the alarm count; remembered after a reload; `[` toggles it."""
+    page.goto(f"{BASE_URL}/")
+    page.locator("#alarm-count", has_text="in alarm").wait_for(timeout=20000)
+    alarms = page.locator("#alarm-count").inner_text().split()[0]
+    width = page.locator("#map").bounding_box()["width"]
+
+    page.get_by_role("button", name="Hide the panel").click()
+    toggle = page.locator("#panel-toggle")
+    page.wait_for_function("() => document.querySelector('#map').getBoundingClientRect().left === 0")
+    assert page.locator("#map").bounding_box()["width"] > width + 300
+    assert toggle.inner_text() == f"» {alarms} in alarm"
+    assert page.evaluate("document.querySelector('#sidebar').inert")
+    # Nothing in the folded panel can be clicked or reached.
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().right <= 0")
+
+    page.reload()
+    page.locator("#panel-toggle", has_text="in alarm").wait_for(timeout=20000)
+    assert page.evaluate("document.body.classList.contains('panel-hidden')")
+    page.keyboard.press("[")
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().left === 0")
+    assert toggle.inner_text() == "«"
+    # Typing [ in the search doesn't fold it.
+    page.fill("#search-input", "[")
+    assert not page.evaluate("document.body.classList.contains('panel-hidden')")
+
+
+def test_the_map_panel_folds_on_a_phone(browser):
+    context = browser.new_context(viewport={"width": 390, "height": 800})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(f"{BASE_URL}/")
+    page.locator("#alarm-count", has_text="in alarm").wait_for(timeout=20000)
+    page.get_by_role("button", name="Hide the panel").click()
+    page.wait_for_function("() => document.querySelector('#map').getBoundingClientRect().bottom === innerHeight")
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().top >= innerHeight")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.locator("#panel-toggle").click()
+    page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().bottom <= innerHeight + 1")
+    context.close()
+    assert errors == [], errors

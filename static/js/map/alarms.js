@@ -4,6 +4,7 @@
 import { formatFeedTime } from "../lib/format.js";
 import { escHtml } from "../lib/html.js";
 import { LEVEL_NAMES } from "./levels.js";
+import { setPanelAlarmCount } from "./sidebar.js";
 import { config, els, locationAlertInfo, locationAlerts, state } from "./state.js";
 
 const ALARM_RANK = { critical: 0, medium: 1, low: 2 };
@@ -66,6 +67,7 @@ export function renderAlarmList() {
     alarmBreakdown.textContent = "";
     alarmList.innerHTML = '<li class="alarm-empty">Alert levels not loaded yet.</li>';
     alarmMore.hidden = true;
+    setPanelAlarmCount(null);
     return;
   }
   // locationAlerts can be newer than locationAlertInfo (a site panel's level).
@@ -76,6 +78,7 @@ export function renderAlarmList() {
   alarmCount.textContent = sites.length ? `${sites.length.toLocaleString("en")} in alarm`
     : everySite && state.allLocations.length ? "All sites OK" : "No site in alarm";
   alarmBreakdown.textContent = levelBreakdown(sites);
+  setPanelAlarmCount(sites.length);
   if (!sites.length) {
     alarmList.innerHTML = "";
     alarmMore.hidden = true;
