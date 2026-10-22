@@ -11,6 +11,7 @@ import ipaddress
 import logging
 import re
 from functools import wraps
+from urllib.parse import urlsplit
 
 from flask import g, jsonify, request
 
@@ -248,10 +249,44 @@ def status_access(tenant: str):
     return None
 
 
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def is_cross_site_write() -> bool:
+    """Whether this is a change sent by a browser from another site (CSRF).
+
+    Behind a sign-in proxy the browser's session cookie comes along, so a
+    page elsewhere could make a signed-in user end a maintenance window or
+    revoke a token with a plain form.  Browsers say where a request comes
+    from: Sec-Fetch-Site, else Origin.  Scripts and webhooks send neither
+    (or an API token, which a page can't add) and are not affected.
+    """
+    if request.method in SAFE_METHODS or bearer_token():
+        return False
+    # /mcp has its own, stricter rule: no Origin outside MCP_ALLOWED_ORIGINS.
+    if request.path == "/mcp":
+        return False
+    fetch_site = request.headers.get("Sec-Fetch-Site", "").strip().lower()
+    if fetch_site:
+        return fetch_site not in {"same-origin", "none"}
+    origin = request.headers.get("Origin", "").strip()
+    if not origin:
+        return False
+    # The host alone: a proxy may pass the Host without the port the browser used.
+    host = urlsplit("//" + request.host).hostname
+    return origin == "null" or urlsplit(origin).hostname != host
+
+
 def check_viewer():
     """``before_request`` hook: with AUTH_REQUIRE_VIEWER in header mode, every
     page and API needs at least the viewer role (#188), and a rejected API
-    token is a 401 (#297).  Returns a response to stop the request, or None."""
+    token is a 401 (#297).  A change from another site is refused in every
+    mode.  Returns a response to stop the request, or None."""
+    if is_cross_site_write():
+        logger.warning(
+            "Refused a cross-site %s %s (Origin %r)", request.method, request.path, request.headers.get("Origin")
+        )
+        return jsonify({"error": "Changes from another site are refused"}), 403
     if request.path in PUBLIC_PATHS:
         return None
     # A wrong, expired or revoked token is refused on every path but the

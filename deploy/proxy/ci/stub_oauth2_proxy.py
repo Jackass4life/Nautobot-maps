@@ -1,7 +1,7 @@
 """A stand-in for oauth2-proxy in CI (#423): no identity provider needed.
 
 The session cookie ``_nautobot_maps=olga`` is "signed in" as olga in the
-noc-operators group; anything else is not.  Only what nginx uses: /oauth2/auth
+noc-operators group (``=many``: also in 150 other groups); anything else is not.  Only what nginx uses: /oauth2/auth
 (202 or 401, with the X-Auth-Request-* headers) and /oauth2/start (to the login).
 """
 
@@ -11,11 +11,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class Stub(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (http.server's name)
         if self.path.startswith("/oauth2/auth"):
-            if "_nautobot_maps=olga" in (self.headers.get("Cookie") or ""):
+            cookie = self.headers.get("Cookie") or ""
+            if "_nautobot_maps=olga" in cookie or "_nautobot_maps=many" in cookie:
+                # "many": in 150 groups, as Entra ID sends them (an ID each).
+                groups = ["noc-operators", "everyone"]
+                if "_nautobot_maps=many" in cookie:
+                    groups = [f"{i:08x}-0000-4000-8000-000000000000" for i in range(150)] + groups
                 self.send_response(202)
                 self.send_header("X-Auth-Request-Preferred-Username", "olga")
                 self.send_header("X-Auth-Request-Email", "olga@example.com")
-                self.send_header("X-Auth-Request-Groups", "noc-operators,everyone")
+                self.send_header("X-Auth-Request-Groups", ",".join(groups))
             else:
                 self.send_response(401)
         elif self.path.startswith("/oauth2/start"):
