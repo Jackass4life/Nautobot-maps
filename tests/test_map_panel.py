@@ -128,6 +128,7 @@ def test_one_top_bar_on_every_page(client):
         ("/availability", "/availability"),
         ("/maintenance", "/maintenance"),
         ("/circuits", "/circuits"),
+        ("/help", "/help"),
         ("/docs", "/docs"),
     ):
         html = client.get(path).get_data(as_text=True)

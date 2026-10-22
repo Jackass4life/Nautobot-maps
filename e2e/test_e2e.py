@@ -532,7 +532,16 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     # Every page is in the menu, which closes on a click outside it.
     page.locator(".app-menu summary").click()
     links = page.locator(".app-menu .app-nav-link").all_inner_texts()
-    assert links == ["Map", "Alert Board", "Availability", "Maintenance", "Circuits", "API", "Wall view"], links
+    assert links == [
+        "Map",
+        "Alert Board",
+        "Availability",
+        "Maintenance",
+        "Circuits",
+        "Documentation",
+        "API",
+        "Wall view",
+    ], links
     page.mouse.click(700, 300)
     assert page.locator(".app-menu .app-nav").is_hidden()
 
@@ -739,7 +748,7 @@ def test_the_top_bar(page):
     assert page.locator(".app-bar").count() == 0
 
 
-@pytest.mark.parametrize("path", ["/", "/alerts", "/availability", "/maintenance", "/circuits", "/docs"])
+@pytest.mark.parametrize("path", ["/", "/alerts", "/availability", "/maintenance", "/circuits", "/help", "/docs"])
 def test_the_top_bar_fits_a_phone(browser, path):
     context = browser.new_context(viewport={"width": 390, "height": 800})
     page = context.new_page()

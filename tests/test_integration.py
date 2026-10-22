@@ -1463,6 +1463,7 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
             "/availability",
             "/maintenance",
             "/circuits",
+            "/help",
             "/docs",
             "/alerts?view=wall",
         ], links
