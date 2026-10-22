@@ -95,14 +95,22 @@ Everything else lives in modules under `nautobot_maps/` (#165):
 - `nautobot_maps/alerts.py`: the alert logic — severity scoring (`alerts.compute_alert_level()`),
   the LibreNMS status merge, alert history, the alert board (`alerts.get_alert_board_data()`) and
   the map's location detail.
+- `nautobot_maps/repositories/board.py`: the alert board's reads and writes in PostgreSQL (#424):
+  alert instances and events, device states, site levels and their changes, the feed, cases and
+  acknowledgements. `alerts.py` keeps the rules and holds no SQL; it calls these as
+  `board_store.function()` (imported under that name, since `alerts.board()` exists). Tests patch
+  them on `nautobot_maps.repositories.board`.
 - `nautobot_maps/scheduler.py`: the background scheduler (`scheduler.start()`, started by
   gunicorn in each worker).
 - `nautobot_maps/web.py`: the wiring: security headers and the CSP, error pages, the sign-in
   check, and `web.register(app)`, which registers the routes.
 - `nautobot_maps/routes/`: the routes, one Flask blueprint per area (#424): `pages` (map, board,
-  API explorer), `ops` (health, metrics, app status, MCP, endpoint list), and helpers in `common`.
-  Routes not moved yet are still in `web.py`. `tests/route_table.json` freezes every URL, method
-  and role: `python -m tests.test_route_table` rewrites it after a deliberate change.
+  API explorer), `locations` (the map's API and search), `board` (the board's API: feed, history,
+  cases, acks, criticality), `maintenance`, `availability`, `circuits` and `status` (each with
+  its page), `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test
+  notification, contract), `ops` (health, metrics, app status, MCP, endpoint list), and helpers
+  in `common`. `tests/route_table.json` freezes every URL, method and role:
+  `python -m tests.test_route_table` rewrites it after a deliberate change.
 - `nautobot_maps/auth.py`: optional header-based authentication and roles
   (`@auth.require_role("operator")`).
 - `nautobot_maps/timeutil.py`: time helpers; tests freeze time with

@@ -25,11 +25,13 @@ from nautobot_maps import (
     librenms,
     maintenance,
     nautobot,
+    routes,
     scheduler,
     settings,
     timeutil,
     web,
 )
+from nautobot_maps.repositories import board as board_store
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -1188,7 +1190,7 @@ class TestAlertBoard:
         with (
             # The build's own connections; not the build lock or its stats (#295).
             patch.object(alerts, "_board_build_lock", return_value=None),
-            patch.object(alerts, "record_board_build"),
+            patch.object(board_store, "record_board_build"),
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
@@ -1197,7 +1199,7 @@ class TestAlertBoard:
                 "get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
-            patch.object(alerts, "nautobot_inventory_primary_ip_backfill_pending", return_value=False),
+            patch.object(board_store, "nautobot_inventory_primary_ip_backfill_pending", return_value=False),
             patch.object(db, "get_conn", side_effect=fake_get_db_conn),
             # Connection handling only: no maintenance windows (#283).
             patch.object(maintenance, "read_active", return_value={"sites": {}, "devices": {}, "next_change": None}),
@@ -1225,7 +1227,7 @@ class TestAlertBoard:
         with (
             # The build's own connections; not the build lock or its stats (#295).
             patch.object(alerts, "_board_build_lock", return_value=None),
-            patch.object(alerts, "record_board_build"),
+            patch.object(board_store, "record_board_build"),
             patch.object(inventory, "get_locations", return_value=sample_locations),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
@@ -1500,7 +1502,7 @@ class TestApiSearch:
         mock_geolocator.geocode.return_value = mock_geo_result
 
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            with patch("nautobot_maps.web.Nominatim", return_value=mock_geolocator):
+            with patch("nautobot_maps.routes.locations.Nominatim", return_value=mock_geolocator):
                 resp = client.get("/api/search?q=Copenhagen")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1510,7 +1512,7 @@ class TestApiSearch:
         mock_geolocator = MagicMock()
         mock_geolocator.geocode.return_value = None
 
-        with patch("nautobot_maps.web.Nominatim", return_value=mock_geolocator):
+        with patch("nautobot_maps.routes.locations.Nominatim", return_value=mock_geolocator):
             resp = client.get("/api/search?q=ThisPlaceDoesNotExist12345")
         assert resp.status_code == 404
         assert "error" in resp.get_json()
@@ -3986,7 +3988,7 @@ class TestInventoryCacheSync:
                 "cache_version": "1",
             },
         ):
-            assert alerts.nautobot_inventory_primary_ip_backfill_pending() is True
+            assert board_store.nautobot_inventory_primary_ip_backfill_pending() is True
 
         with patch.object(
             inventory,
@@ -3996,7 +3998,7 @@ class TestInventoryCacheSync:
                 "cache_version": inventory.CACHE_VERSION,
             },
         ):
-            assert alerts.nautobot_inventory_primary_ip_backfill_pending() is False
+            assert board_store.nautobot_inventory_primary_ip_backfill_pending() is False
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
         conn = db.get_conn()
@@ -5043,7 +5045,7 @@ class TestMultiDeviceCases:
 
     @pytest.mark.parametrize(
         "device_ids",
-        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(web.MAX_CASE_DEVICES + 1)]],
+        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(routes.board.MAX_CASE_DEVICES + 1)]],
         ids=["string-not-list", "empty", "non-string-id", "too-many"],
     )
     def test_rejects_invalid_device_ids(self, client, device_ids):
@@ -5375,7 +5377,7 @@ class TestAlertBoardBulkReads:
             patch.object(db, "get_conn", side_effect=counting_get_db_conn),
             # The build's own connections; not the build lock or its stats (#295).
             patch.object(alerts, "_board_build_lock", return_value=None),
-            patch.object(alerts, "record_board_build"),
+            patch.object(board_store, "record_board_build"),
         ):
             data = alerts.get_alert_board_data()
         return data, len(opened)
@@ -6111,7 +6113,7 @@ class TestGeocoder:
 
     def test_disabled_geocoder_only_accepts_coordinates(self, client, monkeypatch):
         monkeypatch.setattr(settings, "GEOCODER_ENABLED", False)
-        with patch("nautobot_maps.web.Nominatim", side_effect=AssertionError("must not geocode")):
+        with patch("nautobot_maps.routes.locations.Nominatim", side_effect=AssertionError("must not geocode")):
             resp = client.get("/api/search?q=Copenhagen")
             assert resp.status_code == 400 and "coordinates" in resp.get_json()["error"]
             assert client.get("/api/search?q=55.68,12.57").status_code == 200
@@ -6119,7 +6121,7 @@ class TestGeocoder:
     def test_uses_the_configured_service(self, client, monkeypatch):
         monkeypatch.setattr(settings, "GEOCODER_URL", "http://nominatim.internal:8080/nominatim")
         monkeypatch.setattr(settings, "GEOCODER_USER_AGENT", "noc-maps/2")
-        with patch("nautobot_maps.web.Nominatim", return_value=self._geolocator()) as nominatim:
+        with patch("nautobot_maps.routes.locations.Nominatim", return_value=self._geolocator()) as nominatim:
             assert client.get("/api/search?q=Copenhagen").status_code == 200
         nominatim.assert_called_once_with(
             user_agent="noc-maps/2", domain="nominatim.internal:8080/nominatim", scheme="http"
@@ -6127,7 +6129,7 @@ class TestGeocoder:
 
     def test_results_are_cached(self, client):
         geolocator = self._geolocator()
-        with patch("nautobot_maps.web.Nominatim", return_value=geolocator):
+        with patch("nautobot_maps.routes.locations.Nominatim", return_value=geolocator):
             first = client.get("/api/search?q=Copenhagen").get_json()
             caching.cache.delete("geocode-rate-limit")
             second = client.get("/api/search?q=copenhagen ").get_json()
@@ -6137,8 +6139,8 @@ class TestGeocoder:
     def test_at_most_one_request_per_second(self, client, monkeypatch):
         # A minute, not a second: a slow CI runner took over a second between
         # the two requests, and the second one was let through (#332).
-        monkeypatch.setattr(web, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
-        with patch("nautobot_maps.web.Nominatim", return_value=self._geolocator()):
+        monkeypatch.setattr(routes.locations, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
+        with patch("nautobot_maps.routes.locations.Nominatim", return_value=self._geolocator()):
             assert client.get("/api/search?q=Copenhagen").status_code == 200
             busy = client.get("/api/search?q=Aarhus")
             assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
@@ -6147,12 +6149,12 @@ class TestGeocoder:
             assert client.get("/api/search?q=Aarhus").status_code == 200
 
     def test_the_interval_is_one_second(self):
-        assert web.GEOCODE_MIN_INTERVAL_SECONDS == 1
+        assert routes.locations.GEOCODE_MIN_INTERVAL_SECONDS == 1
 
     def test_geocoder_error_is_not_passed_to_the_client(self, client):
         geolocator = MagicMock()
         geolocator.geocode.side_effect = OSError("connect to 10.0.0.5 refused")
-        with patch("nautobot_maps.web.Nominatim", return_value=geolocator):
+        with patch("nautobot_maps.routes.locations.Nominatim", return_value=geolocator):
             resp = client.get("/api/search?q=Copenhagen")
         assert resp.status_code == 503
         assert resp.get_json() == {"error": "Geocoding service unavailable"}
@@ -6160,7 +6162,7 @@ class TestGeocoder:
     def test_not_found_is_cached_too(self, client):
         geolocator = MagicMock()
         geolocator.geocode.return_value = None
-        with patch("nautobot_maps.web.Nominatim", return_value=geolocator):
+        with patch("nautobot_maps.routes.locations.Nominatim", return_value=geolocator):
             assert client.get("/api/search?q=Nowhere").status_code == 404
             caching.cache.delete("geocode-rate-limit")
             assert client.get("/api/search?q=Nowhere").status_code == 404
@@ -6295,7 +6297,7 @@ class TestHistoryRetention:
         self._change(pg_database, 5)
         conn = db.get_conn()
         try:
-            deleted = alerts.prune_alert_history(conn, 30)
+            deleted = board_store.prune_alert_history(conn, 30)
         finally:
             conn.close()
         assert deleted == {"alert_instances": 1, "site_level_changes": 1}
@@ -6305,12 +6307,12 @@ class TestHistoryRetention:
         assert pg_database.execute("SELECT count(*) AS n FROM alert_cases") == [{"n": 2}]
 
     def test_deletes_in_batches(self, pg_database, monkeypatch):
-        monkeypatch.setattr(alerts, "RETENTION_BATCH_SIZE", 2)
+        monkeypatch.setattr(board_store, "RETENTION_BATCH_SIZE", 2)
         for i in range(5):
             self._alert(pg_database, f"d{i}", "resolved", resolved_days_ago=100)
         conn = db.get_conn()
         try:
-            assert alerts.prune_alert_history(conn, 30)["alert_instances"] == 5
+            assert board_store.prune_alert_history(conn, 30)["alert_instances"] == 5
         finally:
             conn.close()
         assert self._devices(pg_database) == []
@@ -7347,8 +7349,8 @@ class TestLibreNMSMappingsAreBatched:
         assert len(self._mappings()) == self.DEVICES
 
     def test_persisted_mappings_win_and_are_not_rewritten(self):
-        alerts.store_librenms_maps({"dev-1": (1000, "sw0.corp.example")})
-        with patch.object(alerts, "store_librenms_maps", wraps=alerts.store_librenms_maps) as store:
+        board_store.store_librenms_maps({"dev-1": (1000, "sw0.corp.example")})
+        with patch.object(board_store, "store_librenms_maps", wraps=board_store.store_librenms_maps) as store:
             board = alerts.get_alert_board_data()
         # dev-1 is mapped to LibreNMS device 1000, which is down.
         down = {d["device_id"] for d in board["alerts"][0]["down_devices"]}
@@ -7358,14 +7360,14 @@ class TestLibreNMSMappingsAreBatched:
 
     def test_enrich_on_its_own_writes_once(self):
         devices = [{"id": f"dev-{n}", "name": f"sw{n}", "status": "Active"} for n in range(5)]
-        with patch.object(alerts, "store_librenms_maps") as store:
+        with patch.object(board_store, "store_librenms_maps") as store:
             alerts.enrich_with_librenms(devices, snapshot_only=True)
         store.assert_called_once()
         assert set(store.call_args.args[0]) == {f"dev-{n}" for n in range(5)}
 
     def test_a_failed_write_does_not_fail_the_board(self, caplog):
         with patch.object(db, "transaction", side_effect=RuntimeError("db gone")):
-            alerts.store_librenms_maps({"dev-1": (1, "sw1")})
+            board_store.store_librenms_maps({"dev-1": (1, "sw1")})
         assert "Could not store 1 LibreNMS device mappings" in caplog.text
 
 

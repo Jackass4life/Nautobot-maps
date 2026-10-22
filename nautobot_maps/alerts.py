@@ -24,8 +24,12 @@ from nautobot_maps import (
     timeutil,
     webhooks,
 )
+from nautobot_maps.repositories import board as board_store
 
 logger = logging.getLogger(__name__)
+
+# Kept here for the routes and MCP that read the feed (#424).
+FEED_KINDS = board_store.FEED_KINDS
 
 
 # In a status exclusion list, this keyword matches a missing or empty status.
@@ -198,12 +202,6 @@ def device_display_ip(device: dict) -> str:
     return ""
 
 
-def nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
-    """Treat primary-IP backfill as pending until Nautobot has synced the current cache version."""
-    state = inventory.get_sync_state("nautobot_inventory", conn=conn)
-    return inventory.cache_version_mismatch(state) or not bool((state or {}).get("last_successful_sync"))
-
-
 def location_is_excluded_from_alert_board(location: dict) -> bool:
     name = (location.get("name") or "").strip().lower()
     location_type = (location.get("location_type") or "").strip().lower()
@@ -279,21 +277,6 @@ def get_critical_keywords(location_type: str | None = None) -> tuple:
     return ENV_CORE_ROLE_KEYWORDS
 
 
-def read_criticality_overrides(conn, device_ids: list | None = None) -> dict:
-    """Return ``{device_id: is_critical}`` for *device_ids*, or for every device when ``None``."""
-    query = "SELECT nautobot_device_id, is_critical FROM device_criticality_override"
-    params: list = []
-    if device_ids is not None:
-        query += f" WHERE nautobot_device_id IN ({db.placeholders(len(device_ids))})"
-        params = list(device_ids)
-    overrides = {}
-    for row in conn.execute(query, params).fetchall():
-        data = db.row_to_dict(row)
-        if data.get("nautobot_device_id"):
-            overrides[data["nautobot_device_id"]] = bool(data.get("is_critical"))
-    return overrides
-
-
 def is_core_device(device: dict, core_keywords, override_map: dict) -> bool:
     """A core device: marked critical by an override, else its role has a core keyword."""
     device_id = device.get("id") or ""
@@ -315,7 +298,7 @@ def down_core_devices(devices: list, location_type: str | None = None, override_
             try:
                 ids = [d.get("id") for d in devices if d.get("id")]
                 if ids:
-                    overrides = read_criticality_overrides(conn, ids)
+                    overrides = board_store.read_criticality_overrides(conn, ids)
             except Exception as exc:
                 logger.debug("Could not read criticality overrides: %s", exc)
             finally:
@@ -407,7 +390,7 @@ def compute_alert_level(
             try:
                 ids = [d.get("id") for d in devices if d.get("id")]
                 if ids:
-                    override_map = read_criticality_overrides(conn, ids)
+                    override_map = board_store.read_criticality_overrides(conn, ids)
             except Exception as exc:
                 logger.debug("Could not read criticality overrides: %s", exc)
             finally:
@@ -507,29 +490,6 @@ def tenant_scoped_alerts(
     return scoped
 
 
-def load_librenms_id_map() -> dict:
-    """Load persisted Nautobot UUID → LibreNMS device mapping."""
-    lnms_id_map: dict = {}
-    conn = db.get_conn()
-    if conn is not None:
-        try:
-            rows = conn.execute(
-                "SELECT nautobot_device_id, librenms_device_id, librenms_hostname FROM librenms_device_map"
-            ).fetchall()
-            lnms_id_map = {
-                r["nautobot_device_id"]: {
-                    "device_id": r["librenms_device_id"],
-                    "hostname": r["librenms_hostname"],
-                }
-                for r in rows
-            }
-        except Exception as exc:
-            logger.debug("Could not read librenms_device_map: %s", exc)
-        finally:
-            conn.close()
-    return lnms_id_map
-
-
 def librenms_index(lnms_devices: list) -> dict:
     """Look-ups into the LibreNMS inventory by device id, hostname and IP (#240).
 
@@ -598,7 +558,7 @@ def enrich_with_librenms(
 
     # Load Nautobot UUID → LibreNMS device ID overrides from DB
     if lnms_id_map is None:
-        lnms_id_map = load_librenms_id_map()
+        lnms_id_map = board_store.load_librenms_id_map()
 
     new_maps = new_librenms_maps if new_librenms_maps is not None else {}
     enriched = []
@@ -642,34 +602,8 @@ def enrich_with_librenms(
 
         enriched.append(device)
     if new_librenms_maps is None and new_maps:
-        store_librenms_maps(new_maps)
+        board_store.store_librenms_maps(new_maps)
     return enriched
-
-
-def store_librenms_maps(maps: dict) -> None:
-    """Upsert ``{nautobot_device_id: (librenms_device_id, hostname)}`` in one transaction (#240)."""
-    if not maps:
-        return
-    conn = db.get_conn()
-    if conn is None:
-        return
-    try:
-        with db.transaction(conn):
-            p0, p1, p2 = db.placeholders(3).split(",")
-            conn.cursor().executemany(
-                f"""
-                INSERT INTO librenms_device_map (nautobot_device_id, librenms_device_id, librenms_hostname)
-                VALUES ({p0}, {p1}, {p2})
-                ON CONFLICT(nautobot_device_id) DO UPDATE SET
-                    librenms_device_id = excluded.librenms_device_id,
-                    librenms_hostname   = excluded.librenms_hostname
-                """,
-                [(nautobot_id, lnms_id, hostname or "") for nautobot_id, (lnms_id, hostname) in maps.items()],
-            )
-    except Exception as exc:
-        logger.warning("Could not store %d LibreNMS device mappings: %s", len(maps), exc)
-    finally:
-        conn.close()
 
 
 def fetch_live_location_devices(location_id: str) -> list:
@@ -811,34 +745,6 @@ def alert_sort_key(level: str) -> int:
     return ALERT_LEVEL_ORDER.index(level) if level in ALERT_LEVEL_ORDER else len(ALERT_LEVEL_ORDER)
 
 
-def insert_alert_event(
-    conn,
-    instance_id: int,
-    event_type: str,
-    event_at: str,
-    alert_level: str,
-    alert_reason: str,
-    snapshot: dict,
-) -> None:
-    now_sql = db.sql_now()
-    placeholders = db.placeholders(6)
-    conn.execute(
-        f"""
-        INSERT INTO alert_events
-            (alert_instance_id, event_type, event_at, alert_level, alert_reason, snapshot_json, created_at)
-        VALUES ({placeholders}, {now_sql})
-        """,
-        (
-            instance_id,
-            event_type,
-            event_at,
-            alert_level,
-            alert_reason,
-            json.dumps(snapshot, separators=(",", ":"), sort_keys=True),
-        ),
-    )
-
-
 def resolve_open_alert_instances_for_site(
     conn,
     site_id: str,
@@ -849,17 +755,7 @@ def resolve_open_alert_instances_for_site(
     """Resolve the site's open alerts not in *open_alert_keys* at *checked_at*,
     or, for a device in *resolved_at_by_device* (flapping ended, #286), when
     it came back up."""
-    marker = db.placeholders(1)
-    open_rows = conn.execute(
-        f"""
-        SELECT id, alert_key, site_id, site_name, device_id, device_name, down_started_at
-        FROM alert_instances
-        WHERE site_id = {marker} AND status = 'open'
-        """,
-        (site_id,),
-    ).fetchall()
-    for row in open_rows:
-        row_data = db.row_to_dict(row)
+    for row_data in board_store.open_alerts_of_site(conn, site_id):
         alert_key = row_data.get("alert_key", "")
         if alert_key in open_alert_keys:
             continue
@@ -876,22 +772,9 @@ def resolve_open_alert_instances_for_site(
         elapsed = 0
         if started and resolved:
             elapsed = max(0, int((resolved - started).total_seconds()))
-        now_sql = db.sql_now()
-        p0, p1, p2, p3 = db.placeholders(4).split(",")
-        cur = conn.execute(
-            f"""
-            UPDATE alert_instances
-            SET status = 'resolved',
-                resolved_at = {p0},
-                total_downtime_seconds = COALESCE(total_downtime_seconds, 0) + {p1},
-                updated_at = {now_sql}
-            WHERE id = {p2} AND status = 'open' AND down_started_at <= {p3}
-            """,
-            (resolved_at, elapsed, row_data["id"], resolved_at),
-        )
-        if cur.rowcount == 0:
+        if not board_store.resolve_alert_instance(conn, row_data["id"], resolved_at, elapsed):
             continue
-        insert_alert_event(
+        board_store.insert_alert_event(
             conn=conn,
             instance_id=row_data["id"],
             event_type="resolved",
@@ -922,14 +805,9 @@ def acknowledge(conn, site_id: str, device_ids: list | None, by: str, note: str 
     note = (note or "").strip()[:MAX_ACK_NOTE_LENGTH]
     at = timeutil.iso_utc_now()
     with db.transaction(conn):
-        rows = conn.execute(
-            "SELECT id, device_id, device_name, site_name, alert_level, alert_reason, acknowledged_at "
-            # Locked: a board build resolving one meanwhile waits, so an
-            # acknowledgement never lands on an alarm that just ended.
-            "FROM alert_instances WHERE site_id = %s AND status = 'open' ORDER BY id FOR UPDATE",
-            (site_id,),
-        ).fetchall()
-        by_device = {row["device_id"]: row for row in map(db.row_to_dict, rows)}
+        # Locked: a board build resolving one meanwhile waits, so an
+        # acknowledgement never lands on an alarm that just ended.
+        by_device = {row["device_id"]: row for row in board_store.lock_open_alerts_of_site(conn, site_id)}
         wanted = list(dict.fromkeys(device_ids)) if device_ids else list(by_device)
         missing = [device_id for device_id in wanted if device_id not in by_device]
         if missing:
@@ -941,16 +819,10 @@ def acknowledge(conn, site_id: str, device_ids: list | None, by: str, note: str 
             if (row.get("acknowledged_at") is None) == clear:
                 continue
             if clear:
-                conn.execute(
-                    "UPDATE alert_instances SET acknowledged_at = NULL, acknowledged_by = '', ack_note = '' WHERE id = %s",
-                    (row["id"],),
-                )
+                board_store.clear_acknowledgement(conn, row["id"])
             else:
-                conn.execute(
-                    "UPDATE alert_instances SET acknowledged_at = %s, acknowledged_by = %s, ack_note = %s WHERE id = %s",
-                    (at, by, note, row["id"]),
-                )
-            insert_alert_event(
+                board_store.set_acknowledgement(conn, row["id"], at, by, note)
+            board_store.insert_alert_event(
                 conn=conn,
                 instance_id=row["id"],
                 event_type="unacknowledged" if clear else "acknowledged",
@@ -1008,24 +880,6 @@ DEVICE_STATE_RETENTION = timedelta(days=7)
 # Flapping (#286): FLAP_CHANGES up/down changes within this window; it ends
 # after a whole window without a change.
 FLAP_WINDOW = timedelta(minutes=30)
-
-
-def read_device_states(conn) -> dict:
-    """``{device_id: {"state", "since", "changes", "flapping_since", "updated_at"}}`` (#286)."""
-    rows = conn.execute(
-        "SELECT device_id, state, since, changes, flapping_since, source, updated_at FROM device_states"
-    ).fetchall()
-    states = {}
-    for row in map(db.row_to_dict, rows):
-        row["changes"] = [db.serialize_value(change) for change in row.get("changes") or []]
-        states[row["device_id"]] = row
-    return states
-
-
-def read_alarmed_device_ids(conn) -> set:
-    """Devices with an open alert: never hidden by the alert delay (#286)."""
-    rows = conn.execute("SELECT DISTINCT device_id FROM alert_instances WHERE status = 'open'").fetchall()
-    return {db.row_to_dict(row)["device_id"] for row in rows}
 
 
 def _recent(changes: list, now: str) -> list:
@@ -1108,29 +962,10 @@ def write_device_states(conn, next_states: dict, stored: dict, now: str) -> None
                 continue
             if previous and _same_state(previous, row, now):
                 continue
-            conn.execute(
-                "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since, source) "
-                "VALUES (%s, %s, %s, %s, %s::timestamptz[], %s, %s) "
-                "ON CONFLICT (device_id) DO UPDATE SET site_id = excluded.site_id, state = excluded.state, "
-                "since = excluded.since, changes = excluded.changes, flapping_since = excluded.flapping_since, "
-                "source = excluded.source, updated_at = CURRENT_TIMESTAMP",
-                (
-                    device_id,
-                    site_id,
-                    row["state"],
-                    row["since"],
-                    row["changes"],
-                    row["flapping_since"],
-                    row["source"],
-                ),
-            )
+            board_store.upsert_device_state(conn, device_id, site_id, row)
         if dropped:
-            conn.execute("DELETE FROM device_states WHERE device_id = ANY(%s)", (dropped,))
-        conn.execute(
-            "DELETE FROM device_states WHERE updated_at < %s::timestamptz - make_interval(secs => %s) "
-            "AND NOT (device_id = ANY(%s))",
-            (now, DEVICE_STATE_RETENTION.total_seconds(), list(next_states)),
-        )
+            board_store.delete_device_states(conn, dropped)
+        board_store.delete_unseen_device_states(conn, now, DEVICE_STATE_RETENTION, list(next_states))
 
 
 def came_up_at(device: dict, stored: dict | None, now: str) -> str:
@@ -1146,30 +981,6 @@ def came_up_at(device: dict, stored: dict | None, now: str) -> str:
     if edited and began and observed and began < edited <= observed:
         return device["last_updated"]
     return now
-
-
-def flapping_device_ids(conn, now: str) -> set:
-    """Devices flapping now (#286): they count as down.  Flapping ends after a
-    whole window without a change, also before a board build clears the row."""
-    rows = conn.execute(
-        "SELECT device_id FROM device_states WHERE flapping_since IS NOT NULL "
-        "AND EXISTS (SELECT 1 FROM unnest(changes) AS change WHERE change > %s::timestamptz - make_interval(secs => %s))",
-        (now, FLAP_WINDOW.total_seconds()),
-    ).fetchall()
-    return {db.row_to_dict(row)["device_id"] for row in rows}
-
-
-def pending_device_ids(conn, now: str) -> set:
-    """Devices down for less than ALERT_DELAY_SECONDS that haven't alarmed (#286)."""
-    if not settings.ALERT_DELAY_SECONDS:
-        return set()
-    rows = conn.execute(
-        "SELECT ds.device_id FROM device_states ds WHERE ds.state = 'down' "
-        "AND ds.since > %s::timestamptz - make_interval(secs => %s) "
-        "AND NOT EXISTS (SELECT 1 FROM alert_instances ai WHERE ai.device_id = ds.device_id AND ai.status = 'open')",
-        (now, settings.ALERT_DELAY_SECONDS),
-    ).fetchall()
-    return {db.row_to_dict(row)["device_id"] for row in rows}
 
 
 def _down_since(device: dict, checked_at: str) -> str:
@@ -1232,52 +1043,26 @@ def upsert_alert_lifecycle_for_site(
                 reason = alert.get("reason") or ""
                 alert_key = db.build_alert_key(site_id, device_id)
                 open_alert_keys.add(alert_key)
-                marker = db.placeholders(1)
-                latest_row = conn.execute(
-                    f"""
-                    SELECT id, status, down_started_at, alert_level, alert_reason
-                    FROM alert_instances
-                    WHERE alert_key = {marker} AND status = 'open'
-                    ORDER BY id DESC
-                    LIMIT 1
-                    """,
-                    (alert_key,),
-                ).fetchone()
-                if latest_row is None:
-                    now_sql = db.sql_now()
-                    p = db.placeholders(12).split(",")
-                    conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
-                    inserted = conn.execute(
-                        f"""
-                        INSERT INTO alert_instances
-                            (alert_key, site_id, site_name, device_id, device_name, alert_level, alert_reason,
-                             status, down_started_at, last_seen_down_at, resolved_at, total_downtime_seconds,
-                             created_at, updated_at, probable_cause, is_core)
-                        VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]},
-                                NULL, 0, {now_sql}, {now_sql}, {p[10]}, {p[11]})
-                        {conflict_sql}
-                        RETURNING id
-                        """,
-                        (
-                            alert_key,
-                            site_id,
-                            site.get("name") or "",
-                            device_id,
-                            device.get("name") or "",
-                            level,
-                            reason,
-                            "open",
-                            down_since(device, checked_at),
-                            checked_at,
-                            (probable_causes or {}).get(device_id, ""),
-                            device_id in (core_device_ids or ()),
-                        ),
-                    ).fetchone()
-                    inserted_id = db.row_to_dict(inserted).get("id")
+                current = board_store.latest_open_alert(conn, alert_key)
+                if current is None:
+                    inserted_id = board_store.open_alert_instance(
+                        conn,
+                        alert_key,
+                        site_id,
+                        site.get("name") or "",
+                        device_id,
+                        device.get("name") or "",
+                        level,
+                        reason,
+                        down_since(device, checked_at),
+                        checked_at,
+                        (probable_causes or {}).get(device_id, ""),
+                        device_id in (core_device_ids or ()),
+                    )
                     if inserted_id is not None:
-                        insert_alert_event(
+                        board_store.insert_alert_event(
                             conn=conn,
-                            instance_id=int(inserted_id),
+                            instance_id=inserted_id,
                             event_type="opened",
                             event_at=checked_at,
                             alert_level=level,
@@ -1291,51 +1076,24 @@ def upsert_alert_lifecycle_for_site(
                             },
                         )
                         continue
-                    latest_row = conn.execute(
-                        f"""
-                        SELECT id, status, down_started_at, alert_level, alert_reason
-                        FROM alert_instances
-                        WHERE alert_key = {marker} AND status = 'open'
-                        ORDER BY id DESC
-                        LIMIT 1
-                        """,
-                        (alert_key,),
-                    ).fetchone()
-                    if latest_row is None:
+                    # Opened meanwhile by another build: update that one.
+                    current = board_store.latest_open_alert(conn, alert_key)
+                    if current is None:
                         continue
-                current = db.row_to_dict(latest_row)
-                now_sql = db.sql_now()
-                p = db.placeholders(9).split(",")
-                # down_started_at only ever moves earlier: this also corrects
-                # alerts opened before #166 on their next build.
-                conn.execute(
-                    f"""
-                    UPDATE alert_instances
-                    SET site_name = {p[0]},
-                        device_name = {p[1]},
-                        alert_level = {p[2]},
-                        alert_reason = {p[3]},
-                        last_seen_down_at = {p[4]},
-                        down_started_at = LEAST(down_started_at, {p[5]}::timestamptz),
-                        probable_cause = {p[6]},
-                        is_core = {p[7]},
-                        updated_at = {now_sql}
-                    WHERE id = {p[8]}
-                    """,
-                    (
-                        site.get("name") or "",
-                        device.get("name") or "",
-                        level,
-                        reason,
-                        checked_at,
-                        down_since(device, checked_at),
-                        (probable_causes or {}).get(device_id, ""),
-                        device_id in (core_device_ids or ()),
-                        current["id"],
-                    ),
+                board_store.refresh_open_alert(
+                    conn,
+                    current["id"],
+                    site.get("name") or "",
+                    device.get("name") or "",
+                    level,
+                    reason,
+                    checked_at,
+                    down_since(device, checked_at),
+                    (probable_causes or {}).get(device_id, ""),
+                    device_id in (core_device_ids or ()),
                 )
                 if current.get("alert_level") != level or current.get("alert_reason") != reason:
-                    insert_alert_event(
+                    board_store.insert_alert_event(
                         conn=conn,
                         instance_id=current["id"],
                         event_type="updated",
@@ -1358,29 +1116,6 @@ def upsert_alert_lifecycle_for_site(
     finally:
         if owns_conn:
             conn.close()
-
-
-def get_case_numbers_for_instances(conn, instance_ids: list[int]) -> dict[int, list[str]]:
-    if not instance_ids:
-        return {}
-    markers = db.placeholders(len(instance_ids))
-    rows = conn.execute(
-        f"""
-        SELECT alert_instance_id, case_number
-        FROM alert_cases
-        WHERE alert_instance_id IN ({markers})
-        ORDER BY created_at DESC, id DESC
-        """,
-        tuple(instance_ids),
-    ).fetchall()
-    case_numbers_by_instance: dict[int, list[str]] = {instance_id: [] for instance_id in instance_ids}
-    for row in rows:
-        data = db.row_to_dict(row)
-        instance_id = int(data.get("alert_instance_id") or 0)
-        case_number = (data.get("case_number") or "").strip()
-        if instance_id and case_number:
-            case_numbers_by_instance.setdefault(instance_id, []).append(case_number)
-    return case_numbers_by_instance
 
 
 def empty_alert_context() -> dict:
@@ -1458,25 +1193,13 @@ def summarize_alert_context(
 
 def read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     """Query one site's alert context on *conn*; raises on database errors."""
-    site_marker = db.placeholders(1)
-    rows = conn.execute(
-        f"""
-        SELECT id, device_id, device_name, status, down_started_at, total_downtime_seconds, probable_cause, is_core,
-               acknowledged_at, acknowledged_by, ack_note
-        FROM alert_instances
-        WHERE site_id = {site_marker}
-        ORDER BY id DESC
-        """,
-        (site_id,),
-    ).fetchall()
     historical_seconds = 0
     open_rows = []
-    for row in rows:
-        data = db.row_to_dict(row)
+    for data in board_store.site_alert_rows(conn, site_id):
         historical_seconds += int(data.get("total_downtime_seconds") or 0)
         if data.get("status") == "open":
             open_rows.append(data)
-    case_numbers_by_instance = get_case_numbers_for_instances(
+    case_numbers_by_instance = board_store.get_case_numbers_for_instances(
         conn,
         [int(data["id"]) for data in open_rows if data.get("id") is not None],
     )
@@ -1665,68 +1388,6 @@ def roll_up_to_site_locations(
     return rows, devices_by_row
 
 
-def read_alert_board_data(conn) -> dict:
-    """Read what an alert-board build needs for every site, in a few queries (#149).
-
-    Replaces per-site reads of cached devices, criticality overrides, the
-    primary-IP backfill state and the alert context.  Raises on database
-    errors; the caller then falls back to reading per site.
-    """
-    devices_by_location: dict[str, list] = {}
-    for device in inventory.read_devices(conn=conn):
-        devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
-
-    # Closed instances are summed in SQL: the table grows with every outage.
-    historical_downtime_by_site = {}
-    for row in conn.execute(
-        """
-        SELECT site_id, SUM(total_downtime_seconds) AS total
-        FROM alert_instances
-        GROUP BY site_id
-        """
-    ).fetchall():
-        data = db.row_to_dict(row)
-        historical_downtime_by_site[data.get("site_id") or ""] = int(data.get("total") or 0)
-
-    open_rows_by_site: dict[str, list[dict]] = {}
-    for row in conn.execute(
-        """
-        SELECT id, site_id, device_id, device_name, down_started_at, probable_cause, is_core,
-               acknowledged_at, acknowledged_by, ack_note
-        FROM alert_instances
-        WHERE status = 'open'
-        ORDER BY id DESC
-        """
-    ).fetchall():
-        data = db.row_to_dict(row)
-        open_rows_by_site.setdefault(data.get("site_id") or "", []).append(data)
-
-    case_numbers_by_instance: dict[int, list[str]] = {}
-    for row in conn.execute(
-        """
-        SELECT ac.alert_instance_id, ac.case_number
-        FROM alert_cases ac
-        JOIN alert_instances ai ON ai.id = ac.alert_instance_id
-        WHERE ai.status = 'open'
-        ORDER BY ac.created_at DESC, ac.id DESC
-        """
-    ).fetchall():
-        data = db.row_to_dict(row)
-        instance_id = int(data.get("alert_instance_id") or 0)
-        case_number = (data.get("case_number") or "").strip()
-        if instance_id and case_number:
-            case_numbers_by_instance.setdefault(instance_id, []).append(case_number)
-
-    return {
-        "devices_by_location": devices_by_location,
-        "override_map": read_criticality_overrides(conn),
-        "primary_ip_backfill_pending": nautobot_inventory_primary_ip_backfill_pending(conn=conn),
-        "historical_downtime_by_site": historical_downtime_by_site,
-        "open_rows_by_site": open_rows_by_site,
-        "case_numbers_by_instance": case_numbers_by_instance,
-    }
-
-
 def _fingerprint(items) -> str:
     return hashlib.sha256("\n".join(sorted(items)).encode()).hexdigest()[:16]
 
@@ -1777,37 +1438,22 @@ def record_site_level_changes(
     changes = 0
     try:
         with db.transaction(conn):
-            rows = conn.execute(
-                "SELECT site_id, alert_level, criticality_key, down_key FROM site_alert_levels "
-                "WHERE site_id = ANY(%s) ORDER BY site_id FOR UPDATE",
-                (sorted(levels),),
-            ).fetchall()
-            previous = {row["site_id"]: row for row in map(db.row_to_dict, rows)}
+            previous = board_store.lock_site_levels(conn, list(levels))
             for site_id in sorted(levels):
                 site_name, level = levels[site_id]
                 criticality_key, down_key = (level_keys or {}).get(site_id, (None, None))
                 before = previous.get(site_id)
                 if before is None:
-                    conn.execute(
-                        "INSERT INTO site_alert_levels "
-                        "(site_id, site_name, alert_level, updated_at, first_seen_at, criticality_key, down_key) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (site_id) DO NOTHING",
-                        (site_id, site_name, level, checked_at, checked_at, criticality_key, down_key),
+                    board_store.insert_site_level(
+                        conn, site_id, site_name, level, checked_at, criticality_key, down_key
                     )
                     continue
                 keys_changed = criticality_key is not None and (
                     (before["criticality_key"], before["down_key"]) != (criticality_key, down_key)
                 )
                 if before["alert_level"] != level:
-                    conn.execute(
-                        "UPDATE site_alert_levels SET site_name = %s, alert_level = %s, updated_at = %s "
-                        "WHERE site_id = %s",
-                        (site_name, level, checked_at, site_id),
-                    )
-                    conn.execute(
-                        "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
-                        "VALUES (%s, %s, %s, %s, %s)",
-                        (site_id, site_name, before["alert_level"], level, checked_at),
+                    board_store.record_site_level_change(
+                        conn, site_id, site_name, before["alert_level"], level, checked_at
                     )
                     # Only the criticality changed, the same devices down: an edit, not
                     # news (#377).  Unknown before (the first build after the upgrade):
@@ -1830,46 +1476,13 @@ def record_site_level_changes(
                         )
                     changes += 1
                 if keys_changed:
-                    conn.execute(
-                        "UPDATE site_alert_levels SET criticality_key = %s, down_key = %s WHERE site_id = %s",
-                        (criticality_key, down_key, site_id),
-                    )
+                    board_store.set_site_level_keys(conn, site_id, criticality_key, down_key)
     finally:
         conn.close()
     return changes
 
 
 HISTORY_RETENTION_SOURCE = "alert_history_retention"
-RETENTION_BATCH_SIZE = 1000
-
-
-def prune_alert_history(conn, retention_days: int) -> dict:
-    """Delete alert history older than *retention_days* (#194).
-
-    Resolved alert instances whose ``resolved_at`` is older go, with their
-    events and cases (``ON DELETE CASCADE``), and so do site severity
-    changes.  Open alerts are never deleted.  Deletes in batches, each its
-    own transaction, so the tables aren't locked for long.  Returns the
-    number of rows deleted per table.
-    """
-    deleted = {"alert_instances": 0, "site_level_changes": 0}
-    if retention_days <= 0:
-        return deleted
-    batches = {
-        "alert_instances": "DELETE FROM alert_instances WHERE id IN ("
-        "SELECT id FROM alert_instances WHERE status = 'resolved' "
-        "AND resolved_at < now() - make_interval(days => %s) LIMIT %s)",
-        "site_level_changes": "DELETE FROM site_level_changes WHERE id IN ("
-        "SELECT id FROM site_level_changes WHERE changed_at < now() - make_interval(days => %s) LIMIT %s)",
-    }
-    for table, query in batches.items():
-        while True:
-            with db.transaction(conn):
-                count = conn.execute(query, (retention_days, RETENTION_BATCH_SIZE)).rowcount
-            deleted[table] += count
-            if count < RETENTION_BATCH_SIZE:
-                break
-    return deleted
 
 
 def maybe_prune_alert_history(conn) -> dict | None:
@@ -1878,7 +1491,7 @@ def maybe_prune_alert_history(conn) -> dict | None:
     if days <= 0 or not inventory.sync_due(HISTORY_RETENTION_SOURCE, 24 * 3600, conn=conn):
         return None
     started_at = timeutil.iso_utc_now()
-    deleted = prune_alert_history(conn, days)
+    deleted = board_store.prune_alert_history(conn, days)
     with db.transaction(conn):
         inventory.record_sync_state(
             conn,
@@ -1895,86 +1508,6 @@ def maybe_prune_alert_history(conn) -> dict | None:
             deleted["site_level_changes"],
         )
     return deleted
-
-
-FEED_KINDS = ("down", "up", "severity")
-
-
-def read_alert_feed(
-    conn, limit: int, since: str | None = None, kinds=FEED_KINDS, site_ids: list[str] | None = None
-) -> list[dict]:
-    """What changed on the board, newest first (#180).
-
-    ``down`` (an alert opened) and ``up`` (resolved) come from the alert
-    events; ``severity`` from the logged site level changes.  *since* keeps
-    only entries after that time; *site_ids* (a page for some sites only,
-    #369) only those sites' entries, before the limit.
-    """
-
-    if site_ids is not None and not site_ids:
-        return []  # No site matches the page's scope (#369).
-
-    def filters(time_column: str, site_column: str) -> tuple[list[str], list]:
-        """The conditions for *since* and *site_ids* on one branch, and their params."""
-        clauses, values = [], []
-        if since:
-            clauses.append(f"{time_column} > %s")
-            values.append(since)
-        if site_ids is not None:
-            clauses.append(f"{site_column} = ANY(%s)")
-            values.append(site_ids)
-        return clauses, values
-
-    branches, params = [], []
-    event_types = [event for kind, event in (("down", "opened"), ("up", "resolved")) if kind in kinds]
-    if event_types:
-        clauses, values = filters("e.event_at", "i.site_id")
-        where = " AND ".join(["e.event_type = ANY(%s)", *clauses])
-        branches.append(
-            f"""
-            SELECT CASE e.event_type WHEN 'opened' THEN 'down' ELSE 'up' END AS kind,
-                   e.event_at AS at, e.id AS seq, i.site_id, i.site_name, i.device_id, i.device_name,
-                   e.alert_level AS level, i.down_started_at AS down_since,
-                   '' AS from_level, '' AS to_level
-            FROM alert_events e
-            JOIN alert_instances i ON i.id = e.alert_instance_id
-            WHERE {where}
-            """
-        )
-        params += [event_types, *values]
-    if "severity" in kinds:
-        clauses, values = filters("c.changed_at", "c.site_id")
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        branches.append(
-            f"""
-            SELECT 'severity' AS kind, c.changed_at AS at, c.id AS seq, c.site_id, c.site_name,
-                   '' AS device_id, '' AS device_name, c.to_level AS level,
-                   NULL::timestamptz AS down_since, c.from_level, c.to_level
-            FROM site_level_changes c
-            {where}
-            """
-        )
-        params += values
-    if not branches:
-        return []
-    rows = conn.execute(
-        # At the same moment a site's severity change sits above the device
-        # events that caused it (newest first).
-        f"SELECT * FROM ({' UNION ALL '.join(branches)}) feed "
-        "ORDER BY at DESC, kind = 'severity' DESC, seq DESC LIMIT %s",
-        (*params, limit),
-    ).fetchall()
-    events = []
-    for row in rows:
-        event = db.row_to_dict(row)
-        event.pop("seq", None)
-        if event["kind"] != "down":
-            event.pop("down_since", None)
-        if event["kind"] != "severity":
-            event.pop("from_level", None)
-            event.pop("to_level", None)
-        events.append(event)
-    return events
 
 
 def build_alert_board_payload(
@@ -2008,7 +1541,7 @@ def build_alert_board_payload(
             if not lnms_devices and not snapshot_only:
                 inventory.ensure_snapshot(force=True, wait=True)
                 lnms_devices = inventory.read_librenms_devices()
-            lnms_id_map = load_librenms_id_map()
+            lnms_id_map = board_store.load_librenms_id_map()
         except Exception as exc:
             logger.warning("Could not refresh LibreNMS inventory for alert board: %s", exc)
             lnms_devices = []
@@ -2046,12 +1579,12 @@ def build_alert_board_payload(
         persistence_unavailable = True
     else:
         try:
-            board_data = read_alert_board_data(read_conn)
+            board_data = board_store.read_alert_board_data(read_conn)
         except Exception as exc:
             logger.warning("Could not bulk-read alert board data; reading per site instead: %s", exc, exc_info=True)
         try:
-            device_states = read_device_states(read_conn)
-            alarmed_device_ids = read_alarmed_device_ids(read_conn)
+            device_states = board_store.read_device_states(read_conn)
+            alarmed_device_ids = board_store.read_alarmed_device_ids(read_conn)
         except Exception as exc:
             device_states = None
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
@@ -2273,7 +1806,7 @@ def build_alert_board_payload(
                 if write_conn is not None:
                     try:
                         if primary_ip_backfill_pending is None:
-                            primary_ip_backfill_pending = nautobot_inventory_primary_ip_backfill_pending(
+                            primary_ip_backfill_pending = board_store.nautobot_inventory_primary_ip_backfill_pending(
                                 conn=write_conn
                             )
                         if observation_succeeded and not primary_ip_backfill_pending:
@@ -2517,7 +2050,7 @@ def build_alert_board_payload(
         if write_conn is not None:
             write_conn.close()
 
-    store_librenms_maps(new_librenms_maps)
+    board_store.store_librenms_maps(new_librenms_maps)
 
     if not persistence_unavailable and not maintenance_unknown:
         try:
@@ -2636,27 +2169,6 @@ def _board_build_lock(stored=None):
             return ("stored", found)
 
 
-def record_board_build(trigger: str, seconds: float) -> None:
-    """Count a board build and its duration per trigger, for /metrics (#295)."""
-    conn = db.get_conn()
-    if conn is None:
-        return
-    try:
-        with db.transaction(conn):
-            conn.execute(
-                "INSERT INTO board_build_stats (trigger, builds, total_seconds, last_seconds, last_built_at) "
-                "VALUES (%s, 1, %s, %s, %s) ON CONFLICT (trigger) DO UPDATE SET "
-                "builds = board_build_stats.builds + 1, "
-                "total_seconds = board_build_stats.total_seconds + excluded.total_seconds, "
-                "last_seconds = excluded.last_seconds, last_built_at = excluded.last_built_at",
-                (trigger, seconds, seconds, timeutil.iso_utc_now()),
-            )
-    except Exception as exc:
-        logger.debug("Could not record the board build: %s", exc)
-    finally:
-        conn.close()
-
-
 def board(trigger: str = "request", rebuild: bool = False, include_non_operational: bool = False) -> dict:
     """The stored alert board, built when it is missing, or with *rebuild*.
 
@@ -2687,7 +2199,7 @@ def board(trigger: str = "request", rebuild: bool = False, include_non_operation
         )
         if payload.get("alerts") or inventory.snapshot_initialized():
             caching.set(key, payload, timeout=board_cache_seconds(payload))
-        record_board_build(trigger, time.monotonic() - started)
+        board_store.record_board_build(trigger, time.monotonic() - started)
         return payload
     finally:
         if callable(release):
@@ -2745,8 +2257,8 @@ def build_location_alert_levels() -> dict:
             # Devices in maintenance don't count, like on the board (#283),
             # nor ones down for less than the alert delay (#286).
             in_maintenance = maintenance.read_active(conn, maintenance.now())
-            pending = pending_device_ids(conn, timeutil.iso_utc_now())
-            flapping = flapping_device_ids(conn, timeutil.iso_utc_now())
+            pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
+            flapping = board_store.flapping_device_ids(conn, timeutil.iso_utc_now(), FLAP_WINDOW)
             for device in inventory.read_devices(conn=conn):
                 if (device.get("id") or "") in pending:
                     # Only a device the board counts (its state row can outlive its IP).
@@ -2759,7 +2271,7 @@ def build_location_alert_levels() -> dict:
                 if (device.get("id") or "") in flapping:
                     device = {**device, "status": "Flapping"}  # counts as down, like on the board (#286)
                 devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
-            override_map = read_criticality_overrides(conn)
+            override_map = board_store.read_criticality_overrides(conn)
             webhook_index = webhooks.read_index(conn)
         finally:
             conn.close()
@@ -2769,7 +2281,7 @@ def build_location_alert_levels() -> dict:
     new_librenms_maps: dict = {}
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         lnms_devices = inventory.read_librenms_devices()
-        lnms_id_map = load_librenms_id_map()
+        lnms_id_map = board_store.load_librenms_id_map()
         lnms_index = librenms_index(lnms_devices)
 
     # The board's rows are the truth (#316): a site has the same level, the
@@ -2827,7 +2339,7 @@ def build_location_alert_levels() -> dict:
                 # Devices within the alert delay are monitored, as on the board.
                 "monitored": len(counted) + held_back.get(location_id, 0),
             }
-    store_librenms_maps(new_librenms_maps)
+    board_store.store_librenms_maps(new_librenms_maps)
     for location_id, count in held_back.items():
         if location_id and location_id not in levels and location_id not in board_rows:
             levels[location_id] = {"level": "ok", "reason": "", "down": 0, "monitored": count}
@@ -2901,12 +2413,12 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     if conn is not None:
         try:
             in_window = maintenance.read_active(conn, maintenance.now())["devices"]
-            pending = pending_device_ids(conn, timeutil.iso_utc_now())
+            pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
         except Exception as exc:
             logger.warning("Could not read maintenance and alert delay for the site panel: %s", exc)
         try:
             ids = [d.get("id") for d in devices if d.get("id")]
-            overrides = read_criticality_overrides(conn, ids) if ids else {}
+            overrides = board_store.read_criticality_overrides(conn, ids) if ids else {}
         except Exception as exc:
             logger.warning("Could not read criticality overrides for the site panel: %s", exc)
         finally:
