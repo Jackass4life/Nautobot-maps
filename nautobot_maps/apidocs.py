@@ -27,7 +27,7 @@ EXAMPLE_BODIES = {
         "reason": "Core uplink for the site",
         "updated_by": "noc",
     },
-    "web.mcp_endpoint": {
+    "ops.mcp_endpoint": {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
