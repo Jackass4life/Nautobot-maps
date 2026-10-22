@@ -69,9 +69,10 @@ export function restorePanelHidden() {
   setPanelHidden(stored, { remember: false });
 }
 
-// `[` toggles it, unless typing (a field, or a key with a modifier).
+// `[` toggles it, unless typing in a field or another shortcut (Ctrl, Cmd).
+// A Danish or German "[" needs AltGr (Ctrl+Alt) or Option (Alt): allowed.
 export function isPanelShortcut(event) {
-  if (event.key !== "[" || event.ctrlKey || event.metaKey || event.altKey) return false;
+  if (event.key !== "[" || event.metaKey || (event.ctrlKey && !event.altKey)) return false;
   const target = event.target;
   return !(target?.closest?.("input, textarea, select, [contenteditable]") || target?.isContentEditable);
 }

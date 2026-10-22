@@ -231,7 +231,10 @@ import { isPanelShortcut } from "@js/map/sidebar.js";
 const on = (target, extra = {}) => isPanelShortcut({ key: "[", target, ...extra });
 check(on(element("map")), "[ on the page");
 check(!on(element("input", { closest: (sel) => sel.includes("input") ? {} : null })), "typing in a field");
-check(!on(element("map"), { ctrlKey: true }), "with a modifier");
+check(!on(element("map"), { ctrlKey: true }), "Ctrl+[");
+check(!on(element("map"), { metaKey: true }), "Cmd+[");
+check(on(element("map"), { ctrlKey: true, altKey: true }), "AltGr+8 on a Danish keyboard (Windows)");
+check(on(element("map"), { altKey: true }), "Option+8 on a Danish Mac");
 check(!isPanelShortcut({ key: "]", target: element("map") }), "another key");
 """
     )
