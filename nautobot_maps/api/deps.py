@@ -344,14 +344,21 @@ def _error_page(request: Request, status: int):
 
 def openapi(app) -> dict:
     """The API spec, without FastAPI's 422 for bad input: the app answers 400
-    with ``{"error": ...}`` (``invalid_request``), which ``AppRoute`` lists."""
+    with ``{"error": ...}`` (``invalid_request``), which ``AppRoute`` lists.
+    An error's example is its description."""
     if app.openapi_schema is None:
         from fastapi.openapi.utils import get_openapi
 
         schema = get_openapi(title=app.title, version=app.version, description=app.description, routes=app.routes)
+        error = {"$ref": "#/components/schemas/Error"}
         for operations in schema.get("paths", {}).values():
             for operation in operations.values():
                 operation.get("responses", {}).pop("422", None)
+                # Each error's example is its own sentence, not every optional field.
+                for response in operation.get("responses", {}).values():
+                    content = response.get("content", {}).get("application/json", {})
+                    if content.get("schema") == error:
+                        content["example"] = {"error": response["description"]}
         for name in ("HTTPValidationError", "ValidationError"):
             schema.get("components", {}).get("schemas", {}).pop(name, None)
         app.openapi_schema = schema

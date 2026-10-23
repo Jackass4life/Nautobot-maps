@@ -16,9 +16,6 @@ class Error(Answer):
     """Every refusal and error: one plain sentence, and for a role refusal the
     role it needs."""
 
-    # One plain example in /docs, not every optional field (#449).
-    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"error": "Not found"}]})
-
     error: str
     detail: str | None = Field(None, description="How to allow it, when the setup refuses it.")
     required_role: Literal["viewer", "operator", "admin"] | None = None

@@ -41,6 +41,7 @@ def test_errors_are_shown_as_the_app_sends_them(client):
     # Bad input: 400 {"error": ...}.
     alerts = spec["paths"]["/api/alerts"]["get"]["responses"]
     assert alerts["400"]["content"]["application/json"]["schema"] == error
+    assert alerts["400"]["content"]["application/json"]["example"] == {"error": "Bad input"}
     # A role: 401 and 403 too; none without one.
     tokens = spec["paths"]["/api/tokens"]["get"]["responses"]
     assert tokens["401"]["content"]["application/json"]["schema"] == error and "403" in tokens
