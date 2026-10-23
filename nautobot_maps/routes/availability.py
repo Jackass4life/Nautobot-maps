@@ -10,6 +10,7 @@ from nautobot_maps import (
     availability,
     db,
     settings,
+    templating,
 )
 from nautobot_maps.routes import common
 
@@ -53,15 +54,9 @@ def _availability_report(conn=None, with_incidents: bool = False) -> tuple[dict 
             conn.close()
 
 
-@bp.app_template_filter("downtime")
-def _downtime_filter(seconds) -> str:
-    return availability.format_downtime(seconds)
-
-
-@bp.app_template_filter("thousands")
-def _thousands_filter(count) -> str:
-    """1,200 (#342)."""
-    return f"{count:,}"
+# The filters every template may use, Flask's and FastAPI's (#436).
+for _name, _filter in templating.FILTERS.items():
+    bp.add_app_template_filter(_filter, _name)
 
 
 @bp.route("/availability")

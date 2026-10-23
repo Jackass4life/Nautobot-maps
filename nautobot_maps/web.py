@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
-from nautobot_maps import auth, compression, routes, settings
+from nautobot_maps import auth, compression, routes, settings, templating
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +26,8 @@ def register(app) -> None:
 
 @bp.app_context_processor
 def top_bar_user():
-    """Who is signed in, for the top bar (#419): "olga · operator", a token's
-    name, or nothing with AUTH_MODE=disabled."""
-    user = auth.get_current_user()
-    name = user.get("token") or user.get("username") or ""
-    if not user.get("is_authenticated") or not name:
-        return {"bar_user": None}
-    return {"bar_user": {"name": name, "role": user.get("role") or ""}}
+    """Who is signed in, for the top bar (#419); the same for FastAPI's pages."""
+    return {"bar_user": templating.bar_user()}
 
 
 def tile_source() -> str:

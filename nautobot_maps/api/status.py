@@ -1,34 +1,30 @@
-"""A tenant's status page and its API (#291, #424)."""
+"""A tenant's status page and its API (#291; on FastAPI since #436)."""
 
 import logging
 
-from flask import Blueprint, current_app, jsonify, render_template
+from fastapi import APIRouter
 
-from nautobot_maps import (
-    alerts,
-    auth,
-    inventory,
-    status,
-)
+from nautobot_maps import alerts, auth, inventory, status
+from nautobot_maps.api import deps, pages
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("status", __name__)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+
+UNAVAILABLE = {"error": "Status unavailable, try again shortly"}
 
 
-@bp.route("/status/<path:tenant>")
+@router.get("/status/{tenant:path}", name="status.status_page")
 def status_page(tenant: str):
     """A tenant's status page (#291): its sites and their state, for a customer.
 
     The page holds no data; it reads ``/api/status/<tenant>``, with the key
     from a share link's ``#key=`` (never sent to the server in the URL).
     """
-    response = current_app.make_response(render_template("status.html", tenant=tenant.strip()))
-    response.headers["Referrer-Policy"] = "no-referrer"
-    return response
+    return pages.page("status.html", tenant=tenant.strip(), headers={"Referrer-Policy": "no-referrer"})
 
 
-@bp.route("/api/status/<path:tenant>")
+@router.get("/api/status/{tenant:path}", name="status.api_status")
 def api_status(tenant: str):
     """A tenant's sites and their state (#291): ``operational``, ``degraded``,
     ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``.
@@ -38,17 +34,15 @@ def api_status(tenant: str):
     """
     denied = auth.status_access(tenant)
     if denied is not None:
-        return denied
+        raise deps.ApiError(*denied)
     try:
         result = status.tenant_status(alerts.get_alert_board_data(), tenant)
     except Exception as exc:
         logger.warning("Status page unavailable: %s", type(exc).__name__)
-        return jsonify({"error": "Status unavailable, try again shortly"}), 503
+        return deps.Json(UNAVAILABLE, status_code=503)
     if result is None:
         # Before the first sync the board is empty: that's not "no sites".
         if not inventory.snapshot_initialized():
-            return jsonify({"error": "Status unavailable, try again shortly"}), 503
-        return jsonify({"error": "No sites for this tenant"}), 404
-    response = jsonify(result)
-    response.headers["Cache-Control"] = "no-store"
-    return response
+            return deps.Json(UNAVAILABLE, status_code=503)
+        return deps.Json({"error": "No sites for this tenant"}, status_code=404)
+    return deps.Json(result, headers={"Cache-Control": "no-store"})

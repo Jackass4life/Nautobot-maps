@@ -182,3 +182,41 @@ def test_the_shared_pieces_refuse_like_flask(monkeypatch):
         assert no_role.status_code == 403 and no_role.get_json()["required_role"] == "operator"
         operator = client.post("/api/x", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"})
         assert operator.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 (#436): pages rendered by FastAPI are Flask's pages
+# ---------------------------------------------------------------------------
+
+
+def test_templates_render_the_same_html_as_flask():
+    """The same template and context give the same HTML under either renderer:
+    filters, url_for('static'), escaping, the top bar's user."""
+    import flask
+
+    import app as flask_app
+    from nautobot_maps import templating
+
+    for template, context in (
+        ("status.html", {"tenant": "Acme <Corp> & Co"}),
+        ("circuits.html", {"nautobot_url": "https://nautobot.example"}),
+    ):
+        with flask_app.app.test_request_context("/"):
+            flask_html = flask.render_template(template, **context)
+            ours = templating.render(template, **context)
+        assert ours == flask_html, template
+    with flask_app.app.test_request_context("/"):
+        filtered = flask_app.app.jinja_env.from_string("{{ 1200 | thousands }} {{ 5400 | downtime }}").render()
+    assert templating.environment.from_string("{{ 1200 | thousands }} {{ 5400 | downtime }}").render() == filtered
+
+
+def test_the_status_page_is_fastapis_with_its_own_referrer_policy(client):
+    import app as flask_app
+
+    assert not any(rule.rule.startswith(("/status/", "/api/status/")) for rule in flask_app.app.url_map.iter_rules())
+    page = client.get("/status/Acme%20Corp")
+    assert page.status_code == 200 and page.headers["content-type"] == "text/html; charset=utf-8"
+    assert page.headers.get_list("referrer-policy") == ["no-referrer"]
+    assert len(page.headers.get_list("content-security-policy")) == 1
+    # Its static files still come from Flask, open to customers.
+    assert client.get("/static/js/status/main.js").status_code == 200
