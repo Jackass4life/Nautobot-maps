@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Request
 
 from nautobot_maps import caching, db, inventory, scheduler, settings, webhooks
 from nautobot_maps.api import deps, models
+from nautobot_maps.api.answers import common
+from nautobot_maps.api.answers import ingest as answers
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +18,18 @@ router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENC
 Body = Annotated[object, Depends(deps.json_body)]
 Form = Annotated[dict, Depends(deps.form_values)]
 NO_DATABASE = {"error": "Persistence DB not configured"}
+NO_DATABASE_RESPONSE = {503: {"model": common.Error, "description": "No database"}}
 
 
 @router.post(
     "/api/librenms/alert",
     name="ingest.api_librenms_alert",
+    response_model=answers.LibreNmsPush,
+    responses={
+        **NO_DATABASE_RESPONSE,
+        409: {"model": common.Error, "description": "LibreNMS is not configured"},
+        502: {"model": common.Error, "description": "LibreNMS couldn't be asked"},
+    },
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(models.LibreNmsPush),
 )
@@ -95,6 +104,8 @@ def _webhook_alerts(body, parse):
 @router.post(
     "/api/alertmanager",
     name="ingest.api_alertmanager",
+    response_model=answers.WebhookResult,
+    responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(models.AlertmanagerWebhook),
 )
@@ -112,6 +123,8 @@ def api_alertmanager(body: Body):
 @router.post(
     "/api/device-status",
     name="ingest.api_device_status",
+    response_model=answers.WebhookResult,
+    responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(models.DeviceStatus),
 )

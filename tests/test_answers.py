@@ -14,9 +14,6 @@ from tests import answers as answer_check
 WITHOUT_MODEL = {"POST /mcp"}
 # Areas not described yet, one PR each (#449); each takes its routes off.
 PENDING = {
-    "POST /api/librenms/alert",
-    "POST /api/alertmanager",
-    "POST /api/device-status",
     "GET /api/contract",
     "GET /api/tokens",
     "POST /api/tokens",
