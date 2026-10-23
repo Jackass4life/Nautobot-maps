@@ -146,7 +146,7 @@ docker compose exec nautobot-maps python -m nautobot_maps token list
 docker compose exec nautobot-maps python -m nautobot_maps token revoke 3
 ```
 
-Or through the API (admin role; also in the API explorer at `/docs`): `POST /api/tokens` with `{"name": "librenms", "role": "operator", "expires_in_days": 365}` returns the token once; `GET /api/tokens` lists them (name, first characters, role, expiry, last use, state; never the secret); `POST /api/tokens/<id>/revoke` revokes one from the next request on.
+Or through the API (admin role; also on the API page, `/docs`): `POST /api/tokens` with `{"name": "librenms", "role": "operator", "expires_in_days": 365}` returns the token once; `GET /api/tokens` lists them (name, first characters, role, expiry, last use, state; never the secret); `POST /api/tokens/<id>/revoke` revokes one from the next request on.
 
 ### Behind a sign-in proxy
 

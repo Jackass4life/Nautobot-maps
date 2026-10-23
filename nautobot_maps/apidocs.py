@@ -153,7 +153,7 @@ def routes(app: Flask | None = None) -> list[dict]:
     # From our routers (no prefixes), not the app's route list: FastAPI keeps
     # an included router there as one private object.
     for route in (route for router in nautobot_maps.api.ROUTERS for route in router.routes):
-        if not isinstance(route, APIRoute):
+        if not isinstance(route, APIRoute) or route.name in HIDDEN_ENDPOINTS:
             continue
         found.append(
             {

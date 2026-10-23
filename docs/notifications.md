@@ -50,7 +50,7 @@ Plain text and HTML. Without `SMTP_USERNAME` it sends without logging in (an int
 
 ## Test
 
-`POST /api/notifications/test` (admin role; with `AUTH_MODE=disabled` only when `ALLOW_UNAUTHENTICATED_WRITES=true`; in the API explorer at `/docs`) sends a test message on every configured channel and returns `{"results": {"webhook": "ok", "email": "error: ..."}}`.
+`POST /api/notifications/test` (admin role; with `AUTH_MODE=disabled` only when `ALLOW_UNAUTHENTICATED_WRITES=true`; on the API page at `/docs`) sends a test message on every configured channel and returns `{"results": {"webhook": "ok", "email": "error: ..."}}`.
 
 ## Reliability
 

@@ -101,6 +101,8 @@ def test_moved_routes_keep_headers_gzip_head_and_405(asgi_client):
     wrong = asgi_client.post("/healthz")
     assert wrong.status_code == 405 and wrong.json() == {"error": "Method not allowed"}
     assert {method.strip() for method in wrong.headers["allow"].split(",")} == {"GET", "HEAD"}
+    head = asgi_client.head("/api/app-status")
+    assert head.status_code == 200 and head.content == b"" and head.headers["content-type"] == "application/json"
     metrics = asgi_client.get("/metrics")
     assert metrics.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
     assert asgi_client.get("/api/app-status").headers["cache-control"] == "no-store"

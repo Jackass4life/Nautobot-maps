@@ -6722,6 +6722,7 @@ class TestApiExplorer:
             (apidocs._flask_style(route.path, route.endpoint), method)
             for router in nautobot_maps.api.ROUTERS
             for route in router.routes
+            if route.name != "static"
             for method in route.methods - {"HEAD", "OPTIONS"}
         }
         return flask_routes | fastapi_routes
@@ -6729,9 +6730,16 @@ class TestApiExplorer:
     def test_every_route_is_listed(self, client):
         listed = client.get("/api/endpoints").get_json()["endpoints"]
         assert {(item["path"], method) for item in listed for method in item["methods"]} == self._routes()
-        html = client.get("/docs").get_data(as_text=True)
-        for path, method in self._routes():
-            assert f'data-path="{path}" data-method="{method}"' in html.replace("&lt;", "<").replace("&gt;", ">")
+        # Swagger UI on /docs draws /openapi.json (#436): every API route in it,
+        # with its method (pages and files aren't API).
+        spec = client.get("/openapi.json").get_json()
+        documented = {
+            (re.sub(r"\{(\w+)(?::\w+)?\}", r"<\1>", path), method.upper())
+            for path, operations in spec["paths"].items()
+            for method in operations
+        }
+        api_routes = {(re.sub(r"<(?:\w+:)?(\w+)>", r"<\1>", path), method) for path, method in self._routes()}
+        assert {item for item in api_routes if item[0].startswith(("/api/", "/mcp"))} <= documented
 
     def test_every_write_has_an_example_body(self):
         from nautobot_maps import apidocs
@@ -6760,13 +6768,25 @@ class TestApiExplorer:
         # The page keeps the example's own order (the JSON response sorts keys).
         assert list(json.loads(case["example_body_text"])) == ["site_id", "device_ids", "case_number"]
 
-    def test_page_shows_bodies_unescaped_and_escapes_html(self, client):
-        import html as html_lib
-
+    def test_the_page_is_swagger_ui_from_our_files(self, client):
+        """#436: Swagger UI, bundled (no CDN) and started from a module (no inline script, the CSP)."""
         html = client.get("/docs").get_data(as_text=True)
-        assert "&lt;device uuid&gt;" in html and "\\u003c" not in html
-        assert '"case_number": "INC-1234"' in html_lib.unescape(html)
+        assert 'id="swagger-ui"' in html and 'class="app-bar"' in html
+        assert '<script src="/static/vendor/swagger-ui-bundle.js"></script>' in html
         assert '<script type="module" src="/static/js/docs/main.js">' in html and "<script>" not in html
+        assert "cdn" not in html.lower()
+        assert client.get("/static/vendor/swagger-ui-bundle.js").status_code == 200
+
+    def test_write_bodies_are_in_the_spec(self, client):
+        """Each write's JSON body is described (deps.body_schema), e.g. a case."""
+        spec = client.get("/openapi.json").get_json()
+        case = spec["paths"]["/api/alert-cases"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        assert {"site_id", "case_number"} <= set(case["required"]) and "device_ids" in case["properties"]
+        window = spec["paths"]["/api/maintenance"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        assert "reason" in window["required"]
+        # Query models are spelled as sent: "from", not "from_".
+        names = {param["name"] for param in spec["paths"]["/api/availability"]["get"]["parameters"]}
+        assert {"month", "from", "to", "basis"} <= names
 
     def test_header_links_to_the_explorer(self, client):
         for path in ("/", "/alerts", "/docs"):

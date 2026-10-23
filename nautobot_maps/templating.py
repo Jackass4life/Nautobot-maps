@@ -55,5 +55,6 @@ environment.globals["url_for"] = url_for
 
 
 def render(template: str, **context) -> str:
-    context.setdefault("bar_user", bar_user())
+    if "bar_user" not in context:
+        context["bar_user"] = bar_user()
     return environment.get_template(template).render(**context)

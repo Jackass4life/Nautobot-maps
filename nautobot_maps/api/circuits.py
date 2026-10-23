@@ -10,7 +10,7 @@ from nautobot_maps.api import deps, pages
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Circuits"])
 
 
 @router.get("/circuits", name="circuits.circuits_page")

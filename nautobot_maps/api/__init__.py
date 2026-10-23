@@ -1,9 +1,22 @@
 """The routes on FastAPI (#436), one router per area as they move from Flask
 (nautobot_maps/routes/).  asgi.py installs them in front of the Flask app."""
 
-from nautobot_maps.api import admin, availability, board, circuits, deps, ingest, locations, maintenance, ops, status
+from nautobot_maps.api import (
+    admin,
+    availability,
+    board,
+    circuits,
+    deps,
+    ingest,
+    locations,
+    maintenance,
+    ops,
+    status,
+    views,
+)
 
 ROUTERS = (
+    views.router,
     ops.router,
     status.router,
     availability.router,

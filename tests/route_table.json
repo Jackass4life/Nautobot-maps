@@ -408,6 +408,14 @@
   "view": "prometheus_metrics"
  },
  {
+  "path": "/openapi.json",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "openapi"
+ },
+ {
   "path": "/status/<path:tenant>",
   "methods": [
    "GET"
