@@ -14,7 +14,7 @@ const ITEMS = [
 </script>
 
 <template>
-  <div id="map-legend" class="map-legend absolute bottom-6 left-3 z-[500] max-w-72">
+  <div id="map-legend" class="map-legend absolute bottom-6 left-3 z-10 max-w-72">
     <div v-show="open" id="legend" class="mb-2 space-y-1.5 rounded-lg border border-default bg-default/95 p-3 text-xs shadow-lg">
       <div class="legend-title font-semibold text-highlighted">Legend</div>
       <div v-for="[level, text] in ITEMS" :key="level" class="legend-item flex items-center gap-2">

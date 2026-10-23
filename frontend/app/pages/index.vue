@@ -373,7 +373,7 @@ function setPanelHidden(on: boolean) {
   if (on && sidebar.value?.contains(document.activeElement)) barToggle.value?.$el.focus();
   panelHidden.value = on;
   store(PANEL_HIDDEN_KEY, on);
-  siteMap?.resize();
+  siteMap?.resize(true);
 }
 
 function onKey(event: KeyboardEvent) {

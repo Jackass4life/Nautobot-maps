@@ -158,9 +158,11 @@ export class SiteMap {
     if (points.length) this.map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: FIT_MAX_ZOOM, animate: false });
   }
 
-  // The map's box changed: measure again once the layout has settled.
-  resize(): void {
-    requestAnimationFrame(() => requestAnimationFrame(() => this.map.invalidateSize({ pan: false, animate: false })));
+  // The map's box changed: measure again once the layout has settled (two
+  // frames).  *keepCentre*: the same middle (the left panel folding, #420);
+  // else the sites stay where they were (the site panel opening beside them).
+  resize(keepCentre = false): void {
+    requestAnimationFrame(() => requestAnimationFrame(() => this.map.invalidateSize({ pan: keepCentre, animate: false })));
   }
 
   private groupLevel(ids: string[]): string {

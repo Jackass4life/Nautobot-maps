@@ -46,15 +46,15 @@ function label(entry: AlarmSite) {
       <li v-if="!loaded" class="alarm-empty text-sm text-muted">Alert levels not loaded yet.</li>
       <li v-for="entry in shown" :key="entry.loc.id">
         <button
-          class="alarm-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-elevated"
+          class="alarm-item grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1.5 text-left hover:bg-elevated"
           type="button"
           :data-location-id="entry.loc.id"
           :aria-label="label(entry)"
           @click="emit('open', entry.loc.id, $event.currentTarget as HTMLElement)"
         >
           <span class="legend-dot" :class="`dot-${entry.level}`" aria-hidden="true" />
-          <span class="alarm-name min-w-0 flex-1 truncate text-sm font-medium text-highlighted">{{ entry.loc.name || entry.loc.id }}</span>
-          <span v-if="alarmMeta(entry, now)" class="alarm-meta shrink-0 text-xs text-muted">{{ alarmMeta(entry, now) }}</span>
+          <span class="alarm-name truncate text-sm font-medium text-highlighted">{{ entry.loc.name || entry.loc.id }}</span>
+          <span v-if="alarmMeta(entry, now)" class="alarm-meta col-start-2 text-xs text-muted">{{ alarmMeta(entry, now) }}</span>
         </button>
       </li>
     </ol>
