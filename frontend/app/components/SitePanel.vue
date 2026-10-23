@@ -97,9 +97,9 @@ const downShown = computed(() => (downExpanded.value ? down.value : down.value.s
 // A stack's lead brings its members, as under All devices (#400), but not
 // those with their own row here; it still says the stack's size (#405).
 const stackOf = computed(() => new Map(stacks.value.map(({ device, members }) => [device, members])));
+const downSet = computed(() => new Set(down.value));
 function downMembers(device: SiteDevice) {
-  const own = new Set(down.value);
-  return (stackOf.value.get(device) || []).filter((member) => !own.has(member));
+  return (stackOf.value.get(device) || []).filter((member) => !downSet.value.has(member));
 }
 
 const counts = computed(() => healthCounts(devices.value));

@@ -34,9 +34,8 @@ function quickActive(status: string) {
   return status ? criteria.value.status.includes(status) : !criteria.value.status.length;
 }
 // The menu's search field, named for screen readers (Nuxt UI passes it on to the <input>).
-function searchInput(label: string): { placeholder: string } {
-  const props = { placeholder: "Search…", "aria-label": `Search ${label}` };
-  return props;
+function searchInput(label: string) {
+  return { placeholder: "Search…", "aria-label": `Search ${label}` };
 }
 // "Acme Corp +1".
 function shortLabel(values: string[], all: string) {

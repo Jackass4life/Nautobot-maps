@@ -175,7 +175,7 @@ Every page's script is an ES module (#294), loaded with `<script type="module">`
   `state` in `state.js`. Every other module touches the page only when one of its functions is called,
   never when it is imported. `availability.js` is that page's whole entry.
 - No inline styles (#370): the CSP allows only the app's CSS files, so markup built in JS uses
-  classes (e.g. `level-bg-critical`, `quiet-size-24` for map markers), never `style="…"`.
+  classes, never `style="…"`.
   Setting `element.style` from script is fine. `tests/test_no_inline_styles.py` checks.
 - The map is on Nuxt (#463): Leaflet and Leaflet.markercluster are npm packages in
   `frontend/`, loaded by `app/utils/leafletmap.ts` (markercluster needs the global `L`).

@@ -125,7 +125,8 @@ function onSearchFocusOut(event: FocusEvent) {
   if (!box?.contains(event.relatedTarget as Node | null)) closeSearch();
 }
 function onShortcut(event: KeyboardEvent) {
-  if (!isSearchShortcut(event)) return;
+  // No search here (the map has its own): "/" is left alone.
+  if (!props.search || !isSearchShortcut(event)) return;
   event.preventDefault();
   openSearch();
 }

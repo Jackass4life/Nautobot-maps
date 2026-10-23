@@ -87,6 +87,8 @@ const alarmsOnly = ref(stored(ALARMS_ONLY_KEY) && !linkedId);
 // A place search's answer, while it is shown.
 const results = shallowRef<NearbySite[] | null>(null);
 const searching = ref(false);
+// The latest place search; an older answer is dropped.
+let searchTicket = 0;
 
 const choices = computed(() => filterChoices(all.value));
 const filtered = computed(() => filterLocations(all.value, criteria.value));
@@ -119,25 +121,29 @@ function draw() {
   siteMap.render(drawn.value);
   openLinkedSite();
 }
-function afterFilterChange() {
+// Back to the whole map: a place search still on its way is dropped, so
+// its answer can't take the map away from what was picked since.
+function leaveSearch() {
+  searchTicket += 1;
+  searching.value = false;
   results.value = null;
   draw();
 }
 function setCriteria(next: Criteria) {
   criteria.value = next;
-  afterFilterChange();
+  leaveSearch();
 }
 function setAlarmsOnly(on: boolean, remember = true) {
   alarmsOnly.value = on;
   if (remember) store(ALARMS_ONLY_KEY, on);
-  afterFilterChange();
+  leaveSearch();
 }
 // *remember* false: for the moment only, so a saved Alarms only stays saved.
 function clearFilters(remember = true) {
   criteria.value = noCriteria();
   alarmsOnly.value = false;
   if (remember) store(ALARMS_ONLY_KEY, false);
-  afterFilterChange();
+  leaveSearch();
 }
 
 async function loadLevels() {
@@ -159,6 +165,7 @@ async function loadLevels() {
   levelsLoaded.value = true;
   levelsFailed.value = false;
   // Site details loaded earlier may now hold an old level.
+  cacheGeneration += 1;
   for (const id of detailCache.keys()) if (id !== selectedId.value) detailCache.delete(id);
   if (siteMap && all.value.length) {
     // A site that started or stopped needing attention: one redraw for all.
@@ -190,6 +197,8 @@ const detail = shallowRef<LocationDetail | null>(null);
 const detailLoading = ref(false);
 const detailError = ref("");
 const detailCache = new Map<string, LocationDetail>();
+// Counts the refreshes that empty the cache: an answer asked for before one isn't kept.
+let cacheGeneration = 0;
 const inFlight = new Map<string, Promise<LocationDetail>>();
 let lastTrigger: HTMLElement | null = null;
 
@@ -204,11 +213,12 @@ async function loadDetail(id: string): Promise<LocationDetail> {
   let request = inFlight.get(id);
   if (!request) {
     const type = byId.value.get(id)?.location_type;
+    const generation = cacheGeneration;
     request = $fetch<LocationDetail>(`/api/locations/${encodeURIComponent(id)}/detail`, {
       query: type ? { location_type: type } : undefined,
     })
       .then((answer) => {
-        detailCache.set(id, answer);
+        if (generation === cacheGeneration) detailCache.set(id, answer);
         return answer;
       })
       .finally(() => inFlight.delete(id));
@@ -314,44 +324,43 @@ const searchBox = useTemplateRef<{ reset: () => void }>("searchBox");
 function openAlarm(id: string, element: HTMLElement) {
   if (showSite(id, { trigger: element })) return;
   searchBox.value?.reset();
-  results.value = null;
-  draw();
+  leaveSearch();
   showSite(id, { trigger: element });
 }
 
 // A site picked from the search's list: back to the whole map, and every
 // site for now when the filters leave it out (a saved Alarms only stays).
 function pickSite(id: string) {
-  results.value = null;
-  draw();
+  leaveSearch();
   if (showSite(id)) return;
   clearFilters(false);
   showSite(id);
 }
 
 function endSearch() {
-  if (!results.value) return;
-  results.value = null;
-  draw();
+  if (results.value || searching.value) leaveSearch();
 }
 
 async function mapSearch(query: string) {
   if (!siteMap) return;
+  const ticket = ++searchTicket;
   searching.value = true;
   try {
     const answer = await $fetch<SearchAnswer>("/api/search", { query: { q: query } });
+    if (ticket !== searchTicket) return;
     // On a map for some sites only, the nearby ones among them (#367).
     const found = answer.locations.filter((loc) => inScope(loc, scope));
     results.value = found;
     siteMap.renderSearch(found, { lat: answer.search_lat, lon: answer.search_lon });
   } catch (err) {
+    if (ticket !== searchTicket) return;
     // The API's own message ("Address not found: …") as it is (#350).
     const own = (err as { data?: { error?: string } }).data?.error;
     showError(own || `Search failed: ${failure(err)}`);
     results.value = null;
     draw();
   } finally {
-    searching.value = false;
+    if (ticket === searchTicket) searching.value = false;
   }
 }
 
@@ -367,6 +376,7 @@ const panelHidden = ref(stored(PANEL_HIDDEN_KEY));
 const barToggle = useTemplateRef<{ $el: HTMLElement }>("barToggle");
 const sidebar = useTemplateRef<HTMLElement>("sidebar");
 const tab = computed(() => panelToggleLabel(panelHidden.value, levelsLoaded.value ? alarms.value.length : null));
+const tabHasAlarms = computed(() => levelsLoaded.value && alarms.value.length > 0);
 
 function setPanelHidden(on: boolean) {
   // Out of the tab order while folded.
@@ -397,6 +407,8 @@ onMounted(async () => {
   document.addEventListener("keydown", onKey);
   try {
     await Promise.all([loadLeaflet(), pageConfig]);
+    // Drawn anyway, with the default tiles and no fixed view: said, not silent.
+    if (pageConfig.error.value) showError(`The map's settings could not be loaded: ${failure(pageConfig.error.value)}`);
     const settings = config.value.map;
     siteMap = new SiteMap(mapElement.value!, {
       tileUrl: settings.tile_url,
@@ -528,14 +540,14 @@ onBeforeUnmount(() => {
           v-if="panelHidden"
           id="panel-toggle"
           class="panel-toggle absolute z-10 flex h-10 items-center gap-2 rounded-r-full border border-l-0 border-default bg-default px-3.5 text-sm font-medium shadow-lg hover:bg-elevated max-sm:top-2.5 max-sm:right-2.5 max-sm:rounded-full max-sm:border-l sm:left-0 sm:top-1/2 sm:-translate-y-1/2"
-          :class="{ 'has-alarms': tab.text !== 'Show the panel' }"
+          :class="{ 'has-alarms': tabHasAlarms }"
           type="button"
           aria-controls="sidebar"
           :aria-label="tab.label"
           :title="`${tab.label} ([)`"
           @click="setPanelHidden(false)"
         >
-          <span class="size-2.5 rounded-full" :class="tab.text !== 'Show the panel' ? 'bg-error' : 'bg-primary'" aria-hidden="true" />{{ tab.text }}
+          <span class="size-2.5 rounded-full" :class="tabHasAlarms ? 'bg-error' : 'bg-primary'" aria-hidden="true" />{{ tab.text }}
         </button>
         <div v-if="loading" id="loading-overlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-default/60">
           <UIcon name="i-lucide-loader-circle" class="size-10 animate-spin text-primary" />

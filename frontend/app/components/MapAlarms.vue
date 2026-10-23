@@ -17,8 +17,10 @@ const now = computed(() => {
   return new Date();
 });
 
-function label(entry: AlarmSite) {
-  const meta = alarmMeta(entry, now.value);
+// Each row's "2/8 down · since 14:05", worked out once per row.
+const rows = computed(() => shown.value.map((entry) => ({ entry, meta: alarmMeta(entry, now.value) })));
+
+function label(entry: AlarmSite, meta: string) {
   return [`${LEVEL_NAMES[entry.level]}: ${entry.loc.name || entry.loc.id}`, meta].filter(Boolean).join(", ");
 }
 </script>
@@ -44,17 +46,17 @@ function label(entry: AlarmSite) {
     <p id="alarm-breakdown" class="alarm-breakdown text-xs text-muted">{{ breakdown }}</p>
     <ol id="alarm-list" class="alarm-list mt-2 space-y-0.5">
       <li v-if="!loaded" class="alarm-empty text-sm text-muted">Alert levels not loaded yet.</li>
-      <li v-for="entry in shown" :key="entry.loc.id">
+      <li v-for="{ entry, meta } in rows" :key="entry.loc.id">
         <button
           class="alarm-item grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1.5 text-left hover:bg-elevated"
           type="button"
           :data-location-id="entry.loc.id"
-          :aria-label="label(entry)"
+          :aria-label="label(entry, meta)"
           @click="emit('open', entry.loc.id, $event.currentTarget as HTMLElement)"
         >
           <span class="legend-dot" :class="`dot-${entry.level}`" aria-hidden="true" />
           <span class="alarm-name truncate text-sm font-medium text-highlighted">{{ entry.loc.name || entry.loc.id }}</span>
-          <span v-if="alarmMeta(entry, now)" class="alarm-meta col-start-2 text-xs text-muted">{{ alarmMeta(entry, now) }}</span>
+          <span v-if="meta" class="alarm-meta col-start-2 text-xs text-muted">{{ meta }}</span>
         </button>
       </li>
     </ol>
