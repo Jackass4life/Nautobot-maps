@@ -260,9 +260,9 @@ class TestLiveSearch:
 
 
 class TestLiveEndToEnd:
-    def test_full_user_flow(self, live_client):
+    def test_full_user_flow(self, live_client, frontend_build):
         """Load map → list locations → fetch detail → search nearby."""
-        # 1. Map page loads
+        # 1. Map page loads (the Nuxt build's, #463)
         assert live_client.get("/").status_code == 200
 
         # 2. Fetch all locations
