@@ -9,6 +9,8 @@ from fastapi.responses import StreamingResponse
 
 from nautobot_maps import auth, availability, db, settings
 from nautobot_maps.api import deps, models, pages
+from nautobot_maps.api.answers import availability as answers
+from nautobot_maps.api.answers import common
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,12 @@ def availability_page(period: PeriodQuery):
     )
 
 
-@router.get("/api/availability", name="availability.api_availability")
+@router.get(
+    "/api/availability",
+    name="availability.api_availability",
+    response_model=answers.Report,
+    responses={503: {"model": common.Error, "description": "No database, or the board can't be read"}},
+)
 def api_availability(period: PeriodQuery):
     """Availability per site and tenant for a period (#287, #341).
 
