@@ -8,15 +8,18 @@ from fastapi import APIRouter, Depends
 
 from nautobot_maps import auth, contract, db, notify, settings, tokens
 from nautobot_maps.api import deps, models
+from nautobot_maps.api.answers import admin as answers
+from nautobot_maps.api.answers import common
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Administration"])
 
 NO_DATABASE = {"error": "Persistence DB not configured"}
+NO_DATABASE_RESPONSE = {503: {"model": common.Error, "description": "No database"}}
 
 
-@router.get("/api/contract", name="admin.api_contract")
+@router.get("/api/contract", name="admin.api_contract", response_model=answers.Contract)
 def api_contract():
     """The data contract with Nautobot and LibreNMS (#309) and the last check.
 
@@ -34,7 +37,13 @@ def api_contract():
     return deps.Json({"contract": contract.as_json(), "checks": checks})
 
 
-@router.get("/api/tokens", name="admin.api_tokens_list", dependencies=[deps.require_role("admin")])
+@router.get(
+    "/api/tokens",
+    name="admin.api_tokens_list",
+    response_model=answers.Tokens,
+    responses=NO_DATABASE_RESPONSE,
+    dependencies=[deps.require_role("admin")],
+)
 def api_tokens_list():
     """API tokens (#297): name, first characters, role, expiry, last use, state; never the secret."""
     conn = db.get_conn()
@@ -49,6 +58,9 @@ def api_tokens_list():
 @router.post(
     "/api/tokens",
     name="admin.api_tokens_create",
+    status_code=201,
+    response_model=answers.TokenCreated,
+    responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("admin")],
     openapi_extra=deps.body_schema(models.TokenCreate),
 )
@@ -78,6 +90,8 @@ def api_tokens_create(body: Annotated[object, Depends(deps.json_body)]):
 @router.post(
     "/api/tokens/{token_id:int}/revoke",
     name="admin.api_tokens_revoke",
+    response_model=answers.TokenRevoked,
+    responses={**NO_DATABASE_RESPONSE, 404: {"model": common.Error, "description": "No such token"}},
     dependencies=[deps.require_role("admin")],
 )
 def api_tokens_revoke(token_id: int):
@@ -97,6 +111,11 @@ def api_tokens_revoke(token_id: int):
 @router.post(
     "/api/notifications/test",
     name="admin.api_notifications_test",
+    response_model=answers.NotificationResults,
+    responses={
+        400: {"model": common.Error, "description": "No channel configured"},
+        502: {"model": answers.NotificationResults, "description": "A channel failed"},
+    },
     dependencies=[deps.require_role("admin")],
 )
 def api_notifications_test():

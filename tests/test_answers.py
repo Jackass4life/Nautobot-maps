@@ -12,14 +12,6 @@ from tests import answers as answer_check
 # No model, on purpose: MCP describes its own tools; CSV and Prometheus text
 # aren't JSON.
 WITHOUT_MODEL = {"POST /mcp"}
-# Areas not described yet, one PR each (#449); each takes its routes off.
-PENDING = {
-    "GET /api/contract",
-    "GET /api/tokens",
-    "POST /api/tokens",
-    "POST /api/tokens/{token_id:int}/revoke",
-    "POST /api/notifications/test",
-}
 
 
 def _json_routes():
@@ -35,7 +27,7 @@ def _json_routes():
 
 def test_every_json_route_shows_its_answer():
     without = {key for key, route in _json_routes() if route.response_model is None}
-    assert without == WITHOUT_MODEL | PENDING
+    assert without == WITHOUT_MODEL
 
 
 def test_errors_are_shown_as_the_app_sends_them(client):
