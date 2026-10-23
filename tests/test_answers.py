@@ -14,15 +14,6 @@ from tests import answers as answer_check
 WITHOUT_MODEL = {"POST /mcp"}
 # Areas not described yet, one PR each (#449); each takes its routes off.
 PENDING = {
-    "GET /api/alerts",
-    "GET /api/criticality-overrides",
-    "POST /api/criticality-overrides",
-    "DELETE /api/criticality-overrides/{device_id}",
-    "GET /api/alert-feed",
-    "GET /api/alert-history",
-    "POST /api/alert-acks",
-    "POST /api/alert-acks/remove",
-    "POST /api/alert-cases",
     "POST /api/librenms/alert",
     "POST /api/alertmanager",
     "POST /api/device-status",
@@ -65,7 +56,13 @@ def test_errors_are_shown_as_the_app_sends_them(client):
     tokens = spec["paths"]["/api/tokens"]["get"]["responses"]
     assert tokens["401"]["content"]["application/json"]["schema"] == error and "403" in tokens
     assert "401" not in spec["paths"]["/healthz"]["get"]["responses"]
-    assert set(schemas["Error"]["properties"]) == {"error", "detail", "required_role", "current_role"}
+    assert set(schemas["Error"]["properties"]) == {
+        "error",
+        "detail",
+        "required_role",
+        "current_role",
+        "missing_device_ids",
+    }
 
 
 def test_a_refusal_is_checked_too(client, monkeypatch):

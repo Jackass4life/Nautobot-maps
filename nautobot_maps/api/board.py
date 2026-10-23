@@ -21,6 +21,8 @@ from nautobot_maps import (
     timeutil,
 )
 from nautobot_maps.api import deps, models
+from nautobot_maps.api.answers import board as answers
+from nautobot_maps.api.answers import common
 from nautobot_maps.repositories import board as board_store
 
 logger = logging.getLogger(__name__)
@@ -30,7 +32,19 @@ router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENC
 Body = Annotated[object, Depends(deps.json_body)]
 
 
-@router.get("/api/alerts", name="board.api_alerts")
+NO_DATABASE = {503: {"model": common.Error, "description": "No database"}}
+NO_OPEN_ALERT = {404: {"model": common.Error, "description": "Some devices have no open alert; nothing was changed"}}
+
+
+@router.get(
+    "/api/alerts",
+    name="board.api_alerts",
+    response_model=answers.Board,
+    responses={
+        502: {"model": common.Error, "description": "Nautobot answered with an error"},
+        503: {"model": common.Error, "description": "Nautobot is not configured"},
+    },
+)
 def api_alerts(query: Annotated[models.BoardQuery, Query()]):
     """Return alert-board summaries for all Nautobot locations.
 
@@ -81,6 +95,8 @@ def api_alerts(query: Annotated[models.BoardQuery, Query()]):
 @router.get(
     "/api/criticality-overrides",
     name="board.api_list_criticality_overrides",
+    response_model=answers.Overrides,
+    responses=NO_DATABASE,
     dependencies=[deps.require_role("operator")],
 )
 def api_list_criticality_overrides():
@@ -107,6 +123,8 @@ def api_list_criticality_overrides():
 @router.post(
     "/api/criticality-overrides",
     name="board.api_set_criticality_override",
+    response_model=answers.OverrideSet,
+    responses=NO_DATABASE,
     openapi_extra=deps.body_schema(models.CriticalityOverride),
     dependencies=[deps.require_role("operator")],
 )
@@ -165,6 +183,8 @@ def api_set_criticality_override(body: Body):
 @router.delete(
     "/api/criticality-overrides/{device_id}",
     name="board.api_delete_criticality_override",
+    response_model=answers.OverrideDeleted,
+    responses={**NO_DATABASE, 404: {"model": common.Error, "description": "No override for this device"}},
     dependencies=[deps.require_role("operator")],
 )
 def api_delete_criticality_override(device_id: str):
@@ -197,7 +217,12 @@ def api_delete_criticality_override(device_id: str):
 MAX_FEED_ENTRIES = 500
 
 
-@router.get("/api/alert-feed", name="board.api_alert_feed")
+@router.get(
+    "/api/alert-feed",
+    name="board.api_alert_feed",
+    response_model=answers.Feed,
+    responses={503: {"model": common.Error, "description": "With tenant= or q=: the sites aren't stored yet"}},
+)
 def api_alert_feed(request: Request, query: Annotated[models.FeedQuery, Query()]):
     """What changed on the alert board, newest first (#180).
 
@@ -254,7 +279,13 @@ def api_alert_feed(request: Request, query: Annotated[models.FeedQuery, Query()]
         conn.close()
 
 
-@router.get("/api/alert-history", name="board.api_alert_history", dependencies=[deps.require_role("operator")])
+@router.get(
+    "/api/alert-history",
+    name="board.api_alert_history",
+    response_model=answers.History,
+    responses=NO_DATABASE,
+    dependencies=[deps.require_role("operator")],
+)
 def api_alert_history(query: Annotated[models.HistoryQuery, Query()]):
     """Return historical alert instances with events and case numbers.
 
@@ -461,6 +492,8 @@ def _acknowledge(body, clear: bool):
 @router.post(
     "/api/alert-acks",
     name="board.api_acknowledge",
+    response_model=answers.AckChanged,
+    responses={**NO_DATABASE, **NO_OPEN_ALERT},
     openapi_extra=deps.body_schema(models.Acknowledge),
     dependencies=[deps.require_role("operator", open_when_disabled=True)],
 )
@@ -477,6 +510,8 @@ def api_acknowledge(body: Body):
 @router.post(
     "/api/alert-acks/remove",
     name="board.api_unacknowledge",
+    response_model=answers.AckChanged,
+    responses={**NO_DATABASE, **NO_OPEN_ALERT},
     openapi_extra=deps.body_schema(models.Acknowledge),
     dependencies=[deps.require_role("operator", open_when_disabled=True)],
 )
@@ -488,6 +523,8 @@ def api_unacknowledge(body: Body):
 @router.post(
     "/api/alert-cases",
     name="board.api_add_alert_case",
+    response_model=answers.CaseAdded,
+    responses={**NO_DATABASE, **NO_OPEN_ALERT},
     openapi_extra=deps.body_schema(models.AlertCase),
     dependencies=[deps.require_role("operator", open_when_disabled=True)],
 )
