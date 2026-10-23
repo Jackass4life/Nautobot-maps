@@ -47,7 +47,7 @@ class HistoryPeriod(common.Answer):
     tz: str = Field(examples=["Europe/Copenhagen"])
 
 
-class History(common.Answer):
+class MaintenanceHistory(common.Answer):
     windows: list[DescribedWindow] = Field(description="Newest first.")
     tenant_descriptions: dict[str, str]
     period: HistoryPeriod
@@ -68,7 +68,7 @@ class PlannableSites(common.Answer):
     sites: list[PlannableSite]
 
 
-class Device(common.Answer):
+class MaintenanceDevice(common.Answer):
     id: str
     name: str
     role: str
@@ -77,7 +77,7 @@ class Device(common.Answer):
 
 
 class Devices(common.Answer):
-    devices: list[Device] = Field(description="By name.")
+    devices: list[MaintenanceDevice] = Field(description="By name.")
 
 
 class Created(common.Answer):

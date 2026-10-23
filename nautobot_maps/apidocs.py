@@ -66,7 +66,7 @@ EXAMPLE_BODIES = {
 
 GROUPS = ("Pages", "API", "Monitoring")
 MONITORING_PATHS = {"/healthz", "/metrics"}
-HIDDEN_ENDPOINTS = {"static"}
+HIDDEN_ENDPOINTS = {"static", "frontend.asset"}
 IGNORED_METHODS = {"HEAD", "OPTIONS"}
 # " (#180)" / " (#227, #228)": issue references, for developers, not readers.
 _ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")

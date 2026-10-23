@@ -61,7 +61,7 @@ class SiteMaintenance(common.Answer):
     by: str
 
 
-class Site(common.Answer):
+class BoardSite(common.Answer):
     """A site (one row of the board): the location as stored, and its alarm."""
 
     id: str
@@ -107,7 +107,7 @@ class Site(common.Answer):
     maintenance: SiteMaintenance | None = Field(None, description="The whole site is in a maintenance window.")
 
 
-class Summary(common.Answer):
+class BoardSummary(common.Answer):
     total: int
     critical: int
     medium: int
@@ -121,8 +121,8 @@ class Summary(common.Answer):
 class Board(common.Answer):
     checked_at: str = Field(description="When the board was built (ISO 8601, UTC).")
     stale_after_seconds: int
-    summary: Summary
-    alerts: list[Site] = Field(description="Worst first, then the more important tier, then most down.")
+    summary: BoardSummary
+    alerts: list[BoardSite] = Field(description="Worst first, then the more important tier, then most down.")
     next_maintenance_change: str | None = Field(description="When a window next starts or ends.")
     age_seconds: int
     stale: bool
@@ -185,7 +185,7 @@ class Incident(common.Answer):
     cases: list[HistoryCase] = Field(description="Newest first.")
 
 
-class History(common.Answer):
+class AlertHistory(common.Answer):
     instances: list[Incident] = Field(description="Newest down first, at most 500.")
 
 

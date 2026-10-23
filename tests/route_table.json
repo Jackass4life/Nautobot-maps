@@ -8,6 +8,14 @@
   "view": "index"
  },
  {
+  "path": "/_nuxt/<path:path>",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "asset"
+ },
+ {
   "path": "/alerts",
   "methods": [
    "GET"

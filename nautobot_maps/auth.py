@@ -198,17 +198,11 @@ def role_problem(required_role: str, open_when_disabled: bool = False):
 PUBLIC_PATHS = {"/healthz", "/metrics", "/static/css/error.css"}
 # A tenant's status page (#291): the page and its assets carry no data, so a
 # customer's browser loads them without SSO; /api/status/ checks access itself
-# (``status_access``).
+# (``status_access``).  The page is built with Nuxt (#463): its files under
+# /_nuxt/ are the app's code only, no data.
 STATUS_PAGE_PREFIX = "/status/"
 STATUS_API_PREFIX = "/api/status/"
-# Every module the page loads, imports included (#294); a test checks the list.
-STATUS_PAGE_ASSETS = {
-    "/static/css/alerts.css",
-    "/static/js/status/main.js",
-    "/static/js/status/page.js",
-    "/static/js/lib/format.js",
-    "/static/js/lib/html.js",
-}
+FRONTEND_ASSETS_PREFIX = "/_nuxt/"
 
 
 def is_status_token(user: dict) -> bool:
@@ -284,7 +278,7 @@ def check_viewer():
     # its token stopped working.
     if bearer_token() and get_current_user().get("token_rejected"):
         return {"error": "Invalid, expired or revoked API token"}, 401
-    status_path = request.path.startswith((STATUS_PAGE_PREFIX, STATUS_API_PREFIX)) or request.path in STATUS_PAGE_ASSETS
+    status_path = request.path.startswith((STATUS_PAGE_PREFIX, STATUS_API_PREFIX, FRONTEND_ASSETS_PREFIX))
     if bearer_token() and is_status_token(get_current_user()) and not status_path:
         return {"error": "This token only opens its tenant's status page"}, 403
     if status_path:

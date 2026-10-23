@@ -60,6 +60,54 @@ jobs:
           npx eslint static/js
 
   # -----------------------------------------------------------------------
+  # The pages built with Nuxt (#463): lint, types, tests, the static build
+  # (no inline script: the CSP), and the API types current.
+  # -----------------------------------------------------------------------
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        # Install scripts don't run; `nuxt prepare` makes the generated types.
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx nuxt prepare
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Types
+        if: success() || failure()
+        run: npm run typecheck
+
+      - name: Tests (Vitest)
+        if: success() || failure()
+        run: npm test
+
+      - name: Build (no inline script left)
+        if: success() || failure()
+        run: npm run generate
+
+      - name: The API types match openapi.json
+        # tests/test_frontend.py checks openapi.json is the app's spec.
+        if: success() || failure()
+        run: |
+          npm run api-types
+          git diff --exit-code app/api/schema.d.ts
+
+  # -----------------------------------------------------------------------
   # Known vulnerabilities in the locked dependencies (#186)
   # -----------------------------------------------------------------------
   audit:
@@ -97,6 +145,11 @@ jobs:
       - name: JavaScript dev tools (npm audit)
         if: success() || failure()
         run: npm audit --audit-level=high
+
+      - name: The frontend (npm audit, #463)
+        if: success() || failure()
+        working-directory: frontend
+        run: npm audit --audit-level=high --omit=dev
 
   # -----------------------------------------------------------------------
   # Unit + mock-integration tests (fast, Python matrix)
@@ -200,6 +253,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install --require-hashes -r requirements-e2e.txt
           python -m playwright install --with-deps chromium
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the frontend (#463)
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run generate
 
       - name: Start the mock Nautobot and the app
         run: |

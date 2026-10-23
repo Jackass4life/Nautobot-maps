@@ -145,13 +145,32 @@ after logging is configured (a test enforces this).
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.
 
+### The Nuxt frontend (#463)
+
+The pages are moving to [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) one page at a time; the tenant status page is the first. The backend and the API don't change.
+
+```bash
+cd frontend
+npm ci              # Node 22
+npm run generate    # the static build FastAPI serves: frontend/.output/public
+npm run dev         # or: a dev server on :3000 with live reload; /api goes to python app.py on :5055
+npm run lint && npm run typecheck && npm test
+```
+
+- `python app.py` serves the build; without one, a Nuxt page answers 503 and says to build it.
+- `ssr: false`: a single-page app built to static files, no Node in production (the Docker image builds it in its own stage). A migrated page's route answers `frontend.shell()`; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
+- CSP stays strict: `npm run generate` moves Nuxt's inline config script into a file and fails on any other inline script; Nuxt UI's colours are a stylesheet made at build time (`modules/static-ui-colors.ts`), not its inline `<style>`; no web fonts or icons are fetched from elsewhere.
+- API types: `app/api/schema.d.ts` is generated from the app's response models. After an API change: `python frontend/scripts/openapi.py && (cd frontend && npm run api-types)`; `tests/test_frontend.py` and CI fail until then.
+- Logic goes in `app/utils/` (plain functions, tested with Vitest in `frontend/tests/`); the pages themselves are tested end to end (`e2e/`).
+- Scale: keep big lists (sites, devices) in `shallowRef`, not deep reactivity.
+
 ### Browser JavaScript
 
 Every page's script is an ES module (#294), loaded with `<script type="module">`:
 
 - `static/js/lib/`: helpers shared by the pages (HTML escaping, times, case links, theme,
   the (i) tooltip, the error toast).
-- `static/js/alerts/`, `static/js/map/`, `static/js/docs/`, `static/js/status/`: one folder per
+- `static/js/alerts/`, `static/js/map/`, `static/js/docs/`: one folder per
   page. Its `main.js` is the entry: the only module that looks up page elements (and, on the
   map, creates the Leaflet map) and wires events; it fills `els`, `config` and `state` in
   `state.js`. Every other module touches the page only when one of its functions is called,
@@ -163,8 +182,6 @@ Every page's script is an ES module (#294), loaded with `<script type="module">`
   licences) loaded before `map/main.js`; the map's modules use the global `L` only inside
   functions. To update a vendored library, take the file from its npm package and check the
   tarball against npm's `dist.integrity`.
-- The tenant status page is public: every module it imports is listed in
-  `auth.STATUS_PAGE_ASSETS` (`tests/test_js_modules.py` checks the list).
 
 That rule is what makes them testable: a test imports the real functions in Node with
 `tests/js_modules.py`, and gives them stand-in elements:

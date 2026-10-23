@@ -280,6 +280,23 @@ def _answers_match_the_api_spec(monkeypatch):
 
 
 @pytest.fixture
+def frontend_build(tmp_path, monkeypatch):
+    """A stand-in for the Nuxt build (#463; ``npm run generate`` in frontend/):
+    its page and one asset, so the routes serving it are tested without Node."""
+    from nautobot_maps.api import frontend
+
+    build = tmp_path / "public"
+    (build / "_nuxt").mkdir(parents=True)
+    (build / "200.html").write_text(
+        '<!DOCTYPE html><html><head><script type="module" src="/_nuxt/entry.abc123.js"></script></head>'
+        '<body><div id="__nuxt"></div></body></html>'
+    )
+    (build / "_nuxt" / "entry.abc123.js").write_text("console.log('nuxt');\n" * 200)
+    monkeypatch.setattr(frontend, "BUILD", build)
+    return build
+
+
+@pytest.fixture
 def client():
     """A Flask test client (test_app.py has its own, the same)."""
     from nautobot_maps import caching

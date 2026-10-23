@@ -9,7 +9,6 @@ import re
 
 import pytest
 
-from nautobot_maps import auth
 from tests.js_modules import JS_ROOT, REPO_ROOT, run_js
 
 IMPORT = re.compile(r'(?:from|import)\s+"(\.{1,2}/[^"]+)"')
@@ -51,17 +50,10 @@ def test_every_page_loads_a_module_and_its_imports_exist():
         "help/main.js",
         "maintenance/main.js",
         "map/main.js",
-        "status/main.js",
     }
     used = set().union(*(imported_files(entry) for entry in scripts))
     every = {path.relative_to(JS_ROOT).as_posix() for path in JS_ROOT.rglob("*.js")}
     assert every - used == set(), "modules no page loads"
-
-
-def test_the_status_page_assets_are_what_it_loads():
-    """A customer's browser loads these without signing in (#291): no more, no less."""
-    expected = {f"/static/js/{path}" for path in imported_files("status/main.js")} | {"/static/css/alerts.css"}
-    assert auth.STATUS_PAGE_ASSETS == expected
 
 
 @pytest.mark.parametrize(

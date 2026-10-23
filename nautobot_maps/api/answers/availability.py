@@ -26,7 +26,7 @@ class TenantRow(common.Answer):
     downtime_seconds: int
 
 
-class Summary(common.Answer):
+class AvailabilitySummary(common.Answer):
     sites: int
     availability: float = Field(description="Percent, every site counting the same.")
     downtime_seconds: int
@@ -61,7 +61,7 @@ class Report(common.Answer):
     month: str | None = Field(description="The month, when the period is one whole month.")
     basis: Basis
     period: Period
-    summary: Summary
+    summary: AvailabilitySummary
     sites: list[SiteRow] = Field(description="Lowest availability first.")
     tenants: list[TenantRow] = Field(description="Lowest availability first.")
     tenant_descriptions: dict[str, str] = Field(description="Tenant name to its description, when it has one.")
