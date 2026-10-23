@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from nautobot_maps import alerts, auth, availability, db, maintenance, scheduler, status
-from nautobot_maps.api import deps, models, pages
+from nautobot_maps.api import deps, frontend, models
 from nautobot_maps.api.answers import common
 from nautobot_maps.api.answers import maintenance as answers
 
@@ -84,15 +84,14 @@ MAINTENANCE_HISTORY_DEFAULT_DAYS = 30
 
 
 @router.get("/maintenance", name="maintenance.maintenance_page")
-def maintenance_page(query: Annotated[models.MaintenancePage, Query()]):
-    """Current and planned maintenance, and planning more (#343); the data comes from the API."""
-    return pages.page(
-        "maintenance.html",
-        recent_days=MAINTENANCE_PAGE_RECENT_DAYS,
-        max_sites=maintenance.MAX_SITES,
-        view="history" if query.view == "history" else "now",
-        history_days=MAINTENANCE_HISTORY_DEFAULT_DAYS,
-    )
+def maintenance_page():
+    """Current and planned maintenance, and planning more (#343), or its
+    history (``?view=history``, #353).
+
+    Built with Nuxt (#463); the page reads ``/api/maintenance`` and its
+    limits from ``/api/page-config``.
+    """
+    return frontend.shell()
 
 
 def _history_request(query: models.MaintenanceHistory) -> dict:

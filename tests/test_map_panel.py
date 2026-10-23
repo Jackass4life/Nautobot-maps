@@ -122,12 +122,11 @@ check(saved === null, "Clear filters itself forgets it");
 
 
 def test_one_top_bar_on_every_page(client):
-    # The server-rendered pages; the Nuxt ones (/circuits, #463) have AppBar.vue (e2e).
+    # The server-rendered pages; the Nuxt ones (/circuits, /maintenance, #463) have AppBar.vue (e2e).
     for path, active in (
         ("/", "/"),
         ("/alerts", "/alerts"),
         ("/availability", "/availability"),
-        ("/maintenance", "/maintenance"),
         ("/help", "/help"),
         ("/docs", "/docs"),
     ):

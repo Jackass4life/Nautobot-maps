@@ -46,10 +46,6 @@ class MaintenanceList(Query):
     recent_days: str | None = None
 
 
-class MaintenancePage(Query):
-    view: str | None = None
-
-
 class MaintenanceHistory(Query):
     """The history's period (``from``/``to``, both days included), the browser's
     ``tz``, and one ``site_id`` or ``tenant``."""

@@ -7,8 +7,9 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 
-from nautobot_maps import alerts, guide, navigation, settings, templating
+from nautobot_maps import alerts, guide, maintenance, navigation, settings, templating
 from nautobot_maps.api import deps, files, pages
+from nautobot_maps.api import maintenance as api_maintenance
 from nautobot_maps.api.answers import pages as answers
 
 router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Pages"])
@@ -29,10 +30,20 @@ def scope_query(request: Request) -> str:
 @router.get("/api/page-config", name="pages.api_page_config", response_model=answers.PageConfig)
 def api_page_config():
     """What the pages built with Nuxt read to draw themselves (#463): who is
-    signed in (the top bar), Nautobot's address (links to its pages) and the
-    menu, the same as the server-rendered pages show."""
+    signed in (the top bar), Nautobot's address (links to its pages), the
+    menu, the same as the server-rendered pages show, and the Maintenance
+    page's limits."""
     return deps.Json(
-        {"user": templating.bar_user(), "nautobot_url": settings.NAUTOBOT_URL or "", "pages": navigation.pages()},
+        {
+            "user": templating.bar_user(),
+            "nautobot_url": settings.NAUTOBOT_URL or "",
+            "pages": navigation.pages(),
+            "maintenance": {
+                "recent_days": api_maintenance.MAINTENANCE_PAGE_RECENT_DAYS,
+                "history_days": api_maintenance.MAINTENANCE_HISTORY_DEFAULT_DAYS,
+                "max_sites": maintenance.MAX_SITES,
+            },
+        },
         headers={"Cache-Control": "no-store"},
     )
 

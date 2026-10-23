@@ -761,10 +761,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages) and the menu, the same as the server-rendered pages show.
+         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's limits.
          * @description What the pages built with Nuxt read to draw themselves (#463): who is
-         *     signed in (the top bar), Nautobot's address (links to its pages) and the
-         *     menu, the same as the server-rendered pages show.
+         *     signed in (the top bar), Nautobot's address (links to its pages), the
+         *     menu, the same as the server-rendered pages show, and the Maintenance
+         *     page's limits.
          */
         get: operations["pages_api_page_config_api_page_config_get"];
         put?: never;
@@ -938,8 +939,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Current and planned maintenance, and planning more; the data comes from the API.
-         * @description Current and planned maintenance, and planning more (#343); the data comes from the API.
+         * Current and planned maintenance, and planning more, or its history (``?view=history``, #353).
+         * @description Built with Nuxt; the page reads ``/api/maintenance`` and its
+         *     limits from ``/api/page-config``.
          */
         get: operations["maintenance_maintenance_page_maintenance_get"];
         put?: never;
@@ -2021,6 +2023,24 @@ export interface components {
              */
             windows: components["schemas"]["DescribedWindow"][];
         };
+        /** MaintenanceLimits */
+        MaintenanceLimits: {
+            /**
+             * History Days
+             * @description The history's period by default, in days up to today.
+             */
+            history_days: number;
+            /**
+             * Max Sites
+             * @description The most sites one request may plan for.
+             */
+            max_sites: number;
+            /**
+             * Recent Days
+             * @description How far back the Maintenance page's Ended group reaches.
+             */
+            recent_days: number;
+        };
         /** MappedCircuit */
         MappedCircuit: {
             /**
@@ -2294,6 +2314,7 @@ export interface components {
         };
         /** PageConfig */
         PageConfig: {
+            maintenance: components["schemas"]["MaintenanceLimits"];
             /**
              * Nautobot Url
              * @description Nautobot's address, for links to its pages; empty when not set.
@@ -5525,9 +5546,7 @@ export interface operations {
     };
     maintenance_maintenance_page_maintenance_get: {
         parameters: {
-            query?: {
-                view?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;

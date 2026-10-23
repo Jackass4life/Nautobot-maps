@@ -99,24 +99,3 @@ check(viewRows(rows, { tenant: ["Tenant 1", "Tenant 3"], query: "site 11" }).sho
 check(viewRows(rows, { tenant: [] }).matched === 1200, "clear restores all rows");
 check(viewRows(rows, { tenant: ["Tenant"] }).matched === 0, "exact tenant match");
 """)
-
-
-def test_maintenance_multi_tenants_at_scale_and_clear():
-    run_js("""
-import { batchesOf, batchMatches, groupsHtml } from "@js/maintenance/list.js";
-const batches = batchesOf(Array.from({ length: 1200 }, (_, i) => ({
-  id: i, batch_id: `batch-${i}`, site_id: `site-${i}`, site_name: `Site ${i}`,
-  state: "upcoming", tenants: [`Tenant ${i % 6}`, "Shared"], reason: i % 2 ? "Core" : "Edge",
-  starts_at: "2026-10-22T10:00:00Z", ends_at: "2026-10-22T11:00:00Z",
-})));
-const shown = batches.filter((batch) => batchMatches(batch, { tenant: ["Tenant 1", "Tenant 3"] }));
-check(shown.length === 400, "either tenant");
-check(batches.filter((batch) => batchMatches(batch, { tenant: ["Tenant 1", "Shared"] })).length === 1200,
-  "secondary tenant, no duplicate batches");
-check(shown.every((batch) => batchMatches(batch, { words: ["core"], tenant: ["Tenant 1", "Tenant 3"] })),
-  "search AND tenants");
-check(batches.filter((batch) => batchMatches(batch, { tenant: [], words: [] })).length === 1200, "clear");
-check(!batchMatches(shown[0], { tenant: ["Tenant"], words: [] }), "exact tenant match");
-const html = groupsHtml(shown, { limits: {}, expanded: new Set(), descriptions: {} });
-check((html.match(/class="maint-batch"/g) || []).length === 25 && html.includes("375 more"), "limited filtered groups");
-""")
