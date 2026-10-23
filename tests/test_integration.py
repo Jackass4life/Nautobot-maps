@@ -2384,6 +2384,58 @@ check(fits.length === 1, "no site to fit: the view stays");
 """
         )
 
+    def test_a_lone_far_off_site_does_not_pull_the_view(self):
+        # #459: one site at 82° N (Greenland) beside ~1,200 in Europe stretched the
+        # first view (Web Mercator) and centred it on the Greenland Sea.
+        run_js(
+            """
+import { fitToSites, mainGroup } from "@js/map/view.js";
+
+// Steady "random" spread, so the test is the same every run.
+let seed = 7;
+const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const spread = (n, lat, lon, size) =>
+  Array.from({ length: n }, () => [lat + (rand() - 0.5) * size, lon + (rand() - 0.5) * size * 2]);
+const has = (points, [lat, lon]) => points.some((p) => p[0] === lat && p[1] === lon);
+const GREENLAND = [82.36694950836477, -25.356299993695405];
+
+// Denmark and around: 1,200 sites; the Greenland one is left out of the frame.
+const denmark = spread(1200, 56, 10, 3);
+let kept = mainGroup([...denmark, GREENLAND]);
+check(!has(kept, GREENLAND), "a lone site at 82° N is not framed");
+check(kept.length === 1200, "every other site is: " + kept.length);
+
+// fitToSites frames the rest; the site itself is not touched (still on the map).
+setGlobal("L", { latLngBounds: (points) => ({ points }) });
+const fits = [];
+const sites = [...denmark, GREENLAND].map(([latitude, longitude], i) => ({ id: "s" + i, latitude, longitude }));
+fitToSites({ fitBounds: (bounds) => fits.push(bounds) }, sites);
+check(fits[0].points.length === 1200 && sites.length === 1201, "fit to 1,200 of 1,201");
+
+// Europe-wide: Reykjavik is part of it, northern Greenland still isn't.
+const europe = spread(1200, 50, 10, 20);
+kept = mainGroup([...europe, [64.15, -21.94], GREENLAND]);
+check(has(kept, [64.15, -21.94]), "Reykjavik is framed");
+check(!has(kept, GREENLAND), "Greenland at 82° N is not");
+
+// A real group up there (over one in ten) is framed.
+const greenland = spread(200, 81, -30, 2);
+kept = mainGroup([...denmark, ...greenland]);
+check(kept.length === 1400, "a group of 200 in Greenland is framed: " + kept.length);
+
+// Two networks, America and Europe: both framed.
+kept = mainGroup([...spread(600, 40, -90, 15), ...spread(600, 50, 10, 15)]);
+check(kept.length === 1200, "two continents: " + kept.length);
+
+// One city, and a site 30 km out of town: framed (never a site within 500 km).
+kept = mainGroup([...spread(300, 55.68, 12.57, 0.02), [55.95, 12.57]]);
+check(kept.length === 301, "a site 30 km away is framed: " + kept.length);
+
+// Two sites: both, however far apart.
+check(mainGroup([[56, 10], GREENLAND]).length === 2, "two sites: both framed");
+"""
+        )
+
 
 # The board's elements loadAlertBoard draws into (#364 tests).
 BOARD_ELS = """
