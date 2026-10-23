@@ -81,7 +81,10 @@ Every route lives in `nautobot_maps/api/`, one router per area, with `deps.ROUTE
 API spec) and `deps.require_role("operator")` for writes. Answer with `deps.Json` (JSON as the
 app always wrote it), raise `deps.ApiError(body, status)` to refuse, read a JSON body with
 `deps.json_body` and give its model to the spec with `openapi_extra=deps.body_schema(...)`;
-query strings are models in `api/models.py`. Code below the routes reads the request through
+query strings are models in `api/models.py`. Describe what a JSON route answers with
+`response_model=` from `api/answers/<area>.py` (fields as sent, `extra="forbid"`); the route
+still returns its `deps.Json`, and every test checks each answer it gets against that model
+(`tests/answers.py`), so `/docs` stays true. Code below the routes reads the request through
 `nautobot_maps/requestctx.py`. Keep a route's `name` stable (`"board.api_alerts"`): the frozen
 route table and `/api/endpoints`' examples use it.
 Every test client (`client` and the others; `tests/http_client.py`) is FastAPI's on `asgi.app`
@@ -128,7 +131,7 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   criticality), `maintenance`, `availability`, `circuits` and `status` (each with its page),
   `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test notification,
   contract), `ops` (health, metrics, app status, MCP, endpoint list). `deps` holds what they
-  share, `models` the typed queries and bodies, `pages` and `files` the HTML and file answers.
+  share, `models` the typed queries and bodies, `answers` what each area's JSON looks like, `pages` and `files` the HTML and file answers.
   `tests/route_table.json` freezes every URL, method and role: `python -m tests.test_route_table`
   rewrites it after a deliberate change.
 - `nautobot_maps/auth.py`: optional header-based authentication and roles
