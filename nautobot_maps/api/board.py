@@ -1,12 +1,14 @@
-"""The alert board's API (#424): the board, its activity and history, cases,
-acknowledgements and criticality overrides."""
+"""The alert board's API (#424; on FastAPI since #436): the board, its
+activity and history, cases, acknowledgements and criticality overrides."""
 
 import json
 import logging
 from datetime import UTC
+from typing import Annotated
 
 import requests
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import Response, StreamingResponse
 
 from nautobot_maps import (
     alerts,
@@ -18,15 +20,18 @@ from nautobot_maps import (
     scope,
     timeutil,
 )
+from nautobot_maps.api import deps, models
 from nautobot_maps.repositories import board as board_store
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("board", __name__)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+
+Body = Annotated[object, Depends(deps.json_body)]
 
 
-@bp.route("/api/alerts")
-def api_alerts():
+@router.get("/api/alerts", name="board.api_alerts")
+def api_alerts(query: Annotated[models.BoardQuery, Query()]):
     """Return alert-board summaries for all Nautobot locations.
 
     Read from the persisted inventory snapshot; never calls Nautobot or
@@ -44,43 +49,40 @@ def api_alerts():
     unknown or running) and ``persistence_configured`` (false: no database,
     so the board is always empty).
     """
-    force_refresh = request.args.get("refresh", "").strip().lower() in {
+    force_refresh = (query.refresh or "").lower() in {
         "1",
         "true",
         "yes",
         "refresh",
     }
-    include_non_operational = request.args.get(
-        "include_non_operational",
-        "",
-    ).strip().lower() in {
+    include_non_operational = (query.include_non_operational or "").lower() in {
         "1",
         "true",
         "yes",
         "include",
     }
     try:
-        return jsonify(
+        return deps.Json(
             alerts.get_alert_board_data(
                 force_refresh=force_refresh,
                 include_non_operational=include_non_operational,
             )
         )
     except RuntimeError:
-        return (
-            jsonify({"error": "Alert board unavailable because Nautobot is not configured"}),
-            503,
-        )
+        return deps.Json({"error": "Alert board unavailable because Nautobot is not configured"}, status_code=503)
     except requests.HTTPError as exc:
         logger.error("Nautobot API HTTP error while building alert board: %s", exc)
-        return jsonify({"error": "Failed to communicate with Nautobot API"}), 502
+        return deps.Json({"error": "Failed to communicate with Nautobot API"}, status_code=502)
     except Exception as exc:
         logger.exception("Unexpected error building alert board: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
 
 
-@bp.route("/api/criticality-overrides", methods=["GET"])
-@auth.require_role("operator")
+@router.get(
+    "/api/criticality-overrides",
+    name="board.api_list_criticality_overrides",
+    dependencies=[deps.require_role("operator")],
+)
 def api_list_criticality_overrides():
     """Return all per-device criticality overrides stored in the DB.
 
@@ -88,23 +90,27 @@ def api_list_criticality_overrides():
     """
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
     try:
         rows = conn.execute(
             "SELECT nautobot_device_id, is_critical, reason, updated_by, updated_at "
             "FROM device_criticality_override ORDER BY updated_at DESC"
         ).fetchall()
-        return jsonify({"overrides": [db.row_to_dict(r) for r in rows]})
+        return deps.Json({"overrides": [db.row_to_dict(r) for r in rows]})
     except Exception as exc:
         logger.exception("Could not list criticality overrides: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
 
 
-@bp.route("/api/criticality-overrides", methods=["POST"])
-@auth.require_role("operator")
-def api_set_criticality_override():
+@router.post(
+    "/api/criticality-overrides",
+    name="board.api_set_criticality_override",
+    openapi_extra=deps.body_schema(models.CriticalityOverride),
+    dependencies=[deps.require_role("operator")],
+)
+def api_set_criticality_override(body: Body):
     """Create or update a per-device criticality override.
 
     Expected JSON body::
@@ -120,12 +126,12 @@ def api_set_criticality_override():
     """
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
-    body = request.get_json(silent=True) or {}
+        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    body = body or {}
     device_id = (body.get("nautobot_device_id") or "").strip()
     if not device_id:
         conn.close()
-        return jsonify({"error": "nautobot_device_id is required"}), 400
+        return deps.Json({"error": "nautobot_device_id is required"}, status_code=400)
     is_critical = bool(body.get("is_critical", True))
     reason = (body.get("reason") or "").strip()
     updated_by = (body.get("updated_by") or "").strip()
@@ -148,16 +154,19 @@ def api_set_criticality_override():
                 """,
                 (device_id, int(is_critical), reason, updated_by),
             )
-        return jsonify({"status": "ok", "nautobot_device_id": device_id, "is_critical": is_critical})
+        return deps.Json({"status": "ok", "nautobot_device_id": device_id, "is_critical": is_critical})
     except Exception as exc:
         logger.exception("Could not set criticality override: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
 
 
-@bp.route("/api/criticality-overrides/<device_id>", methods=["DELETE"])
-@auth.require_role("operator")
+@router.delete(
+    "/api/criticality-overrides/{device_id}",
+    name="board.api_delete_criticality_override",
+    dependencies=[deps.require_role("operator")],
+)
 def api_delete_criticality_override(device_id: str):
     """Delete a per-device criticality override.
 
@@ -166,7 +175,7 @@ def api_delete_criticality_override(device_id: str):
     """
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
     try:
         with db.transaction(conn):
             marker = db.placeholders(1)
@@ -175,11 +184,11 @@ def api_delete_criticality_override(device_id: str):
                 (device_id,),
             )
         if cur.rowcount == 0:
-            return jsonify({"error": "Override not found"}), 404
-        return jsonify({"status": "deleted", "nautobot_device_id": device_id})
+            return deps.Json({"error": "Override not found"}, status_code=404)
+        return deps.Json({"status": "deleted", "nautobot_device_id": device_id})
     except Exception as exc:
         logger.exception("Could not delete criticality override: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
 
@@ -188,8 +197,8 @@ def api_delete_criticality_override(device_id: str):
 MAX_FEED_ENTRIES = 500
 
 
-@bp.route("/api/alert-feed")
-def api_alert_feed():
+@router.get("/api/alert-feed", name="board.api_alert_feed")
+def api_alert_feed(request: Request, query: Annotated[models.FeedQuery, Query()]):
     """What changed on the alert board, newest first (#180).
 
     Devices going down and back up, and site severity changes.  Query
@@ -200,24 +209,24 @@ def api_alert_feed():
     match (#375).
     """
     try:
-        limit = int(request.args.get("limit") or 100)
+        limit = int(query.limit or 100)
     except ValueError:
-        return jsonify({"error": "limit must be a whole number"}), 400
+        return deps.Json({"error": "limit must be a whole number"}, status_code=400)
     limit = max(1, min(limit, MAX_FEED_ENTRIES))
-    since = (request.args.get("since") or "").strip() or None
+    since = query.since
     if since:
         parsed_since = timeutil.as_utc_datetime(since)
         if parsed_since is None:
-            return jsonify({"error": "since must be an ISO-8601 timestamp"}), 400
+            return deps.Json({"error": "since must be an ISO-8601 timestamp"}, status_code=400)
         since = parsed_since.astimezone(UTC).isoformat()
-    kinds = [kind.strip() for kind in (request.args.get("kinds") or "").split(",") if kind.strip()]
+    kinds = [kind.strip() for kind in (query.kinds or "").split(",") if kind.strip()]
     unknown = sorted(set(kinds) - set(alerts.FEED_KINDS))
     if unknown:
-        return jsonify({"error": f"Unknown kinds: {', '.join(unknown)}"}), 400
-    page_scope = scope.read_scope(request.args)
+        return deps.Json({"error": f"Unknown kinds: {', '.join(unknown)}"}, status_code=400)
+    page_scope = scope.read_scope(request.query_params)
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"events": [], "persistence_configured": False})
+        return deps.Json({"events": [], "persistence_configured": False})
     try:
         site_ids = None
         if page_scope is not None:
@@ -228,24 +237,25 @@ def api_alert_feed():
             if not locations:
                 # Not synced yet, or the read failed: an empty feed would look like
                 # an all-clear for these sites, so say so instead.
-                return jsonify({"error": "The site list is not stored yet; try again after the next sync"}), 503
+                return deps.Json(
+                    {"error": "The site list is not stored yet; try again after the next sync"}, status_code=503
+                )
             site_ids = [str(loc["id"]) for loc in locations if loc.get("id") and scope.in_scope(loc, page_scope)]
         events = board_store.read_alert_feed(conn, limit, since, kinds or alerts.FEED_KINDS, site_ids)
         result = {"events": events, "persistence_configured": True}
         if site_ids is not None:
             # 0 tells "no site matches" from "nothing changed" (#375).
             result["matching_sites"] = len(site_ids)
-        return jsonify(result)
+        return deps.Json(result)
     except Exception as exc:
         logger.exception("Could not read the alert feed: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
 
 
-@bp.route("/api/alert-history", methods=["GET"])
-@auth.require_role("operator")
-def api_alert_history():
+@router.get("/api/alert-history", name="board.api_alert_history", dependencies=[deps.require_role("operator")])
+def api_alert_history(query: Annotated[models.HistoryQuery, Query()]):
     """Return historical alert instances with events and case numbers.
 
     Newest down first (by when the device went down), at most 500.  Query parameters filter them: ``site_id``,
@@ -254,21 +264,21 @@ def api_alert_history():
     """
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
-    site_id = (request.args.get("site_id") or "").strip()
-    device_id = (request.args.get("device_id") or "").strip()
-    start_at = (request.args.get("start_at") or "").strip()
-    end_at = (request.args.get("end_at") or "").strip()
+        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    site_id = query.site_id or ""
+    device_id = query.device_id or ""
+    start_at = query.start_at or ""
+    end_at = query.end_at or ""
     try:
         if start_at:
             parsed_start_at = timeutil.as_utc_datetime(start_at)
             if parsed_start_at is None:
-                return jsonify({"error": "start_at must be an ISO-8601 timestamp"}), 400
+                return deps.Json({"error": "start_at must be an ISO-8601 timestamp"}, status_code=400)
             start_at = parsed_start_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         if end_at:
             parsed_end_at = timeutil.as_utc_datetime(end_at)
             if parsed_end_at is None:
-                return jsonify({"error": "end_at must be an ISO-8601 timestamp"}), 400
+                return deps.Json({"error": "end_at must be an ISO-8601 timestamp"}, status_code=400)
             end_at = parsed_end_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
         conditions = []
         params = []
@@ -337,17 +347,16 @@ def api_alert_history():
             instance_id = str(instance.get("id"))
             instance["events"] = events_by_instance.get(instance_id, [])
             instance["cases"] = cases_by_instance.get(instance_id, [])
-        return jsonify({"instances": instances})
+        return deps.Json({"instances": instances})
     except Exception as exc:
         logger.exception("Could not fetch alert history: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
 
 
-@bp.route("/api/alert-history.csv", methods=["GET"])
-@auth.require_role("operator")
-def api_alert_history_csv():
+@router.get("/api/alert-history.csv", name="board.api_alert_history_csv", dependencies=[deps.require_role("operator")])
+def api_alert_history_csv(query: Annotated[models.HistoryCsvQuery, Query()]):
     """A site's alert history as a CSV download (#277).
 
     Query parameters: ``site_id`` (required), ``days`` (``7``, ``30``
@@ -356,21 +365,21 @@ def api_alert_history_csv():
     down, total and longest downtime, last down, down now).  Includes every
     incident that was down at any point in the period.  Times are UTC.
     """
-    site_id = (request.args.get("site_id") or "").strip()
-    days = (request.args.get("days") or "30").strip().lower()
-    view = (request.args.get("view") or "incidents").strip().lower()
+    site_id = query.site_id or ""
+    days = (query.days or "30").lower()
+    view = (query.view or "incidents").lower()
     if not site_id:
-        return jsonify({"error": "site_id is required"}), 400
+        return deps.Json({"error": "site_id is required"}, status_code=400)
     if view not in export.VIEWS:
-        return jsonify({"error": f"view must be one of: {', '.join(export.VIEWS)}"}), 400
+        return deps.Json({"error": f"view must be one of: {', '.join(export.VIEWS)}"}, status_code=400)
     now = timeutil.parse_iso_datetime(timeutil.iso_utc_now())
     try:
         since = export.period_start(days, now)
     except ValueError:
-        return jsonify({"error": f"days must be one of: {', '.join(export.PERIOD_DAYS)}"}), 400
+        return deps.Json({"error": f"days must be one of: {', '.join(export.PERIOD_DAYS)}"}, status_code=400)
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
     headers = {"Cache-Control": "no-store"}
     try:
         name = export.file_name(export.site_name(conn, site_id), view, days, now)
@@ -378,11 +387,11 @@ def api_alert_history_csv():
         if view == "devices":
             body = export.devices_csv(export.read_device_summary(conn, site_id, since, now))
             conn.close()
-            return Response(body, mimetype="text/csv", headers=headers)
+            return Response(body, media_type="text/csv", headers=headers)
     except Exception as exc:
         conn.close()
         logger.exception("Could not export alert history: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
 
     # Incidents are streamed: a site's whole history need not fit in memory.
     def lines():
@@ -394,17 +403,16 @@ def api_alert_history_csv():
         finally:
             conn.close()
 
-    return Response(stream_with_context(lines()), mimetype="text/csv", headers=headers)
+    return StreamingResponse(lines(), media_type="text/csv", headers=headers)
 
 
 # Upper bound on devices linked to one case in a single request.
 MAX_CASE_DEVICES = 200
 
 
-def _acknowledge(clear: bool):
-    body = request.get_json(silent=True)
+def _acknowledge(body, clear: bool):
     if not isinstance(body, dict):
-        return jsonify({"error": "Expected a JSON object"}), 400
+        return deps.Json({"error": "Expected a JSON object"}, status_code=400)
     site_id = body.get("site_id").strip() if isinstance(body.get("site_id"), str) else ""
     # Left out (or null): every open alert of the site.  Anything else must
     # be a non-empty list of IDs, so bad input never means "everything".
@@ -416,63 +424,74 @@ def _acknowledge(clear: bool):
             or not raw_ids
             or not all(isinstance(value, str) and value.strip() for value in raw_ids)
         ):
-            return jsonify(
-                {"error": "device_ids must be a non-empty list of device IDs (leave it out for every device)"}
-            ), 400
+            return deps.Json(
+                {"error": "device_ids must be a non-empty list of device IDs (leave it out for every device)"},
+                status_code=400,
+            )
         device_ids = [value.strip() for value in raw_ids]
     note = body.get("note")
     if note is None:
         note = ""
     if not isinstance(note, str):
-        return jsonify({"error": "note must be text"}), 400
+        return deps.Json({"error": "note must be text"}, status_code=400)
     if not site_id:
-        return jsonify({"error": "site_id is required"}), 400
+        return deps.Json({"error": "site_id is required"}, status_code=400)
     if len(device_ids) > MAX_CASE_DEVICES:
-        return jsonify({"error": f"At most {MAX_CASE_DEVICES} devices per request"}), 400
+        return deps.Json({"error": f"At most {MAX_CASE_DEVICES} devices per request"}, status_code=400)
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
     by = (auth.get_current_user().get("username") or "").strip()
     try:
         result = alerts.acknowledge(conn, site_id, device_ids, by, note, clear=clear)
     finally:
         conn.close()
     if result["missing"]:
-        return (
-            jsonify(
-                {
-                    "error": "No active alert for some devices; nothing was changed",
-                    "missing_device_ids": result["missing"],
-                }
-            ),
-            404,
+        return deps.Json(
+            {
+                "error": "No active alert for some devices; nothing was changed",
+                "missing_device_ids": result["missing"],
+            },
+            status_code=404,
         )
     scheduler.board_changed()
-    return jsonify({"site_id": site_id, "changed": result["changed"]})
+    return deps.Json({"site_id": site_id, "changed": result["changed"]})
 
 
-@bp.route("/api/alert-acks", methods=["POST"])
-@auth.require_role("operator", open_when_disabled=True)
-def api_acknowledge():
+@router.post(
+    "/api/alert-acks",
+    name="board.api_acknowledge",
+    openapi_extra=deps.body_schema(models.Acknowledge),
+    dependencies=[deps.require_role("operator", open_when_disabled=True)],
+)
+def api_acknowledge(body: Body):
     """Acknowledge a site's alarm (#288): someone is on it, without a case number.
 
     JSON body: ``site_id``, optional ``device_ids`` (default: every device
     with an open alert at the site) and ``note``.  Shown on the board and the
     wall until the alarm ends; recorded in the history.
     """
-    return _acknowledge(clear=False)
+    return _acknowledge(body, clear=False)
 
 
-@bp.route("/api/alert-acks/remove", methods=["POST"])
-@auth.require_role("operator", open_when_disabled=True)
-def api_unacknowledge():
+@router.post(
+    "/api/alert-acks/remove",
+    name="board.api_unacknowledge",
+    openapi_extra=deps.body_schema(models.Acknowledge),
+    dependencies=[deps.require_role("operator", open_when_disabled=True)],
+)
+def api_unacknowledge(body: Body):
     """Remove an acknowledgement (#288): ``site_id``, optional ``device_ids``."""
-    return _acknowledge(clear=True)
+    return _acknowledge(body, clear=True)
 
 
-@bp.route("/api/alert-cases", methods=["POST"])
-@auth.require_role("operator", open_when_disabled=True)
-def api_add_alert_case():
+@router.post(
+    "/api/alert-cases",
+    name="board.api_add_alert_case",
+    openapi_extra=deps.body_schema(models.AlertCase),
+    dependencies=[deps.require_role("operator", open_when_disabled=True)],
+)
+def api_add_alert_case(body: Body):
     """Attach a case number to the open alert of one or more devices at a site.
 
     JSON body: ``site_id``, ``case_number`` and either ``device_ids`` (list)
@@ -481,24 +500,24 @@ def api_add_alert_case():
     ``missing_device_ids``, so a case is never applied to only part of the
     selection.
     """
-    body = request.get_json(silent=True) or {}
+    body = body or {}
     site_id = (body.get("site_id") or "").strip() if isinstance(body.get("site_id"), str) else ""
     case_number = (body.get("case_number") or "").strip() if isinstance(body.get("case_number"), str) else ""
     raw_ids = body.get("device_ids")
     if raw_ids is None:
         raw_ids = [body.get("device_id")] if body.get("device_id") else []
     if not isinstance(raw_ids, list) or not all(isinstance(value, str) for value in raw_ids):
-        return jsonify({"error": "device_ids must be a list of device ID strings"}), 400
+        return deps.Json({"error": "device_ids must be a list of device ID strings"}, status_code=400)
     # De-duplicate while keeping the operator's order.
     device_ids = list(dict.fromkeys(value.strip() for value in raw_ids if value.strip()))
     if not site_id or not device_ids or not case_number:
-        return jsonify({"error": "site_id, device_ids and case_number are required"}), 400
+        return deps.Json({"error": "site_id, device_ids and case_number are required"}, status_code=400)
     if len(device_ids) > MAX_CASE_DEVICES:
-        return jsonify({"error": f"At most {MAX_CASE_DEVICES} devices per request"}), 400
+        return deps.Json({"error": f"At most {MAX_CASE_DEVICES} devices per request"}, status_code=400)
 
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
     created_by = (auth.get_current_user().get("username") or "").strip()
     try:
         with db.transaction(conn):
@@ -519,14 +538,12 @@ def api_add_alert_case():
                     instance_ids[device_id] = db.row_to_dict(row)["id"]
             missing = [device_id for device_id in device_ids if device_id not in instance_ids]
             if missing:
-                return (
-                    jsonify(
-                        {
-                            "error": "No active alert found for some devices; nothing was changed",
-                            "missing_device_ids": missing,
-                        }
-                    ),
-                    404,
+                return deps.Json(
+                    {
+                        "error": "No active alert found for some devices; nothing was changed",
+                        "missing_device_ids": missing,
+                    },
+                    status_code=404,
                 )
             for device_id in device_ids:
                 p0, p1, p2 = db.placeholders(3).split(",")
@@ -552,9 +569,9 @@ def api_add_alert_case():
             # Fields of the original single-device response, kept for API clients.
             result["device_id"] = device_ids[0]
             result["alert_instance_id"] = instance_ids[device_ids[0]]
-        return jsonify(result)
+        return deps.Json(result)
     except Exception as exc:
         logger.exception("Could not add alert case: %s", exc)
-        return jsonify({"error": "Internal server error"}), 500
+        return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
