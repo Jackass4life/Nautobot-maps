@@ -361,11 +361,15 @@ class TestTools:
     def test_search_uses_the_route(self, client, monkeypatch):
         from nautobot_maps import inventory
 
-        monkeypatch.setattr(
-            inventory,
-            "get_locations",
-            lambda: [{"id": "loc-1", "name": "Aarhus HQ", "latitude": 56.15, "longitude": 10.2}],
+        # A location as get_locations gives it (#449: the answer is checked against /docs).
+        text = ("slug", "status", "location_type", "parent", "parent_id", "ancestor_path", "description")
+        text += ("physical_address", "country", "tier", "facility", "tenant", "tenant_id", "tenant_group")
+        location = {key: "" for key in (*text, "time_zone", "url")}
+        location.update(
+            {"id": "loc-1", "name": "Aarhus HQ", "latitude": 56.15, "longitude": 10.2, "asn": None, "tags": []}
         )
+        location.update({"tenant_scopes": {}, "tenant_descriptions": {}})
+        monkeypatch.setattr(inventory, "get_locations", lambda: [location])
         found = call(client, "search_locations", {"query": "56.15,10.2"})["structuredContent"]
         assert found["count"] == 1 and found["locations"][0]["id"] == "loc-1"
 

@@ -13,6 +13,8 @@ from geopy.geocoders import Nominatim
 
 from nautobot_maps import alerts, caching, coordinates, inventory, scope, settings
 from nautobot_maps.api import deps, models
+from nautobot_maps.api.answers import common
+from nautobot_maps.api.answers import locations as answers
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,10 @@ router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENC
 
 INTERNAL_ERROR = {"error": "Internal server error"}
 UPSTREAM_ERROR = {"error": "Failed to communicate with Nautobot API"}
+NAUTOBOT_ERRORS = {
+    502: {"model": common.Error, "description": "Nautobot answered with an error"},
+    503: {"model": common.Error, "description": "Nautobot can't be reached"},
+}
 
 
 def nautobot_service_unavailable(context: str, exc: Exception):
@@ -27,7 +33,9 @@ def nautobot_service_unavailable(context: str, exc: Exception):
     return deps.Json({"error": "Nautobot service unavailable"}, status_code=503)
 
 
-@router.get("/api/locations", name="locations.api_locations")
+@router.get(
+    "/api/locations", name="locations.api_locations", response_model=answers.Locations, responses=NAUTOBOT_ERRORS
+)
 def api_locations():
     """Return all Nautobot locations that have GPS coordinates."""
     try:
@@ -43,7 +51,12 @@ def api_locations():
         return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
-@router.get("/api/locations/{location_id}/detail", name="locations.api_location_detail")
+@router.get(
+    "/api/locations/{location_id}/detail",
+    name="locations.api_location_detail",
+    response_model=answers.LocationDetail,
+    responses=NAUTOBOT_ERRORS,
+)
 def api_location_detail(location_id: str, query: Annotated[models.LocationDetail, Query()]):
     """Return devices and ASNs for a specific location.
 
@@ -65,7 +78,7 @@ def api_location_detail(location_id: str, query: Annotated[models.LocationDetail
         return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
-@router.get("/api/location-alerts", name="locations.api_location_alerts")
+@router.get("/api/location-alerts", name="locations.api_location_alerts", response_model=answers.LocationAlerts)
 def api_location_alerts():
     """Alert level (critical, medium, low, ok, maintenance) of every map location with
     monitored devices, for the marker colours (#234, #311); a location missing has no data."""
@@ -79,7 +92,9 @@ def api_location_alerts():
 ScopeQuery = Annotated[models.Scope, Query()]
 
 
-@router.get("/api/locations/coordinate-check", name="locations.api_coordinate_check")
+@router.get(
+    "/api/locations/coordinate-check", name="locations.api_coordinate_check", response_model=answers.CoordinateCheck
+)
 @router.get("/api/locations/coordinate-check.csv", name="locations.api_coordinate_check")
 def api_coordinate_check(request: Request, query: ScopeQuery):
     """The alert board's sites with missing or wrong coordinates (#368), worst
@@ -149,7 +164,16 @@ def geocode(query: str):
     return point
 
 
-@router.get("/api/search", name="locations.api_search")
+@router.get(
+    "/api/search",
+    name="locations.api_search",
+    response_model=answers.Search,
+    responses={
+        404: {"model": common.Error, "description": "Address not found"},
+        429: {"model": common.Error, "description": "Address search is busy; try again in a second"},
+        503: {"model": common.Error, "description": "The geocoder or Nautobot can't be reached"},
+    },
+)
 def api_search(query: Annotated[models.Search, Query()]):
     """
     Geocode an address or parse GPS coordinates and return all Nautobot
