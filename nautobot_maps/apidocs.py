@@ -104,6 +104,23 @@ def _flask_style(path: str, endpoint) -> str:
     return re.sub(r"\{([^}]+)\}", convert, path)
 
 
+def _fastapi_query_params(dependant) -> list[str]:
+    """A FastAPI route's query parameters by name, a query model's fields one
+    by one (``from``, not ``from_``), its dependencies' too."""
+    from pydantic import BaseModel
+
+    names = []
+    for param in dependant.query_params:
+        annotation = param.field_info.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            names += [field.alias or name for name, field in annotation.model_fields.items()]
+        else:
+            names.append(param.alias)
+    for sub in dependant.dependencies:
+        names += _fastapi_query_params(sub)
+    return list(dict.fromkeys(names))
+
+
 def routes(app: Flask | None = None) -> list[dict]:
     """Every route the app serves, on FastAPI or still on Flask (#436):
     ``path`` (Flask's notation), ``methods``, ``endpoint``, ``view``,
@@ -145,7 +162,7 @@ def routes(app: Flask | None = None) -> list[dict]:
                 "endpoint": route.name,
                 "view": route.endpoint,
                 "path_params": sorted(route.param_convertors),
-                "query_params": [param.alias for param in route.dependant.query_params],
+                "query_params": _fastapi_query_params(route.dependant),
                 "required_role": deps.required_role(route),
             }
         )
