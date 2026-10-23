@@ -6,7 +6,7 @@ defineProps<{ site: StatusSite; now: Date; dot: Record<string, string> }>();
 
 <template>
   <li class="status-site flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3" :class="`status-${site.state}`">
-    <span class="size-2.5 shrink-0 rounded-full" :class="dot[site.state] || 'bg-muted'" aria-hidden="true" />
+    <span class="size-2.5 shrink-0 rounded-full" :class="dot[site.state] || 'bg-slate-400'" aria-hidden="true" />
     <span class="min-w-0 flex-1 basis-48 font-semibold break-words text-highlighted">{{ site.name }}</span>
     <span :class="site.state === 'outage' || site.state === 'degraded' ? 'font-semibold text-highlighted' : 'text-muted'">
       {{ stateLabel(site.state) }}
