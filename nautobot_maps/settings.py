@@ -67,9 +67,10 @@ def _flag(name: str, default: bool) -> bool:
     return value not in ("0", "false", "no")
 
 
-# Flask
-FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"  # python app.py only
-FLASK_RUN_PORT = os.getenv("FLASK_RUN_PORT", "")  # python app.py only
+# The development server (python app.py only); the names are Flask's, kept so
+# existing .env files work (#436): FLASK_DEBUG reloads on changes.
+FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+FLASK_RUN_PORT = os.getenv("FLASK_RUN_PORT", "")
 
 # Logging (#193): DEBUG, INFO, WARNING, ERROR; "text" or "json" lines.
 LOG_LEVEL = os.getenv("LOG_LEVEL", "").strip().upper() or "INFO"

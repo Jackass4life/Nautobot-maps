@@ -6,9 +6,8 @@ import json
 import random
 
 import pytest
-from werkzeug.datastructures import MultiDict
+from starlette.datastructures import QueryParams
 
-import app as flask_app
 from nautobot_maps import alerts, caching, coordinates, scope, settings
 from tests import http_client
 from tests.js_modules import run_js
@@ -119,7 +118,7 @@ class TestCheck:
             site("acme", 55.5, 10.5, tenant="Acme Corp", ancestor_path="EMEA › DNK"),
             site("acme-2", 56.2, 10.2, tenant="Acme Corp", ancestor_path="EMEA › DNK"),
         ]
-        page = scope.read_scope(MultiDict([("tenant", "Acme Corp")]))
+        page = scope.read_scope(QueryParams([("tenant", "Acme Corp")]))
         # Two Acme sites alone are too few to be far from; with Denmark's they are fine.
         assert coordinates.check(rows, page) == []
         rows.append(site("acme-in-brazil", -15.8, -47.9, tenant="Acme Corp", ancestor_path="EMEA › DNK"))
@@ -146,7 +145,7 @@ class TestCheck:
             site("acme", None, None, tenant="Acme Corp"),
             site("nordic", None, None, tenant="Nordic Net"),
         ]
-        page = scope.read_scope(MultiDict([("tenant", "acme corp")]))
+        page = scope.read_scope(QueryParams([("tenant", "acme corp")]))
         assert [item["site_id"] for item in coordinates.check(rows, page)] == ["acme"]
 
 
@@ -184,7 +183,7 @@ class TestScopeParity:
             case: [
                 row["id"]
                 for row in SCOPE_SITES
-                if scope.in_scope(row, scope.read_scope(MultiDict(parse_qsl(case[1:]))))
+                if scope.in_scope(row, scope.read_scope(QueryParams(parse_qsl(case[1:]))))
             ]
             for case in SCOPE_CASES
         }
@@ -210,7 +209,6 @@ class TestApi:
     @pytest.fixture
     def client(self, monkeypatch, rows):
         monkeypatch.setattr(alerts, "board", lambda trigger="request", **kwargs: {"alerts": rows})
-        flask_app.app.config["TESTING"] = True
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
 

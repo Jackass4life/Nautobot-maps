@@ -5,8 +5,8 @@ from pathlib import Path
 
 import mock_nautobot  # provided via tests/conftest.py path injection
 import pytest
+from fastapi.testclient import TestClient
 
-import app as flask_app
 from nautobot_maps import caching, contract, db, inventory, librenms, metrics, nautobot, settings
 from tests import http_client
 
@@ -119,11 +119,11 @@ class TestMockNautobot:
         [e.path for e in contract.CONTRACT if e.source == contract.NAUTOBOT and e.checked],
     )
     def test_endpoint(self, path):
-        client = mock_nautobot.app.test_client()
+        client = TestClient(mock_nautobot.app)
         response = client.get(f"/api/{path}?limit=1000&depth=1", headers={"Authorization": "Token x"})
         if response.status_code == 404:
             pytest.skip(f"the mock has no {path}")
-        records = response.get_json()["results"]
+        records = response.json()["results"]
         assert records, path
         assert contract.check(contract.endpoint(contract.NAUTOBOT, path), records)["mismatches"] == []
 
@@ -172,7 +172,6 @@ class TestRecorded:
         )
         assert 'nautobot_maps_contract_mismatches{source="nautobot",endpoint="dcim/devices/",field="role"} 1' in scraped
 
-        flask_app.app.config["TESTING"] = True
         caching.cache.clear()
         with http_client.FlaskStyleClient() as client:
             body = client.get("/api/contract").get_json()

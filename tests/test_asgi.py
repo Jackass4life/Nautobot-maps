@@ -2,6 +2,8 @@
 it.  Everything a browser, a script or a proxy relied on must be the same."""
 
 import logging
+import pathlib
+import re
 
 from nautobot_maps import server, settings
 
@@ -71,22 +73,41 @@ def test_uvicorn_never_takes_the_client_from_a_header():
 MOVED = ("/healthz", "/metrics", "/api/app-status", "/api/endpoints")
 
 
-def test_the_moved_routes_are_fastapis():
-    import app as flask_app
+def test_no_flask_is_left():
+    """#436 done: the app imports neither Flask nor werkzeug, and they are no
+    longer in the image's requirements."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for path in [root / "app.py", root / "asgi.py", *root.glob("nautobot_maps/**/*.py")]:
+        source = path.read_text(encoding="utf-8")
+        assert not re.search(r"^\s*(from|import) (flask|werkzeug|flask_caching|a2wsgi)\b", source, re.M), path
+    requirements = (root / "requirements.in").read_text(encoding="utf-8").lower()
+    for name in ("flask", "flask-caching", "a2wsgi", "werkzeug"):
+        assert not re.search(rf"^{name}==", requirements, re.M), name
 
-    flask_paths = {rule.rule for rule in flask_app.app.url_map.iter_rules()}
-    assert not set(MOVED) & flask_paths
 
+def test_json_exactly_as_flask_wrote_it():
+    """Keys sorted, non-ASCII escaped, compact, a newline at the end; dates as
+    Flask's HTTP dates, decimals and UUIDs as text."""
+    import datetime
+    import decimal
+    import uuid
 
-def test_json_exactly_as_flask_writes_it():
-    import app as flask_app
     from nautobot_maps.api import deps
 
     content = {"b": 1, "a": "Århus ø", "nested": {"z": None, "y": [1, 2]}}
-    with flask_app.app.app_context():
-        flask_body = flask_app.app.json.response(content).get_data()
-    assert deps.Json(content).body == flask_body
-    assert flask_body.endswith(b"\n") and b"\\u00c5rhus" in flask_body
+    assert deps.Json(content).body == b'{"a":"\\u00c5rhus \\u00f8","b":1,"nested":{"y":[1,2],"z":null}}\n'
+    when = datetime.datetime(2026, 10, 22, 14, 5, tzinfo=datetime.timezone(datetime.timedelta(hours=2)))
+    odd = {
+        "at": when,
+        "naive": datetime.datetime(2026, 10, 22, 12, 5),
+        "day": datetime.date(2026, 10, 22),
+        "n": decimal.Decimal("1.50"),
+        "id": uuid.UUID(int=1),
+    }
+    assert deps.Json(odd).body == (
+        b'{"at":"Thu, 22 Oct 2026 12:05:00 GMT","day":"Thu, 22 Oct 2026 00:00:00 GMT",'
+        b'"id":"00000000-0000-0000-0000-000000000001","n":"1.50","naive":"Thu, 22 Oct 2026 12:05:00 GMT"}\n'
+    )
 
 
 def test_moved_routes_keep_headers_gzip_head_and_405(asgi_client):
@@ -191,31 +212,18 @@ def test_the_shared_pieces_refuse_like_flask(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_templates_render_the_same_html_as_flask():
-    """The same template and context give the same HTML under either renderer:
-    filters, url_for('static'), escaping, the top bar's user."""
-    import flask
+def test_templates_escape_and_link_as_flask_did():
+    """Autoescaped markup, url_for('static'), and the filters."""
+    from nautobot_maps import availability, templating
 
-    import app as flask_app
-    from nautobot_maps import templating
-
-    for template, context in (
-        ("status.html", {"tenant": "Acme <Corp> & Co"}),
-        ("circuits.html", {"nautobot_url": "https://nautobot.example"}),
-    ):
-        with flask_app.app.test_request_context("/"):
-            flask_html = flask.render_template(template, **context)
-            ours = templating.render(template, **context)
-        assert ours == flask_html, template
-    with flask_app.app.test_request_context("/"):
-        filtered = flask_app.app.jinja_env.from_string("{{ 1200 | thousands }} {{ 5400 | downtime }}").render()
-    assert templating.environment.from_string("{{ 1200 | thousands }} {{ 5400 | downtime }}").render() == filtered
+    html = templating.render("status.html", tenant="Acme <Corp> & Co", bar_user=None)
+    assert "Acme &lt;Corp&gt; &amp; Co" in html and "<Corp>" not in html
+    assert 'src="/static/js/status/main.js"' in html
+    rendered = templating.environment.from_string("{{ 1200 | thousands }} {{ 5400 | downtime }}").render()
+    assert rendered == f"1,200 {availability.format_downtime(5400)}"
 
 
 def test_the_status_page_is_fastapis_with_its_own_referrer_policy(client):
-    import app as flask_app
-
-    assert not any(rule.rule.startswith(("/status/", "/api/status/")) for rule in flask_app.app.url_map.iter_rules())
     page = client.get("/status/Acme%20Corp")
     assert page.status_code == 200 and page.headers["content-type"] == "text/html; charset=utf-8"
     assert page.headers.get_list("referrer-policy") == ["no-referrer"]

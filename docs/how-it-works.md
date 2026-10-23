@@ -10,7 +10,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (read-only), asks *
 
 | Part | What it is | Why |
 |---|---|---|
-| **Python 3.12 + Flask** | The web app: pages, the JSON API, webhooks, MCP. (Flask, not FastAPI or Django.) | Small, well-known, enough for this load |
+| **Python 3.12 + FastAPI** | The web app: pages, the JSON API, webhooks, MCP; typed requests and the OpenAPI spec behind `/docs` (#436) | Small, well-known, enough for this load |
 | **gunicorn** | The production web server inside the container: 4 worker processes by default (`GUNICORN_WORKERS`) | Several requests at once; a stuck one can't block the rest |
 | **PostgreSQL 16** | The app's own database: a copy of the inventory, alert history, cases, acks, maintenance windows, notifications queue, API tokens | History survives restarts; one source of truth for every worker |
 | **Redis 7** | Shared cache of Nautobot answers and rate limits between workers | Fewer calls to Nautobot; every worker sees the same cache |
@@ -25,7 +25,7 @@ The app listens on port 5000 (in Compose, only on `127.0.0.1:5000` of the host).
 ```mermaid
 flowchart LR
   user[Browser / NOC screen] -->|HTTPS| proxy[nginx / SSO proxy<br/>optional, yours]
-  proxy --> app[Nautobot Maps<br/>Flask + gunicorn]
+  proxy --> app[Nautobot Maps<br/>FastAPI + uvicorn]
   app -->|read-only API| nb[(Nautobot)]
   app -->|API| lnms[(LibreNMS<br/>optional)]
   lnms -. push alerts .-> app

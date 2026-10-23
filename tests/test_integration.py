@@ -1,7 +1,7 @@
 """
 Integration tests for the Nautobot Maps application.
 
-These tests start a *real* mock-Nautobot HTTP server (werkzeug) in a background
+These tests start a *real* mock-Nautobot HTTP server (uvicorn) in a background
 thread, configure the Flask app to point to it, and exercise every API endpoint
 end-to-end – no mocking of app internals.
 
@@ -12,13 +12,14 @@ Run with:
 import json
 import pathlib
 import re
+import socket
 import threading
+import time
 
 import mock_nautobot  # provided via tests/conftest.py path injection
 import pytest
-from werkzeug.serving import make_server
+import uvicorn
 
-import app as flask_app
 from nautobot_maps import caching, inventory, settings
 from tests import http_client
 from tests.js_modules import js_source, run_js
@@ -37,12 +38,18 @@ def mock_nautobot_server():
     Start the mock Nautobot HTTP server on a random port.
     Yields the base URL (e.g. 'http://127.0.0.1:54321').
     """
-    server = make_server("127.0.0.1", 0, mock_nautobot.app)
-    port = server.server_port
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(mock_nautobot.app, log_level="warning", lifespan="off"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
     yield f"http://127.0.0.1:{port}"
-    server.shutdown()
+    server.should_exit = True
+    thread.join(timeout=5)
 
 
 @pytest.fixture(scope="module")
@@ -55,8 +62,6 @@ def integration_client(mock_nautobot_server):
     settings.NAUTOBOT_URL = mock_nautobot_server
     settings.NAUTOBOT_TOKEN = "demo-token"
     caching.cache.clear()
-
-    flask_app.app.config["TESTING"] = True
 
     with http_client.FlaskStyleClient() as client:
         yield client

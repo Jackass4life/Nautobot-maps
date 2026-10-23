@@ -10,7 +10,7 @@ IGNORED = {"HEAD", "OPTIONS"}
 
 
 def route_table(app) -> list[dict]:
-    """Flask's routes and FastAPI's (#436), in Flask's notation."""
+    """Every route (#436), in the notation the snapshot was first written in (Flask's)."""
     from nautobot_maps import apidocs
 
     rows = [
@@ -26,12 +26,8 @@ def route_table(app) -> list[dict]:
 
 
 def test_no_route_changed():
-    from app import app
-
-    assert route_table(app) == json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    assert route_table(None) == json.loads(SNAPSHOT.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
-    from app import app
-
-    SNAPSHOT.write_text(json.dumps(route_table(app), indent=1) + "\n", encoding="utf-8")
+    SNAPSHOT.write_text(json.dumps(route_table(None), indent=1) + "\n", encoding="utf-8")

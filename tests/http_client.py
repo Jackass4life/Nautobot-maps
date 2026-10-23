@@ -10,6 +10,7 @@ Like Flask's: the client is 127.0.0.1 (a trusted proxy by default), the host
 
 import gzip
 import json as jsonlib
+from contextlib import contextmanager
 from email.message import Message
 
 from fastapi.testclient import TestClient
@@ -173,3 +174,28 @@ class FlaskStyleClient:
 
     def head(self, path, **kwargs):
         return self.open("HEAD", path, **kwargs)
+
+
+@contextmanager
+def fake_request(path: str = "/", method: str = "GET", headers: dict | None = None, remote_addr: str = "127.0.0.1"):
+    """A request being answered, for code that reads it (``auth``, ``mcp``)
+    outside a route: what Flask's ``test_request_context`` was for."""
+    import types
+
+    from starlette.datastructures import Headers
+
+    from nautobot_maps import requestctx
+
+    view = types.SimpleNamespace(
+        headers=Headers(headers=headers or {}),
+        method=method,
+        path=path,
+        host="localhost",
+        remote_addr=remote_addr,
+        g=types.SimpleNamespace(),
+    )
+    token = requestctx.bind_view(view)
+    try:
+        yield view
+    finally:
+        requestctx.reset(token)

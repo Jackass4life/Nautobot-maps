@@ -4,7 +4,7 @@ This `docker-compose.yml` spins up a **complete demo environment** in two contai
 
 | Service | Description | Port |
 |---|---|---|
-| `mock-nautobot` | Lightweight Flask app that mimics the Nautobot REST API with pre-seeded European locations, devices, and ASNs | 8080 |
+| `mock-nautobot` | Lightweight FastAPI app that mimics the Nautobot REST API with pre-seeded European locations, devices, and ASNs | 8080 |
 | `nautobot-maps` | The Nautobot Maps web application, pointed at the mock server | 5000 |
 
 ## Quick start

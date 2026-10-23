@@ -5,7 +5,6 @@ import threading
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import __main__ as cli
 from nautobot_maps import auth, caching, db, settings, timeutil, tokens
 from tests import http_client
@@ -25,7 +24,6 @@ def clock(monkeypatch):
 
 @pytest.fixture
 def client(pg_database, clock):
-    flask_app.app.config["TESTING"] = True
     caching.cache.clear()
     with http_client.FlaskStyleClient() as test_client:
         yield test_client
@@ -332,8 +330,8 @@ class TestCli:
 
 
 def test_bearer_parsing():
-    with flask_app.app.test_request_context(headers={"Authorization": "bearer  nmt_abc "}):
+    with http_client.fake_request(headers={"Authorization": "bearer  nmt_abc "}):
         assert auth.bearer_token() == "nmt_abc"
     for header in ("Basic nmt_abc", "Bearer other", "Bearer", "nmt_abc"):
-        with flask_app.app.test_request_context(headers={"Authorization": header}):
+        with http_client.fake_request(headers={"Authorization": header}):
             assert auth.bearer_token() == "", header

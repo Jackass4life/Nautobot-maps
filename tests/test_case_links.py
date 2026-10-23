@@ -7,7 +7,6 @@ import sys
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import itsm, notify, settings
 from tests import http_client
 from tests.js_modules import REPO_ROOT, run_js
@@ -49,7 +48,6 @@ def test_only_http_templates_with_a_placeholder(value, expected):
 
 def test_the_board_page_gets_the_template(monkeypatch):
     monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
-    flask_app.app.config["TESTING"] = True
     with http_client.FlaskStyleClient() as client:
         html = client.get("/alerts").get_data(as_text=True)
     assert f'data-case-url-template="{TEMPLATE}"' in html

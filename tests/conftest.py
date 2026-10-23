@@ -269,10 +269,8 @@ def pg_database(monkeypatch):
 @pytest.fixture
 def client():
     """A Flask test client (test_app.py has its own, the same)."""
-    import app as flask_app
     from nautobot_maps import caching
 
-    flask_app.app.config["TESTING"] = True
     caching.cache.clear()
     with http_client.FlaskStyleClient() as c:
         yield c
@@ -284,11 +282,9 @@ def asgi_client():
     mounted behind it, the access log around both."""
     from fastapi.testclient import TestClient
 
-    import app as flask_app
     import asgi
     from nautobot_maps import caching
 
-    flask_app.app.config["TESTING"] = True
     caching.cache.clear()
     with TestClient(asgi.app, base_url="http://localhost") as c:
         yield c

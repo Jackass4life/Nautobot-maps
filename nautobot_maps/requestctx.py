@@ -1,10 +1,6 @@
-"""The current request, for code that runs under Flask or FastAPI (#436).
-
-While the routes move from Flask to FastAPI, ``auth`` (and later other
-modules) must work for both.  ``requestctx.request`` is the request being
-answered: FastAPI's, wrapped to look like Flask's for what that code reads
-(``headers``, ``remote_addr``, ``method``, ``path``, ``host``), or Flask's own.
-``requestctx.g`` is somewhere to keep things for that one request.
+"""The request being answered, for code below the routes (#436): ``auth`` and
+``mcp`` read ``requestctx.request`` (``headers``, ``remote_addr``, ``method``,
+``path``, ``host``) and keep things for that one request in ``requestctx.g``.
 
 A FastAPI route binds its request with ``bind()`` (an async dependency, so
 the value lives in the request's own context and reaches the route's thread).
@@ -17,7 +13,7 @@ _current: contextvars.ContextVar = contextvars.ContextVar("nautobot_maps_request
 
 
 class StarletteRequestView:
-    """A Starlette request with the Flask names ``auth`` reads."""
+    """A Starlette request with the names ``auth`` and ``mcp`` read."""
 
     def __init__(self, request):
         self._request = request
@@ -39,23 +35,26 @@ def bind(request) -> None:
 
 
 def current():
-    """The current request: FastAPI's bound one, else Flask's."""
+    """The request being answered (bound by every route, ``api.deps``)."""
     view = _current.get()
-    if view is not None:
-        return view
-    import flask
-
-    return flask.request
+    if view is None:
+        raise RuntimeError("No request is being answered here")
+    return view
 
 
 def store():
-    """Per-request storage: the bound request's, else Flask's ``g``."""
-    view = _current.get()
-    if view is not None:
-        return view.g
-    import flask
+    """Somewhere to keep things for the request being answered."""
+    return current().g
 
-    return flask.g
+
+def bind_view(view):
+    """Make *view* (anything with the request names above) the current request;
+    returns a token for ``reset``.  For tests and in-process callers."""
+    return _current.set(view)
+
+
+def reset(token) -> None:
+    _current.reset(token)
 
 
 class _Proxy:

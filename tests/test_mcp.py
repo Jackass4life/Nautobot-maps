@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import app as flask_app
 from nautobot_maps import alerts, caching, mcp, settings
 from nautobot_maps.repositories import board as board_store
 from tests import http_client
@@ -62,7 +61,6 @@ BOARD = {
 def client(monkeypatch):
     monkeypatch.setattr(settings, "MCP_ENABLED", True)
     monkeypatch.setattr(alerts, "get_alert_board_data", lambda **kwargs: json.loads(json.dumps(BOARD)))
-    flask_app.app.config["TESTING"] = True
     caching.cache.clear()
     with http_client.FlaskStyleClient() as test_client:
         yield test_client

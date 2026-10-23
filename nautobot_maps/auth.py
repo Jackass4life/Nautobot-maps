@@ -1,7 +1,7 @@
 """Optional header-based authentication and roles (#165).
 
 A trusted reverse proxy sets the user and group headers (AUTH_MODE=header);
-``@auth.require_role("operator")`` protects write endpoints.  An API token
+``role_problem("operator")`` (``api.deps.require_role``) protects write endpoints.  An API token
 (``Authorization: Bearer nmt_...``, #297) signs in as ``token:<name>`` with
 the token's role, in either mode and from any address.
 """
@@ -10,14 +10,12 @@ import hmac
 import ipaddress
 import logging
 import re
-from functools import wraps
 from urllib.parse import urlsplit
 
 from nautobot_maps import requestctx, settings, tokens
 
-# The request being answered, Flask's or FastAPI's (#436).  Refusals are
-# (body, status) pairs: Flask sends a dict as JSON, and FastAPI's routes do the
-# same (nautobot_maps.api.deps), so both answer exactly alike.
+# The request being answered (#436).  Refusals are (body, status) pairs; the
+# routes send them as JSON (nautobot_maps.api.deps).
 request = requestctx.request
 g = requestctx.g
 
@@ -166,7 +164,7 @@ def disabled_mode_allows(method: str, open_when_disabled: bool) -> bool:
 def role_problem(required_role: str, open_when_disabled: bool = False):
     """None when the current request may use a route needing *required_role*,
     else the refusal as ``(body, status)``; see ``disabled_mode_allows`` for
-    AUTH_MODE=disabled.  Shared by Flask's ``require_role`` and FastAPI's."""
+    AUTH_MODE=disabled.  Routes ask it through ``api.deps.require_role``."""
     required_role = normalize_role(required_role)
     # A token is checked like a signed-in user, also with AUTH_MODE=disabled.
     if settings.AUTH_MODE == "disabled" and not get_current_user().get("token"):
@@ -190,23 +188,6 @@ def role_problem(required_role: str, open_when_disabled: bool = False):
             "current_role": current_user["role"] or None,
         }, 403
     return None
-
-
-def require_role(required_role: str, open_when_disabled: bool = False):
-    """Require *required_role* on a Flask view (``role_problem``)."""
-    normalized_required_role = normalize_role(required_role)
-
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            refused = role_problem(normalized_required_role, open_when_disabled)
-            return refused if refused is not None else func(*args, **kwargs)
-
-        # Shown by the API explorer (#230).
-        wrapper.required_role = normalized_required_role
-        return wrapper
-
-    return decorator
 
 
 # Reachable without the viewer role even with AUTH_REQUIRE_VIEWER: probes and

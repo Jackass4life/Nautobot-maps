@@ -12,7 +12,6 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 import requests
 from markupsafe import escape
-from werkzeug.exceptions import GatewayTimeout
 
 import app as flask_app
 from nautobot_maps import (
@@ -28,7 +27,6 @@ from nautobot_maps import (
     scheduler,
     settings,
     timeutil,
-    web,
 )
 from nautobot_maps.api import board as api_board
 from nautobot_maps.api import locations as api_locations
@@ -78,7 +76,6 @@ def auth_config(
 
 @pytest.fixture
 def client():
-    flask_app.app.config["TESTING"] = True
     # Clear cache before each test
     caching.cache.clear()
     with http_client.FlaskStyleClient() as c:
@@ -268,7 +265,7 @@ class TestSyncBypassesResponseCache:
         caching.cache.clear()
         calls = []
         params = {"last_updated__gte": "2026-09-28T12:00:00Z", "depth": 1}
-        with flask_app.app.app_context(), self._counting_requests(calls):
+        with self._counting_requests(calls):
             nautobot.fetch_all_pages("dcim/devices/", params, use_cache=False)
             nautobot.fetch_all_pages("dcim/devices/", params, use_cache=False)
             assert len(calls) == 2  # same parameters, still two requests
@@ -1743,8 +1740,14 @@ class TestCaching:
         assert result is None
 
     def test_cache_default_timeout_matches_cache_ttl(self):
-        """Flask-Caching default timeout should match the CACHE_TTL env var."""
-        assert flask_app.app.config["CACHE_DEFAULT_TIMEOUT"] == settings.CACHE_TTL
+        """The cache's default timeout is CACHE_TTL (#436: cachelib directly)."""
+        assert caching.cache.backend.default_timeout == settings.CACHE_TTL
+        assert caching.backend_for("SimpleCache", "", 42).default_timeout == 42
+        assert type(caching.backend_for("NullCache", "", 1)).__name__ == "NullCache"
+        with pytest.raises(ValueError, match="CACHE_REDIS_URL"):
+            caching.backend_for("RedisCache", "", 1)
+        with pytest.raises(ValueError, match="SimpleCache, RedisCache or NullCache"):
+            caching.backend_for("MemcachedCache", "", 1)
 
 
 # ---------------------------------------------------------------------------
@@ -2042,9 +2045,21 @@ class TestErrorHandlers:
         assert data["error"] == "Method not allowed"
 
     def test_http_exception_returns_json_for_api_path(self):
-        with flask_app.app.test_request_context("/api/alerts"):
-            resp, status = web.api_http_error(GatewayTimeout())
-        assert status == 504
+        from fastapi import APIRouter, FastAPI, HTTPException
+
+        from nautobot_maps.api import deps
+
+        router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+
+        @router.get("/api/slow")
+        def slow():
+            raise HTTPException(status_code=504, detail="The connection to an upstream server timed out.")
+
+        app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+        deps.install_error_handlers(app)
+        app.include_router(router)
+        resp = http_client.FlaskStyleClient(app).get("/api/slow")
+        assert resp.status_code == 504
         assert resp.get_json()["error"] == "The connection to an upstream server timed out."
 
 
@@ -6708,24 +6723,17 @@ def _retry_kwargs(policy) -> dict:
 # ---------------------------------------------------------------------------
 class TestApiExplorer:
     def _routes(self):
-        """Flask's routes and those already on FastAPI (#436), in Flask's notation."""
+        """Every route (#436), in Flask's notation."""
         import nautobot_maps.api
         from nautobot_maps import apidocs
 
-        flask_routes = {
-            (rule.rule, method)
-            for rule in flask_app.app.url_map.iter_rules()
-            if rule.endpoint != "static"
-            for method in rule.methods - {"HEAD", "OPTIONS"}
-        }
-        fastapi_routes = {
+        return {
             (apidocs._flask_style(route.path, route.endpoint), method)
             for router in nautobot_maps.api.ROUTERS
             for route in router.routes
             if route.name != "static"
             for method in route.methods - {"HEAD", "OPTIONS"}
         }
-        return flask_routes | fastapi_routes
 
     def test_every_route_is_listed(self, client):
         listed = client.get("/api/endpoints").get_json()["endpoints"]
