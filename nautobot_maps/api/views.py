@@ -7,8 +7,9 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 
-from nautobot_maps import alerts, guide, settings
+from nautobot_maps import alerts, guide, navigation, settings, templating
 from nautobot_maps.api import deps, files, pages
+from nautobot_maps.api.answers import pages as answers
 
 router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Pages"])
 
@@ -22,6 +23,17 @@ def scope_query(request: Request) -> str:
     return urlencode(
         [("tenant", name) for name in params.getlist("tenant") if name.strip()]
         + [("q", text) for text in params.getlist("q") if text.strip()]
+    )
+
+
+@router.get("/api/page-config", name="pages.api_page_config", response_model=answers.PageConfig)
+def api_page_config():
+    """What the pages built with Nuxt read to draw themselves (#463): who is
+    signed in (the top bar), Nautobot's address (links to its pages) and the
+    menu, the same as the server-rendered pages show."""
+    return deps.Json(
+        {"user": templating.bar_user(), "nautobot_url": settings.NAUTOBOT_URL or "", "pages": navigation.pages()},
+        headers={"Cache-Control": "no-store"},
     )
 
 

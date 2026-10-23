@@ -753,6 +753,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/page-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages) and the menu, the same as the server-rendered pages show.
+         * @description What the pages built with Nuxt read to draw themselves (#463): who is
+         *     signed in (the top bar), Nautobot's address (links to its pages) and the
+         *     menu, the same as the server-rendered pages show.
+         */
+        get: operations["pages_api_page_config_api_page_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search": {
         parameters: {
             query?: never;
@@ -870,8 +892,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Circuit mapping: circuits without a termination and their likely site; the data comes from the API.
-         * @description Circuit mapping (#385): circuits without a termination and their likely site; the data comes from the API.
+         * Circuit mapping: circuits without a termination and their likely site.
+         * @description Built with Nuxt; the page reads ``/api/circuit-mapping``.
          */
         get: operations["circuits_circuits_page_circuits_get"];
         put?: never;
@@ -1071,6 +1093,19 @@ export interface components {
             target: number;
             /** @description Null when no tenant had downtime. */
             worst_tenant: components["schemas"]["TenantRow"] | null;
+        };
+        /** BarUser */
+        BarUser: {
+            /**
+             * Name
+             * @description The signed-in user, or an API token's name.
+             */
+            name: string;
+            /**
+             * Role
+             * @description viewer, operator or admin; empty when unknown.
+             */
+            role: string;
         };
         /** Board */
         Board: {
@@ -2049,6 +2084,26 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** MenuPage */
+        MenuPage: {
+            /**
+             * Href
+             * @example /circuits
+             */
+            href: string;
+            /**
+             * Key
+             * @example circuits
+             */
+            key: string;
+            /**
+             * Label
+             * @example Circuits
+             */
+            label: string;
+            /** Title */
+            title: string;
+        };
         /** Mismatch */
         Mismatch: {
             /**
@@ -2236,6 +2291,21 @@ export interface components {
              * @description Newest first.
              */
             overrides: components["schemas"]["Override"][];
+        };
+        /** PageConfig */
+        PageConfig: {
+            /**
+             * Nautobot Url
+             * @description Nautobot's address, for links to its pages; empty when not set.
+             */
+            nautobot_url: string;
+            /**
+             * Pages
+             * @description The top bar's menu, in order.
+             */
+            pages: components["schemas"]["MenuPage"][];
+            /** @description Who is signed in; null with AUTH_MODE=disabled or no sign-in. */
+            user: components["schemas"]["BarUser"] | null;
         };
         /** Period */
         Period: {
@@ -4939,6 +5009,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationResults"];
+                };
+            };
+        };
+    };
+    pages_api_page_config_api_page_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageConfig"];
                 };
             };
         };

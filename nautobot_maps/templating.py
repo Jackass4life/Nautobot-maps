@@ -7,7 +7,7 @@ import pathlib
 
 import jinja2
 
-from nautobot_maps import auth, availability
+from nautobot_maps import auth, availability, navigation
 
 TEMPLATES = pathlib.Path(__file__).resolve().parent.parent / "templates"
 
@@ -48,6 +48,7 @@ environment = jinja2.Environment(
 )
 environment.filters.update(FILTERS)
 environment.globals["url_for"] = url_for
+environment.globals["nav_pages"] = navigation.pages
 
 
 def render(template: str, **context) -> str:

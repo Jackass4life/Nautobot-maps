@@ -1,18 +1,10 @@
 {#- One top bar on every staff page (#392, #419): the app's name, a site search,
     how fresh the data is, who is signed in, the theme and the pages in a menu.
     Not on the wall view or the tenant status page.
-    *active*: this page's key; *scope_query* (map, board): ?tenant= / ?q= kept. -#}
+    *active*: this page's key; *scope_query* (map, board): ?tenant= / ?q= kept.
+    The pages: navigation.PAGES, shared with the Nuxt pages (#463). -#}
 {%- set scope = scope_query if scope_query is defined and scope_query else "" -%}
-{%- set pages = [
-  ("map", "/" ~ ("?" ~ scope if scope else ""), "Map", "Every site on a map"),
-  ("alerts", "/alerts" ~ ("?" ~ scope if scope else ""), "Alert Board", "The sites in alarm, cases and history"),
-  ("availability", "/availability", "Availability", "Availability per site and tenant, by month"),
-  ("maintenance", "/maintenance", "Maintenance", "Current and planned maintenance, and planning more"),
-  ("circuits", "/circuits", "Circuits", "Circuits without a termination, and their likely site"),
-  ("help", "/help", "Documentation", "How it works, setup and every guide"),
-  ("docs", "/docs", "API", "Every endpoint, with Try it"),
-  ("wall", "/alerts?view=wall" ~ ("&" ~ scope if scope else ""), "Wall view", "For a wall screen: alarms only, no controls"),
-] -%}
+{%- set pages = nav_pages(scope) -%}
 <header class="app-bar">
   {%- if active == "map" %}
   {#- Shows or hides the map's left panel (#420): always here, plainly visible. #}
@@ -55,8 +47,8 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </summary>
       <nav class="app-nav" aria-label="Primary">
-        {%- for key, href, label, title in pages %}
-        <a class="app-nav-link{% if key == active %} active{% endif %}" title="{{ title }}"{% if key == active %} aria-current="page"{% endif %} href="{{ href }}">{{ label }}</a>
+        {%- for page in pages %}
+        <a class="app-nav-link{% if page.key == active %} active{% endif %}" title="{{ page.title }}"{% if page.key == active %} aria-current="page"{% endif %} href="{{ page.href }}">{{ page.label }}</a>
         {%- endfor %}
       </nav>
     </details>

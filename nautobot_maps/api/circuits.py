@@ -5,8 +5,8 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from nautobot_maps import circuits, db, settings
-from nautobot_maps.api import deps, pages
+from nautobot_maps import circuits, db
+from nautobot_maps.api import deps, frontend
 from nautobot_maps.api.answers import circuits as answers
 from nautobot_maps.api.answers import common
 
@@ -17,8 +17,11 @@ router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENC
 
 @router.get("/circuits", name="circuits.circuits_page")
 def circuits_page():
-    """Circuit mapping (#385): circuits without a termination and their likely site; the data comes from the API."""
-    return pages.page("circuits.html", nautobot_url=settings.NAUTOBOT_URL)
+    """Circuit mapping (#385): circuits without a termination and their likely site.
+
+    Built with Nuxt (#463); the page reads ``/api/circuit-mapping``.
+    """
+    return frontend.shell()
 
 
 def _circuit_mapping() -> dict:
