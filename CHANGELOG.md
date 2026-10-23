@@ -75,6 +75,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **No inline styles** (#370): the Content-Security-Policy's `style-src` is now `'self'` only, so injected HTML can no longer restyle a page (an overlay with a fake link); the map's markers and the error page use classes and a CSS file, and a test keeps inline styles out
 
 ### Fixed
+- **The map opens on your sites, not the Arctic** (#459): a lone site far from all the others (e.g. one in northern Greenland beside a network in Europe) no longer stretches the first view and pulls it off-centre; the map frames the main group, and that site stays on the map. A real group of sites there is still framed
 - **A browser MCP client from an allowed origin** (`MCP_ALLOWED_ORIGINS`) could read but not add cases or acknowledge: the tool's own call carried the browser's `Origin`, and was refused as a change from another site. /mcp already checks the origin (#436)
 - **MCP tools saw nothing for clients asking for gzip**: the tools call the app's own API and copied the caller's `Accept-Encoding`, so the answer came back compressed and unreadable; most MCP clients send it. History, the board and the rest now come through (#436)
 - **A chunked upload** (a request body without Content-Length) is read again under the new server (#436)
