@@ -528,7 +528,8 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.fill("#search-input", "")
     assert page.locator("#filter-section").is_hidden()
     page.locator("#filters-toggle").click()
-    page.get_by_role("combobox", name="Location type", exact=True).click()
+    # Nuxt UI's list opens from a button (#463); its search field is a combobox.
+    page.get_by_role("button", name="Location type", exact=True).click()
     page.get_by_role("combobox", name="Search Location type", exact=True).fill("Data Center")
     page.get_by_role("option", name="Data Center", exact=True).click()
     page.keyboard.press("Escape")
@@ -571,7 +572,8 @@ def test_find_and_pick_two_tenants(page, path):
     else:
         page.wait_for_selector(".site-row")
         page.locator('[data-severity-filter="all"]').click()
-    control = page.get_by_role("combobox", name="Tenant", exact=True)
+    # The map's list (Nuxt UI, #463) opens from a button, the board's from a combobox.
+    control = page.get_by_role("button" if path == "/" else "combobox", name="Tenant", exact=True)
     control.click()
     search = page.get_by_role("combobox", name="Search Tenant", exact=True)
     before = sum(endpoint in url for url in requests)

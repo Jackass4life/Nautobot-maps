@@ -123,8 +123,11 @@ const asns = computed(() => props.detail?.asns ?? []);
 function foldOpen(key: string, byDefault: boolean): boolean {
   return folds.value.has(key) ? folds.value.get(key)! : byDefault;
 }
-// One open by default isn't remembered as chosen: only a click is.
-function rememberFold(key: string, event: MouseEvent) {
+// One open by default isn't remembered as chosen: only a click is.  The
+// fold opens from this state, not the browser's own toggle, which would undo
+// it when the panel is redrawn on the same click.
+function toggleFold(key: string, event: MouseEvent) {
+  event.preventDefault();
   const fold = (event.currentTarget as HTMLElement).parentElement as HTMLDetailsElement;
   folds.value.set(key, !fold.open);
 }
@@ -245,7 +248,7 @@ function statusClass(status: string) {
           <div class="panel-folds space-y-2">
             <p v-if="!devices.length" class="inspector-empty text-sm text-muted">No devices at this site.</p>
             <details v-if="devices.length" class="panel-fold" data-fold="devices" :open="foldOpen('devices', !down.length && devices.length <= TOOLBAR_ABOVE)">
-              <summary class="panel-fold-title" @click="rememberFold('devices', $event)">All devices · {{ deviceCount }}</summary>
+              <summary class="panel-fold-title" @click="toggleFold('devices', $event)">All devices · {{ deviceCount }}</summary>
               <div class="panel-fold-body">
                 <div v-if="toolbar" class="inspector-device-toolbar mb-2 space-y-2">
                   <div class="device-filters flex flex-wrap gap-1" aria-label="Device filters">
@@ -287,7 +290,7 @@ function statusClass(status: string) {
             </details>
 
             <details v-if="detail.circuits_error || circuits.length" class="panel-fold" data-fold="circuits" :open="foldOpen('circuits', false)">
-              <summary class="panel-fold-title" @click="rememberFold('circuits', $event)">
+              <summary class="panel-fold-title" @click="toggleFold('circuits', $event)">
                 Circuits<template v-if="!detail.circuits_error"> · {{ circuits.length }}</template>
               </summary>
               <div class="panel-fold-body">
@@ -325,7 +328,7 @@ function statusClass(status: string) {
             </details>
 
             <details v-if="asns.length" class="panel-fold" data-fold="asns" :open="foldOpen('asns', false)">
-              <summary class="panel-fold-title" @click="rememberFold('asns', $event)">ASNs · {{ asns.length }}</summary>
+              <summary class="panel-fold-title" @click="toggleFold('asns', $event)">ASNs · {{ asns.length }}</summary>
               <div class="panel-fold-body flex flex-wrap gap-1">
                 <UBadge v-for="asn in asns" :key="String(asn.asn) + asn.tenant" class="asn-tag" color="neutral" variant="subtle" :title="asn.description">
                   AS{{ asn.asn }}<template v-if="asn.tenant"> · {{ asn.tenant }}</template>

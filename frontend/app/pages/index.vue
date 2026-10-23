@@ -380,8 +380,8 @@ function onKey(event: KeyboardEvent) {
   if (isPanelShortcut(event)) {
     event.preventDefault();
     setPanelHidden(!panelHidden.value);
-  } else if (event.key === "Escape" && !event.defaultPrevented && selectedId.value) {
-    // A menu or a tip open handles its own Escape first.
+  } else if (event.key === "Escape" && selectedId.value && !document.querySelector("[data-dismissable-layer]")) {
+    // A menu, a filter list or a tip that is open closes on its own Escape, not the panel too.
     closeSite();
   }
 }
