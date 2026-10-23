@@ -40,8 +40,9 @@ const error = ref("");
 const loading = ref(true);
 
 const basis = computed(() => report.value?.basis || asked.basis || limits.value?.basis || "any_down");
-const shownFrom = computed(() => report.value?.period.from || asked.from);
-const shownTo = computed(() => report.value?.period.to || asked.to);
+// What was just picked, at once; with nothing in the address, the report's (this month).
+const shownFrom = computed(() => asked.from || report.value?.period.from || "");
+const shownTo = computed(() => asked.to || report.value?.period.to || "");
 const csvQuery = computed(() => new URLSearchParams({ from: shownFrom.value, to: shownTo.value, basis: basis.value }).toString());
 const sites = computed(() => (report.value ? siteRows(report.value.sites) : []));
 const tenants = computed(() => (report.value ? tenantRows(report.value.tenants) : []));
@@ -129,11 +130,15 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
       <p v-else-if="loading && !report" class="text-sm text-muted">Loading…</p>
 
       <template v-if="report && summary">
-        <p class="availability-note flex flex-wrap items-center gap-x-1 text-sm text-muted">
+        <p class="availability-note text-sm text-muted">
           {{ periodNote }} · maintenance is not downtime · CSV <HelpTip :text="HELP.csv" />:
           <a class="text-primary hover:underline" :href="`/api/availability.csv?${csvQuery}&view=sites&header=1`">sites</a>,
           <a class="text-primary hover:underline" :href="`/api/availability.csv?${csvQuery}&view=tenants&header=1`">tenants</a>,
-          <a class="text-primary hover:underline" :href="`/api/availability.csv?${csvQuery}&view=incidents&header=1`" title="Every outage in the period, to check the figures">every incident</a>
+          <a
+            class="text-primary hover:underline"
+            :href="`/api/availability.csv?${csvQuery}&view=incidents&header=1`"
+            title="Every outage in the period, to check the figures"
+          >every incident</a>
         </p>
 
         <!-- The answer first (#342): four cards. -->

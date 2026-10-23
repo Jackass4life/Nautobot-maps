@@ -7,6 +7,12 @@ import { formatRange, QUICK_CHOICES, quickPeriod, type QuickChoice } from "~/uti
 const props = defineProps<{ from: string; to: string; min?: string; max?: string; today: string }>();
 const emit = defineEmits<{ pick: [from: string, to: string] }>();
 const open = ref(false);
+const button = useTemplateRef<{ $el: HTMLElement }>("button");
+
+// Escape gives the keyboard back to the button (a picked day doesn't need it).
+function onEscape() {
+  setTimeout(() => button.value?.$el?.focus(), 0);
+}
 
 function choose(from: string, to: string) {
   open.value = false;
@@ -24,8 +30,8 @@ function tooOld(choice: QuickChoice) {
 </script>
 
 <template>
-  <UPopover v-model:open="open" :content="{ align: 'start' }">
-    <UButton id="period-button" color="neutral" variant="outline" trailing-icon="i-lucide-calendar" aria-haspopup="dialog">
+  <UPopover v-model:open="open" :content="{ align: 'start', onEscapeKeyDown: onEscape }">
+    <UButton id="period-button" ref="button" color="neutral" variant="outline" trailing-icon="i-lucide-calendar" aria-haspopup="dialog">
       {{ formatRange(from, to) }}
     </UButton>
     <template #content>
