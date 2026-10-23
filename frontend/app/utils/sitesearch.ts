@@ -38,14 +38,15 @@ function textsOf(site: SearchableSite) {
 }
 
 // The first *limit* matches (a full name first, then names starting with
-// the first word, other names, then path or address), and how many more.
+// the first word, other names, then path or address), how many more, and
+// whether the first is a full name (the map's Enter opens it, #411).
 export function matchSites<T extends SearchableSite>(
   sites: T[],
   query: string,
   limit = SITE_MATCHES_SHOWN,
-): { matches: T[]; more: number } {
+): { matches: T[]; more: number; nameMatch: boolean } {
   const words = searchWords(query);
-  if (!words.length || COORDINATES.test(query)) return { matches: [], more: 0 };
+  if (!words.length || COORDINATES.test(query)) return { matches: [], more: 0, nameMatch: false };
   const exact = query.trim().toLowerCase();
   const found: { site: T; rank: number }[] = [];
   for (const site of sites) {
@@ -55,5 +56,9 @@ export function matchSites<T extends SearchableSite>(
     else if (hasAllWords(all, words)) found.push({ site, rank: 2 });
   }
   found.sort((a, b) => a.rank - b.rank || (a.site.name || "").localeCompare(b.site.name || ""));
-  return { matches: found.slice(0, limit).map((entry) => entry.site), more: Math.max(0, found.length - limit) };
+  return {
+    matches: found.slice(0, limit).map((entry) => entry.site),
+    more: Math.max(0, found.length - limit),
+    nameMatch: found[0]?.rank === -1,
+  };
 }

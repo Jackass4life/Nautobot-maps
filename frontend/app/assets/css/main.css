@@ -35,3 +35,96 @@
 .help-doc .align-right { text-align: right; }
 .help-doc .align-center { text-align: center; }
 .help-doc hr { margin: 1.75rem 0; border: none; border-top: 1px solid var(--ui-border); }
+
+/* The map (#334, #463).  Markers have no inline styles (#370): a pin fills
+   the box Leaflet sizes from its iconSize; colours are classes.  One palette
+   for the markers, the legend and the lists: utils/map.ts LEVEL_COLORS. */
+.legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: 2px solid rgb(255 255 255 / 0.3);
+  border-radius: 50%;
+}
+.dot-critical, .level-bg-critical { background: #e74c3c; }
+.dot-medium, .level-bg-medium { background: #ff8c00; }
+.dot-low, .level-bg-low { background: #eab308; }
+.dot-maintenance, .level-bg-maintenance { background: #2563eb; }
+.dot-ok, .level-bg-ok { background: #2ecc71; }
+.dot-no-data, .dot-no_data, .level-bg-no_data { background: #94a3b8; }
+/* The searched point is a ring, not a colour (#311). */
+.dot-search { background: transparent; border: 3px solid #334155; }
+.search-point-marker {
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border: 4px solid #334155;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.85);
+  box-shadow: 0 0 0 2px #fff, 0 0 6px rgb(0 0 0 / 0.5);
+}
+.pin-icon { width: 100%; height: 100%; }
+.pin-stacked { position: relative; }
+.colocated-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  display: flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #e74c3c;
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.3);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+/* A pulsing ring for critical pins. */
+.marker-pulse {
+  border-radius: 50% 50% 50% 0;
+  animation: marker-pulse 1.4s ease-out infinite;
+}
+@keyframes marker-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(231 76 60 / 0.7); }
+  70% { box-shadow: 0 0 0 10px rgb(231 76 60 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(231 76 60 / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marker-pulse { animation: none; }
+}
+/* Quiet sites (#334): OK and No data are dots and soft clusters, so the pins
+   of the sites that need attention stand out. */
+.quiet-cluster, .quiet-dot {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--ui-bg);
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.85;
+}
+.quiet-cluster { font-size: 0.72rem; box-shadow: 0 0 4px rgb(0 0 0 / 0.25); }
+.quiet-dot { border-width: 1.5px; font-size: 0.6rem; }
+.leaflet-marker-icon:is(:hover, :focus-visible) :is(.quiet-cluster, .quiet-dot) { opacity: 1; }
+.leaflet-container { background: var(--ui-bg-muted); font: inherit; }
+.leaflet-marker-icon:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+
+/* The site panel's folds (#394): a title with its count, the rest on a click. */
+.panel-fold { border-top: 1px solid var(--ui-border); padding-top: 0.5rem; }
+.panel-fold-title {
+  cursor: pointer;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ui-text-highlighted);
+}
+.panel-fold-body { padding-top: 0.5rem; }

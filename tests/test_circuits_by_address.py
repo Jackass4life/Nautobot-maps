@@ -6,7 +6,6 @@ import pytest
 import requests
 
 from nautobot_maps import alerts, caching, inventory, nautobot, settings
-from tests.js_modules import run_js
 
 
 @pytest.mark.parametrize(
@@ -261,23 +260,3 @@ class TestSitePanel:
 def test_without_a_database_none_by_address(monkeypatch):
     monkeypatch.setattr(alerts.db, "dialect", lambda: None)
     assert alerts.address_circuits("loc-ode", set()) == []
-
-
-def test_card_says_by_address_and_escapes():
-    run_js(
-        """
-        import { buildCircuitCard } from "@js/map/panel.js";
-        const card = buildCircuitCard({
-          cid: "TDC-1", status: "Active", match: "address", shared_with: 2,
-          description: "Roersvej 33, 5000 Odense <b>C</b>",
-        });
-        check(card.includes("By address · address shared with 2 other sites"), card);
-        check(card.includes("&lt;b&gt;C&lt;/b&gt;"), "description escaped");
-        const one = buildCircuitCard({ cid: "TDC-2", match: "address", shared_with: 1 });
-        check(one.includes("shared with 1 other site<"), one);
-        const alone = buildCircuitCard({ cid: "TDC-3", match: "address", shared_with: 0 });
-        check(alone.includes(">By address</div>"), alone);
-        const terminated = buildCircuitCard({ cid: "TDC-4", term_side: "A" });
-        check(!terminated.includes("By address"), terminated);
-        """
-    )

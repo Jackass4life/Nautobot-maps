@@ -2603,6 +2603,63 @@
         "title": "MaintenanceLimits",
         "type": "object"
       },
+      "MapSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "tile_attribution": {
+            "description": "MAP_TILE_ATTRIBUTION, as HTML.",
+            "title": "Tile Attribution",
+            "type": "string"
+          },
+          "tile_url": {
+            "description": "MAP_TILE_URL: the tile server, Leaflet's {s}/{z}/{x}/{y} form.",
+            "title": "Tile Url",
+            "type": "string"
+          },
+          "view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MapView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MAP_DEFAULT_VIEW; null: the map frames the sites."
+          }
+        },
+        "required": [
+          "tile_url",
+          "tile_attribution",
+          "view"
+        ],
+        "title": "MapSettings",
+        "type": "object"
+      },
+      "MapView": {
+        "additionalProperties": false,
+        "properties": {
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "zoom": {
+            "title": "Zoom",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude",
+          "zoom"
+        ],
+        "title": "MapView",
+        "type": "object"
+      },
       "MappedCircuit": {
         "additionalProperties": false,
         "properties": {
@@ -3216,6 +3273,9 @@
           "maintenance": {
             "$ref": "#/components/schemas/MaintenanceLimits"
           },
+          "map": {
+            "$ref": "#/components/schemas/MapSettings"
+          },
           "nautobot_url": {
             "description": "Nautobot's address, for links to its pages; empty when not set.",
             "title": "Nautobot Url",
@@ -3246,7 +3306,8 @@
           "nautobot_url",
           "pages",
           "maintenance",
-          "availability"
+          "availability",
+          "map"
         ],
         "title": "PageConfig",
         "type": "object"
@@ -7786,7 +7847,7 @@
     },
     "/api/page-config": {
       "get": {
-        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages), the\nmenu, the same as the server-rendered pages show, and the Maintenance\npage's and Availability's limits.",
+        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages), the\nmenu, the same as the server-rendered pages show, the Maintenance page's\nand Availability's limits, and the map's tiles and first view.",
         "operationId": "pages_api_page_config_api_page_config_get",
         "responses": {
           "200": {
@@ -7800,7 +7861,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's and Availability's limits.",
+        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, and the map's tiles and first view.",
         "tags": [
           "Pages"
         ]

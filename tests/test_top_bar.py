@@ -174,6 +174,20 @@ class TestPageConfig:
             ).get_json()
         assert config["user"] == {"name": "olga", "role": "operator"}
 
+    def test_the_maps_tiles_and_first_view(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png")
+        monkeypatch.setattr(settings, "MAP_TILE_ATTRIBUTION", "Tiles")
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", None)
+        assert client.get("/api/page-config").get_json()["map"] == {
+            "tile_url": "https://tiles.example/{z}/{x}/{y}.png",
+            "tile_attribution": "Tiles",
+            "view": None,
+        }
+        # MAP_DEFAULT_VIEW (#362): the map opens there instead of framing the sites.
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", (55.7, 12.6, 6))
+        view = client.get("/api/page-config").get_json()["map"]["view"]
+        assert view == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
+
     def test_the_scope_is_kept_on_the_map_board_and_wall(self):
         from nautobot_maps import navigation
 

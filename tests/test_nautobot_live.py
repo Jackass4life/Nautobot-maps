@@ -74,18 +74,11 @@ def clear_cache():
 
 
 class TestLiveMapUI:
-    def test_index_page_loads(self, live_client):
+    def test_index_page_loads(self, live_client, frontend_build):
+        # Built with Nuxt (#463): the page is the build's, which reads the API below.
         resp = live_client.get("/")
         assert resp.status_code == 200
-        assert b"Nautobot" in resp.data
-
-    def test_index_has_leaflet(self, live_client):
-        resp = live_client.get("/")
-        assert b"leaflet" in resp.data.lower()
-
-    def test_index_has_search_input(self, live_client):
-        resp = live_client.get("/")
-        assert b'id="search-input"' in resp.data
+        assert b'id="__nuxt"' in resp.data
 
 
 # ---------------------------------------------------------------------------

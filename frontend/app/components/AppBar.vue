@@ -7,7 +7,16 @@ import type { DropdownMenuItem } from "@nuxt/ui";
 import { APP_STATUS_REFRESH_MS, appStatusView, isSearchShortcut, type AppStatus } from "~/utils/appstatus";
 import { matchSites, type SearchableSite } from "~/utils/sitesearch";
 
-const props = defineProps<{ active: string }>();
+const props = withDefaults(
+  defineProps<{
+    active: string;
+    // The map's panel has its own search, for places too.
+    search?: boolean;
+    // ?tenant= / ?q= the map's and the board's links keep (#367).
+    linkQuery?: string;
+  }>(),
+  { search: true, linkQuery: "" },
+);
 
 const { data: config } = usePageConfig();
 const { dark, toggle: toggleTheme } = useTheme();
@@ -16,13 +25,20 @@ const { dark, toggle: toggleTheme } = useTheme();
 const menu = computed<DropdownMenuItem[]>(() =>
   (config.value?.pages ?? []).map((page) => ({
     label: page.label,
-    to: page.href,
+    to: scoped(page.href),
     external: true,
     active: page.key === props.active,
     "aria-current": page.key === props.active ? "page" : undefined,
     class: "app-nav-link",
   })),
 );
+
+// The map and the board keep the scope; the wall ("view=wall") too, after it.
+function scoped(href: string): string {
+  const [path, query = ""] = href.split("?");
+  if (!props.linkQuery || (path !== "/" && path !== "/alerts")) return href;
+  return `${path}?${[query, props.linkQuery].filter(Boolean).join("&")}`;
+}
 
 // How fresh the data is: once a minute, not while the tab is hidden.
 const status = shallowRef<AppStatus | null | undefined>(undefined);
@@ -133,6 +149,7 @@ onBeforeUnmount(() => {
 
 <template>
   <header class="app-bar sticky top-0 z-40 flex h-13 items-center gap-2 border-b border-default bg-default/95 px-3 backdrop-blur sm:gap-4 sm:px-4">
+    <slot name="start" />
     <a class="app-brand flex shrink-0 items-center gap-1.5 font-semibold text-primary" href="/" title="Map">
       <UIcon name="i-lucide-map-pin" class="size-5" />
       <span class="hidden sm:inline">Nautobot Maps</span>
@@ -140,6 +157,7 @@ onBeforeUnmount(() => {
 
     <!-- Find a site: an icon on a phone, opening the field over the bar. -->
     <div
+      v-if="search"
       class="bar-search relative min-w-0 flex-1 sm:max-w-md"
       role="search"
       @focusout="onSearchFocusOut"

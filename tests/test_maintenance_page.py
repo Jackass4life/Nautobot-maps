@@ -29,11 +29,9 @@ def test_history_links():
     run_js(
         """
 import { maintenanceHistoryLink } from "@js/alerts/rows.js";
-import { buildMaintenanceHistoryLink } from "@js/map/panel.js";
-// A site's history from the board's ⋯ menu and the map's panel, escaped (#353).
+// A site's history from the board's ⋯ menu, escaped (#353); the map's panel: frontend/tests/sitepanel.test.ts.
 const link = maintenanceHistoryLink({ id: "loc a&b", name: "Oslo <HQ>" });
 check(link.includes('href="/maintenance?view=history&amp;site_id=loc+a%26b"') && link.includes("for Oslo &lt;HQ&gt;"), link);
 check(maintenanceHistoryLink({}) === "", "no id");
-check(buildMaintenanceHistoryLink({ id: "loc-1" }).includes('href="/maintenance?view=history&amp;site_id=loc-1"'), "map");
 """
     )

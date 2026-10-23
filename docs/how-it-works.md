@@ -14,7 +14,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (read-only), asks *
 | **gunicorn** | The production web server inside the container: 4 worker processes by default (`GUNICORN_WORKERS`) | Several requests at once; a stuck one can't block the rest |
 | **PostgreSQL 16** | The app's own database: a copy of the inventory, alert history, cases, acks, maintenance windows, notifications queue, API tokens | History survives restarts; one source of truth for every worker |
 | **Redis 7** | Shared cache of Nautobot answers and rate limits between workers | Fewer calls to Nautobot; every worker sees the same cache |
-| **Leaflet** (+ markercluster) | The map in the browser, bundled in `static/vendor/` | No CDN needed at runtime |
+| **Leaflet** (+ markercluster) | The map in the browser, bundled into the Nuxt build (`frontend/`) | No CDN needed at runtime |
 | **OpenStreetMap** tiles and **Nominatim** address search | Map background and "search by address" (both replaceable: `MAP_TILE_URL`, `GEOCODER_URL`, or off) | Free defaults; point them at your own servers if needed |
 | **Plain JavaScript (ES modules)** | The pages' code (`static/js/`), no framework, no build step | Nothing to compile; strict Content Security Policy |
 | **Nuxt (Vue, TypeScript) + Nuxt UI** | The pages as they move over, one by one (#463; the tenant status page first): `frontend/`, built to static files the app serves | The team's standard; typed from the API's own models; still no Node in production |

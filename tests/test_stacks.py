@@ -68,58 +68,6 @@ def test_stored_and_read_back(client, pg_database, no_lookups):
     assert stored["m2"]["vc_master"] is False
 
 
-def test_the_panel_shows_a_stack_as_one_device():
-    run_js(
-        """
-import { deviceRowHtml, groupStacks } from "@js/map/panel.js";
-const member = (id, name, position, extra = {}) => ({ id, name, vc_id: "vc-1", vc_name: "sw-stack01", vc_position: position, device_type: "C9300", status: "Active", ...extra });
-const devices = [
-  { id: "r1", name: "edge-rt01", role: "Edge Router", status: "Active" },
-  member("m3", "sw-stack01:3", 3, { serial: "S3", not_monitored: "no primary IP" }),
-  member("m1", "sw-stack01", 1, { vc_master: true, primary_ip: "10.0.0.5/32", role: "Access Switch" }),
-  member("m2", "sw-stack01:2", 2, { status: "Offline" }),
-  // A chassis of one isn't a stack.
-  { id: "solo", name: "solo", vc_id: "vc-2", vc_position: 1 },
-];
-const entries = groupStacks(devices);
-check(entries.map((e) => e.device.id).join() === "r1,m1,solo", entries.map((e) => e.device.id).join());
-const stack = entries[1];
-check(stack.members.map((m) => m.id).join() === "m2,m3", "members by position");
-
-// Without a master: the monitored member leads, else the first by position.
-const noMaster = groupStacks([member("a", "a", 2), member("b", "b", 1), member("c", "c", 3, { primary_ip: "10.0.0.9" })]);
-check(noMaster.length === 1 && noMaster[0].device.id === "c", "the one with an IP leads");
-check(groupStacks([member("a", "a", 2), member("b", "b", 1)])[0].device.id === "b", "else the first");
-// A master without an IP doesn't stand for the stack: the monitored member does, as on the board (#405).
-const ipless = groupStacks([member("a", "a", 1, { vc_master: true }), member("b", "b", 2, { primary_ip: "10.0.0.9" })]);
-check(ipless[0].device.id === "b", "the monitored member leads");
-// Members the server says are monitored with their stack don't lead.
-const withStack = groupStacks([member("a", "a", 1, { primary_ip: "10.0.0.8", not_monitored: "monitored with its stack" }), member("b", "b", 2, { primary_ip: "10.0.0.9" })]);
-check(withStack[0].device.id === "b", "the server's lead");
-
-const closed = deviceRowHtml(stack.device, false, stack.members);
-// A member's own status means nothing: the stack is one device, its lead (#405).
-check(closed.includes(">Stack of 3<") && closed.includes("dot-ok") && !closed.includes("stack-member"), closed);
-const open = deviceRowHtml(stack.device, true, stack.members);
-check(open.includes("Access Switch") && open.includes(">Stack of 3:<"), "its role, then the members");
-check(open.includes(">2. sw-stack01:2 · C9300<") && open.includes(">3. sw-stack01:3 · C9300 · Serial S3<"), "members without their own status: " + open);
-check(closed.includes('class="device-row-role">Stack of 3<'), "a stack isn't styled as a note");
-// The lead down (the server makes it down when any of the stack's IPs is): the whole stack is.
-const down = deviceRowHtml({ ...stack.device, status: "Offline" }, true, stack.members);
-check(down.includes("dot-critical") && down.includes(">The whole stack is down, all its members:<"), down);
-// In the Down list a member with its own row is left out, the size isn't.
-check(deviceRowHtml(stack.device, false, [stack.members[1]], 3).includes(">Stack of 3<"), "the whole stack's size");
-// A lead in maintenance (or the alert delay) isn't an outage: not said.
-const held = deviceRowHtml({ ...stack.device, status: "Offline", maintenance_until: "2026-10-20T21:00:00Z" }, true, stack.members);
-check(!held.includes("whole stack is down") && held.includes("Stack of 3 · Maintenance"), held);
-// A lead in maintenance or unmonitored still says it is a stack.
-const quiet = deviceRowHtml({ ...stack.device, not_monitored: "no primary IP" }, false, [stack.members[1]]);
-check(quiet.includes(">Stack of 2 · Not monitored<") && quiet.includes("device-row-note") && quiet.includes("dot-ok"), quiet);
-check(deviceRowHtml({ id: "m", name: "<x>", vc_position: 1 }, true, [{ name: "<y>", vc_position: 2 }]).includes("2. &lt;y&gt;"), "escaped");
-"""
-    )
-
-
 def test_a_changed_stack_makes_the_next_sync_full(client, pg_database, monkeypatch):
     """Renaming a stack or moving its master saves the chassis, not its members (#400)."""
     from nautobot_maps import settings
