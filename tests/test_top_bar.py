@@ -92,14 +92,12 @@ def test_a_name_is_escaped(client):
     assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
 
 
-def test_the_search_is_on_every_page_but_the_map(client):
-    # The server-rendered pages; the Nuxt ones (/circuits, /maintenance, /availability, /help, #463) have AppBar.vue (e2e).
+def test_the_search_is_on_every_page(client):
+    # The server-rendered pages; the Nuxt ones (the map, /circuits, /maintenance, /availability,
+    # /help, #463) have AppBar.vue, without the search on the map, which has its own (e2e).
     for path in ("/alerts", "/docs"):
         html = client.get(path).get_data(as_text=True)
         assert 'id="bar-search"' in html and 'id="app-status"' in html, path
-    # The map has its own search, for places too.
-    html = client.get("/").get_data(as_text=True)
-    assert 'id="bar-search"' not in html and 'id="app-status"' in html
 
 
 def test_no_bar_on_the_wall_or_the_status_page(client):

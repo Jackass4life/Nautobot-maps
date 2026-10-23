@@ -4651,7 +4651,7 @@ class TestAuthConfiguration:
             )
         assert resp.status_code == 503  # reached the handler: no database here
 
-    def test_require_viewer_protects_every_page_but_probes(self, client, monkeypatch):
+    def test_require_viewer_protects_every_page_but_probes(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/").status_code == 401
@@ -4662,7 +4662,7 @@ class TestAuthConfiguration:
             assert client.get("/healthz").status_code in (200, 503)
             assert client.get("/metrics").status_code == 200
 
-    def test_require_viewer_is_off_by_default(self, client, monkeypatch):
+    def test_require_viewer_is_off_by_default(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", False)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/").status_code == 200
@@ -6754,7 +6754,8 @@ class TestApiExplorer:
         assert {"month", "from", "to", "basis"} <= names
 
     def test_header_links_to_the_explorer(self, client):
-        for path in ("/", "/alerts", "/docs"):
+        # The server-rendered pages; the Nuxt ones read the menu from /api/page-config (#463).
+        for path in ("/alerts", "/docs"):
             assert 'href="/docs"' in client.get(path).get_data(as_text=True), path
 
     def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch):

@@ -374,7 +374,7 @@ class TestSearchEndpoint:
 # 5. End-to-end scenario: open map → click location → see devices
 # ---------------------------------------------------------------------------
 class TestEndToEndScenario:
-    def test_scenario_full_flow(self, integration_client):
+    def test_scenario_full_flow(self, integration_client, frontend_build):
         """
         Simulates a user:
         1. Opening the map
@@ -1438,8 +1438,9 @@ check(at.top === 692, "above when there is no room below: " + JSON.stringify(at)
 """)
 
     def test_pages_load_the_tooltip(self, integration_client):
-        """Both pages that show an (i) load its CSS, and their main module starts it first."""
-        for path, page_script in (("/", "map/main.js"), ("/alerts", "alerts/main.js")):
+        """The board shows an (i): it loads its CSS, and its main module starts it first.
+        The map's (i) is Nuxt UI's (#463)."""
+        for path, page_script in (("/alerts", "alerts/main.js"),):
             html = integration_client.get(path).get_data(as_text=True)
             assert 'href="/static/css/tooltip.css"' in html and f'src="/static/js/{page_script}"' in html, path
             main = js_source(page_script)
