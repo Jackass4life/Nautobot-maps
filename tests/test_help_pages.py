@@ -5,14 +5,15 @@ import re
 from nautobot_maps import guide
 
 
-def test_every_guide_renders_with_a_title(client):
+def test_every_guide_renders_with_a_title(client, frontend_build):
+    # The page is on Nuxt (#463): it reads /api/help/<slug>.
     assert [item["slug"] for item in guide.contents()] == [slug for slug, _ in guide.PAGES]
     for item in guide.contents():
-        response = client.get(item["href"])
-        assert response.status_code == 200, item
-        html = response.get_data(as_text=True)
-        assert f"<title>{item['title']} · Nautobot Maps</title>" in html.replace("&#39;", "'")
-        assert 'class="app-bar"' in html and 'aria-current="page" href="/help"' in html
+        assert client.get(item["href"]).status_code == 200, item
+        answer = client.get(f"/api/help/{item['slug']}").get_json()
+        assert answer["title"] == item["title"] and answer["html"].startswith("<h1")
+        assert answer["contents"] == guide.contents()
+    assert client.get("/api/help/nope").status_code == 404
 
 
 def test_links_between_the_docs_open_their_page():
@@ -74,7 +75,7 @@ def test_no_markup_or_inline_style_gets_through(monkeypatch, tmp_path):
         assert not re.search(r"<[^>]+\sstyle=", guide.page(slug)["html"]), slug
 
 
-def test_images_and_unknown_pages(client):
+def test_images_and_unknown_pages(client, frontend_build):
     image = client.get("/help/images/map.png")
     assert image.status_code == 200 and image.mimetype == "image/png"
     assert client.get("/help/images/../../app.py").status_code == 404

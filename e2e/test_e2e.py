@@ -795,5 +795,7 @@ def test_the_documentation_pages(page):
     page.locator('.help-doc a[href^="/help/how-it-works#"]').first.click()
     page.wait_for_url("**/help/how-it-works#*")
     anchor = page.url.split("#", 1)[1]
+    page.locator(f"#{anchor}").wait_for()  # the guide is drawn in the page (#463)
     assert page.locator(f"#{anchor}").count() == 1
+    page.wait_for_function("() => [...document.images].every((img) => img.complete)")
     assert page.evaluate("() => [...document.images].every((img) => img.complete && img.naturalWidth > 0)")

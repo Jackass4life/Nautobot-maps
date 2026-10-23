@@ -8,8 +8,10 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Request
 
 from nautobot_maps import alerts, availability, guide, maintenance, navigation, settings, templating
-from nautobot_maps.api import deps, files, pages
+from nautobot_maps.api import deps, files, frontend, pages
 from nautobot_maps.api import maintenance as api_maintenance
+from nautobot_maps.api.answers import common
+from nautobot_maps.api.answers import help as help_answers
 from nautobot_maps.api.answers import pages as answers
 
 router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Pages"])
@@ -100,11 +102,28 @@ def openapi(request: Request):
 @router.get("/help", name="help.help_page", include_in_schema=False)
 @router.get("/help/{slug}", name="help.help_page", include_in_schema=False)
 def help_page(slug: str = "overview"):
-    """The documentation: the overview, then each guide."""
+    """The documentation: the overview, then each guide.
+
+    Built with Nuxt (#463); the page reads ``/api/help/<slug>``.  An unknown
+    guide is a 404 here, not a page that says so.
+    """
+    if guide.page(slug) is None:
+        raise HTTPException(status_code=404)
+    return frontend.shell()
+
+
+@router.get(
+    "/api/help/{slug}",
+    name="help.api_help",
+    response_model=help_answers.HelpPage,
+    responses={404: {"model": common.Error, "description": "No such guide"}},
+)
+def api_help(slug: str):
+    """One documentation page (#433): its title and HTML, and the list of guides."""
     found = guide.page(slug)
     if found is None:
-        raise HTTPException(status_code=404)
-    return pages.page("help.html", page=found, contents=guide.contents())
+        return deps.Json({"error": "No such guide"}, status_code=404)
+    return deps.Json({**found, "contents": guide.contents()})
 
 
 @router.get("/help/images/{name:path}", name="help.help_image", include_in_schema=False)
