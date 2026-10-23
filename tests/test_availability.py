@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from nautobot_maps import alerts, availability, caching, db, inventory, settings, timeutil
+from nautobot_maps.api import deps
+from nautobot_maps.api.answers import availability as answers
 from tests import http_client
 
 NOW = "2026-10-21T00:00:00Z"  # 20 days into October
@@ -60,9 +62,13 @@ def write(fn):
 def run(month="2026-10", basis="any_down", sites=None, from_date=None, to_date=None, with_incidents=False):
     conn = db.get_conn()
     try:
-        return availability.report(conn, month, basis, sites, from_date, to_date, with_incidents=with_incidents)
+        result = availability.report(conn, month, basis, sites, from_date, to_date, with_incidents=with_incidents)
     finally:
         conn.close()
+    if not with_incidents:
+        # Every report these tests make, as the API would send it, is what /docs shows (#449).
+        answers.Report.model_validate_json(deps.Json(result).body, strict=True)
+    return result
 
 
 class TestIntervals:
