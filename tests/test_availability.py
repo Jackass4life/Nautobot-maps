@@ -505,6 +505,16 @@ class TestPages:
         lines = response.get_data(as_text=True).lstrip("\ufeff").splitlines()
         assert len(lines) > 3 and lines[-1].count(",") == lines[lines.index("") + 1].count(",")
 
+    def test_a_tenant_opens_its_status_page(self, client, monkeypatch):
+        # #461: in the Tenants table, the Worst tenant card and the site's row;
+        # a name with spaces, "/" or "#" still opens its own page.
+        sites = [{"id": "s1", "name": "=Oslo", "tenants": ["Nordic Net #1"]}]
+        monkeypatch.setattr(availability, "board_sites", lambda: sites)
+        page = client.get("/availability?month=2026-10").get_data(as_text=True)
+        link = '<a class="tenant-link" href="/status/Nordic%20Net%20%231">Nordic Net #1</a>'
+        assert page.count(link) == 3, page.count(link)
+        assert client.get("/status/Nordic%20Net%20%231").status_code == 200
+
     def test_page_json_and_csv(self, client):
         page = client.get("/availability?month=2026-10").get_data(as_text=True)
         assert "=Oslo" in page and "90.000 %" in page and "(so far)" in page
@@ -603,7 +613,11 @@ class TestPages:
         assert 'data-availability="90.0" data-downtime="172800" data-incidents="1"' in page
         # JSON in a single-quoted attribute: the quote and the brackets are escaped.
         assert """data-tenants='["Acme", "O\\u0027Brien \\u003cLtd\\u003e"]'""" in page
-        assert '<span class="tenant-rest" hidden>, O&#39;Brien &lt;Ltd&gt;</span>' in page
+        # Linked to its status page (#461), the name escaped in both.
+        assert (
+            '<span class="tenant-rest" hidden>, <a class="tenant-link" href="/status/O%27Brien%20%3CLtd%3E">'
+            "O&#39;Brien &lt;Ltd&gt;</a></span>"
+        ) in page
         assert 'title="O&#39;Brien &lt;Ltd&gt;">+1</button>' in page
         assert 'href="/static/css/tooltip.css"' in page, "the (i) needs its styles"
         quiet = client.get("/availability?month=2026-09").get_data(as_text=True)
