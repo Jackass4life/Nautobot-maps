@@ -30,5 +30,6 @@ ROUTERS = (
 
 def install(app) -> None:
     deps.install_error_handlers(app)
+    app.openapi = lambda: deps.openapi(app)
     for router in ROUTERS:
         app.include_router(router)

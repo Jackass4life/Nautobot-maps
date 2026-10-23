@@ -10,13 +10,19 @@ from fastapi.responses import Response
 
 from nautobot_maps import alerts, apidocs, caching, coordinates, db, mcp, metrics, settings
 from nautobot_maps.api import deps
+from nautobot_maps.api.answers import ops as answers
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Monitoring"])
 
 
-@router.get("/healthz", name="ops.healthz")
+@router.get(
+    "/healthz",
+    name="ops.healthz",
+    response_model=answers.Health,
+    responses={503: {"model": answers.Health, "description": "The database doesn't answer"}},
+)
 def healthz():
     """Liveness probe for Docker, load balancers and monitoring.
 
@@ -81,7 +87,7 @@ def prometheus_metrics():
     return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
-@router.get("/api/app-status", name="ops.api_app_status")
+@router.get("/api/app-status", name="ops.api_app_status", response_model=answers.AppStatus)
 def api_app_status():
     """How fresh the app's data is, for the top bar on every page (#419).
 
@@ -132,7 +138,7 @@ def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUES
     return deps.Json(answer, status_code=status)
 
 
-@router.get("/api/endpoints", name="ops.api_endpoints")
+@router.get("/api/endpoints", name="ops.api_endpoints", response_model=answers.Endpoints)
 def api_endpoints():
     """Every page and API endpoint as JSON: methods, parameters, body and role (#230)."""
     return deps.Json({"endpoints": apidocs.endpoints()})

@@ -266,6 +266,19 @@ def pg_database(monkeypatch):
             admin.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
+@pytest.fixture(autouse=True)
+def _answers_match_the_api_spec(monkeypatch):
+    """Every answer checked against the model /docs shows for it (#449)."""
+    from nautobot_maps.api import deps
+    from tests import answers
+
+    answers.problems.clear()
+    monkeypatch.setattr(deps, "ANSWER_CHECK", answers.check)
+    yield
+    if answers.problems:
+        pytest.fail("Answers that don't match the API spec:\n" + "\n".join(answers.problems))
+
+
 @pytest.fixture
 def client():
     """A Flask test client (test_app.py has its own, the same)."""
