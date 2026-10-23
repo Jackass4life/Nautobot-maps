@@ -223,7 +223,7 @@ class AppRoute(APIRoute):
     """Every route: ``finish`` on its answer, and in the API spec its
     docstring's first paragraph as the summary, the rest as the description,
     issue numbers left out, and the errors it answers as the app sends them:
-    400 for bad input (``openapi`` drops FastAPI's 422), 401/403 when it needs
+    400 for the API's bad input (``openapi`` drops FastAPI's 422), 401/403 when it needs
     a role.  (HEAD: ``HeadAsGet``.)"""
 
     def __init__(self, path, endpoint, **kwargs):
@@ -235,7 +235,9 @@ class AppRoute(APIRoute):
         if not kwargs.get("description"):
             kwargs["description"] = _ISSUE_REFS.sub("", description.strip())
         super().__init__(path, endpoint, **kwargs)
-        if get_flat_params(self.dependant) or self.body_field or "requestBody" in (self.openapi_extra or {}):
+        # A page answers bad input with an error page, the API with JSON.
+        takes_input = get_flat_params(self.dependant) or self.body_field or "requestBody" in (self.openapi_extra or {})
+        if takes_input and path.startswith("/api/"):
             self.responses.setdefault(400, _error_response("Bad input"))
         if required_role(self):
             self.responses.setdefault(401, _error_response("Not signed in"))
