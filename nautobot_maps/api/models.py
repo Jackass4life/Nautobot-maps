@@ -162,6 +162,42 @@ class AlertCase(BaseModel):
     device_id: str | None = None
 
 
+class LibreNmsPush(BaseModel):
+    """A LibreNMS alert push (#284): which device; also as a form or in the query string."""
+
+    device_id: int | str | None = None
+    hostname: str | None = None
+
+
+class AlertmanagerWebhook(BaseModel):
+    """Prometheus Alertmanager's webhook body (#292); ``alerts`` is what is read."""
+
+    model_config = ConfigDict(extra="allow")
+
+    version: str | None = None
+    alerts: list[dict]
+
+
+class DeviceStatus(BaseModel):
+    """One device's status from any tool (#292); a list of these works too."""
+
+    device: str
+    status: str = Field(description='"down" or "up"')
+    source: str | None = None
+    id: str | None = None
+    summary: str | None = None
+    started_at: str | None = None
+
+
+class TokenCreate(BaseModel):
+    """A new API token (#297)."""
+
+    name: str
+    role: str = Field(description="viewer, operator, admin, or status with a tenant")
+    tenant: str | None = None
+    expires_in_days: int | None = None
+
+
 def flag(value: str | None) -> bool:
     """A yes/no query value: 1, true or yes (``routes.common.flag_arg``)."""
     return (value or "").strip().lower() in {"1", "true", "yes"}

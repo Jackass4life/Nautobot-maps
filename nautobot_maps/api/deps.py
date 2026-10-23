@@ -80,6 +80,19 @@ async def json_body(request: Request):
         return None
 
 
+async def form_values(request: Request) -> dict:
+    """The request's form (URL-encoded or multipart) as Flask's ``request.form``
+    read it; empty for any other body."""
+    mimetype = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if mimetype not in ("application/x-www-form-urlencoded", "multipart/form-data"):
+        return {}
+    try:
+        form = await request.form()
+    except Exception:
+        return {}
+    return {key: value for key, value in form.items() if isinstance(value, str)}
+
+
 def body_schema(model) -> dict:
     """``openapi_extra`` describing a route's JSON body with *model*: the API
     spec shows it, while the route reads the body with ``json_body``."""
