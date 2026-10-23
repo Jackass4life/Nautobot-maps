@@ -7,6 +7,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import alerts, caching, db, inventory, maintenance, notify, settings, timeutil
+from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 
 NOW = "2026-10-09T12:00:00Z"
@@ -376,13 +377,13 @@ class TestSiteDevices:
         monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", {"old building"})
         assert "old-sw" not in {d["id"] for d in alerts.site_monitored_devices("loc-lon")}
         flask_app.app.config["TESTING"] = True
-        with flask_app.app.test_client() as client:
+        with http_client.FlaskStyleClient() as client:
             body = client.get("/api/maintenance/devices?site_id=loc-lon&include_non_operational=1").get_json()
         assert "old-sw" in {d["id"] for d in body["devices"]}
 
     def test_endpoint(self, site):
         flask_app.app.config["TESTING"] = True
-        with flask_app.app.test_client() as client:
+        with http_client.FlaskStyleClient() as client:
             assert client.get("/api/maintenance/devices").status_code == 400
             body = client.get("/api/maintenance/devices?site_id=loc-lon").get_json()
         assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
@@ -590,7 +591,7 @@ class TestApi:
     def client(self, site):
         flask_app.app.config["TESTING"] = True
         caching.cache.clear()
-        with flask_app.app.test_client() as test_client:
+        with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
     def test_operator_creates_lists_and_ends(self, client):

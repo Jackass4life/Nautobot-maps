@@ -8,6 +8,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import caching, contract, db, inventory, librenms, metrics, nautobot, settings
+from tests import http_client
 
 DOC = Path(__file__).resolve().parent.parent / "docs" / "data-contract.md"
 DEVICES = contract.endpoint(contract.NAUTOBOT, "dcim/devices/")
@@ -173,7 +174,7 @@ class TestRecorded:
 
         flask_app.app.config["TESTING"] = True
         caching.cache.clear()
-        with flask_app.app.test_client() as client:
+        with http_client.FlaskStyleClient() as client:
             body = client.get("/api/contract").get_json()
         assert any(e["endpoint"] == "dcim/devices/" for e in body["contract"])
         assert any(c["endpoint"] == "dcim/devices/" and c["mismatches"] for c in body["checks"])

@@ -10,6 +10,7 @@ import pytest
 import app as flask_app
 from nautobot_maps import alerts, caching, mcp, settings
 from nautobot_maps.repositories import board as board_store
+from tests import http_client
 from tests.test_app import auth_config
 
 MODERN = "2026-07-28"
@@ -63,7 +64,7 @@ def client(monkeypatch):
     monkeypatch.setattr(alerts, "get_alert_board_data", lambda **kwargs: json.loads(json.dumps(BOARD)))
     flask_app.app.config["TESTING"] = True
     caching.cache.clear()
-    with flask_app.app.test_client() as test_client:
+    with http_client.FlaskStyleClient() as test_client:
         yield test_client
 
 
@@ -415,6 +416,15 @@ class TestAddCase:
             assert cases == {"INC-42"}
             assert {case["created_by"] for i in history["instances"] for case in i["cases"]} == {"olga"}
             assert all("snapshot" not in event for i in history["instances"] for event in i["events"])
+
+    def test_a_client_asking_for_gzip_still_gets_the_history(self, client):
+        """The tools read the API's answer themselves: the caller's Accept-Encoding
+        must not make it a gzip body they can't read (most MCP clients send it)."""
+        self._open_alerts()
+        call(client, "add_case", {"site_id": "loc-1", "case_number": "INC-77"})
+        history = call(client, "get_alert_history", {"site_id": "loc-1"}, headers={"Accept-Encoding": "gzip"})
+        cases = {case["case_number"] for i in history["structuredContent"]["instances"] for case in i["cases"]}
+        assert cases == {"INC-77"}
 
     def test_malformed_device_ids_never_mean_all_devices(self, client):
         self._open_alerts()

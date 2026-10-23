@@ -4,6 +4,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import alerts, caching, db, inventory, settings, timeutil, webhooks
+from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location
 from tests.test_tokens import bearer, make
 
@@ -49,7 +50,7 @@ def site(pg_database, monkeypatch, clock):
 def client(site):
     flask_app.app.config["TESTING"] = True
     caching.cache.clear()
-    with flask_app.app.test_client() as test_client:
+    with http_client.FlaskStyleClient() as test_client:
         yield test_client
 
 

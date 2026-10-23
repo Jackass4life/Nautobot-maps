@@ -6,6 +6,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import alerts, availability, caching, db, inventory, settings, timeutil
+from tests import http_client
 
 NOW = "2026-10-21T00:00:00Z"  # 20 days into October
 OCT = datetime(2026, 10, 1, tzinfo=UTC)
@@ -469,7 +470,7 @@ class TestPages:
         monkeypatch.setattr(availability, "board_sites", lambda: [{"id": "s1", "name": "=Oslo", "tenants": ["Acme"]}])
         flask_app.app.config["TESTING"] = True
         caching.cache.clear()
-        with flask_app.app.test_client() as test_client:
+        with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
     def test_the_page_explains_itself(self, client):
@@ -647,7 +648,7 @@ class TestPages:
     def test_no_database(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         flask_app.app.config["TESTING"] = True
-        with flask_app.app.test_client() as client:
+        with http_client.FlaskStyleClient() as client:
             resp = client.get("/availability")
         assert resp.status_code == 503 and "needs the PostgreSQL database" in resp.get_data(as_text=True)
 

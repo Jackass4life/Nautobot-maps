@@ -4,7 +4,7 @@ import pytest
 
 import app as flask_app
 from nautobot_maps import alerts, caching, db
-from tests import test_maintenance
+from tests import http_client, test_maintenance
 from tests.js_modules import run_js
 from tests.test_app import auth_config
 from tests.test_maintenance import build, set_devices
@@ -85,7 +85,7 @@ class TestApi:
         build()
         flask_app.app.config["TESTING"] = True
         caching.cache.clear()
-        with flask_app.app.test_client() as test_client:
+        with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
     def test_acknowledge_and_remove(self, client):
