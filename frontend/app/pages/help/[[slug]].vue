@@ -24,9 +24,17 @@ async function showAnchor() {
   else window.scrollTo(0, 0);
 }
 
+// Guides already read, so going back and forth shows them at once.
+const loaded = new Map<string, HelpPage>();
+async function fetchGuide(name: string): Promise<HelpPage> {
+  const found = loaded.get(name) ?? (await $fetch<HelpPage>(`/api/help/${encodeURIComponent(name)}`));
+  loaded.set(name, found);
+  return found;
+}
+
 async function load() {
   try {
-    page.value = await $fetch<HelpPage>(`/api/help/${encodeURIComponent(slug.value)}`);
+    page.value = await fetchGuide(slug.value);
     error.value = "";
   } catch {
     page.value = null;
@@ -50,14 +58,18 @@ function onClick(event: MouseEvent) {
     showAnchor();
     return;
   }
-  navigateTo(url.pathname + url.hash);
+  // The guide first, then the address: no blank page in between.
+  const name = url.pathname.split("/")[2] || "overview";
+  fetchGuide(name)
+    .catch(() => undefined)
+    .finally(() => navigateTo(url.pathname + url.hash));
 }
 </script>
 
 <template>
   <div>
     <AppBar active="help" />
-    <div class="help-shell mx-auto grid max-w-6xl items-start gap-6 px-4 py-6 md:grid-cols-[220px_minmax(0,1fr)]">
+    <div class="help-shell mx-auto grid max-w-6xl grid-cols-1 items-start gap-6 px-4 py-6 md:grid-cols-[220px_minmax(0,1fr)]">
       <details id="help-nav" class="help-nav group rounded-lg border border-default md:sticky md:top-16 md:border-0" :open="listOpen" @toggle="listOpen = ($event.target as HTMLDetailsElement).open">
         <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-semibold md:hidden">
           <UIcon name="i-lucide-chevron-right" class="size-4 text-muted transition-transform group-open:rotate-90" />
