@@ -841,7 +841,7 @@ class TestAlertBoard:
         ]
 
         with (
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(
                 alerts,
                 "get_location_devices_and_alert",
@@ -1005,7 +1005,7 @@ class TestAlertBoard:
         sample_locations = [{"id": "loc-1", "name": "Broken Site", "latitude": None, "longitude": None}]
 
         with (
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
@@ -1120,7 +1120,7 @@ class TestAlertBoard:
         ]
 
         with (
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(inventory, "read_devices", return_value=[]),
             patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
             patch.object(nautobot, "fetch_all_pages", side_effect=AssertionError("should not fetch live inventory")),
@@ -1146,7 +1146,7 @@ class TestAlertBoard:
             patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
             patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
             patch.object(librenms, "fetch_inventory", side_effect=RuntimeError("down")),
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
                 alerts,
@@ -1200,7 +1200,7 @@ class TestAlertBoard:
             # The build's own connections; not the build lock or its stats (#295).
             patch.object(alerts, "_board_build_lock", return_value=None),
             patch.object(board_store, "record_board_build"),
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
             patch.object(
@@ -1237,7 +1237,7 @@ class TestAlertBoard:
             # The build's own connections; not the build lock or its stats (#295).
             patch.object(alerts, "_board_build_lock", return_value=None),
             patch.object(board_store, "record_board_build"),
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
             patch.object(
@@ -1269,7 +1269,7 @@ class TestAlertBoard:
                 return None
 
         with (
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(inventory, "ensure_snapshot"),
             patch.object(
@@ -2773,7 +2773,7 @@ class TestAlertLifecycleTracking:
         )
         sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
         with (
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")),
         ):
