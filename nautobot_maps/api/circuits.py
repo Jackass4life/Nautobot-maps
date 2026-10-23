@@ -7,6 +7,8 @@ from fastapi.responses import StreamingResponse
 
 from nautobot_maps import circuits, db, settings
 from nautobot_maps.api import deps, pages
+from nautobot_maps.api.answers import circuits as answers
+from nautobot_maps.api.answers import common
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,12 @@ def _circuit_mapping() -> dict:
         conn.close()
 
 
-@router.get("/api/circuit-mapping", name="circuits.api_circuit_mapping")
+@router.get(
+    "/api/circuit-mapping",
+    name="circuits.api_circuit_mapping",
+    response_model=answers.CircuitMapping,
+    responses={503: {"model": common.Error, "description": "No database"}},
+)
 def api_circuit_mapping():
     """Circuits without a termination at a location, Decommissioned ones left out (#385), with the sites their
     description's address points to: ``summary`` (``total``, ``several``,
