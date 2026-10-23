@@ -187,8 +187,12 @@ def test_the_availability_page_answers_first(page):
     sites.locator("th[data-sort=name] button").click()
     assert sites.locator("th[data-sort=name]").get_attribute("aria-sort") == "ascending"
     name = sites.locator("tbody tr:visible").first.get_attribute("data-name")
-    sites.locator(".avail-search").fill(name)
+    sites.locator(".avail-search input").fill(name)
     assert sites.locator("tbody tr:visible").count() >= 1
+    # A tenant opens its status page (#461).
+    tenant = sites.locator(".tenant-link").first
+    if tenant.count():
+        assert tenant.get_attribute("href").startswith("/status/")
     assert all(
         name.lower() in n.lower()
         for n in sites.locator("tbody tr:visible").evaluate_all(
