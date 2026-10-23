@@ -25,18 +25,17 @@ class Window(common.Answer):
 
 
 class DescribedWindow(Window):
-    """A window with the names the page shows."""
+    """A window with the names the page shows; left out of one site's list
+    (``site_id``), whose panel knows them."""
 
-    site_name: str = Field(description="Empty when the site isn't on the board.")
-    site_path: str
-    tenants: list[str]
-    device_name: str = Field(description="Empty for the whole site.")
+    site_name: str | None = Field(None, description="Empty when the site isn't on the board.")
+    site_path: str | None = None
+    tenants: list[str] | None = None
+    device_name: str | None = Field(None, description="Empty for the whole site.")
 
 
 class WindowList(common.Answer):
-    windows: list[DescribedWindow] = Field(
-        description="Soonest first.  For one site (site_id), names are left empty: its panel knows them."
-    )
+    windows: list[DescribedWindow] = Field(description="Soonest first.")
     tenant_descriptions: dict[str, str] = Field(description="Tenant name to its description, when it has one.")
     truncated: bool = Field(description="More windows than the list holds.")
 
