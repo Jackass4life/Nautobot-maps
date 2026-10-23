@@ -12,16 +12,24 @@ from fastapi.responses import StreamingResponse
 
 from nautobot_maps import alerts, auth, availability, db, maintenance, scheduler, status
 from nautobot_maps.api import deps, models, pages
+from nautobot_maps.api.answers import common
+from nautobot_maps.api.answers import maintenance as answers
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Maintenance"])
 
 NO_DATABASE = {"error": "Persistence DB not configured"}
+NO_DATABASE_RESPONSE = {503: {"model": common.Error, "description": "No database"}}
 Body = Annotated[object, Depends(deps.json_body)]
 
 
-@router.get("/api/maintenance", name="maintenance.api_maintenance_list")
+@router.get(
+    "/api/maintenance",
+    name="maintenance.api_maintenance_list",
+    response_model=answers.WindowList,
+    responses=NO_DATABASE_RESPONSE,
+)
 def api_maintenance_list(query: Annotated[models.MaintenanceList, Query()]):
     """Maintenance windows (#283): active and upcoming, soonest first.
 
@@ -131,7 +139,12 @@ def _history_request(query: models.MaintenanceHistory) -> dict:
 HistoryQuery = Annotated[models.MaintenanceHistory, Query()]
 
 
-@router.get("/api/maintenance/history", name="maintenance.api_maintenance_history")
+@router.get(
+    "/api/maintenance/history",
+    name="maintenance.api_maintenance_history",
+    response_model=answers.History,
+    responses=NO_DATABASE_RESPONSE,
+)
 def api_maintenance_history(query: HistoryQuery):
     """Every maintenance window that ran in a period, or was planned for it and
     cancelled (#353), newest first: ``from`` and ``to`` (``2026-10-01``, both
@@ -196,7 +209,7 @@ def api_maintenance_history_csv(query: HistoryQuery):
     )
 
 
-@router.get("/api/maintenance/sites", name="maintenance.api_maintenance_sites")
+@router.get("/api/maintenance/sites", name="maintenance.api_maintenance_sites", response_model=answers.PlannableSites)
 def api_maintenance_sites():
     """The sites maintenance can be planned for (#343), for the page's site
     picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)
@@ -220,7 +233,7 @@ def api_maintenance_sites():
     )
 
 
-@router.get("/api/maintenance/devices", name="maintenance.api_maintenance_devices")
+@router.get("/api/maintenance/devices", name="maintenance.api_maintenance_devices", response_model=answers.Devices)
 def api_maintenance_devices(query: Annotated[models.MaintenanceDevices, Query()]):
     """The devices that can be put in maintenance at a site (#283).
 
@@ -245,6 +258,9 @@ def _maintenance_changed() -> None:
 @router.post(
     "/api/maintenance",
     name="maintenance.api_maintenance_create",
+    status_code=201,
+    response_model=answers.Created,
+    responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(models.MaintenanceCreate),
 )
@@ -275,6 +291,8 @@ def api_maintenance_create(body: Body):
 @router.post(
     "/api/maintenance/end",
     name="maintenance.api_maintenance_end_many",
+    response_model=answers.Ended,
+    responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(models.MaintenanceEnd),
 )
@@ -307,6 +325,8 @@ def api_maintenance_end_many(body: Body):
 @router.post(
     "/api/maintenance/{window_id:int}/end",
     name="maintenance.api_maintenance_end",
+    response_model=answers.EndedOne,
+    responses={**NO_DATABASE_RESPONSE, 404: {"model": common.Error, "description": "No such window"}},
     dependencies=[deps.require_role("operator")],
 )
 def api_maintenance_end(window_id: int):
