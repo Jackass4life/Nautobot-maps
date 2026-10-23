@@ -8244,26 +8244,8 @@
     },
     "/maintenance": {
       "get": {
-        "description": "Current and planned maintenance, and planning more (#343); the data comes from the API.",
+        "description": "Built with Nuxt; the page reads ``/api/maintenance`` and its\nlimits from ``/api/page-config``.",
         "operationId": "maintenance_maintenance_page_maintenance_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "view",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "View"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -8274,7 +8256,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Current and planned maintenance, and planning more; the data comes from the API.",
+        "summary": "Current and planned maintenance, and planning more, or its history (``?view=history``, #353).",
         "tags": [
           "Maintenance"
         ]

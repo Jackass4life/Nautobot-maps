@@ -939,8 +939,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Current and planned maintenance, and planning more; the data comes from the API.
-         * @description Current and planned maintenance, and planning more (#343); the data comes from the API.
+         * Current and planned maintenance, and planning more, or its history (``?view=history``, #353).
+         * @description Built with Nuxt; the page reads ``/api/maintenance`` and its
+         *     limits from ``/api/page-config``.
          */
         get: operations["maintenance_maintenance_page_maintenance_get"];
         put?: never;
@@ -5545,9 +5546,7 @@ export interface operations {
     };
     maintenance_maintenance_page_maintenance_get: {
         parameters: {
-            query?: {
-                view?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;

@@ -168,3 +168,20 @@ describe("planning", () => {
     expect(windowRequest(values({ siteIds: ["a", "b", "c"] }), 2).error).toBe("At most 2 sites at once.");
   });
 });
+
+describe("several tenants at scale", () => {
+  const many = batchesOf(
+    Array.from({ length: 1200 }, (_, i) =>
+      w(i, `site-${i}`, "upcoming", { batch_id: `batch-${i}`, tenants: [`Tenant ${i % 6}`, "Shared"], reason: i % 2 ? "Core" : "Edge" }),
+    ),
+  );
+
+  it("any chosen tenant, no batch twice, search and tenants together", () => {
+    const shown = many.filter((batch) => batchMatches(batch, { tenants: ["Tenant 1", "Tenant 3"] }));
+    expect(shown).toHaveLength(400);
+    expect(many.filter((batch) => batchMatches(batch, { tenants: ["Tenant 1", "Shared"] }))).toHaveLength(1200);
+    expect(shown.every((batch) => batchMatches(batch, { words: ["core"], tenants: ["Tenant 1", "Tenant 3"] }))).toBe(true);
+    expect(many.filter((batch) => batchMatches(batch, {}))).toHaveLength(1200);
+    expect(batchMatches(shown[0]!, { tenants: ["Tenant"] })).toBe(false);
+  });
+});

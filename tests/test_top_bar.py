@@ -93,8 +93,8 @@ def test_a_name_is_escaped(client):
 
 
 def test_the_search_is_on_every_page_but_the_map(client):
-    # The server-rendered pages; the Nuxt ones (/circuits, #463) have AppBar.vue (e2e).
-    for path in ("/alerts", "/availability", "/maintenance", "/help", "/docs"):
+    # The server-rendered pages; the Nuxt ones (/circuits, /maintenance, #463) have AppBar.vue (e2e).
+    for path in ("/alerts", "/availability", "/help", "/docs"):
         html = client.get(path).get_data(as_text=True)
         assert 'id="bar-search"' in html and 'id="app-status"' in html, path
     # The map has its own search, for places too.
