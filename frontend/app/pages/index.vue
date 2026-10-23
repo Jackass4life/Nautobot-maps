@@ -6,6 +6,7 @@
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import type { components } from "~/api/schema";
+import { apiError, errorMessage } from "~/utils/format";
 import { SiteMap, loadLeaflet } from "~/utils/leafletmap";
 import {
   alarmSites,
@@ -36,10 +37,6 @@ const config = pageConfig.data;
 const toast = useToast();
 function showError(text: string) {
   toast.add({ title: text, color: "error", icon: "i-lucide-circle-alert" });
-}
-function failure(err: unknown): string {
-  const fetchError = err as { data?: { error?: string }; message?: string };
-  return fetchError.data?.error || fetchError.message || "unknown error";
 }
 
 const ALERT_REFRESH_MS = 60 * 1000;
@@ -98,8 +95,7 @@ const drawn = computed(() => (alarmsOnlyApplies.value ? filtered.value.filter((l
 const countText = computed(() => siteCount(drawn.value.length, alarmsOnlyApplies.value));
 const alarms = computed(() => {
   if (!levelsLoaded.value) return [];
-  const info = Object.fromEntries(Object.entries(levelInfo.value).map(([id, entry]) => [id, { ...entry, level: levels.value[id] as LevelInfo["level"] }]));
-  return alarmSites(filtered.value, info);
+  return alarmSites(filtered.value, levelInfo.value, levels.value);
 });
 const alarmHeading = computed(() =>
   alarmTitle(alarms.value.length, !scope && filtered.value.length === all.value.length, all.value.length > 0),
@@ -261,7 +257,7 @@ function openSite(id: string, { ids = [id], trigger = null as HTMLElement | null
     .catch((err) => {
       if (selectedId.value !== id) return;
       detailLoading.value = false;
-      detailError.value = failure(err);
+      detailError.value = errorMessage(err);
     });
 }
 
@@ -355,8 +351,7 @@ async function mapSearch(query: string) {
   } catch (err) {
     if (ticket !== searchTicket) return;
     // The API's own message ("Address not found: …") as it is (#350).
-    const own = (err as { data?: { error?: string } }).data?.error;
-    showError(own || `Search failed: ${failure(err)}`);
+    showError(apiError(err) || `Search failed: ${errorMessage(err)}`);
     results.value = null;
     draw();
   } finally {
@@ -408,7 +403,7 @@ onMounted(async () => {
   try {
     await Promise.all([loadLeaflet(), pageConfig]);
     // Drawn anyway, with the default tiles and no fixed view: said, not silent.
-    if (pageConfig.error.value) showError(`The map's settings could not be loaded: ${failure(pageConfig.error.value)}`);
+    if (pageConfig.error.value) showError(`The map's settings could not be loaded: ${errorMessage(pageConfig.error.value)}`);
     const settings = config.value.map;
     siteMap = new SiteMap(mapElement.value!, {
       tileUrl: settings.tile_url,
@@ -421,7 +416,7 @@ onMounted(async () => {
       },
     });
   } catch (err) {
-    showError(`The map could not be drawn: ${failure(err)}`);
+    showError(`The map could not be drawn: ${errorMessage(err)}`);
     loading.value = false;
     return;
   }
@@ -443,7 +438,7 @@ onMounted(async () => {
     if (!config.value.map.view) siteMap.fit(all.value);
     draw();
   } catch (err) {
-    showError(`Failed to load locations: ${failure(err)}`);
+    showError(`Failed to load locations: ${errorMessage(err)}`);
   } finally {
     loading.value = false;
   }

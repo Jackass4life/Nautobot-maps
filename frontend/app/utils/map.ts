@@ -35,7 +35,7 @@ export const LEVEL_NAMES: Record<string, string> = {
 export const ALERT_RANK: Record<string, number> = { low: 1, medium: 2, critical: 3 };
 
 // What a stack or cluster shows: its worst member (#234, #311).
-export const DISPLAY_RANK: Record<string, number> = { no_data: 0, ok: 1, maintenance: 2, low: 3, medium: 4, critical: 5 };
+const DISPLAY_RANK: Record<string, number> = { no_data: 0, ok: 1, maintenance: 2, low: 3, medium: 4, critical: 5 };
 
 // Levels that are never clustered: always their own pin, on top (#334).
 const ATTENTION = new Set(["critical", "medium", "low", "maintenance"]);
@@ -72,11 +72,18 @@ export interface AlarmSite {
 }
 
 // The sites of *locations* in alarm, worst first, then newest, then by name.
-export function alarmSites(locations: MapLocation[], info: Record<string, Partial<LevelInfo>>): AlarmSite[] {
+// *levels*: the level each site shows, when newer than *info*'s (a site
+// panel's fresher one).
+export function alarmSites(
+  locations: MapLocation[],
+  info: Record<string, Partial<LevelInfo>>,
+  levels: Record<string, string> = {},
+): AlarmSite[] {
   const time = (entry: AlarmSite) => Date.parse(entry.since || "") || null;
+  const levelOf = (id: string) => levels[id] ?? info[id]?.level;
   return locations
-    .filter((loc) => isAlarm(info[loc.id]?.level))
-    .map((loc) => ({ down: 0, monitored: Number.NaN, ...info[loc.id], loc }) as AlarmSite)
+    .filter((loc) => isAlarm(levelOf(loc.id)))
+    .map((loc) => ({ down: 0, monitored: Number.NaN, ...info[loc.id], level: levelOf(loc.id), loc }) as AlarmSite)
     .sort(
       (a, b) =>
         ALARM_ORDER[a.level]! - ALARM_ORDER[b.level]!
@@ -157,7 +164,7 @@ export function siteCount(count: number, alarmsOnly: boolean): string {
 // --- Markers (#334) ---------------------------------------------------------
 
 // Sites at the same coordinates (to 4 decimals, ~10 m).
-export function coordKey(loc: Pick<MapLocation, "latitude" | "longitude">): string {
+function coordKey(loc: Pick<MapLocation, "latitude" | "longitude">): string {
   return `${loc.latitude.toFixed(4)},${loc.longitude.toFixed(4)}`;
 }
 

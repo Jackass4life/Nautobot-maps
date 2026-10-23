@@ -26,6 +26,7 @@ import {
   worstLevel,
   type MapLocation,
 } from "~/utils/map";
+import { apiError, errorMessage } from "~/utils/format";
 import { inScope, linkParams, readScope, scopeLabel, scopeParams } from "~/utils/scope";
 import { matchSites } from "~/utils/sitesearch";
 
@@ -87,6 +88,12 @@ describe("the alarm list", () => {
     expect(list.at(-1)!.loc.id).toBe("s2");
     expect(levelBreakdown(list)).toBe("9 critical · 8 medium · 8 low");
     expect(ALARM_LIST_SHOWN).toBe(8);
+  });
+
+  it("a site panel's fresher level counts", () => {
+    const fresher = alarmSites(sites, info, { s0: "ok", s30: "critical" });
+    expect(fresher.map((entry) => entry.loc.id)).not.toContain("s0");
+    expect(fresher.find((entry) => entry.loc.id === "s30")?.level).toBe("critical");
   });
 
   it("follows the filters", () => {
@@ -290,5 +297,17 @@ describe("the panel's search (#392, #411)", () => {
     expect(city.matches).toHaveLength(8);
     expect(city.more).toBe(1195);
     expect(city.matches.map((loc) => loc.id)).toContain("c2");
+  });
+});
+
+describe("request errors", () => {
+  it("the API's own message, else the error's", () => {
+    const answered = Object.assign(new Error("[GET] /api/search: 404"), { data: { error: "Address not found: Atlantis" } });
+    expect(apiError(answered)).toBe("Address not found: Atlantis");
+    expect(errorMessage(answered)).toBe("Address not found: Atlantis");
+    const page = Object.assign(new Error("[GET] /api/search: 502 Bad Gateway"), { data: "<html>…</html>" });
+    expect(apiError(page)).toBe("");
+    expect(errorMessage(page)).toBe("[GET] /api/search: 502 Bad Gateway");
+    expect(errorMessage("offline")).toBe("offline");
   });
 });

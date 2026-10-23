@@ -4,7 +4,7 @@
      period, for one site or all, and its export. -->
 <script setup lang="ts">
 import { addDays, formatRange } from "~/utils/calendar";
-import { searchWords } from "~/utils/format";
+import { errorMessage, searchWords } from "~/utils/format";
 import {
   batchesOf,
   batchMatches,
@@ -116,11 +116,6 @@ async function loadList() {
   } catch (err) {
     setStatus(`Could not load maintenance: ${errorMessage(err)}`, true);
   }
-}
-
-function errorMessage(err: unknown): string {
-  const data = (err as { data?: { error?: string } })?.data;
-  return data?.error || (err instanceof Error ? err.message : String(err));
 }
 
 // The address keeps the period and site, so a history can be shared or bookmarked.

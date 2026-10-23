@@ -33,11 +33,11 @@ export async function loadLeaflet(): Promise<LeafletModule> {
 }
 
 // From this zoom nothing is clustered, so a site is its own marker.
-export const UNCLUSTERED_ZOOM = 15;
+const UNCLUSTERED_ZOOM = 15;
 // No closer than a city when there is one site, or a few close together.
 const FIT_MAX_ZOOM = 10;
 // A place search's circle (#392).
-export const SEARCH_RADIUS_M = 5000;
+const SEARCH_RADIUS_M = 5000;
 // Above quiet clusters and each other: worst on top.
 const ATTENTION_Z: Record<string, number> = { critical: 4000, medium: 3000, low: 2000, maintenance: 1000 };
 
@@ -275,10 +275,6 @@ export class SiteMap {
     if (asPin && !this.drawnSearch) marker.setZIndexOffset(ATTENTION_Z[this.groupLevel(ids)] || 0);
     // A quiet site turning from No data to OK (or back) recolours its cluster.
     if (this.clusterLayer.hasLayer(marker)) this.clusterLayer.refreshClusters(marker);
-  }
-
-  has(locId: string): boolean {
-    return this.markers.has(locId);
   }
 
   // The ids at *locId*'s marker (a co-located stack), else just it.
