@@ -288,6 +288,14 @@
   "view": "api_notifications_test"
  },
  {
+  "path": "/api/page-config",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_page_config"
+ },
+ {
   "path": "/api/search",
   "methods": [
    "GET"
