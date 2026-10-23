@@ -85,11 +85,12 @@ const DOT: Record<string, string> = {
       <!-- A large tenant's operational sites, folded into one line (#407). -->
       <details
         v-if="shown.operational.length"
-        class="status-fold mt-4 rounded-lg border border-default"
+        class="status-fold group mt-4 rounded-lg border border-default"
         :open="operationalOpen"
         @toggle="operationalOpen = ($event.target as HTMLDetailsElement).open"
       >
-        <summary class="cursor-pointer px-4 py-3 font-medium text-toned">
+        <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-medium text-toned">
+          <UIcon name="i-lucide-chevron-right" class="size-4 text-muted transition-transform group-open:rotate-90" />
           {{ shown.operational.length.toLocaleString("en") }} site{{ shown.operational.length === 1 ? "" : "s" }}
           operational
         </summary>

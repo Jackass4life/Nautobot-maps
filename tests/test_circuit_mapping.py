@@ -3,7 +3,6 @@
 import pytest
 
 from nautobot_maps import caching, inventory, nautobot, settings
-from tests.js_modules import run_js
 from tests.test_app import auth_config
 from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 
@@ -109,12 +108,15 @@ def test_a_site_off_the_map_links_through_its_building(client, monkeypatch, pg_d
     ]
 
 
-def test_page_and_nav(client, synced):
+def test_page_and_nav(client, synced, frontend_build):
+    # The page is built with Nuxt (#463): Nautobot's address and the menu come from /api/page-config.
     page = client.get("/circuits")
-    assert page.status_code == 200
-    html = page.get_data(as_text=True)
-    assert 'href="/api/circuit-mapping.csv"' in html
-    assert 'data-nautobot-url="https://nautobot.example.com"' in html
+    assert page.status_code == 200 and 'id="__nuxt"' in page.get_data(as_text=True)
+    config = client.get("/api/page-config").get_json()
+    assert config["nautobot_url"] == "https://nautobot.example.com"
+    assert {"key": "circuits", "href": "/circuits"}.items() <= next(
+        p for p in config["pages"] if p["key"] == "circuits"
+    ).items()
     for path in ("/", "/alerts", "/availability", "/maintenance", "/docs"):
         assert 'href="/circuits"' in client.get(path).get_data(as_text=True), path
 
@@ -130,42 +132,3 @@ def test_viewers_only_when_required(client, monkeypatch):
     with auth_config(mode="header", viewer_groups={"noc"}):
         for path in ("/circuits", "/api/circuit-mapping", "/api/circuit-mapping.csv"):
             assert client.get(path).status_code == 401, path
-
-
-def test_list_renders_escapes_and_searches():
-    run_js(
-        """
-        import { groupsHtml, matches, prepare, summaryText } from "@js/circuits/list.js";
-        import { searchWords } from "@js/lib/format.js";
-        const circuits = prepare([
-          { id: "c1", cid: "TDC<1>", group: "one", provider: "Telia", status: "Active",
-            description: "Roersvej 33, 5000 Odense", sites: [{ id: "loc 1", name: "Odense <b>", on_map: true }] },
-          { id: "c2", cid: "GTT-2", group: "several",
-            sites: [{ id: "a", name: "A", on_map: true }, { id: "b", name: "B", on_map: false }] },
-          ...Array.from({ length: 150 }, (_, i) => ({ id: `n${i}`, cid: `N-${i}`, group: "none", sites: [] })),
-        ]);
-        const html = groupsHtml(circuits, { nautobotUrl: "https://nb.example/", open: new Set(["one"]) });
-        check(html.indexOf('data-group="several"') < html.indexOf('data-group="none"'), "several first");
-        check(html.indexOf('data-group="none"') < html.indexOf('data-group="one"'), "one last");
-        check(html.includes('<details class="table-shell maint-group" data-group="one" open>'), "one open");
-        check(!html.includes('data-group="none" open'), "others folded");
-        check(html.includes("TDC&lt;1&gt;") && html.includes("Odense &lt;b&gt;"), "escaped");
-        check(html.includes('href="https://nb.example/circuits/circuits/c1/"'), "circuit in Nautobot");
-        check(html.includes('href="/?location_id=loc%201"'), "site on the map");
-        check(html.includes('href="https://nb.example/dcim/locations/b/"'), "site off the map: in Nautobot");
-        check(!groupsHtml(circuits).includes("/dcim/locations/"), "no Nautobot URL: the name only");
-        check(html.includes("50 more") && html.includes("Show 50 more"), "first 100 of 150");
-        check(!html.includes("N-100<"), "101st not shown");
-        const more = groupsHtml(circuits, { limits: { none: 200 } });
-        check(more.includes("N-149") && !more.includes("Show 50 more"), "all after Show more");
-
-        check(matches(circuits[0], searchWords("odense telia")), "searches site and provider");
-        check(!matches(circuits[0], searchWords("odense gtt")), "every word");
-
-        const summary = { total: 152, several: 1, none: 150, one: 1 };
-        check(summaryText(summary) === "152 circuits without a termination: 1 several sites · 150 no site · 1 one site",
-          summaryText(summary));
-        check(summaryText(summary, 3).endsWith(" · 3 match the search"), summaryText(summary, 3));
-        check(summaryText({ total: 0 }) === "Every circuit has a termination at a location.", "empty");
-        """
-    )

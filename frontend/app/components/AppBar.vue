@@ -39,7 +39,9 @@ const DOT: Record<string, string> = { ok: "bg-success", stale: "bg-warning", dow
 // Find a site: the sites fetched once, the first time the search is used.
 const query = ref("");
 const searchOpen = ref(false);
-const input = useTemplateRef<HTMLInputElement>("input");
+// Nuxt UI's UInput; its <input> is its inputRef.
+const inputBox = useTemplateRef<{ inputRef: HTMLInputElement | null }>("input");
+const input = computed(() => inputBox.value?.inputRef ?? null);
 const results = useTemplateRef<HTMLUListElement>("results");
 const sites = shallowRef<SearchableSite[] | null>(null);
 const loadError = ref(false);
@@ -210,7 +212,8 @@ onBeforeUnmount(() => {
 
     <div class="app-actions ml-auto flex shrink-0 items-center gap-1 sm:gap-2" :class="{ 'max-sm:hidden': searchOpen }">
       <!-- How fresh the data is; a click explains it. -->
-      <UPopover v-if="view" id="app-status" :class="`app-status ${view.state}`">
+      <div v-if="view" id="app-status" :class="`app-status ${view.state}`">
+      <UPopover>
         <UButton color="neutral" variant="ghost" :aria-label="`Data: ${view.text}`" title="How fresh the data is">
           <span class="size-2 shrink-0 rounded-full" :class="DOT[view.state]" aria-hidden="true" />
           <span
@@ -229,6 +232,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
       </UPopover>
+      </div>
 
       <span
         v-if="config?.user"
@@ -249,9 +253,11 @@ onBeforeUnmount(() => {
         @click="toggleTheme"
       />
 
-      <UDropdownMenu :items="menu" :content="{ align: 'end' }" class="app-menu">
-        <UButton icon="i-lucide-menu" color="neutral" variant="ghost" aria-label="Pages" title="Pages" />
-      </UDropdownMenu>
+      <div class="app-menu">
+        <UDropdownMenu :items="menu" :content="{ align: 'end' }">
+          <UButton icon="i-lucide-menu" color="neutral" variant="ghost" aria-label="Pages" title="Pages" />
+        </UDropdownMenu>
+      </div>
     </div>
   </header>
 </template>

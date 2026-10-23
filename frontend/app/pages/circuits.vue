@@ -104,15 +104,17 @@ onMounted(async () => {
       </div>
 
       <div v-if="loaded" id="circuit-groups" class="space-y-3">
+        <!-- Keyed by search or not: a cleared search shows the operator's own folds again. -->
         <details
           v-for="group in groups"
-          :key="group.id"
-          class="circuit-group overflow-hidden rounded-lg border border-default"
+          :key="`${group.id}-${words.length ? 'search' : 'list'}`"
+          class="circuit-group group overflow-hidden rounded-lg border border-default"
           :data-group="group.id"
           :open="isOpen(group.id)"
           @toggle="onToggle(group.id, $event)"
         >
-          <summary class="flex cursor-pointer items-center gap-2 bg-elevated/50 px-4 py-3 font-semibold text-highlighted">
+          <summary class="flex cursor-pointer list-none items-center gap-2 bg-elevated/50 px-4 py-3 font-semibold text-highlighted">
+            <UIcon name="i-lucide-chevron-right" class="size-4 text-muted transition-transform group-open:rotate-90" />
             {{ group.title }}
             <UBadge color="neutral" variant="subtle" size="sm">{{ group.members.length.toLocaleString("en") }}</UBadge>
           </summary>

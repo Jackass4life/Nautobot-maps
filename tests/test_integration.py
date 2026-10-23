@@ -1455,7 +1455,8 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         ]
         assert "view=wall" not in toolbar, "the link is in the top navigation, not the toolbar"
 
-    @pytest.mark.parametrize("path", ["/", "/alerts", "/docs", "/availability", "/maintenance", "/circuits"])
+    # The Nuxt pages (/circuits, #463) draw the same menu from /api/page-config: tests/test_top_bar.py.
+    @pytest.mark.parametrize("path", ["/", "/alerts", "/docs", "/availability", "/maintenance"])
     def test_every_page_has_wall_view_in_the_top_navigation(self, integration_client, path):
         html = integration_client.get(path).get_data(as_text=True)
         start = html.index('class="app-nav"')

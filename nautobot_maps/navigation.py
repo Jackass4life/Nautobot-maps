@@ -27,4 +27,3 @@ def pages(scope_query: str = "") -> list[dict]:
             href = f"{path}{'&' if '?' in path else '?'}{scope_query}"
         result.append({"key": key, "href": href, "label": label, "title": title})
     return result
-
