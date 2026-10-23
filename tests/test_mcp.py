@@ -426,6 +426,16 @@ class TestAddCase:
         cases = {case["case_number"] for i in history["structuredContent"]["instances"] for case in i["cases"]}
         assert cases == {"INC-77"}
 
+    def test_an_allowed_browser_client_can_add_a_case(self, client, monkeypatch):
+        """A browser MCP client from an allowed origin passes /mcp's own check;
+        its tool's call must not be refused as a change from another site."""
+        monkeypatch.setattr(settings, "MCP_ALLOWED_ORIGINS", ["https://assistant.example"])
+        self._open_alerts()
+        browser = {"Origin": "https://assistant.example", "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors"}
+        result = call(client, "add_case", {"site_id": "loc-1", "case_number": "INC-5"}, headers=browser)
+        assert result["isError"] is False, result
+        assert {item["device_id"] for item in result["structuredContent"]["linked"]} == {"d1", "d2"}
+
     def test_malformed_device_ids_never_mean_all_devices(self, client):
         self._open_alerts()
         for bad in ("", 0, False, "d1", [1]):

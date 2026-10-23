@@ -31,6 +31,7 @@ from nautobot_maps import (
     timeutil,
     web,
 )
+from nautobot_maps.api import locations as api_locations
 from nautobot_maps.repositories import board as board_store
 from tests import http_client
 
@@ -1503,7 +1504,7 @@ class TestApiSearch:
         mock_geolocator.geocode.return_value = mock_geo_result
 
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            with patch("nautobot_maps.routes.locations.Nominatim", return_value=mock_geolocator):
+            with patch("nautobot_maps.api.locations.Nominatim", return_value=mock_geolocator):
                 resp = client.get("/api/search?q=Copenhagen")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1513,7 +1514,7 @@ class TestApiSearch:
         mock_geolocator = MagicMock()
         mock_geolocator.geocode.return_value = None
 
-        with patch("nautobot_maps.routes.locations.Nominatim", return_value=mock_geolocator):
+        with patch("nautobot_maps.api.locations.Nominatim", return_value=mock_geolocator):
             resp = client.get("/api/search?q=ThisPlaceDoesNotExist12345")
         assert resp.status_code == 404
         assert "error" in resp.get_json()
@@ -6114,7 +6115,7 @@ class TestGeocoder:
 
     def test_disabled_geocoder_only_accepts_coordinates(self, client, monkeypatch):
         monkeypatch.setattr(settings, "GEOCODER_ENABLED", False)
-        with patch("nautobot_maps.routes.locations.Nominatim", side_effect=AssertionError("must not geocode")):
+        with patch("nautobot_maps.api.locations.Nominatim", side_effect=AssertionError("must not geocode")):
             resp = client.get("/api/search?q=Copenhagen")
             assert resp.status_code == 400 and "coordinates" in resp.get_json()["error"]
             assert client.get("/api/search?q=55.68,12.57").status_code == 200
@@ -6122,7 +6123,7 @@ class TestGeocoder:
     def test_uses_the_configured_service(self, client, monkeypatch):
         monkeypatch.setattr(settings, "GEOCODER_URL", "http://nominatim.internal:8080/nominatim")
         monkeypatch.setattr(settings, "GEOCODER_USER_AGENT", "noc-maps/2")
-        with patch("nautobot_maps.routes.locations.Nominatim", return_value=self._geolocator()) as nominatim:
+        with patch("nautobot_maps.api.locations.Nominatim", return_value=self._geolocator()) as nominatim:
             assert client.get("/api/search?q=Copenhagen").status_code == 200
         nominatim.assert_called_once_with(
             user_agent="noc-maps/2", domain="nominatim.internal:8080/nominatim", scheme="http"
@@ -6130,7 +6131,7 @@ class TestGeocoder:
 
     def test_results_are_cached(self, client):
         geolocator = self._geolocator()
-        with patch("nautobot_maps.routes.locations.Nominatim", return_value=geolocator):
+        with patch("nautobot_maps.api.locations.Nominatim", return_value=geolocator):
             first = client.get("/api/search?q=Copenhagen").get_json()
             caching.cache.delete("geocode-rate-limit")
             second = client.get("/api/search?q=copenhagen ").get_json()
@@ -6140,8 +6141,8 @@ class TestGeocoder:
     def test_at_most_one_request_per_second(self, client, monkeypatch):
         # A minute, not a second: a slow CI runner took over a second between
         # the two requests, and the second one was let through (#332).
-        monkeypatch.setattr(routes.locations, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
-        with patch("nautobot_maps.routes.locations.Nominatim", return_value=self._geolocator()):
+        monkeypatch.setattr(api_locations, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
+        with patch("nautobot_maps.api.locations.Nominatim", return_value=self._geolocator()):
             assert client.get("/api/search?q=Copenhagen").status_code == 200
             busy = client.get("/api/search?q=Aarhus")
             assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
@@ -6150,12 +6151,12 @@ class TestGeocoder:
             assert client.get("/api/search?q=Aarhus").status_code == 200
 
     def test_the_interval_is_one_second(self):
-        assert routes.locations.GEOCODE_MIN_INTERVAL_SECONDS == 1
+        assert api_locations.GEOCODE_MIN_INTERVAL_SECONDS == 1
 
     def test_geocoder_error_is_not_passed_to_the_client(self, client):
         geolocator = MagicMock()
         geolocator.geocode.side_effect = OSError("connect to 10.0.0.5 refused")
-        with patch("nautobot_maps.routes.locations.Nominatim", return_value=geolocator):
+        with patch("nautobot_maps.api.locations.Nominatim", return_value=geolocator):
             resp = client.get("/api/search?q=Copenhagen")
         assert resp.status_code == 503
         assert resp.get_json() == {"error": "Geocoding service unavailable"}
@@ -6163,7 +6164,7 @@ class TestGeocoder:
     def test_not_found_is_cached_too(self, client):
         geolocator = MagicMock()
         geolocator.geocode.return_value = None
-        with patch("nautobot_maps.routes.locations.Nominatim", return_value=geolocator):
+        with patch("nautobot_maps.api.locations.Nominatim", return_value=geolocator):
             assert client.get("/api/search?q=Nowhere").status_code == 404
             caching.cache.delete("geocode-rate-limit")
             assert client.get("/api/search?q=Nowhere").status_code == 404
