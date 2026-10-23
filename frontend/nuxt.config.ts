@@ -21,7 +21,9 @@ export default defineNuxtConfig({
     fonts: false,
   },
   icon: {
-    // Icons bundled at build time; never fetched from the Iconify API.
+    // Icons bundled at build time; never fetched from the Iconify API.  As
+    // <svg> markup: the default CSS mode adds a <style> per icon (CSP).
+    mode: "svg",
     provider: "none",
     fallbackToApi: false,
     clientBundle: { scan: true },

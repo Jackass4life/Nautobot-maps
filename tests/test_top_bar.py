@@ -93,7 +93,8 @@ def test_a_name_is_escaped(client):
 
 
 def test_the_search_is_on_every_page_but_the_map(client):
-    for path in ("/alerts", "/availability", "/maintenance", "/circuits", "/help", "/docs"):
+    # The server-rendered pages; the Nuxt ones (/circuits, #463) have AppBar.vue (e2e).
+    for path in ("/alerts", "/availability", "/maintenance", "/help", "/docs"):
         html = client.get(path).get_data(as_text=True)
         assert 'id="bar-search"' in html and 'id="app-status"' in html, path
     # The map has its own search, for places too.
@@ -149,3 +150,34 @@ check(!key(element("input", { closest: () => ({}) })), "typing");
 check(!key(element("page"), { ctrlKey: true }), "Ctrl+/");
 """
     )
+
+
+class TestPageConfig:
+    """GET /api/page-config (#463): what the Nuxt pages' top bar shows."""
+
+    def test_the_menu_is_the_server_pages_menu(self, client):
+        from nautobot_maps import navigation
+
+        config = client.get("/api/page-config").get_json()
+        assert config["pages"] == navigation.pages()
+        assert [page["key"] for page in config["pages"]] == [key for key, *_ in navigation.PAGES]
+        assert client.get("/api/page-config").headers["Cache-Control"] == "no-store"
+
+    def test_no_one_signed_in_without_sign_in(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "AUTH_MODE", "disabled")
+        assert client.get("/api/page-config").get_json()["user"] is None
+
+    def test_who_is_signed_in(self, client):
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            config = client.get(
+                "/api/page-config", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            ).get_json()
+        assert config["user"] == {"name": "olga", "role": "operator"}
+
+    def test_the_scope_is_kept_on_the_map_board_and_wall(self):
+        from nautobot_maps import navigation
+
+        pages = {page["key"]: page["href"] for page in navigation.pages("tenant=Acme%20Corp&q=DNK")}
+        assert pages["map"] == "/?tenant=Acme%20Corp&q=DNK"
+        assert pages["wall"] == "/alerts?view=wall&tenant=Acme%20Corp&q=DNK"
+        assert pages["circuits"] == "/circuits"

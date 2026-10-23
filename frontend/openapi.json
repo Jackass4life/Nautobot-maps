@@ -196,6 +196,27 @@
         "title": "AvailabilitySummary",
         "type": "object"
       },
+      "BarUser": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The signed-in user, or an API token's name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "description": "viewer, operator or admin; empty when unknown.",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "role"
+        ],
+        "title": "BarUser",
+        "type": "object"
+      },
       "Board": {
         "additionalProperties": false,
         "properties": {
@@ -2575,6 +2596,44 @@
         "title": "MappingSummary",
         "type": "object"
       },
+      "MenuPage": {
+        "additionalProperties": false,
+        "properties": {
+          "href": {
+            "examples": [
+              "/circuits"
+            ],
+            "title": "Href",
+            "type": "string"
+          },
+          "key": {
+            "examples": [
+              "circuits"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "examples": [
+              "Circuits"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "href",
+          "label",
+          "title"
+        ],
+        "title": "MenuPage",
+        "type": "object"
+      },
       "Mismatch": {
         "additionalProperties": false,
         "properties": {
@@ -3010,6 +3069,42 @@
           "overrides"
         ],
         "title": "Overrides",
+        "type": "object"
+      },
+      "PageConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "nautobot_url": {
+            "description": "Nautobot's address, for links to its pages; empty when not set.",
+            "title": "Nautobot Url",
+            "type": "string"
+          },
+          "pages": {
+            "description": "The top bar's menu, in order.",
+            "items": {
+              "$ref": "#/components/schemas/MenuPage"
+            },
+            "title": "Pages",
+            "type": "array"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BarUser"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who is signed in; null with AUTH_MODE=disabled or no sign-in."
+          }
+        },
+        "required": [
+          "user",
+          "nautobot_url",
+          "pages"
+        ],
+        "title": "PageConfig",
         "type": "object"
       },
       "Period": {
@@ -7486,6 +7581,28 @@
         ]
       }
     },
+    "/api/page-config": {
+      "get": {
+        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages) and the\nmenu, the same as the server-rendered pages show.",
+        "operationId": "pages_api_page_config_api_page_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages) and the menu, the same as the server-rendered pages show.",
+        "tags": [
+          "Pages"
+        ]
+      }
+    },
     "/api/search": {
       "get": {
         "description": "Query parameters:\n  q  \u2013 address string  OR  \"lat,lon\" coordinate pair",
@@ -8044,7 +8161,7 @@
     },
     "/circuits": {
       "get": {
-        "description": "Circuit mapping (#385): circuits without a termination and their likely site; the data comes from the API.",
+        "description": "Built with Nuxt; the page reads ``/api/circuit-mapping``.",
         "operationId": "circuits_circuits_page_circuits_get",
         "responses": {
           "200": {
@@ -8056,7 +8173,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Circuit mapping: circuits without a termination and their likely site; the data comes from the API.",
+        "summary": "Circuit mapping: circuits without a termination and their likely site.",
         "tags": [
           "Circuits"
         ]
