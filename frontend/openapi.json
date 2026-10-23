@@ -138,6 +138,48 @@
         "title": "Asn",
         "type": "object"
       },
+      "AvailabilityLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "description": "AVAILABILITY_BASIS: what counts as down by default.",
+            "examples": [
+              "any_down"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "oldest_day": {
+            "description": "The oldest day the history still has; empty when nothing is deleted.",
+            "title": "Oldest Day",
+            "type": "string"
+          },
+          "target": {
+            "description": "The availability target, in percent.",
+            "examples": [
+              99.9
+            ],
+            "title": "Target",
+            "type": "number"
+          },
+          "today": {
+            "description": "Today in UTC, the report's days (2026-10-23).",
+            "examples": [
+              "2026-10-23"
+            ],
+            "title": "Today",
+            "type": "string"
+          }
+        },
+        "required": [
+          "today",
+          "oldest_day",
+          "basis",
+          "target"
+        ],
+        "title": "AvailabilityLimits",
+        "type": "object"
+      },
       "AvailabilitySummary": {
         "additionalProperties": false,
         "properties": {
@@ -3101,6 +3143,9 @@
       "PageConfig": {
         "additionalProperties": false,
         "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/AvailabilityLimits"
+          },
           "maintenance": {
             "$ref": "#/components/schemas/MaintenanceLimits"
           },
@@ -3133,7 +3178,8 @@
           "user",
           "nautobot_url",
           "pages",
-          "maintenance"
+          "maintenance",
+          "availability"
         ],
         "title": "PageConfig",
         "type": "object"
@@ -7614,7 +7660,7 @@
     },
     "/api/page-config": {
       "get": {
-        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages), the\nmenu, the same as the server-rendered pages show, and the Maintenance\npage's limits.",
+        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages), the\nmenu, the same as the server-rendered pages show, and the Maintenance\npage's and Availability's limits.",
         "operationId": "pages_api_page_config_api_page_config_get",
         "responses": {
           "200": {
@@ -7628,7 +7674,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's limits.",
+        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's and Availability's limits.",
         "tags": [
           "Pages"
         ]
@@ -8106,74 +8152,8 @@
     },
     "/availability": {
       "get": {
-        "description": "Availability per site and tenant (#287): ``?month=2026-10`` or\n``?from=2026-10-03&to=2026-10-09`` (#341), and ``&basis=any_down``.",
+        "description": "Built with Nuxt; the page reads ``/api/availability``.",
         "operationId": "availability_availability_page_availability_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "month",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Month"
-            }
-          },
-          {
-            "in": "query",
-            "name": "from",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "From"
-            }
-          },
-          {
-            "in": "query",
-            "name": "to",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "To"
-            }
-          },
-          {
-            "in": "query",
-            "name": "basis",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Basis"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {

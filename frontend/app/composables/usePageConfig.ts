@@ -12,6 +12,7 @@ export function usePageConfig() {
         nautobot_url: "",
         pages: [],
         maintenance: { recent_days: 7, history_days: 30, max_sites: 200 },
+        availability: { today: "", oldest_day: "", basis: "any_down", target: 99.9 },
       }) as PageConfig,
   });
 }

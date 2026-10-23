@@ -2,13 +2,12 @@
 
 import logging
 from typing import Annotated
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from nautobot_maps import auth, availability, db, settings
-from nautobot_maps.api import deps, models, pages
+from nautobot_maps import auth, availability, db
+from nautobot_maps.api import deps, frontend, models
 from nautobot_maps.api.answers import availability as answers
 from nautobot_maps.api.answers import common
 
@@ -48,29 +47,13 @@ def _availability_report(
 
 
 @router.get("/availability", name="availability.availability_page")
-def availability_page(period: PeriodQuery):
+def availability_page():
     """Availability per site and tenant (#287): ``?month=2026-10`` or
-    ``?from=2026-10-03&to=2026-10-09`` (#341), and ``&basis=any_down``."""
-    report, error, status = _availability_report(period)
-    at = availability.now()
-    # The days shown in the form: the report's, or after an error what was
-    # asked for.  The form always sends from and to; a whole month is still
-    # a month (availability.resolve_period).
-    asked = report["period"] if report else {"from": period.from_ or "", "to": period.to or ""}
-    basis = report["basis"] if report else settings.AVAILABILITY_BASIS
-    return pages.page(
-        "availability.html",
-        status_code=status,
-        report=report,
-        error=error,
-        from_date=asked["from"],
-        to_date=asked["to"],
-        basis=basis,
-        csv_query=urlencode({"from": asked["from"], "to": asked["to"], "basis": basis}),
-        today=f"{at:%Y-%m-%d}",
-        # The calendar's limits: today, and the oldest day the history still has.
-        oldest_day=availability.oldest_day(at),
-    )
+    ``?from=2026-10-03&to=2026-10-09`` (#341), and ``&basis=any_down``.
+
+    Built with Nuxt (#463); the page reads ``/api/availability``.
+    """
+    return frontend.shell()
 
 
 @router.get(
