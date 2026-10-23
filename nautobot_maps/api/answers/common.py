@@ -16,7 +16,7 @@ class Error(Answer):
     """Every refusal and error: one plain sentence, and for a role refusal the
     role it needs."""
 
-    error: str = Field(examples=["Insufficient permissions"])
+    error: str
     detail: str | None = Field(None, description="How to allow it, when the setup refuses it.")
     required_role: Literal["viewer", "operator", "admin"] | None = None
     current_role: str | None = None
