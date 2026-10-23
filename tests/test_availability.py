@@ -505,7 +505,7 @@ class TestPages:
         lines = response.get_data(as_text=True).lstrip("\ufeff").splitlines()
         assert len(lines) > 3 and lines[-1].count(",") == lines[lines.index("") + 1].count(",")
 
-    def test_a_tenant_opens_its_status_page(self, client, monkeypatch):
+    def test_a_tenant_opens_its_status_page(self, client, monkeypatch, frontend_build):
         # #461: in the Tenants table, the Worst tenant card and the site's row;
         # a name with spaces, "/" or "#" still opens its own page.
         sites = [{"id": "s1", "name": "=Oslo", "tenants": ["Nordic Net #1"]}]

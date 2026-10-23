@@ -49,9 +49,9 @@ def test_not_built_says_so(client, tmp_path, monkeypatch):
     assert page.status_code == 503 and "npm run generate" in page.text
 
 
-def test_the_built_pages_have_no_inline_script():
+def test_the_built_pages_have_no_inline_script_or_style():
     """When the frontend is built here: the CSP allows no inline script
-    (frontend/scripts/no-inline-scripts.mjs moves Nuxt's into a file)."""
+    (frontend/scripts/no-inline-scripts.mjs moves Nuxt's into a file) or style."""
     import re
 
     build = ROOT / "frontend" / ".output" / "public"
@@ -60,5 +60,8 @@ def test_the_built_pages_have_no_inline_script():
 
         pytest.skip("frontend not built (npm run generate); CI's frontend job checks it")
     for page in build.glob("*.html"):
-        for attrs in re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>", page.read_text()):
+        html = page.read_text()
+        for attrs in re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>", html):
             assert 'type="application/json"' in attrs, f"{page.name}: inline script {attrs}"
+        # Nor inline style (style-src 'self'): Nuxt UI's colours are a file.
+        assert "<style" not in html and " style=" not in html, page.name
