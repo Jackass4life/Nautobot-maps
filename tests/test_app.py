@@ -30,10 +30,18 @@ from nautobot_maps import (
 )
 from nautobot_maps.api import board as api_board
 from nautobot_maps.api import locations as api_locations
+from nautobot_maps.api.answers import board as board_answers
+from nautobot_maps.api.answers import locations as location_answers
 from nautobot_maps.repositories import board as board_store
-from tests import http_client
+from tests import answers, http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _full_locations(locations: list[dict]) -> list[dict]:
+    """Stand-in locations with a stored location's other fields, empty (#449:
+    the board made from them is checked against /docs)."""
+    return [answers.complete(location_answers.Location, location) for location in locations]
 
 
 @contextmanager
@@ -698,7 +706,7 @@ class TestAlertBoard:
             )
 
         with (
-            patch.object(inventory, "get_locations", return_value=sample_locations),
+            patch.object(inventory, "get_locations", return_value=_full_locations(sample_locations)),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(alerts, "get_location_devices_and_alert", side_effect=mock_devices),
         ):
@@ -725,28 +733,30 @@ class TestAlertBoard:
             patch.object(
                 inventory,
                 "get_locations",
-                return_value=[
-                    {
-                        "id": "loc-1",
-                        "name": "Copenhagen DC",
-                        "status": "Active",
-                        "location_type": "Data Center",
-                        "parent": "Denmark",
-                        "latitude": 55.6761,
-                        "longitude": 12.5683,
-                        "description": "",
-                        "physical_address": "Vermlandsgade 51, 2300 Copenhagen",
-                        "country": "Denmark",
-                        "facility": "CPH-1",
-                        "tenant": "Acme Corp",
-                        "tenant_id": "ten-1",
-                        "tenant_group": "Corporate",
-                        "asn": 65001,
-                        "time_zone": "Europe/Copenhagen",
-                        "tags": ["critical"],
-                        "url": "",
-                    }
-                ],
+                return_value=_full_locations(
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Copenhagen DC",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "Denmark",
+                            "latitude": 55.6761,
+                            "longitude": 12.5683,
+                            "description": "",
+                            "physical_address": "Vermlandsgade 51, 2300 Copenhagen",
+                            "country": "Denmark",
+                            "facility": "CPH-1",
+                            "tenant": "Acme Corp",
+                            "tenant_id": "ten-1",
+                            "tenant_group": "Corporate",
+                            "asn": 65001,
+                            "time_zone": "Europe/Copenhagen",
+                            "tags": ["critical"],
+                            "url": "",
+                        }
+                    ]
+                ),
             ),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
@@ -2387,27 +2397,29 @@ class TestAlertLifecycleTracking:
             patch.object(
                 inventory,
                 "get_locations",
-                return_value=[
-                    {
-                        "id": "loc-1",
-                        "name": "Site One",
-                        "status": "Active",
-                        "location_type": "Data Center",
-                        "parent": "",
-                        "latitude": 1.0,
-                        "longitude": 2.0,
-                        "description": "",
-                        "physical_address": "",
-                        "facility": "",
-                        "tenant": "",
-                        "tenant_id": "",
-                        "tenant_group": "",
-                        "asn": None,
-                        "time_zone": "",
-                        "tags": [],
-                        "url": "",
-                    }
-                ],
+                return_value=_full_locations(
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Site One",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                        }
+                    ]
+                ),
             ),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
@@ -2659,27 +2671,29 @@ class TestAlertLifecycleTracking:
             patch.object(
                 inventory,
                 "get_locations",
-                return_value=[
-                    {
-                        "id": "loc-1",
-                        "name": "Site One",
-                        "status": "Active",
-                        "location_type": "Data Center",
-                        "parent": "",
-                        "latitude": 1.0,
-                        "longitude": 2.0,
-                        "description": "",
-                        "physical_address": "",
-                        "facility": "",
-                        "tenant": "",
-                        "tenant_id": "",
-                        "tenant_group": "",
-                        "asn": None,
-                        "time_zone": "",
-                        "tags": [],
-                        "url": "",
-                    }
-                ],
+                return_value=_full_locations(
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Site One",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                        }
+                    ]
+                ),
             ),
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(
@@ -4816,12 +4830,14 @@ class TestAlertBoardSyncProgress:
             conn.close()
 
     def _board(self, alerts=None):
-        return {
+        board = {
             "checked_at": timeutil.iso_utc_now(),
             "stale_after_seconds": 300,
             "summary": {"total": len(alerts or [])},
             "alerts": alerts or [],
         }
+        # A real board's other fields, empty (#449: the answer is checked against /docs).
+        return answers.complete(board_answers.Board, board)
 
     def test_refresh_1_enqueues_forced_background_sync(self, client):
         now = timeutil.iso_utc_now()
@@ -5221,11 +5237,14 @@ class TestAlertBoardWithoutPersistence:
         with patch.object(
             alerts,
             "build_alert_board_payload",
-            return_value={
-                "checked_at": timeutil.iso_utc_now(),
-                "summary": {},
-                "alerts": [],
-            },
+            return_value=answers.complete(
+                board_answers.Board,
+                {
+                    "checked_at": timeutil.iso_utc_now(),
+                    "summary": {},
+                    "alerts": [],
+                },
+            ),
         ):
             data = client.get("/api/alerts").get_json()
         assert data["persistence_configured"] is False
@@ -5239,7 +5258,9 @@ class TestAlertBoardWithoutPersistence:
             patch.object(
                 alerts,
                 "build_alert_board_payload",
-                return_value={"checked_at": timeutil.iso_utc_now(), "summary": {}, "alerts": []},
+                return_value=answers.complete(
+                    board_answers.Board, {"checked_at": timeutil.iso_utc_now(), "summary": {}, "alerts": []}
+                ),
             ),
         ):
             data = client.get("/api/alerts").get_json()

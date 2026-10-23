@@ -8,8 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from nautobot_maps import alerts, caching, mcp, settings
+from nautobot_maps.api.answers import board as board_answers
 from nautobot_maps.repositories import board as board_store
-from tests import http_client
+from tests import answers, http_client
 from tests.test_app import auth_config
 
 MODERN = "2026-07-28"
@@ -60,7 +61,9 @@ BOARD = {
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(settings, "MCP_ENABLED", True)
-    monkeypatch.setattr(alerts, "get_alert_board_data", lambda **kwargs: json.loads(json.dumps(BOARD)))
+    # The rest of a real board's fields, empty (#449: the answer is checked against /docs).
+    board = answers.complete(board_answers.Board, BOARD)
+    monkeypatch.setattr(alerts, "get_alert_board_data", lambda **kwargs: json.loads(json.dumps(board)))
     caching.cache.clear()
     with http_client.FlaskStyleClient() as test_client:
         yield test_client
