@@ -607,7 +607,11 @@ class TestPages:
         assert 'data-availability="90.0" data-downtime="172800" data-incidents="1"' in page
         # JSON in a single-quoted attribute: the quote and the brackets are escaped.
         assert """data-tenants='["Acme", "O\\u0027Brien \\u003cLtd\\u003e"]'""" in page
-        assert '<span class="tenant-rest" hidden>, O&#39;Brien &lt;Ltd&gt;</span>' in page
+        # Linked to its status page (#461), the name escaped in both.
+        assert (
+            '<span class="tenant-rest" hidden>, <a class="tenant-link" href="/status/O%27Brien%20%3CLtd%3E">'
+            "O&#39;Brien &lt;Ltd&gt;</a></span>"
+        ) in page
         assert 'title="O&#39;Brien &lt;Ltd&gt;">+1</button>' in page
         assert 'href="/static/css/tooltip.css"' in page, "the (i) needs its styles"
         quiet = client.get("/availability?month=2026-09").get_data(as_text=True)
