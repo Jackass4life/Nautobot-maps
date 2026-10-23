@@ -761,11 +761,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's limits.
+         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's and Availability's limits.
          * @description What the pages built with Nuxt read to draw themselves (#463): who is
          *     signed in (the top bar), Nautobot's address (links to its pages), the
          *     menu, the same as the server-rendered pages show, and the Maintenance
-         *     page's limits.
+         *     page's and Availability's limits.
          */
         get: operations["pages_api_page_config_api_page_config_get"];
         put?: never;
@@ -873,8 +873,7 @@ export interface paths {
         };
         /**
          * Availability per site and tenant: ``?month=2026-10`` or ``?from=2026-10-03&to=2026-10-09``, and ``&basis=any_down``.
-         * @description Availability per site and tenant (#287): ``?month=2026-10`` or
-         *     ``?from=2026-10-03&to=2026-10-09`` (#341), and ``&basis=any_down``.
+         * @description Built with Nuxt; the page reads ``/api/availability``.
          */
         get: operations["availability_availability_page_availability_get"];
         put?: never;
@@ -1070,6 +1069,32 @@ export interface components {
             description: string;
             /** Tenant */
             tenant: string;
+        };
+        /** AvailabilityLimits */
+        AvailabilityLimits: {
+            /**
+             * Basis
+             * @description AVAILABILITY_BASIS: what counts as down by default.
+             * @example any_down
+             */
+            basis: string;
+            /**
+             * Oldest Day
+             * @description The oldest day the history still has; empty when nothing is deleted.
+             */
+            oldest_day: string;
+            /**
+             * Target
+             * @description The availability target, in percent.
+             * @example 99.9
+             */
+            target: number;
+            /**
+             * Today
+             * @description Today in UTC, the report's days (2026-10-23).
+             * @example 2026-10-23
+             */
+            today: string;
         };
         /** AvailabilitySummary */
         AvailabilitySummary: {
@@ -2314,6 +2339,7 @@ export interface components {
         };
         /** PageConfig */
         PageConfig: {
+            availability: components["schemas"]["AvailabilityLimits"];
             maintenance: components["schemas"]["MaintenanceLimits"];
             /**
              * Nautobot Url
@@ -5472,12 +5498,7 @@ export interface operations {
     };
     availability_availability_page_availability_get: {
         parameters: {
-            query?: {
-                month?: string | null;
-                from?: string | null;
-                to?: string | null;
-                basis?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;

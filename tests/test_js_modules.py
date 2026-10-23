@@ -44,7 +44,6 @@ def test_every_page_loads_a_module_and_its_imports_exist():
     scripts = page_scripts()
     assert scripts == {
         "alerts/main.js",
-        "availability.js",
         "docs/main.js",
         "help/main.js",
         "map/main.js",
@@ -56,11 +55,7 @@ def test_every_page_loads_a_module_and_its_imports_exist():
 
 @pytest.mark.parametrize(
     "module",
-    sorted(
-        path.relative_to(JS_ROOT).as_posix()
-        for path in JS_ROOT.rglob("*.js")
-        if path.name != "main.js" and path.name != "availability.js"
-    ),
+    sorted(path.relative_to(JS_ROOT).as_posix() for path in JS_ROOT.rglob("*.js") if path.name != "main.js"),
 )
 def test_a_module_imports_without_a_page(module):
     """Only the entry modules touch the page (or Leaflet) when loaded."""

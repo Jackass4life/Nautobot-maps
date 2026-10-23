@@ -81,21 +81,3 @@ check(new URL(currentWallLink(), "https://example.test").searchParams.getAll("te
   "reset preserves incoming scope");
 """
     )
-
-
-def test_availability_multi_tenants_at_scale_and_clear():
-    run_js("""
-import { rowFrom, viewRows } from "@js/availability/table.js";
-const rows = Array.from({ length: 1200 }, (_, i) => rowFrom({
-  dataset: { name: `Site ${i}`, availability: String(i % 100),
-    downtime: String(1200 - i), tenants: JSON.stringify([`Tenant ${i % 6}`, "Shared"]) },
-}));
-const view = viewRows(rows, { tenant: ["Tenant 1", "Tenant 3"], limit: 25 });
-check(view.matched === 400 && view.shown.length === 25 && view.rest.length === 375, "OR picks, limited rows");
-check(viewRows(rows, { tenant: ["Tenant 1", "Shared"] }).matched === 1200, "secondary tenant, no duplicates");
-check(viewRows(rows, { tenant: ["Tenant 1", "Tenant 3"], query: "site 11" }).shown
-  .every((row) => row.name.includes("11") && (row.tenants.includes("Tenant 1") || row.tenants.includes("Tenant 3"))),
-  "query AND tenants");
-check(viewRows(rows, { tenant: [] }).matched === 1200, "clear restores all rows");
-check(viewRows(rows, { tenant: ["Tenant"] }).matched === 0, "exact tenant match");
-""")

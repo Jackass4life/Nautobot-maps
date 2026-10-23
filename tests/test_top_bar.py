@@ -86,15 +86,15 @@ def test_the_bar_says_who_is_signed_in(client):
 
 def test_a_name_is_escaped(client):
     with auth_config(mode="header", viewer_groups={"v"}):
-        html = client.get(
-            "/availability", headers={"X-Forwarded-User": "<b>x</b>", "X-Forwarded-Groups": "v"}
-        ).get_data(as_text=True)
+        html = client.get("/alerts", headers={"X-Forwarded-User": "<b>x</b>", "X-Forwarded-Groups": "v"}).get_data(
+            as_text=True
+        )
     assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
 
 
 def test_the_search_is_on_every_page_but_the_map(client):
-    # The server-rendered pages; the Nuxt ones (/circuits, /maintenance, #463) have AppBar.vue (e2e).
-    for path in ("/alerts", "/availability", "/help", "/docs"):
+    # The server-rendered pages; the Nuxt ones (/circuits, /maintenance, /availability, #463) have AppBar.vue (e2e).
+    for path in ("/alerts", "/help", "/docs"):
         html = client.get(path).get_data(as_text=True)
         assert 'id="bar-search"' in html and 'id="app-status"' in html, path
     # The map has its own search, for places too.

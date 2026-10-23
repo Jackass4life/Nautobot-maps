@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 
-from nautobot_maps import alerts, guide, maintenance, navigation, settings, templating
+from nautobot_maps import alerts, availability, guide, maintenance, navigation, settings, templating
 from nautobot_maps.api import deps, files, pages
 from nautobot_maps.api import maintenance as api_maintenance
 from nautobot_maps.api.answers import pages as answers
@@ -32,7 +32,8 @@ def api_page_config():
     """What the pages built with Nuxt read to draw themselves (#463): who is
     signed in (the top bar), Nautobot's address (links to its pages), the
     menu, the same as the server-rendered pages show, and the Maintenance
-    page's limits."""
+    page's and Availability's limits."""
+    at = availability.now()
     return deps.Json(
         {
             "user": templating.bar_user(),
@@ -42,6 +43,12 @@ def api_page_config():
                 "recent_days": api_maintenance.MAINTENANCE_PAGE_RECENT_DAYS,
                 "history_days": api_maintenance.MAINTENANCE_HISTORY_DEFAULT_DAYS,
                 "max_sites": maintenance.MAX_SITES,
+            },
+            "availability": {
+                "today": f"{at:%Y-%m-%d}",
+                "oldest_day": availability.oldest_day(at),
+                "basis": settings.AVAILABILITY_BASIS,
+                "target": availability.TARGET_PCT,
             },
         },
         headers={"Cache-Control": "no-store"},

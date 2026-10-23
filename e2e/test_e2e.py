@@ -176,6 +176,7 @@ def test_the_availability_report(page):
 def test_the_availability_page_answers_first(page):
     """Cards, then the worst first; sort and search (#342)."""
     page.goto(f"{BASE_URL}/availability")
+    page.locator(".avail-card").first.wait_for()  # drawn once the report is in (#463)
     assert page.locator(".avail-card").count() == 4
     sites = page.locator('[data-avail-table="sites"]')
     assert sites.locator(".avail-filters").is_visible()
@@ -187,8 +188,12 @@ def test_the_availability_page_answers_first(page):
     sites.locator("th[data-sort=name] button").click()
     assert sites.locator("th[data-sort=name]").get_attribute("aria-sort") == "ascending"
     name = sites.locator("tbody tr:visible").first.get_attribute("data-name")
-    sites.locator(".avail-search").fill(name)
+    sites.locator(".avail-search input").fill(name)
     assert sites.locator("tbody tr:visible").count() >= 1
+    # A tenant opens its status page (#461).
+    tenant = sites.locator(".tenant-link").first
+    if tenant.count():
+        assert tenant.get_attribute("href").startswith("/status/")
     assert all(
         name.lower() in n.lower()
         for n in sites.locator("tbody tr:visible").evaluate_all(
@@ -265,6 +270,7 @@ def test_the_availability_period_calendar(page):
     """Days are clicked, not typed (#341): quick choices, two clicks, Escape."""
     page.goto(f"{BASE_URL}/availability")
     button = page.locator("#period-button")
+    button.wait_for()  # drawn once the report is in (#463)
     assert button.is_visible() and not page.locator("#availability-from").is_visible()
     button.click()
     assert page.locator("#period-popover").is_visible()
@@ -293,7 +299,7 @@ def test_the_availability_period_calendar(page):
     page.keyboard.press("Enter")
     assert page.evaluate("document.activeElement.dataset.step") == "-1"
     page.keyboard.press("Escape")
-    assert not page.locator("#period-popover").is_visible()
+    page.locator("#period-popover").wait_for(state="hidden")  # it fades out (#463)
     assert page.evaluate("document.activeElement.id") == "period-button"
 
     # Back to a month: its first to last day, shown and reported as the month.
@@ -608,7 +614,7 @@ def test_the_availability_page_explains_itself(page):
     box = page.locator(".info-tip-box")
     assert "How much of the time each site and tenant was up" in box.inner_text()
     page.keyboard.press("Escape")
-    assert box.is_hidden()
+    box.wait_for(state="hidden")
 
 
 def test_the_calm_site_panel(page):
