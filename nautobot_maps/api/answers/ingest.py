@@ -21,5 +21,5 @@ class LibreNmsPush(common.Answer):
 class WebhookResult(common.Answer):
     firing: int
     resolved: int
-    skipped: int = Field(description="Alerts without a device label.")
+    skipped: int = Field(description="Alerts left out: no device label, no status, or not in ALERTMANAGER_ALERTNAMES.")
     matched: int = Field(description="Firing alerts that name a Nautobot device; 0 hints at the wrong label.")
