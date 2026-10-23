@@ -271,8 +271,10 @@ onBeforeUnmount(() => {
         @click="toggleTheme"
       />
 
+      <!-- Not modal: a click outside closes it and still reaches the page, as the
+           old menu's did (a modal one, after a filter list was used, could miss it). -->
       <div class="app-menu">
-        <UDropdownMenu :items="menu" :content="{ align: 'end' }">
+        <UDropdownMenu :items="menu" :modal="false" :content="{ align: 'end' }">
           <UButton icon="i-lucide-menu" color="neutral" variant="ghost" aria-label="Pages" title="Pages" />
         </UDropdownMenu>
       </div>

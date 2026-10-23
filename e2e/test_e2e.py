@@ -533,7 +533,6 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.get_by_role("combobox", name="Search Location type", exact=True).fill("Data Center")
     page.get_by_role("option", name="Data Center", exact=True).click()
     page.keyboard.press("Escape")
-    page.get_by_role("option").first.wait_for(state="hidden")
     assert page.locator("#filters-toggle").inner_text() == "Filters · 1"
     page.locator(".filter-chip", has_text="Data Center").click()
     assert page.locator("#filters-toggle").inner_text() == "Filters"
