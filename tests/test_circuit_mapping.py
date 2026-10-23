@@ -117,7 +117,7 @@ def test_page_and_nav(client, synced, frontend_build):
     assert {"key": "circuits", "href": "/circuits"}.items() <= next(
         p for p in config["pages"] if p["key"] == "circuits"
     ).items()
-    for path in ("/", "/alerts", "/availability", "/docs"):
+    for path in ("/", "/alerts", "/docs"):
         assert 'href="/circuits"' in client.get(path).get_data(as_text=True), path
 
 

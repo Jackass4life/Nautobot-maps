@@ -477,25 +477,6 @@ class TestPages:
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
-    def test_the_page_explains_itself(self, client):
-        """A help (i) for someone new to the page: what it shows, each choice and figure."""
-        html = client.get("/availability?month=2026-10").get_data(as_text=True)
-        assert html.count('class="info-tip help-tip"') == 9
-        for text in (
-            "How much of the time each site and tenant was up",  # the title
-            "What counts as down",  # the Downtime choice
-            "1 − downtime ÷ period",  # the Availability card
-            "An incident is one device going down",  # the Downtime card
-            "up less than 99.9 % of the period",  # Below target, with the target
-            "The tenant with the lowest availability",
-            "the average of its sites",  # Tenants
-            "Every monitored site, the worst first",  # Sites
-            "Every incident: each device outage",  # the CSV links
-        ):
-            assert text in html, text
-        # Read aloud as help.
-        assert 'aria-label="Help: How much of the time' in html
-
     def test_every_incident_streams_whole(self, client):
         """#436: FastAPI streams the incidents CSV as it is read (no Content-Length),
         and every row arrives."""
@@ -505,23 +486,8 @@ class TestPages:
         lines = response.get_data(as_text=True).lstrip("\ufeff").splitlines()
         assert len(lines) > 3 and lines[-1].count(",") == lines[lines.index("") + 1].count(",")
 
-    def test_a_tenant_opens_its_status_page(self, client, monkeypatch, frontend_build):
-        # #461: in the Tenants table, the Worst tenant card and the site's row;
-        # a name with spaces, "/" or "#" still opens its own page.
-        sites = [{"id": "s1", "name": "=Oslo", "tenants": ["Nordic Net #1"]}]
-        monkeypatch.setattr(availability, "board_sites", lambda: sites)
-        page = client.get("/availability?month=2026-10").get_data(as_text=True)
-        link = '<a class="tenant-link" href="/status/Nordic%20Net%20%231">Nordic Net #1</a>'
-        assert page.count(link) == 3, page.count(link)
-        assert client.get("/status/Nordic%20Net%20%231").status_code == 200
-
     def test_page_json_and_csv(self, client):
-        page = client.get("/availability?month=2026-10").get_data(as_text=True)
-        assert "=Oslo" in page and "90.000 %" in page and "(so far)" in page
-        assert (
-            'href="/api/availability.csv?from=2026-10-01&amp;to=2026-10-31&amp;basis=any_down&amp;view=tenants&amp;header=1"'
-            in page
-        )
+        # The page is on Nuxt (#463): frontend/tests/availability.test.ts and e2e.
         data = client.get("/api/availability?month=2026-10").get_json()
         assert data["sites"][0]["availability"] == 90.0
         csv_text = client.get("/api/availability.csv?month=2026-10").get_data(as_text=True)
@@ -542,16 +508,11 @@ class TestPages:
     def test_a_from_to_period_on_the_page_json_and_csv(self, client):
         # #341: down the 2nd and 3rd; the 3rd and 4th asked for: half.
         query = "from=2026-10-03&to=2026-10-04"
-        page = client.get(f"/availability?{query}").get_data(as_text=True)
-        assert "50.000 %" in page and "(so far)" not in page
-        assert 'name="from" type="date" value="2026-10-03"' in page and 'value="2026-10-04"' in page
-        assert (
-            'href="/api/availability.csv?from=2026-10-03&amp;to=2026-10-04&amp;basis=any_down&amp;view=sites&amp;header=1"'
-            in page
-        )
-        assert 'data-today="2026-10-21"' in page
         data = client.get(f"/api/availability?{query}").get_json()
         assert data["period"]["label"] == "2026-10-03 to 2026-10-04" and data["month"] is None
+        assert data["sites"][0]["availability"] == 50.0 and data["period"]["complete"]
+        # The page's calendar ends today, in UTC (#463: /api/page-config).
+        assert client.get("/api/page-config").get_json()["availability"]["today"] == "2026-10-21"
         resp = client.get(f"/api/availability.csv?{query}")
         assert 'filename="availability-sites-2026-10-03_2026-10-04.csv"' in resp.headers["Content-Disposition"]
         assert (
@@ -562,9 +523,8 @@ class TestPages:
         one_day.get_data()  # streamed (#354): read it, as a browser does
         assert 'filename="availability-sites-2026-10-03.csv"' in one_day.headers["Content-Disposition"]
         # A month, asked for either way, is that month: its CSV keeps the month column.
-        month = client.get("/availability?month=2026-10").get_data(as_text=True)
-        assert 'name="from" type="date" value="2026-10-01"' in month and 'value="2026-10-31"' in month
-        assert "from=2026-10-01&amp;to=2026-10-31&amp;basis=any_down" in month
+        month = client.get("/api/availability?month=2026-10").get_json()["period"]
+        assert (month["from"], month["to"]) == ("2026-10-01", "2026-10-31")
         resp = client.get("/api/availability.csv?from=2026-10-01&to=2026-10-31")
         assert 'filename="availability-sites-2026-10.csv"' in resp.headers["Content-Disposition"]
         assert resp.get_data(as_text=True).lstrip("\ufeff").splitlines()[1].startswith("2026-10,any_down,")
@@ -588,41 +548,6 @@ class TestPages:
         assert rows[1] == "'=Oslo,,Acme,d1,2026-10-02 00:00,2026-10-04 00:00,2880,2880,none,,,s1,d1"
         assert client.get("/api/availability.csv?view=devices").status_code == 400
 
-    def test_the_page_answers_first(self, client, monkeypatch):
-        # #342: four cards, bars, the tenant (i), and data for sorting; escaped.
-        monkeypatch.setattr(
-            availability,
-            "board_sites",
-            lambda: [
-                {
-                    "id": "s1",
-                    "name": "=Oslo",
-                    "tenants": ["Acme", "O'Brien <Ltd>"],
-                    "tenant_descriptions": {"Acme": 'Bank <"VIP">'},
-                }
-            ],
-        )
-        page = client.get("/availability?month=2026-10").get_data(as_text=True)
-        assert page.count('class="avail-card"') == 4
-        assert "90.000 %" in page and "2 days" in page and "1 incident," in page
-        assert '<meter class="pct-bar" min="98" max="100" low="99" high="99.9" optimum="100" value="98.1"' in page
-        assert 'data-info-tip="Bank &lt;&#34;VIP&#34;&gt;"' in page and 'Bank <"VIP">' not in page
-        # Site rows name the tenant; the description is in the section once (#342).
-        assert 'data-tenant-tip="Acme">i</span>' in page
-        assert """data-tenant-descriptions='{"Acme": "Bank \\u003c\\"VIP\\"\\u003e"}'""" in page
-        assert 'data-availability="90.0" data-downtime="172800" data-incidents="1"' in page
-        # JSON in a single-quoted attribute: the quote and the brackets are escaped.
-        assert """data-tenants='["Acme", "O\\u0027Brien \\u003cLtd\\u003e"]'""" in page
-        # Linked to its status page (#461), the name escaped in both.
-        assert (
-            '<span class="tenant-rest" hidden>, <a class="tenant-link" href="/status/O%27Brien%20%3CLtd%3E">'
-            "O&#39;Brien &lt;Ltd&gt;</a></span>"
-        ) in page
-        assert 'title="O&#39;Brien &lt;Ltd&gt;">+1</button>' in page
-        assert 'href="/static/css/tooltip.css"' in page, "the (i) needs its styles"
-        quiet = client.get("/availability?month=2026-09").get_data(as_text=True)
-        assert "none had downtime" in quiet
-
     def test_an_unreadable_board_is_a_503_not_a_partial_report(self, client, monkeypatch):
         def broken():
             raise RuntimeError("board build failed")
@@ -630,7 +555,6 @@ class TestPages:
         monkeypatch.setattr(availability, "board_sites", broken)
         resp = client.get("/api/availability")
         assert resp.status_code == 503 and "would miss sites" in resp.get_json()["error"]
-        assert client.get("/availability").status_code == 503
 
     def test_an_empty_board_before_the_first_sync_is_a_503(self, client, monkeypatch):
         monkeypatch.setattr(availability, "board_sites", REAL_BOARD_SITES)
@@ -657,19 +581,17 @@ class TestPages:
 
     def test_bad_input(self, client):
         assert client.get("/api/availability?month=2026-13").status_code == 400
-        assert client.get("/availability?month=2027-01").status_code == 400
+        assert client.get("/api/availability?month=2027-01").status_code == 400
         assert client.get("/api/availability.csv?view=x").status_code == 400
-        resp = client.get("/availability?from=2026-02-30&to=2026-03-02")
-        assert resp.status_code == 400 and "real date" in resp.get_data(as_text=True)
-        # The form keeps what was asked for.
-        assert 'value="2026-02-30"' in resp.get_data(as_text=True)
+        resp = client.get("/api/availability?from=2026-02-30&to=2026-03-02")
+        assert resp.status_code == 400 and "real date" in resp.get_json()["error"]
         assert client.get("/api/availability?from=2026-10-03").status_code == 400
 
     def test_no_database(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         with http_client.FlaskStyleClient() as client:
-            resp = client.get("/availability")
-        assert resp.status_code == 503 and "needs the PostgreSQL database" in resp.get_data(as_text=True)
+            resp = client.get("/api/availability")
+        assert resp.status_code == 503 and "needs the PostgreSQL database" in resp.get_json()["error"]
 
 
 def test_migration_15_backfills_first_seen_where_it_is_known(pg_database):
