@@ -47,9 +47,10 @@
     {#- A tenant's name, with an (i) for its Nautobot description (#342): the same markup as
         tenantName()/infoTipHtml() on the board (static/js/alerts/rows.js, lib/html.js).
         In the site rows (*lookup*) the (i) names the tenant and the script fills in the
-        description from the section's one copy, so 1,200 rows don't repeat it. #}
+        description from the section's one copy, so 1,200 rows don't repeat it.
+        The name opens the tenant's status page (#461). #}
     {%- macro tenant_name(name, lookup=false) -%}
-      {{ name }}
+      <a class="tenant-link" href="/status/{{ name | urlencode }}">{{ name }}</a>
       {%- set description = report.tenant_descriptions.get(name) -%}
       {%- if description and lookup %}<span class="info-tip" tabindex="0" role="img" data-tenant-tip="{{ name }}">i</span>
       {%- elif description %}<span class="info-tip" tabindex="0" role="img" aria-label="{{ name }}: {{ description }}" data-info-tip="{{ description }}">i</span>{% endif -%}
