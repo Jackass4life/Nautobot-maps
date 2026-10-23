@@ -10,12 +10,13 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "api-types": "openapi-typescript openapi.json -o app/api/schema.d.ts",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "audit": "node scripts/audit.mjs"
   },
   "dependencies": {
     "@iconify-json/lucide": "1.2.142",
     "@nuxt/ui": "4.11.3",
-    "nuxt": "4.6.1",
+    "nuxt": "4.6.2",
     "tailwindcss": "4.3.3",
     "vue": "3.5.43",
     "vue-router": "5.4.0"
@@ -27,5 +28,8 @@
     "typescript": "5.9.3",
     "vitest": "5.0.3",
     "vue-tsc": "3.3.12"
+  },
+  "overrides": {
+    "esbuild": "0.28.2"
   }
 }

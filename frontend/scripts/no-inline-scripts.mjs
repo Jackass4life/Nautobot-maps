@@ -8,13 +8,13 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const PUBLIC = new URL("../.output/public/", import.meta.url).pathname;
-const INLINE = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
+const INLINE = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script\s*>/gi;
 
 let failed = false;
 for (const name of readdirSync(PUBLIC).filter((file) => file.endsWith(".html"))) {
   const path = join(PUBLIC, name);
   const html = readFileSync(path, "utf8").replace(INLINE, (whole, attrs, body) => {
-    if (/type="application\/json"/.test(attrs)) return whole;
+    if (/type="application\/json"/i.test(attrs)) return whole;
     if (body.startsWith("window.__NUXT__=")) {
       const file = `nuxt-config.${createHash("sha256").update(body).digest("hex").slice(0, 12)}.js`;
       writeFileSync(join(PUBLIC, "_nuxt", file), `${body}\n`);

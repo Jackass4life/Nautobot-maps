@@ -1,6 +1,8 @@
 <!-- One site on the tenant status page (#291, #463): its state, and since or
      until when. -->
 <script setup lang="ts">
+import { siteWhen, stateLabel, type StatusSite } from "~/utils/status";
+
 defineProps<{ site: StatusSite; now: Date; dot: Record<string, string> }>();
 </script>
 

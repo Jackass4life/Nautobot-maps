@@ -61,7 +61,7 @@ def test_the_built_pages_have_no_inline_script_or_style():
         pytest.skip("frontend not built (npm run generate); CI's frontend job checks it")
     for page in build.glob("*.html"):
         html = page.read_text()
-        for attrs in re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>", html):
+        for attrs in re.findall(r"<script(?![^>]*\bsrc=)([^>]*)>", html, flags=re.IGNORECASE):
             assert 'type="application/json"' in attrs, f"{page.name}: inline script {attrs}"
         # Nor inline style (style-src 'self'): Nuxt UI's colours are a file.
-        assert "<style" not in html and " style=" not in html, page.name
+        assert "<style" not in html.lower() and " style=" not in html.lower(), page.name

@@ -147,9 +147,11 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: The frontend (npm audit, #463)
+        # High or critical fails, except the advisories scripts/audit.mjs
+        # accepts, each with no fix released and out of production's reach.
         if: success() || failure()
         working-directory: frontend
-        run: npm audit --audit-level=high --omit=dev
+        run: node scripts/audit.mjs
 
   # -----------------------------------------------------------------------
   # Unit + mock-integration tests (fast, Python matrix)
