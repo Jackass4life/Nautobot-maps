@@ -22,3 +22,8 @@
 .docs-swagger .swagger-ui .information-container {
   display: none;
 }
+
+/* No route has OpenAPI links: no "No links" column on every answer (#449). */
+.docs-swagger .swagger-ui .response-col_links {
+  display: none;
+}
