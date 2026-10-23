@@ -1853,6 +1853,18 @@ th[aria-sort="descending"] .sort-btn::after {
   color: var(--color-text-muted);
 }
 
+/* A tenant's name opens its status page (#461): quiet until pointed at, as a site's name. */
+a.tenant-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.tenant-link:hover,
+a.tenant-link:focus-visible {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 .avail-more {
   margin: 0;
   padding: 10px 16px 14px;
