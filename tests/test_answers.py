@@ -5,7 +5,7 @@ import types
 
 from fastapi.responses import JSONResponse
 
-from nautobot_maps.api import ROUTERS
+from nautobot_maps.api import ROUTERS, deps
 from nautobot_maps.api.answers import common
 from tests import answers as answer_check
 
@@ -80,7 +80,17 @@ def test_errors_are_shown_as_the_app_sends_them(client):
     tokens = spec["paths"]["/api/tokens"]["get"]["responses"]
     assert tokens["401"]["content"]["application/json"]["schema"] == error and "403" in tokens
     assert "401" not in spec["paths"]["/healthz"]["get"]["responses"]
-    assert set(schemas["Error"]["properties"]) == {"error"}
+    assert set(schemas["Error"]["properties"]) == {"error", "detail", "required_role", "current_role"}
+
+
+def test_a_refusal_is_checked_too(client, monkeypatch):
+    from nautobot_maps import settings
+
+    seen = []
+    monkeypatch.setattr(deps, "ANSWER_CHECK", lambda route, response: seen.append((route.path, response.status_code)))
+    monkeypatch.setattr(settings, "AUTH_MODE", "header")
+    assert client.get("/api/tokens").status_code == 401
+    assert seen == [("/api/tokens", 401)]
 
 
 def test_the_answer_is_in_the_spec(client):

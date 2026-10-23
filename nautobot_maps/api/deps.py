@@ -361,7 +361,11 @@ def openapi(app) -> dict:
 def install_error_handlers(app) -> None:
     @app.exception_handler(ApiError)
     async def api_error(request: Request, exc: ApiError):
-        return _error_json(request, exc.body, exc.status)
+        response = Json(exc.body, status_code=exc.status)
+        route = request.scope.get("route")
+        if ANSWER_CHECK is not None and isinstance(route, AppRoute):
+            ANSWER_CHECK(route, response)
+        return finish(request, response)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
