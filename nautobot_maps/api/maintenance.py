@@ -1,31 +1,28 @@
-"""Maintenance (#424): the page, windows now and planned, their history, and
-planning and ending them."""
+"""Maintenance (#283, #343, #353; on FastAPI since #436): the page, windows now
+and planned, their history, and planning and ending them."""
 
 import logging
 import re
 from datetime import timedelta
+from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Blueprint, Response, jsonify, render_template, request, stream_with_context
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
-from nautobot_maps import (
-    alerts,
-    auth,
-    availability,
-    db,
-    maintenance,
-    scheduler,
-    status,
-)
-from nautobot_maps.routes import common
+from nautobot_maps import alerts, auth, availability, db, maintenance, scheduler, status
+from nautobot_maps.api import deps, models, pages
 
 logger = logging.getLogger(__name__)
 
-bp = Blueprint("maintenance", __name__)
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+
+NO_DATABASE = {"error": "Persistence DB not configured"}
+Body = Annotated[object, Depends(deps.json_body)]
 
 
-@bp.route("/api/maintenance", methods=["GET"])
-def api_maintenance_list():
+@router.get("/api/maintenance", name="maintenance.api_maintenance_list")
+def api_maintenance_list(query: Annotated[models.MaintenanceList, Query()]):
     """Maintenance windows (#283): active and upcoming, soonest first.
 
     Query parameters: ``site_id`` (one site), ``all=1`` (also ended and
@@ -36,18 +33,18 @@ def api_maintenance_list():
     ``device_name``; ``tenant_descriptions`` has the tenants' descriptions.
     """
     try:
-        recent_days = min(max(int(common.arg("recent_days") or 0), 0), maintenance.MAX_RECENT_DAYS)
+        recent_days = min(max(int(query.recent_days or 0), 0), maintenance.MAX_RECENT_DAYS)
     except ValueError:
-        return jsonify({"error": "recent_days must be a whole number of days"}), 400
+        return deps.Json({"error": "recent_days must be a whole number of days"}, status_code=400)
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json(NO_DATABASE, status_code=503)
     try:
-        site_id = common.arg("site_id") or ""
+        site_id = query.site_id or ""
         windows = maintenance.list_windows(
             conn,
             site_id=site_id,
-            include_past=common.flag_arg("all"),
+            include_past=models.flag(query.all_),
             recent_days=recent_days,
             limit=maintenance.LIST_LIMIT + 1,
         )
@@ -58,7 +55,7 @@ def api_maintenance_list():
             payload = {"windows": windows, "tenant_descriptions": {}}
         else:
             payload = maintenance.describe(conn, windows, _board_sites())
-        return jsonify({**payload, "truncated": truncated})
+        return deps.Json({**payload, "truncated": truncated})
     finally:
         conn.close()
 
@@ -74,36 +71,33 @@ def _board_sites() -> list[dict]:
 
 # The Maintenance page's "Ended" group (#343).
 MAINTENANCE_PAGE_RECENT_DAYS = 7
-
-
-@bp.route("/maintenance")
-def maintenance_page():
-    """Current and planned maintenance, and planning more (#343); the data comes from the API."""
-    return render_template(
-        "maintenance.html",
-        recent_days=MAINTENANCE_PAGE_RECENT_DAYS,
-        max_sites=maintenance.MAX_SITES,
-        view="history" if common.arg("view") == "history" else "now",
-        history_days=MAINTENANCE_HISTORY_DEFAULT_DAYS,
-    )
-
-
 # The history's default period (#353): the last 30 days, today included.
 MAINTENANCE_HISTORY_DEFAULT_DAYS = 30
 
 
-def _history_request() -> tuple[dict | None, tuple | None]:
-    """``(request, None)`` or ``(None, error response)`` for the history's query
-    string (#353): ``from`` and ``to`` (days, both included; default the last 30),
-    ``tz`` (the browser's time zone, e.g. ``Europe/Copenhagen``: its days, not
-    UTC's; default UTC), ``site_id`` and ``tenant``.  The days are checked as
-    the availability report's (#341)."""
+@router.get("/maintenance", name="maintenance.maintenance_page")
+def maintenance_page(query: Annotated[models.MaintenancePage, Query()]):
+    """Current and planned maintenance, and planning more (#343); the data comes from the API."""
+    return pages.page(
+        "maintenance.html",
+        recent_days=MAINTENANCE_PAGE_RECENT_DAYS,
+        max_sites=maintenance.MAX_SITES,
+        view="history" if query.view == "history" else "now",
+        history_days=MAINTENANCE_HISTORY_DEFAULT_DAYS,
+    )
+
+
+def _history_request(query: models.MaintenanceHistory) -> dict:
+    """The history's query (#353): ``from`` and ``to`` (days, both included;
+    default the last 30), ``tz`` (the browser's time zone, e.g.
+    ``Europe/Copenhagen``: its days, not UTC's; default UTC), ``site_id`` and
+    ``tenant``.  The days are checked as the availability report's (#341)."""
     try:
-        zone = ZoneInfo(common.arg("tz") or "UTC")
+        zone = ZoneInfo(query.tz or "UTC")
     except (ZoneInfoNotFoundError, ValueError):
-        return None, (jsonify({"error": "tz must be a time zone, like Europe/Copenhagen"}), 400)
+        raise deps.ApiError({"error": "tz must be a time zone, like Europe/Copenhagen"}, 400) from None
     at = availability.now()
-    from_date, to_date = common.arg("from"), common.arg("to")
+    from_date, to_date = query.from_, query.to
     if not (from_date or to_date):
         today = at.astimezone(zone).date()
         to_date = today.isoformat()
@@ -111,8 +105,8 @@ def _history_request() -> tuple[dict | None, tuple | None]:
     try:
         period = availability.resolve_period(None, from_date, to_date, at, zone)
     except availability.ReportError as exc:
-        return None, (jsonify({"error": exc.message}), 400)
-    site_id, tenant = common.arg("site_id") or "", common.arg("tenant") or ""
+        raise deps.ApiError({"error": exc.message}, 400) from None
+    site_id, tenant = query.site_id or "", query.tenant or ""
     sites = _board_sites()
     # One list of sites for both filters, chosen before any limit; a site no
     # longer on the board still has its history, unless a tenant rules it out.
@@ -131,22 +125,23 @@ def _history_request() -> tuple[dict | None, tuple | None]:
         "site_ids": site_ids,
         "sites": sites,
         "zone": str(zone),
-    }, None
+    }
 
 
-@bp.route("/api/maintenance/history", methods=["GET"])
-def api_maintenance_history():
+HistoryQuery = Annotated[models.MaintenanceHistory, Query()]
+
+
+@router.get("/api/maintenance/history", name="maintenance.api_maintenance_history")
+def api_maintenance_history(query: HistoryQuery):
     """Every maintenance window that ran in a period, or was planned for it and
     cancelled (#353), newest first: ``from`` and ``to`` (``2026-10-01``, both
     days included; default the last 30 days; at most 366), optional ``tz``
     (whose days; default UTC), ``site_id`` and ``tenant``.  Names and tenants
     as ``/api/maintenance``; ``truncated`` past 5,000 windows."""
-    req, error = _history_request()
-    if error:
-        return error
+    req = _history_request(query)
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json(NO_DATABASE, status_code=503)
     try:
         limit = maintenance.HISTORY_LIMIT
         windows = maintenance.history(conn, req["start"], req["end"], req["site_ids"], limit=limit + 1)
@@ -154,7 +149,7 @@ def api_maintenance_history():
     finally:
         conn.close()
     period = req["period"]
-    return jsonify(
+    return deps.Json(
         {
             **described,
             "period": {"from": period["from"], "to": period["to"], "label": period["label"], "tz": req["zone"]},
@@ -164,17 +159,15 @@ def api_maintenance_history():
     )
 
 
-@bp.route("/api/maintenance/history.csv", methods=["GET"])
-def api_maintenance_history_csv():
+@router.get("/api/maintenance/history.csv", name="maintenance.api_maintenance_history_csv")
+def api_maintenance_history_csv(query: HistoryQuery):
     """The history as CSV (#353): the same ``from``, ``to``, ``tz``, ``site_id``
     and ``tenant``; one row per window, times in UTC, streamed.  Every window,
     or a 400 past 100,000: never a silently shorter file."""
-    req, error = _history_request()
-    if error:
-        return error
+    req = _history_request(query)
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json(NO_DATABASE, status_code=503)
     limit = maintenance.HISTORY_EXPORT_LIMIT
     try:
         too_many = maintenance.history_exceeds(conn, req["start"], req["end"], req["site_ids"], limit)
@@ -183,7 +176,9 @@ def api_maintenance_history_csv():
         raise
     if too_many:
         conn.close()
-        return jsonify({"error": f"More than {limit:,} windows: choose a shorter period, a site or a tenant"}), 400
+        return deps.Json(
+            {"error": f"More than {limit:,} windows: choose a shorter period, a site or a tenant"}, status_code=400
+        )
 
     def lines():
         try:
@@ -194,20 +189,20 @@ def api_maintenance_history_csv():
     name = req["period"]["label"].replace(" to ", "_")
     if req["site_id"]:
         name = f"{name}-{re.sub(r'[^A-Za-z0-9_.-]+', '-', req['site_id'])}"
-    return Response(
-        stream_with_context(lines()),
-        mimetype="text/csv",
+    return StreamingResponse(
+        lines(),
+        media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="maintenance-{name}.csv"'},
     )
 
 
-@bp.route("/api/maintenance/sites", methods=["GET"])
+@router.get("/api/maintenance/sites", name="maintenance.api_maintenance_sites")
 def api_maintenance_sites():
     """The sites maintenance can be planned for (#343), for the page's site
     picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)
     and ``maintenance`` (in a window now).  From the stored board; no query
     per site."""
-    return jsonify(
+    return deps.Json(
         {
             "sites": [
                 {
@@ -225,8 +220,8 @@ def api_maintenance_sites():
     )
 
 
-@bp.route("/api/maintenance/devices", methods=["GET"])
-def api_maintenance_devices():
+@router.get("/api/maintenance/devices", name="maintenance.api_maintenance_devices")
+def api_maintenance_devices(query: Annotated[models.MaintenanceDevices, Query()]):
     """The devices that can be put in maintenance at a site (#283).
 
     Query parameters: ``site_id`` (a row of the alert board) and
@@ -234,15 +229,12 @@ def api_maintenance_devices():
     counts there: with a primary IP, not of an excluded status, and those
     below the site when rows are rolled up to a location type.
     """
-    site_id = (request.args.get("site_id") or "").strip()
-    if not site_id:
-        return jsonify({"error": "site_id is required"}), 400
-    include_non_operational = (request.args.get("include_non_operational") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    return jsonify({"devices": alerts.site_monitored_devices(site_id, include_non_operational=include_non_operational)})
+    if not query.site_id:
+        return deps.Json({"error": "site_id is required"}, status_code=400)
+    devices = alerts.site_monitored_devices(
+        query.site_id, include_non_operational=models.flag(query.include_non_operational)
+    )
+    return deps.Json({"devices": devices})
 
 
 def _maintenance_changed() -> None:
@@ -250,9 +242,13 @@ def _maintenance_changed() -> None:
     scheduler.board_changed()  # also the map's marker colours
 
 
-@bp.route("/api/maintenance", methods=["POST"])
-@auth.require_role("operator")
-def api_maintenance_create():
+@router.post(
+    "/api/maintenance",
+    name="maintenance.api_maintenance_create",
+    dependencies=[deps.require_role("operator")],
+    openapi_extra=deps.body_schema(models.MaintenanceCreate),
+)
+def api_maintenance_create(body: Body):
     """Put a site, or some of its devices, in maintenance (#283).
 
     JSON body: ``site_id`` (or ``site_ids``, up to 200 sites at once, #343),
@@ -262,27 +258,29 @@ def api_maintenance_create():
     """
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
-    body = request.get_json(silent=True)
+        return deps.Json(NO_DATABASE, status_code=503)
     if not isinstance(body, dict):
         conn.close()
-        return jsonify({"error": "Expected a JSON object"}), 400
+        return deps.Json({"error": "Expected a JSON object"}, status_code=400)
     try:
         windows = maintenance.create(conn, body, auth.get_current_user().get("username") or "")
     except maintenance.WindowError as exc:
-        return jsonify({"error": exc.message}), 400
+        return deps.Json({"error": exc.message}, status_code=400)
     finally:
         conn.close()
     _maintenance_changed()
-    return jsonify({"windows": windows}), 201
+    return deps.Json({"windows": windows}, status_code=201)
 
 
-@bp.route("/api/maintenance/end", methods=["POST"])
-@auth.require_role("operator")
-def api_maintenance_end_many():
+@router.post(
+    "/api/maintenance/end",
+    name="maintenance.api_maintenance_end_many",
+    dependencies=[deps.require_role("operator")],
+    openapi_extra=deps.body_schema(models.MaintenanceEnd),
+)
+def api_maintenance_end_many(body: Body):
     """End or cancel several windows at once (#343): JSON ``{"ids": [1, 2, ...]}``,
     at most ``maintenance.MAX_END_IDS``; ``not_found`` lists the unknown ones."""
-    body = request.get_json(silent=True)
     ids = body.get("ids") if isinstance(body, dict) else None
     if (
         not isinstance(ids, list)
@@ -291,10 +289,10 @@ def api_maintenance_end_many():
         # Window IDs are BIGSERIAL: anything else would fail in the query, not here.
         or not all(isinstance(i, int) and not isinstance(i, bool) and 0 < i < 2**63 for i in ids)
     ):
-        return jsonify({"error": f"ids must be a list of 1 to {maintenance.MAX_END_IDS} window IDs"}), 400
+        return deps.Json({"error": f"ids must be a list of 1 to {maintenance.MAX_END_IDS} window IDs"}, status_code=400)
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json(NO_DATABASE, status_code=503)
     try:
         result = maintenance.end_many(conn, ids, auth.get_current_user().get("username") or "")
     finally:
@@ -303,21 +301,24 @@ def api_maintenance_end_many():
     if result["changed"]:
         _maintenance_changed()
     found = {window["id"] for window in result["windows"]}
-    return jsonify({"windows": result["windows"], "not_found": [i for i in ids if i not in found]})
+    return deps.Json({"windows": result["windows"], "not_found": [i for i in ids if i not in found]})
 
 
-@bp.route("/api/maintenance/<int:window_id>/end", methods=["POST"])
-@auth.require_role("operator")
+@router.post(
+    "/api/maintenance/{window_id:int}/end",
+    name="maintenance.api_maintenance_end",
+    dependencies=[deps.require_role("operator")],
+)
 def api_maintenance_end(window_id: int):
     """End a maintenance window now, or cancel an upcoming one (#283)."""
     conn = db.get_conn()
     if conn is None:
-        return jsonify({"error": "Persistence DB not configured"}), 503
+        return deps.Json(NO_DATABASE, status_code=503)
     try:
         window = maintenance.end(conn, window_id, auth.get_current_user().get("username") or "")
     finally:
         conn.close()
     if window is None:
-        return jsonify({"error": "No such maintenance window"}), 404
+        return deps.Json({"error": "No such maintenance window"}, status_code=404)
     _maintenance_changed()
-    return jsonify({"window": window})
+    return deps.Json({"window": window})

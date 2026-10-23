@@ -220,3 +220,30 @@ def test_the_status_page_is_fastapis_with_its_own_referrer_policy(client):
     assert len(page.headers.get_list("content-security-policy")) == 1
     # Its static files still come from Flask, open to customers.
     assert client.get("/static/js/status/main.js").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 (#436): writes on FastAPI read bodies and paths as Flask did
+# ---------------------------------------------------------------------------
+
+
+def test_a_window_id_that_is_not_a_number_is_still_a_404(client, monkeypatch):
+    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    response = client.post("/api/maintenance/abc/end")
+    assert response.status_code == 404 and response.get_json() == {"error": "Not found"}
+
+
+def test_a_body_is_json_only_when_it_says_so(client, monkeypatch):
+    """As Flask's get_json(silent=True): a JSON body sent as text/plain (what a
+    cross-site form could send) is no body at all."""
+    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+    monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://unused/x")
+    from nautobot_maps import db
+
+    monkeypatch.setattr(db, "get_conn", lambda **kwargs: type("C", (), {"close": lambda self: None})())
+    as_text = client.post("/api/maintenance", data='{"site_id": "x"}', content_type="text/plain")
+    assert as_text.status_code == 400 and as_text.get_json() == {"error": "Expected a JSON object"}
+    broken = client.post("/api/maintenance", data="{not json", content_type="application/json")
+    assert broken.status_code == 400 and broken.get_json() == {"error": "Expected a JSON object"}
+    ids = client.post("/api/maintenance/end", data='{"ids": []}', content_type="application/merge-patch+json")
+    assert ids.status_code == 400 and "ids must be a list" in ids.get_json()["error"]

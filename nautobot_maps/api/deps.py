@@ -67,6 +67,30 @@ def require_role(role: str, open_when_disabled: bool = False):
 ROUTER_DEPENDENCIES = [Depends(bind_request), Depends(check_viewer)]
 
 
+async def json_body(request: Request):
+    """The request's JSON as Flask's ``get_json(silent=True)`` read it: None
+    unless it says it is JSON (``application/json`` or ``+json``) and parses.
+    The routes check its shape themselves, with their own messages."""
+    mimetype = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if not (mimetype == "application/json" or (mimetype.startswith("application/") and mimetype.endswith("+json"))):
+        return None
+    try:
+        return json.loads(await request.body())
+    except ValueError:
+        return None
+
+
+def body_schema(model) -> dict:
+    """``openapi_extra`` describing a route's JSON body with *model*: the API
+    spec shows it, while the route reads the body with ``json_body``."""
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": model.model_json_schema(by_alias=True)}},
+        }
+    }
+
+
 def required_role(route) -> str | None:
     for dependency in route.dependant.dependencies:
         role = getattr(dependency.call, "required_role", None)
