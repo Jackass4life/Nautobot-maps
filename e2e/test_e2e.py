@@ -477,7 +477,7 @@ def test_a_click_on_a_tenant_info_keeps_its_description_open(page):
     page.mouse.click(*middle)  # a click in it keeps it, so its text can be selected
     assert box.is_visible()
     page.keyboard.press("Escape")  # closes the tip, not the panel
-    assert not box.is_visible()
+    box.wait_for(state="hidden")
     assert page.locator("#location-inspector:not(.hidden)").count() == 1
 
 

@@ -71,7 +71,7 @@ function shortLabel(values: string[], all: string) {
         :aria-expanded="open ? 'true' : 'false'"
         aria-controls="filter-section"
         @click="open = !open"
-      >Filters<span v-if="chips.length" id="filter-count" class="filter-count"> · {{ chips.length }}</span></UButton>
+      ><span>Filters<span v-if="chips.length" id="filter-count" class="filter-count"> · {{ chips.length }}</span></span></UButton>
       <span id="location-count" class="text-sm text-muted">{{ count }}</span>
     </div>
     <div v-show="open" id="filter-section" class="space-y-2">
