@@ -6,6 +6,8 @@ from fastapi import APIRouter
 
 from nautobot_maps import alerts, auth, inventory, status
 from nautobot_maps.api import deps, pages
+from nautobot_maps.api.answers import common
+from nautobot_maps.api.answers import status as answers
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,17 @@ def status_page(tenant: str):
     return pages.page("status.html", tenant=tenant.strip(), headers={"Referrer-Policy": "no-referrer"})
 
 
-@router.get("/api/status/{tenant:path}", name="status.api_status")
+@router.get(
+    "/api/status/{tenant:path}",
+    name="status.api_status",
+    response_model=answers.TenantStatus,
+    responses={
+        401: {"model": common.Error, "description": "Not signed in, or a token that no longer works"},
+        403: {"model": common.Error, "description": "A status token for another tenant"},
+        404: {"model": common.Error, "description": "No sites for this tenant"},
+        503: {"model": common.Error, "description": "No board yet, or it can't be read"},
+    },
+)
 def api_status(tenant: str):
     """A tenant's sites and their state (#291): ``operational``, ``degraded``,
     ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``.
