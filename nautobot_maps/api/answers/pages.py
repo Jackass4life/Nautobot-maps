@@ -17,7 +17,14 @@ class MenuPage(common.Answer):
     title: str
 
 
+class MaintenanceLimits(common.Answer):
+    recent_days: int = Field(description="How far back the Maintenance page's Ended group reaches.")
+    history_days: int = Field(description="The history's period by default, in days up to today.")
+    max_sites: int = Field(description="The most sites one request may plan for.")
+
+
 class PageConfig(common.Answer):
     user: BarUser | None = Field(description="Who is signed in; null with AUTH_MODE=disabled or no sign-in.")
     nautobot_url: str = Field(description="Nautobot's address, for links to its pages; empty when not set.")
     pages: list[MenuPage] = Field(description="The top bar's menu, in order.")
+    maintenance: MaintenanceLimits

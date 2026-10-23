@@ -2467,6 +2467,33 @@
         "title": "MaintenanceHistory",
         "type": "object"
       },
+      "MaintenanceLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "history_days": {
+            "description": "The history's period by default, in days up to today.",
+            "title": "History Days",
+            "type": "integer"
+          },
+          "max_sites": {
+            "description": "The most sites one request may plan for.",
+            "title": "Max Sites",
+            "type": "integer"
+          },
+          "recent_days": {
+            "description": "How far back the Maintenance page's Ended group reaches.",
+            "title": "Recent Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "recent_days",
+          "history_days",
+          "max_sites"
+        ],
+        "title": "MaintenanceLimits",
+        "type": "object"
+      },
       "MappedCircuit": {
         "additionalProperties": false,
         "properties": {
@@ -3074,6 +3101,9 @@
       "PageConfig": {
         "additionalProperties": false,
         "properties": {
+          "maintenance": {
+            "$ref": "#/components/schemas/MaintenanceLimits"
+          },
           "nautobot_url": {
             "description": "Nautobot's address, for links to its pages; empty when not set.",
             "title": "Nautobot Url",
@@ -3102,7 +3132,8 @@
         "required": [
           "user",
           "nautobot_url",
-          "pages"
+          "pages",
+          "maintenance"
         ],
         "title": "PageConfig",
         "type": "object"
@@ -7583,7 +7614,7 @@
     },
     "/api/page-config": {
       "get": {
-        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages) and the\nmenu, the same as the server-rendered pages show.",
+        "description": "What the pages built with Nuxt read to draw themselves (#463): who is\nsigned in (the top bar), Nautobot's address (links to its pages), the\nmenu, the same as the server-rendered pages show, and the Maintenance\npage's limits.",
         "operationId": "pages_api_page_config_api_page_config_get",
         "responses": {
           "200": {
@@ -7597,7 +7628,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages) and the menu, the same as the server-rendered pages show.",
+        "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's limits.",
         "tags": [
           "Pages"
         ]

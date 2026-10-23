@@ -6,6 +6,12 @@ export type PageConfig = components["schemas"]["PageConfig"];
 
 export function usePageConfig() {
   return useAsyncData("page-config", () => $fetch<PageConfig>("/api/page-config"), {
-    default: () => ({ user: null, nautobot_url: "", pages: [] }) as PageConfig,
+    default: () =>
+      ({
+        user: null,
+        nautobot_url: "",
+        pages: [],
+        maintenance: { recent_days: 7, history_days: 30, max_sites: 200 },
+      }) as PageConfig,
   });
 }
