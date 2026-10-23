@@ -6,6 +6,7 @@ from nautobot_maps.api import (
     board,
     circuits,
     deps,
+    frontend,
     ingest,
     locations,
     maintenance,
@@ -16,6 +17,7 @@ from nautobot_maps.api import (
 
 ROUTERS = (
     views.router,
+    frontend.router,
     ops.router,
     status.router,
     availability.router,

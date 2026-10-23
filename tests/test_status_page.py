@@ -4,9 +4,8 @@ import json
 
 import pytest
 
-from nautobot_maps import alerts, auth, db, inventory, nautobot, settings, status
+from nautobot_maps import alerts, db, inventory, nautobot, settings, status
 from tests import test_tokens
-from tests.js_modules import run_js
 from tests.test_app import auth_config
 from tests.test_tokens import bearer, make
 
@@ -238,17 +237,19 @@ class TestAccess:
             conn.close()
         assert client.get("/api/status/Acme%20Corp", headers=bearer(created["token"])).status_code == 401
 
-    def test_with_require_viewer_the_page_loads_but_the_data_needs_access(self, client, board, monkeypatch):
+    def test_with_require_viewer_the_page_loads_but_the_data_needs_access(
+        self, client, board, monkeypatch, frontend_build
+    ):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
         viewer = make("staff", "viewer")["token"]
         anonymous = {"REMOTE_ADDR": "203.0.113.9"}
         with auth_config(mode="header"):
             page = client.get("/status/Acme%20Corp", environ_base=anonymous)
-            assert page.status_code == 200 and b"Acme Corp" in page.data
+            assert page.status_code == 200 and b'id="__nuxt"' in page.data
             assert page.headers["Referrer-Policy"] == "no-referrer"
-            for asset in sorted(auth.STATUS_PAGE_ASSETS):
-                assert client.get(asset, environ_base=anonymous).status_code == 200, asset
+            # The Nuxt build's files (#463): code only, no data.
+            assert client.get("/_nuxt/entry.abc123.js", environ_base=anonymous).status_code == 200
             assert client.get("/static/js/alerts/main.js", environ_base=anonymous).status_code == 401
             assert client.get("/api/status/Acme%20Corp", environ_base=anonymous).status_code == 401
             assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
@@ -265,9 +266,11 @@ class TestAccess:
         monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
         assert client.get("/api/status/Acme%20Corp").status_code == 503
 
-    def test_the_page_escapes_the_tenant(self, client, board):
+    def test_the_page_never_holds_the_tenant(self, client, board, frontend_build):
+        # The page is the Nuxt build's (#463): the tenant comes from the URL in
+        # the browser, never written into the page, so it can't inject markup.
         page = client.get("/status/%3Cscript%3Ex")
-        assert b"<script>x" not in page.data and b"&lt;script&gt;x" in page.data
+        assert page.status_code == 200 and b"script%3Ex" not in page.data and b"<script>x" not in page.data
 
     def test_board_errors_are_a_503(self, client, monkeypatch):
         def broken(*args, **kwargs):
@@ -303,65 +306,3 @@ class TestStatusTokens:
         assert tokens.verify(secret) == {"name": "acme", "role": "status", "tenant": "Acme Corp"}
         assert cli.main(["token", "list"]) == 0
         assert "(tenant Acme Corp)" in capsys.readouterr().out
-
-
-def test_the_page_renderer():
-    run_js(
-        """
-import { errorText, headline, siteLine, statusKey } from "@js/status/page.js";
-check(headline({ summary: { sites: 3, affected: 0 } }) === "All 3 sites operational", "all ok");
-check(headline({ summary: { sites: 1, affected: 0 } }) === "Operational", "one ok");
-check(headline({ summary: { sites: 5, affected: 2 } }) === "2 of 5 sites affected", "affected");
-const now = new Date("2026-10-09T12:00:00Z");
-const line = siteLine({ name: "<b>HQ</b>", state: "outage", since: "2026-10-09T11:00:00Z" }, now);
-check(line.includes("&lt;b&gt;HQ&lt;/b&gt;") && line.includes("Outage") && line.includes("since "), line);
-check(siteLine({ name: "A", state: "maintenance", until: "2026-10-09T14:00:00Z" }, now).includes("until "), "until");
-check(siteLine({ name: "A", state: "weird" }, now).includes("No data"), "unknown state");
-check(statusKey("#key=nmt_abc") === "nmt_abc" && statusKey("") === "", "key");
-check(errorText(403).includes("doesn't work"), "refused");
-"""
-    )
-
-
-def test_a_large_tenant_sees_what_is_wrong_first():
-    """#407: above ten sites, those that need a look (outage, degraded,
-    maintenance, no data) come first and the operational ones fold into one line."""
-    run_js(
-        """
-import { FOLD_ABOVE, sitesHtml } from "@js/status/page.js";
-const now = new Date("2026-10-22T14:00:00Z");
-const site = (i, state) => ({ name: `Site ${i}`, state });
-// 300 sites as the API sorts them: 4 outage, 3 degraded, 3 maintenance, 2 no data, then 288 operational.
-const sites = [
-  ...[0, 1, 2, 3].map((i) => site(i, "outage")),
-  ...[4, 5, 6].map((i) => site(i, "degraded")),
-  ...[7, 8, 9].map((i) => site(i, "maintenance")),
-  ...[10, 11].map((i) => site(i, "unknown")),
-  ...Array.from({ length: 288 }, (_, i) => site(12 + i, "operational")),
-];
-const rows = (html) => (html.match(/class="status-site /g) || []).length;
-const big = sitesHtml(sites, now);
-check(rows(big.attention) === 12, `attention ${rows(big.attention)}`);
-check(!big.attention.includes("status-operational"), "no operational site first");
-check(big.attention.indexOf("Site 0") < big.attention.indexOf("Site 11"), "worst first, as the API sorts");
-check(big.attention.includes("No data"), "no data needs a look");
-check(big.operational.includes("288 sites operational") && rows(big.operational) === 288, "folded");
-check(!big.operational.includes("<details class=\\"status-fold\\" open"), "closed by default");
-check(sitesHtml(sites, now, true).operational.includes("<details class=\\"status-fold\\" open>"), "stays open");
-
-// Every site operational: no empty list first, just the fold.
-const fine = sitesHtml(Array.from({ length: 300 }, (_, i) => site(i, "operational")), now);
-check(fine.attention === "" && fine.operational.includes("300 sites operational"), "all fine");
-check(sitesHtml([...sites.slice(0, 12), site(99, "operational")], now).operational.includes("1 site operational"), "one");
-
-// Ten sites or fewer: every one open, as before.
-check(FOLD_ABOVE === 10, "the agreed cut-off");
-const small = sitesHtml([site(1, "outage"), ...Array.from({ length: 9 }, (_, i) => site(i + 2, "operational"))], now);
-check(rows(small.attention) === 10 && small.operational === "", "small: all open");
-
-// Nothing operational at all: no fold.
-check(sitesHtml(sites.slice(0, 12), now).operational === "", "no fold without operational sites");
-const evil = sitesHtml([...sites.slice(0, 11), { name: "<b>x</b>", state: "operational" }], now);
-check(evil.operational.includes("&lt;b&gt;x&lt;/b&gt;") && !evil.operational.includes("<b>x</b>"), "escaped");
-"""
-    )

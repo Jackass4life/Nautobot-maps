@@ -30,6 +30,14 @@ def test_every_json_route_shows_its_answer():
     assert without == WITHOUT_MODEL
 
 
+def test_every_model_has_its_own_name(client):
+    # Two models of one name get FastAPI's module path as theirs
+    # ("nautobot_maps__api__answers__board__Site"): in /docs and the
+    # frontend's types (#463), each has a plain name of its own.
+    names = client.get("/openapi.json").get_json()["components"]["schemas"]
+    assert [name for name in names if "__" in name] == []
+
+
 def test_errors_are_shown_as_the_app_sends_them(client):
     spec = client.get("/openapi.json").get_json()
     error = {"$ref": "#/components/schemas/Error"}

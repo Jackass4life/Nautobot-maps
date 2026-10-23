@@ -60,11 +60,9 @@ How the link and token behave:
 The page itself carries no data, so a customer's browser must reach these paths without signing in:
 - `/status/`
 - `/api/status/`
-- `/static/css/alerts.css`
-- `/static/js/status/main.js` and `/static/js/status/page.js`
-- `/static/js/lib/format.js` and `/static/js/lib/html.js` (imported by the page's script)
+- `/_nuxt/`: the page's files (it is built with Nuxt, #463). They are the app's code only, no data.
 
-Before #294 the script was the single file `/static/js/status.js`: a proxy rule for it alone now leaves the page without its data.
+Before #463 the page loaded files from `/static/` (`css/alerts.css`, `js/status/…`, `js/lib/…`); a proxy rule for those alone now leaves the page blank.
 
 Let these past the proxy's sign-in (oauth2-proxy: `--skip-auth-route`). The app then checks access on `/api/status/` itself.
 

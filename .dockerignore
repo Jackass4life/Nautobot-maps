@@ -25,7 +25,10 @@ LICENSE
 docker-compose.override.yml
 requirements-dev.txt
 .pre-commit-config.yaml
-node_modules
+**/node_modules
+# Built in the image's own frontend stage (#463).
+frontend/.output
+frontend/.nuxt
 
 # The proxy setup and its certificates never go into the app image (#423).
 deploy/

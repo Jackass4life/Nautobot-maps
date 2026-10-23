@@ -1,3 +1,13 @@
+# The pages built with Nuxt (#463): static files, so Node is needed only here,
+# not in the image that runs.
+FROM node:22-slim AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+# The lock file pins every package with its hash; no install scripts run.
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run generate
+
 FROM python:3.12-slim
 
 # Don't write .pyc files (the app user can't write to /app anyway) and send
@@ -23,6 +33,7 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 RUN useradd --create-home --uid 10001 app
 
 COPY . .
+COPY --from=frontend /frontend/.output/public /app/frontend/.output/public
 
 USER app
 

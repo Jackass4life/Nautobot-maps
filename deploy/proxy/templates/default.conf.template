@@ -94,14 +94,15 @@ server {
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
     # The tenant status page: customers have no company login; their status
-    # token is checked by the app (#291).  Its files: auth.STATUS_PAGE_ASSETS.
+    # token is checked by the app (#291).  Its files: the Nuxt build's
+    # /_nuxt/ (#463), the app's code only, no data.
     location /status/ {
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
     location /api/status/ {
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
-    location ~ ^/static/(css/alerts\.css|js/status/main\.js|js/status/page\.js|js/lib/format\.js|js/lib/html\.js)$ {
+    location /_nuxt/ {
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
     # Prometheus scrapes the app directly, inside the network.

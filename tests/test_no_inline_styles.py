@@ -46,7 +46,8 @@ def test_the_pattern_catches_what_the_csp_blocks():
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, frontend_build):
+    # The status page is the Nuxt build's (#463): tests/test_frontend.py checks the real one.
     monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
     with http_client.FlaskStyleClient() as test_client:
         yield test_client

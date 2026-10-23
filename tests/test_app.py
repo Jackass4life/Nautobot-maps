@@ -6752,7 +6752,7 @@ class TestApiExplorer:
             (apidocs._flask_style(route.path, route.endpoint), method)
             for router in nautobot_maps.api.ROUTERS
             for route in router.routes
-            if route.name != "static"
+            if route.name not in apidocs.HIDDEN_ENDPOINTS
             for method in route.methods - {"HEAD", "OPTIONS"}
         }
 

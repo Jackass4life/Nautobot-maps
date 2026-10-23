@@ -216,20 +216,22 @@ def test_templates_escape_and_link_as_flask_did():
     """Autoescaped markup, url_for('static'), and the filters."""
     from nautobot_maps import availability, templating
 
-    html = templating.render("status.html", tenant="Acme <Corp> & Co", bar_user=None)
+    html = templating.render(
+        "error.html", error_code=404, error_title="Acme <Corp> & Co", error_message="", bar_user=None
+    )
     assert "Acme &lt;Corp&gt; &amp; Co" in html and "<Corp>" not in html
-    assert 'src="/static/js/status/main.js"' in html
+    assert 'href="/static/css/error.css"' in html
     rendered = templating.environment.from_string("{{ 1200 | thousands }} {{ 5400 | downtime }}").render()
     assert rendered == f"1,200 {availability.format_downtime(5400)}"
 
 
-def test_the_status_page_is_fastapis_with_its_own_referrer_policy(client):
+def test_the_status_page_is_fastapis_with_its_own_referrer_policy(client, frontend_build):
     page = client.get("/status/Acme%20Corp")
     assert page.status_code == 200 and page.headers["content-type"] == "text/html; charset=utf-8"
     assert page.headers.get_list("referrer-policy") == ["no-referrer"]
     assert len(page.headers.get_list("content-security-policy")) == 1
-    # Its static files still come from Flask, open to customers.
-    assert client.get("/static/js/status/main.js").status_code == 200
+    # Its files: the Nuxt build's (#463).
+    assert client.get("/_nuxt/entry.abc123.js").status_code == 200
 
 
 # ---------------------------------------------------------------------------

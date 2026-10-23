@@ -13,10 +13,11 @@ COMPOSE = (PROXY / "compose.yml").read_text(encoding="utf-8")
 
 
 def test_the_status_page_files_skip_the_login_and_no_others():
-    """A file the public status page loads must load without the company login."""
-    block = re.search(r"location ~ \^/static/\((.+?)\)\$ \{", SITE).group(1)
-    skipped = {"/static/" + name.replace("\\.", ".") for name in block.split("|")}
-    assert skipped == auth.STATUS_PAGE_ASSETS
+    """The public status page's files (the Nuxt build's, #463) load without the
+    company login, as the app serves them; no other static files do."""
+    skipped = re.findall(r"location (?:= |~ )?(\S+) \{\n        include /etc/nginx/conf.d/proxy-to-app.inc;", SITE)
+    assert auth.FRONTEND_ASSETS_PREFIX in skipped
+    assert not [path for path in skipped if "static" in path], skipped
 
 
 def test_identity_headers_always_come_from_nginx():

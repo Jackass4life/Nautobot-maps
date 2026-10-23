@@ -19,6 +19,16 @@ updates:
       javascript-tools:
         patterns: ["*"]
 
+  # The Nuxt frontend (#463)
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -27,7 +37,7 @@ updates:
       actions:
         patterns: ["*"]
 
-  # python:3.12-slim in the Dockerfile
+  # python:3.12-slim and node:22-slim in the Dockerfile
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -37,6 +47,10 @@ updates:
       # change: add it to CI's test matrix and check the image scan first.
       - dependency-name: python
         update-types: [version-update:semver-major, version-update:semver-minor]
+      # node:22-slim, the frontend's build stage (#463): a new Node major
+      # version goes with CI's node-version.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   # postgres / redis images in docker-compose.yml
   - package-ecosystem: docker-compose

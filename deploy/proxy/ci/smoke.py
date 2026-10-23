@@ -5,6 +5,7 @@
 The app must run with AUTH_MODE=header and noc-operators as an operator group.
 """
 
+import re
 import ssl
 import sys
 import urllib.error
@@ -90,8 +91,10 @@ results.append(
 
 status, _, _ = get(f"{HTTPS}/status/Acme%20Corp")
 results.append(check("the status page needs no company login", status == 200, status))
-status, _, _ = get(f"{HTTPS}/static/js/status/main.js")
-results.append(check("nor its files", status == 200, status))
+status, _, body = get(f"{HTTPS}/status/Acme%20Corp")
+script = re.search(r'src="(/_nuxt/[^"]+\.js)"', body)
+status, _, _ = get(f"{HTTPS}{script.group(1)}") if script else (0, None, "")
+results.append(check("nor its files (/_nuxt/)", status == 200, status))
 status, _, _ = get(f"{HTTPS}/static/js/alerts/main.js")
 results.append(check("other files do", status == 302, status))
 status, _, _ = get(f"{HTTPS}/api/status/Acme%20Corp", FORGED)

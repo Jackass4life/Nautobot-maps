@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter
 
 from nautobot_maps import alerts, auth, inventory, status
-from nautobot_maps.api import deps, pages
+from nautobot_maps.api import deps, frontend
 from nautobot_maps.api.answers import common
 from nautobot_maps.api.answers import status as answers
 
@@ -20,10 +20,10 @@ UNAVAILABLE = {"error": "Status unavailable, try again shortly"}
 def status_page(tenant: str):
     """A tenant's status page (#291): its sites and their state, for a customer.
 
-    The page holds no data; it reads ``/api/status/<tenant>``, with the key
-    from a share link's ``#key=`` (never sent to the server in the URL).
+    Built with Nuxt (#463); the page reads ``/api/status/<tenant>``, with the
+    key from a share link's ``#key=`` (never sent to the server in the URL).
     """
-    return pages.page("status.html", tenant=tenant.strip(), headers={"Referrer-Policy": "no-referrer"})
+    return frontend.shell(headers={"Referrer-Policy": "no-referrer"})
 
 
 @router.get(

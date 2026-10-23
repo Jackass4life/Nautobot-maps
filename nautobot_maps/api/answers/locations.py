@@ -102,7 +102,7 @@ class CoordinateCheck(common.Answer):
     sites: list[CoordinateProblem] = Field(description="Worst first: invalid, zero, swapped, missing, far.")
 
 
-class Device(common.Answer):
+class SiteDevice(common.Answer):
     """A device at the site, as the panel shows it."""
 
     id: str
@@ -164,7 +164,7 @@ class SiteCounts(common.Answer):
 
 
 class LocationDetail(common.Answer):
-    devices: list[Device]
+    devices: list[SiteDevice]
     alert: SiteAlert = Field(description="The level the board and the map show.")
     counts: SiteCounts
     asns: list[Asn]

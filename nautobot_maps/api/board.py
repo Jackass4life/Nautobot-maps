@@ -282,7 +282,7 @@ def api_alert_feed(request: Request, query: Annotated[models.FeedQuery, Query()]
 @router.get(
     "/api/alert-history",
     name="board.api_alert_history",
-    response_model=answers.History,
+    response_model=answers.AlertHistory,
     responses=NO_DATABASE,
     dependencies=[deps.require_role("operator")],
 )

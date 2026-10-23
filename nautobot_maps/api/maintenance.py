@@ -142,7 +142,7 @@ HistoryQuery = Annotated[models.MaintenanceHistory, Query()]
 @router.get(
     "/api/maintenance/history",
     name="maintenance.api_maintenance_history",
-    response_model=answers.History,
+    response_model=answers.MaintenanceHistory,
     responses=NO_DATABASE_RESPONSE,
 )
 def api_maintenance_history(query: HistoryQuery):
