@@ -1788,6 +1788,39 @@
         "title": "FeedEvent",
         "type": "object"
       },
+      "Guide": {
+        "additionalProperties": false,
+        "properties": {
+          "href": {
+            "examples": [
+              "/help/authentication"
+            ],
+            "title": "Href",
+            "type": "string"
+          },
+          "slug": {
+            "examples": [
+              "authentication"
+            ],
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "examples": [
+              "Sign-in and roles"
+            ],
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "href"
+        ],
+        "title": "Guide",
+        "type": "object"
+      },
       "Health": {
         "additionalProperties": false,
         "properties": {
@@ -1852,6 +1885,40 @@
           "app"
         ],
         "title": "HealthChecks",
+        "type": "object"
+      },
+      "HelpPage": {
+        "additionalProperties": false,
+        "properties": {
+          "contents": {
+            "description": "Every guide, in the menu's order.",
+            "items": {
+              "$ref": "#/components/schemas/Guide"
+            },
+            "title": "Contents",
+            "type": "array"
+          },
+          "html": {
+            "description": "The guide as HTML, from the repository's Markdown (no raw HTML in it).",
+            "title": "Html",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "html",
+          "contents"
+        ],
+        "title": "HelpPage",
         "type": "object"
       },
       "HistoryCase": {
@@ -6365,6 +6432,65 @@
         "summary": "Every page and API endpoint as JSON: methods, parameters, body and role.",
         "tags": [
           "Monitoring"
+        ]
+      }
+    },
+    "/api/help/{slug}": {
+      "get": {
+        "description": "One documentation page (#433): its title and HTML, and the list of guides.",
+        "operationId": "help_api_help_api_help__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No such guide"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such guide"
+          }
+        },
+        "summary": "One documentation page: its title and HTML, and the list of guides.",
+        "tags": [
+          "Pages"
         ]
       }
     },

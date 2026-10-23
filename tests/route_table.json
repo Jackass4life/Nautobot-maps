@@ -168,6 +168,14 @@
   "view": "api_endpoints"
  },
  {
+  "path": "/api/help/<slug>",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_help"
+ },
+ {
   "path": "/api/librenms/alert",
   "methods": [
    "POST"

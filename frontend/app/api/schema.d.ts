@@ -432,6 +432,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/help/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One documentation page: its title and HTML, and the list of guides.
+         * @description One documentation page (#433): its title and HTML, and the list of guides.
+         */
+        get: operations["help_api_help_api_help__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/librenms/alert": {
         parameters: {
             query?: never;
@@ -1743,6 +1763,24 @@ export interface components {
              */
             to_level?: string | null;
         };
+        /** Guide */
+        Guide: {
+            /**
+             * Href
+             * @example /help/authentication
+             */
+            href: string;
+            /**
+             * Slug
+             * @example authentication
+             */
+            slug: string;
+            /**
+             * Title
+             * @example Sign-in and roles
+             */
+            title: string;
+        };
         /** Health */
         Health: {
             checks: components["schemas"]["HealthChecks"];
@@ -1769,6 +1807,23 @@ export interface components {
              * @description Only when a database is configured.
              */
             database?: ("ok" | "unavailable") | null;
+        };
+        /** HelpPage */
+        HelpPage: {
+            /**
+             * Contents
+             * @description Every guide, in the menu's order.
+             */
+            contents: components["schemas"]["Guide"][];
+            /**
+             * Html
+             * @description The guide as HTML, from the repository's Markdown (no raw HTML in it).
+             */
+            html: string;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
         };
         /** HistoryCase */
         HistoryCase: {
@@ -4182,6 +4237,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Endpoints"];
+                };
+            };
+        };
+    };
+    help_api_help_api_help__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpPage"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such guide */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such guide"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
