@@ -4,7 +4,6 @@ them up.  Those moved to FastAPI are in nautobot_maps/api/ (#436)."""
 from nautobot_maps.routes import (
     availability,
     documentation,
-    ops,
     pages,
 )
 
@@ -13,5 +12,4 @@ BLUEPRINTS = (
     pages.bp,
     availability.bp,
     documentation.bp,
-    ops.bp,
 )
