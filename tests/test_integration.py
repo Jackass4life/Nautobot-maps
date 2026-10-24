@@ -22,7 +22,6 @@ import uvicorn
 
 from nautobot_maps import caching, inventory, settings
 from tests import http_client
-from tests.js_modules import run_js
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -565,23 +564,3 @@ class TestMultiDeviceCaseFlow:
         london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
         assert london["active_cases"] == ["INC-7001"]
         assert all(device["case_numbers"] == ["INC-7001"] for device in london["down_devices"])
-
-
-class TestTenantInfoTipInTheBrowser:
-    """The floating box for the tenant (i) (#263): placed inside the window."""
-
-    def _run(self, body):
-        run_js('import { placeInfoTip } from "@js/lib/tooltip.js";\n' + body)
-
-    def test_placement_stays_in_the_window(self):
-        self._run("""
-const rect = (left, top) => ({ left, top, width: 15, height: 15, bottom: top + 15 });
-let at = placeInfoTip(rect(500, 100), 200, 60, 1200, 800);
-check(at.top === 123 && at.left === 407.5, "below, centred: " + JSON.stringify(at));
-at = placeInfoTip(rect(1190, 100), 200, 60, 1200, 800);
-check(at.left === 992, "kept off the right edge: " + JSON.stringify(at));
-at = placeInfoTip(rect(0, 100), 200, 60, 1200, 800);
-check(at.left === 8, "kept off the left edge: " + JSON.stringify(at));
-at = placeInfoTip(rect(500, 760), 200, 60, 1200, 800);
-check(at.top === 692, "above when there is no room below: " + JSON.stringify(at));
-""")

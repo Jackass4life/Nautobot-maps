@@ -168,12 +168,12 @@ npm run lint && npm run typecheck && npm test
 
 Every page's script is an ES module (#294), loaded with `<script type="module">`:
 
-- `static/js/lib/`: helpers shared by the pages (HTML escaping, times, case links, theme,
-  the (i) tooltip, the error toast).
-- `static/js/alerts/` (the wall view only; the board is on Nuxt, #463), `static/js/docs/`: one folder per page. Its `main.js` is the entry:
-  the only module that looks up page elements and wires events; it fills `els`, `config` and
-  `state` in `state.js`. Every other module touches the page only when one of its functions is called,
-  never when it is imported. `availability.js` is that page's whole entry.
+Only the API page (`/docs`) is left on it; every other page is on Nuxt (#463).
+
+- `static/js/lib/`: helpers for the top bar (HTML escaping, times, the site search, theme).
+- `static/js/docs/main.js`: the page's entry, the only module that looks up page elements and
+  wires events. Every other module touches the page only when one of its functions is called,
+  never when it is imported.
 - No inline styles (#370): the CSP allows only the app's CSS files, so markup built in JS uses
   classes, never `style="…"`.
   Setting `element.style` from script is fine. `tests/test_no_inline_styles.py` checks.
@@ -188,8 +188,8 @@ That rule is what makes them testable: a test imports the real functions in Node
 from tests.js_modules import run_js
 
 run_js("""
-import { siteMeta } from "@js/alerts/rows.js";
-check(siteMeta({ parent: "R&D" }) === "R&amp;D", "escaped");
+import { escHtml } from "@js/lib/html.js";
+check(escHtml("R&D") === "R&amp;D", "escaped");
 """)
 ```
 

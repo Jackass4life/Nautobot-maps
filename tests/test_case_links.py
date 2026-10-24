@@ -1,6 +1,5 @@
 """Case numbers link to the ITSM ticket (#289)."""
 
-import json
 import os
 import subprocess
 import sys
@@ -9,7 +8,7 @@ import pytest
 
 from nautobot_maps import itsm, notify, settings
 from tests import http_client
-from tests.js_modules import REPO_ROOT, run_js
+from tests.js_modules import REPO_ROOT
 
 TEMPLATE = "https://itsm.example.com/ticket/{case}"
 
@@ -103,30 +102,3 @@ def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
     finally:
         conn.close()
     assert lines[1].rstrip().endswith(",https://itsm.example.com/ticket/INC%3B7")
-
-
-class TestInTheBrowser:
-    def _run(self, body, template=TEMPLATE):
-        run_js(
-            f"""
-import {{ casePill, caseWithUrl, setCaseUrlTemplate }} from "@js/lib/cases.js";
-setCaseUrlTemplate({json.dumps(template)});
-"""
-            + body
-        )
-
-    def test_a_link_to_the_ticket(self):
-        self._run("""
-const html = casePill('INC "7"');
-check(html === '<a class="case-pill" href="https://itsm.example.com/ticket/INC%20%227%22" target="_blank" rel="noopener noreferrer" title="Open the ticket">INC &quot;7&quot;</a>', html);
-check(caseWithUrl("INC-7") === "INC-7 (https://itsm.example.com/ticket/INC-7)", "Copy text");
-""")
-
-    def test_plain_without_a_template(self):
-        self._run(
-            """
-check(casePill("INC-7") === '<span class="case-pill">INC-7</span>', casePill("INC-7"));
-check(caseWithUrl("INC-7") === "INC-7", "Copy text");
-""",
-            template="",
-        )
