@@ -6724,7 +6724,7 @@ class TestApiExplorer:
         pages = client.get("/api/page-config").get_json()["pages"]
         assert {"key": "docs", "href": "/docs"}.items() <= next(p for p in pages if p["key"] == "docs").items()
 
-    def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch):
+    def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/docs").status_code == 401

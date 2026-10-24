@@ -121,7 +121,10 @@ class TestRealRequests:
         assert resp.status_code == 201 and "Content-Encoding" not in resp.headers
         assert "no-transform" in resp.headers["Cache-Control"] and "nmt_" in resp.get_data(as_text=True)
 
-    def test_a_page(self, client):
+    def test_a_page(self, client, frontend_build):
+        # A page is the Nuxt build's shell (#463), about 1.5 KB like the real one.
+        shell = frontend_build / "200.html"
+        shell.write_text(shell.read_text().replace("</head>", "<!--" + "x" * 1500 + "--></head>"))
         resp = client.get("/docs", headers=GZIP)
         assert resp.headers["Content-Encoding"] == "gzip"
         assert b"<!DOCTYPE html>" in gzip.decompress(resp.get_data())

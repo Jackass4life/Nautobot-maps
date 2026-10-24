@@ -20,7 +20,8 @@ def test_pages_and_apis_are_served_through_fastapi(asgi_client):
 
 
 def test_security_headers_and_gzip_once(asgi_client):
-    response = asgi_client.get("/docs", headers={"Accept-Encoding": "gzip"})
+    # The API as OpenAPI: big enough to compress, served without a frontend build.
+    response = asgi_client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
     for name in ("content-security-policy", "x-content-type-options", "x-frame-options", "referrer-policy"):
         assert len(response.headers.get_list(name)) == 1, name
     assert response.headers.get_list("content-encoding") == ["gzip"]
