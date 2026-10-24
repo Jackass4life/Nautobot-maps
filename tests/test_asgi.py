@@ -10,9 +10,8 @@ from nautobot_maps import server, settings
 
 def test_pages_and_apis_are_served_through_fastapi(asgi_client):
     assert asgi_client.get("/healthz").status_code == 200
-    # A server-rendered page (the others are Nuxt's, #463).
-    page = asgi_client.get("/docs")
-    assert page.status_code == 200 and 'class="app-bar"' in page.text
+    # The pages are Nuxt's (#463); the menu comes from /api/page-config.
+    assert asgi_client.get("/api/page-config").json()["pages"]
     assert asgi_client.get("/api/app-status").json()["state"] in {"ok", "stale", "down"}
     assert asgi_client.get("/static/css/error.css").status_code == 200
     # Flask's own 404, as JSON for the API.

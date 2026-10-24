@@ -117,7 +117,6 @@ def test_page_and_nav(client, synced, frontend_build):
     assert {"key": "circuits", "href": "/circuits"}.items() <= next(
         p for p in config["pages"] if p["key"] == "circuits"
     ).items()
-    assert 'href="/circuits"' in client.get("/docs").get_data(as_text=True)
 
 
 def test_without_a_database(client, monkeypatch):

@@ -6719,9 +6719,10 @@ class TestApiExplorer:
         names = {param["name"] for param in spec["paths"]["/api/availability"]["get"]["parameters"]}
         assert {"month", "from", "to", "basis"} <= names
 
-    def test_header_links_to_the_explorer(self, client):
-        # The server-rendered page; the Nuxt ones read the menu from /api/page-config (#463).
-        assert 'href="/docs"' in client.get("/docs").get_data(as_text=True)
+    def test_the_menu_links_to_the_explorer(self, client):
+        # The pages read the menu from /api/page-config (#463).
+        pages = client.get("/api/page-config").get_json()["pages"]
+        assert {"key": "docs", "href": "/docs"}.items() <= next(p for p in pages if p["key"] == "docs").items()
 
     def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)

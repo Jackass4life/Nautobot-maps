@@ -21,6 +21,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    python -m venv venv
    source venv/bin/activate
    pip install -r requirements-dev.txt
+   (cd frontend && npm ci && npm run generate)   # Node 22: the pages python app.py serves
    ```
    Optionally, run the linter automatically on every commit:
    ```bash
@@ -30,6 +31,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 4. **Test** your changes:
    ```bash
    python -m pytest tests/ -v
+   (cd frontend && npm run lint && npm run typecheck && npm test)
    ```
    For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
    ```bash
@@ -46,7 +48,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: `pip install -r requirements-dev.txt`, copy `.env.example` to `.env`, then `python app.py`. For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: `pip install -r requirements-dev.txt`, build the pages (`cd frontend && npm ci && npm run generate`), copy `.env.example` to `.env`, then `python app.py`. For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -59,7 +61,7 @@ extension), or start it in GitHub Codespaces. It provides:
 - PostgreSQL 16 on `localhost:5432` (user and password `nautobot_maps`), with a
   `nautobot_maps` database for the app and a `nautobot_maps_test` database for pytest
   (`TEST_DATABASE_URL` is preset). Data is kept in a Docker volume across rebuilds.
-- Node, used by the JavaScript runtime checks in the test suite
+- Node, which builds and tests the pages in `frontend/`
 - GitHub CLI (`gh`) and Claude Code
 - The Python and Ruff VS Code extensions
 - Port 5000 forwarded for `python app.py`. If 5000 is already taken on your machine, VS Code
@@ -157,8 +159,8 @@ npm run dev         # or: a dev server on :3000 with live reload; /api goes to p
 npm run lint && npm run typecheck && npm test
 ```
 
-- `python app.py` serves the build; without one, a Nuxt page answers 503 and says to build it.
-- `ssr: false`: a single-page app built to static files, no Node in production (the Docker image builds it in its own stage). A migrated page's route answers `frontend.shell()`; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
+- `python app.py` serves the build; without one, every page answers 503 and says to build it (the API and the error page still work).
+- `ssr: false`: a single-page app built to static files, no Node in production (the Docker image builds it in its own stage). A page's route answers `frontend.shell()`; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
 - CSP stays strict: `npm run generate` moves Nuxt's inline config script into a file and fails on any other inline script; Nuxt UI's colours are a stylesheet made at build time (`modules/static-ui-colors.ts`), not its inline `<style>`; no web fonts or icons are fetched from elsewhere.
 - API types: `app/api/schema.d.ts` is generated from the app's response models. After an API change: `python frontend/scripts/openapi.py && (cd frontend && npm run api-types)`; `tests/test_frontend.py` and CI fail until then.
 - Logic goes in `app/utils/` (plain functions, tested with Vitest in `frontend/tests/`); the pages themselves are tested end to end (`e2e/`).
