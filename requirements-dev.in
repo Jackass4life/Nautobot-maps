@@ -3,8 +3,8 @@
 -c requirements.txt
 -r requirements.in
 # FastAPI's test client (#436): starlette uses httpx2.
-httpx2==2.13.1
-truststore==0.10.4
+httpx2==2.16.0
+truststore==0.10.5
 pytest==9.1.1
 ruff==0.17.1
 pyyaml==6.0.3

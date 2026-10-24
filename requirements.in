@@ -5,12 +5,12 @@ python-dotenv==1.2.4
 geopy==2.5.0
 gunicorn==22.0.0
 # FastAPI, the team's standard (#436), uvicorn workers under gunicorn.
-fastapi==0.142.4
+fastapi==0.156.8
 uvicorn==0.54.0
 uvicorn-worker==0.4.0
 # Held at releases at least two weeks old (FastAPI would take the newest).
-starlette==1.7.0
-pydantic==2.13.5
+starlette==1.9.0
+pydantic==2.14.1
 # Forms, for LibreNMS's alert push (a form or JSON).
 python-multipart==0.0.32
 redis==6.4.0
