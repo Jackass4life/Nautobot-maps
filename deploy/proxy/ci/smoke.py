@@ -5,6 +5,7 @@
 The app must run with AUTH_MODE=header and noc-operators as an operator group.
 """
 
+import json
 import re
 import ssl
 import sys
@@ -69,8 +70,11 @@ results.append(check("forged identity headers don't sign in", status == 302, sta
 status, headers, body = get(f"{HTTPS}/alerts", SIGNED_IN | FORGED)
 results.append(check("signed in: the page", status == 200, status))
 results.append(check("HSTS", "max-age" in headers.get("Strict-Transport-Security", ""), headers))
-# The top bar (#419) names who signed in, never the forged user.
-results.append(check("the top bar shows who signed in", '<span class="app-user-name">olga</span>' in body, "no olga"))
+# The top bar (#419) names who signed in, never the forged user: the Nuxt
+# pages read it from /api/page-config (#463).
+status, _, body = get(f"{HTTPS}/api/page-config", SIGNED_IN | FORGED)
+user = (json.loads(body).get("user") or {}) if status == 200 else {}
+results.append(check("the top bar shows who signed in", user.get("name") == "olga", user or status))
 results.append(check("not the forged user", "mallory" not in body, "mallory"))
 # The alert history needs the operator role: the user and groups reached the
 # app from the proxy it trusts (address and AUTH_PROXY_SECRET).
