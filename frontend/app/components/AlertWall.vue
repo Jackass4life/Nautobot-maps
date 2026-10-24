@@ -183,7 +183,7 @@ onBeforeUnmount(() => {
       <div class="flex items-center gap-4">
         <UButton
           id="wall-sound"
-          class="wall-sound"
+          class="wall-sound whitespace-nowrap"
           size="sm"
           :color="soundOn ? 'primary' : 'neutral'"
           variant="outline"
