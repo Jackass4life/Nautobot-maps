@@ -77,25 +77,25 @@ def test_the_endpoint_never_calls_upstream(client, monkeypatch):
 def test_the_bar_says_who_is_signed_in(client):
     with auth_config(mode="header", operator_groups={"noc-operators"}):
         html = client.get(
-            "/alerts", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "noc-operators"}
+            "/docs", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "noc-operators"}
         ).get_data(as_text=True)
     assert '<span class="app-user-name">olga</span><span class="app-user-role"> · operator</span>' in html
     # Disabled: nobody to name.
-    assert 'class="app-user"' not in client.get("/alerts").get_data(as_text=True)
+    assert 'class="app-user"' not in client.get("/docs").get_data(as_text=True)
 
 
 def test_a_name_is_escaped(client):
     with auth_config(mode="header", viewer_groups={"v"}):
-        html = client.get("/alerts", headers={"X-Forwarded-User": "<b>x</b>", "X-Forwarded-Groups": "v"}).get_data(
+        html = client.get("/docs", headers={"X-Forwarded-User": "<b>x</b>", "X-Forwarded-Groups": "v"}).get_data(
             as_text=True
         )
     assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
 
 
 def test_the_search_is_on_every_page(client):
-    # The server-rendered pages; the Nuxt ones (the map, /circuits, /maintenance, /availability,
-    # /help, #463) have AppBar.vue, without the search on the map, which has its own (e2e).
-    for path in ("/alerts", "/docs"):
+    # The server-rendered page; the Nuxt ones (the map, the board, /circuits, /maintenance,
+    # /availability, /help, #463) have AppBar.vue, without the search on the map, which has its own (e2e).
+    for path in ("/docs",):
         html = client.get(path).get_data(as_text=True)
         assert 'id="bar-search"' in html and 'id="app-status"' in html, path
 
@@ -171,6 +171,16 @@ class TestPageConfig:
                 "/api/page-config", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
             ).get_json()
         assert config["user"] == {"name": "olga", "role": "operator"}
+
+    def test_the_boards_case_links_and_levels(self, client, monkeypatch):
+        from nautobot_maps import alerts
+
+        monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", "https://itsm.example/t/{case}")
+        board = client.get("/api/page-config").get_json()["board"]
+        assert board == {
+            "case_url_template": "https://itsm.example/t/{case}",
+            "levels": alerts.alert_level_definitions(),
+        }
 
     def test_the_maps_tiles_and_first_view(self, client, monkeypatch):
         monkeypatch.setattr(settings, "MAP_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png")

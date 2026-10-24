@@ -43,7 +43,9 @@ class MapSettings(common.Answer):
 
 
 class BoardSettings(common.Answer):
-    case_url_template: str = Field(description="CASE_URL_TEMPLATE: a case's ticket, {case} for its number; empty when not set.")
+    case_url_template: str = Field(
+        description="CASE_URL_TEMPLATE: a case's ticket, {case} for its number; empty when not set."
+    )
     levels: dict[str, str] = Field(
         description="What each level and summary chip means, from the configured thresholds (#293): "
         "alarms, critical, medium, low, no_data, ok, total, maintenance."

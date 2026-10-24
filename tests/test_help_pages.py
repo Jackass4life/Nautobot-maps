@@ -84,7 +84,7 @@ def test_images_and_unknown_pages(client, frontend_build):
 
 
 def test_the_menu_links_to_it(client):
-    html = client.get("/alerts").get_data(as_text=True)
+    html = client.get("/docs").get_data(as_text=True)
     assert 'href="/help">Documentation</a>' in html
 
 

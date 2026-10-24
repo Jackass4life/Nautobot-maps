@@ -10,7 +10,8 @@ from nautobot_maps import server, settings
 
 def test_pages_and_apis_are_served_through_fastapi(asgi_client):
     assert asgi_client.get("/healthz").status_code == 200
-    page = asgi_client.get("/alerts")
+    # A server-rendered page (the others are Nuxt's, #463).
+    page = asgi_client.get("/docs")
     assert page.status_code == 200 and 'class="app-bar"' in page.text
     assert asgi_client.get("/api/app-status").json()["state"] in {"ok", "stale", "down"}
     assert asgi_client.get("/static/js/lib/nav.js").status_code == 200
@@ -20,7 +21,7 @@ def test_pages_and_apis_are_served_through_fastapi(asgi_client):
 
 
 def test_security_headers_and_gzip_once(asgi_client):
-    response = asgi_client.get("/alerts", headers={"Accept-Encoding": "gzip"})
+    response = asgi_client.get("/docs", headers={"Accept-Encoding": "gzip"})
     for name in ("content-security-policy", "x-content-type-options", "x-frame-options", "referrer-policy"):
         assert len(response.headers.get_list(name)) == 1, name
     assert response.headers.get_list("content-encoding") == ["gzip"]
