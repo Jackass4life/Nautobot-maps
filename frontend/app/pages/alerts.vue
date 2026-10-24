@@ -105,10 +105,8 @@ const statusText = computed(() => {
 const wallLink = computed(() => wallLinkFor({ tenant: criteria.value.tenant, text: criteria.value.site, scope }));
 const linkQuery = computed(() => linkParams(criteria.value.tenant, scope).toString());
 const moreCount = computed(() => moreFiltersInUse(criteria.value));
-watch(
-  () => [criteria.value, sites.value],
-  () => (rowLimit.value = ROWS_STEP),
-);
+// New filters start again at the first rows; a refresh keeps what was opened.
+watch(criteria, () => (rowLimit.value = ROWS_STEP));
 
 function set<K extends keyof BoardCriteria>(key: K, value: BoardCriteria[K]) {
   criteria.value = { ...criteria.value, [key]: value };
@@ -299,10 +297,10 @@ function closePanel() {
   });
 }
 // The open panel's site, as the newest board has it.
-watch(sites, (now) => {
+watch(sites, (list) => {
   const open = panel.value;
   if (!open) return;
-  const fresh = now.find((site) => site.id === open.site.id);
+  const fresh = list.find((site) => site.id === open.site.id);
   if (fresh && fresh !== open.site) panel.value = { ...open, site: fresh } as Panel;
 });
 
