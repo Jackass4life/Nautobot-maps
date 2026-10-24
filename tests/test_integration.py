@@ -11,7 +11,6 @@ Run with:
 
 import json
 import pathlib
-import re
 import socket
 import threading
 import time
@@ -88,32 +87,6 @@ class TestMapUI:
         # Built with Nuxt (#463): the page is the build's; frontend/ and e2e/ test it.
         resp = integration_client.get("/")
         assert resp.status_code == 200 and 'id="__nuxt"' in resp.get_data(as_text=True)
-
-
-class TestAlertBoardUI:
-    def _css_rules(self, css, selector):
-
-        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-        pattern = re.compile(r"([^{}]+)\{([^}]*)\}")
-        return [
-            body
-            for selectors, body in pattern.findall(css)
-            if selector in [part.strip() for part in selectors.split(",")]
-        ]
-
-    def test_table_shell_never_clips_overflow(self, integration_client):
-        """The alert table must scroll, not clip, so the Action column stays reachable."""
-        css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
-        rules = self._css_rules(css, ".table-shell")
-        assert rules
-        assert any("overflow-x: auto" in body for body in rules)
-        assert not any("overflow: hidden" in body for body in rules)
-
-    def test_action_column_is_pinned(self, integration_client):
-        """The last (Action) column sticks to the right edge while the table scrolls."""
-        css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
-        rules = self._css_rules(css, "thead th:last-child")
-        assert any("position: sticky" in body and "right: 0" in body for body in rules)
 
 
 # ---------------------------------------------------------------------------

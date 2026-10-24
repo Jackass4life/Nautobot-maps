@@ -221,7 +221,7 @@ class TestAccess:
         assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
         assert client.get("/api/status/acme%20corp", headers=bearer(token)).status_code == 200
         assert client.get("/api/status/Other%20Co", headers=bearer(token)).status_code == 403
-        for path in ("/api/alerts", "/alerts", "/api/maintenance", "/api/status-other", "/static/js/lib/nav.js"):
+        for path in ("/api/alerts", "/alerts", "/api/maintenance", "/api/status-other", "/static/css/other.css"):
             assert client.get(path, headers=bearer(token)).status_code == 403, path
         response = client.post("/api/alert-cases", json={}, headers=bearer(token))
         assert response.status_code == 403
@@ -250,7 +250,7 @@ class TestAccess:
             assert page.headers["Referrer-Policy"] == "no-referrer"
             # The Nuxt build's files (#463): code only, no data.
             assert client.get("/_nuxt/entry.abc123.js", environ_base=anonymous).status_code == 200
-            assert client.get("/static/js/lib/nav.js", environ_base=anonymous).status_code == 401
+            assert client.get("/static/css/other.css", environ_base=anonymous).status_code == 401
             assert client.get("/api/status/Acme%20Corp", environ_base=anonymous).status_code == 401
             assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
             assert client.get("/api/status/Other%20Co", headers=bearer(viewer)).status_code == 200

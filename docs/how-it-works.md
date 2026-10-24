@@ -16,8 +16,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (read-only), asks *
 | **Redis 7** | Shared cache of Nautobot answers and rate limits between workers | Fewer calls to Nautobot; every worker sees the same cache |
 | **Leaflet** (+ markercluster) | The map in the browser, bundled into the Nuxt build (`frontend/`) | No CDN needed at runtime |
 | **OpenStreetMap** tiles and **Nominatim** address search | Map background and "search by address" (both replaceable: `MAP_TILE_URL`, `GEOCODER_URL`, or off) | Free defaults; point them at your own servers if needed |
-| **Plain JavaScript (ES modules)** | The pages' code (`static/js/`), no framework, no build step | Nothing to compile; strict Content Security Policy |
-| **Nuxt (Vue, TypeScript) + Nuxt UI** | The pages as they move over, one by one (#463; the status page, circuits, maintenance, availability, help, the map, the alert board and the wall; only the API page is left): `frontend/`, built to static files the app serves | The team's standard; typed from the API's own models; still no Node in production |
+| **Nuxt (Vue, TypeScript) + Nuxt UI** | Every page (#463): `frontend/`, built to static files the app serves; the API page is Swagger UI inside it | The team's standard; typed from the API's own models; no Node in production; strict Content Security Policy |
 | **Docker / Docker Compose** | Packages the app with PostgreSQL and Redis (`docker-compose.yml`) | One command to start |
 | **nginx + oauth2-proxy** *(optional, bundled in `deploy/proxy/`)* | In front of the app for HTTPS and company sign-in (any OIDC provider), or your own SSO proxy instead | The app has no login screen of its own and doesn't do TLS: your identity provider signs people in |
 
@@ -162,8 +161,7 @@ The app is designed for **1,200+ sites and 10,000+ devices**, with 20–30 sites
 
 ## The code, briefly
 
-- `app.py`: entry point. `nautobot_maps/`: one module per job (`nautobot`/`librenms` clients, `inventory` sync, `alerts` board rules, `maintenance`, `availability`, `notify`, `webhooks`, `auth`/`tokens`, `mcp`, `guide` for these pages…). The routes are in `routes/`, one file per area. The board's database reads and writes are in `repositories/board.py`. `web.py` holds what every page shares: security headers, error pages and the sign-in check.
-- `static/js/`: the pages' JavaScript, one folder per page, shared helpers in `lib/`. `templates/`: the HTML.
-- `frontend/`: the pages on Nuxt (#463), built with `npm run generate`; FastAPI serves the build (`nautobot_maps/api/frontend.py`), its files under `/_nuxt/`.
-- `tests/` (pytest, about 1,300 tests) and `e2e/` (Playwright in Chromium). CI runs lint, tests on Python 3.11 and 3.12, a real Nautobot, a Docker smoke test, the bundled sign-in proxy with real nginx, a dependency audit and CodeQL.
+- `app.py`: entry point. `nautobot_maps/`: one module per job (`nautobot`/`librenms` clients, `inventory` sync, `alerts` board rules, `maintenance`, `availability`, `notify`, `webhooks`, `auth`/`tokens`, `mcp`, `guide` for these pages…). The routes are in `api/`, one file per area, with their answers' models in `api/answers/`; `api/deps.py` holds the sign-in check and the error pages, `web.py` the security headers. The board's database reads and writes are in `repositories/board.py`.
+- `frontend/`: the pages, on Nuxt (#463), built with `npm run generate`; FastAPI serves the build (`nautobot_maps/api/frontend.py`), its files under `/_nuxt/`. `templates/error.html`: the error page, the one the server renders itself.
+- `tests/` (pytest, about 1,100 tests, and Vitest for the frontend's logic) and `e2e/` (Playwright in Chromium). CI runs lint, tests on Python 3.11 and 3.12, a real Nautobot, a Docker smoke test, the bundled sign-in proxy with real nginx, a dependency audit and CodeQL.
 - Development setup: [CONTRIBUTING.md](../CONTRIBUTING.md).

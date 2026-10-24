@@ -1,0 +1,64 @@
+{
+  "about": "A page for some sites only (#364, #368, #369): the same links through the server's matching (nautobot_maps/scope.py, tests/test_coordinates.py) and the browser's (app/utils/scope.ts, tests/scope.test.ts).",
+  "sites": [
+    {
+      "id": "a",
+      "name": "Aarhus",
+      "ancestor_path": "EMEA › DNK",
+      "tenant": "Acme Corp",
+      "country": "Denmark"
+    },
+    {
+      "id": "o",
+      "name": "Oslo",
+      "parent": "NOR",
+      "tenants": [
+        "Nordic Net",
+        "Acme Corp"
+      ],
+      "physical_address": "Storgata 1"
+    },
+    {
+      "id": "l",
+      "name": "Lyon",
+      "facility": "Lyon DC2",
+      "tenant": "EuroIX"
+    },
+    {
+      "id": "n",
+      "name": null
+    }
+  ],
+  "cases": {
+    "": [
+      "a",
+      "o",
+      "l",
+      "n"
+    ],
+    "?tenant=acme%20corp": [
+      "a",
+      "o"
+    ],
+    "?tenant=EUROIX&tenant=Nordic%20Net": [
+      "o",
+      "l"
+    ],
+    "?q=EMEA": [
+      "a"
+    ],
+    "?q=dnk&q=aarhus": [
+      "a"
+    ],
+    "?q=storgata": [
+      "o"
+    ],
+    "?q=dc2": [
+      "l"
+    ],
+    "?tenant=Acme%20Corp&q=oslo": [
+      "o"
+    ],
+    "?q=nowhere": []
+  }
+}

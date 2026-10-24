@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   # -----------------------------------------------------------------------
-  # Lint: ruff (config in pyproject.toml, version pinned in requirements-dev.txt)
-  # and ESLint for static/js (eslint.config.mjs, versions in package-lock.json)
+  # Lint: ruff (config in pyproject.toml, version pinned in requirements-dev.txt);
+  # the frontend's ESLint is in the frontend job
   # -----------------------------------------------------------------------
   lint:
     runs-on: ubuntu-latest
@@ -43,21 +43,7 @@ jobs:
         # node_modules is git-ignored; a `git add -A` after `npm ci` once
         # committed 941 files of it (#189).
         if: success() || failure()
-        run: test -z "$(git ls-files node_modules)"
-
-      - name: Set up Node
-        if: success() || failure()
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-
-      - name: ESLint
-        # Also runs when ruff fails, so one CI run reports everything.
-        if: success() || failure()
-        run: |
-          npm ci --no-audit --no-fund
-          npx eslint static/js
+        run: test -z "$(git ls-files node_modules frontend/node_modules)"
 
   # -----------------------------------------------------------------------
   # The pages built with Nuxt (#463): lint, types, tests, the static build
@@ -141,10 +127,6 @@ jobs:
             pip-compile --quiet --generate-hashes --strip-extras --allow-unsafe -o "$name.check.txt" "$name.in"
             diff <(pins "$name.txt") <(pins "$name.check.txt")
           done
-
-      - name: JavaScript dev tools (npm audit)
-        if: success() || failure()
-        run: npm audit --audit-level=high
 
       - name: The frontend (npm audit, #463)
         # High or critical fails, except the advisories scripts/audit.mjs

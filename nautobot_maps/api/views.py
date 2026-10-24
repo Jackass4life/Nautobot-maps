@@ -7,7 +7,7 @@ import pathlib
 from fastapi import APIRouter, HTTPException, Request
 
 from nautobot_maps import alerts, availability, guide, maintenance, navigation, settings, templating
-from nautobot_maps.api import deps, files, frontend, pages
+from nautobot_maps.api import deps, files, frontend
 from nautobot_maps.api import maintenance as api_maintenance
 from nautobot_maps.api.answers import common
 from nautobot_maps.api.answers import help as help_answers
@@ -76,8 +76,9 @@ def alert_board():
 
 @router.get("/docs", name="pages.api_docs", include_in_schema=False)
 def api_docs():
-    """The API (#230, #436): every endpoint in Swagger UI, with Try it, from /openapi.json."""
-    return pages.page("docs.html")
+    """The API (#230, #436): every endpoint in Swagger UI, with Try it, from
+    /openapi.json.  Built with Nuxt (#463), Swagger UI from npm."""
+    return frontend.shell()
 
 
 @router.get("/openapi.json", name="ops.openapi", include_in_schema=False)

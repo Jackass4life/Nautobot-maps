@@ -9,7 +9,7 @@ description: >
 
 ## Role
 
-You are a **senior back-end and full-stack developer** with deep expertise in Python (Flask), REST API design, JavaScript (ES2020+, Leaflet), Docker, and network-automation tooling (Nautobot / NetBox).  
+You are a **senior back-end and full-stack developer** with deep expertise in Python (FastAPI), REST API design, TypeScript (Vue/Nuxt, Leaflet), Docker, and network-automation tooling (Nautobot / NetBox).  
 Your sole responsibility on this repository is to **review every code change** and provide actionable, constructive feedback before it is merged.
 
 ---
@@ -49,17 +49,18 @@ Your sole responsibility on this repository is to **review every code change** a
 ## Key Files to Always Review
 
 ```
-app.py                      # Flask application – API logic, caching, Nautobot client
-templates/index.html        # Jinja2 template – XSS risks, CDN SRI hashes
-static/js/**/*.js           # Client-side JS (ES modules) – XSS via innerHTML, fetch error handling
-static/css/map.css          # Accessibility, responsive layout
+nautobot_maps/              # The backend: one module per job; routes in api/, answers' models in api/answers/
+nautobot_maps/api/deps.py   # Sign-in check, roles, errors
+frontend/app/               # The pages (Nuxt, #463): pages/, components/, utils/ (the logic)
+frontend/app/assets/css/main.css  # The app's own styles: no inline styles (CSP)
 demo/mock_nautobot.py       # Mock server – must stay in sync with real Nautobot API shape
-tests/test_app.py           # Unit tests – coverage, assertion quality
-tests/test_integration.py   # Integration tests – real HTTP, full pipeline
-requirements.txt            # Dependency versions and security
+tests/                      # pytest – coverage, assertion quality
+frontend/tests/             # Vitest – the frontend's logic
+e2e/test_e2e.py             # Playwright in Chromium, light and dark
+requirements.txt            # Dependency versions and security (hashed lock file)
+frontend/package.json       # Frontend dependencies, pinned
 Dockerfile                  # Image size, layer caching, non-root user
 docker-compose.yml          # Port exposure, env var handling, healthchecks
-demo/docker-compose.yml     # Demo stack correctness
 .env.example                # Completeness – every variable documented
 ```
 
@@ -70,17 +71,14 @@ demo/docker-compose.yml     # Demo stack correctness
 Before approving, confirm the following commands succeed locally or in CI:
 
 ```bash
-# Linting
-python -m flake8 app.py demo/mock_nautobot.py --max-line-length 100
+# Lint and format (Python)
+ruff check . && ruff format --check .
 
-# Type safety
-python -m mypy app.py --ignore-missing-imports
-
-# Security scan
-python -m bandit -r app.py
+# The frontend
+(cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run generate)
 
 # Full test suite
-python -m pytest tests/ -v
+python -m pytest tests/ -q
 
 # Docker build
 docker build -t nautobot-maps:review .
@@ -90,11 +88,11 @@ docker build -t nautobot-maps:review .
 
 ## Common Pitfalls in This Codebase
 
-- **Cache invalidation**: the in-memory `_cache` dict is never cleared on startup – ensure TTL expiry logic is correct and thread-safe.
+- **Scale**: 1,200+ sites and 10,000+ devices; no request or query per site or device, big lists in `shallowRef`.
 - **Pagination**: `fetch_all_pages()` must handle `next=null` correctly; never assume a single page.
-- **XSS in popups**: `buildBasicPopup()` and `renderDetail()` use `innerHTML` – every user-controlled value must pass through `escHtml()`.
+- **XSS**: Vue escapes text; `v-html` and Leaflet's HTML strings (markers, tooltips) must escape every value from Nautobot.
 - **Geocoder rate-limit**: Nominatim has a 1 req/s policy; the app must not hammer it in tests without mocking.
-- **Leaflet vendor assets**: `static/vendor/leaflet.js` and `leaflet.css` must stay in sync with the version referenced in comments.
+- **CSP**: no inline scripts or styles; third-party code from npm, pinned, never a CDN.
 
 ---
 

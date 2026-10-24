@@ -338,7 +338,7 @@ def _error_page(request: Request, status: int):
     title, message = ERROR_PAGES[status]
     # No top bar on it: no signed-in user to look up (the request may have
     # matched no route, so none was bound).
-    html = templating.render("error.html", error_code=status, error_title=title, error_message=message, bar_user=None)
+    html = templating.render("error.html", error_code=status, error_title=title, error_message=message)
     return finish(request, HTMLResponse(html, status_code=status))
 
 

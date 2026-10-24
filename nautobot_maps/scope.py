@@ -1,8 +1,9 @@
 """A page for some sites only, on the server (#368, #369).
 
-The twin of ``static/js/lib/scope.js``: ``?tenant=`` (repeatable, any of
-them) and ``?q=`` (repeatable, every one of them), matched on the same
-fields, case ignored.  Tests run the same cases through both.  Needed where
+The twin of the browser's ``frontend/app/utils/scope.ts``: ``?tenant=``
+(repeatable, any of them) and ``?q=`` (repeatable, every one of them),
+matched on the same fields, case ignored.  Both are tested against the same
+cases (``frontend/tests/fixtures/scope-cases.json``).  Needed where
 the server must filter itself: the coordinate list's CSV (#368) and the
 activity feed, whose limit must count the matching events (#369).
 """

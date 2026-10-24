@@ -145,9 +145,9 @@ after logging is configured (a test enforces this).
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.
 
-### The Nuxt frontend (#463)
+### The frontend (#463)
 
-The pages are moving to [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) one page at a time; the tenant status page is the first. The backend and the API don't change.
+Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) in `frontend/`. The backend serves the build and the API; the one page it renders itself is the error page (`templates/error.html`, so a 401, 403, 404 or 500 reads well even without a build).
 
 ```bash
 cd frontend
@@ -164,38 +164,16 @@ npm run lint && npm run typecheck && npm test
 - Logic goes in `app/utils/` (plain functions, tested with Vitest in `frontend/tests/`); the pages themselves are tested end to end (`e2e/`).
 - Scale: keep big lists (sites, devices) in `shallowRef`, not deep reactivity.
 
-### Browser JavaScript
+Frontend rules:
 
-Every page's script is an ES module (#294), loaded with `<script type="module">`:
-
-Only the API page (`/docs`) is left on it; every other page is on Nuxt (#463).
-
-- `static/js/lib/`: helpers for the top bar (HTML escaping, times, the site search, theme).
-- `static/js/docs/main.js`: the page's entry, the only module that looks up page elements and
-  wires events. Every other module touches the page only when one of its functions is called,
-  never when it is imported.
-- No inline styles (#370): the CSP allows only the app's CSS files, so markup built in JS uses
-  classes, never `style="…"`.
-  Setting `element.style` from script is fine. `tests/test_no_inline_styles.py` checks.
-- The map is on Nuxt (#463): Leaflet and Leaflet.markercluster are npm packages in
-  `frontend/`, loaded by `app/utils/leafletmap.ts` (markercluster needs the global `L`).
-  Its markers are classes in `app/assets/css/main.css`, never `style="…"`.
-
-That rule is what makes them testable: a test imports the real functions in Node with
-`tests/js_modules.py`, and gives them stand-in elements:
-
-```python
-from tests.js_modules import run_js
-
-run_js("""
-import { escHtml } from "@js/lib/html.js";
-check(escHtml("R&D") === "R&amp;D", "escaped");
-""")
-```
-
-`check(condition, message)`, `element(name, props)`, a page-less `document` and
-`setGlobal(name, value)` are always there. Behaviour that needs a real browser goes in the
-Chromium tests in `e2e/`.
+- No inline styles or scripts (#370): the CSP allows only the app's own files, so markup uses
+  classes in `app/assets/css/main.css` (or Nuxt UI's), never `style="…"`; setting
+  `element.style` from script is fine. `tests/test_no_inline_styles.py` checks the pages.
+- Third-party code comes from npm, pinned, into the build (Leaflet and markercluster for the map,
+  `app/utils/leafletmap.ts`; Swagger UI for `/docs`, loaded on that page only): no CDN.
+- A rule the server and the browser share is tested on both sides against one fixture, e.g.
+  `frontend/tests/fixtures/scope-cases.json` for `?tenant=` / `?q=` (`nautobot_maps/scope.py`
+  and `app/utils/scope.ts`).
 
 ### Code Style
 
@@ -204,8 +182,7 @@ Chromium tests in `e2e/`.
 - Python code must be formatted with `ruff format .` (CI runs `ruff format --check .`).
   The repo-wide formatting commit is listed in `.git-blame-ignore-revs`; run
   `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so local `git blame` skips it.
-- JavaScript in `static/js/` must pass ESLint (`eslint.config.mjs`; CI runs it on every PR):
-  `npm ci` once, then `npm run lint:js`. Keep it consistent with the existing style.
+- The frontend must pass `npm run lint` and `npm run typecheck` in `frontend/` (CI runs both).
 - Write clear commit messages describing what changed and why.
 
 ### Database schema changes

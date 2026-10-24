@@ -14,7 +14,7 @@ def test_pages_and_apis_are_served_through_fastapi(asgi_client):
     page = asgi_client.get("/docs")
     assert page.status_code == 200 and 'class="app-bar"' in page.text
     assert asgi_client.get("/api/app-status").json()["state"] in {"ok", "stale", "down"}
-    assert asgi_client.get("/static/js/lib/nav.js").status_code == 200
+    assert asgi_client.get("/static/css/error.css").status_code == 200
     # Flask's own 404, as JSON for the API.
     missing = asgi_client.get("/api/nope")
     assert missing.status_code == 404 and missing.json() == {"error": "Not found"}
@@ -214,16 +214,12 @@ def test_the_shared_pieces_refuse_like_flask(monkeypatch):
 
 
 def test_templates_escape_and_link_as_flask_did():
-    """Autoescaped markup, url_for('static'), and the filters."""
-    from nautobot_maps import availability, templating
+    """Autoescaped markup and url_for('static') on the error page."""
+    from nautobot_maps import templating
 
-    html = templating.render(
-        "error.html", error_code=404, error_title="Acme <Corp> & Co", error_message="", bar_user=None
-    )
+    html = templating.render("error.html", error_code=404, error_title="Acme <Corp> & Co", error_message="")
     assert "Acme &lt;Corp&gt; &amp; Co" in html and "<Corp>" not in html
     assert 'href="/static/css/error.css"' in html
-    rendered = templating.environment.from_string("{{ 1200 | thousands }} {{ 5400 | downtime }}").render()
-    assert rendered == f"1,200 {availability.format_downtime(5400)}"
 
 
 def test_the_status_page_is_fastapis_with_its_own_referrer_policy(client, frontend_build):

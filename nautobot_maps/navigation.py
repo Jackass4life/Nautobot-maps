@@ -1,6 +1,5 @@
-"""The pages in the top bar's menu (#392, #419): one list for the
-server-rendered pages (templates/_nav.html) and the Nuxt ones, which read it
-from ``/api/page-config`` (#463)."""
+"""The pages in the top bar's menu (#392, #419), which the pages (Nuxt, #463)
+read from ``/api/page-config``."""
 
 # (key, path, label, what it is for).  The map, the board and the wall keep
 # the page's ?tenant= / ?q= (#366).

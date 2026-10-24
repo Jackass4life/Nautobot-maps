@@ -88,8 +88,8 @@ class TestRealRequests:
             yield test_client
 
     def test_static_files_and_their_cache(self, client):
-        path = "/static/js/lib/nav.js"
-        source = (STATIC / "js/lib/nav.js").read_bytes()
+        path = "/static/css/error.css"
+        source = (STATIC / "css/error.css").read_bytes()
         resp = client.get(path, headers=GZIP)
         assert resp.headers["Content-Encoding"] == "gzip" and gzip.decompress(resp.get_data()) == source
         etag = resp.headers["ETag"]
@@ -101,9 +101,9 @@ class TestRealRequests:
         assert "Content-Encoding" not in plain.headers and plain.get_data() == source
 
     def test_a_compressed_file_offers_no_byte_ranges(self, client):
-        resp = client.get("/static/js/lib/nav.js", headers=GZIP)
+        resp = client.get("/static/css/error.css", headers=GZIP)
         assert resp.headers["Content-Encoding"] == "gzip" and "Accept-Ranges" not in resp.headers
-        assert client.get("/static/js/lib/nav.js").headers.get("Accept-Ranges") == "bytes", "plain: as before"
+        assert client.get("/static/css/error.css").headers.get("Accept-Ranges") == "bytes", "plain: as before"
 
     def test_a_new_token_is_never_compressed(self, client, monkeypatch, pg_database):
         # The secret is shown once beside the name the client gave it (BREACH): no-transform.

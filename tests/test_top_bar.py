@@ -4,7 +4,6 @@ is, who is signed in, the theme and the pages."""
 from datetime import UTC, datetime
 
 from nautobot_maps import metrics, settings
-from tests.js_modules import run_js
 from tests.test_app import auth_config
 
 NOW = datetime(2026, 10, 22, 14, 0, tzinfo=UTC).timestamp()
@@ -72,76 +71,6 @@ def test_the_endpoint_never_calls_upstream(client, monkeypatch):
     assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
     assert response.get_json()["state"] in {"ok", "stale"}
     assert called == []
-
-
-def test_the_bar_says_who_is_signed_in(client):
-    with auth_config(mode="header", operator_groups={"noc-operators"}):
-        html = client.get(
-            "/docs", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "noc-operators"}
-        ).get_data(as_text=True)
-    assert '<span class="app-user-name">olga</span><span class="app-user-role"> · operator</span>' in html
-    # Disabled: nobody to name.
-    assert 'class="app-user"' not in client.get("/docs").get_data(as_text=True)
-
-
-def test_a_name_is_escaped(client):
-    with auth_config(mode="header", viewer_groups={"v"}):
-        html = client.get("/docs", headers={"X-Forwarded-User": "<b>x</b>", "X-Forwarded-Groups": "v"}).get_data(
-            as_text=True
-        )
-    assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
-
-
-def test_the_search_is_on_every_page(client):
-    # The server-rendered page; the Nuxt ones (the map, the board, /circuits, /maintenance,
-    # /availability, /help, #463) have AppBar.vue, without the search on the map, which has its own (e2e).
-    for path in ("/docs",):
-        html = client.get(path).get_data(as_text=True)
-        assert 'id="bar-search"' in html and 'id="app-status"' in html, path
-
-
-def test_the_status_line_names_the_worst_source():
-    run_js(
-        """
-import { appStatusView } from "@js/lib/nav.js";
-const now = new Date("2026-10-22T14:00:00Z");
-const ok = appStatusView({ state: "ok", updated_at: "2026-10-22T13:56:00Z", sources: [
-  { name: "Nautobot", state: "ok", message: "Nautobot is up to date", last_success: "2026-10-22T13:56:00Z" },
-] }, now);
-check(ok.state === "ok" && ok.text.startsWith("Updated "), ok.text);
-check(ok.detail.includes("up to date") && ok.detail.includes("Nautobot") && ok.detail.includes("synced "), ok.detail);
-const bad = appStatusView({ state: "down", updated_at: null, sources: [
-  { name: "Nautobot", state: "stale", message: "Nautobot data is 45 min old", last_success: "2026-10-22T13:15:00Z" },
-  { name: "LibreNMS", state: "down", message: "Can't reach <LibreNMS>", last_success: "2026-10-22T13:50:00Z" },
-] }, now);
-check(bad.state === "down" && bad.text === "Can't reach <LibreNMS>", bad.text);
-check(bad.detail.includes("Can&#39;t reach &lt;LibreNMS&gt;") || bad.detail.includes("Can't reach &lt;LibreNMS&gt;"), "escaped");
-check(bad.detail.includes("last good"), "when it was last good");
-check(appStatusView(null).text === "Can't reach Nautobot Maps", "the app itself");
-"""
-    )
-
-
-def test_the_search_rows_at_scale():
-    run_js(
-        """
-import { barSearchHtml, isSearchShortcut } from "@js/lib/nav.js";
-import { matchSites } from "@js/map/sitesearch.js";
-const sites = Array.from({ length: 1200 }, (_, i) => ({ id: `s${i}`, name: `Site ${i}`, ancestor_path: "EMEA › DNK" }));
-sites.push({ id: "x&1", name: "Bank <HQ>", ancestor_path: "" });
-const html = barSearchHtml(matchSites(sites, "site"));
-check((html.match(/class="bar-hit"/g) || []).length === 8, "eight rows");
-check(html.includes("1,192 more: keep typing"), "and how many more");
-check(html.includes('href="/?location_id=s0"') && html.includes('href="/alerts?q=Site%200"'), "map and board");
-const bank = barSearchHtml(matchSites(sites, "bank"));
-check(bank.includes("Bank &lt;HQ&gt;") && !bank.includes("<HQ>") && bank.includes("location_id=x%261"), "escaped");
-check(barSearchHtml({ matches: [], more: 0 }).includes("No site matches"), "none");
-const key = (target, extra = {}) => isSearchShortcut({ key: "/", target, ...extra });
-check(key(element("page")), "/ on the page");
-check(!key(element("input", { closest: () => ({}) })), "typing");
-check(!key(element("page"), { ctrlKey: true }), "Ctrl+/");
-"""
-    )
 
 
 class TestPageConfig:

@@ -21,7 +21,6 @@ INLINE = re.compile(
 
 def _sources():
     yield from (ROOT / "templates").rglob("*.html")
-    yield from (ROOT / "static" / "js").rglob("*.js")
     yield from (ROOT / "nautobot_maps").rglob("*.py")
 
 
@@ -89,8 +88,8 @@ def test_the_marker_colours_are_the_levels_colours():
 
 
 def test_the_error_pages_styles_load_without_signing_in(client, monkeypatch):
-    """The error page links error.css: public, as it carries no data (#370); other files still need sign-in."""
+    """The error page links error.css: public, as it carries no data (#370); other paths still need sign-in."""
     monkeypatch.setattr(settings, "AUTH_MODE", "header")
     monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
     assert client.get("/static/css/error.css").status_code == 200
-    assert client.get("/static/css/alerts.css").status_code == 401
+    assert client.get("/static/css/other.css").status_code == 401

@@ -1,6 +1,7 @@
 """Case numbers link to the ITSM ticket (#289)."""
 
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -8,8 +9,8 @@ import pytest
 
 from nautobot_maps import itsm, notify, settings
 from tests import http_client
-from tests.js_modules import REPO_ROOT
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 TEMPLATE = "https://itsm.example.com/ticket/{case}"
 
 
