@@ -39,9 +39,9 @@ export default defineNuxtConfig({
   experimental: { entryImportMap: false },
   vite: {
     build: {
-      // Swagger UI (about 1.4 MB, the API page only, loaded there by a dynamic import)
-      // is the one chunk above Vite's 500 kB warning.
-      chunkSizeWarningLimit: 1500,
+      // Swagger UI (about 1.5 MB since 5.34, the API page only, loaded there by a
+      // dynamic import) is the one chunk above Vite's 500 kB warning.
+      chunkSizeWarningLimit: 2000,
       // No report of plugins taking a large share of the build's time: it fired
       // in every build (about 5 s of a short build) and read as a warning in
       // every Docker build. Build time is still in CI's logs.
