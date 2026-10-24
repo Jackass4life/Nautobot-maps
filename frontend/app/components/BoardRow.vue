@@ -18,10 +18,25 @@ import {
   type BoardSite,
 } from "~/utils/board";
 import { siteTenants } from "~/utils/scope";
+import { caseBadge } from "~/utils/wall";
 import { siteAddress } from "~/utils/sitesearch";
 import { maintenanceHistoryHref } from "~/utils/sitepanel";
 
-const props = defineProps<{ item: BoardSite; expanded: boolean; caseTemplate: string; copied: boolean; now: number }>();
+const props = withDefaults(
+  defineProps<{
+    item: BoardSite;
+    expanded: boolean;
+    caseTemplate: string;
+    copied?: boolean;
+    now: number;
+    // The wall screen (#243): plain names, the case badge, every device, nothing to click;
+    // *handled*: someone is on every down device (#271), *first* of those (a dashed line).
+    wall?: boolean;
+    handled?: boolean;
+    handledFirst?: boolean;
+  }>(),
+  { copied: false, wall: false, handled: false, handledFirst: false },
+);
 const emit = defineEmits<{
   toggle: [];
   case: [];
@@ -69,11 +84,15 @@ const menu = computed<DropdownMenuItem[]>(() => {
 </script>
 
 <template>
-  <tr class="site-row" :data-site-id="item.id" :class="{ 'in-maintenance': item.alert_level === 'maintenance' }">
+  <tr
+    class="site-row"
+    :data-site-id="item.id"
+    :class="{ 'in-maintenance': item.alert_level === 'maintenance', 'case-handled': handled, 'handled-first': handledFirst }"
+  >
     <td>
       <div class="flex items-start gap-1.5">
         <UButton
-          v-if="devices.length"
+          v-if="devices.length && !wall"
           class="site-toggle-btn -ml-1 shrink-0"
           size="xs"
           color="neutral"
@@ -83,10 +102,10 @@ const menu = computed<DropdownMenuItem[]>(() => {
           :aria-label="`${expanded ? 'Collapse' : 'Expand'} ${name}`"
           @click="emit('toggle')"
         />
-        <span v-else class="w-6 shrink-0" aria-hidden="true" />
+        <span v-else-if="!wall" class="w-6 shrink-0" aria-hidden="true" />
         <div class="min-w-0">
           <div class="site-title font-medium text-highlighted">
-            <a v-if="onTheMap(item)" class="site-name hover:underline" :href="`/?location_id=${encodeURIComponent(item.id)}`" title="Show on the map">{{ name }}</a>
+            <a v-if="!wall && onTheMap(item)" class="site-name hover:underline" :href="`/?location_id=${encodeURIComponent(item.id)}`" title="Show on the map">{{ name }}</a>
             <span v-else class="site-name">{{ name }}</span>
             <!-- The site's importance (#293); the most important tier is accented. -->
             <span v-if="item.tier" class="tier-pill" :class="{ 'tier-top': item.tier_rank === 0 }" title="Importance tier">{{ item.tier.toUpperCase() }}</span>
@@ -112,13 +131,14 @@ const menu = computed<DropdownMenuItem[]>(() => {
     </td>
     <td>
       <LevelBadge :level="item.alert_level" :reason="item.alert_reason" />
+      <span v-if="wall && item.alert_level !== 'maintenance'" class="case-state" :class="`case-state-${caseBadge(item).state}`">{{ caseBadge(item).text }}</span>
       <div v-if="item.maintenance" class="maintenance-note mt-1 text-xs text-muted">
         {{ maintenanceNote(item.maintenance.until, item.maintenance.reason) }}
       </div>
     </td>
-    <td class="since-cell whitespace-nowrap text-sm text-toned">{{ sinceLabel("in alarm", siteAlarmSeconds(item)) }}</td>
+    <td class="since-cell whitespace-nowrap text-sm text-toned">{{ wall ? "" : sinceLabel("in alarm", siteAlarmSeconds(item)) }}</td>
     <td class="cases-cell col-cases"><CasePills :cases="item.active_cases" :template="caseTemplate" empty="—" /></td>
-    <td class="col-action">
+    <td v-if="!wall" class="col-action">
       <div class="action-row flex items-center justify-end gap-1">
         <UButton
           v-if="withCase.length"
@@ -145,8 +165,8 @@ const menu = computed<DropdownMenuItem[]>(() => {
       </div>
     </td>
   </tr>
-  <template v-if="expanded">
-    <tr v-for="device in devices" :key="device.device_id" class="down-device-row">
+  <template v-if="wall ? item.alert_level !== 'maintenance' : expanded">
+    <tr v-for="device in devices" :key="device.device_id" class="down-device-row" :class="{ 'case-handled': handled }">
       <td class="down-device-cell pl-9" :aria-label="`Down device for ${name}`">
         <div class="down-device-name text-sm">
           <span class="sr-only">Down device for {{ name }}: </span>↳ {{ device.device_name || device.device_id || "Unknown device" }}
@@ -169,7 +189,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
       <td />
       <td class="since-cell whitespace-nowrap text-sm text-toned">{{ sinceLabel("down", deviceDowntimeSeconds(device, now)) }}</td>
       <td class="cases-cell col-cases"><CasePills :cases="device.case_numbers" :template="caseTemplate" empty="—" /></td>
-      <td class="col-action" />
+      <td v-if="!wall" class="col-action" />
     </tr>
   </template>
 </template>

@@ -3,7 +3,6 @@ the static files (#424, #433; on FastAPI since #436).  The other pages live
 with their area's API (status, availability, circuits, maintenance)."""
 
 import pathlib
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -17,16 +16,6 @@ from nautobot_maps.api.answers import pages as answers
 router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Pages"])
 
 STATIC = pathlib.Path(__file__).resolve().parent.parent.parent / "static"
-
-
-def scope_query(request: Request) -> str:
-    """The page's ?tenant= / ?q= (#364, #367) as a query string, "" without
-    them: kept on the links between the map, the board and the wall."""
-    params = request.query_params
-    return urlencode(
-        [("tenant", name) for name in params.getlist("tenant") if name.strip()]
-        + [("q", text) for text in params.getlist("q") if text.strip()]
-    )
 
 
 @router.get("/api/page-config", name="pages.api_page_config", response_model=answers.PageConfig)
@@ -77,24 +66,12 @@ def index():
 
 
 @router.get("/alerts", name="pages.alert_board", include_in_schema=False)
-def alert_board(request: Request):
-    """The alert board: every site's severity, down devices, cases and history.
-    Built with Nuxt (#463); the page reads ``/api/page-config``, ``/api/alerts``
-    and ``/api/alert-feed``.
-
-    ``?view=wall`` is the wall-screen view (#243): alarms only, down devices
-    listed, no controls; still server-rendered until it moves too.
-    """
-    if request.query_params.get("view") != "wall":
-        return frontend.shell()
-    return pages.page(
-        "alerts.html",
-        nautobot_url=settings.NAUTOBOT_URL,
-        case_url_template=settings.CASE_URL_TEMPLATE,
-        tier_definitions=alerts.alert_level_definitions(),
-        wall_view=True,
-        scope_query=scope_query(request),
-    )
+def alert_board():
+    """The alert board: every site's severity, down devices, cases and history;
+    ``?view=wall`` is the wall screen (#243): alarms only, every site open, no
+    controls.  Built with Nuxt (#463); the page reads ``/api/page-config``,
+    ``/api/alerts`` and ``/api/alert-feed``."""
+    return frontend.shell()
 
 
 @router.get("/docs", name="pages.api_docs", include_in_schema=False)

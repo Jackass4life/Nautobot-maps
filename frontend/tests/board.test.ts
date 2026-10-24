@@ -16,6 +16,7 @@ import {
   deviceDowntimeSeconds,
   deviceMeta,
   emptyBoardText,
+  flapTitle,
   feedEntry,
   feedStartsCollapsed,
   filterSites,
@@ -26,12 +27,14 @@ import {
   hasCase,
   historyExportUrl,
   levelLabel,
+  maintenanceNote,
   moreFiltersInUse,
   noBoardCriteria,
   scopeSummary,
   siteAlarmSeconds,
   siteCaseState,
   sinceLabel,
+  setLevel,
   siteReport,
   stackText,
   wallLinkFor,
@@ -238,6 +241,17 @@ describe("a row", () => {
     expect(stackText(whole)).toBe("Stack sw1: all 2 members down");
     expect(stackText(whole, { names: true })).toBe("Stack sw1: all 2 members down (a, b)");
     expect(stackText({ name: "x", size: 1, position: 1, master: true, whole: false })).toBe("");
+  });
+
+  it("flapping, a level set in Nautobot and maintenance say so (#286, #377, #283)", () => {
+    expect(flapTitle(device("d", { flap_changes: 1 }))).toBe("Up and down 1 time in the last 30 minutes");
+    expect(flapTitle(device("d", { flap_changes: 6 }))).toBe("Up and down 6 times in the last 30 minutes");
+    expect(setLevel(device("d", { set_level: "low" }))).toBe("low");
+    // Only known levels reach the page.
+    expect(setLevel(device("d", { set_level: "<b>" }))).toBe("");
+    expect(setLevel(device("d"))).toBe("");
+    expect(maintenanceNote("", "core switch upgrade")).toBe("core switch upgrade");
+    expect(maintenanceNote("2026-10-24T14:00:00Z", "", new Date("2026-10-24T12:00:00Z"))).toMatch(/^until (14|02):00( PM)?$/);
   });
 
   it("a case number links to its ticket (#289)", () => {

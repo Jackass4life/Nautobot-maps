@@ -18,7 +18,7 @@ SCOPED = {"map", "alerts", "wall"}
 
 
 def pages(scope_query: str = "") -> list[dict]:
-    """The menu's pages; *scope_query* (``tenant=a&q=b``, ``views.scope_query``)
+    """The menu's pages; *scope_query* (``tenant=a&q=b``, the page's ?tenant= / ?q=)
     kept on the scoped ones."""
     result = []
     for key, path, label, title in PAGES:

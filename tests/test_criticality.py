@@ -262,17 +262,3 @@ def test_the_board_marks_a_level_set_in_nautobot(board):
     write({"a": "gold"}, devices)
     marks = {d["device_id"]: d.get("set_level") for d in build(board, NOW)["a"]["down_devices"]}
     assert marks == {"a-sw0": "low", "a-sw1": None}
-
-
-def test_the_set_level_badge():
-    from tests.js_modules import run_js
-
-    run_js(
-        """
-import { setLevelBadge } from "@js/alerts/rows.js";
-check(setLevelBadge({}) === "", "nothing set");
-check(setLevelBadge({ set_level: "<b>" }) === "", "only known levels");
-const html = setLevelBadge({ set_level: "low" });
-check(html.includes("SET LOW") && html.includes('title="Set low in Nautobot'), html);
-"""
-    )

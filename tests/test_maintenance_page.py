@@ -23,15 +23,3 @@ check(planRequest({ siteIds: ["a", "b"], scope: "devices", deviceIds: ["d"], rea
 check(planRequest({ siteIds: ids, scope: "site", deviceIds: [], reason: "x", ...when }, 30).error === "At most 30 sites at once.", "the limit");
 """
     )
-
-
-def test_history_links():
-    run_js(
-        """
-import { maintenanceHistoryLink } from "@js/alerts/rows.js";
-// A site's history from the board's ⋯ menu, escaped (#353); the map's panel: frontend/tests/sitepanel.test.ts.
-const link = maintenanceHistoryLink({ id: "loc a&b", name: "Oslo <HQ>" });
-check(link.includes('href="/maintenance?view=history&amp;site_id=loc+a%26b"') && link.includes("for Oslo &lt;HQ&gt;"), link);
-check(maintenanceHistoryLink({}) === "", "no id");
-"""
-    )

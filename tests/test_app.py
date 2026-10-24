@@ -612,13 +612,12 @@ class TestApiLocations:
 # ---------------------------------------------------------------------------
 class TestAlertBoard:
     def test_alert_board_page_renders(self, client, frontend_build):
-        """The board is built with Nuxt (#463; frontend/tests/ and e2e/ test the page
-        itself); the wall is still the server's page until it moves too."""
-        resp = client.get("/alerts?tenant=Acme%20Corp")
-        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
-        assert resp.headers["Cache-Control"] == "no-cache"
-        wall = client.get("/alerts?view=wall")
-        assert wall.status_code == 200 and b"wall-view" in wall.data and b'id="__nuxt"' not in wall.data
+        """The board and the wall are built with Nuxt (#463; frontend/tests/ and e2e/
+        test the pages themselves)."""
+        for path in ("/alerts?tenant=Acme%20Corp", "/alerts?view=wall&q=DNK"):
+            resp = client.get(path)
+            assert resp.status_code == 200 and b'id="__nuxt"' in resp.data, path
+            assert resp.headers["Cache-Control"] == "no-cache"
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
         caching.cache.clear()
@@ -1581,15 +1580,6 @@ class TestIndex:
         config = client.get("/api/page-config").get_json()
         assert config["nautobot_url"] == ""
         assert config["map"]["view"] == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
-
-    def test_wall_and_operator_links_keep_a_scope(self, client):
-        """?tenant= / ?q= (#364) stay on the Wall view and Operator view links; nothing else does."""
-        html = client.get("/alerts?view=wall&tenant=Acme%20Corp&tenant=%20&tenant=Nordic%20Net&q=DNK&x=1").get_data(
-            as_text=True
-        )
-        assert 'class="wall-exit" href="/alerts?tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in html
-        # The wall has no top bar (#419); the board's menu (Nuxt, #463) is tested end to end.
-        assert 'class="app-bar"' not in html
 
     def test_live_locations_have_their_path(self, monkeypatch):
         """Without the cache (a map-only setup), /api/locations' paths still come along (#367)."""

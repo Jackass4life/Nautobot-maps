@@ -100,12 +100,6 @@ def test_the_search_is_on_every_page(client):
         assert 'id="bar-search"' in html and 'id="app-status"' in html, path
 
 
-def test_no_bar_on_the_wall_or_the_status_page(client):
-    for path in ("/alerts?view=wall", "/status/Acme%20Corp"):
-        html = client.get(path).get_data(as_text=True)
-        assert 'class="app-bar"' not in html and "app-user" not in html and "bar-search" not in html, path
-
-
 def test_the_status_line_names_the_worst_source():
     run_js(
         """
