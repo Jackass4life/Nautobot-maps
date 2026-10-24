@@ -6,7 +6,6 @@ import pytest
 
 from nautobot_maps import alerts, inventory, notify, settings
 from tests import test_maintenance
-from tests.js_modules import run_js
 from tests.test_maintenance import build
 
 clock = test_maintenance.clock
@@ -103,25 +102,6 @@ class TestNotifications:
         env = {**os.environ, "NOTIFY_MIN_LEVEL_BY_TIER": ":low, gold:low,silver:bogus"}
         out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
         assert out.stdout.strip() == "{'gold': 'low'}"
-
-
-def test_the_tier_label_and_sort():
-    run_js(
-        """
-import { compareSites } from "@js/alerts/filters.js";
-import { tierPill } from "@js/alerts/rows.js";
-check(tierPill({ tier: "gold", tier_rank: 0 }).includes('class="tier-pill tier-top"') && tierPill({ tier: "gold", tier_rank: 0 }).includes(">GOLD<"), "top tier");
-check(tierPill({ tier: "silver", tier_rank: 1 }).includes('class="tier-pill"'), "other tier");
-check(tierPill({}) === "", "none");
-const sites = [
-  { name: "Office", alert_level: "critical", tier_rank: 99 },
-  { name: "Hospital", alert_level: "critical", tier_rank: 0 },
-  { name: "Depot", alert_level: "medium", tier_rank: 0 },
-];
-sites.sort((a, b) => compareSites(a, b, "severity"));
-check(sites.map((s) => s.name).join() === "Hospital,Office,Depot", sites.map((s) => s.name).join());
-"""
-    )
 
 
 class TestTierChangesDuringAnAlarm:

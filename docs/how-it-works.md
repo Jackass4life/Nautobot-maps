@@ -17,7 +17,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (read-only), asks *
 | **Leaflet** (+ markercluster) | The map in the browser, bundled into the Nuxt build (`frontend/`) | No CDN needed at runtime |
 | **OpenStreetMap** tiles and **Nominatim** address search | Map background and "search by address" (both replaceable: `MAP_TILE_URL`, `GEOCODER_URL`, or off) | Free defaults; point them at your own servers if needed |
 | **Plain JavaScript (ES modules)** | The pages' code (`static/js/`), no framework, no build step | Nothing to compile; strict Content Security Policy |
-| **Nuxt (Vue, TypeScript) + Nuxt UI** | The pages as they move over, one by one (#463; the status page, circuits, maintenance, availability, help, the map and the alert board so far): `frontend/`, built to static files the app serves | The team's standard; typed from the API's own models; still no Node in production |
+| **Nuxt (Vue, TypeScript) + Nuxt UI** | The pages as they move over, one by one (#463; the status page, circuits, maintenance, availability, help, the map, the alert board and the wall; only the API page is left): `frontend/`, built to static files the app serves | The team's standard; typed from the API's own models; still no Node in production |
 | **Docker / Docker Compose** | Packages the app with PostgreSQL and Redis (`docker-compose.yml`) | One command to start |
 | **nginx + oauth2-proxy** *(optional, bundled in `deploy/proxy/`)* | In front of the app for HTTPS and company sign-in (any OIDC provider), or your own SSO proxy instead | The app has no login screen of its own and doesn't do TLS: your identity provider signs people in |
 

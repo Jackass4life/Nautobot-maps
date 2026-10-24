@@ -4,7 +4,6 @@ panel shows a stack as one device."""
 import pytest
 
 from nautobot_maps import inventory, nautobot, settings
-from tests.js_modules import run_js
 
 CHASSIS = {"id": "vc-1", "name": "sw-stack01", "display": "sw-stack01", "master": {"id": "m1"}}
 
@@ -214,31 +213,3 @@ def test_a_stack_of_one_left_after_exclusions_is_not_a_stack(monkeypatch):
         {"vc-1": [{"name": "s", "status": "Active"}, {"name": "s:2", "status": "Decommissioning"}]}
     )
     assert alerts.stack_of({"id": "m1", "vc_id": "vc-1"}, stacks) == {}
-
-
-def test_stack_text_on_the_board_and_in_copy():
-    run_js(
-        """
-import { stackText } from "@js/alerts/rows.js";
-import { siteReport } from "@js/alerts/panels.js";
-const stack = { name: "sw-stack01", position: 1, size: 4, master: true, whole: true, members: ["sw-stack01", "sw-stack01:2", "sw-stack01:3", "sw-stack01:4"] };
-// A member monitored on its own: just itself.
-check(stackText({ ...stack, position: 2, master: false, whole: false }, { names: true }) === "Stack sw-stack01, member 2 of 4", "member");
-check(stackText({ ...stack, whole: false }, { names: true }) === "Stack sw-stack01, master of 4", "a master, not down whole");
-check(stackText(stack) === "Stack sw-stack01: all 4 members down", stackText(stack));
-check(stackText(stack, { names: true }) === "Stack sw-stack01: all 4 members down (sw-stack01, sw-stack01:2, sw-stack01:3, sw-stack01:4)", "with names");
-check(stackText({ name: "", size: 3, whole: true }, { names: true }) === "Stack: all 3 members down", "no name, no member names");
-check(stackText(undefined) === "" && stackText({ size: 1 }) === "", "not a stack");
-check(stackText({ name: "s", size: "4" }) === "", "a size must be a number");
-
-const text = siteReport({
-  name: "Site A", alert_level: "medium",
-  down_devices: [
-    { device_name: "sw-stack01", device_ip: "10.0.0.1", role: "Access Switch", status: "Offline", stack },
-    { device_name: "edge", role: "Edge Router", status: "Offline" },
-  ],
-});
-check(text.includes("- sw-stack01 | IP 10.0.0.1 | Role Access Switch | Stack sw-stack01: all 4 members down (sw-stack01, sw-stack01:2, sw-stack01:3, sw-stack01:4) | Status Offline"), text);
-check(!text.split("\\n").find((line) => line.startsWith("- edge")).includes("Stack"), "not in a stack: nothing said");
-"""
-    )

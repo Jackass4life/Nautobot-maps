@@ -5,7 +5,6 @@ import pytest
 from nautobot_maps import alerts, caching, settings
 from nautobot_maps.repositories import board as board_store
 from tests import test_alert_delay
-from tests.js_modules import run_js
 from tests.test_alert_delay import LONG_AGO, build, rows, set_devices
 
 # The alert delay tests' fixtures: London HQ, all up for long, and a clock.
@@ -187,16 +186,3 @@ class TestMapWindow:
             assert board_store.flapping_device_ids(conn, "2026-10-10T12:00:00Z", alerts.FLAP_WINDOW) == {"busy"}
         finally:
             conn.close()
-
-
-class TestLabel:
-    def _run(self, body):
-        run_js('import { flappingBadge } from "@js/alerts/rows.js";\n' + body)
-
-    def test_one_label_with_the_count_in_the_hover_text(self):
-        self._run("""
-check(flappingBadge({}) === "", "not flapping");
-const html = flappingBadge({ flapping: true, flap_changes: 5 });
-check(html.includes(">FLAPPING<") && html.includes('title="Up and down 5 times in the last 30 minutes"'), html);
-check(flappingBadge({ flapping: true, flap_changes: 1 }).includes('title="Up and down 1 time in the last 30 minutes"'), "singular");
-""")

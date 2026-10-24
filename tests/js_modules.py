@@ -1,6 +1,6 @@
 """Run the browser's ES modules in Node for the tests (#294).
 
-The modules in static/js/lib and static/js/alerts don't touch the page when
+The modules in static/js/lib don't touch the page when
 imported, so a test imports the real functions instead of copying their text
 out of a file.  Page elements are plain objects the test puts in `els`.
 """

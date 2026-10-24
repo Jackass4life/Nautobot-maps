@@ -4,7 +4,6 @@ import pytest
 
 from nautobot_maps import alerts, caching, db
 from tests import http_client, test_maintenance
-from tests.js_modules import run_js
 from tests.test_app import auth_config
 from tests.test_maintenance import build, set_devices
 
@@ -126,37 +125,3 @@ class TestApi:
         finally:
             conn.close()
         assert by == "olga"
-
-
-class TestInTheBrowser:
-    def _run(self, body):
-        run_js(
-            """
-import { ackRequestBody } from "@js/alerts/case-panel.js";
-import { ackButton, ackNote, caseStateBadge, siteCaseState } from "@js/alerts/rows.js";
-"""
-            + body
-        )
-
-    def test_ack_counts_as_someone_on_it(self):
-        self._run("""
-const ack = { by: "olga", note: "On <it>", at: "2026-10-10T20:00:00Z" };
-check(ackNote({ acknowledged: ack }) === '<div class="ack-note">ACK olga · On &lt;it&gt;</div>', ackNote({ acknowledged: ack }));
-check(ackNote({}) === "", "not acknowledged");
-const site = { id: "s1", name: "Oslo", down_devices: [
-  { device_id: "d1", device_name: "sw1", acknowledged: ack },
-  { device_id: "d2", device_name: "sw2", case_numbers: ["INC-1"] },
-] };
-check(siteCaseState(site).state === "handled", "a case or an ack: someone is on it");
-check(caseStateBadge(site).includes("✓ INC-1 · ACK"), caseStateBadge(site));
-check(ackButton(site).includes(">Acknowledge<"), "one device isn't acknowledged: Acknowledge");
-// One acknowledged and one untouched: "1 of 2 no case or ack", not "no case".
-const partly = { id: "s3", down_devices: [{ device_id: "a", acknowledged: ack }, { device_id: "b" }] };
-check(caseStateBadge(partly).includes(">1 of 2 no case or ack<"), caseStateBadge(partly));
-site.down_devices[1].acknowledged = ack;
-check(ackButton(site).includes("unack-btn") && ackButton(site).includes(">Remove ack<"), ackButton(site));
-check(ackButton({ id: "s2", down_devices: [{ device_id: "", device_name: "ghost" }] }) === "", "nothing to acknowledge");
-// One click = every device: null, which the API accepts (an empty list it refuses).
-check(JSON.stringify(ackRequestBody("s1", [], "")) === '{"site_id":"s1","device_ids":null,"note":""}', "all");
-check(ackRequestBody("s1", ["d1"], "x").device_ids[0] === "d1", "some");
-""")
