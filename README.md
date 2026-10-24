@@ -15,7 +15,7 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
   - **One search box** finds a site by name or address as you type, or a place or `lat,lon` with every site within 5 km.
   - **The left panel** folds away with the sidebar button for a full-screen map, and still shows the alarm count while folded.
 - **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, the likely cause, downtime, tenants and case numbers. It opens on sites with alarms, the ones nobody is on first, and updates itself.
-- **Searchable filters** on the map, board, Availability and Maintenance: type to find a value and tick several. A site matches any pick within a filter and every filter together. Closed controls show one name and **+N**; the map's chips remove individual picks. Enter picks the first match, arrows move, Space ticks in the list, and Escape closes. Lists show at most 50 matches, with a prompt to keep typing; fewer than two choices stay hidden. Staff (viewer, operator, admin) can carry tenant picks in Map / Alert Board / Wall view links and **Copy wall link**, using repeated `?tenant=` values. Customer status pages remain single-tenant, without filters or access to the map or board.
+- **Searchable filters** on the map, board, Availability and Maintenance: type to find a value and tick several. A site matches any pick within a filter and every filter together. Closed controls show one name and **+N**; the map's chips remove individual picks. Arrows move, Enter ticks the highlighted match, and Escape closes; typing and picking make no requests, at 1,200 sites too. Staff (viewer, operator, admin) can carry tenant picks in Map / Alert Board / Wall view links and **Copy wall link**, using repeated `?tenant=` values. Customer status pages remain single-tenant, without filters or access to the map or board.
 - **Criticality from Nautobot**: mark which sites and devices matter with custom fields in Nautobot. A gold site makes every down device Critical; one device can be set Critical (or Low) on its own, and the device's field wins. With nothing set, the share of devices down decides, and all down is still Critical. Editing these doesn't page anyone ([set it up](#criticality-in-nautobot)).
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating. A link with `?tenant=` / `?q=` gives a team its own wall, board and map, with **Copy wall link** on the board.
 - **Cases and ITSM**: attach a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
@@ -72,7 +72,7 @@ docker compose up --build -d
 
 The bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created. For LibreNMS, sign-in and everything else, see [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
 
-Without Docker (for development): `pip install -r requirements.txt`, then `python app.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Without Docker (for development): `pip install -r requirements.txt`, build the pages once with Node 22 (`cd frontend && npm ci && npm run generate`), then `python app.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Criticality in Nautobot
 

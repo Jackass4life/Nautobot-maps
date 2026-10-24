@@ -188,5 +188,5 @@ By default viewers' browsers load tiles from `tile.openstreetmap.org`, and the a
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
 | `LOG_FORMAT` | `text` | `text`, or `json` (one object per line, for Loki, ELK, Splunk) |
 | `METRICS_ENABLED` | `true` | Prometheus metrics at `/metrics`; `false`: 404 |
-| `FLASK_DEBUG` | `false` | Flask debug mode (development server only) |
+| `FLASK_DEBUG` | `false` | Reload on code changes (development server, `python app.py`, only; the name is from the Flask days) |
 | `FLASK_RUN_PORT` | `5000` | Port of the development server (e.g. when macOS AirPlay Receiver has 5000) |

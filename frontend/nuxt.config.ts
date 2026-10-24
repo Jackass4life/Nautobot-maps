@@ -37,6 +37,9 @@ export default defineNuxtConfig({
   // No inline import map in the page (CSP: script-src 'self'); the entry
   // is loaded by its own file name instead.
   experimental: { entryImportMap: false },
+  // Swagger UI (about 1.4 MB, the API page only, loaded there by a dynamic import)
+  // is the one chunk above Vite's 500 kB warning.
+  vite: { build: { chunkSizeWarningLimit: 1500 } },
   devtools: { enabled: false },
   telemetry: false,
 });

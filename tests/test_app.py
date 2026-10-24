@@ -6698,14 +6698,15 @@ class TestApiExplorer:
         # The page keeps the example's own order (the JSON response sorts keys).
         assert list(json.loads(case["example_body_text"])) == ["site_id", "device_ids", "case_number"]
 
-    def test_the_page_is_swagger_ui_from_our_files(self, client):
-        """#436: Swagger UI, bundled (no CDN) and started from a module (no inline script, the CSP)."""
-        html = client.get("/docs").get_data(as_text=True)
-        assert 'id="swagger-ui"' in html and 'class="app-bar"' in html
-        assert '<script src="/static/vendor/swagger-ui-bundle.js"></script>' in html
-        assert '<script type="module" src="/static/js/docs/main.js">' in html and "<script>" not in html
-        assert "cdn" not in html.lower()
-        assert client.get("/static/vendor/swagger-ui-bundle.js").status_code == 200
+    def test_the_page_is_the_nuxt_page(self, client, frontend_build):
+        """#436, #463: Swagger UI from npm, bundled into the Nuxt build (no CDN, no inline
+        script); frontend/ and e2e/ test the page itself."""
+        resp = client.get("/docs")
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        package = json.loads((pathlib.Path(__file__).resolve().parent.parent / "frontend" / "package.json").read_text())
+        assert package["dependencies"]["swagger-ui-dist"]
+        # Its install-time analytics (Scarf) stay off: the app works offline.
+        assert package["scarfSettings"] == {"enabled": False}
 
     def test_write_bodies_are_in_the_spec(self, client):
         """Each write's JSON body is described (deps.body_schema), e.g. a case."""
@@ -6718,11 +6719,12 @@ class TestApiExplorer:
         names = {param["name"] for param in spec["paths"]["/api/availability"]["get"]["parameters"]}
         assert {"month", "from", "to", "basis"} <= names
 
-    def test_header_links_to_the_explorer(self, client):
-        # The server-rendered page; the Nuxt ones read the menu from /api/page-config (#463).
-        assert 'href="/docs"' in client.get("/docs").get_data(as_text=True)
+    def test_the_menu_links_to_the_explorer(self, client):
+        # The pages read the menu from /api/page-config (#463).
+        pages = client.get("/api/page-config").get_json()["pages"]
+        assert {"key": "docs", "href": "/docs"}.items() <= next(p for p in pages if p["key"] == "docs").items()
 
-    def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch):
+    def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/docs").status_code == 401

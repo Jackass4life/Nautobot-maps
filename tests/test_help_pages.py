@@ -84,8 +84,10 @@ def test_images_and_unknown_pages(client, frontend_build):
 
 
 def test_the_menu_links_to_it(client):
-    html = client.get("/docs").get_data(as_text=True)
-    assert 'href="/help">Documentation</a>' in html
+    pages = client.get("/api/page-config").get_json()["pages"]
+    assert {"key": "help", "href": "/help", "label": "Documentation"}.items() <= next(
+        p for p in pages if p["key"] == "help"
+    ).items()
 
 
 def test_the_docs_go_into_the_image():

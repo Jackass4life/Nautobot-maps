@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import pathlib
 import random
 
 import pytest
@@ -10,7 +11,6 @@ from starlette.datastructures import QueryParams
 
 from nautobot_maps import alerts, caching, coordinates, scope, settings
 from tests import http_client
-from tests.js_modules import run_js
 
 
 def site(site_id, lat, lon, **extra):
@@ -149,56 +149,22 @@ class TestCheck:
         assert [item["site_id"] for item in coordinates.check(rows, page)] == ["acme"]
 
 
-# The same scopes through the server's matching and the browser's (#368, #369).
-SCOPE_SITES = [
-    {"id": "a", "name": "Aarhus", "ancestor_path": "EMEA › DNK", "tenant": "Acme Corp", "country": "Denmark"},
-    {
-        "id": "o",
-        "name": "Oslo",
-        "parent": "NOR",
-        "tenants": ["Nordic Net", "Acme Corp"],
-        "physical_address": "Storgata 1",
-    },
-    {"id": "l", "name": "Lyon", "facility": "Lyon DC2", "tenant": "EuroIX"},
-    {"id": "n", "name": None},
-]
-SCOPE_CASES = [
-    "",
-    "?tenant=acme%20corp",
-    "?tenant=EUROIX&tenant=Nordic%20Net",
-    "?q=EMEA",
-    "?q=dnk&q=aarhus",
-    "?q=storgata",
-    "?q=dc2",
-    "?tenant=Acme%20Corp&q=oslo",
-    "?q=nowhere",
-]
+# The same links through the server's matching and the browser's (#368, #369):
+# frontend/tests/scope.test.ts checks app/utils/scope.ts against the same file.
+SCOPE_CASES = json.loads(
+    (
+        pathlib.Path(__file__).resolve().parent.parent / "frontend" / "tests" / "fixtures" / "scope-cases.json"
+    ).read_text()
+)
 
 
-class TestScopeParity:
-    def test_server_and_browser_match_the_same_sites(self):
-        from urllib.parse import parse_qsl
+@pytest.mark.parametrize("search", sorted(SCOPE_CASES["cases"]))
+def test_the_server_matches_the_sites_the_browser_does(search):
+    from urllib.parse import parse_qsl
 
-        server = {
-            case: [
-                row["id"]
-                for row in SCOPE_SITES
-                if scope.in_scope(row, scope.read_scope(QueryParams(parse_qsl(case[1:]))))
-            ]
-            for case in SCOPE_CASES
-        }
-        assert server["?tenant=acme%20corp"] == ["a", "o"] and server["?q=dnk&q=aarhus"] == ["a"]
-        run_js(
-            f"""
-import {{ inScope, readScope }} from "@js/lib/scope.js";
-const sites = {json.dumps(SCOPE_SITES)};
-const expected = {json.dumps(server)};
-for (const [search, ids] of Object.entries(expected)) {{
-  const got = sites.filter((site) => inScope(site, readScope(search))).map((site) => site.id);
-  check(JSON.stringify(got) === JSON.stringify(ids), `${{search}}: browser ${{got}} != server ${{ids}}`);
-}}
-"""
-        )
+    page = scope.read_scope(QueryParams(parse_qsl(search[1:])))
+    found = [row["id"] for row in SCOPE_CASES["sites"] if scope.in_scope(row, page)]
+    assert found == SCOPE_CASES["cases"][search]
 
 
 class TestApi:

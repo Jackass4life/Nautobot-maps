@@ -221,3 +221,17 @@ a.case-pill:hover { text-decoration: underline; }
 .wall-view tr.in-maintenance > td { color: var(--ui-text-muted); }
 /* A link that matches no site (#364): a warning, never the green all-clear. */
 .empty-state.scope-no-match { border-left: 6px solid var(--ui-warning); color: var(--ui-text); }
+
+/* The API page (#230, #436): Swagger UI keeps its own look, in a box. */
+.docs-swagger {
+  padding: 4px 0;
+  border: 1px solid var(--ui-border);
+  border-radius: 0.5rem;
+  background: #fff;
+  overflow: hidden;
+}
+/* Swagger UI has no dark theme: inverted, with colours turned back. */
+.dark .docs-swagger { filter: invert(0.88) hue-rotate(180deg); border-color: #c9d4e6; }
+.docs-swagger .swagger-ui .information-container { display: none; }
+/* No route has OpenAPI links: no "No links" column on every answer (#449). */
+.docs-swagger .swagger-ui .response-col_links { display: none; }

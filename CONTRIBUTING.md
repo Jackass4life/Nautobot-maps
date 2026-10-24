@@ -21,6 +21,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    python -m venv venv
    source venv/bin/activate
    pip install -r requirements-dev.txt
+   (cd frontend && npm ci && npm run generate)   # Node 22: the pages python app.py serves
    ```
    Optionally, run the linter automatically on every commit:
    ```bash
@@ -30,6 +31,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 4. **Test** your changes:
    ```bash
    python -m pytest tests/ -v
+   (cd frontend && npm run lint && npm run typecheck && npm test)
    ```
    For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
    ```bash
@@ -46,7 +48,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: `pip install -r requirements-dev.txt`, copy `.env.example` to `.env`, then `python app.py`. For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: `pip install -r requirements-dev.txt`, build the pages (`cd frontend && npm ci && npm run generate`), copy `.env.example` to `.env`, then `python app.py`. For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -59,7 +61,7 @@ extension), or start it in GitHub Codespaces. It provides:
 - PostgreSQL 16 on `localhost:5432` (user and password `nautobot_maps`), with a
   `nautobot_maps` database for the app and a `nautobot_maps_test` database for pytest
   (`TEST_DATABASE_URL` is preset). Data is kept in a Docker volume across rebuilds.
-- Node, used by the JavaScript runtime checks in the test suite
+- Node, which builds and tests the pages in `frontend/`
 - GitHub CLI (`gh`) and Claude Code
 - The Python and Ruff VS Code extensions
 - Port 5000 forwarded for `python app.py`. If 5000 is already taken on your machine, VS Code
@@ -145,9 +147,9 @@ after logging is configured (a test enforces this).
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.
 
-### The Nuxt frontend (#463)
+### The frontend (#463)
 
-The pages are moving to [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) one page at a time; the tenant status page is the first. The backend and the API don't change.
+Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) in `frontend/`. The backend serves the build and the API; the one page it renders itself is the error page (`templates/error.html`, so a 401, 403, 404 or 500 reads well even without a build).
 
 ```bash
 cd frontend
@@ -157,45 +159,23 @@ npm run dev         # or: a dev server on :3000 with live reload; /api goes to p
 npm run lint && npm run typecheck && npm test
 ```
 
-- `python app.py` serves the build; without one, a Nuxt page answers 503 and says to build it.
-- `ssr: false`: a single-page app built to static files, no Node in production (the Docker image builds it in its own stage). A migrated page's route answers `frontend.shell()`; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
+- `python app.py` serves the build; without one, every page answers 503 and says to build it (the API and the error page still work).
+- `ssr: false`: a single-page app built to static files, no Node in production (the Docker image builds it in its own stage). A page's route answers `frontend.shell()`; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
 - CSP stays strict: `npm run generate` moves Nuxt's inline config script into a file and fails on any other inline script; Nuxt UI's colours are a stylesheet made at build time (`modules/static-ui-colors.ts`), not its inline `<style>`; no web fonts or icons are fetched from elsewhere.
 - API types: `app/api/schema.d.ts` is generated from the app's response models. After an API change: `python frontend/scripts/openapi.py && (cd frontend && npm run api-types)`; `tests/test_frontend.py` and CI fail until then.
 - Logic goes in `app/utils/` (plain functions, tested with Vitest in `frontend/tests/`); the pages themselves are tested end to end (`e2e/`).
 - Scale: keep big lists (sites, devices) in `shallowRef`, not deep reactivity.
 
-### Browser JavaScript
+Frontend rules:
 
-Every page's script is an ES module (#294), loaded with `<script type="module">`:
-
-Only the API page (`/docs`) is left on it; every other page is on Nuxt (#463).
-
-- `static/js/lib/`: helpers for the top bar (HTML escaping, times, the site search, theme).
-- `static/js/docs/main.js`: the page's entry, the only module that looks up page elements and
-  wires events. Every other module touches the page only when one of its functions is called,
-  never when it is imported.
-- No inline styles (#370): the CSP allows only the app's CSS files, so markup built in JS uses
-  classes, never `style="…"`.
-  Setting `element.style` from script is fine. `tests/test_no_inline_styles.py` checks.
-- The map is on Nuxt (#463): Leaflet and Leaflet.markercluster are npm packages in
-  `frontend/`, loaded by `app/utils/leafletmap.ts` (markercluster needs the global `L`).
-  Its markers are classes in `app/assets/css/main.css`, never `style="…"`.
-
-That rule is what makes them testable: a test imports the real functions in Node with
-`tests/js_modules.py`, and gives them stand-in elements:
-
-```python
-from tests.js_modules import run_js
-
-run_js("""
-import { escHtml } from "@js/lib/html.js";
-check(escHtml("R&D") === "R&amp;D", "escaped");
-""")
-```
-
-`check(condition, message)`, `element(name, props)`, a page-less `document` and
-`setGlobal(name, value)` are always there. Behaviour that needs a real browser goes in the
-Chromium tests in `e2e/`.
+- No inline styles or scripts (#370): the CSP allows only the app's own files, so markup uses
+  classes in `app/assets/css/main.css` (or Nuxt UI's), never `style="…"`; setting
+  `element.style` from script is fine. `tests/test_no_inline_styles.py` checks the pages.
+- Third-party code comes from npm, pinned, into the build (Leaflet and markercluster for the map,
+  `app/utils/leafletmap.ts`; Swagger UI for `/docs`, loaded on that page only): no CDN.
+- A rule the server and the browser share is tested on both sides against one fixture, e.g.
+  `frontend/tests/fixtures/scope-cases.json` for `?tenant=` / `?q=` (`nautobot_maps/scope.py`
+  and `app/utils/scope.ts`).
 
 ### Code Style
 
@@ -204,8 +184,7 @@ Chromium tests in `e2e/`.
 - Python code must be formatted with `ruff format .` (CI runs `ruff format --check .`).
   The repo-wide formatting commit is listed in `.git-blame-ignore-revs`; run
   `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so local `git blame` skips it.
-- JavaScript in `static/js/` must pass ESLint (`eslint.config.mjs`; CI runs it on every PR):
-  `npm ci` once, then `npm run lint:js`. Keep it consistent with the existing style.
+- The frontend must pass `npm run lint` and `npm run typecheck` in `frontend/` (CI runs both).
 - Write clear commit messages describing what changed and why.
 
 ### Database schema changes
