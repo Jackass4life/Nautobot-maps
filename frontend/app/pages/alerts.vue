@@ -529,7 +529,7 @@ function shortLabel(values: string[], all: string) {
       </section>
 
       <div id="board-layout" class="board-layout flex flex-col gap-4 lg:flex-row lg:items-start" :class="{ 'feed-collapsed': feedCollapsed }">
-        <section class="table-shell min-w-0 flex-1 overflow-x-auto rounded-lg border border-default" aria-label="Alert table">
+        <section class="table-shell relative min-w-0 flex-1 overflow-x-auto rounded-lg border border-default" aria-label="Alert table">
           <table class="board-table w-full text-left text-sm">
             <thead class="bg-elevated/50 text-xs text-muted uppercase">
               <tr>

@@ -122,7 +122,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
       <div class="action-row flex items-center justify-end gap-1">
         <UButton
           v-if="withCase.length"
-          class="case-open-btn"
+          class="case-open-btn whitespace-nowrap"
           size="xs"
           color="primary"
           variant="soft"

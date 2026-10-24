@@ -176,3 +176,12 @@ a.case-pill:hover { text-decoration: underline; }
 .core-badge { background: #e74c3c; color: #fff; }
 .set-level-badge { border: 1px solid var(--ui-border-accented); color: var(--ui-text-toned); }
 .flap-badge { background: #ff8c00; color: #fff; }
+/* The actions stay at the right edge while a narrow table scrolls. */
+.board-table .col-action { position: sticky; right: 0; background: var(--ui-bg); }
+.board-table thead .col-action { background: var(--ui-bg-elevated); }
+.down-device-row .col-action { background: var(--ui-bg-muted); }
+/* On a phone: the site keeps room to read; its cases are in + Case and Copy. */
+@media (width < 40rem) {
+  .board-table .col-cases { display: none; }
+  .board-table tr > td:first-child { min-width: 11rem; }
+}

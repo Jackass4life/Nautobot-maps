@@ -85,7 +85,7 @@ const entries = computed(() => {
               >{{ event.kind === "down" ? "▼" : event.kind === "up" ? "▲" : "●" }}</span>
               <span class="min-w-0">
                 <strong class="font-medium text-highlighted">{{ what }}</strong>
-                <template v-if="text"> {{ text }}</template>
+                <template v-if="text">{{ ` ${text}` }}</template>
                 <span v-else class="sr-only"> severity changed</span>
               </span>
             </div>
