@@ -694,7 +694,11 @@ def test_the_map_panel_folds_away(page):
     """#420: the bar's sidebar button folds the panel and the map takes the room; a tab brings it back
     with the alarm count; remembered after a reload; `[` toggles it."""
     page.goto(f"{BASE_URL}/")
-    page.locator("#alarm-count", has_text="in alarm").wait_for(timeout=20000)
+    # A number: right after the app starts the mock's sync can still answer "No site in alarm".
+    page.wait_for_function(
+        "() => /^[0-9,]+ in alarm$/.test(document.querySelector('#alarm-count')?.textContent.trim() || '')",
+        timeout=30000,
+    )
     alarms = page.locator("#alarm-count").inner_text().split()[0]
     width = page.locator("#map").bounding_box()["width"]
 
