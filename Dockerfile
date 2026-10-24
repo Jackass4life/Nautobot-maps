@@ -19,20 +19,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Build-time only (ARG, not ENV: not in the image that runs): no terminal, so
+# debconf mustn't look for one; pip installs as root into the image's own
+# Python on purpose (the app runs as `app` below), and its version comes with
+# the base image, which Dependabot updates.
+ARG DEBIAN_FRONTEND=noninteractive \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 # Debian security fixes released after the base image was built (#246); the
 # Trivy scan in CI fails on fixed HIGH/CRITICAL ones.
-# Noninteractive: no terminal here, so debconf mustn't look for one.
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # requirements.txt is the compiled lock file: every package, transitive ones
-# included, pinned with hashes (#186).  Installed as root into the image's own
-# Python on purpose (the app runs as `app` below); pip's own version comes with
-# the base image, which Dependabot updates.
+# included, pinned with hashes (#186).
 COPY requirements.txt .
-RUN pip install --no-cache-dir --require-hashes --root-user-action=ignore --disable-pip-version-check \
-    -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 # Run as an unprivileged user.  The code stays root-owned (read-only for the
 # app); all state lives in PostgreSQL.

@@ -42,8 +42,9 @@ export default defineNuxtConfig({
       // Swagger UI (about 1.4 MB, the API page only, loaded there by a dynamic import)
       // is the one chunk above Vite's 500 kB warning.
       chunkSizeWarningLimit: 1500,
-      // No report of which plugins took the build's time: the build takes seconds,
-      // and the report read as a warning in every Docker build.
+      // No report of plugins taking a large share of the build's time: it fired
+      // in every build (about 5 s of a short build) and read as a warning in
+      // every Docker build. Build time is still in CI's logs.
       rolldownOptions: { checks: { bundlerTimings: false } },
     },
   },
