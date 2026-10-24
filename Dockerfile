@@ -1,6 +1,8 @@
 # The pages built with Nuxt (#463): static files, so Node is needed only here,
 # not in the image that runs.
 FROM node:22-slim AS frontend
+# Not "a new npm is available" in every build: npm comes with the Node image.
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 # The lock file pins every package with its hash; no install scripts run.
@@ -16,6 +18,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
+
+# Build-time only (ARG, not ENV: not in the image that runs): no terminal, so
+# debconf mustn't look for one; pip installs as root into the image's own
+# Python on purpose (the app runs as `app` below), and its version comes with
+# the base image, which Dependabot updates.
+ARG DEBIAN_FRONTEND=noninteractive \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Debian security fixes released after the base image was built (#246); the
 # Trivy scan in CI fails on fixed HIGH/CRITICAL ones.
