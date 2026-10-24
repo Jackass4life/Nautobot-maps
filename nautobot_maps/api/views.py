@@ -34,7 +34,8 @@ def api_page_config():
     """What the pages built with Nuxt read to draw themselves (#463): who is
     signed in (the top bar), Nautobot's address (links to its pages), the
     menu, the same as the server-rendered pages show, the Maintenance page's
-    and Availability's limits, and the map's tiles and first view."""
+    and Availability's limits, the map's tiles and first view, and the
+    board's case links and level definitions."""
     at = availability.now()
     view = settings.MAP_DEFAULT_VIEW
     return deps.Json(
@@ -58,6 +59,10 @@ def api_page_config():
                 "tile_attribution": settings.MAP_TILE_ATTRIBUTION,
                 "view": {"latitude": view[0], "longitude": view[1], "zoom": view[2]} if view else None,
             },
+            "board": {
+                "case_url_template": settings.CASE_URL_TEMPLATE or "",
+                "levels": alerts.alert_level_definitions(),
+            },
         },
         headers={"Cache-Control": "no-store"},
     )
@@ -74,16 +79,20 @@ def index():
 @router.get("/alerts", name="pages.alert_board", include_in_schema=False)
 def alert_board(request: Request):
     """The alert board: every site's severity, down devices, cases and history.
+    Built with Nuxt (#463); the page reads ``/api/page-config``, ``/api/alerts``
+    and ``/api/alert-feed``.
 
     ``?view=wall`` is the wall-screen view (#243): alarms only, down devices
-    listed, no controls.
+    listed, no controls; still server-rendered until it moves too.
     """
+    if request.query_params.get("view") != "wall":
+        return frontend.shell()
     return pages.page(
         "alerts.html",
         nautobot_url=settings.NAUTOBOT_URL,
         case_url_template=settings.CASE_URL_TEMPLATE,
         tier_definitions=alerts.alert_level_definitions(),
-        wall_view=request.query_params.get("view") == "wall",
+        wall_view=True,
         scope_query=scope_query(request),
     )
 

@@ -9,7 +9,7 @@ import {
   countText,
   endLabel,
   groupsFor,
-  matchSites,
+  matchPlannableSites,
   MAX_MATCHES,
   prepareSites,
   spanText,
@@ -127,15 +127,15 @@ describe("planning", () => {
   });
 
   it("eight at most, a tenant's sites at once, the chosen not again", () => {
-    const oslo = matchSites(sites, "oslo");
+    const oslo = matchPlannableSites(sites, "oslo");
     expect(oslo.sites).toHaveLength(MAX_MATCHES);
     expect(oslo.more).toBe(400 - MAX_MATCHES);
-    const acme = matchSites(sites, "acme");
+    const acme = matchPlannableSites(sites, "acme");
     expect(acme.tenants).toEqual([{ name: "Acme Corp", ids: expect.any(Array) }]);
     expect(acme.tenants[0]!.ids).toHaveLength(40);
-    expect(matchSites(sites, "site 0003").sites.map((s) => s.id)).toEqual(["s3"]);
-    expect(matchSites(sites, "site 0003", new Set(["s3"])).sites).toEqual([]);
-    expect(matchSites(sites, "  ").sites).toEqual([]);
+    expect(matchPlannableSites(sites, "site 0003").sites.map((s) => s.id)).toEqual(["s3"]);
+    expect(matchPlannableSites(sites, "site 0003", new Set(["s3"])).sites).toEqual([]);
+    expect(matchPlannableSites(sites, "  ").sites).toEqual([]);
   });
 
   const values = (extra: Partial<PlanValues>): PlanValues => ({

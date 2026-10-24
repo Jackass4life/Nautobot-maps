@@ -10,9 +10,9 @@ import {
   batchMatches,
   countText,
   groupsFor,
-  matchSites,
+  matchPlannableSites,
   prepareSites,
-  STEP,
+  MAINTENANCE_STEP,
   windowRequest,
   type Batch,
   type BatchGroup,
@@ -64,19 +64,19 @@ const filtered = computed(() => {
 const groups = computed(() =>
   groupsFor(limits.value.recent_days).map((group) => {
     const members = filtered.value.filter((batch) => batch.group === group.id);
-    const limit = shownCount.value[group.id] || STEP;
+    const limit = shownCount.value[group.id] || MAINTENANCE_STEP;
     return { ...group, members, shown: members.slice(0, limit), rest: Math.max(0, members.length - limit) };
   }),
 );
 const historyList = computed(() => {
-  const limit = shownCount.value.history || STEP;
+  const limit = shownCount.value.history || MAINTENANCE_STEP;
   return { shown: filtered.value.slice(0, limit), rest: Math.max(0, filtered.value.length - limit) };
 });
 watch([query, tenantFilter], () => {
   shownCount.value = {};
 });
 function showMore(group: BatchGroup | "history") {
-  shownCount.value = { ...shownCount.value, [group]: (shownCount.value[group] || STEP) + STEP };
+  shownCount.value = { ...shownCount.value, [group]: (shownCount.value[group] || MAINTENANCE_STEP) + MAINTENANCE_STEP };
 }
 
 function historyQuery(extra: Record<string, string> = {}) {
@@ -165,7 +165,7 @@ const siteSearch = useTemplateRef<{ inputRef: HTMLInputElement | null }>("siteSe
 const matchList = useTemplateRef<HTMLUListElement>("matchList");
 
 const matches = computed(() =>
-  sites.value && siteQuery.value.trim() ? matchSites(sites.value, siteQuery.value, new Set(chosen.value)) : null,
+  sites.value && siteQuery.value.trim() ? matchPlannableSites(sites.value, siteQuery.value, new Set(chosen.value)) : null,
 );
 const chosenShown = computed(() => (showAllChosen.value ? chosen.value : chosen.value.slice(0, 12)));
 
@@ -499,7 +499,7 @@ function until(ready: () => unknown): Promise<void> {
         <p v-if="historyList.rest" class="border-t border-default px-4 py-2 text-sm text-muted">
           {{ historyList.rest }} more
           <UButton class="maint-more ml-2" size="xs" color="neutral" variant="outline" @click="showMore('history')">
-            Show {{ Math.min(STEP, historyList.rest) }} more
+            Show {{ Math.min(MAINTENANCE_STEP, historyList.rest) }} more
           </UButton>
         </p>
       </section>
@@ -538,7 +538,7 @@ function until(ready: () => unknown): Promise<void> {
           <p v-if="group.rest" class="border-t border-default px-4 py-2 text-sm text-muted">
             {{ group.rest }} more
             <UButton class="maint-more ml-2" size="xs" color="neutral" variant="outline" @click="showMore(group.id)">
-              Show {{ Math.min(STEP, group.rest) }} more
+              Show {{ Math.min(MAINTENANCE_STEP, group.rest) }} more
             </UButton>
           </p>
         </component>

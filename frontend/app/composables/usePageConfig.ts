@@ -15,6 +15,7 @@ export function usePageConfig() {
         maintenance: { recent_days: 7, history_days: 30, max_sites: 200 },
         availability: { today: "", oldest_day: "", basis: "any_down", target: 99.9 },
         map: { tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", tile_attribution: "", view: null },
+        board: { case_url_template: "", levels: {} },
       }) as PageConfig,
   });
 }

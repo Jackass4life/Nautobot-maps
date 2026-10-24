@@ -128,3 +128,51 @@
   color: var(--ui-text-highlighted);
 }
 .panel-fold-body { padding-top: 0.5rem; }
+
+/* The alert board (#311, #463): a level is a badge in the map's colours
+   (LEVEL_COLORS), with its name as well as its colour. */
+.alert-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.alert-critical { background: #e74c3c; }
+.alert-medium { background: #ff8c00; }
+.alert-low { background: #eab308; color: #1f2937; }
+.alert-maintenance { background: #2563eb; }
+.alert-ok { background: #2ecc71; color: #14532d; }
+.alert-no_data { background: #94a3b8; color: #1f2937; }
+.alert-badge:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.board-table td { padding: 0.6rem 0.75rem; vertical-align: top; }
+.down-device-row { background: var(--ui-bg-muted); }
+.site-row.in-maintenance { opacity: 0.85; }
+.case-pill {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--ui-border-accented);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+a.case-pill { color: var(--ui-primary); }
+a.case-pill:hover { text-decoration: underline; }
+.tier-pill, .core-badge, .set-level-badge, .flap-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.tier-pill { border: 1px solid var(--ui-border-accented); color: var(--ui-text-muted); }
+.tier-pill.tier-top { border-color: var(--ui-primary); color: var(--ui-primary); }
+.core-badge { background: #e74c3c; color: #fff; }
+.set-level-badge { border: 1px solid var(--ui-border-accented); color: var(--ui-text-toned); }
+.flap-badge { background: #ff8c00; color: #fff; }

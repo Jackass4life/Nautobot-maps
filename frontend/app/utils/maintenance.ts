@@ -27,7 +27,7 @@ export interface Batch {
 }
 
 // Windows, and batches, shown per group and per "Show more".
-export const STEP = 25;
+export const MAINTENANCE_STEP = 25;
 // A second click within this long ends a batch of more than one (no dialogs).
 export const CONFIRM_MS = 4000;
 
@@ -181,7 +181,7 @@ export function prepareSites(sites: PlannableSite[]): PickerSite[] {
 // Sites with every word in the name, path or a tenant, not yet chosen: those
 // whose name has the phrase first, then by name; and the tenants whose name
 // has it, with all their sites (two or more, the three biggest).
-export function matchSites(
+export function matchPlannableSites(
   sites: PickerSite[],
   query: string,
   chosen: Set<string> = new Set(),
