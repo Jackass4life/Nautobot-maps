@@ -42,6 +42,16 @@ class MapSettings(common.Answer):
     view: MapView | None = Field(description="MAP_DEFAULT_VIEW; null: the map frames the sites.")
 
 
+class BoardSettings(common.Answer):
+    case_url_template: str = Field(
+        description="CASE_URL_TEMPLATE: a case's ticket, {case} for its number; empty when not set."
+    )
+    levels: dict[str, str] = Field(
+        description="What each level and summary chip means, from the configured thresholds (#293): "
+        "alarms, critical, medium, low, no_data, ok, total, maintenance."
+    )
+
+
 class PageConfig(common.Answer):
     user: BarUser | None = Field(description="Who is signed in; null with AUTH_MODE=disabled or no sign-in.")
     nautobot_url: str = Field(description="Nautobot's address, for links to its pages; empty when not set.")
@@ -49,3 +59,4 @@ class PageConfig(common.Answer):
     maintenance: MaintenanceLimits
     availability: AvailabilityLimits
     map: MapSettings
+    board: BoardSettings

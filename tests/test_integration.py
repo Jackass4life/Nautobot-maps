@@ -116,9 +116,6 @@ class TestAlertBoardUI:
         css = integration_client.get("/static/css/alerts.css").get_data(as_text=True)
         rules = self._css_rules(css, "thead th:last-child")
         assert any("position: sticky" in body and "right: 0" in body for body in rules)
-        page = integration_client.get("/alerts").get_data(as_text=True)
-        # No visible heading: the buttons say what they do (#311).
-        assert page.rstrip().count('<th class="col-action"><span class="visually-hidden">Actions</span></th>') == 1
 
 
 # ---------------------------------------------------------------------------
@@ -635,10 +632,6 @@ renderNextUpdate(2000000);
 check(nextUpdateEl.hidden, "hidden when unknown");
 """)
 
-    def test_board_template_has_countdown_element(self, integration_client):
-        html = integration_client.get("/alerts").data.decode()
-        assert 'id="next-update"' in html
-
 
 class TestSiteMetaInTheBrowser:
     """The grey line under a site shows only the path above it (#178)."""
@@ -877,11 +870,6 @@ closeSidePanel(historyPanel);
 check(focused.at(-1) === "history-panel", "no focus without the row");
 """)
 
-    def test_board_page_has_the_case_panel(self, integration_client):
-        html = integration_client.get("/alerts").data.decode()
-        assert 'id="case-panel"' in html and 'role="dialog"' in html
-        assert 'id="case-close"' in html
-
 
 class TestAlertFeedInTheBrowser:
     """The activity panel beside the board (#180)."""
@@ -941,13 +929,6 @@ check(feedStartsCollapsed("0", 1440) === false, "opened by the user stays open")
 check(feedStartsCollapsed("1", 1920) === true, "hidden by the user stays hidden");
 """)
 
-    def test_board_page_has_the_feed_panel(self, integration_client):
-        html = integration_client.get("/alerts").data.decode()
-        assert 'id="feed-panel"' in html and 'id="feed-list"' in html
-        assert 'id="feed-show"' in html  # brings a hidden feed back
-        for kind in ("down", "up", "severity"):
-            assert f'data-feed-kind="{kind}" aria-pressed="true"' in html
-
 
 class TestSeverityTiersInTheBrowser:
     """Low and No data on the board and the map (#124)."""
@@ -961,14 +942,6 @@ check(alertBadge("no_data").includes(">NO DATA<") && alertBadge("no_data").inclu
 check(alertBadge("low").includes(">LOW<"), alertBadge("low"));
 check(alertBadge(undefined).includes("NO DATA"), "missing level shows as No data");
 """)
-
-    def test_board_page_has_low_and_no_data_tiles_and_filters(self, integration_client):
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        for needle in ('id="summary-no_data"', 'data-severity-filter="no_data"'):
-            assert needle in html
-        # One chip per choice that leads somewhere; the levels are in the summary line (#311).
-        for gone in ('id="summary-unknown"', 'id="summary-low"', 'data-severity-filter="low"', 'id="summary-ok"'):
-            assert gone not in html
 
 
 class TestNewestDownSortInTheBrowser:
@@ -1026,13 +999,6 @@ restoreSort();
 rememberSort("site");
 check(sortBy.value === "newest", "blocked storage keeps the default");
 """)
-
-    def test_board_page_defaults_to_newest_down(self, integration_client):
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        select = html[html.index('<select id="sort-by"') :]
-        first_option = re.search(r"<option [^>]*>", select).group(0)
-        assert 'value="newest"' in first_option and "selected" in first_option
-        assert '<option value="severity">' in select
 
 
 class TestCopySiteInTheBrowser:
@@ -1160,12 +1126,6 @@ document.createElement = () => { throw new Error("no fallback needed"); };
 check(await copyText("site text") === true && written[0] === "site text", JSON.stringify(written));
 """)
 
-    def test_board_page_has_the_copy_panel_and_config(self, integration_client):
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        assert 'id="copy-panel"' in html and 'id="copy-text"' in html and 'id="copy-close"' in html
-        assert 'id="copy-status"' in html and 'aria-live="polite"' in html
-        assert 'id="app-config"' in html and "data-nautobot-url=" in html
-
 
 class TestSeverityTilesInTheBrowser:
     """The summary tiles filter the board; it opens on Alarms (#232)."""
@@ -1240,25 +1200,6 @@ sortBy.value = "site";
 renderMoreFiltersLabel();
 check(moreFiltersToggle.textContent === "More filters (3)", moreFiltersToggle.textContent);
 """)
-
-    def test_board_page_has_the_tiles_and_more_filters(self, integration_client):
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        assert 'data-severity-filter="alarms" aria-pressed="true"' in html
-        chips = html[html.index('<div class="severity-chips"') : html.index('<section class="toolbar"')]
-        assert chips.count('aria-pressed="true"') == 1 and chips.count("data-severity-filter=") == 4
-        assert 'data-severity-filter="all" aria-pressed="false"' in html
-        assert 'id="summary-alarms"' in html
-        # Status, type and non-operational are behind More filters, closed by default.
-        more = html[html.index('<div id="more-filters"') :]
-        assert more.startswith('<div id="more-filters" class="more-filters" hidden>')
-        for needle in ('id="sort-by"', 'id="filter-status"', 'id="filter-type"', 'id="toggle-non-operational"'):
-            assert needle in more[: more.index("</div>")]
-        # Reset only appears when a filter is in use (#311).
-        assert 'id="clear-alert-filters" hidden>' in html
-        assert 'aria-controls="more-filters"' in html
-        # Gone: the duplicate severity controls.
-        for gone in ("data-quick-severity", 'id="filter-severity"', 'name="site-scope"', "page-subtitle"):
-            assert gone not in html
 
 
 class TestWallViewInTheBrowser:
@@ -1353,17 +1294,7 @@ check(els.alertsTableBody.innerHTML === board, "kept: " + els.alertsTableBody.in
         assert '<div id="wall-error" class="wall-error" role="alert" hidden></div>' in html
         assert 'href="/alerts">Operator view</a>' in html
 
-    def test_operator_page_links_to_the_wall_view(self, integration_client):
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        assert "<body>" in html and "wall-view" not in html.split("<body>", 1)[1].split(">", 1)[0]
-        assert 'id="wall-updated"' not in html
-        toolbar = html[
-            html.index('<section class="toolbar"') : html.index("</section>", html.index('<section class="toolbar"'))
-        ]
-        assert "view=wall" not in toolbar, "the link is in the top navigation, not the toolbar"
-
-    # The Nuxt pages (the map, /circuits, /maintenance, /availability, /help, #463) draw the same menu from /api/page-config: tests/test_top_bar.py.
-    @pytest.mark.parametrize("path", ["/alerts", "/docs"])
+    @pytest.mark.parametrize("path", ["/docs"])
     def test_every_page_has_wall_view_in_the_top_navigation(self, integration_client, path):
         html = integration_client.get(path).get_data(as_text=True)
         start = html.index('class="app-nav"')
@@ -1438,9 +1369,9 @@ check(at.top === 692, "above when there is no room below: " + JSON.stringify(at)
 """)
 
     def test_pages_load_the_tooltip(self, integration_client):
-        """The board shows an (i): it loads its CSS, and its main module starts it first.
-        The map's (i) is Nuxt UI's (#463)."""
-        for path, page_script in (("/alerts", "alerts/main.js"),):
+        """The wall shows an (i): it loads its CSS, and its main module starts it first.
+        The map's and the board's (i) are Nuxt UI's (#463)."""
+        for path, page_script in (("/alerts?view=wall", "alerts/main.js"),):
             html = integration_client.get(path).get_data(as_text=True)
             assert 'href="/static/css/tooltip.css"' in html and f'src="/static/js/{page_script}"' in html, path
             main = js_source(page_script)
@@ -1571,8 +1502,6 @@ check(since(html) === '<td class="since-cell">in alarm 3h 40m</td> <td class="si
 html = siteRowsHtml([site], { wallView: true, isExpanded: () => true });
 check(since(html).startsWith('<td class="since-cell"></td>'), "the wall shows no site time: " + since(html));
 """)
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        assert "<th>Since</th>" in html and "<th>Downtime</th>" not in html
 
 
 class TestHistoryExportInTheBrowser:
@@ -1630,8 +1559,6 @@ const wall = siteRowsHtml([alarm, planned], { wallView: true, isExpanded: () => 
 check(wall.includes('<tr class="maintenance-heading"><td colspan="5">In maintenance</td></tr>'), wall);
 check(wall.indexOf("maintenance-heading") > wall.indexOf("Aarhus") && wall.includes("Core &lt;upgrade&gt;"), wall);
 """)
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        assert 'data-severity-filter="maintenance"' in html and 'id="summary-maintenance"' in html
 
 
 class TestMaintenancePanelInTheBrowser:
@@ -1696,10 +1623,6 @@ check(actionCell({ id: "e", name: "E", device_count: 3 }).includes("maint-open-b
 check(actionCell({ id: "f", name: "F", device_count: 3, down_devices: [{ device_id: "x" }] }).includes("maint-open-btn"), "down");
 """)
 
-    def test_board_has_the_panel(self, integration_client):
-        html = integration_client.get("/alerts").get_data(as_text=True)
-        assert 'id="maint-panel"' in html and 'id="maint-content"' in html
-
 
 class TestSiteTenantsInTheBrowser:
     """The tenant line under the site name, on the board and the wall, and Copy for ITSM show every tenant of a site (#238, #351)."""
@@ -1758,7 +1681,7 @@ for (const wallView of [false, true]) {
 
     def test_full_width_rows_span_every_column(self, integration_client):
         # One column count for the empty, error and heading rows (#340, #351).
-        html = integration_client.get("/alerts").get_data(as_text=True)
+        html = integration_client.get("/alerts?view=wall").get_data(as_text=True)
         thead = html[html.index("<thead>") : html.index("</thead>")]
         columns = len(re.findall(r"<th[ >]", thead))
         assert f'<td colspan="{columns}" class="empty-state">Loading' in html

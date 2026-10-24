@@ -6,23 +6,14 @@ from tests.js_modules import run_js
 
 
 def test_one_top_bar_on_every_page(client):
-    # The server-rendered pages; the Nuxt ones (the map, /circuits, /maintenance, /availability, /help, #463) have AppBar.vue (e2e).
-    for path, active in (
-        ("/alerts", "/alerts"),
-        ("/docs", "/docs"),
-    ):
+    # The server-rendered page; the Nuxt ones (the map, the board, /circuits, /maintenance,
+    # /availability, /help, #463) have AppBar.vue (e2e).
+    for path, active in (("/docs", "/docs"),):
         html = client.get(path).get_data(as_text=True)
         assert html.count('class="app-bar"') == 1 and html.count('class="app-menu app-popover"') == 1, path
         assert 'id="theme-toggle"' in html and 'href="/static/css/nav.css' in html, path
         assert f'aria-current="page" href="{active}"' in html, path
         assert html.count('aria-current="page"') >= 1, path
-
-
-def test_the_map_and_board_keep_a_links_scope(client):
-    # The board's bar; the map's (Nuxt, #463) is tested end to end.
-    html = client.get("/alerts?tenant=Acme%20Corp").get_data(as_text=True)
-    assert 'href="/?tenant=Acme+Corp"' in html
-    assert 'href="/alerts?view=wall&amp;tenant=Acme+Corp"' in html
 
 
 def test_the_theme_button_is_an_icon_with_a_label():

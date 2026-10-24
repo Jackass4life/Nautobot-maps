@@ -1,6 +1,6 @@
 // Circuit mapping (#385; on Nuxt since #463): grouped, searched, summarised.
 import { describe, expect, it } from "vitest";
-import { circuitKind, GROUPS, matches, prepare, STEP, summaryText, type MappedCircuit } from "~/utils/circuits";
+import { circuitKind, GROUPS, matches, prepare, CIRCUITS_STEP, summaryText, type MappedCircuit } from "~/utils/circuits";
 import { nautobotCircuitUrl, nautobotLocationUrl, searchWords } from "~/utils/format";
 
 const circuit = (fields: Partial<MappedCircuit>): MappedCircuit => ({
@@ -33,7 +33,7 @@ describe("the circuit mapping", () => {
 
   it("worst first: several sites, no site, one site", () => {
     expect(GROUPS.map((group) => group.id)).toEqual(["several", "none", "one"]);
-    expect(STEP).toBe(100);
+    expect(CIRCUITS_STEP).toBe(100);
   });
 
   it("searches every word in circuit, provider, address and site", () => {

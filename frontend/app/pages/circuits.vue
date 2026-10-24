@@ -8,7 +8,7 @@ import {
   GROUPS,
   matches,
   prepare,
-  STEP,
+  CIRCUITS_STEP,
   summaryText,
   type CircuitGroup,
   type CircuitMapping,
@@ -37,7 +37,7 @@ const shown = computed(() =>
 const groups = computed(() =>
   GROUPS.map((group) => {
     const members = shown.value.filter((circuit) => circuit.group === group.id);
-    const limit = limits.value[group.id] || STEP;
+    const limit = limits.value[group.id] || CIRCUITS_STEP;
     return { ...group, members, visible: members.slice(0, limit), rest: Math.max(0, members.length - limit) };
   }),
 );
@@ -53,7 +53,7 @@ function onToggle(group: CircuitGroup, event: Event) {
   open.value = next;
 }
 function showMore(group: CircuitGroup) {
-  limits.value = { ...limits.value, [group]: (limits.value[group] || STEP) + STEP };
+  limits.value = { ...limits.value, [group]: (limits.value[group] || CIRCUITS_STEP) + CIRCUITS_STEP };
 }
 watch(query, () => {
   limits.value = {};
@@ -163,7 +163,7 @@ onMounted(async () => {
           <p v-if="group.rest" class="border-t border-default px-4 py-2 text-sm text-muted">
             {{ group.rest.toLocaleString("en") }} more
             <UButton class="circuit-more ml-2" size="xs" color="neutral" variant="outline" @click="showMore(group.id)">
-              Show {{ Math.min(STEP, group.rest) }} more
+              Show {{ Math.min(CIRCUITS_STEP, group.rest) }} more
             </UButton>
           </p>
         </details>

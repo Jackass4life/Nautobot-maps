@@ -11,7 +11,6 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 import requests
-from markupsafe import escape
 
 import app as flask_app
 from nautobot_maps import (
@@ -612,16 +611,14 @@ class TestApiLocations:
 # Tests: alert board
 # ---------------------------------------------------------------------------
 class TestAlertBoard:
-    def test_alert_board_page_renders(self, client):
-        resp = client.get("/alerts")
-        assert resp.status_code == 200
-        assert b"Alert Board" in resp.data
-        assert b"Filter by site, address, or country" in resp.data
-        assert b"Sort: newest down first" in resp.data
-        assert b"Show non-operational sites" in resp.data
-        assert b'id="summary-line-text"' in resp.data
-        # Each row has its own toggle (#311).
-        assert b"Collapse all" not in resp.data and b"Expand all" not in resp.data
+    def test_alert_board_page_renders(self, client, frontend_build):
+        """The board is built with Nuxt (#463; frontend/tests/ and e2e/ test the page
+        itself); the wall is still the server's page until it moves too."""
+        resp = client.get("/alerts?tenant=Acme%20Corp")
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        assert resp.headers["Cache-Control"] == "no-cache"
+        wall = client.get("/alerts?view=wall")
+        assert wall.status_code == 200 and b"wall-view" in wall.data and b'id="__nuxt"' not in wall.data
 
     def test_get_alert_board_data_aggregates_and_sorts(self):
         caching.cache.clear()
@@ -1591,12 +1588,8 @@ class TestIndex:
             as_text=True
         )
         assert 'class="wall-exit" href="/alerts?tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in html
-        # The wall has no top bar (#419); the board's menu links to the same wall.
+        # The wall has no top bar (#419); the board's menu (Nuxt, #463) is tested end to end.
         assert 'class="app-bar"' not in html
-        board = client.get("/alerts?tenant=Acme%20Corp&tenant=%20&tenant=Nordic%20Net&q=DNK&x=1").get_data(as_text=True)
-        assert 'href="/alerts?view=wall&amp;tenant=Acme+Corp&amp;tenant=Nordic+Net&amp;q=DNK"' in board
-        plain = client.get("/alerts").get_data(as_text=True)
-        assert 'href="/alerts?view=wall"' in plain
 
     def test_live_locations_have_their_path(self, monkeypatch):
         """Without the cache (a map-only setup), /api/locations' paths still come along (#367)."""
@@ -1609,15 +1602,6 @@ class TestIndex:
         everywhere = {loc["id"]: loc for loc in inventory.get_locations(include_without_coordinates=True)}
         assert everywhere["loc-aar-bld-a-f2"]["ancestor_path"] == "EMEA › DNK › Aarhus Campus › Bygning A"
         assert {loc["id"]: loc["ancestor_path"] for loc in inventory.get_locations()}["loc-cph"] == ""
-
-    def test_the_boards_links_keep_a_scope(self, client):
-        """?tenant= / ?q= (#367) stay on the links between the board, the map and the wall;
-        the map's own links (Nuxt, #463) are tested end to end."""
-        board = client.get("/alerts?tenant=Acme%20Corp").get_data(as_text=True)
-        assert 'href="/?tenant=Acme+Corp">Map</a>' in board
-        # Every q= stays, not only the first (#366: q= is repeatable).
-        twice = client.get("/alerts?q=DNK&q=Aarhus").get_data(as_text=True)
-        assert 'href="/?q=DNK&amp;q=Aarhus">Map</a>' in twice
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -4692,21 +4676,12 @@ class TestAuthConfiguration:
 # Tests: alert-board tier definitions and per-device IP (#117)
 # ---------------------------------------------------------------------------
 class TestAlertBoardTierDefinitions:
-    def test_alerts_page_explains_the_levels_and_chips(self, client):
-        """One (i) by the summary line explains the levels; each chip says what it shows (#311)."""
-        resp = client.get("/alerts")
-        assert resp.status_code == 200
-        html = resp.get_data(as_text=True)
-        assert html.lstrip().startswith("<!DOCTYPE html>")
-        assert html.count('class="info-tip"') == 1  # the shared tooltip: hover, focus and touch
-        definitions = alerts.alert_level_definitions()
-        levels = " ".join(
-            f"{label}: {escape(definitions[key])}"
-            for label, key in (("Critical", "critical"), ("Medium", "medium"), ("Low", "low"))
-        )
-        assert f'data-info-tip="{levels}"' in html
-        for key in ("alarms", "total", "no_data", "maintenance"):
-            assert f'title="{escape(definitions[key])}"' in html
+    def test_the_board_explains_the_levels_and_chips(self, client):
+        """The (i) by the summary line explains the levels, and each chip what it shows (#311),
+        from the configured thresholds (#293): the board reads them from /api/page-config (#463)."""
+        levels = client.get("/api/page-config").get_json()["board"]["levels"]
+        assert levels == alerts.alert_level_definitions()
+        assert set(levels) >= {"critical", "medium", "low", "alarms", "total", "no_data", "maintenance"}
 
 
 class TestDeviceDisplayIp:
@@ -6754,9 +6729,8 @@ class TestApiExplorer:
         assert {"month", "from", "to", "basis"} <= names
 
     def test_header_links_to_the_explorer(self, client):
-        # The server-rendered pages; the Nuxt ones read the menu from /api/page-config (#463).
-        for path in ("/alerts", "/docs"):
-            assert 'href="/docs"' in client.get(path).get_data(as_text=True), path
+        # The server-rendered page; the Nuxt ones read the menu from /api/page-config (#463).
+        assert 'href="/docs"' in client.get("/docs").get_data(as_text=True)
 
     def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)

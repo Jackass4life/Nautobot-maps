@@ -170,7 +170,7 @@ Every page's script is an ES module (#294), loaded with `<script type="module">`
 
 - `static/js/lib/`: helpers shared by the pages (HTML escaping, times, case links, theme,
   the (i) tooltip, the error toast).
-- `static/js/alerts/`, `static/js/docs/`: one folder per page. Its `main.js` is the entry:
+- `static/js/alerts/` (the wall view only; the board is on Nuxt, #463), `static/js/docs/`: one folder per page. Its `main.js` is the entry:
   the only module that looks up page elements and wires events; it fills `els`, `config` and
   `state` in `state.js`. Every other module touches the page only when one of its functions is called,
   never when it is imported. `availability.js` is that page's whole entry.

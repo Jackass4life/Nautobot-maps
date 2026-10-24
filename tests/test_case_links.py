@@ -47,10 +47,11 @@ def test_only_http_templates_with_a_placeholder(value, expected):
 
 
 def test_the_board_page_gets_the_template(monkeypatch):
-    monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+    # The board (Nuxt, #463) reads it from /api/page-config; empty when not set.
     with http_client.FlaskStyleClient() as client:
-        html = client.get("/alerts").get_data(as_text=True)
-    assert f'data-case-url-template="{TEMPLATE}"' in html
+        assert client.get("/api/page-config").get_json()["board"]["case_url_template"] == ""
+        monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+        assert client.get("/api/page-config").get_json()["board"]["case_url_template"] == TEMPLATE
 
 
 def test_notifications_add_the_link(monkeypatch):

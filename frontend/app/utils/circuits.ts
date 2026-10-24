@@ -1,6 +1,6 @@
 // Circuit mapping (#385; static/js/circuits/list.js): circuits without a
 // termination, grouped by what their address found, worst first, each group
-// folded with a count and the first STEP, "Show N more".
+// folded with a count and the first CIRCUITS_STEP, "Show N more".
 import type { components } from "~/api/schema";
 import { hasAllWords } from "./format";
 
@@ -10,7 +10,7 @@ export type CircuitGroup = MappedCircuit["group"];
 export type SearchableCircuit = MappedCircuit & { text: string };
 
 // Circuits shown per group, and per "Show more".
-export const STEP = 100;
+export const CIRCUITS_STEP = 100;
 
 // Worst first: a choice to make, then nothing found, then ready to terminate.
 export const GROUPS: { id: CircuitGroup; title: string; hint: string }[] = [

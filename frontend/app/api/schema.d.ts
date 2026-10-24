@@ -781,11 +781,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, and the map's tiles and first view.
+         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.
          * @description What the pages built with Nuxt read to draw themselves (#463): who is
          *     signed in (the top bar), Nautobot's address (links to its pages), the
          *     menu, the same as the server-rendered pages show, the Maintenance page's
-         *     and Availability's limits, and the map's tiles and first view.
+         *     and Availability's limits, the map's tiles and first view, and the
+         *     board's case links and level definitions.
          */
         get: operations["pages_api_page_config_api_page_config_get"];
         put?: never;
@@ -1193,6 +1194,21 @@ export interface components {
              * @description A sync is running; poll again.
              */
             sync_pending: boolean;
+        };
+        /** BoardSettings */
+        BoardSettings: {
+            /**
+             * Case Url Template
+             * @description CASE_URL_TEMPLATE: a case's ticket, {case} for its number; empty when not set.
+             */
+            case_url_template: string;
+            /**
+             * Levels
+             * @description What each level and summary chip means, from the configured thresholds (#293): alarms, critical, medium, low, no_data, ok, total, maintenance.
+             */
+            levels: {
+                [key: string]: string;
+            };
         };
         /**
          * BoardSite
@@ -2419,6 +2435,7 @@ export interface components {
         /** PageConfig */
         PageConfig: {
             availability: components["schemas"]["AvailabilityLimits"];
+            board: components["schemas"]["BoardSettings"];
             maintenance: components["schemas"]["MaintenanceLimits"];
             map: components["schemas"]["MapSettings"];
             /**

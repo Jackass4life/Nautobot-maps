@@ -91,7 +91,8 @@ def test_history_exports_a_csv(page):
     page.wait_for_selector(".row-menu-btn")
     row = page.locator(".site-row", has=page.locator(".case-open-btn")).first
     row.locator(".row-menu-btn").click()
-    row.locator(".history-btn").click()
+    # The ⋯ menu's items open over the page (Nuxt UI, #463).
+    page.locator(".history-btn").click()
     link = page.locator(".history-export-link").first
     link.wait_for()
     with page.expect_download() as download:
@@ -123,7 +124,9 @@ def test_a_wall_for_some_sites(page):
     assert page.url.endswith("/alerts?q=Etage")
     assert page.locator("#board-scope").inner_text() == "Only “Etage” · Show all sites"
     assert all("Etage" in name for name in page.locator(".site-row .site-name").all_inner_texts())
+    open_menu(page)
     assert page.locator(".app-nav-link", has_text="Wall view").get_attribute("href") == "/alerts?view=wall&q=Etage"
+    page.keyboard.press("Escape")
     # Activity for the same sites (#369).
     # (the panel may be collapsed at this width: its title, not its visibility)
     page.locator("#feed-title", has_text="Activity · “Etage”").wait_for(state="attached")
@@ -262,7 +265,7 @@ def test_a_sites_maintenance_history(page):
     row = page.locator(".site-row").first
     name = row.locator(".site-name").inner_text()
     row.locator(".row-menu-btn").click()
-    row.locator(".maint-history-link").click()
+    page.locator(".maint-history-link").click()
     page.wait_for_url("**/maintenance?view=history&site_id=*")
     page.locator('[data-group="history"]').wait_for()
     assert page.locator("#maint-history-bar").is_visible() and not page.locator("#maint-plan-open").is_visible()
@@ -572,8 +575,8 @@ def test_find_and_pick_two_tenants(page, path):
     else:
         page.wait_for_selector(".site-row")
         page.locator('[data-severity-filter="all"]').click()
-    # The map's list (Nuxt UI, #463) opens from a button, the board's from a combobox.
-    control = page.get_by_role("button" if path == "/" else "combobox", name="Tenant", exact=True)
+    # Nuxt UI's list (#463) opens from a button.
+    control = page.get_by_role("button", name="Tenant", exact=True)
     control.click()
     search = page.get_by_role("combobox", name="Search Tenant", exact=True)
     before = sum(endpoint in url for url in requests)
@@ -747,7 +750,7 @@ def test_the_top_bar(page):
     bar.wait_for()
     page.locator("#app-status:not([hidden])").wait_for(timeout=20000)
     assert page.locator("#app-status-text").inner_text()
-    page.locator("#app-status summary").click()
+    page.locator("#app-status button").click()
     page.locator("#app-status-detail", has_text="Nautobot").wait_for()
     page.keyboard.press("Escape")
 
@@ -792,7 +795,7 @@ def test_the_documentation_pages(page):
     """#433: Documentation in the menu opens the guides; a link to another
     guide opens it at its heading."""
     page.goto(f"{BASE_URL}/alerts")
-    page.locator(".app-menu summary").click()
+    open_menu(page)
     page.locator(".app-nav-link", has_text="Documentation").click()
     page.wait_for_url("**/help")
     page.locator(".help-doc h1", has_text="Nautobot Maps").wait_for()
