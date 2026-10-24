@@ -1,66 +1,7 @@
-"""Multi-value map filters and the staff links they produce (#412)."""
+"""The staff links the tenant picks produce on the board (#412).  The map's
+filters are on Nuxt since #463: frontend/tests/map.test.ts."""
 
-from tests import test_integration
 from tests.js_modules import run_js
-
-
-def test_map_multi_filters_at_scale():
-    run_js(
-        """
-import { filterLocations } from "@js/map/filters.js";
-const sites = Array.from({length: 1200}, (_, i) => ({
-  id: i, status: ["Active", "Planned", "Retired"][i % 3],
-  location_type: ["Office", "DC", "Store"][i % 3],
-  parent: `Parent ${i % 300}`, tenant_group: `Group ${i % 3}`,
-  tenant: `Tenant ${i % 500}`, tenants: [`Tenant ${i % 500}`, `Partner ${i % 7}`],
-}));
-const fields = ["status", "location_type", "parent", "tenant_group", "tenant"];
-for (const field of fields) {
-  const picks = [sites[0][field], sites[1][field]];
-  const filtered = filterLocations(sites, {[field]: picks});
-  check(filtered.length > 0 && filtered.length < sites.length, field);
-  check(filtered.every((site) => picks.includes(site[field])), `any selected ${field}`);
-  check(filtered.some((site) => site[field] === picks[0]), `first ${field}`);
-  check(filtered.some((site) => site[field] === picks[1]), `second ${field}`);
-}
-const criteria = {status: ["Active", "Planned"], location_type: ["Office", "Store"],
-  parent: ["Parent 0", "Parent 3"], tenant_group: ["Group 0", "Group 1"]};
-const filtered = filterLocations(sites, criteria);
-check(filtered.length === 8, "AND across filters");
-check(filterLocations(sites, {tenant: ["Partner 0", "Partner 1"]}).length === 344,
-  "relationship-linked tenants match too");
-check(filterLocations(sites, {status: [], tenant: []}).length === 1200, "empty is all");
-"""
-    )
-
-
-def test_map_chips_remove_one_value_and_clear_all():
-    run_js(
-        test_integration.MAP_FAKES
-        + test_integration.TestMapAlarmListInTheBrowser.SETUP
-        + """
-import { activeFilters, renderFilterChips } from "@js/map/filters.js";
-import { selectedValues, setSelectedValues } from "@js/lib/multi-select.js";
-els.filterTenant.options = [
-  { value: "", selected: false },
-  { value: "Odd", selected: true },
-  { value: "Even", selected: true },
-];
-Object.defineProperty(els.filterTenant, "selectedOptions", {
-  get() { return this.options.filter((option) => option.selected); },
-});
-els.filterChips = element("chips", { replaceChildren(...chips) { this.children = chips; } });
-els.filterCount = element("count");
-renderFilterChips();
-check(activeFilters().length === 2, "one chip for each pick");
-check(els.filterChips.children.map((chip) => chip.dataset.value).join() === "Odd,Even",
-  "chip identifies the value, not just the filter");
-setSelectedValues(els.filterTenant, selectedValues(els.filterTenant).filter((value) => value !== "Odd"));
-check(selectedValues(els.filterTenant).join() === "Even", "removing one keeps the other");
-clearFilters();
-check(selectedValues(els.filterTenant).length === 0, "clear removes all");
-"""
-    )
 
 
 def test_staff_navigation_links_keep_all_tenant_picks():

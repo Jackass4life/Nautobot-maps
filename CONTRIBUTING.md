@@ -170,18 +170,16 @@ Every page's script is an ES module (#294), loaded with `<script type="module">`
 
 - `static/js/lib/`: helpers shared by the pages (HTML escaping, times, case links, theme,
   the (i) tooltip, the error toast).
-- `static/js/alerts/`, `static/js/map/`, `static/js/docs/`: one folder per
-  page. Its `main.js` is the entry: the only module that looks up page elements (and, on the
-  map, creates the Leaflet map) and wires events; it fills `els`, `config` and `state` in
-  `state.js`. Every other module touches the page only when one of its functions is called,
+- `static/js/alerts/`, `static/js/docs/`: one folder per page. Its `main.js` is the entry:
+  the only module that looks up page elements and wires events; it fills `els`, `config` and
+  `state` in `state.js`. Every other module touches the page only when one of its functions is called,
   never when it is imported. `availability.js` is that page's whole entry.
 - No inline styles (#370): the CSP allows only the app's CSS files, so markup built in JS uses
-  classes (e.g. `level-bg-critical`, `quiet-size-24` for map markers), never `style="…"`.
+  classes, never `style="…"`.
   Setting `element.style` from script is fine. `tests/test_no_inline_styles.py` checks.
-- Leaflet and Leaflet.markercluster stay plain `<script>`s (`static/vendor/`, with their
-  licences) loaded before `map/main.js`; the map's modules use the global `L` only inside
-  functions. To update a vendored library, take the file from its npm package and check the
-  tarball against npm's `dist.integrity`.
+- The map is on Nuxt (#463): Leaflet and Leaflet.markercluster are npm packages in
+  `frontend/`, loaded by `app/utils/leafletmap.ts` (markercluster needs the global `L`).
+  Its markers are classes in `app/assets/css/main.css`, never `style="…"`.
 
 That rule is what makes them testable: a test imports the real functions in Node with
 `tests/js_modules.py`, and gives them stand-in elements:

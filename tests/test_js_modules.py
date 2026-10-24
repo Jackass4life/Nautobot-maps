@@ -45,7 +45,6 @@ def test_every_page_loads_a_module_and_its_imports_exist():
     assert scripts == {
         "alerts/main.js",
         "docs/main.js",
-        "map/main.js",
     }
     used = set().union(*(imported_files(entry) for entry in scripts))
     every = {path.relative_to(JS_ROOT).as_posix() for path in JS_ROOT.rglob("*.js")}

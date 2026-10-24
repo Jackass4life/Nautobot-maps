@@ -1,10 +1,9 @@
-// The panel's one search (#392): as you type, the loaded sites whose name,
-// path or address has every word, names first. The map search comes first
-// unless the text is a full site name (#411). In the browser,
-// from the sites already loaded: no request per key, at 1,200 sites too.
+// The top bar's "Find a site" on the pages not yet on Nuxt (#392, #411): the
+// loaded sites whose name, path or address has every word, names first.  In
+// the browser, from the sites loaded once: no request per key, at 1,200 sites
+// too.  The map's own is frontend/app/utils/sitesearch.ts (#463).
 import { hasAllWords, searchWords } from "../lib/format.js";
-import { escHtml } from "../lib/html.js";
-import { formatLocationAddress, siteSearchText } from "../lib/scope.js";
+import { siteSearchText } from "../lib/scope.js";
 
 export const SITE_MATCHES_SHOWN = 8;
 
@@ -41,23 +40,4 @@ export function matchSites(locations, query, limit = SITE_MATCHES_SHOWN) {
     more: Math.max(0, found.length - limit),
     nameMatch: found[0]?.rank === -1,
   };
-}
-
-// The list's rows: each site (name; path or address), "N more: keep typing",
-// and the map search (first unless a full name matches).
-// *levels*: location id -> alert level, for its dot.
-export function siteMatchesHtml({ matches, more, nameMatch }, query, levels = {}) {
-  const rows = matches.map((loc) => {
-    const level = levels[loc.id] || "";
-    const meta = loc.ancestor_path || formatLocationAddress(loc) || loc.location_type || "";
-    return `<li><button class="site-match" type="button" data-location-id="${escHtml(loc.id)}">`
-      + `<span class="legend-dot dot-${escHtml(level || "no-data")}" aria-hidden="true"></span>`
-      + `<span class="site-match-name">${escHtml(loc.name || loc.id)}</span>`
-      + `${meta ? `<span class="site-match-meta">${escHtml(meta)}</span>` : ""}</button></li>`;
-  });
-  if (more) rows.push(`<li class="site-match-more">${more} more: keep typing</li>`);
-  const mapRow = `<li><button class="site-match site-match-map" type="button">Search the map for “${escHtml(query.trim())}”</button></li>`;
-  if (nameMatch) rows.push(mapRow);
-  else rows.unshift(mapRow);
-  return rows.join("");
 }

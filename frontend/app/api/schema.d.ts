@@ -781,11 +781,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, and the Maintenance page's and Availability's limits.
+         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, and the map's tiles and first view.
          * @description What the pages built with Nuxt read to draw themselves (#463): who is
          *     signed in (the top bar), Nautobot's address (links to its pages), the
-         *     menu, the same as the server-rendered pages show, and the Maintenance
-         *     page's and Availability's limits.
+         *     menu, the same as the server-rendered pages show, the Maintenance page's
+         *     and Availability's limits, and the map's tiles and first view.
          */
         get: operations["pages_api_page_config_api_page_config_get"];
         put?: never;
@@ -2121,6 +2121,30 @@ export interface components {
              */
             recent_days: number;
         };
+        /** MapSettings */
+        MapSettings: {
+            /**
+             * Tile Attribution
+             * @description MAP_TILE_ATTRIBUTION, as HTML.
+             */
+            tile_attribution: string;
+            /**
+             * Tile Url
+             * @description MAP_TILE_URL: the tile server, Leaflet's {s}/{z}/{x}/{y} form.
+             */
+            tile_url: string;
+            /** @description MAP_DEFAULT_VIEW; null: the map frames the sites. */
+            view: components["schemas"]["MapView"] | null;
+        };
+        /** MapView */
+        MapView: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Zoom */
+            zoom: number;
+        };
         /** MappedCircuit */
         MappedCircuit: {
             /**
@@ -2396,6 +2420,7 @@ export interface components {
         PageConfig: {
             availability: components["schemas"]["AvailabilityLimits"];
             maintenance: components["schemas"]["MaintenanceLimits"];
+            map: components["schemas"]["MapSettings"];
             /**
              * Nautobot Url
              * @description Nautobot's address, for links to its pages; empty when not set.

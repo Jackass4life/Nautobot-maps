@@ -45,6 +45,16 @@ def api(path: str) -> dict:
         return json.load(response)
 
 
+def open_menu(page):
+    """The top bar's ☰ menu: a <details> on the server-rendered pages, Nuxt UI's on the others (#463)."""
+    summary = page.locator(".app-menu summary")
+    if summary.count():
+        summary.click()
+    else:
+        page.get_by_role("button", name="Pages", exact=True).click()
+    page.locator(".app-nav-link").first.wait_for()
+
+
 def site_row(page, name: str):
     return page.locator(".site-row", has=page.locator(".site-name", has_text=name)).first
 
@@ -129,7 +139,9 @@ def test_the_map_and_wall_link_for_some_sites(page):
     page.locator("#map-scope", has_text="Only Nordic Net").wait_for(timeout=20000)
     count = page.locator("#location-count").inner_text()
     assert int(count.split()[0]) < 9, count
+    open_menu(page)
     assert page.locator(".app-nav-link", has_text="Alert Board").get_attribute("href") == "/alerts?tenant=nordic+net"
+    page.keyboard.press("Escape")
     page.goto(f"{BASE_URL}/?q=nowhere-at-all")
     page.locator("#map-scope.scope-no-match", has_text="No site matches").wait_for(timeout=20000)
 
@@ -426,18 +438,12 @@ def test_the_map_at_scale(page):
         assert page.locator("#search-results").is_visible()
         assert page.locator(".result-distance").inner_text() == "0 km"
         assert page.locator(".search-point-marker").count() == 1
+        # The 5 km circle, drawn on the canvas (SEARCH_RADIUS_M in frontend/app/utils/leafletmap.ts).
         assert page.locator(".leaflet-overlay-pane canvas").is_visible()
-        assert page.evaluate(
-            """async () => {
-                const { state } = await import("/static/js/map/state.js");
-                return state.markerLayer.getLayers().filter(layer => layer instanceof L.Circle)
-                    .map(circle => circle.getRadius());
-            }"""
-        ) == [5000]
         assert page.locator("#location-inspector").is_hidden()
     page.locator(".alarm-item").first.click()
     page.locator("#inspector-title", has_text="Site 0960").wait_for()
-    assert page.locator("#search-results").get_attribute("class") == "hidden"
+    assert page.locator("#search-results").is_hidden()
     page.keyboard.press("Escape")
 
     # Alarms only: the 25 pins and nothing else.
@@ -457,7 +463,7 @@ def test_a_click_on_a_tenant_info_keeps_its_description_open(page):
     """#390: the tenant's (i) in the site panel stays open after a click."""
     page.goto(f"{BASE_URL}/?location_id=loc-lon")
     page.locator("#inspector-title", has_text="London HQ").wait_for(timeout=20000)
-    tip = page.locator(".inspector-row .info-tip").first
+    tip = page.locator(".inspector-row .help-tip").first
     tip.click()
     page.mouse.move(1, 1)  # the pointer leaves the (i)
     box = page.locator(".info-tip-box")
@@ -471,7 +477,7 @@ def test_a_click_on_a_tenant_info_keeps_its_description_open(page):
     page.mouse.click(*middle)  # a click in it keeps it, so its text can be selected
     assert box.is_visible()
     page.keyboard.press("Escape")  # closes the tip, not the panel
-    assert not box.is_visible()
+    box.wait_for(state="hidden")
     assert page.locator("#location-inspector:not(.hidden)").count() == 1
 
 
@@ -505,13 +511,13 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.locator("#inspector-title", has_text="Copenhagen DC").wait_for()
 
     # The menu opens over the site panel, every link reachable; Escape closes the menu, not the panel.
-    page.locator(".app-menu summary").click()
-    wall = page.locator(".app-menu .app-nav-link", has_text="Wall view")
+    open_menu(page)
+    wall = page.locator(".app-nav-link", has_text="Wall view")
     box = wall.bounding_box()
     middle = [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2]
     assert page.evaluate("([x, y]) => document.elementFromPoint(x, y)?.textContent", middle) == "Wall view"
     page.keyboard.press("Escape")
-    assert page.locator(".app-menu .app-nav").is_hidden()
+    wall.wait_for(state="hidden")
     assert page.locator("#location-inspector:not(.hidden)").count() == 1
     page.keyboard.press("Escape")
     # A city makes the map search the first row.
@@ -522,7 +528,8 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.fill("#search-input", "")
     assert page.locator("#filter-section").is_hidden()
     page.locator("#filters-toggle").click()
-    page.get_by_role("combobox", name="Location type", exact=True).click()
+    # Nuxt UI's list opens from a button (#463); its search field is a combobox.
+    page.get_by_role("button", name="Location type", exact=True).click()
     page.get_by_role("combobox", name="Search Location type", exact=True).fill("Data Center")
     page.get_by_role("option", name="Data Center", exact=True).click()
     page.keyboard.press("Escape")
@@ -536,8 +543,8 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     page.locator("#legend", has_text="Critical").wait_for()
 
     # Every page is in the menu, which closes on a click outside it.
-    page.locator(".app-menu summary").click()
-    links = page.locator(".app-menu .app-nav-link").all_inner_texts()
+    open_menu(page)
+    links = page.locator(".app-nav-link").all_inner_texts()
     assert links == [
         "Map",
         "Alert Board",
@@ -549,7 +556,7 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
         "Wall view",
     ], links
     page.mouse.click(700, 300)
-    assert page.locator(".app-menu .app-nav").is_hidden()
+    page.locator(".app-nav-link").first.wait_for(state="hidden")
 
 
 @pytest.mark.parametrize("path", ["/", "/alerts"])
@@ -565,7 +572,8 @@ def test_find_and_pick_two_tenants(page, path):
     else:
         page.wait_for_selector(".site-row")
         page.locator('[data-severity-filter="all"]').click()
-    control = page.get_by_role("combobox", name="Tenant", exact=True)
+    # The map's list (Nuxt UI, #463) opens from a button, the board's from a combobox.
+    control = page.get_by_role("button" if path == "/" else "combobox", name="Tenant", exact=True)
     control.click()
     search = page.get_by_role("combobox", name="Search Tenant", exact=True)
     before = sum(endpoint in url for url in requests)
@@ -598,7 +606,7 @@ def test_find_and_pick_two_tenants(page, path):
     else:
         names = page.locator(".site-row .site-name").all_inner_texts()
         assert sorted(names) == sorted(site["name"] for site in expected)
-    page.locator(".app-menu summary").click()
+    open_menu(page)
     href = page.locator(".app-nav-link", has_text="Alert Board").get_attribute("href")
     params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
     assert set(params["tenant"]) == {"Acme Corp", "Nordic Net"}
@@ -704,14 +712,14 @@ def test_the_map_panel_folds_away(page):
 
     page.reload()
     page.locator("#panel-toggle", has_text="in alarm").wait_for(timeout=20000)
-    assert page.evaluate("document.body.classList.contains('panel-hidden')")
+    assert page.evaluate("document.querySelector('#sidebar').inert")
     page.keyboard.press("[")
     page.wait_for_function("() => document.querySelector('#sidebar').getBoundingClientRect().left === 0")
     assert toggle.is_hidden()
     assert page.locator("#panel-bar-toggle").get_attribute("aria-expanded") == "true"
     # Typing [ in the search doesn't fold it.
     page.fill("#search-input", "[")
-    assert not page.evaluate("document.body.classList.contains('panel-hidden')")
+    assert not page.evaluate("document.querySelector('#sidebar').inert")
 
 
 def test_the_map_panel_folds_on_a_phone(browser):

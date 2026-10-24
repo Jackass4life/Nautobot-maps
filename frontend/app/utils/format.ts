@@ -19,6 +19,16 @@ export function hasAllWords(text: string, words: string[]): boolean {
   return words.every((word) => text.includes(word));
 }
 
+// The API's own message for a failed request ({"error": ...}), else "".
+export function apiError(err: unknown): string {
+  return (err as { data?: { error?: unknown } } | null)?.data?.error?.toString() || "";
+}
+
+// What went wrong with a request: the API's message, else the error's own.
+export function errorMessage(err: unknown): string {
+  return apiError(err) || (err instanceof Error ? err.message : String(err));
+}
+
 // A site's page in Nautobot (#368).
 export function nautobotLocationUrl(nautobotUrl: string, locationId: string): string {
   return `${nautobotUrl.replace(/\/+$/, "")}/dcim/locations/${encodeURIComponent(locationId)}/`;

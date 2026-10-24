@@ -92,14 +92,12 @@ def test_a_name_is_escaped(client):
     assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
 
 
-def test_the_search_is_on_every_page_but_the_map(client):
-    # The server-rendered pages; the Nuxt ones (/circuits, /maintenance, /availability, /help, #463) have AppBar.vue (e2e).
+def test_the_search_is_on_every_page(client):
+    # The server-rendered pages; the Nuxt ones (the map, /circuits, /maintenance, /availability,
+    # /help, #463) have AppBar.vue, without the search on the map, which has its own (e2e).
     for path in ("/alerts", "/docs"):
         html = client.get(path).get_data(as_text=True)
         assert 'id="bar-search"' in html and 'id="app-status"' in html, path
-    # The map has its own search, for places too.
-    html = client.get("/").get_data(as_text=True)
-    assert 'id="bar-search"' not in html and 'id="app-status"' in html
 
 
 def test_no_bar_on_the_wall_or_the_status_page(client):
@@ -173,6 +171,20 @@ class TestPageConfig:
                 "/api/page-config", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
             ).get_json()
         assert config["user"] == {"name": "olga", "role": "operator"}
+
+    def test_the_maps_tiles_and_first_view(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png")
+        monkeypatch.setattr(settings, "MAP_TILE_ATTRIBUTION", "Tiles")
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", None)
+        assert client.get("/api/page-config").get_json()["map"] == {
+            "tile_url": "https://tiles.example/{z}/{x}/{y}.png",
+            "tile_attribution": "Tiles",
+            "view": None,
+        }
+        # MAP_DEFAULT_VIEW (#362): the map opens there instead of framing the sites.
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", (55.7, 12.6, 6))
+        view = client.get("/api/page-config").get_json()["map"]["view"]
+        assert view == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
 
     def test_the_scope_is_kept_on_the_map_board_and_wall(self):
         from nautobot_maps import navigation

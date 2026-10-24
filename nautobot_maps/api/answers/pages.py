@@ -30,9 +30,22 @@ class AvailabilityLimits(common.Answer):
     target: float = Field(description="The availability target, in percent.", examples=[99.9])
 
 
+class MapView(common.Answer):
+    latitude: float
+    longitude: float
+    zoom: int
+
+
+class MapSettings(common.Answer):
+    tile_url: str = Field(description="MAP_TILE_URL: the tile server, Leaflet's {s}/{z}/{x}/{y} form.")
+    tile_attribution: str = Field(description="MAP_TILE_ATTRIBUTION, as HTML.")
+    view: MapView | None = Field(description="MAP_DEFAULT_VIEW; null: the map frames the sites.")
+
+
 class PageConfig(common.Answer):
     user: BarUser | None = Field(description="Who is signed in; null with AUTH_MODE=disabled or no sign-in.")
     nautobot_url: str = Field(description="Nautobot's address, for links to its pages; empty when not set.")
     pages: list[MenuPage] = Field(description="The top bar's menu, in order.")
     maintenance: MaintenanceLimits
     availability: AvailabilityLimits
+    map: MapSettings

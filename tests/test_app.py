@@ -1556,85 +1556,34 @@ class TestNautobotRuntimeErrors:
 # Tests: index page
 # ---------------------------------------------------------------------------
 class TestIndex:
-    def test_index_returns_200(self, client):
-        resp = client.get("/")
-        assert resp.status_code == 200
-        assert b"Nautobot" in resp.data
+    """The map: built with Nuxt (#463); frontend/tests/ and e2e/ test the page itself."""
 
-    def test_index_contains_map_div(self, client):
-        resp = client.get("/")
-        assert b'id="map"' in resp.data
+    def test_index_is_the_nuxt_page(self, client, frontend_build):
+        resp = client.get("/?tenant=Acme%20Corp&location_id=loc-1")
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        # Asked again each time: a new build shows at once.
+        assert resp.headers["Cache-Control"] == "no-cache"
+        # No inline script: the CSP needs no 'unsafe-inline' (#197, #198).
+        assert not re.search(rb"<script>(?!\s*</script>)", resp.data)
 
-    def test_index_contains_search_input(self, client):
-        resp = client.get("/")
-        assert b'id="search-input"' in resp.data
-
-    def test_index_contains_filter_type(self, client):
-        resp = client.get("/")
-        assert b'id="filter-type"' in resp.data
-
-    def test_index_contains_filter_tenant(self, client):
-        resp = client.get("/")
-        assert b'id="filter-tenant"' in resp.data
-
-    def test_index_contains_filter_status(self, client):
-        resp = client.get("/")
-        assert b'id="filter-status"' in resp.data
-
-    def test_index_contains_filter_parent(self, client):
-        resp = client.get("/")
-        assert b'id="filter-parent"' in resp.data
-
-    def test_index_contains_filter_section(self, client):
-        resp = client.get("/")
-        assert b'id="filter-section"' in resp.data
-
-    def test_index_contains_filter_tenant_group(self, client):
-        resp = client.get("/")
-        assert b'id="filter-tenant-group"' in resp.data
-
-    def test_index_contains_location_inspector(self, client):
-        resp = client.get("/")
-        assert b'id="location-inspector"' in resp.data
-        assert b'id="inspector-content"' in resp.data
-        assert b'id="inspector-site-tabs"' in resp.data
-        assert b'role="complementary"' in resp.data
-        assert b'aria-labelledby="inspector-title"' in resp.data
-        assert b'aria-hidden="true"' in resp.data
-
-    def test_index_contains_inspector_actions(self, client):
-        resp = client.get("/")
-        # No Pinned button: the panel stays open while the map is used (#311).
-        assert b'id="inspector-pin"' not in resp.data
-        assert b'id="inspector-close"' in resp.data
-        assert b'aria-label="Close the site panel"' in resp.data
-
-    @staticmethod
-    def _app_config(resp) -> dict:
-        """The settings the page hands to js/map/main.js (data attributes, #197)."""
-        import html
-
-        tag = re.search(rb'<div\s+id="app-config"(.*?)></div>', resp.data, re.S).group(1).decode()
-        return {name: html.unescape(value) for name, value in re.findall(r'data-([a-z-]+)="([^"]*)"', tag)}
-
-    def test_index_contains_nautobot_url(self, client, monkeypatch):
+    def test_what_the_map_reads(self, client, monkeypatch):
+        """Nautobot's address, the tile server and the first view (#197, #362), from /api/page-config."""
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
-        assert self._app_config(client.get("/"))["nautobot-url"] == "https://nautobot.example.com"
-
-    def test_index_nautobot_url_empty_when_unset(self, client, monkeypatch):
-        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
-        assert self._app_config(client.get("/"))["nautobot-url"] == ""
-
-    def test_index_has_no_inline_script(self, client):
-        """The page settings are data attributes, so a CSP needs no 'unsafe-inline' (#197, #198)."""
-        assert not re.search(rb"<script>(?!\s*</script>)", client.get("/").data)
-
-    def test_tile_server_is_configurable(self, client, monkeypatch):
         monkeypatch.setattr(settings, "MAP_TILE_URL", "https://tiles.internal/{z}/{x}/{y}.png")
         monkeypatch.setattr(settings, "MAP_TILE_ATTRIBUTION", '<a href="https://x">"Ours" & co</a>')
-        config = self._app_config(client.get("/"))
-        assert config["tile-url"] == "https://tiles.internal/{z}/{x}/{y}.png"
-        assert config["tile-attribution"] == '<a href="https://x">"Ours" & co</a>'
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", None)
+        config = client.get("/api/page-config").get_json()
+        assert config["nautobot_url"] == "https://nautobot.example.com"
+        assert config["map"] == {
+            "tile_url": "https://tiles.internal/{z}/{x}/{y}.png",
+            "tile_attribution": '<a href="https://x">"Ours" & co</a>',
+            "view": None,
+        }
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", (55.7, 12.6, 6))
+        config = client.get("/api/page-config").get_json()
+        assert config["nautobot_url"] == ""
+        assert config["map"]["view"] == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
 
     def test_wall_and_operator_links_keep_a_scope(self, client):
         """?tenant= / ?q= (#364) stay on the Wall view and Operator view links; nothing else does."""
@@ -1661,27 +1610,14 @@ class TestIndex:
         assert everywhere["loc-aar-bld-a-f2"]["ancestor_path"] == "EMEA › DNK › Aarhus Campus › Bygning A"
         assert {loc["id"]: loc["ancestor_path"] for loc in inventory.get_locations()}["loc-cph"] == ""
 
-    def test_map_and_board_links_keep_a_scope(self, client):
-        """?tenant= / ?q= (#367) stay on the links between the map, the board and the wall."""
-        html = client.get("/?tenant=Acme%20Corp&q=DNK").get_data(as_text=True)
-        assert 'href="/alerts?tenant=Acme+Corp&amp;q=DNK">Alert Board</a>' in html
-        assert 'href="/alerts?view=wall&amp;tenant=Acme+Corp&amp;q=DNK"' in html
-        assert 'id="map-scope"' in html
+    def test_the_boards_links_keep_a_scope(self, client):
+        """?tenant= / ?q= (#367) stay on the links between the board, the map and the wall;
+        the map's own links (Nuxt, #463) are tested end to end."""
         board = client.get("/alerts?tenant=Acme%20Corp").get_data(as_text=True)
         assert 'href="/?tenant=Acme+Corp">Map</a>' in board
-        plain = client.get("/").get_data(as_text=True)
-        assert 'href="/alerts">Alert Board</a>' in plain
         # Every q= stays, not only the first (#366: q= is repeatable).
-        twice = client.get("/?q=DNK&q=Aarhus").get_data(as_text=True)
-        assert 'href="/alerts?q=DNK&amp;q=Aarhus">Alert Board</a>' in twice
-
-    def test_default_view_reaches_the_page(self, client, monkeypatch):
-        """MAP_DEFAULT_VIEW (#362); empty: the map fits itself to the sites."""
-        config = self._app_config(client.get("/"))
-        assert (config["view-lat"], config["view-lon"], config["view-zoom"]) == ("", "", "")
-        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", (55.7, 12.6, 6))
-        config = self._app_config(client.get("/"))
-        assert (config["view-lat"], config["view-lon"], config["view-zoom"]) == ("55.7", "12.6", "6")
+        twice = client.get("/alerts?q=DNK&q=Aarhus").get_data(as_text=True)
+        assert 'href="/?q=DNK&amp;q=Aarhus">Map</a>' in twice
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -4715,7 +4651,7 @@ class TestAuthConfiguration:
             )
         assert resp.status_code == 503  # reached the handler: no database here
 
-    def test_require_viewer_protects_every_page_but_probes(self, client, monkeypatch):
+    def test_require_viewer_protects_every_page_but_probes(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/").status_code == 401
@@ -4726,7 +4662,7 @@ class TestAuthConfiguration:
             assert client.get("/healthz").status_code in (200, 503)
             assert client.get("/metrics").status_code == 200
 
-    def test_require_viewer_is_off_by_default(self, client, monkeypatch):
+    def test_require_viewer_is_off_by_default(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", False)
         with auth_config(mode="header", viewer_groups={"noc"}):
             assert client.get("/").status_code == 200
@@ -6818,7 +6754,8 @@ class TestApiExplorer:
         assert {"month", "from", "to", "basis"} <= names
 
     def test_header_links_to_the_explorer(self, client):
-        for path in ("/", "/alerts", "/docs"):
+        # The server-rendered pages; the Nuxt ones read the menu from /api/page-config (#463).
+        for path in ("/alerts", "/docs"):
             assert 'href="/docs"' in client.get(path).get_data(as_text=True), path
 
     def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch):

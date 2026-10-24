@@ -33,9 +33,10 @@ def scope_query(request: Request) -> str:
 def api_page_config():
     """What the pages built with Nuxt read to draw themselves (#463): who is
     signed in (the top bar), Nautobot's address (links to its pages), the
-    menu, the same as the server-rendered pages show, and the Maintenance
-    page's and Availability's limits."""
+    menu, the same as the server-rendered pages show, the Maintenance page's
+    and Availability's limits, and the map's tiles and first view."""
     at = availability.now()
+    view = settings.MAP_DEFAULT_VIEW
     return deps.Json(
         {
             "user": templating.bar_user(),
@@ -52,22 +53,22 @@ def api_page_config():
                 "basis": settings.AVAILABILITY_BASIS,
                 "target": availability.TARGET_PCT,
             },
+            "map": {
+                "tile_url": settings.MAP_TILE_URL,
+                "tile_attribution": settings.MAP_TILE_ATTRIBUTION,
+                "view": {"latitude": view[0], "longitude": view[1], "zoom": view[2]} if view else None,
+            },
         },
         headers={"Cache-Control": "no-store"},
     )
 
 
 @router.get("/", name="pages.index", include_in_schema=False)
-def index(request: Request):
-    """The map: Nautobot locations, address and GPS search, alert banners."""
-    return pages.page(
-        "index.html",
-        nautobot_url=settings.NAUTOBOT_URL,
-        tile_url=settings.MAP_TILE_URL,
-        tile_attribution=settings.MAP_TILE_ATTRIBUTION,
-        view=settings.MAP_DEFAULT_VIEW,
-        scope_query=scope_query(request),
-    )
+def index():
+    """The map: Nautobot locations, address and GPS search, the sites in
+    alarm.  Built with Nuxt (#463); the page reads ``/api/page-config``,
+    ``/api/locations`` and ``/api/location-alerts``."""
+    return frontend.shell()
 
 
 @router.get("/alerts", name="pages.alert_board", include_in_schema=False)
