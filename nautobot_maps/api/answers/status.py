@@ -15,11 +15,16 @@ class StatusSite(common.Answer):
     address: str | None = Field(description="The site's physical address in Nautobot, when it has one (#493).")
     latitude: float | None = Field(description="Where the site is, when Nautobot has its coordinates (#493).")
     longitude: float | None = Field(description="With ``latitude``, or both are null.")
+    network_devices: int = Field(description="Its monitored devices that aren't access points (#503).")
+    access_points: int = Field(description="Its monitored devices with a role in ACCESS_POINT_ROLES (#503).")
+    network_devices_down: int = Field(description="Of ``network_devices``, down now; not those in maintenance.")
+    access_points_down: int = Field(description="Of ``access_points``, down now; not those in maintenance.")
 
 
 class StatusSummary(common.Answer):
     sites: int
     affected: int = Field(description="Sites in outage or degraded.")
+    devices_down: int = Field(description="Devices down now at the affected sites (#503).")
 
 
 class TenantStatus(common.Answer):

@@ -53,6 +53,11 @@ class TenantAlert(common.Answer):
     alert_level: Level
     device_count: int
     current_downtime_seconds: int
+    # Its own devices (#503); 0 in a board cached by the release before.
+    access_point_count: int = 0
+    network_device_count: int = 0
+    down_access_point_count: int = 0
+    down_network_device_count: int = 0
 
 
 class SiteMaintenance(common.Answer):
@@ -104,6 +109,10 @@ class BoardSite(common.Answer):
         0, description="Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too."
     )
     network_device_count: int = Field(0, description="The other monitored devices, in maintenance too.")
+    down_access_point_count: int = Field(
+        0, description="Of the access points, down now; not those in maintenance (#503)."
+    )
+    down_network_device_count: int = Field(0, description="Of the others, down now; not those in maintenance (#503).")
     current_downtime_seconds: int = Field(description="Its longest current outage.")
     latest_down_at: str | None = Field(description="When its newest open alert started.")
     historical_downtime_seconds: int

@@ -2,6 +2,7 @@
 // GET /api/status/{id}, the tenant's random link id (#500).  The key from a share link's "#key=" goes in the
 // Authorization header; the fragment is never sent to the server.
 import type { components } from "~/api/schema";
+import { devicesText, plural } from "./availability";
 import { formatFeedTime } from "./format";
 
 export type TenantStatus = components["schemas"]["TenantStatus"];
@@ -17,9 +18,32 @@ export const STATE_LABELS: Record<SiteState, string> = {
 };
 
 export function headline(data: Pick<TenantStatus, "summary">): string {
-  const { sites, affected } = data.summary;
+  const { sites, affected, devices_down: down } = data.summary;
   if (!affected) return sites === 1 ? "Operational" : `All ${sites} sites operational`;
-  return `${affected} of ${sites} site${sites === 1 ? "" : "s"} affected`;
+  const text = `${affected} of ${sites} site${sites === 1 ? "" : "s"} affected`;
+  // How many devices are down, of every kind (#503).
+  return down ? `${text} · ${down.toLocaleString("en")} device${down === 1 ? "" : "s"} down` : text;
+}
+
+type SiteDevices = Pick<StatusSite, "state" | "network_devices" | "access_points" | "network_devices_down" | "access_points_down">;
+
+// "12 network devices", or "3 of 12 network devices down".
+function kindText(total: number, down: number, word: string): string {
+  if (!total) return "";
+  return down ? `${down.toLocaleString("en")} of ${plural(total, word)} down` : plural(total, word);
+}
+
+// Whether a site's line says what is down: affected, with something down.
+export function hasDown(site: SiteDevices): boolean {
+  return (site.state === "outage" || site.state === "degraded") && site.network_devices_down + site.access_points_down > 0;
+}
+
+export function siteDevices(site: SiteDevices): string {
+  if (!site.network_devices && !site.access_points) return "";
+  if (!hasDown(site)) return devicesText(site.network_devices, site.access_points);
+  return [kindText(site.network_devices, site.network_devices_down, "network device"), kindText(site.access_points, site.access_points_down, "access point")]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function stateLabel(state: string): string {

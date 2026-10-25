@@ -1,11 +1,12 @@
 <!-- One site on the tenant status page (#291, #463): its state, and since or
      until when; under its name, where it is, opening OpenStreetMap in a new
-     tab (#493). -->
+     tab (#493); and how many devices it has, and how many are down (#503). -->
 <script setup lang="ts">
-import { sitePlace, siteWhen, stateLabel, type StatusSite } from "~/utils/status";
+import { hasDown, siteDevices, sitePlace, siteWhen, stateLabel, type StatusSite } from "~/utils/status";
 
 const props = defineProps<{ site: StatusSite; now: Date; dot: Record<string, string> }>();
 const place = computed(() => sitePlace(props.site));
+const devices = computed(() => siteDevices(props.site));
 </script>
 
 <template>
@@ -24,6 +25,9 @@ const place = computed(() => sitePlace(props.site));
         <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
         <span class="min-w-0 break-words">{{ place.text }}</span>
       </a>
+      <span v-if="devices" class="status-devices block text-sm" :class="hasDown(site) ? 'text-toned' : 'text-muted'">{{
+        devices
+      }}</span>
     </div>
     <span :class="site.state === 'outage' || site.state === 'degraded' ? 'font-semibold text-highlighted' : 'text-muted'">
       {{ stateLabel(site.state) }}

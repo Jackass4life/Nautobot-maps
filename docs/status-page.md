@@ -6,8 +6,8 @@ Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 chara
 
 It shows:
 - the tenant, with its description from Nautobot after a dash when it has one ("Acme Corp – Retail bank, 24/7", #482): the same text as the tenant's (i) on the board and Availability, so keep internal notes out of Nautobot's tenant descriptions;
-- one line for the whole tenant ("All 5 sites operational" or "2 of 5 sites affected");
-- each of the tenant's sites with a state and since when, and under its name where it is: its address from Nautobot (or its facility, as on the board), or its GPS coordinates when it has no address, opening OpenStreetMap in a new tab: a pin when the coordinates are known, else a search for the address (#493); worst first. A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
+- one line for the whole tenant ("All 5 sites operational", or "2 of 5 sites affected · 4 devices down");
+- each of the tenant's sites with a state and since when, and under its name where it is: its address from Nautobot (or its facility, as on the board), or its GPS coordinates when it has no address, opening OpenStreetMap in a new tab: a pin when the coordinates are known, else a search for the address (#493); and how many devices it has (#503): for a site in Outage or Degraded how many of each kind are down, "3 of 12 network devices down · 1 of 40 access points down", else just "12 network · 40 APs", quietly; worst first. A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
 
 | State | Board level |
 |-------|-------------|
@@ -19,7 +19,7 @@ It shows:
 
 A site belongs to the tenant when it is the site's own tenant or one linked by a Relationship, the same rule as the board's tenant filter. Tenant names are matched without regard to case. Locations with nothing monitored (regions, buildings) are left out.
 
-The page never shows devices, IP addresses, cases, acknowledgements, maintenance reasons or other tenants. A site's address and coordinates are shown (#493): with a status token a customer only ever sees their own sites, and where the page is open to anyone, the board is too, and it already shows every site's address. It refreshes every minute and follows the viewer's light or dark setting.
+Access points are the device roles in `ACCESS_POINT_ROLES` (default `Access Point`), every other monitored device is network equipment, as on [Availability](availability.md). A device in maintenance counts at its site but isn't down. Only counts are shown: the page never shows device names, roles, IP addresses, cases, acknowledgements, maintenance reasons or other tenants. A site's address and coordinates are shown (#493): with a status token a customer only ever sees their own sites, and where the page is open to anyone, the board is too, and it already shows every site's address. It refreshes every minute and follows the viewer's light or dark setting.
 
 ## Per-site device roles
 
@@ -29,7 +29,7 @@ Set `TENANT_SCOPE_FIELD` to the name of a JSON custom field on Nautobot Location
 {"Acme Corp": ["Access Switch", "Firewall"]}
 ```
 
-Tenant and role names are matched without regard to case. A tenant with no entry sees the whole site, as before. A tenant with an entry sees the state and downtime start calculated from devices in those roles; no device names or IP addresses are returned. If no monitored device at a site has a matching role, the site is hidden for that tenant. Maintenance and virtual chassis stacks are counted as they are on the board.
+Tenant and role names are matched without regard to case. A tenant with no entry sees the whole site, as before. A tenant with an entry sees the state and downtime start calculated from devices in those roles; no device names or IP addresses are returned, and the device counts are of those roles only (#503), never another tenant's devices. If no monitored device at a site has a matching role, the site is hidden for that tenant. Maintenance and virtual chassis stacks are counted as they are on the board.
 
 Leave `TENANT_SCOPE_FIELD` empty to turn this off. If the configured field contains malformed JSON or has an invalid shape, the sync logs one warning and that site falls back to all monitored devices.
 

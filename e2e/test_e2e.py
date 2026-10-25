@@ -485,6 +485,39 @@ def test_the_status_page_shows_where_each_site_is(page):
     assert page.locator(".status-site", has_text="Neither").locator(".status-place").count() == 0
 
 
+def test_the_status_page_counts_the_devices(page):
+    """Each site's devices, counts only: what is down when it is affected,
+    else just how many; the headline adds the devices down (#503)."""
+
+    def two_sites(route):
+        answer = route.fetch().json()
+        site = answer["sites"][0]
+        counts = {"network_devices": 12, "access_points": 40}
+        answer["sites"] = [
+            {**site, **counts, "name": "Hit", "state": "outage", "network_devices_down": 3, "access_points_down": 1},
+            {
+                **site,
+                **counts,
+                "name": "Fine",
+                "state": "operational",
+                "network_devices_down": 0,
+                "access_points_down": 0,
+            },
+        ]
+        answer["summary"] = {"sites": 2, "affected": 1, "devices_down": 4}
+        route.fulfill(json=answer)
+
+    page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/status/"), two_sites)
+    page.goto(status_link("Acme Corp"))
+    hit = page.locator(".status-site", has_text="Hit").locator(".status-devices")
+    hit.wait_for()
+    assert hit.inner_text().strip() == "3 of 12 network devices down · 1 of 40 access points down"
+    assert page.locator(".status-site", has_text="Fine").locator(".status-devices").inner_text().strip() == (
+        "12 network · 40 APs"
+    )
+    assert page.locator("#status-headline").inner_text().strip() == "1 of 2 sites affected · 4 devices down"
+
+
 def test_the_status_page_shows_the_tenants_description(page):
     """The name, a dash and the tenant's description from Nautobot (#482);
     just the name for a tenant without one."""

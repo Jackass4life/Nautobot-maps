@@ -99,7 +99,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |
 | `CRITICAL_ROLE_KEYWORDS` | `core,spine,distribution,router,gateway` | Device role keywords that make a down device **Critical** |
 | `CRITICALITY_RULES_FILE` | — | JSON file with keywords per location type, overriding `CRITICAL_ROLE_KEYWORDS`; see `criticality_rules.json` |
-| `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)) |
+| `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down |
 | `SITE_TENANT_RELATIONSHIPS` | — | Nautobot Relationships (keys or labels) that link a location to more tenants, shown next to its own tenant. Empty: every Location ↔ Tenant relationship |
 
 ## Sign-in and roles

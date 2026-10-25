@@ -1255,6 +1255,12 @@ export interface components {
              * @description Monitored devices, not those in maintenance.
              */
             device_count: number;
+            /**
+             * Down Access Point Count
+             * @description Of the access points, down now; not those in maintenance (#503).
+             * @default 0
+             */
+            down_access_point_count: number;
             /** Down Device Count */
             down_device_count: number;
             /**
@@ -1262,6 +1268,12 @@ export interface components {
              * @description The likely cause first.
              */
             down_devices: components["schemas"]["DownDevice"][];
+            /**
+             * Down Network Device Count
+             * @description Of the others, down now; not those in maintenance (#503).
+             * @default 0
+             */
+            down_network_device_count: number;
             /** Facility */
             facility: string;
             /** Historical Downtime Seconds */
@@ -2891,6 +2903,16 @@ export interface components {
         /** StatusSite */
         StatusSite: {
             /**
+             * Access Points
+             * @description Its monitored devices with a role in ACCESS_POINT_ROLES (#503).
+             */
+            access_points: number;
+            /**
+             * Access Points Down
+             * @description Of ``access_points``, down now; not those in maintenance.
+             */
+            access_points_down: number;
+            /**
              * Address
              * @description The site's physical address in Nautobot, when it has one (#493).
              */
@@ -2907,6 +2929,16 @@ export interface components {
             longitude: number | null;
             /** Name */
             name: string;
+            /**
+             * Network Devices
+             * @description Its monitored devices that aren't access points (#503).
+             */
+            network_devices: number;
+            /**
+             * Network Devices Down
+             * @description Of ``network_devices``, down now; not those in maintenance.
+             */
+            network_devices_down: number;
             /**
              * Since
              * @description When an outage or degradation started (ISO 8601, UTC).
@@ -2930,11 +2962,21 @@ export interface components {
              * @description Sites in outage or degraded.
              */
             affected: number;
+            /**
+             * Devices Down
+             * @description Devices down now at the affected sites (#503).
+             */
+            devices_down: number;
             /** Sites */
             sites: number;
         };
         /** TenantAlert */
         TenantAlert: {
+            /**
+             * Access Point Count
+             * @default 0
+             */
+            access_point_count: number;
             /**
              * Alert Level
              * @enum {string}
@@ -2944,6 +2986,21 @@ export interface components {
             current_downtime_seconds: number;
             /** Device Count */
             device_count: number;
+            /**
+             * Down Access Point Count
+             * @default 0
+             */
+            down_access_point_count: number;
+            /**
+             * Down Network Device Count
+             * @default 0
+             */
+            down_network_device_count: number;
+            /**
+             * Network Device Count
+             * @default 0
+             */
+            network_device_count: number;
         };
         /** TenantRow */
         TenantRow: {

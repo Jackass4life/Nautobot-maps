@@ -196,14 +196,37 @@ class TestBoard:
         finally:
             conn.close()
 
+        # And of each, how many are down (#503): acc1; the core is in maintenance.
         def counts(row):
-            return row["network_device_count"], row["access_point_count"]
+            return (
+                row["network_device_count"],
+                row["access_point_count"],
+                row["down_network_device_count"],
+                row["down_access_point_count"],
+            )
 
-        assert counts(build()) == (3, 0)
+        assert counts(build()) == (3, 0, 1, 0)
         monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"access switch"})
-        assert counts(build()) == (1, 2)
+        assert counts(build()) == (1, 2, 0, 1)
         monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"core router"})
-        assert counts(build()) == (2, 1), "the core, in maintenance"
+        assert counts(build()) == (2, 1, 1, 0), "the core, in maintenance: counted, not down"
+
+    def test_in_a_site_window_nothing_is_down(self, site):
+        # A site window leaves its devices counted, for the level; the status
+        # page must not call the two down ones down (#503 review).
+        assert build()["down_network_device_count"] == 2
+        conn = db.get_conn()
+        try:
+            maintenance.create(conn, {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60}, "olga")
+        finally:
+            conn.close()
+        row = build()
+        assert row["alert_level"] == "maintenance"
+        assert (row["network_device_count"], row["down_network_device_count"], row["down_access_point_count"]) == (
+            3,
+            0,
+            0,
+        )
 
     def test_a_device_going_down_in_maintenance_is_listed_not_counted(self, site):
         set_devices(core="Active", acc1="Active", acc2="Active")
