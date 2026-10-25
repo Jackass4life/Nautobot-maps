@@ -26,6 +26,9 @@ describe("what the page says", () => {
     expect(site("operational", 12, 40)).toBe("12 network · 40 APs");
     expect(site("maintenance", 0, 1)).toBe("1 AP");
     expect(site("unknown", 0, 0)).toBe("");
+    // Affected but nothing down (a webhook alert), or down but not affected: the quiet line.
+    expect(site("outage", 12, 40)).toBe("12 network · 40 APs");
+    expect(site("maintenance", 12, 40, 3, 1)).toBe("12 network · 40 APs");
   });
 
   it("each site's state and since or until when", () => {

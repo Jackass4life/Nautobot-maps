@@ -2,7 +2,7 @@
      until when; under its name, where it is, opening OpenStreetMap in a new
      tab (#493); and how many devices it has, and how many are down (#503). -->
 <script setup lang="ts">
-import { siteDevices, sitePlace, siteWhen, stateLabel, type StatusSite } from "~/utils/status";
+import { hasDown, siteDevices, sitePlace, siteWhen, stateLabel, type StatusSite } from "~/utils/status";
 
 const props = defineProps<{ site: StatusSite; now: Date; dot: Record<string, string> }>();
 const place = computed(() => sitePlace(props.site));
@@ -25,7 +25,7 @@ const devices = computed(() => siteDevices(props.site));
         <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
         <span class="min-w-0 break-words">{{ place.text }}</span>
       </a>
-      <span v-if="devices" class="status-devices block text-sm" :class="site.network_devices_down || site.access_points_down ? 'text-toned' : 'text-muted'">{{
+      <span v-if="devices" class="status-devices block text-sm" :class="hasDown(site) ? 'text-toned' : 'text-muted'">{{
         devices
       }}</span>
     </div>

@@ -2964,7 +2964,7 @@ export interface components {
             affected: number;
             /**
              * Devices Down
-             * @description Devices down now, at every site (#503).
+             * @description Devices down now at the affected sites (#503).
              */
             devices_down: number;
             /** Sites */

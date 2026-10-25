@@ -150,6 +150,19 @@ class TestTenantStatus:
             "Typo": (None, None, None),
         }
 
+    def test_the_headline_counts_only_the_affected_sites_down(self):
+        """What the rows add up to: a site in maintenance or with no data says no
+        "down", so its count isn't in the headline either (#503 review)."""
+        down = {"device_count": 5, "network_device_count": 5, "down_network_device_count": 2}
+        board = {
+            "alerts": [
+                {"name": "Hit", "tenant": "Acme", "alert_level": "critical", **down},
+                {"name": "Work", "tenant": "Acme", "alert_level": "maintenance", **down},
+                {"name": "Dark", "tenant": "Acme", "alert_level": "no_data", **down},
+            ]
+        }
+        assert status.tenant_status(board, "Acme")["summary"] == {"sites": 3, "affected": 1, "devices_down": 2}
+
     def test_a_related_tenant_sees_the_shared_site(self):
         result = status.tenant_status(BOARD, "Nordnet")
         assert [s["name"] for s in result["sites"]] == ["London HQ"]
@@ -270,6 +283,9 @@ class TestTenantScopes:
             "",
         )
         assert maintenance["acme corp"]["alert_level"] == "maintenance"
+        # Its offline firewall: counted, but in the site window not down (#503 review).
+        assert maintenance["acme corp"]["network_device_count"] == 1
+        assert maintenance["acme corp"]["down_network_device_count"] == 0
 
         stack = alerts.merge_stacks(
             [

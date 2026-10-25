@@ -4454,7 +4454,7 @@
             "type": "integer"
           },
           "devices_down": {
-            "description": "Devices down now, at every site (#503).",
+            "description": "Devices down now at the affected sites (#503).",
             "title": "Devices Down",
             "type": "integer"
           },

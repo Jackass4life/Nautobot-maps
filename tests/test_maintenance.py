@@ -211,6 +211,23 @@ class TestBoard:
         monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"core router"})
         assert counts(build()) == (2, 1, 1, 0), "the core, in maintenance: counted, not down"
 
+    def test_in_a_site_window_nothing_is_down(self, site):
+        # A site window leaves its devices counted, for the level; the status
+        # page must not call the two down ones down (#503 review).
+        assert build()["down_network_device_count"] == 2
+        conn = db.get_conn()
+        try:
+            maintenance.create(conn, {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60}, "olga")
+        finally:
+            conn.close()
+        row = build()
+        assert row["alert_level"] == "maintenance"
+        assert (row["network_device_count"], row["down_network_device_count"], row["down_access_point_count"]) == (
+            3,
+            0,
+            0,
+        )
+
     def test_a_device_going_down_in_maintenance_is_listed_not_counted(self, site):
         set_devices(core="Active", acc1="Active", acc2="Active")
         build()

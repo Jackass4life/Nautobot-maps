@@ -439,16 +439,18 @@ def compute_alert_level(
     return {"level": share_level, "reason": share}
 
 
-def device_kinds(devices: list[dict]) -> dict:
-    """How many of *devices* are access points (a role in ACCESS_POINT_ROLES)
-    and how many network equipment (#499), and of each, how many are down
+def device_kinds(counted: list[dict], down: list[dict]) -> dict:
+    """How many of *counted* are access points (a role in ACCESS_POINT_ROLES)
+    and how many network equipment (#499), and the same of *down*, those down
     now (#503).  Only counts: the status page shows no more."""
-    access_points = [d for d in devices if (d.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES]
-    down = [d for d in devices if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
-    down_access_points = sum((d.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES for d in down)
+
+    def access_points(devices: list[dict]) -> int:
+        return sum((d.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES for d in devices)
+
+    total, down_access_points = access_points(counted), access_points(down)
     return {
-        "access_point_count": len(access_points),
-        "network_device_count": len(devices) - len(access_points),
+        "access_point_count": total,
+        "network_device_count": len(counted) - total,
         "down_access_point_count": down_access_points,
         "down_network_device_count": len(down) - down_access_points,
     }
@@ -498,17 +500,14 @@ def tenant_scoped_alerts(
             default=0,
         )
         # Its own devices only, never a shared site's other tenants' (#503);
-        # one in maintenance counts but isn't down.
-        kinds = device_kinds([*active, *pending, *in_maintenance])
-        down = device_kinds(active)
+        # one in maintenance counts but isn't down, nor any in a site window.
+        down = [d for d in active if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
+        kinds = device_kinds([*active, *pending, *in_maintenance], [] if level == "maintenance" else down)
         scoped[tenant] = {
             "alert_level": level,
             "device_count": matches,
             "current_downtime_seconds": max(0, downtime),
-            "access_point_count": kinds["access_point_count"],
-            "network_device_count": kinds["network_device_count"],
-            "down_access_point_count": down["down_access_point_count"],
-            "down_network_device_count": down["down_network_device_count"],
+            **kinds,
         }
     return scoped
 
@@ -2017,9 +2016,11 @@ def build_alert_board_payload(
                 loc.get("tier") or "",
             )
             # "12 network · 40 APs" (#499), those in maintenance too; down
-            # (#503) only the counted ones, not those in maintenance.
-            kinds = device_kinds([*devices, *pending_devices, *maintenance_devices])
-            down_kinds = device_kinds(devices)
+            # (#503) only the counted ones: none in a device or site window
+            # (a site window leaves its devices counted, for the level).
+            kinds = device_kinds(
+                [*devices, *pending_devices, *maintenance_devices], [] if site_window is not None else down_devices
+            )
             alerts.append(
                 {
                     **{key: value for key, value in loc.items() if key != "tenant_scopes"},
@@ -2035,10 +2036,7 @@ def build_alert_board_payload(
                     # Left out of device_count while in a window (#283).
                     "maintenance_device_count": len(maintenance_devices),
                     "down_device_count": len(down_devices),
-                    "access_point_count": kinds["access_point_count"],
-                    "network_device_count": kinds["network_device_count"],
-                    "down_access_point_count": down_kinds["down_access_point_count"],
-                    "down_network_device_count": down_kinds["down_network_device_count"],
+                    **kinds,
                     "current_downtime_seconds": alert_context["current_downtime_seconds"],
                     "latest_down_at": alert_context.get("latest_down_at"),
                     "historical_downtime_seconds": alert_context["historical_downtime_seconds"],

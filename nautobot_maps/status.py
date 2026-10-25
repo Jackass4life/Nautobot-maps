@@ -129,7 +129,12 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
         "summary": {
             "sites": len(sites),
             "affected": sum(1 for site in sites if site["state"] in ("outage", "degraded")),
-            "devices_down": sum(site["network_devices_down"] + site["access_points_down"] for site in sites),
+            # The affected sites' only: what their lines add up to.
+            "devices_down": sum(
+                site["network_devices_down"] + site["access_points_down"]
+                for site in sites
+                if site["state"] in ("outage", "degraded")
+            ),
         },
         "sites": sites,
     }
