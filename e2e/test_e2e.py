@@ -205,10 +205,17 @@ def test_the_availability_page_answers_first(page):
     name = sites.locator("tbody tr:visible").first.get_attribute("data-name")
     sites.locator(".avail-search input").fill(name)
     assert sites.locator("tbody tr:visible").count() >= 1
-    # A tenant opens its status page (#461).
+    # A tenant opens its status page (#461), in a new tab (#494).
     tenant = sites.locator(".tenant-link").first
     if tenant.count():
         assert tenant.get_attribute("href").startswith("/status/")
+        assert tenant.get_attribute("target") == "_blank"
+        with page.context.expect_page() as opened:
+            tenant.click()
+        opened.value.locator("#status-tenant").wait_for()
+        assert opened.value.url.startswith(f"{BASE_URL}/status/")
+        opened.value.close()
+        assert page.url.startswith(f"{BASE_URL}/availability"), "Availability stays open"
     assert all(
         name.lower() in n.lower()
         for n in sites.locator("tbody tr:visible").evaluate_all(
