@@ -8142,14 +8142,14 @@
             "content": {
               "application/json": {
                 "example": {
-                  "error": "No board yet, or it can't be read"
+                  "error": "No board yet, it can't be read, or no database"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
               }
             },
-            "description": "No board yet, or it can't be read"
+            "description": "No board yet, it can't be read, or no database"
           }
         },
         "summary": "A tenant's sites and their state, for the tenant's random link id (#500; a name answers 404): ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.",

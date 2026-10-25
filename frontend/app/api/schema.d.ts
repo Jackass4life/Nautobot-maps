@@ -5417,7 +5417,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No board yet, or it can't be read */
+            /** @description No board yet, it can't be read, or no database */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5425,7 +5425,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "No board yet, or it can't be read"
+                     *       "error": "No board yet, it can't be read, or no database"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
