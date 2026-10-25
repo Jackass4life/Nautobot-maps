@@ -827,7 +827,8 @@ export interface paths {
         };
         /**
          * A tenant's sites and their state: ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.
-         * @description No devices, addresses, cases or other tenants.  Open as the board is, or
+         * @description Where each site is (address, coordinates; #493), but no devices, IPs,
+         *     cases or other tenants.  Open as the board is, or
          *     with a status token for this tenant (``Authorization: Bearer``).
          */
         get: operations["status_api_status_api_status__tenant__get"];
@@ -2854,7 +2855,10 @@ export interface components {
              * @description Where the site is, when Nautobot has its coordinates (#493).
              */
             latitude: number | null;
-            /** Longitude */
+            /**
+             * Longitude
+             * @description With ``latitude``, or both are null.
+             */
             longitude: number | null;
             /** Name */
             name: string;

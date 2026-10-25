@@ -5,7 +5,7 @@
 It shows:
 - the tenant, with its description from Nautobot after a dash when it has one ("Acme Corp – Retail bank, 24/7", #482): the same text as the tenant's (i) on the board and Availability, so keep internal notes out of Nautobot's tenant descriptions;
 - one line for the whole tenant ("All 5 sites operational" or "2 of 5 sites affected");
-- each of the tenant's sites with a state and since when, and under its name where it is: its address from Nautobot, or its GPS coordinates when it has no address, opening OpenStreetMap in a new tab (#493); worst first. A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
+- each of the tenant's sites with a state and since when, and under its name where it is: its address from Nautobot (or its facility, as on the board), or its GPS coordinates when it has no address, opening OpenStreetMap in a new tab: a pin when the coordinates are known, else a search for the address (#493); worst first. A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
 
 | State | Board level |
 |-------|-------------|
@@ -17,7 +17,7 @@ It shows:
 
 A site belongs to the tenant when it is the site's own tenant or one linked by a Relationship, the same rule as the board's tenant filter. Tenant names are matched without regard to case. Locations with nothing monitored (regions, buildings) are left out.
 
-The page never shows devices, IP addresses, cases, acknowledgements, maintenance reasons or other tenants. A site's address and coordinates are shown (#493): a customer only ever sees their own sites. It refreshes every minute and follows the viewer's light or dark setting.
+The page never shows devices, IP addresses, cases, acknowledgements, maintenance reasons or other tenants. A site's address and coordinates are shown (#493): with a status token a customer only ever sees their own sites, and where the page is open to anyone, the board is too, and it already shows every site's address. It refreshes every minute and follows the viewer's light or dark setting.
 
 ## Per-site device roles
 

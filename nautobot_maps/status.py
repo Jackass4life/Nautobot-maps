@@ -53,12 +53,14 @@ def _since(row: dict, checked_at: str) -> str | None:
 
 
 def _place(row: dict) -> dict:
-    """Where a site is (#493): its address and coordinates, each None when
-    Nautobot has none.  The page links the address, else the coordinates."""
+    """Where a site is (#493): its address (as the board's, on one line) and
+    its coordinates, each None when Nautobot has none or they're impossible."""
+    address = ", ".join(line.strip() for line in site_address(row).splitlines() if line.strip())
     latitude, longitude = row.get("latitude"), row.get("longitude")
-    located = latitude is not None and longitude is not None
+    # A real point only: coordinates.py flags the rest for the admins.
+    located = latitude is not None and longitude is not None and abs(latitude) <= 90 and abs(longitude) <= 180
     return {
-        "address": (row.get("physical_address") or "").strip() or None,
+        "address": address or None,
         "latitude": latitude if located else None,
         "longitude": longitude if located else None,
     }

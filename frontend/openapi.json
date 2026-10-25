@@ -4300,6 +4300,7 @@
                 "type": "null"
               }
             ],
+            "description": "With ``latitude``, or both are null.",
             "title": "Longitude"
           },
           "name": {
@@ -8040,7 +8041,7 @@
     },
     "/api/status/{tenant}": {
       "get": {
-        "description": "No devices, addresses, cases or other tenants.  Open as the board is, or\nwith a status token for this tenant (``Authorization: Bearer``).",
+        "description": "Where each site is (address, coordinates; #493), but no devices, IPs,\ncases or other tenants.  Open as the board is, or\nwith a status token for this tenant (``Authorization: Bearer``).",
         "operationId": "status_api_status_api_status__tenant__get",
         "parameters": [
           {

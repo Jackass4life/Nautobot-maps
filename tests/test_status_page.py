@@ -56,12 +56,15 @@ class TestTenantStatus:
         assert result["tenant"] == "Acme Corp"
         assert result["description"] == "Retail bank, 24/7"
         assert result["summary"] == {"sites": 5, "affected": 2}
-        assert [{key: site[key] for key in ("name", "state", "since", "until")} for site in result["sites"]] == [
-            {"name": "London HQ", "state": "outage", "since": "2026-10-09T11:00:00Z", "until": None},
-            {"name": "Copenhagen", "state": "degraded", "since": None, "until": None},
-            {"name": "Amsterdam", "state": "maintenance", "since": None, "until": "2026-10-09T14:00:00Z"},
-            {"name": "Stockholm", "state": "unknown", "since": None, "until": None},
-            {"name": "Paris PoP", "state": "operational", "since": None, "until": None},
+        # Whole records: a field added later must be added here on purpose.
+        nowhere = {"address": None, "latitude": None, "longitude": None}
+        london = {"address": "1 Canada Square", "latitude": 51.5054, "longitude": -0.0235}
+        assert result["sites"] == [
+            {"name": "London HQ", "state": "outage", "since": "2026-10-09T11:00:00Z", "until": None, **london},
+            {"name": "Copenhagen", "state": "degraded", "since": None, "until": None, **nowhere},
+            {"name": "Amsterdam", "state": "maintenance", "since": None, "until": "2026-10-09T14:00:00Z", **nowhere},
+            {"name": "Stockholm", "state": "unknown", "since": None, "until": None, **nowhere},
+            {"name": "Paris PoP", "state": "operational", "since": None, "until": None, **nowhere},
         ]
         text = json.dumps(result)
         for secret in (
@@ -96,6 +99,12 @@ class TestTenantStatus:
                     "physical_address": "  ",
                     "latitude": 55.1,
                 },
+                # The board's address rule: the facility when there's no street address.
+                {"name": "Colo", "tenant": "Acme Corp", "alert_level": "ok", "facility": "Equinix CPH1"},
+                # Nautobot's textarea: one line here.
+                {"name": "Two lines", "tenant": "Acme Corp", "alert_level": "ok", "physical_address": "Borgergade 10\r\n 1300 Copenhagen\n"},
+                # An impossible point is no point (coordinates.py flags it).
+                {"name": "Typo", "tenant": "Acme Corp", "alert_level": "ok", "latitude": 555.0, "longitude": 12.5},
             ],
         }
         places = {
@@ -106,6 +115,9 @@ class TestTenantStatus:
             "London HQ": ("1 Canada Square", 51.5054, -0.0235),
             "Field cabinet": (None, 55.6761, 12.5683),
             "Nowhere": (None, None, None),
+            "Colo": ("Equinix CPH1", None, None),
+            "Two lines": ("Borgergade 10, 1300 Copenhagen", None, None),
+            "Typo": (None, None, None),
         }
 
     def test_a_related_tenant_sees_the_shared_site(self):

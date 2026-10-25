@@ -58,15 +58,17 @@ export function errorText(code: number): string {
 }
 
 // Where a site is (#493): its address, else its coordinates, as a link to
-// OpenStreetMap; null when Nautobot has neither.
+// OpenStreetMap; null when Nautobot has neither.  The link is a pin on the
+// coordinates when there are any (exact), else a search for the address.
 export function sitePlace(site: Pick<StatusSite, "address" | "latitude" | "longitude">): { text: string; href: string } | null {
-  if (site.address) {
-    return { text: site.address, href: `https://www.openstreetmap.org/search?query=${encodeURIComponent(site.address)}` };
+  const located = site.latitude != null && site.longitude != null;
+  if (!site.address && !located) return null;
+  let href = `https://www.openstreetmap.org/search?query=${encodeURIComponent(site.address ?? "")}`;
+  let text = site.address ?? "";
+  if (located) {
+    const [lat, lon] = [site.latitude!.toFixed(5), site.longitude!.toFixed(5)];
+    href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
+    text ||= `${site.latitude!.toFixed(4)}, ${site.longitude!.toFixed(4)}`;
   }
-  if (site.latitude == null || site.longitude == null) return null;
-  const [lat, lon] = [site.latitude.toFixed(5), site.longitude.toFixed(5)];
-  return {
-    text: `${site.latitude.toFixed(4)}, ${site.longitude.toFixed(4)}`,
-    href: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`,
-  };
+  return { text, href };
 }

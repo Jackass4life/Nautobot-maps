@@ -68,9 +68,16 @@ describe("a large tenant sees what is wrong first (#407)", () => {
 
 describe("where a site is (#493)", () => {
   it("the address, as an OpenStreetMap search", () => {
-    expect(sitePlace({ address: "Nørregade 7, 1165 København", latitude: 55.68, longitude: 12.57 })).toEqual({
+    expect(sitePlace({ address: "Nørregade 7, 1165 København", latitude: null, longitude: null })).toEqual({
       text: "Nørregade 7, 1165 København",
       href: "https://www.openstreetmap.org/search?query=N%C3%B8rregade%207%2C%201165%20K%C3%B8benhavn",
+    });
+  });
+
+  it("the address, as a pin when the coordinates are known (exact)", () => {
+    expect(sitePlace({ address: "Unit 4, Industrial Estate", latitude: 55.68, longitude: 12.58 })).toEqual({
+      text: "Unit 4, Industrial Estate",
+      href: "https://www.openstreetmap.org/?mlat=55.68000&mlon=12.58000#map=16/55.68000/12.58000",
     });
   });
 

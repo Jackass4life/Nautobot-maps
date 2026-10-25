@@ -14,7 +14,7 @@ class StatusSite(common.Answer):
     until: str | None = Field(description="When maintenance ends, as planned.")
     address: str | None = Field(description="The site's physical address in Nautobot, when it has one (#493).")
     latitude: float | None = Field(description="Where the site is, when Nautobot has its coordinates (#493).")
-    longitude: float | None
+    longitude: float | None = Field(description="With ``latitude``, or both are null.")
 
 
 class StatusSummary(common.Answer):

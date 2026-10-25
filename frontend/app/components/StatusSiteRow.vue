@@ -15,14 +15,14 @@ const place = computed(() => sitePlace(props.site));
       <span class="block font-semibold break-words text-highlighted">{{ site.name }}</span>
       <a
         v-if="place"
-        class="status-place inline-flex items-start gap-1 text-sm break-words text-muted hover:text-primary hover:underline"
+        class="status-place inline-flex max-w-full items-start gap-1 text-sm text-muted hover:text-primary hover:underline"
         :href="place.href"
         target="_blank"
         rel="noopener noreferrer"
         :aria-label="`${place.text}: open on OpenStreetMap in a new tab`"
       >
         <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        {{ place.text }}
+        <span class="min-w-0 break-words">{{ place.text }}</span>
       </a>
     </div>
     <span :class="site.state === 'outage' || site.state === 'degraded' ? 'font-semibold text-highlighted' : 'text-muted'">
