@@ -428,7 +428,7 @@ function until(ready: () => unknown): Promise<void> {
                   @click="addIds([site.id])"
                 >
                   <strong>{{ site.name }}</strong>
-                  <span v-if="site.path" class="text-muted"> {{ site.path }}</span>
+                  <span v-if="site.path" class="ml-1.5 text-muted">{{ site.path }}</span>
                   <span v-if="site.maintenance" class="text-muted"> · in maintenance now</span>
                 </li>
                 <li v-if="matches.more" class="px-3 py-1.5 text-sm text-muted" aria-disabled="true">
