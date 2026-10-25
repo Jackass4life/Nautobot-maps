@@ -26,6 +26,7 @@ import {
 } from "~/utils/map";
 import { SCOPE_NO_MATCH_HINT, inScope, linkParams, readScope, scopeLabel, scopeParams } from "~/utils/scope";
 import type { LocationDetail } from "~/utils/sitepanel";
+import { mergedDescriptions } from "~/utils/tenants";
 
 type LocationAlerts = components["schemas"]["LocationAlerts"];
 type SearchAnswer = components["schemas"]["Search"];
@@ -88,6 +89,7 @@ const searching = ref(false);
 let searchTicket = 0;
 
 const choices = computed(() => filterChoices(all.value));
+const descriptions = computed(() => mergedDescriptions(all.value));
 const filtered = computed(() => filterLocations(all.value, criteria.value));
 // Once the levels are in: before (or if they fail) every site, with the note, not an empty map (#337).
 const alarmsOnlyApplies = computed(() => alarmsOnly.value && levelsLoaded.value);
@@ -512,6 +514,7 @@ onBeforeUnmount(() => {
           class="mt-auto"
           :model-value="criteria"
           :choices="choices"
+          :descriptions="descriptions"
           :count="countText"
           @update:model-value="setCriteria"
           @clear="clearFilters()"

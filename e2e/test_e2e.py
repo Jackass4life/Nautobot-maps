@@ -308,6 +308,28 @@ def test_planning_maintenance_for_several_sites(operator_page, request):
     assert "CANCELLED" in page.locator('[data-group="past"] .maint-batch', has_text=reason).first.text_content()
 
 
+def test_the_planner_finds_a_tenant_by_its_description(operator_page):
+    """Typing part of a tenant's description offers all its sites (#497)."""
+    page = operator_page
+    answer = api("/api/maintenance/sites")
+    counts = {}
+    for site in answer["sites"]:
+        for tenant in site["tenants"]:
+            counts[tenant] = counts.get(tenant, 0) + 1
+    tenant, description = next(
+        (name, text) for name, text in sorted(answer["tenant_descriptions"].items()) if counts.get(name, 0) > 1
+    )
+    word = description.split()[0].rstrip(".,")
+    page.goto(f"{BASE_URL}/maintenance")
+    page.locator("#maint-plan-open").click()
+    page.locator("#maint-site-search").fill(word)
+    row = page.locator(".maint-match-tenant", has_text=tenant)
+    row.wait_for()
+    assert description in row.inner_text()
+    row.click()
+    assert page.locator("#maint-chosen .maint-chip").count() == counts[tenant]
+
+
 def test_a_sites_maintenance_history(page):
     """From the board's ⋯ menu to that site's maintenance history, and its export (#353)."""
     page.goto(f"{BASE_URL}/alerts")
@@ -653,7 +675,8 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert labels == ["Status", "Tenant", "Tenant group"], labels
     page.get_by_role("button", name="Tenant", exact=True).click()
     page.get_by_role("combobox", name="Search Tenant", exact=True).fill("Acme")
-    page.get_by_role("option", name="Acme Corp", exact=True).click()
+    # The description shows under the name (#497), so the name is a prefix.
+    page.get_by_role("option", name="Acme Corp").click()
     page.keyboard.press("Escape")
     assert page.locator("#filters-toggle").inner_text() == "Filters · 1"
     page.locator(".filter-chip", has_text="Acme Corp").click()
@@ -699,10 +722,15 @@ def test_find_and_pick_two_tenants(page, path):
     control.click()
     search = page.get_by_role("combobox", name="Search Tenant", exact=True)
     before = sum(endpoint in url for url in requests)
+    names = page.get_by_role("option").locator('[data-slot="itemLabel"]')
     search.fill("acm")
-    assert page.get_by_role("option").all_text_contents() == ["Acme Corp"]
+    assert names.all_text_contents() == ["Acme Corp"]
     search.press("Enter")
-    search.fill("nord")
+    # A tenant by its description too (#497): Nordic Net is a "Regional ISP",
+    # and the description shows under its name.
+    search.fill("regional isp")
+    assert names.all_text_contents() == ["Nordic Net"]
+    assert "Regional ISP" in page.get_by_role("option").inner_text()
     search.press("Enter")
     search.press("Escape")
     assert control.inner_text() == "Acme Corp +1"

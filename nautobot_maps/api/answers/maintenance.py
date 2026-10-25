@@ -66,6 +66,7 @@ class PlannableSite(common.Answer):
 
 class PlannableSites(common.Answer):
     sites: list[PlannableSite]
+    tenant_descriptions: dict[str, str] = Field(description="Tenant name to its description, when it has one.")
 
 
 class MaintenanceDevice(common.Answer):

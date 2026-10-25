@@ -58,8 +58,12 @@ export function siteLabel(window: MaintenanceWindow): string {
 
 // Windows planned in one request (batch_id) are one batch; once over, the
 // cancelled ones apart from those that ran.  *keepOrder* (the history): as
-// the server sent them, newest first.
-export function batchesOf(windows: MaintenanceWindow[], { keepOrder = false } = {}): Batch[] {
+// the server sent them, newest first.  The search finds a tenant by its
+// *descriptions* too (#497).
+export function batchesOf(
+  windows: MaintenanceWindow[],
+  { keepOrder = false, descriptions = {} }: { keepOrder?: boolean; descriptions?: Record<string, string> } = {},
+): Batch[] {
   const batches = new Map<string, Batch>();
   for (const window of windows) {
     const group = groupOf(window.state);
@@ -94,6 +98,7 @@ export function batchesOf(windows: MaintenanceWindow[], { keepOrder = false } = 
       batch.reason,
       batch.created_by,
       ...batch.tenants,
+      ...batch.tenants.map((tenant) => describe(descriptions, tenant)),
       ...batch.windows.flatMap((w) => [siteLabel(w), w.site_path || "", w.device_name || w.device_id]),
     ]
       .join(" ")
@@ -164,23 +169,34 @@ export const MAX_MATCHES = 8;
 
 export type PickerSite = PlannableSite & { lowerName: string; lowerTenants: [string, string][]; text: string };
 
+// A tenant's description, or "" (an own key only: names come from Nautobot).
+function describe(descriptions: Record<string, string>, tenant: string): string {
+  return Object.hasOwn(descriptions, tenant) ? descriptions[tenant] || "" : "";
+}
+
 const byName = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
-// The sites as the picker searches them: sorted by name and lower-cased once.
-export function prepareSites(sites: PlannableSite[]): PickerSite[] {
+// The sites as the picker searches them: sorted by name and lower-cased once;
+// a tenant by its name or its description (#497).
+export function prepareSites(sites: PlannableSite[], descriptions: Record<string, string> = {}): PickerSite[] {
   return [...sites]
     .sort((a, b) => byName.compare(a.name, b.name))
     .map((site) => ({
       ...site,
       lowerName: site.name.toLowerCase(),
-      lowerTenants: (site.tenants || []).map((tenant): [string, string] => [tenant, tenant.toLowerCase()]),
-      text: [site.name, site.path, ...(site.tenants || [])].join(" ").toLowerCase(),
+      lowerTenants: (site.tenants || []).map((tenant): [string, string] => [
+        tenant,
+        `${tenant} ${describe(descriptions, tenant)}`.toLowerCase(),
+      ]),
+      text: [site.name, site.path, ...(site.tenants || []).flatMap((tenant) => [tenant, describe(descriptions, tenant)])]
+        .join(" ")
+        .toLowerCase(),
     }));
 }
 
 // Sites with every word in the name, path or a tenant, not yet chosen: those
 // whose name has the phrase first, then by name; and the tenants whose name
-// has it, with all their sites (two or more, the three biggest).
+// or description has it, with all their sites (two or more, the three biggest).
 export function matchPlannableSites(
   sites: PickerSite[],
   query: string,

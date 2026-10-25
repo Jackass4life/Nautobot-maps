@@ -3,9 +3,10 @@
      the count, and notes only when they apply (the slot). -->
 <script setup lang="ts">
 import { FILTERS, type Criteria, type FilterField } from "~/utils/map";
+import { CHOICE_SEARCH_FIELDS, choiceItems } from "~/utils/tenants";
 
 const criteria = defineModel<Criteria>({ required: true });
-const props = defineProps<{ choices: Criteria; count: string }>();
+const props = defineProps<{ choices: Criteria; count: string; descriptions: Record<string, string> }>();
 const emit = defineEmits<{ clear: [] }>();
 
 const open = ref(false);
@@ -19,6 +20,12 @@ const quickStatuses = computed(() =>
 );
 // A filter with fewer than two choices is no choice.
 const shown = computed(() => FILTERS.filter(({ field }) => props.choices[field].length >= 2));
+// A tenant is found by its description too (#497).
+const items = computed(() =>
+  Object.fromEntries(
+    FILTERS.map(({ field }) => [field, choiceItems(props.choices[field], field === "tenant" ? props.descriptions : {})]),
+  ) as Record<FilterField, ReturnType<typeof choiceItems>>,
+);
 
 function set(field: FilterField, values: string[]) {
   criteria.value = { ...criteria.value, [field]: values };
@@ -92,7 +99,9 @@ function shortLabel(values: string[], all: string) {
         v-for="filter in shown"
         :key="filter.field"
         :model-value="criteria[filter.field]"
-        :items="choices[filter.field]"
+        :items="items[filter.field]"
+        value-key="value"
+        :filter-fields="CHOICE_SEARCH_FIELDS"
         multiple
         :placeholder="filter.all"
         :aria-label="filter.label"

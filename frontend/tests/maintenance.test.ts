@@ -88,6 +88,10 @@ describe("batches and groups", () => {
     expect(batchMatches(batches[0]!, { tenants: ["Nordic"] })).toBe(true);
     expect(batchMatches(batches[1]!, { tenants: ["Nordic"] })).toBe(false);
     expect(batchMatches(batches[1]!, { tenants: ["Nordic", "Acme"] })).toBe(true);
+    // A tenant by its description too (#497).
+    const described = batchesOf(windows, { descriptions: { Nordic: "Nordic Telecom Group" } });
+    expect(batchMatches(described[0]!, q("telecom"))).toBe(true);
+    expect(batchMatches(batches[0]!, q("telecom"))).toBe(false);
   });
 
   it("End or Cancel, one or all", () => {
@@ -136,6 +140,24 @@ describe("planning", () => {
     expect(matchPlannableSites(sites, "site 0003").sites.map((s) => s.id)).toEqual(["s3"]);
     expect(matchPlannableSites(sites, "site 0003", new Set(["s3"])).sites).toEqual([]);
     expect(matchPlannableSites(sites, "  ").sites).toEqual([]);
+  });
+
+  it("a tenant by its description too (#497)", () => {
+    const described = prepareSites(
+      Array.from({ length: 1200 }, (_, i) => ({
+        id: `s${i}`,
+        name: `Site ${i}`,
+        path: "",
+        tenants: i % 30 === 0 ? ["NNIT"] : [`Tenant ${i % 7}`],
+        devices: 8,
+        maintenance: false,
+      })),
+      { NNIT: "Novo Nordisk IT" },
+    );
+    const novo = matchPlannableSites(described, "novo");
+    expect(novo.tenants.map((t) => [t.name, t.ids.length])).toEqual([["NNIT", 40]]);
+    expect(novo.sites).toHaveLength(MAX_MATCHES);
+    expect(matchPlannableSites(sites, "novo").tenants).toEqual([]);
   });
 
   const values = (extra: Partial<PlanValues>): PlanValues => ({

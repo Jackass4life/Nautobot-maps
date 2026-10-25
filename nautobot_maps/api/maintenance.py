@@ -212,8 +212,17 @@ def api_maintenance_history_csv(query: HistoryQuery):
 def api_maintenance_sites():
     """The sites maintenance can be planned for (#343), for the page's site
     picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)
-    and ``maintenance`` (in a window now).  From the stored board; no query
-    per site."""
+    and ``maintenance`` (in a window now); ``tenant_descriptions``, so the
+    picker finds a tenant by its description too (#497).  From the stored
+    board; no query per site."""
+    rows = [
+        site
+        for site in _board_sites()
+        if site.get("id") and (site.get("device_count") or site.get("maintenance_device_count"))
+    ]
+    descriptions = {}
+    for site in rows:
+        descriptions.update(site.get("tenant_descriptions") or {})
     return deps.Json(
         {
             "sites": [
@@ -225,9 +234,9 @@ def api_maintenance_sites():
                     "devices": site.get("device_count") or 0,
                     "maintenance": site.get("alert_level") == "maintenance",
                 }
-                for site in _board_sites()
-                if site.get("id") and (site.get("device_count") or site.get("maintenance_device_count"))
-            ]
+                for site in rows
+            ],
+            "tenant_descriptions": {name: text for name, text in descriptions.items() if text},
         }
     )
 
