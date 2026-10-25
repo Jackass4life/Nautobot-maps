@@ -102,7 +102,12 @@ class TestTenantStatus:
                 # The board's address rule: the facility when there's no street address.
                 {"name": "Colo", "tenant": "Acme Corp", "alert_level": "ok", "facility": "Equinix CPH1"},
                 # Nautobot's textarea: one line here.
-                {"name": "Two lines", "tenant": "Acme Corp", "alert_level": "ok", "physical_address": "Borgergade 10\r\n 1300 Copenhagen\n"},
+                {
+                    "name": "Two lines",
+                    "tenant": "Acme Corp",
+                    "alert_level": "ok",
+                    "physical_address": "Borgergade 10\r\n 1300 Copenhagen\n",
+                },
                 # An impossible point is no point (coordinates.py flags it).
                 {"name": "Typo", "tenant": "Acme Corp", "alert_level": "ok", "latitude": 555.0, "longitude": 12.5},
             ],
