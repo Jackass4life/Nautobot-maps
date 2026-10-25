@@ -46,10 +46,13 @@ const columns = computed<{ key: SortKey | null; label: string; num?: boolean }[]
         { key: null, label: "Tenants" },
       ],
 );
-const sorted = computed(() => sortRows(props.rows, sort.value.key, sort.value.dir));
-const view = computed(() => filterRows(sorted.value, { query: query.value, tenants: tenants.value, limit: shownLimit.value }));
-const more = computed(() => moreText(view.value, props.rows.length));
 const searchable = computed(() => (props.kind === "sites" ? props.rows.length > 0 : props.rows.length > props.limit));
+const sorted = computed(() => sortRows(props.rows, sort.value.key, sort.value.dir));
+// A hidden box filters nothing: a new period with fewer tenants hides it (#481).
+const view = computed(() =>
+  filterRows(sorted.value, { query: searchable.value ? query.value : "", tenants: tenants.value, limit: shownLimit.value }),
+);
+const more = computed(() => moreText(view.value, props.rows.length));
 
 // A new search or tenant starts again from the worst N.
 watch([query, tenants, () => props.rows], () => {

@@ -232,18 +232,19 @@ def test_the_availability_tenants_search(page):
         report["tenant_descriptions"]["Tenant 17"] = "Ferry operator, Bornholm"
         route.fulfill(json=report)
 
-    page.route("**/api/availability?*", many_tenants)
-    page.route("**/api/availability", many_tenants)
+    # The report only, not the CSV: a predicate, not a glob whose "?" differs by version.
+    page.route(lambda url: urllib.parse.urlparse(url).path == "/api/availability", many_tenants)
     page.reload()
     tenants = page.locator('[data-avail-table="tenants"]')
     tenants.locator(".avail-search input").wait_for()
     assert tenants.locator(".avail-tenant").count() == 0, "no tenant picker on the tenants"
-    assert tenants.locator("tbody tr:visible").count() == 10
+    rows_are = "(n) => document.querySelectorAll('[data-avail-table=\"tenants\"] tbody tr').length === n"
+    page.wait_for_function(rows_are, arg=10)
     tenants.locator(".avail-search input").fill("bornholm")
-    tenants.locator("tbody tr:visible", has_text="Tenant 17").wait_for()
-    assert tenants.locator("tbody tr:visible").count() == 1
+    tenants.locator("tbody tr", has_text="Tenant 17").wait_for()
+    page.wait_for_function(rows_are, arg=1)
     tenants.locator(".avail-search input").fill("")
-    page.wait_for_function("() => document.querySelectorAll('[data-avail-table=\"tenants\"] tbody tr').length === 10")
+    page.wait_for_function(rows_are, arg=10)
 
 
 @pytest.fixture

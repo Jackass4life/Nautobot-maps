@@ -32,7 +32,8 @@ export interface Row {
   search: string;
 }
 
-export function siteRows(sites: SiteRow[]): Row[] {
+// A site is found by its name, its tenants and their descriptions (#481).
+export function siteRows(sites: SiteRow[], descriptions: Record<string, string>): Row[] {
   return sites.map((site) => {
     const name = site.name || site.site_id;
     return {
@@ -44,13 +45,13 @@ export function siteRows(sites: SiteRow[]): Row[] {
       incidents: site.incidents,
       sites: 0,
       tenants: site.tenants,
-      search: [name, ...site.tenants].join(" ").toLowerCase(),
+      search: [name, ...site.tenants, ...site.tenants.map((tenant) => descriptions[tenant] ?? "")].join(" ").toLowerCase(),
     };
   });
 }
 
 // A tenant is found by its name or its description (#481).
-export function tenantRows(tenants: TenantRow[], descriptions: Record<string, string> = {}): Row[] {
+export function tenantRows(tenants: TenantRow[], descriptions: Record<string, string>): Row[] {
   return tenants.map((tenant) => ({
     key: tenant.tenant,
     name: tenant.tenant,
