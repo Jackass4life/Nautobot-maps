@@ -37,6 +37,7 @@ import {
 } from "~/utils/board";
 import { errorMessage } from "~/utils/format";
 import { inScope, linkParams, readScope, scopeLabel, scopeParams } from "~/utils/scope";
+import { CHOICE_SEARCH_FIELDS, choiceItems, mergedDescriptions } from "~/utils/tenants";
 
 useHead({ title: "Alert Board · Nautobot Maps" });
 
@@ -89,6 +90,8 @@ const scopeText = computed(() => scopeLabel(scope, sites.value));
 const summary = computed(() => (scope ? scopeSummary(sites.value) : board.value?.summary || {}));
 const counts = computed(() => chipCounts(summary.value));
 const choices = computed(() => boardChoices(sites.value));
+// A tenant is found by its description too (#497).
+const tenantItems = computed(() => choiceItems(choices.value.tenant, mergedDescriptions(sites.value)));
 const shown = computed(() => filterSites(sites.value, criteria.value));
 const rowLimit = ref(ROWS_STEP);
 const rows = computed(() => shown.value.slice(0, rowLimit.value));
@@ -436,7 +439,9 @@ function shortLabel(values: string[], all: string) {
           <USelectMenu
             v-if="choices.tenant.length"
             :model-value="criteria.tenant"
-            :items="choices.tenant"
+            :items="tenantItems"
+            value-key="value"
+            :filter-fields="CHOICE_SEARCH_FIELDS"
             multiple
             placeholder="All tenants"
             aria-label="Tenant"

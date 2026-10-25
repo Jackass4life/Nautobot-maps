@@ -21,6 +21,7 @@ import {
   type PickerSite,
 } from "~/utils/maintenance";
 import { defaultPlan, localDay, type WhenValues } from "~/utils/when";
+import { CHOICE_SEARCH_FIELDS, choiceItems, tenantDescriptionIn } from "~/utils/tenants";
 
 useHead({ title: "Maintenance · Nautobot Maps" });
 
@@ -47,6 +48,7 @@ const history = reactive({
 
 // Hundreds of windows: not deeply reactive.
 const batches = shallowRef<Batch[]>([]);
+// The tenants' descriptions, from the list and the planner's sites (#497).
 const descriptions = shallowRef<Record<string, string>>({});
 const status = ref("Loading…");
 const statusError = ref(false);
@@ -56,7 +58,10 @@ const tenantFilter = ref<string[]>([]);
 const shownCount = ref<Partial<Record<BatchGroup | "history", number>>>({});
 const pastOpen = ref(false);
 
-const tenants = computed(() => [...new Set(batches.value.flatMap((batch) => batch.tenants))].sort());
+// A tenant is found by its description too (#497).
+const tenants = computed(() =>
+  choiceItems([...new Set(batches.value.flatMap((batch) => batch.tenants))].sort(), descriptions.value),
+);
 const filtered = computed(() => {
   const criteria = { words: searchWords(query.value), tenants: tenantFilter.value };
   return batches.value.filter((batch) => batchMatches(batch, criteria));
@@ -101,8 +106,8 @@ async function loadList() {
     const url = historyView ? `/api/maintenance/history?${historyQuery()}` : `/api/maintenance?recent_days=${limits.value.recent_days}`;
     const payload = await $fetch<{ windows: MaintenanceWindow[]; tenant_descriptions: Record<string, string>; truncated: boolean }>(url);
     const windows = payload.windows || [];
-    batches.value = batchesOf(windows, { keepOrder: historyView });
-    descriptions.value = payload.tenant_descriptions || {};
+    descriptions.value = { ...descriptions.value, ...payload.tenant_descriptions };
+    batches.value = batchesOf(windows, { keepOrder: historyView, descriptions: descriptions.value });
     now.value = new Date();
     if (historyView && windows[0]?.site_name) history.siteName = windows[0].site_name;
     const cut = payload.truncated ? " · only the first windows are shown: choose a shorter period or a site" : "";
@@ -175,8 +180,9 @@ async function openPlan() {
   siteSearch.value?.inputRef?.focus();
   if (sites.value) return;
   try {
-    const data = await $fetch<{ sites: PickerSite[] }>("/api/maintenance/sites");
-    sites.value = prepareSites(data.sites || []);
+    const data = await $fetch<{ sites: PickerSite[]; tenant_descriptions?: Record<string, string> }>("/api/maintenance/sites");
+    descriptions.value = { ...descriptions.value, ...data.tenant_descriptions };
+    sites.value = prepareSites(data.sites || [], descriptions.value);
   } catch (err) {
     planError.value = `Could not load the sites: ${errorMessage(err)}`;
   }
@@ -351,6 +357,8 @@ function until(ready: () => unknown): Promise<void> {
           id="maint-tenant"
           v-model="tenantFilter"
           :items="tenants"
+          value-key="value"
+          :filter-fields="CHOICE_SEARCH_FIELDS"
           multiple
           placeholder="All tenants"
           aria-label="Tenant"
@@ -406,7 +414,10 @@ function until(ready: () => unknown): Promise<void> {
                   class="maint-match maint-match-tenant cursor-pointer px-3 py-1.5 text-sm hover:bg-elevated focus:bg-elevated focus:outline-none"
                   tabindex="-1"
                   @click="addIds(tenant.ids)"
-                >Add all {{ tenant.ids.length }} sites of <strong>{{ tenant.name }}</strong></li>
+                >
+                  Add all {{ tenant.ids.length }} sites of <strong>{{ tenant.name }}</strong>
+                  <span v-if="tenantDescriptionIn(descriptions, tenant.name)" class="text-muted"> · {{ tenantDescriptionIn(descriptions, tenant.name) }}</span>
+                </li>
                 <li
                   v-for="site in matches.sites"
                   :key="site.id"
@@ -416,7 +427,7 @@ function until(ready: () => unknown): Promise<void> {
                   @click="addIds([site.id])"
                 >
                   <strong>{{ site.name }}</strong>
-                  <span v-if="site.path" class="text-muted"> {{ site.path }}</span>
+                  <span v-if="site.path" class="ml-1.5 text-muted">{{ site.path }}</span>
                   <span v-if="site.maintenance" class="text-muted"> · in maintenance now</span>
                 </li>
                 <li v-if="matches.more" class="px-3 py-1.5 text-sm text-muted" aria-disabled="true">

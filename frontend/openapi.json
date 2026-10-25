@@ -3461,10 +3461,19 @@
             },
             "title": "Sites",
             "type": "array"
+          },
+          "tenant_descriptions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Tenant name to its description, when it has one.",
+            "title": "Tenant Descriptions",
+            "type": "object"
           }
         },
         "required": [
-          "sites"
+          "sites",
+          "tenant_descriptions"
         ],
         "title": "PlannableSites",
         "type": "object"
@@ -7757,7 +7766,7 @@
     },
     "/api/maintenance/sites": {
       "get": {
-        "description": "The sites maintenance can be planned for (#343), for the page's site\npicker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)\nand ``maintenance`` (in a window now).  From the stored board; no query\nper site.",
+        "description": "The sites maintenance can be planned for (#343), for the page's site\npicker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)\nand ``maintenance`` (in a window now); ``tenant_descriptions``, so the\npicker finds a tenant by its description too (#497).  From the stored\nboard; no query per site.",
         "operationId": "maintenance_api_maintenance_sites_api_maintenance_sites_get",
         "responses": {
           "200": {
@@ -7771,7 +7780,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "The sites maintenance can be planned for, for the page's site picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored) and ``maintenance`` (in a window now). From the stored board; no query per site.",
+        "summary": "The sites maintenance can be planned for, for the page's site picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored) and ``maintenance`` (in a window now); ``tenant_descriptions``, so the picker finds a tenant by its description too. From the stored board; no query per site.",
         "tags": [
           "Maintenance"
         ]

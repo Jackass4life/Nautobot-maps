@@ -612,6 +612,39 @@ class TestApi:
             assert len(client.get("/api/maintenance?all=1", headers=viewer).get_json()["windows"]) == 1
             assert client.post("/api/maintenance/999/end", headers=operator).status_code == 404
 
+    def test_sites_carry_the_tenants_descriptions(self, client, monkeypatch):
+        # The picker finds a tenant by its description too (#497): one map
+        # for every site, only for sites listed and tenants with one.
+        from nautobot_maps.api import maintenance as api_maintenance
+
+        rows = [
+            {
+                "id": "a",
+                "name": "A",
+                "device_count": 2,
+                "tenants": ["NNIT"],
+                "tenant_descriptions": {"NNIT": "Novo Nordisk IT"},
+            },
+            {
+                "id": "b",
+                "name": "B",
+                "device_count": 1,
+                "tenants": ["NNIT", "Acme"],
+                "tenant_descriptions": {"NNIT": "Novo Nordisk IT", "Acme": ""},
+            },
+            {
+                "id": "c",
+                "name": "C",
+                "device_count": 0,
+                "tenants": ["Hidden"],
+                "tenant_descriptions": {"Hidden": "Not plannable"},
+            },
+        ]
+        monkeypatch.setattr(api_maintenance, "_board_sites", lambda: rows)
+        answer = client.get("/api/maintenance/sites").get_json()
+        assert [site["id"] for site in answer["sites"]] == ["a", "b"]
+        assert answer["tenant_descriptions"] == {"NNIT": "Novo Nordisk IT"}
+
     def test_sites_batches_and_ending_many(self, client):
         sites = client.get("/api/maintenance/sites").get_json()["sites"]
         assert [(s["id"], s["name"], s["devices"], s["maintenance"]) for s in sites] == [

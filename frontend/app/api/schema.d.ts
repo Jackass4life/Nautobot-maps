@@ -718,11 +718,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The sites maintenance can be planned for, for the page's site picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored) and ``maintenance`` (in a window now). From the stored board; no query per site.
+         * The sites maintenance can be planned for, for the page's site picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored) and ``maintenance`` (in a window now); ``tenant_descriptions``, so the picker finds a tenant by its description too. From the stored board; no query per site.
          * @description The sites maintenance can be planned for (#343), for the page's site
          *     picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)
-         *     and ``maintenance`` (in a window now).  From the stored board; no query
-         *     per site.
+         *     and ``maintenance`` (in a window now); ``tenant_descriptions``, so the
+         *     picker finds a tenant by its description too (#497).  From the stored
+         *     board; no query per site.
          */
         get: operations["maintenance_api_maintenance_sites_api_maintenance_sites_get"];
         put?: never;
@@ -2520,6 +2521,13 @@ export interface components {
         PlannableSites: {
             /** Sites */
             sites: components["schemas"]["PlannableSite"][];
+            /**
+             * Tenant Descriptions
+             * @description Tenant name to its description, when it has one.
+             */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
         };
         /** PushedDevice */
         PushedDevice: {

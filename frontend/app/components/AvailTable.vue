@@ -13,6 +13,7 @@ import {
   type SortDir,
   type SortKey,
 } from "~/utils/availability";
+import { CHOICE_SEARCH_FIELDS, choiceItems } from "~/utils/tenants";
 
 const props = defineProps<{
   kind: "tenants" | "sites";
@@ -30,6 +31,8 @@ const props = defineProps<{
 const sort = ref<{ key: SortKey; dir: SortDir }>({ key: "availability", dir: "asc" });
 const query = ref("");
 const tenants = ref<string[]>([]);
+// A tenant is found by its description too (#497).
+const tenantItems = computed(() => choiceItems(props.tenantChoices ?? [], props.descriptions));
 const shownLimit = ref(props.limit);
 
 const columns = computed<{ key: SortKey | null; label: string; num?: boolean }[]>(() =>
@@ -80,7 +83,7 @@ function ariaSort(key: SortKey | null) {
       </h2>
       <div v-if="searchable" class="avail-filters ml-auto flex flex-wrap gap-2">
         <UInput v-model="query" class="avail-search w-56" type="search" icon="i-lucide-search" :placeholder="`Search ${kind}`" :aria-label="`Search ${kind}`" autocomplete="off" size="sm" />
-        <USelectMenu v-if="kind === 'sites'" v-model="tenants" class="avail-tenant w-48" :items="tenantChoices ?? []" multiple placeholder="All tenants" aria-label="Tenant" size="sm" />
+        <USelectMenu v-if="kind === 'sites'" v-model="tenants" class="avail-tenant w-48" :items="tenantItems" value-key="value" :filter-fields="CHOICE_SEARCH_FIELDS" multiple placeholder="All tenants" aria-label="Tenant" size="sm" />
       </div>
     </div>
     <div class="overflow-x-auto border-t border-default">
