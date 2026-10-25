@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from nautobot_maps import auth, contract, db, notify, settings, tokens
+from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens
 from nautobot_maps.api import deps, models
 from nautobot_maps.api.answers import admin as answers
 from nautobot_maps.api.answers import common
@@ -55,6 +55,16 @@ def api_tokens_list():
         conn.close()
 
 
+def _status_link(conn, tenant: str) -> str | None:
+    """The page to send a status token with (#500).  None when it can't be
+    read: the token is made already, and its secret must still be shown."""
+    try:
+        return f"/status/{statuslinks.ensure(conn, [tenant])[tenant]}"
+    except Exception as exc:
+        logger.warning("Status token made, but its status link could not be read: %s", type(exc).__name__)
+        return None
+
+
 @router.post(
     "/api/tokens",
     name="admin.api_tokens_create",
@@ -69,7 +79,8 @@ def api_tokens_create(body: Annotated[object, Depends(deps.json_body)]):
 
     JSON body: ``name``, ``role`` (viewer, operator or admin) and optional
     ``expires_in_days``.  The answer's ``token`` is the secret: shown this
-    once, store it now.
+    once, store it now.  A status token (``role`` status, ``tenant``) also
+    answers ``status_link``, its tenant's page (#500).
     """
     conn = db.get_conn()
     if conn is None:
@@ -79,6 +90,8 @@ def api_tokens_create(body: Annotated[object, Depends(deps.json_body)]):
         return deps.Json({"error": "Expected a JSON object"}, status_code=400)
     try:
         token = tokens.create(conn, body, auth.get_current_user().get("username") or "")
+        if token.get("tenant"):
+            token["status_link"] = _status_link(conn, token["tenant"])
     except tokens.TokenError as exc:
         return deps.Json({"error": exc.message}, status_code=400)
     finally:

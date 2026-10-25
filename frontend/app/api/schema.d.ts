@@ -235,6 +235,7 @@ export interface paths {
          *     most 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site
          *     down) or ``critical`` (the site at Critical); default
          *     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
+         *     ``status_links``: each tenant's status page link id, ``/status/<id>``.
          */
         get: operations["availability_api_availability_api_availability_get"];
         put?: never;
@@ -818,7 +819,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/status/{tenant}": {
+    "/api/status/{link_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -826,12 +827,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A tenant's sites and their state: ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.
+         * A tenant's sites and their state, for the tenant's random link id (#500; a name answers 404): ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.
          * @description Where each site is (address, coordinates; #493), but no devices, IPs,
          *     cases or other tenants.  Open as the board is, or
          *     with a status token for this tenant (``Authorization: Bearer``).
          */
-        get: operations["status_api_status_api_status__tenant__get"];
+        get: operations["status_api_status_api_status__link_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -857,7 +858,8 @@ export interface paths {
          * Create an API token for ``Authorization: Bearer <token>``.
          * @description JSON body: ``name``, ``role`` (viewer, operator or admin) and optional
          *     ``expires_in_days``.  The answer's ``token`` is the secret: shown this
-         *     once, store it now.
+         *     once, store it now.  A status token (``role`` status, ``tenant``) also
+         *     answers ``status_link``, its tenant's page.
          */
         post: operations["admin_api_tokens_create_api_tokens_post"];
         delete?: never;
@@ -1015,7 +1017,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/status/{tenant}": {
+    "/status/{link_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1024,10 +1026,11 @@ export interface paths {
         };
         /**
          * A tenant's status page: its sites and their state, for a customer.
-         * @description Built with Nuxt; the page reads ``/api/status/<tenant>``, with the
-         *     key from a share link's ``#key=`` (never sent to the server in the URL).
+         * @description ``<link_id>`` is the tenant's random link id, not its name.  Built
+         *     with Nuxt; the page reads ``/api/status/<link_id>``, with the key
+         *     from a share link's ``#key=`` (never sent to the server in the URL).
          */
-        get: operations["status_status_page_status__tenant__get"];
+        get: operations["status_status_page_status__link_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2367,6 +2370,11 @@ export interface components {
              */
             state: "active" | "expired" | "revoked";
             /**
+             * Status Link
+             * @description A status token: its tenant's page, /status/<id> (#500); send it as /status/<id>#key=<token>.
+             */
+            status_link?: string | null;
+            /**
              * Tenant
              * @description The tenant a status token opens.
              */
@@ -2546,6 +2554,13 @@ export interface components {
              * @description Lowest availability first.
              */
             sites: components["schemas"]["SiteRow"][];
+            /**
+             * Status Links
+             * @description Tenant name to its status page link id: /status/<id> (#500).
+             */
+            status_links: {
+                [key: string]: string;
+            };
             summary: components["schemas"]["AvailabilitySummary"];
             /**
              * Tenant Descriptions
@@ -5326,12 +5341,12 @@ export interface operations {
             };
         };
     };
-    status_api_status_api_status__tenant__get: {
+    status_api_status_api_status__link_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                tenant: string;
+                link_id: string;
             };
             cookie?: never;
         };
@@ -5388,7 +5403,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No sites for this tenant */
+            /** @description No sites for this tenant, or no such link */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5396,13 +5411,13 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "No sites for this tenant"
+                     *       "error": "No sites for this tenant, or no such link"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No board yet, or it can't be read */
+            /** @description No board yet, it can't be read, or no database */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5410,7 +5425,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "No board yet, or it can't be read"
+                     *       "error": "No board yet, it can't be read, or no database"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
@@ -5793,12 +5808,12 @@ export interface operations {
             };
         };
     };
-    status_status_page_status__tenant__get: {
+    status_status_page_status__link_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                tenant: string;
+                link_id: string;
             };
             cookie?: never;
         };

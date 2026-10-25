@@ -64,6 +64,9 @@ class Token(common.Answer):
 
 class NewToken(Token):
     token: str = Field(description="The secret: shown this once.")
+    status_link: str | None = Field(
+        None, description="A status token: its tenant's page, /status/<id> (#500); send it as /status/<id>#key=<token>."
+    )
 
 
 class Tokens(common.Answer):

@@ -1,5 +1,5 @@
 // A tenant's status page (#291, on Nuxt since #463): what it says, from
-// GET /api/status/{tenant}.  The key from a share link's "#key=" goes in the
+// GET /api/status/{id}, the tenant's random link id (#500).  The key from a share link's "#key=" goes in the
 // Authorization header; the fragment is never sent to the server.
 import type { components } from "~/api/schema";
 import { formatFeedTime } from "./format";
@@ -53,7 +53,8 @@ export function statusKey(hash: string | null | undefined): string {
 
 export function errorText(code: number): string {
   if (code === 401 || code === 403) return "This link doesn't work (anymore). Ask your contact for a new one.";
-  if (code === 404) return "No sites found.";
+  // An old link with the name in it (#500) answers 404 too.
+  if (code === 404) return "No sites found for this link. If it is an old link, ask your contact for a new one.";
   return "Status is unavailable right now. Retrying…";
 }
 

@@ -1,6 +1,8 @@
 # Tenant status page
 
-`/status/<tenant>` answers "are we affected?" for one tenant, without the whole board. It is meant for account managers and customers (#291).
+`/status/<id>` answers "are we affected?" for one tenant, without the whole board. It is meant for account managers and customers (#291).
+
+Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name (#500). A link by name (`/status/Acme%20Corp`, the form used before #500) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database, so the status page needs one (`NAUTOBOT_MAPS_DATABASE_URL`); without it, `/api/status/…` answers 503 and says so.
 
 It shows:
 - the tenant, with its description from Nautobot after a dash when it has one ("Acme Corp – Retail bank, 24/7", #482): the same text as the tenant's (i) on the board and Availability, so keep internal notes out of Nautobot's tenant descriptions;
@@ -33,7 +35,7 @@ Leave `TENANT_SCOPE_FIELD` empty to turn this off. If the configured field conta
 
 ## Who can see it
 
-- **Staff:** the same people who can see the board. With `AUTH_REQUIRE_VIEWER=true` that is the `viewer` role. Without it the page is as open as the board is.
+- **Staff:** the same people who can see the board. With `AUTH_REQUIRE_VIEWER=true` that is the `viewer` role. Without it the page is as open as the board is. A tenant's name on the Availability page opens its page.
 - **A customer:** a **status token** for their tenant, sent in a link.
 
 Create the token on the command line:
@@ -42,13 +44,17 @@ Create the token on the command line:
 docker compose exec nautobot-maps python -m nautobot_maps token create acme-status --role status --tenant "Acme Corp" --expires-days 365
 ```
 
-Or with the API (admin role): `POST /api/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`.
+It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`.
+
+Or with the API (admin role): `POST /api/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`.
 
 Then send this link:
 
 ```
-https://maps.example.com/status/Acme%20Corp#key=nmt_…
+https://maps.example.com/status/<id>#key=nmt_…
 ```
+
+The tenant's page link on its own: `python -m nautobot_maps status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
 
 How the link and token behave:
 - The key goes after `#`, so the browser never sends it to the server: it isn't in access logs, proxy logs or a `Referer`. The page's script sends it as `Authorization: Bearer`.
@@ -70,7 +76,7 @@ As on every unauthenticated route, the proxy must **remove** `X-Forwarded-User` 
 
 ## API
 
-`GET /api/status/<tenant>` returns:
+`GET /api/status/<id>` (the tenant's link id; a name answers 404) returns:
 
 ```json
 {

@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from nautobot_maps import alerts, db, inventory, nautobot, settings, status
+from nautobot_maps import __main__ as cli
+from nautobot_maps import alerts, db, inventory, nautobot, settings, status, statuslinks
 from tests import test_tokens
 from tests.test_app import auth_config
 from tests.test_tokens import bearer, make
@@ -43,6 +44,15 @@ BOARD = {
         {"id": "loc-emea", "name": "EMEA", "tenant": "Acme Corp", "alert_level": "no_data", "device_count": 0},
     ],
 }
+
+
+def link(tenant: str) -> str:
+    """*tenant*'s status page link id (#500)."""
+    conn = db.get_conn()
+    try:
+        return statuslinks.ensure(conn, [tenant])[tenant]
+    finally:
+        conn.close()
 
 
 @pytest.fixture
@@ -300,9 +310,11 @@ class TestTenantScopes:
 class TestAccess:
     def test_a_status_token_opens_only_its_tenant(self, client, board):
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
-        assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
-        assert client.get("/api/status/acme%20corp", headers=bearer(token)).status_code == 200
-        assert client.get("/api/status/Other%20Co", headers=bearer(token)).status_code == 403
+        acme, other = link("Acme Corp"), link("Other Co")
+        assert client.get(f"/api/status/{acme}", headers=bearer(token)).status_code == 200
+        assert client.get(f"/api/status/{other}", headers=bearer(token)).status_code == 403
+        # A link that opens nothing looks the same as another tenant's (#500).
+        assert client.get(f"/api/status/{'x' * 24}", headers=bearer(token)).status_code == 403
         for path in ("/api/alerts", "/alerts", "/api/maintenance", "/api/status-other", "/static/css/other.css"):
             assert client.get(path, headers=bearer(token)).status_code == 403, path
         response = client.post("/api/alert-cases", json={}, headers=bearer(token))
@@ -317,7 +329,7 @@ class TestAccess:
             tokens.revoke(conn, created["id"], "admin")
         finally:
             conn.close()
-        assert client.get("/api/status/Acme%20Corp", headers=bearer(created["token"])).status_code == 401
+        assert client.get(f"/api/status/{link('Acme Corp')}", headers=bearer(created["token"])).status_code == 401
 
     def test_with_require_viewer_the_page_loads_but_the_data_needs_access(
         self, client, board, monkeypatch, frontend_build
@@ -326,30 +338,33 @@ class TestAccess:
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
         viewer = make("staff", "viewer")["token"]
         anonymous = {"REMOTE_ADDR": "203.0.113.9"}
+        acme = link("Acme Corp")
         with auth_config(mode="header"):
-            page = client.get("/status/Acme%20Corp", environ_base=anonymous)
+            page = client.get(f"/status/{acme}", environ_base=anonymous)
             assert page.status_code == 200 and b'id="__nuxt"' in page.data
             assert page.headers["Referrer-Policy"] == "no-referrer"
             # The Nuxt build's files (#463): code only, no data.
             assert client.get("/_nuxt/entry.abc123.js", environ_base=anonymous).status_code == 200
             assert client.get("/static/css/other.css", environ_base=anonymous).status_code == 401
-            assert client.get("/api/status/Acme%20Corp", environ_base=anonymous).status_code == 401
-            assert client.get("/api/status/Acme%20Corp", headers=bearer(token)).status_code == 200
-            assert client.get("/api/status/Other%20Co", headers=bearer(viewer)).status_code == 200
+            assert client.get(f"/api/status/{acme}", environ_base=anonymous).status_code == 401
+            # No sign-in, no clue whether a link exists (#500).
+            assert client.get(f"/api/status/{'x' * 24}", environ_base=anonymous).status_code == 401
+            assert client.get(f"/api/status/{acme}", headers=bearer(token)).status_code == 200
+            assert client.get(f"/api/status/{link('Other Co')}", headers=bearer(viewer)).status_code == 200
 
     def test_open_like_the_board_without_require_viewer(self, client, board, monkeypatch):
-        response = client.get("/api/status/Acme%20Corp")
+        response = client.get(f"/api/status/{link('Acme Corp')}")
         assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
         monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
-        assert client.get("/api/status/Nobody").status_code == 404
+        assert client.get(f"/api/status/{link('Nobody')}").status_code == 404
 
     def test_before_the_first_sync_it_is_a_503_not_no_sites(self, client, monkeypatch):
         monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: {"alerts": []})
         monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
-        assert client.get("/api/status/Acme%20Corp").status_code == 503
+        assert client.get(f"/api/status/{link('Acme Corp')}").status_code == 503
 
-    def test_the_page_never_holds_the_tenant(self, client, board, frontend_build):
-        # The page is the Nuxt build's (#463): the tenant comes from the URL in
+    def test_the_page_never_holds_the_link(self, client, board, frontend_build):
+        # The page is the Nuxt build's (#463): the link comes from the URL in
         # the browser, never written into the page, so it can't inject markup.
         page = client.get("/status/%3Cscript%3Ex")
         assert page.status_code == 200 and b"script%3Ex" not in page.data and b"<script>x" not in page.data
@@ -359,8 +374,113 @@ class TestAccess:
             raise RuntimeError("db at postgresql://secret")
 
         monkeypatch.setattr(alerts, "get_alert_board_data", broken)
-        response = client.get("/api/status/Acme%20Corp")
+        response = client.get(f"/api/status/{link('Acme Corp')}")
         assert response.status_code == 503 and b"secret" not in response.data
+
+
+class TestLinks:
+    """A random link per tenant, not its name (#500)."""
+
+    def test_a_name_no_longer_opens_a_page(self, client, board, monkeypatch):
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        acme = link("Acme Corp")
+        assert statuslinks.ID_PATTERN.match(acme) and "acme" not in acme.lower()
+        assert client.get(f"/api/status/{acme}").get_json()["tenant"] == "Acme Corp"
+        # The old links, by name: the same answer as a tenant without sites.
+        for old in ("Acme%20Corp", "acme%20corp", "Other%20Co", acme.upper() if acme.upper() != acme else acme[:-1]):
+            response = client.get(f"/api/status/{old}")
+            assert response.status_code == 404 and response.get_json() == {"error": "No sites for this tenant"}, old
+
+    def test_one_link_per_tenant_capitals_aside_and_kept(self, client):
+        conn = db.get_conn()
+        try:
+            first = statuslinks.ensure(conn, ["Acme Corp", "ACME CORP", "Other Co", "", "  "])
+            assert set(first) == {"Acme Corp", "ACME CORP", "Other Co"}
+            assert first["Acme Corp"] == first["ACME CORP"] != first["Other Co"]
+            assert statuslinks.ensure(conn, ["acme corp"]) == {"acme corp": first["Acme Corp"]}
+            assert statuslinks.tenant_for(conn, first["Other Co"]) == "other co"
+            assert statuslinks.tenant_for(conn, "Other Co") is None
+            # 300 tenants at once: two queries, every one its own link.
+            many = statuslinks.ensure(conn, [f"Tenant {i}" for i in range(300)])
+            assert len(set(many.values())) == 300
+        finally:
+            conn.close()
+
+    def test_a_leaked_link_is_replaced(self, client, board, capsys):
+        old = link("Acme Corp")
+        assert cli.main(["status-link", "Acme Corp"]) == 0
+        assert capsys.readouterr().out.strip() == f"/status/{old}"
+        assert cli.main(["status-link", "acme corp", "--new"]) == 0
+        new = capsys.readouterr().out.strip().removeprefix("/status/")
+        assert new != old and client.get(f"/api/status/{new}").status_code == 200
+        assert client.get(f"/api/status/{old}").status_code == 404
+        assert cli.main(["status-link", " "]) == 1
+
+    def test_without_the_database_it_says_so_and_still_asks_who_you_are(self, client, board, monkeypatch):
+        acme = link("Acme Corp")
+        monkeypatch.setattr(db, "get_conn", lambda *a, **k: None)
+        response = client.get(f"/api/status/{acme}")
+        assert response.status_code == 503 and "PostgreSQL" in response.get_json()["error"]
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header"):
+            # Database trouble is no clue to one who may not look (#500).
+            assert client.get(f"/api/status/{acme}", environ_base={"REMOTE_ADDR": "203.0.113.9"}).status_code == 401
+
+    def test_a_typo_makes_no_link(self, client, capsys):
+        conn = db.get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO nautobot_tenant_cache (tenant_id, name, description) VALUES ('t1', 'Acme Corp', '')"
+            )
+        finally:
+            conn.close()
+        assert cli.main(["status-link", "Acme Crop", "--new"]) == 1
+        assert "no tenant 'Acme Crop'" in capsys.readouterr().err
+        assert cli.main(["status-link", "ACME CORP"]) == 0
+        assert capsys.readouterr().out.startswith("/status/")
+        # Known by its link too: a tenant gone from Nautobot can still be rotated.
+        link("Gone Co")
+        assert cli.main(["status-link", "Gone Co", "--new"]) == 0
+
+    def test_links_are_read_not_written_once_made(self, client):
+        conn = db.get_conn()
+        try:
+            first = statuslinks.ensure(conn, [f"Tenant {i}" for i in range(300)])
+            writes = []
+            real = conn.execute
+
+            class Watched:
+                def execute(self, query, *args):
+                    writes.extend(["insert"] if "INSERT" in query else [])
+                    return real(query, *args)
+
+            assert statuslinks.ensure(Watched(), list(first)) == first and writes == []
+        finally:
+            conn.close()
+
+    def test_a_status_token_is_shown_even_when_its_link_fails(self, client, monkeypatch):
+        admin = make("admin", "admin")["token"]
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("statement timeout")
+
+        monkeypatch.setattr(statuslinks, "ensure", broken)
+        body = {"name": "acme-api", "role": "status", "tenant": "Acme Corp"}
+        response = client.post("/api/tokens", json=body, headers=bearer(admin))
+        assert response.status_code == 201
+        created = response.get_json()["token"]
+        assert created["token"].startswith("nmt_") and created["status_link"] is None
+
+    def test_a_status_token_comes_with_its_link(self, client, capsys):
+        assert cli.main(["token", "create", "acme-cli", "--role", "status", "--tenant", "Acme Corp"]) == 0
+        out, err = capsys.readouterr()
+        assert f"Share: /status/{link('Acme Corp')}#key={out.strip()}" in err
+        admin = make("admin", "admin")["token"]
+        body = {"name": "acme-api", "role": "status", "tenant": "Acme Corp"}
+        created = client.post("/api/tokens", json=body, headers=bearer(admin)).get_json()["token"]
+        assert created["status_link"] == f"/status/{link('Acme Corp')}"
+        viewer = client.post("/api/tokens", json={"name": "v", "role": "viewer"}, headers=bearer(admin)).get_json()
+        assert "status_link" not in viewer["token"]
 
 
 class TestStatusTokens:

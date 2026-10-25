@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 PREFIX = "nmt_"
 SHOWN_CHARACTERS = 12  # "nmt_" and 8 more, in lists
 ROLES = ("viewer", "operator", "admin")
-# A tenant's status token (#291): opens only /status/<tenant>, nothing else.
+# A tenant's status token (#291): opens only its tenant's status page
+# (/status/<id>, #500), nothing else.
 STATUS_ROLE = "status"
 MAX_TENANT_LENGTH = 200
 MAX_NAME_LENGTH = 100

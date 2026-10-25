@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from nautobot_maps import auth, availability, db
+from nautobot_maps import auth, availability, db, statuslinks
 from nautobot_maps.api import deps, frontend, models
 from nautobot_maps.api.answers import availability as answers
 from nautobot_maps.api.answers import common
@@ -70,9 +70,28 @@ def api_availability(period: PeriodQuery):
     most 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site
     down) or ``critical`` (the site at Critical); default
     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
+    ``status_links``: each tenant's status page link id (#500), ``/status/<id>``.
     """
     report, error, status = _availability_report(period)
-    return deps.Json(report) if report is not None else deps.Json({"error": error}, status_code=status)
+    if report is None:
+        return deps.Json({"error": error}, status_code=status)
+    return deps.Json({**report, "status_links": _status_links(report)})
+
+
+def _status_links(report: dict) -> dict[str, str]:
+    """Each tenant's status page link id (#500), made for those without one;
+    none (no links shown) when the database can't be written."""
+    tenants = {t["tenant"] for t in report["tenants"]} | {t for site in report["sites"] for t in site["tenants"]}
+    conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        return statuslinks.ensure(conn, sorted(tenants))
+    except Exception as exc:
+        logger.warning("Availability: could not read the status links: %s", type(exc).__name__)
+        return {}
+    finally:
+        conn.close()
 
 
 @router.get("/api/availability.csv", name="availability.api_availability_csv")

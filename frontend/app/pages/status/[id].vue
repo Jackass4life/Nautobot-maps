@@ -1,6 +1,6 @@
-<!-- A tenant's status page (#291; on Nuxt since #463): its sites and their
-     state, for a customer.  Public: the data comes from /api/status/, with
-     the key from a share link's "#key=". -->
+<!-- A tenant's status page (#291; on Nuxt since #463), at its random link
+     /status/<id> (#500): its sites and their state, for a customer.  Public:
+     the data comes from /api/status/, with the key from a share link's "#key=". -->
 <script setup lang="ts">
 import { FetchError } from "ofetch";
 import { formatFeedTime } from "~/utils/format";
@@ -8,10 +8,8 @@ import { errorText, headline, splitSites, statusKey, type TenantStatus } from "~
 
 const REFRESH_MS = 60 * 1000;
 const route = useRoute();
-const tenant = computed(() => {
-  const value = route.params.tenant;
-  return (Array.isArray(value) ? value.join("/") : String(value || "")).trim();
-});
+// The tenant's random link id (#500), not its name.
+const linkId = computed(() => String(route.params.id || "").trim());
 
 const data = shallowRef<TenantStatus | null>(null);
 const error = ref("");
@@ -20,10 +18,11 @@ const now = ref(new Date());
 const operationalOpen = ref(false);
 
 const shown = computed(() => (data.value ? splitSites(data.value.sites) : { attention: [], operational: [] }));
-const title = computed(() => data.value?.tenant || tenant.value);
+// The link has no name in it (#500): "Status" until the answer says whose.
+const title = computed(() => data.value?.tenant || "Status");
 
 useHead({
-  title: () => `${title.value} · Status`,
+  title: () => (data.value ? `${data.value.tenant} · Status` : "Status"),
   meta: [{ name: "referrer", content: "no-referrer" }],
 });
 
@@ -31,7 +30,7 @@ useHead({
 async function refresh(): Promise<boolean> {
   const key = statusKey(window.location.hash);
   try {
-    data.value = await $fetch<TenantStatus>(`/api/status/${encodeURIComponent(tenant.value)}`, {
+    data.value = await $fetch<TenantStatus>(`/api/status/${encodeURIComponent(linkId.value)}`, {
       headers: key ? { Authorization: `Bearer ${key}` } : {},
       cache: "no-store",
     });

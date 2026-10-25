@@ -172,7 +172,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
             <p class="flex items-center gap-1 text-sm text-muted">Worst tenant <HelpTip :text="HELP.worst" /></p>
             <template v-if="summary.worst_tenant">
               <p class="mt-1 text-xl font-bold text-highlighted">
-                <TenantList :tenants="[summary.worst_tenant.tenant]" :descriptions="report.tenant_descriptions" links />
+                <TenantList :tenants="[summary.worst_tenant.tenant]" :descriptions="report.tenant_descriptions" :links="report.status_links" />
               </p>
               <p class="text-sm" :class="summary.worst_tenant.availability < summary.target ? 'text-error' : 'text-muted'">
                 {{ summary.worst_tenant.availability.toFixed(3) }} %
@@ -192,6 +192,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :rows="tenants"
           :target="summary.target"
           :descriptions="report.tenant_descriptions"
+          :status-links="report.status_links"
           :limit="10"
         />
         <AvailTable
@@ -201,6 +202,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :rows="sites"
           :target="summary.target"
           :descriptions="report.tenant_descriptions"
+          :status-links="report.status_links"
           :limit="25"
           :tenant-choices="tenantNames"
         />
