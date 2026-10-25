@@ -3,8 +3,9 @@
 Built from the cached alert board.  Only what a customer may see: the
 tenant's own description from Nautobot (#482, shown to everyone by
 decision), the site name, where it is (address and coordinates, #493,
-also by decision), a plain state, and since (or until) when; locations
-with nothing monitored are left out.  No devices, IPs,
+also by decision), a plain state, and since (or until) when, and how many
+network devices and access points it has and how many are down (#503, counts
+only); locations with nothing monitored are left out.  No device names, IPs, roles,
 cases, acknowledgements, maintenance reasons or other tenants (nor their
 descriptions).
 """
@@ -71,6 +72,17 @@ def _place(row: dict) -> dict:
     }
 
 
+def _devices(counts: dict) -> dict:
+    """How many devices of each kind, and down (#503): from the site's board
+    row, or a tenant's own on a shared site (never the others')."""
+    return {
+        "network_devices": int(counts.get("network_device_count") or 0),
+        "access_points": int(counts.get("access_point_count") or 0),
+        "network_devices_down": int(counts.get("down_network_device_count") or 0),
+        "access_points_down": int(counts.get("down_access_point_count") or 0),
+    }
+
+
 def tenant_status(board: dict, tenant: str) -> dict | None:
     """*tenant*'s sites on *board* (case-insensitive name); None when it has none."""
     wanted = tenant.strip().casefold()
@@ -94,7 +106,14 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
             (text for owner, text in (row.get("tenant_descriptions") or {}).items() if owner.casefold() == wanted), ""
         )
         state = STATES.get((scoped or {}).get("alert_level") or row.get("alert_level") or "", "unknown")
-        site = {"name": row.get("name") or "", "state": state, "since": None, "until": None, **_place(row)}
+        site = {
+            "name": row.get("name") or "",
+            "state": state,
+            "since": None,
+            "until": None,
+            **_place(row),
+            **_devices(scoped if scoped is not None else row),
+        }
         if state in ("outage", "degraded"):
             site["since"] = _since({**row, **(scoped or {})}, checked_at)
         elif state == "maintenance":
@@ -110,6 +129,7 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
         "summary": {
             "sites": len(sites),
             "affected": sum(1 for site in sites if site["state"] in ("outage", "degraded")),
+            "devices_down": sum(site["network_devices_down"] + site["access_points_down"] for site in sites),
         },
         "sites": sites,
     }

@@ -27,10 +27,14 @@ BOARD = {
             "latitude": 51.5054,
             "longitude": -0.0235,
             "down_devices": [{"device_name": "lon-core-01", "primary_ip": "10.0.0.1"}],
+            "network_device_count": 12,
+            "access_point_count": 40,
+            "down_network_device_count": 3,
+            "down_access_point_count": 1,
             "active_cases": [{"case_number": "INC-1"}],
             "tenant_descriptions": {"Acme Corp": "Retail bank, 24/7", "Nordnet": "Nordnet's own note"},
         },
-        {"id": "loc-par", "name": "Paris PoP", "tenant": "acme corp", "alert_level": "ok"},
+        {"id": "loc-par", "name": "Paris PoP", "tenant": "acme corp", "alert_level": "ok", "network_device_count": 2},
         {
             "id": "loc-ams",
             "name": "Amsterdam",
@@ -65,16 +69,27 @@ class TestTenantStatus:
         result = status.tenant_status(BOARD, "ACME CORP")
         assert result["tenant"] == "Acme Corp"
         assert result["description"] == "Retail bank, 24/7"
-        assert result["summary"] == {"sites": 5, "affected": 2}
+        assert result["summary"] == {"sites": 5, "affected": 2, "devices_down": 4}
         # Whole records: a field added later must be added here on purpose.
-        nowhere = {"address": None, "latitude": None, "longitude": None}
-        london = {"address": "1 Canada Square", "latitude": 51.5054, "longitude": -0.0235}
+        none = {"network_devices": 0, "access_points": 0, "network_devices_down": 0, "access_points_down": 0}
+        nowhere = {"address": None, "latitude": None, "longitude": None, **none}
+        london = {
+            "address": "1 Canada Square",
+            "latitude": 51.5054,
+            "longitude": -0.0235,
+            # How many of each kind, and down: counts only (#503).
+            "network_devices": 12,
+            "access_points": 40,
+            "network_devices_down": 3,
+            "access_points_down": 1,
+        }
+        paris = {**nowhere, "network_devices": 2}
         assert result["sites"] == [
             {"name": "London HQ", "state": "outage", "since": "2026-10-09T11:00:00Z", "until": None, **london},
             {"name": "Copenhagen", "state": "degraded", "since": None, "until": None, **nowhere},
             {"name": "Amsterdam", "state": "maintenance", "since": None, "until": "2026-10-09T14:00:00Z", **nowhere},
             {"name": "Stockholm", "state": "unknown", "since": None, "until": None, **nowhere},
-            {"name": "Paris PoP", "state": "operational", "since": None, "until": None, **nowhere},
+            {"name": "Paris PoP", "state": "operational", "since": None, "until": None, **paris},
         ]
         text = json.dumps(result)
         for secret in (
@@ -161,10 +176,11 @@ class TestTenantScopes:
             {"role": "Firewall", "status": "Offline", "first_seen_down_at": "2026-10-09T11:00:00Z"},
             {"role": "Firewall", "status": "Active"},
             {"role": "Core Router", "status": "Offline", "first_seen_down_at": "2026-10-09T10:00:00Z"},
+            {"role": "Access Point", "status": "Active"},
         ]
         assert alerts.compute_alert_level(devices)["level"] == "critical"
         scoped = alerts.tenant_scoped_alerts(
-            {"acme corp": ["firewall"]},
+            {"acme corp": ["firewall", "access point"]},
             ["Acme Corp"],
             devices,
             [],
@@ -178,8 +194,13 @@ class TestTenantScopes:
         assert scoped == {
             "acme corp": {
                 "alert_level": "medium",
-                "device_count": 2,
+                "device_count": 3,
                 "current_downtime_seconds": 3600,
+                # Its own devices, not the core router (#503).
+                "access_point_count": 1,
+                "network_device_count": 2,
+                "down_access_point_count": 0,
+                "down_network_device_count": 1,
             }
         }
         board = {
@@ -190,6 +211,9 @@ class TestTenantScopes:
                     "tenant": "Acme Corp",
                     "alert_level": "critical",
                     "current_downtime_seconds": 7200,
+                    # The whole site's: not what this tenant sees.
+                    "network_device_count": 30,
+                    "down_network_device_count": 2,
                     "tenant_alerts": scoped,
                 }
             ],
@@ -204,8 +228,13 @@ class TestTenantScopes:
                 "address": None,
                 "latitude": None,
                 "longitude": None,
+                "network_devices": 2,
+                "access_points": 1,
+                "network_devices_down": 1,
+                "access_points_down": 0,
             }
         ]
+        assert result["summary"]["devices_down"] == 1
         assert "Firewall" not in json.dumps(result)
 
     def test_no_matching_role_hides_site(self):
@@ -279,7 +308,16 @@ class TestTenantScopes:
             {},
             "",
         )
-        assert scoped["acme corp"] == {"alert_level": "maintenance", "device_count": 1, "current_downtime_seconds": 0}
+        assert scoped["acme corp"] == {
+            "alert_level": "maintenance",
+            "device_count": 1,
+            "current_downtime_seconds": 0,
+            # Counted, but in maintenance it isn't down (#503).
+            "access_point_count": 0,
+            "network_device_count": 1,
+            "down_access_point_count": 0,
+            "down_network_device_count": 0,
+        }
         board = {"alerts": [{"name": "Fw work", "tenant": "Acme Corp", "alert_level": "ok", "tenant_alerts": scoped}]}
         assert status.tenant_status(board, "Acme Corp")["sites"][0]["state"] == "maintenance"
 

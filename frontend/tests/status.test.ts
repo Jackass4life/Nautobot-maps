@@ -1,15 +1,31 @@
 // The tenant status page's logic (#291, #407; on Nuxt since #463).
 import { describe, expect, it } from "vitest";
-import { errorText, FOLD_ABOVE, headline, sitePlace, siteWhen, splitSites, stateLabel, statusKey } from "~/utils/status";
+import { errorText, FOLD_ABOVE, headline, siteDevices, sitePlace, siteWhen, splitSites, stateLabel, statusKey } from "~/utils/status";
 
 const now = new Date("2026-10-09T12:00:00Z");
 
 describe("what the page says", () => {
   it("headline", () => {
-    expect(headline({ summary: { sites: 3, affected: 0 } })).toBe("All 3 sites operational");
-    expect(headline({ summary: { sites: 1, affected: 0 } })).toBe("Operational");
-    expect(headline({ summary: { sites: 5, affected: 2 } })).toBe("2 of 5 sites affected");
-    expect(headline({ summary: { sites: 1, affected: 1 } })).toBe("1 of 1 site affected");
+    expect(headline({ summary: { sites: 3, affected: 0, devices_down: 0 } })).toBe("All 3 sites operational");
+    expect(headline({ summary: { sites: 1, affected: 0, devices_down: 0 } })).toBe("Operational");
+    expect(headline({ summary: { sites: 5, affected: 2, devices_down: 0 } })).toBe("2 of 5 sites affected");
+    expect(headline({ summary: { sites: 1, affected: 1, devices_down: 0 } })).toBe("1 of 1 site affected");
+    // How many devices are down (#503); after a core outage, hundreds.
+    expect(headline({ summary: { sites: 30, affected: 2, devices_down: 4 } })).toBe("2 of 30 sites affected · 4 devices down");
+    expect(headline({ summary: { sites: 300, affected: 40, devices_down: 1250 } })).toBe("40 of 300 sites affected · 1,250 devices down");
+    expect(headline({ summary: { sites: 3, affected: 1, devices_down: 1 } })).toBe("1 of 3 sites affected · 1 device down");
+  });
+
+  it("each site's devices: counts only, what is down when affected (#503)", () => {
+    const site = (state: string, network: number, aps: number, networkDown = 0, apsDown = 0) =>
+      siteDevices({ state: state as "outage", network_devices: network, access_points: aps, network_devices_down: networkDown, access_points_down: apsDown });
+    expect(site("outage", 12, 40, 3, 1)).toBe("3 of 12 network devices down · 1 of 40 access points down");
+    expect(site("degraded", 12, 40, 0, 5)).toBe("12 network devices · 5 of 40 access points down");
+    expect(site("outage", 1, 0, 1)).toBe("1 of 1 network device down");
+    expect(site("outage", 0, 1200, 0, 300)).toBe("300 of 1,200 access points down");
+    expect(site("operational", 12, 40)).toBe("12 network · 40 APs");
+    expect(site("maintenance", 0, 1)).toBe("1 AP");
+    expect(site("unknown", 0, 0)).toBe("");
   });
 
   it("each site's state and since or until when", () => {

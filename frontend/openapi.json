@@ -434,6 +434,12 @@
             "title": "Device Count",
             "type": "integer"
           },
+          "down_access_point_count": {
+            "default": 0,
+            "description": "Of the access points, down now; not those in maintenance (#503).",
+            "title": "Down Access Point Count",
+            "type": "integer"
+          },
           "down_device_count": {
             "title": "Down Device Count",
             "type": "integer"
@@ -445,6 +451,12 @@
             },
             "title": "Down Devices",
             "type": "array"
+          },
+          "down_network_device_count": {
+            "default": 0,
+            "description": "Of the others, down now; not those in maintenance (#503).",
+            "title": "Down Network Device Count",
+            "type": "integer"
           },
           "facility": {
             "title": "Facility",
@@ -4321,6 +4333,16 @@
       "StatusSite": {
         "additionalProperties": false,
         "properties": {
+          "access_points": {
+            "description": "Its monitored devices with a role in ACCESS_POINT_ROLES (#503).",
+            "title": "Access Points",
+            "type": "integer"
+          },
+          "access_points_down": {
+            "description": "Of ``access_points``, down now; not those in maintenance.",
+            "title": "Access Points Down",
+            "type": "integer"
+          },
           "address": {
             "anyOf": [
               {
@@ -4360,6 +4382,16 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "network_devices": {
+            "description": "Its monitored devices that aren't access points (#503).",
+            "title": "Network Devices",
+            "type": "integer"
+          },
+          "network_devices_down": {
+            "description": "Of ``network_devices``, down now; not those in maintenance.",
+            "title": "Network Devices Down",
+            "type": "integer"
           },
           "since": {
             "anyOf": [
@@ -4404,7 +4436,11 @@
           "until",
           "address",
           "latitude",
-          "longitude"
+          "longitude",
+          "network_devices",
+          "access_points",
+          "network_devices_down",
+          "access_points_down"
         ],
         "title": "StatusSite",
         "type": "object"
@@ -4417,6 +4453,11 @@
             "title": "Affected",
             "type": "integer"
           },
+          "devices_down": {
+            "description": "Devices down now, at every site (#503).",
+            "title": "Devices Down",
+            "type": "integer"
+          },
           "sites": {
             "title": "Sites",
             "type": "integer"
@@ -4424,7 +4465,8 @@
         },
         "required": [
           "sites",
-          "affected"
+          "affected",
+          "devices_down"
         ],
         "title": "StatusSummary",
         "type": "object"
@@ -4432,6 +4474,11 @@
       "TenantAlert": {
         "additionalProperties": false,
         "properties": {
+          "access_point_count": {
+            "default": 0,
+            "title": "Access Point Count",
+            "type": "integer"
+          },
           "alert_level": {
             "enum": [
               "critical",
@@ -4450,6 +4497,21 @@
           },
           "device_count": {
             "title": "Device Count",
+            "type": "integer"
+          },
+          "down_access_point_count": {
+            "default": 0,
+            "title": "Down Access Point Count",
+            "type": "integer"
+          },
+          "down_network_device_count": {
+            "default": 0,
+            "title": "Down Network Device Count",
+            "type": "integer"
+          },
+          "network_device_count": {
+            "default": 0,
+            "title": "Network Device Count",
             "type": "integer"
           }
         },
