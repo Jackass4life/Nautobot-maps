@@ -370,6 +370,44 @@ def test_a_tenant_status_page(page):
     assert page.locator(".status-site").count() > 0
 
 
+def test_the_status_page_shows_where_each_site_is(page):
+    """Under each site's name, its address, else its coordinates, opening
+    OpenStreetMap in a new tab; nothing for a site with neither (#493)."""
+
+    def three_places(route):
+        answer = route.fetch().json()
+        site = answer["sites"][0]
+        answer["sites"] = [
+            {
+                **site,
+                "name": "With address",
+                "address": "Borgergade 10, 1300 Copenhagen",
+                "latitude": 55.68,
+                "longitude": 12.58,
+            },
+            {**site, "name": "GPS only", "address": None, "latitude": 55.6761, "longitude": 12.5683},
+            {**site, "name": "Neither", "address": None, "latitude": None, "longitude": None},
+        ]
+        answer["summary"]["sites"] = 3
+        route.fulfill(json=answer)
+
+    page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/status/"), three_places)
+    page.goto(f"{BASE_URL}/status/Acme%20Corp")
+    page.locator(".status-site", has_text="Neither").wait_for()
+    places = page.locator(".status-place")
+    assert places.count() == 2
+    address, gps = places.nth(0), places.nth(1)
+    assert address.inner_text().strip() == "Borgergade 10, 1300 Copenhagen"
+    assert address.get_attribute("href").startswith("https://www.openstreetmap.org/search?query=Borgergade%2010")
+    assert gps.inner_text().strip() == "55.6761, 12.5683"
+    assert (
+        gps.get_attribute("href")
+        == "https://www.openstreetmap.org/?mlat=55.67610&mlon=12.56830#map=16/55.67610/12.56830"
+    )
+    assert {address.get_attribute("target"), gps.get_attribute("target")} == {"_blank"}
+    assert page.locator(".status-site", has_text="Neither").locator(".status-place").count() == 0
+
+
 def test_the_status_page_shows_the_tenants_description(page):
     """The name, a dash and the tenant's description from Nautobot (#482);
     just the name for a tenant without one."""

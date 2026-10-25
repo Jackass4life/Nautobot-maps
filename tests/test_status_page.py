@@ -23,6 +23,8 @@ BOARD = {
             "alert_level": "critical",
             "current_downtime_seconds": 3600,
             "physical_address": "1 Canada Square",
+            "latitude": 51.5054,
+            "longitude": -0.0235,
             "down_devices": [{"device_name": "lon-core-01", "primary_ip": "10.0.0.1"}],
             "active_cases": [{"case_number": "INC-1"}],
             "tenant_descriptions": {"Acme Corp": "Retail bank, 24/7", "Nordnet": "Nordnet's own note"},
@@ -54,7 +56,7 @@ class TestTenantStatus:
         assert result["tenant"] == "Acme Corp"
         assert result["description"] == "Retail bank, 24/7"
         assert result["summary"] == {"sites": 5, "affected": 2}
-        assert result["sites"] == [
+        assert [{key: site[key] for key in ("name", "state", "since", "until")} for site in result["sites"]] == [
             {"name": "London HQ", "state": "outage", "since": "2026-10-09T11:00:00Z", "until": None},
             {"name": "Copenhagen", "state": "degraded", "since": None, "until": None},
             {"name": "Amsterdam", "state": "maintenance", "since": None, "until": "2026-10-09T14:00:00Z"},
@@ -66,7 +68,6 @@ class TestTenantStatus:
             "10.0.0.1",
             "lon-core-01",
             "INC-1",
-            "Canada Square",
             "Swap core",
             "olga",
             "Nordnet",
@@ -74,6 +75,38 @@ class TestTenantStatus:
             "own note",
         ):
             assert secret not in text
+
+    def test_where_each_site_is(self):
+        """#493: the address, else the coordinates; the page links one of them."""
+        board = {
+            "checked_at": BOARD["checked_at"],
+            "alerts": [
+                BOARD["alerts"][0],
+                {
+                    "name": "Field cabinet",
+                    "tenant": "Acme Corp",
+                    "alert_level": "ok",
+                    "latitude": 55.6761,
+                    "longitude": 12.5683,
+                },
+                {
+                    "name": "Nowhere",
+                    "tenant": "Acme Corp",
+                    "alert_level": "ok",
+                    "physical_address": "  ",
+                    "latitude": 55.1,
+                },
+            ],
+        }
+        places = {
+            site["name"]: (site["address"], site["latitude"], site["longitude"])
+            for site in status.tenant_status(board, "Acme Corp")["sites"]
+        }
+        assert places == {
+            "London HQ": ("1 Canada Square", 51.5054, -0.0235),
+            "Field cabinet": (None, 55.6761, 12.5683),
+            "Nowhere": (None, None, None),
+        }
 
     def test_a_related_tenant_sees_the_shared_site(self):
         result = status.tenant_status(BOARD, "Nordnet")
@@ -136,7 +169,15 @@ class TestTenantScopes:
         }
         result = status.tenant_status(board, "ACME CORP")
         assert result["sites"] == [
-            {"name": "Scoped site", "state": "degraded", "since": "2026-10-09T11:00:00Z", "until": None}
+            {
+                "name": "Scoped site",
+                "state": "degraded",
+                "since": "2026-10-09T11:00:00Z",
+                "until": None,
+                "address": None,
+                "latitude": None,
+                "longitude": None,
+            }
         ]
         assert "Firewall" not in json.dumps(result)
 

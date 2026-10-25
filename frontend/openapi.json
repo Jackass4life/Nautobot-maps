@@ -4267,6 +4267,41 @@
       "StatusSite": {
         "additionalProperties": false,
         "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The site's physical address in Nautobot, when it has one (#493).",
+            "title": "Address"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the site is, when Nautobot has its coordinates (#493).",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4311,7 +4346,10 @@
           "name",
           "state",
           "since",
-          "until"
+          "until",
+          "address",
+          "latitude",
+          "longitude"
         ],
         "title": "StatusSite",
         "type": "object"

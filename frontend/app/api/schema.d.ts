@@ -2844,6 +2844,18 @@ export interface components {
         };
         /** StatusSite */
         StatusSite: {
+            /**
+             * Address
+             * @description The site's physical address in Nautobot, when it has one (#493).
+             */
+            address: string | null;
+            /**
+             * Latitude
+             * @description Where the site is, when Nautobot has its coordinates (#493).
+             */
+            latitude: number | null;
+            /** Longitude */
+            longitude: number | null;
             /** Name */
             name: string;
             /**

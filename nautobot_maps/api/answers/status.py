@@ -12,6 +12,9 @@ class StatusSite(common.Answer):
     state: Literal["outage", "degraded", "maintenance", "unknown", "operational"]
     since: str | None = Field(description="When an outage or degradation started (ISO 8601, UTC).")
     until: str | None = Field(description="When maintenance ends, as planned.")
+    address: str | None = Field(description="The site's physical address in Nautobot, when it has one (#493).")
+    latitude: float | None = Field(description="Where the site is, when Nautobot has its coordinates (#493).")
+    longitude: float | None
 
 
 class StatusSummary(common.Answer):
