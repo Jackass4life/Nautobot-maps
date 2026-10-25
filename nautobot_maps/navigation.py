@@ -5,6 +5,8 @@ read from ``/api/page-config``."""
 # /openapi.json redirect here.  The reference is a page, not JSON.
 API_DOCS_PATH = "/api/docs"
 API_SPEC_PATH = "/api/openapi.json"
+# Pages under /api: answered and listed as pages, not as the JSON API.
+PAGES_UNDER_API = frozenset({API_DOCS_PATH})
 
 # (key, path, label, what it is for).  The map, the board and the wall keep
 # the page's ?tenant= / ?q= (#366).

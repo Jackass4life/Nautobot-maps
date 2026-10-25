@@ -155,7 +155,7 @@ Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](ht
 cd frontend
 npm ci              # Node 22
 npm run generate    # the static build FastAPI serves: frontend/.output/public
-npm run dev         # or: a dev server on :3000 with live reload; /api goes to python app.py on :5055
+npm run dev         # or: a dev server on :3000 with live reload; /api goes to python app.py on :5055, all but the /api/docs page
 npm run lint && npm run typecheck && npm test
 ```
 
