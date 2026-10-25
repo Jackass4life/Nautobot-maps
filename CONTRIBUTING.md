@@ -259,7 +259,7 @@ from the scheduler, or is queued by a request once it is due; `?refresh=1` only 
 
 ## Releasing
 
-Versions follow [Semantic Versioning](https://semver.org/) (a **Breaking** changelog entry means a new major version).
+Versions follow [Semantic Versioning](https://semver.org/) (a **Breaking** changelog entry means a new major version; before 1.0, a new minor version).
 
 1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it.
 2. Merge that to `main`.
