@@ -527,6 +527,12 @@
             "title": "Name",
             "type": "string"
           },
+          "network_device_count": {
+            "default": 0,
+            "description": "The other monitored devices, in maintenance too.",
+            "title": "Network Device Count",
+            "type": "integer"
+          },
           "parent": {
             "title": "Parent",
             "type": "string"

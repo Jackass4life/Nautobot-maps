@@ -60,7 +60,7 @@ export function siteRows(sites: SiteRow[], descriptions: Record<string, string>)
 export function devicesText(network: number, accessPoints: number): string {
   const parts = [
     network ? `${network.toLocaleString("en")} network` : "",
-    accessPoints ? `${accessPoints.toLocaleString("en")} AP${accessPoints === 1 ? "" : "s"}` : "",
+    accessPoints ? plural(accessPoints, "AP") : "",
   ];
   return parts.filter(Boolean).join(" · ") || "—";
 }

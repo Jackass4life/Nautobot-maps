@@ -481,6 +481,7 @@ class TestPages:
             "device_count": 8,
             "maintenance_device_count": 2,
             "access_point_count": 6,
+            "network_device_count": 4,
         }
         monkeypatch.setattr(availability, "board_sites", lambda: [site])
         caching.cache.clear()

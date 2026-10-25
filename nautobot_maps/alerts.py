@@ -1993,6 +1993,10 @@ def build_alert_board_payload(
                 bulk_kwargs.get("override_map") or {},
                 loc.get("tier") or "",
             )
+            access_points = sum(
+                (device.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES
+                for device in [*devices, *pending_devices, *maintenance_devices]
+            )
             alerts.append(
                 {
                     **{key: value for key, value in loc.items() if key != "tenant_scopes"},
@@ -2009,10 +2013,11 @@ def build_alert_board_payload(
                     "maintenance_device_count": len(maintenance_devices),
                     "down_device_count": len(down_devices),
                     # Availability's "12 network · 40 APs" (#499), those in maintenance too.
-                    "access_point_count": sum(
-                        (device.get("role") or "").strip().lower() in settings.ACCESS_POINT_ROLES
-                        for device in [*devices, *pending_devices, *maintenance_devices]
-                    ),
+                    "access_point_count": access_points,
+                    "network_device_count": len(devices)
+                    + len(pending_devices)
+                    + len(maintenance_devices)
+                    - access_points,
                     "current_downtime_seconds": alert_context["current_downtime_seconds"],
                     "latest_down_at": alert_context.get("latest_down_at"),
                     "historical_downtime_seconds": alert_context["historical_downtime_seconds"],

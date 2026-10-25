@@ -1290,6 +1290,12 @@ export interface components {
             maintenance_device_count: number;
             /** Name */
             name: string;
+            /**
+             * Network Device Count
+             * @description The other monitored devices, in maintenance too.
+             * @default 0
+             */
+            network_device_count: number;
             /** Parent */
             parent: string;
             /** Parent Id */

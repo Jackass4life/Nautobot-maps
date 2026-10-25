@@ -195,11 +195,15 @@ class TestBoard:
             )
         finally:
             conn.close()
-        assert build()["access_point_count"] == 0
+
+        def counts(row):
+            return row["network_device_count"], row["access_point_count"]
+
+        assert counts(build()) == (3, 0)
         monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"access switch"})
-        assert build()["access_point_count"] == 2
+        assert counts(build()) == (1, 2)
         monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"core router"})
-        assert build()["access_point_count"] == 1, "the core, in maintenance"
+        assert counts(build()) == (2, 1), "the core, in maintenance"
 
     def test_a_device_going_down_in_maintenance_is_listed_not_counted(self, site):
         set_devices(core="Active", acc1="Active", acc2="Active")
