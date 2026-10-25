@@ -42,7 +42,8 @@ def api_status(tenant: str):
     ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``;
     and the tenant's description from Nautobot (#482), which the page shows.
 
-    No devices, addresses, cases or other tenants.  Open as the board is, or
+    Where each site is (address, coordinates; #493), but no devices, IPs,
+    cases or other tenants.  Open as the board is, or
     with a status token for this tenant (``Authorization: Bearer``).
     """
     denied = auth.status_access(tenant)

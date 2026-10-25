@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Where each site is, on the status page** (#493): under each site's name, its address, or its GPS coordinates when it has none, opening OpenStreetMap in a new tab. `GET /api/status/<tenant>` answers `address`, `latitude` and `longitude` per site
 - **The status page shows the tenant's description** (#482): "Acme Corp – Retail bank, 24/7" in the header, the same text as the tenant's (i); just the name when it has none. `GET /api/status/<tenant>` answers it as `description`
 - **Search tenants on Availability** (#481): with more than 10 tenants, the Tenants table has a search box, by name or description; the worst first and **Show more** as before
 - **The API docs show what each answer looks like** (#449): in `/docs` and `/openapi.json`, every JSON route's answer with each field and its type: monitoring, the status page, availability, circuits, maintenance, the map, the alert board, incoming alerts and administration. Errors are shown as the app answers them, `{"error": "..."}`: 400 for bad input (not 422), 401 and 403 where a role is needed, and each route's own (404, 503, ...). Nothing the API sends changes

@@ -2,8 +2,9 @@
 
 Built from the cached alert board.  Only what a customer may see: the
 tenant's own description from Nautobot (#482, shown to everyone by
-decision), the site name, a plain state, and since (or until) when;
-locations with nothing monitored are left out.  No devices, addresses, IPs,
+decision), the site name, where it is (address and coordinates, #493,
+also by decision), a plain state, and since (or until) when; locations
+with nothing monitored are left out.  No devices, IPs,
 cases, acknowledgements, maintenance reasons or other tenants (nor their
 descriptions).
 """
@@ -51,6 +52,20 @@ def _since(row: dict, checked_at: str) -> str | None:
     return (checked - timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
 
 
+def _place(row: dict) -> dict:
+    """Where a site is (#493): its address (as the board's, on one line) and
+    its coordinates, each None when Nautobot has none or they're impossible."""
+    address = ", ".join(line.strip() for line in site_address(row).splitlines() if line.strip())
+    latitude, longitude = row.get("latitude"), row.get("longitude")
+    # A real point only: coordinates.py flags the rest for the admins.
+    located = latitude is not None and longitude is not None and abs(latitude) <= 90 and abs(longitude) <= 180
+    return {
+        "address": address or None,
+        "latitude": latitude if located else None,
+        "longitude": longitude if located else None,
+    }
+
+
 def tenant_status(board: dict, tenant: str) -> dict | None:
     """*tenant*'s sites on *board* (case-insensitive name); None when it has none."""
     wanted = tenant.strip().casefold()
@@ -74,7 +89,7 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
             (text for owner, text in (row.get("tenant_descriptions") or {}).items() if owner.casefold() == wanted), ""
         )
         state = STATES.get((scoped or {}).get("alert_level") or row.get("alert_level") or "", "unknown")
-        site = {"name": row.get("name") or "", "state": state, "since": None, "until": None}
+        site = {"name": row.get("name") or "", "state": state, "since": None, "until": None, **_place(row)}
         if state in ("outage", "degraded"):
             site["since"] = _since({**row, **(scoped or {})}, checked_at)
         elif state == "maintenance":

@@ -1,6 +1,6 @@
 // The tenant status page's logic (#291, #407; on Nuxt since #463).
 import { describe, expect, it } from "vitest";
-import { errorText, FOLD_ABOVE, headline, siteWhen, splitSites, stateLabel, statusKey } from "~/utils/status";
+import { errorText, FOLD_ABOVE, headline, sitePlace, siteWhen, splitSites, stateLabel, statusKey } from "~/utils/status";
 
 const now = new Date("2026-10-09T12:00:00Z");
 
@@ -63,5 +63,34 @@ describe("a large tenant sees what is wrong first (#407)", () => {
 
   it("nothing operational: no fold", () => {
     expect(splitSites(sites.slice(0, 12)).operational).toEqual([]);
+  });
+});
+
+describe("where a site is (#493)", () => {
+  it("the address, as an OpenStreetMap search", () => {
+    expect(sitePlace({ address: "Nørregade 7, 1165 København", latitude: null, longitude: null })).toEqual({
+      text: "Nørregade 7, 1165 København",
+      href: "https://www.openstreetmap.org/search?query=N%C3%B8rregade%207%2C%201165%20K%C3%B8benhavn",
+    });
+  });
+
+  it("the address, as a pin when the coordinates are known (exact)", () => {
+    expect(sitePlace({ address: "Unit 4, Industrial Estate", latitude: 55.68, longitude: 12.58 })).toEqual({
+      text: "Unit 4, Industrial Estate",
+      href: "https://www.openstreetmap.org/?mlat=55.68000&mlon=12.58000#map=16/55.68000/12.58000",
+    });
+  });
+
+  it("else the coordinates, as a pin", () => {
+    expect(sitePlace({ address: null, latitude: 55.676098, longitude: -0.0235 })).toEqual({
+      text: "55.6761, -0.0235",
+      href: "https://www.openstreetmap.org/?mlat=55.67610&mlon=-0.02350#map=16/55.67610/-0.02350",
+    });
+    expect(sitePlace({ address: null, latitude: 0, longitude: 0 })?.text).toBe("0.0000, 0.0000");
+  });
+
+  it("nothing when Nautobot has neither", () => {
+    expect(sitePlace({ address: null, latitude: null, longitude: null })).toBeNull();
+    expect(sitePlace({ address: null, latitude: 55.1, longitude: null })).toBeNull();
   });
 });

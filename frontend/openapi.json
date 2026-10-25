@@ -4267,6 +4267,42 @@
       "StatusSite": {
         "additionalProperties": false,
         "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The site's physical address in Nautobot, when it has one (#493).",
+            "title": "Address"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the site is, when Nautobot has its coordinates (#493).",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With ``latitude``, or both are null.",
+            "title": "Longitude"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4311,7 +4347,10 @@
           "name",
           "state",
           "since",
-          "until"
+          "until",
+          "address",
+          "latitude",
+          "longitude"
         ],
         "title": "StatusSite",
         "type": "object"
@@ -8002,7 +8041,7 @@
     },
     "/api/status/{tenant}": {
       "get": {
-        "description": "No devices, addresses, cases or other tenants.  Open as the board is, or\nwith a status token for this tenant (``Authorization: Bearer``).",
+        "description": "Where each site is (address, coordinates; #493), but no devices, IPs,\ncases or other tenants.  Open as the board is, or\nwith a status token for this tenant (``Authorization: Bearer``).",
         "operationId": "status_api_status_api_status__tenant__get",
         "parameters": [
           {
