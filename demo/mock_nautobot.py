@@ -626,8 +626,11 @@ SCALE_CUSTOMERS = [
     "Tidal Ports",
     "Vantage Cars",
 ]
-# (sites, down devices of 8, a core device down): Critical, Medium, Low.
-SCALE_ALARMS = [(6, 1, True), (8, 3, False), (12, 1, False)]
+# (sites, down devices of 8, a core device down, access points down): Critical,
+# Medium, Low.  A site with access points down has 6 of them (#503), whatever
+# its kind, so a Medium one stays above 25 % down; the day's devices down stay
+# within 50-100.
+SCALE_ALARMS = [(6, 1, True, 0), (8, 3, False, 1), (12, 1, False, 0)]
 
 
 def _scale_device(site_id, index, name, role, model, status, tenant, down_minutes=None):
@@ -714,7 +717,7 @@ def _add_scale_sites(count: int) -> None:
         tenant = {"id": f"ten-{slug}", "name": name, "slug": slug, "description": description, "tenant_group": None}
         TENANTS[tenant["id"]] = tenant
         customers.append(tenant)
-    alarms = [(down, core) for sites, down, core in SCALE_ALARMS for _ in range(sites)][: count - 1]
+    alarms = [(down, core, aps_down) for sites, down, core, aps_down in SCALE_ALARMS for _ in range(sites)][: count - 1]
     alarm_at = dict(zip(sorted(rnd.sample(range(1, count), len(alarms))), alarms, strict=True))
     for n in range(count):
         city, country, lat, lon = SCALE_CITIES[n % len(SCALE_CITIES)]
@@ -747,15 +750,13 @@ def _add_scale_sites(count: int) -> None:
                 lambda i, t=tenant: t if i == 0 else customers[i % 8],
             )
             continue
-        down, core = alarm_at.get(n, (0, False))
+        down, core, aps_down = alarm_at.get(n, (0, False, 0))
         since = rnd.choice([4, 12, 35, 80, 190, 420, 1500])
-        # Access points (#503): offices 6-16, PoPs 2, DCs none.  A Medium site
-        # (3 switches down) has 6, one of them down: still above 25 % down,
-        # and the day's devices down within 50-100.
-        aps = {"lt-office": ap_rnd.randint(6, 16), "lt-pop": 2}.get(kind, 0)
-        aps_down = 0
-        if down == 3 and not core:
-            aps, aps_down = 6, 1
+        # Access points (#503): offices 6-16, PoPs 2, DCs none; 6 with some down
+        # (SCALE_ALARMS).  One draw for every site, used or not, so the counts
+        # are the same on every start whatever the kinds.
+        drawn = ap_rnd.randint(6, 16)
+        aps = 6 if aps_down else {"lt-office": drawn, "lt-pop": 2}.get(kind, 0)
         DEVICES[site_id] = _scale_site_devices(
             site_id, prefix, 7, down, core, ("Juniper", "MX204"), since, lambda i, t=tenant: t, aps, aps_down
         )
