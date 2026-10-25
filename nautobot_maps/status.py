@@ -1,9 +1,11 @@
 """A tenant's status page (#291): its sites and their state, nothing else.
 
-Built from the cached alert board.  Only what a customer may see: the site
-name, a plain state, and since (or until) when; locations with nothing
-monitored are left out.  No devices, addresses, IPs,
-cases, acknowledgements, maintenance reasons or other tenants.
+Built from the cached alert board.  Only what a customer may see: the
+tenant's own description from Nautobot (#482, shown to everyone by
+decision), the site name, a plain state, and since (or until) when;
+locations with nothing monitored are left out.  No devices, addresses, IPs,
+cases, acknowledgements, maintenance reasons or other tenants (nor their
+descriptions).
 """
 
 from datetime import timedelta

@@ -8092,7 +8092,7 @@
             "description": "No board yet, or it can't be read"
           }
         },
-        "summary": "A tenant's sites and their state: ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``.",
+        "summary": "A tenant's sites and their state: ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.",
         "tags": [
           "Status page"
         ]
