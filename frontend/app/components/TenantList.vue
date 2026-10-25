@@ -12,9 +12,10 @@ const shown = computed(() => (all.value ? props.tenants : props.tenants.slice(0,
   <span v-if="tenants.length" class="tenant-list inline-flex flex-wrap items-center gap-x-1">
     <template v-for="(tenant, index) in shown" :key="tenant">
       <span v-if="index" class="text-muted">,</span>
+      <!-- relative: the screen-reader note stays inside a table's scroll box. -->
       <a
         v-if="links"
-        class="tenant-link hover:text-primary hover:underline"
+        class="tenant-link relative hover:text-primary hover:underline"
         :href="`/status/${encodeURIComponent(tenant)}`"
         target="_blank"
         rel="noopener noreferrer"
