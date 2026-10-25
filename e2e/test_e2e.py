@@ -224,7 +224,7 @@ def test_each_sites_devices_on_availability(page):
     page.goto(f"{BASE_URL}/availability")
     page.locator(".avail-card").first.wait_for()
     sites = page.locator('[data-avail-table="sites"]')
-    assert sites.locator("thead th").all_inner_texts()[3].strip() == "Devices"
+    assert sites.locator("thead th").all_inner_texts()[4].strip() == "Devices"
     for row in sites.locator("tbody tr").all()[:5]:
         site = expected[row.get_attribute("data-name")]
         text = row.locator(".avail-devices").inner_text()
