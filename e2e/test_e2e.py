@@ -277,7 +277,7 @@ def test_a_sites_maintenance_history(page):
     page.wait_for_url("**from=*")
     # Every site: the site filter goes.
     page.locator("#maint-site-filter .maint-chip-remove").click()
-    page.wait_for_function("!location.search.includes('site_id')")
+    page.wait_for_function("() => !location.search.includes('site_id')")
     assert name
 
 
@@ -316,7 +316,8 @@ def test_the_availability_period_calendar(page):
     page.keyboard.press("Escape")
     page.locator("#period-popover").wait_for(state="hidden")  # it fades out (#463)
     # The focus comes back once the fade has ended, a moment after "hidden".
-    page.wait_for_function("document.activeElement?.id === 'period-button'")
+    # A function, not a bare expression: Playwright evals those, which the CSP refuses.
+    page.wait_for_function("() => document.activeElement?.id === 'period-button'")
 
     # Back to a month: its first to last day, shown and reported as the month.
     page.locator("#period-button").click()
