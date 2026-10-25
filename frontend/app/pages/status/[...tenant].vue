@@ -64,7 +64,11 @@ const DOT: Record<string, string> = {
 <template>
   <main class="mx-auto max-w-2xl px-4 py-10">
     <p class="text-xs font-semibold uppercase tracking-wider text-muted">Service status</p>
-    <h1 id="status-tenant" class="mt-1 text-3xl font-bold text-highlighted">{{ title }}</h1>
+    <!-- The tenant's description after its name, as its (i) elsewhere (#482); the
+         heading's size is the description's, so a wrapped one keeps its spacing. -->
+    <h1 id="status-tenant" class="mt-1 text-xl text-highlighted">
+      <span class="text-3xl font-bold">{{ title }}</span><span v-if="data?.description" id="status-description" class="text-muted"> – {{ data.description }}</span>
+    </h1>
     <p
       id="status-headline"
       role="status"

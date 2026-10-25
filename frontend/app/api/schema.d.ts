@@ -2907,6 +2907,11 @@ export interface components {
              */
             checked_at: string;
             /**
+             * Description
+             * @description The tenant's description in Nautobot, when it has one (#482).
+             */
+            description: string | null;
+            /**
              * Sites
              * @description Worst first, then by name.
              */

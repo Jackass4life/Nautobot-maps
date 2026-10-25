@@ -25,6 +25,7 @@ BOARD = {
             "physical_address": "1 Canada Square",
             "down_devices": [{"device_name": "lon-core-01", "primary_ip": "10.0.0.1"}],
             "active_cases": [{"case_number": "INC-1"}],
+            "tenant_descriptions": {"Acme Corp": "Retail bank, 24/7", "Nordnet": "Nordnet's own note"},
         },
         {"id": "loc-par", "name": "Paris PoP", "tenant": "acme corp", "alert_level": "ok"},
         {
@@ -51,6 +52,7 @@ class TestTenantStatus:
     def test_only_the_tenants_sites_and_nothing_internal(self):
         result = status.tenant_status(BOARD, "ACME CORP")
         assert result["tenant"] == "Acme Corp"
+        assert result["description"] == "Retail bank, 24/7"
         assert result["summary"] == {"sites": 5, "affected": 2}
         assert result["sites"] == [
             {"name": "London HQ", "state": "outage", "since": "2026-10-09T11:00:00Z", "until": None},
@@ -60,11 +62,33 @@ class TestTenantStatus:
             {"name": "Paris PoP", "state": "operational", "since": None, "until": None},
         ]
         text = json.dumps(result)
-        for secret in ("10.0.0.1", "lon-core-01", "INC-1", "Canada Square", "Swap core", "olga", "Nordnet", "Oslo"):
+        for secret in (
+            "10.0.0.1",
+            "lon-core-01",
+            "INC-1",
+            "Canada Square",
+            "Swap core",
+            "olga",
+            "Nordnet",
+            "Oslo",
+            "own note",
+        ):
             assert secret not in text
 
     def test_a_related_tenant_sees_the_shared_site(self):
-        assert [s["name"] for s in status.tenant_status(BOARD, "Nordnet")["sites"]] == ["London HQ"]
+        result = status.tenant_status(BOARD, "Nordnet")
+        assert [s["name"] for s in result["sites"]] == ["London HQ"]
+        # Its own description, not the site's owner's (#482).
+        assert result["description"] == "Nordnet's own note"
+
+    def test_the_description_whatever_the_spelling(self):
+        row = {**BOARD["alerts"][1], "tenant_descriptions": {"ACME Corp": "Retail bank"}}
+        board = {"checked_at": BOARD["checked_at"], "alerts": [row]}
+        assert status.tenant_status(board, "Acme Corp")["description"] == "Retail bank"
+
+    def test_no_description(self):
+        board = {"checked_at": BOARD["checked_at"], "alerts": [BOARD["alerts"][1]]}
+        assert status.tenant_status(board, "Acme Corp")["description"] is None
 
     def test_unknown_tenant(self):
         assert status.tenant_status(BOARD, "Nobody") is None
