@@ -128,7 +128,9 @@ describe("the filters", () => {
     const choices = filterChoices(sites);
     expect(choices.tenant).toEqual(["Acme", "Nordic"]);
     expect(choices.status).toEqual(["Active", "Planned"]);
-    expect(choices.parent).toEqual([]);
+    expect(choices.tenant_group).toEqual([]);
+    // No location type or parent location filter (#480).
+    expect(Object.keys(choices).sort()).toEqual(["status", "tenant", "tenant_group"]);
   });
 
   it("any of a filter's values, every filter", () => {
