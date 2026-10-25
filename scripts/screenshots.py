@@ -55,6 +55,10 @@ def seed(base, token, board):
     """A shift in progress: some sites have a case or an ack, some are in maintenance."""
     if any(s["active_cases"] for s in board):
         raise SystemExit("This database already has cases: --seed is for an empty one")
+    # Checked before writing anything: a half-seeded database refuses a second --seed.
+    quiet = [s for s in board if s["alert_level"] == "ok"]
+    if len(quiet) < 60:
+        raise SystemExit(f"--seed needs the scale demo (MOCK_SCALE=1200): {len(quiet)} quiet sites, not 60")
     alarms = [s for s in board if s["alert_level"] in ("critical", "medium", "low")]
     alarms.sort(key=lambda s: -s["down_device_count"])
     for number, site in enumerate(alarms[:7], start=48213):
@@ -65,14 +69,41 @@ def seed(base, token, board):
     for site in alarms[7:10]:
         ids = [d["device_id"] for d in site["down_devices"]]
         api(base, token, "/api/alert-acks", {"site_id": site["id"], "device_ids": ids, "note": "On it, checking power"})
-    quiet = [s["id"] for s in board if s["alert_level"] == "ok"][:4]
-    api(base, token, "/api/maintenance", {"site_ids": quiet[:3], "reason": "Firmware upgrade", "duration_minutes": 240})
+    # Disjoint slices of the quiet sites: 0-2, 3, 10-49, and one from 60 on.
+    ids = [s["id"] for s in quiet]
+    api(base, token, "/api/maintenance", {"site_ids": ids[:3], "reason": "Firmware upgrade", "duration_minutes": 240})
     api(
         base,
         token,
         "/api/maintenance",
-        {"site_id": quiet[3], "reason": "Fibre move", "starts_at": "2030-01-01T22:00:00Z", "duration_minutes": 120},
+        {"site_id": ids[3], "reason": "Fibre move", "starts_at": "2030-01-01T22:00:00Z", "duration_minutes": 120},
     )
+    # The Maintenance page at scale: one change across 40 sites, planned, and one device.
+    api(
+        base,
+        token,
+        "/api/maintenance",
+        {
+            "site_ids": ids[10:50],
+            "reason": "Core router upgrade, wave 2",
+            "starts_at": "2030-01-04T21:00:00Z",
+            "duration_minutes": 360,
+        },
+    )
+    device_site = next(s for s in quiet[60:] if s["device_count"] > 1)
+    devices = api(base, token, f"/api/locations/{device_site['id']}/detail").get("devices") or []
+    if devices:
+        api(
+            base,
+            token,
+            "/api/maintenance",
+            {
+                "site_id": device_site["id"],
+                "device_ids": [devices[0]["id"]],
+                "reason": "PSU swap",
+                "duration_minutes": 90,
+            },
+        )
 
 
 def with_token(page, base, token):
@@ -102,7 +133,7 @@ def open_map(page, base):
 
 def open_site(page, name):
     page.locator("#alarm-list li", has_text=name).first.click()
-    page.wait_for_selector("#location-inspector .inspector-device-list", timeout=20000)
+    page.wait_for_selector("#location-inspector #inspector-down-title", timeout=20000)
     page.wait_for_timeout(1500)
 
 
@@ -112,7 +143,10 @@ PAGES = [
     ("light", "/alerts", "#alerts-table-body tr", "alert-board"),
     ("dark", "/alerts", "#alerts-table-body tr", "alert-board-dark"),
     ("dark", "/alerts?view=wall", "#alerts-table-body tr", "wall-view"),
+    ("light", "/maintenance", ".maint-batch", "maintenance"),
 ]
+# The status page: a tenant with Critical, Medium and Low sites, as its customer sees it.
+STATUS_TENANT = "Tidal Ports"
 
 
 def screenshots(browser, base, token, out, burst):
@@ -132,8 +166,30 @@ def screenshots(browser, base, token, out, burst):
         page.wait_for_selector(loaded, timeout=60000)
         page.wait_for_timeout(1000)  # fonts and the last render
         shoot(page, out, name)
+    status_page(browser, base, token, out)
     for page in pages.values():
         page.context.close()
+
+
+def status_page(browser, base, token, out):
+    """The tenant's status page (#291) at its link (#500): narrower, as it is laid out.
+    The answer is the same for any viewer allowed to see it, so the operator
+    token shows what the customer sees.  The link comes from Availability, the
+    one place staff get it (which makes every tenant's link: a demo database)."""
+    links = api(base, token, "/api/availability").get("status_links") or {}
+    if STATUS_TENANT not in links:
+        print("no status link for", STATUS_TENANT, "(is it the scale demo?): status page skipped")
+        return
+    ctx = browser.new_context(viewport={"width": 1120, "height": 580}, color_scheme="light")
+    page = ctx.new_page()
+    with_token(page, base, token)
+    try:
+        page.goto(f"{base}/status/{links[STATUS_TENANT]}")
+        page.wait_for_selector(".status-devices", timeout=60000)
+        page.wait_for_timeout(1000)
+        shoot(page, out, "status-page")
+    finally:
+        ctx.close()
 
 
 def clip(browser, base, token, out, burst):

@@ -79,11 +79,18 @@ read the tenant's description from Nautobot; *EuroIX* has none, so it has no
 panel.
 
 ### Scenario 7 – A NOC's real load
-`MOCK_SCALE=1200` adds 1,200 generated sites across Europe (about 9,600
-devices) to the nine above, 27 of them in alarm (Critical, Medium and Low; 29
-on the board with London HQ and Etage 2). One is a core outage: *Copenhagen
-Office 01* has 34 of its 40 devices down, across eight tenants. The sites and
-devices are the same on every start; the outages begin when the mock starts.
+`MOCK_SCALE=1200` adds 1,200 generated sites across Europe (about 19,000
+devices, half of them access points) to the nine above, 27 of them in alarm
+(Critical, Medium and Low; 29 on the board with London HQ and Etage 2). One is
+a core outage: *Copenhagen Office 01* has 34 of its 40 devices down, across
+eight tenants. The sites and devices are the same on every start; the outages
+begin when the mock starts.
+
+Sixteen customers have 75 sites each, and four of them have a description in
+Nautobot (search for "Container" in a tenant filter to find *Tidal Ports*).
+On Availability, click *Tidal Ports* for its status page: 3 of its 75 sites
+affected, with how many network devices and access points are down at each,
+and the other 72 folded into one line.
 
 ```bash
 MOCK_SCALE=1200 docker compose -f demo/docker-compose.yml up --build
