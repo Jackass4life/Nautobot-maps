@@ -2,7 +2,7 @@
 
 `/status/<id>` answers "are we affected?" for one tenant, without the whole board. It is meant for account managers and customers (#291).
 
-Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name (#500). A link by name (`/status/Acme%20Corp`, the form used before #500) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link.
+Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name (#500). A link by name (`/status/Acme%20Corp`, the form used before #500) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database, so the status page needs one (`NAUTOBOT_MAPS_DATABASE_URL`); without it, `/api/status/…` answers 503 and says so.
 
 It shows:
 - the tenant, with its description from Nautobot after a dash when it has one ("Acme Corp – Retail bank, 24/7", #482): the same text as the tenant's (i) on the board and Availability, so keep internal notes out of Nautobot's tenant descriptions;
@@ -54,7 +54,7 @@ Then send this link:
 https://maps.example.com/status/<id>#key=nmt_…
 ```
 
-The tenant's page link on its own: `python -m nautobot_maps status-link "Acme Corp"`. If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
+The tenant's page link on its own: `python -m nautobot_maps status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
 
 How the link and token behave:
 - The key goes after `#`, so the browser never sends it to the server: it isn't in access logs, proxy logs or a `Referer`. The page's script sends it as `Authorization: Bearer`.

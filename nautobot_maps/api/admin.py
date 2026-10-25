@@ -55,6 +55,16 @@ def api_tokens_list():
         conn.close()
 
 
+def _status_link(conn, tenant: str) -> str | None:
+    """The page to send a status token with (#500).  None when it can't be
+    read: the token is made already, and its secret must still be shown."""
+    try:
+        return f"/status/{statuslinks.ensure(conn, [tenant])[tenant]}"
+    except Exception as exc:
+        logger.warning("Status token made, but its status link could not be read: %s", type(exc).__name__)
+        return None
+
+
 @router.post(
     "/api/tokens",
     name="admin.api_tokens_create",
@@ -81,8 +91,7 @@ def api_tokens_create(body: Annotated[object, Depends(deps.json_body)]):
     try:
         token = tokens.create(conn, body, auth.get_current_user().get("username") or "")
         if token.get("tenant"):
-            # The page to send it with (#500).
-            token["status_link"] = f"/status/{statuslinks.ensure(conn, [token['tenant']])[token['tenant']]}"
+            token["status_link"] = _status_link(conn, token["tenant"])
     except tokens.TokenError as exc:
         return deps.Json({"error": exc.message}, status_code=400)
     finally:

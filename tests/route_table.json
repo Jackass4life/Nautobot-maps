@@ -328,7 +328,7 @@
   "view": "api_search"
  },
  {
-  "path": "/api/status/<path:link_id>",
+  "path": "/api/status/<link_id>",
   "methods": [
    "GET"
   ],
@@ -432,7 +432,7 @@
   "view": "prometheus_metrics"
  },
  {
-  "path": "/status/<path:link_id>",
+  "path": "/status/<link_id>",
   "methods": [
    "GET"
   ],

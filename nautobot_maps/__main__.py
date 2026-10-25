@@ -45,8 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def status_link_command(conn, args) -> int:
-    if not args.tenant.strip():
-        print("error: name a tenant", file=sys.stderr)
+    if not args.tenant.strip() or not statuslinks.known(conn, args.tenant):
+        # A typo must not make a link, or leave a leaked one working.
+        print(f"error: no tenant {args.tenant!r} in Nautobot (as of the last sync)", file=sys.stderr)
         return 1
     if args.new:
         link_id = statuslinks.replace(conn, args.tenant)
@@ -78,9 +79,13 @@ def token_command(conn, args) -> int:
             file=sys.stderr,
         )
         if token.get("tenant"):
-            # The link to send the customer (#500).
-            link_id = statuslinks.ensure(conn, [token["tenant"]])[token["tenant"]]
-            print(f"Share: /status/{link_id}#key={token['token']}", file=sys.stderr)
+            # The link to send the customer (#500); the token is made either way.
+            try:
+                link_id = statuslinks.ensure(conn, [token["tenant"]])[token["tenant"]]
+            except Exception as exc:
+                print(f"warning: no status link ({exc}); try: status-link {token['tenant']!r}", file=sys.stderr)
+            else:
+                print(f"Share: /status/{link_id}#key={token['token']}", file=sys.stderr)
         return 0
     if args.token_command == "list":
         rows = tokens.list_tokens(conn)

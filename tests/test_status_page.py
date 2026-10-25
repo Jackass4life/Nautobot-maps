@@ -416,6 +416,61 @@ class TestLinks:
         assert client.get(f"/api/status/{old}").status_code == 404
         assert cli.main(["status-link", " "]) == 1
 
+    def test_without_the_database_it_says_so_and_still_asks_who_you_are(self, client, board, monkeypatch):
+        acme = link("Acme Corp")
+        monkeypatch.setattr(db, "get_conn", lambda *a, **k: None)
+        response = client.get(f"/api/status/{acme}")
+        assert response.status_code == 503 and "PostgreSQL" in response.get_json()["error"]
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header"):
+            # Database trouble is no clue to one who may not look (#500).
+            assert client.get(f"/api/status/{acme}", environ_base={"REMOTE_ADDR": "203.0.113.9"}).status_code == 401
+
+    def test_a_typo_makes_no_link(self, client, capsys):
+        conn = db.get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO nautobot_tenant_cache (tenant_id, name, description) VALUES ('t1', 'Acme Corp', '')"
+            )
+        finally:
+            conn.close()
+        assert cli.main(["status-link", "Acme Crop", "--new"]) == 1
+        assert "no tenant 'Acme Crop'" in capsys.readouterr().err
+        assert cli.main(["status-link", "ACME CORP"]) == 0
+        assert capsys.readouterr().out.startswith("/status/")
+        # Known by its link too: a tenant gone from Nautobot can still be rotated.
+        link("Gone Co")
+        assert cli.main(["status-link", "Gone Co", "--new"]) == 0
+
+    def test_links_are_read_not_written_once_made(self, client):
+        conn = db.get_conn()
+        try:
+            first = statuslinks.ensure(conn, [f"Tenant {i}" for i in range(300)])
+            writes = []
+            real = conn.execute
+
+            class Watched:
+                def execute(self, query, *args):
+                    writes.extend(["insert"] if "INSERT" in query else [])
+                    return real(query, *args)
+
+            assert statuslinks.ensure(Watched(), list(first)) == first and writes == []
+        finally:
+            conn.close()
+
+    def test_a_status_token_is_shown_even_when_its_link_fails(self, client, monkeypatch):
+        admin = make("admin", "admin")["token"]
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("statement timeout")
+
+        monkeypatch.setattr(statuslinks, "ensure", broken)
+        body = {"name": "acme-api", "role": "status", "tenant": "Acme Corp"}
+        response = client.post("/api/tokens", json=body, headers=bearer(admin))
+        assert response.status_code == 201
+        created = response.get_json()["token"]
+        assert created["token"].startswith("nmt_") and created["status_link"] is None
+
     def test_a_status_token_comes_with_its_link(self, client, capsys):
         assert cli.main(["token", "create", "acme-cli", "--role", "status", "--tenant", "Acme Corp"]) == 0
         out, err = capsys.readouterr()
