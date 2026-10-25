@@ -1,6 +1,11 @@
 """The pages in the top bar's menu (#392, #419), which the pages (Nuxt, #463)
 read from ``/api/page-config``."""
 
+# The API reference and its spec, with the API under /api (#483); /docs and
+# /openapi.json redirect here.  The reference is a page, not JSON.
+API_DOCS_PATH = "/api/docs"
+API_SPEC_PATH = "/api/openapi.json"
+
 # (key, path, label, what it is for).  The map, the board and the wall keep
 # the page's ?tenant= / ?q= (#366).
 PAGES = (
@@ -10,7 +15,7 @@ PAGES = (
     ("maintenance", "/maintenance", "Maintenance", "Current and planned maintenance, and planning more"),
     ("circuits", "/circuits", "Circuits", "Circuits without a termination, and their likely site"),
     ("help", "/help", "Documentation", "How it works, setup and every guide"),
-    ("docs", "/docs", "API", "Every endpoint, with Try it"),
+    ("docs", API_DOCS_PATH, "API", "Every endpoint, with Try it"),
     ("wall", "/alerts?view=wall", "Wall view", "For a wall screen: alarms only, no controls"),
 )
 SCOPED = {"map", "alerts", "wall"}

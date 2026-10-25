@@ -23,11 +23,13 @@ from nautobot_maps import (
     librenms,
     maintenance,
     nautobot,
+    navigation,
     scheduler,
     settings,
     timeutil,
 )
 from nautobot_maps.api import board as api_board
+from nautobot_maps.api import deps
 from nautobot_maps.api import locations as api_locations
 from nautobot_maps.api.answers import board as board_answers
 from nautobot_maps.api.answers import locations as location_answers
@@ -39,7 +41,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def _full_locations(locations: list[dict]) -> list[dict]:
     """Stand-in locations with a stored location's other fields, empty (#449:
-    the board made from them is checked against /docs)."""
+    the board made from them is checked against /api/docs)."""
     return [answers.complete(location_answers.Location, location) for location in locations]
 
 
@@ -4737,7 +4739,7 @@ class TestAlertBoardSyncProgress:
             "summary": {"total": len(alerts or [])},
             "alerts": alerts or [],
         }
-        # A real board's other fields, empty (#449: the answer is checked against /docs).
+        # A real board's other fields, empty (#449: the answer is checked against /api/docs).
         return answers.complete(board_answers.Board, board)
 
     def test_refresh_1_enqueues_forced_background_sync(self, client):
@@ -6660,16 +6662,20 @@ class TestApiExplorer:
     def test_every_route_is_listed(self, client):
         listed = client.get("/api/endpoints").get_json()["endpoints"]
         assert {(item["path"], method) for item in listed for method in item["methods"]} == self._routes()
-        # Swagger UI on /docs draws /openapi.json (#436): every API route in it,
-        # with its method (pages and files aren't API).
-        spec = client.get("/openapi.json").get_json()
+        # Swagger UI on /api/docs draws /api/openapi.json (#436, #483): every API
+        # route in it, with its method (pages and files aren't API; nor the two
+        # pages under /api).
+        spec = client.get("/api/openapi.json").get_json()
         documented = {
             (re.sub(r"\{(\w+)(?::\w+)?\}", r"<\1>", path), method.upper())
             for path, operations in spec["paths"].items()
             for method in operations
         }
         api_routes = {(re.sub(r"<(?:\w+:)?(\w+)>", r"<\1>", path), method) for path, method in self._routes()}
-        assert {item for item in api_routes if item[0].startswith(("/api/", "/mcp"))} <= documented
+        pages = {navigation.API_DOCS_PATH, navigation.API_SPEC_PATH}
+        assert {
+            item for item in api_routes if item[0].startswith(("/api/", "/mcp")) and item[0] not in pages
+        } <= documented
 
     def test_every_write_has_an_example_body(self):
         from nautobot_maps import apidocs
@@ -6701,7 +6707,7 @@ class TestApiExplorer:
     def test_the_page_is_the_nuxt_page(self, client, frontend_build):
         """#436, #463: Swagger UI from npm, bundled into the Nuxt build (no CDN, no inline
         script); frontend/ and e2e/ test the page itself."""
-        resp = client.get("/docs")
+        resp = client.get("/api/docs")
         assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
         package = json.loads((pathlib.Path(__file__).resolve().parent.parent / "frontend" / "package.json").read_text())
         assert package["dependencies"]["swagger-ui-dist"]
@@ -6710,7 +6716,7 @@ class TestApiExplorer:
 
     def test_write_bodies_are_in_the_spec(self, client):
         """Each write's JSON body is described (deps.body_schema), e.g. a case."""
-        spec = client.get("/openapi.json").get_json()
+        spec = client.get("/api/openapi.json").get_json()
         case = spec["paths"]["/api/alert-cases"]["post"]["requestBody"]["content"]["application/json"]["schema"]
         assert {"site_id", "case_number"} <= set(case["required"]) and "device_ids" in case["properties"]
         window = spec["paths"]["/api/maintenance"]["post"]["requestBody"]["content"]["application/json"]["schema"]
@@ -6722,14 +6728,45 @@ class TestApiExplorer:
     def test_the_menu_links_to_the_explorer(self, client):
         # The pages read the menu from /api/page-config (#463).
         pages = client.get("/api/page-config").get_json()["pages"]
-        assert {"key": "docs", "href": "/docs"}.items() <= next(p for p in pages if p["key"] == "docs").items()
+        assert {"key": "docs", "href": "/api/docs"}.items() <= next(p for p in pages if p["key"] == "docs").items()
+
+    def test_the_old_paths_move_for_good(self, client):
+        """#483: the reference and the spec live under /api; bookmarks and
+        tools reading the old paths are sent on (301, which they remember)."""
+        for old, new in (("/docs", "/api/docs"), ("/openapi.json", "/api/openapi.json")):
+            resp = client.get(old)
+            assert resp.status_code == 301 and resp.headers["Location"] == new
+        listed = {item["path"] for item in client.get("/api/endpoints").get_json()["endpoints"]}
+        assert "/docs" not in listed and "/openapi.json" not in listed
+
+    def test_the_reference_is_a_page_not_json(self, client, frontend_build):
+        """Under /api, but a page (#483): /api/endpoints files it with the pages,
+        and its errors are the error page, not JSON."""
+        by_path = {item["path"]: item for item in client.get("/api/endpoints").get_json()["endpoints"]}
+        assert by_path["/api/docs"]["group"] == "Pages"
+        assert by_path["/api/openapi.json"]["group"] == "API"
+        from starlette.requests import Request
+
+        def browser(path):
+            return Request(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "path": path,
+                    "query_string": b"",
+                    "headers": [(b"accept", b"text/html")],
+                }
+            )
+
+        assert not deps.wants_json(browser("/api/docs"))
+        assert deps.wants_json(browser("/api/alerts"))
 
     def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         with auth_config(mode="header", viewer_groups={"noc"}):
-            assert client.get("/docs").status_code == 401
+            assert client.get("/api/docs").status_code == 401
             assert client.get("/api/endpoints").status_code == 401
-            ok = client.get("/docs", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
+            ok = client.get("/api/docs", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"})
             assert ok.status_code == 200
 
 

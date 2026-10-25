@@ -27,7 +27,7 @@ and that new features are fully documented for operators and contributors.
 | **`demo/README.md`** | Instructions for running the demo stack remain accurate |
 | **`CHANGELOG.md`** | Every PR adds an entry under the correct semver section (`Added`, `Changed`, `Fixed`, `Removed`) |
 | **UI labels** | User-visible labels in `frontend/app/` (pages and components) are clear and consistent |
-| **API contracts** | Route docstrings and response models (`nautobot_maps/api/answers/`) document query params, answers and error codes; `/docs` shows them |
+| **API contracts** | Route docstrings and response models (`nautobot_maps/api/answers/`) document query params, answers and error codes; `/api/docs` shows them |
 
 ---
 

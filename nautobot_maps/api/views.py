@@ -5,6 +5,7 @@ with their area's API (status, availability, circuits, maintenance)."""
 import pathlib
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 
 from nautobot_maps import alerts, availability, guide, maintenance, navigation, settings, templating
 from nautobot_maps.api import deps, files, frontend
@@ -74,17 +75,28 @@ def alert_board():
     return frontend.shell()
 
 
-@router.get("/docs", name="pages.api_docs", include_in_schema=False)
+@router.get(navigation.API_DOCS_PATH, name="pages.api_docs", include_in_schema=False)
 def api_docs():
     """The API (#230, #436): every endpoint in Swagger UI, with Try it, from
-    /openapi.json.  Built with Nuxt (#463), Swagger UI from npm."""
+    /api/openapi.json.  Built with Nuxt (#463), Swagger UI from npm."""
     return frontend.shell()
 
 
-@router.get("/openapi.json", name="ops.openapi", include_in_schema=False)
+@router.get(navigation.API_SPEC_PATH, name="ops.openapi", include_in_schema=False)
 def openapi(request: Request):
-    """The API as OpenAPI 3 (#436): what /docs shows, for tools and clients."""
+    """The API as OpenAPI 3 (#436): what /api/docs shows, for tools and clients."""
     return deps.Json(request.app.openapi())
+
+
+# The old paths (#483): bookmarks and tools that read the spec keep working.
+@router.get("/docs", name="pages.api_docs_moved", include_in_schema=False)
+def api_docs_moved():
+    return RedirectResponse(navigation.API_DOCS_PATH, status_code=301)
+
+
+@router.get("/openapi.json", name="ops.openapi_moved", include_in_schema=False)
+def openapi_moved():
+    return RedirectResponse(navigation.API_SPEC_PATH, status_code=301)
 
 
 @router.get("/help", name="help.help_page", include_in_schema=False)

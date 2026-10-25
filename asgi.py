@@ -10,7 +10,7 @@ import nautobot_maps.api
 from nautobot_maps import access_log
 from nautobot_maps.api import deps
 
-# /docs (Swagger UI) and /openapi.json are our own routes, behind the sign-in check.
+# /api/docs (Swagger UI) and /api/openapi.json are our own routes (#483), behind the sign-in check.
 api = FastAPI(
     title="Nautobot Maps",
     version="1",

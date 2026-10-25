@@ -86,7 +86,7 @@ app always wrote it), raise `deps.ApiError(body, status)` to refuse, read a JSON
 query strings are models in `api/models.py`. Describe what a JSON route answers with
 `response_model=` from `api/answers/<area>.py` (fields as sent, `extra="forbid"`); the route
 still returns its `deps.Json`, and every test checks each answer it gets against that model
-(`tests/answers.py`), so `/docs` stays true. Code below the routes reads the request through
+(`tests/answers.py`), so `/api/docs` stays true. Code below the routes reads the request through
 `nautobot_maps/requestctx.py`. Keep a route's `name` stable (`"board.api_alerts"`): the frozen
 route table and `/api/endpoints`' examples use it.
 Every test client (`client` and the others; `tests/http_client.py`) is FastAPI's on `asgi.app`
@@ -128,7 +128,7 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   docs rewritten). A new guide goes in `guide.PAGES`; `tests/test_help_pages.py` checks every
   internal link lands on a heading.
 - `nautobot_maps/api/`: the routes, on FastAPI (#424, #436), one router per area and tag in the
-  API spec: `views` (map, board, `/docs`, `/openapi.json`, `/help`, static files), `locations`
+  API spec: `views` (map, board, `/api/docs`, `/api/openapi.json`, `/help`, static files), `locations`
   (the map's API and search), `board` (the board's API: feed, history, cases, acks,
   criticality), `maintenance`, `availability`, `circuits` and `status` (each with its page),
   `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test notification,
@@ -172,7 +172,7 @@ Frontend rules:
   classes in `app/assets/css/main.css` (or Nuxt UI's), never `style="…"`; setting
   `element.style` from script is fine. `tests/test_no_inline_styles.py` checks the pages.
 - Third-party code comes from npm, pinned, into the build (Leaflet and markercluster for the map,
-  `app/utils/leafletmap.ts`; Swagger UI for `/docs`, loaded on that page only): no CDN.
+  `app/utils/leafletmap.ts`; Swagger UI for `/api/docs`, loaded on that page only): no CDN.
 - A rule the server and the browser share is tested on both sides against one fixture, e.g.
   `frontend/tests/fixtures/scope-cases.json` for `?tenant=` / `?q=` (`nautobot_maps/scope.py`
   and `app/utils/scope.ts`).

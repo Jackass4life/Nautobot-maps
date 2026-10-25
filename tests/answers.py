@@ -1,4 +1,4 @@
-"""Every answer a test gets, checked against the model ``/docs`` shows for it
+"""Every answer a test gets, checked against the model ``/api/docs`` shows for it
 (#449): conftest installs ``check`` as ``deps.ANSWER_CHECK`` for every test
 and fails the test on a mismatch, so the API spec can't drift from what the
 routes send."""
@@ -64,7 +64,7 @@ def complete(model, data: dict) -> dict:
     """*data* (a test's stand-in for what the app reads or builds) with every
     field *model* requires that it leaves out, as an empty value, nested
     models and lists of them too: so the answer the route makes from it is
-    one /docs describes."""
+    one /api/docs describes."""
     result = dict(data)
     for name, field in model.model_fields.items():
         key = field.alias or name

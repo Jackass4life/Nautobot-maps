@@ -125,6 +125,6 @@ class TestRealRequests:
         # A page is the Nuxt build's shell (#463), about 1.5 KB like the real one.
         shell = frontend_build / "200.html"
         shell.write_text(shell.read_text().replace("</head>", "<!--" + "x" * 1500 + "--></head>"))
-        resp = client.get("/docs", headers=GZIP)
+        resp = client.get("/api/docs", headers=GZIP)
         assert resp.headers["Content-Encoding"] == "gzip"
         assert b"<!DOCTYPE html>" in gzip.decompress(resp.get_data())

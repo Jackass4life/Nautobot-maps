@@ -10,7 +10,7 @@ Nautobot Maps reads your sites and devices from **Nautobot** (read-only), asks *
 
 | Part | What it is | Why |
 |---|---|---|
-| **Python 3.12 + FastAPI** | The web app: pages, the JSON API, webhooks, MCP; typed requests and the OpenAPI spec behind `/docs` (#436) | Small, well-known, enough for this load |
+| **Python 3.12 + FastAPI** | The web app: pages, the JSON API, webhooks, MCP; typed requests and the OpenAPI spec behind `/api/docs` (#436) | Small, well-known, enough for this load |
 | **gunicorn** | The production web server inside the container: 4 worker processes by default (`GUNICORN_WORKERS`) | Several requests at once; a stuck one can't block the rest |
 | **PostgreSQL 16** | The app's own database: a copy of the inventory, alert history, cases, acks, maintenance windows, notifications queue, API tokens | History survives restarts; one source of truth for every worker |
 | **Redis 7** | Shared cache of Nautobot answers and rate limits between workers | Fewer calls to Nautobot; every worker sees the same cache |
@@ -66,7 +66,7 @@ The wall view and the tenant status page have no bar. The status page is for cus
 | **Maintenance** | `/maintenance` | Plan windows for many sites or devices at once, see and end them, history |
 | **Tenant status** | `/status/<tenant>` | "Are we affected?" for one customer, without the whole board |
 | **Documentation** | `/help` | These guides as pages in the app: the overview, how it works, setup, sign-in, operations and the rest (#433) |
-| **API** | `/docs` | Every API endpoint in Swagger UI, grouped by area, with **Try it out**; the same as OpenAPI at `/openapi.json` (#436) |
+| **API** | `/api/docs` | Every API endpoint in Swagger UI, grouped by area, with **Try it out**; the same as OpenAPI at `/api/openapi.json` (#436). The old `/docs` and `/openapi.json` redirect there for good (301, #483) |
 | **Health / metrics** | `/healthz`, `/metrics` | Liveness probe and Prometheus metrics |
 | **MCP** | `/mcp` *(off by default)* | AI assistants read the board and add cases |
 

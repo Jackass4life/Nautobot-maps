@@ -24,7 +24,7 @@ from fastapi.routing import APIRoute
 from starlette.exceptions import HTTPException
 from starlette.responses import FileResponse, StreamingResponse
 
-from nautobot_maps import auth, compression, requestctx, settings, web
+from nautobot_maps import auth, compression, navigation, requestctx, settings, web
 from nautobot_maps.api.answers import common
 
 logger = logging.getLogger(__name__)
@@ -304,7 +304,7 @@ def _best_match(accept: str, offers: tuple[str, ...]) -> str | None:
 
 def wants_json(request: Request) -> bool:
     """JSON for the API and for clients that prefer it; a page for browsers."""
-    if request.url.path.startswith("/api/"):
+    if request.url.path.startswith("/api/") and request.url.path != navigation.API_DOCS_PATH:
         return True
     return _best_match(request.headers.get("accept", ""), ("application/json", "text/html")) == "application/json"
 

@@ -1,4 +1,4 @@
-"""The API explorer at /docs (#230): every page and endpoint, and what it takes.
+"""The API explorer at /api/docs (#230, #483): every page and endpoint, and what it takes.
 
 Read from the Flask app's routes, so a new route appears without editing
 this module.  Only the example request bodies of write endpoints are listed
@@ -9,7 +9,7 @@ import inspect
 import json
 import re
 
-from nautobot_maps import scope
+from nautobot_maps import navigation, scope
 
 # Endpoints that read a page's ?tenant= / ?q= (#368, #369) through scope.read_scope.
 SCOPED_ENDPOINTS = {
@@ -66,7 +66,7 @@ EXAMPLE_BODIES = {
 
 GROUPS = ("Pages", "API", "Monitoring")
 MONITORING_PATHS = {"/healthz", "/metrics"}
-HIDDEN_ENDPOINTS = {"static", "frontend.asset"}
+HIDDEN_ENDPOINTS = {"static", "frontend.asset", "pages.api_docs_moved", "ops.openapi_moved"}
 IGNORED_METHODS = {"HEAD", "OPTIONS"}
 # " (#180)" / " (#227, #228)": issue references, for developers, not readers.
 _ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")
@@ -75,6 +75,8 @@ _ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")
 def _group(path: str) -> str:
     if path in MONITORING_PATHS:
         return "Monitoring"
+    if path == navigation.API_DOCS_PATH:
+        return "Pages"
     return "API" if path.startswith("/api/") or path == "/mcp" else "Pages"
 
 

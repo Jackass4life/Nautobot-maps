@@ -160,6 +160,14 @@
   "view": "api_device_status"
  },
  {
+  "path": "/api/docs",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "api_docs"
+ },
+ {
   "path": "/api/endpoints",
   "methods": [
    "GET"
@@ -296,6 +304,14 @@
   "view": "api_notifications_test"
  },
  {
+  "path": "/api/openapi.json",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "openapi"
+ },
+ {
   "path": "/api/page-config",
   "methods": [
    "GET"
@@ -360,14 +376,6 @@
   "view": "circuits_page"
  },
  {
-  "path": "/docs",
-  "methods": [
-   "GET"
-  ],
-  "required_role": null,
-  "view": "api_docs"
- },
- {
   "path": "/healthz",
   "methods": [
    "GET"
@@ -422,14 +430,6 @@
   ],
   "required_role": null,
   "view": "prometheus_metrics"
- },
- {
-  "path": "/openapi.json",
-  "methods": [
-   "GET"
-  ],
-  "required_role": null,
-  "view": "openapi"
  },
  {
   "path": "/status/<path:tenant>",

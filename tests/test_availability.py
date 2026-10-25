@@ -66,7 +66,7 @@ def run(month="2026-10", basis="any_down", sites=None, from_date=None, to_date=N
     finally:
         conn.close()
     if not with_incidents:
-        # Every report these tests make, as the API would send it, is what /docs shows (#449).
+        # Every report these tests make, as the API would send it, is what /api/docs shows (#449).
         answers.Report.model_validate_json(deps.Json(result).body, strict=True)
     return result
 
