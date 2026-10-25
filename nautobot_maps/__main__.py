@@ -13,13 +13,17 @@ admin token is made (``docker compose exec app python -m nautobot_maps ...``).
 
 ``status-link TENANT`` prints the tenant's status page link, ``/status/<id>``
 (#500); ``--new`` replaces it, and the old link stops working.
+
+``wireless-check`` reads every wireless controller in WIRELESS_CONTROLLERS_FILE
+now (#508) and says, for each, whether it answers, how many access points it
+lists and how many match a Nautobot device; exit status 1 if one fails.
 """
 
 import argparse
 import logging
 import sys
 
-from nautobot_maps import contract, db, statuslinks, tokens
+from nautobot_maps import contract, db, statuslinks, tokens, wireless
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,7 +45,34 @@ def build_parser() -> argparse.ArgumentParser:
     link = commands.add_parser("status-link", help="print a tenant's status page link (#500)")
     link.add_argument("tenant")
     link.add_argument("--new", action="store_true", help="replace it: the old link stops working")
+    commands.add_parser("wireless-check", help="read each wireless controller now and say what matched (#508)")
     return parser
+
+
+def wireless_check_command() -> int:
+    if not wireless.configured():
+        print("No wireless controllers (WIRELESS_CONTROLLERS_FILE); nothing to check.")
+        return 0
+    failed = False
+    for result in wireless.check():
+        if "duplicates" in result:
+            print(
+                f"{result['duplicate_count']} access point(s) listed by more than one controller (the newest answer wins):"
+            )
+            for serial, where in result["duplicates"].items():
+                print(f"  {serial}: {', '.join(where)}")
+            continue
+        if "error" in result:
+            failed = True
+            print(f"{result['controller']} ({result['url']}): can't read it: {result['error']}")
+            continue
+        print(
+            f"{result['controller']} ({result['url']}): {result['access_points']} access points, "
+            f"{result['down']} down, {result['matched']} match a Nautobot device"
+        )
+        if result["unmatched_examples"]:
+            print(f"  not in Nautobot (serial or name), e.g.: {', '.join(result['unmatched_examples'])}")
+    return 1 if failed else 0
 
 
 def status_link_command(conn, args) -> int:
@@ -113,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(contract.render_markdown())
         return 0
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if args.command == "wireless-check":
+        # Without a database it still says whether each controller answers.
+        return wireless_check_command()
 
     if not db.dialect():
         print("No database configured (NAUTOBOT_MAPS_DATABASE_URL); nothing to do.")

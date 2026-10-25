@@ -14,6 +14,8 @@ describe("what the page says", () => {
     expect(headline({ summary: { sites: 30, affected: 2, devices_down: 4 } })).toBe("2 of 30 sites affected · 4 devices down");
     expect(headline({ summary: { sites: 300, affected: 40, devices_down: 1250 } })).toBe("40 of 300 sites affected · 1,250 devices down");
     expect(headline({ summary: { sites: 3, affected: 1, devices_down: 1 } })).toBe("1 of 3 sites affected · 1 device down");
+    // Access points a wireless controller reports down never make a site affected (#508).
+    expect(headline({ summary: { sites: 75, affected: 0, devices_down: 3 } })).toBe("All 75 sites operational · 3 devices down");
   });
 
   it("each site's devices: counts only, what is down when affected (#503)", () => {
@@ -26,9 +28,12 @@ describe("what the page says", () => {
     expect(site("operational", 12, 40)).toBe("12 network · 40 APs");
     expect(site("maintenance", 0, 1)).toBe("1 AP");
     expect(site("unknown", 0, 0)).toBe("");
-    // Affected but nothing down (a webhook alert), or down but not affected: the quiet line.
+    // Nothing down (an alert from a webhook), or in maintenance or without data: the quiet line.
     expect(site("outage", 12, 40)).toBe("12 network · 40 APs");
     expect(site("maintenance", 12, 40, 3, 1)).toBe("12 network · 40 APs");
+    expect(site("unknown", 12, 40, 0, 2)).toBe("12 network · 40 APs");
+    // An operational site with access points down per its wireless controller (#508).
+    expect(site("operational", 12, 40, 0, 2)).toBe("12 network devices · 2 of 40 access points down");
   });
 
   it("each site's state and since or until when", () => {

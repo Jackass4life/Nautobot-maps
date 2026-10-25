@@ -1,0 +1,7 @@
+# The demo's wireless controller (#508): the mock Nautobot also answers as a
+# Cisco Catalyst Center.  WIRELESS_CONTROLLERS_FILE=demo/wireless.yml
+catalyst_center:
+  - name: demo
+    url: http://127.0.0.1:8080
+    username: maps-ro
+    password: demo

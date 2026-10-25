@@ -11,6 +11,7 @@ import os
 import re
 from urllib.parse import urlsplit
 
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -102,6 +103,78 @@ LIBRENMS_URL = os.getenv("LIBRENMS_URL", "").strip().rstrip("/")
 LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 # Like NAUTOBOT_VERIFY_SSL: "true", "false" or a path to a CA bundle (#191).
 LIBRENMS_VERIFY_SSL = _verify_ssl(os.getenv("LIBRENMS_VERIFY_SSL", "true"))
+
+# Wireless controllers (#508): access point status from Cisco Catalyst
+# Center, any number of instances, listed in one YAML file (read-only
+# accounts).  Its controllers are read every WIRELESS_SYNC_INTERVAL_SECONDS.
+WIRELESS_CONTROLLER_KINDS = {
+    # kind: (the settings each instance needs, those it may have)
+    "catalyst_center": ({"name", "url", "username", "password"}, {"verify_ssl"}),
+}
+CONTROLLER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def _wireless_controllers(path: str) -> tuple[dict, ...]:
+    """Every controller in the file at *path*, checked: fail at startup naming
+    the instance and the setting, never echoing a password."""
+    if not path:
+        return ()
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError(f"WIRELESS_CONTROLLERS_FILE {path!r} can't be read: {type(exc).__name__}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"WIRELESS_CONTROLLERS_FILE {path!r}: expected a mapping such as catalyst_center: [...]")
+    unknown = set(data) - set(WIRELESS_CONTROLLER_KINDS)
+    if unknown:
+        raise RuntimeError(
+            f"WIRELESS_CONTROLLERS_FILE {path!r}: unknown {', '.join(sorted(map(str, unknown)))}; "
+            f"expected {', '.join(sorted(WIRELESS_CONTROLLER_KINDS))}"
+        )
+    controllers = []
+    for kind, (required, optional) in WIRELESS_CONTROLLER_KINDS.items():
+        entries = data.get(kind) or []
+        if not isinstance(entries, list):
+            raise RuntimeError(f"WIRELESS_CONTROLLERS_FILE {path!r}: {kind} must be a list of instances")
+        names = set()
+        for index, entry in enumerate(entries, start=1):
+            where = f"WIRELESS_CONTROLLERS_FILE {path!r}: {kind} #{index}"
+            if not isinstance(entry, dict):
+                raise RuntimeError(f"{where}: expected name, url, ...")
+            name = str(entry.get("name") or "").strip().lower()
+            if not CONTROLLER_NAME.match(name):
+                raise RuntimeError(f"{where}: name must be 1-32 of a-z, 0-9, _ and - (e.g. dk)")
+            where = f"WIRELESS_CONTROLLERS_FILE {path!r}: {kind} {name!r}"
+            if name in names:
+                raise RuntimeError(f"{where} is listed twice")
+            names.add(name)
+            extra = set(entry) - required - optional
+            if extra:
+                raise RuntimeError(f"{where}: unknown {', '.join(sorted(map(str, extra)))}")
+            missing = sorted(key for key in required if not str(entry.get(key) or "").strip())
+            if missing:
+                raise RuntimeError(f"{where}: missing {', '.join(missing)}")
+            url = str(entry["url"]).strip().rstrip("/")
+            parsed = urlsplit(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise RuntimeError(f"{where}: url must be an absolute http(s) URL")
+            controllers.append(
+                {
+                    "kind": kind,
+                    "name": name,
+                    "url": url,
+                    "username": str(entry["username"]).strip(),
+                    "password": str(entry["password"]),
+                    "verify_ssl": _verify_ssl(str(entry.get("verify_ssl", "true"))),
+                }
+            )
+    return tuple(controllers)
+
+
+WIRELESS_CONTROLLERS_FILE = os.getenv("WIRELESS_CONTROLLERS_FILE", "").strip()
+WIRELESS_CONTROLLERS = _wireless_controllers(WIRELESS_CONTROLLERS_FILE)
+WIRELESS_SYNC_INTERVAL_SECONDS = max(60, int(os.getenv("WIRELESS_SYNC_INTERVAL_SECONDS", "").strip() or 300))
 
 # Delete resolved alerts (with their events and cases) and site severity
 # changes older than this many days, once a day (#194).  Unset or empty: two

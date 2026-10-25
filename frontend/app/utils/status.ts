@@ -19,9 +19,13 @@ export const STATE_LABELS: Record<SiteState, string> = {
 
 export function headline(data: Pick<TenantStatus, "summary">): string {
   const { sites, affected, devices_down: down } = data.summary;
-  if (!affected) return sites === 1 ? "Operational" : `All ${sites} sites operational`;
-  const text = `${affected} of ${sites} site${sites === 1 ? "" : "s"} affected`;
-  // How many devices are down, of every kind (#503).
+  const text = affected
+    ? `${affected} of ${sites} site${sites === 1 ? "" : "s"} affected`
+    : sites === 1
+      ? "Operational"
+      : `All ${sites} sites operational`;
+  // How many devices are down, of every kind (#503); also access points a
+  // wireless controller reports down at an operational site (#508).
   return down ? `${text} · ${down.toLocaleString("en")} device${down === 1 ? "" : "s"} down` : text;
 }
 
@@ -33,11 +37,17 @@ function kindText(total: number, down: number, word: string): string {
   return down ? `${down.toLocaleString("en")} of ${plural(total, word)} down` : plural(total, word);
 }
 
-// Whether a site's line says what is down: affected, with something down.
+// Whether a site's line says what is down: something is, and the site isn't
+// in maintenance or without data.  An operational one too: access points a
+// wireless controller reports down never raise its state (#508).
 export function hasDown(site: SiteDevices): boolean {
-  return (site.state === "outage" || site.state === "degraded") && site.network_devices_down + site.access_points_down > 0;
+  return site.state !== "maintenance" && site.state !== "unknown" && site.network_devices_down + site.access_points_down > 0;
 }
 
+// What is at a site, counts only (#503): with something down, how many of
+// each kind, "3 of 12 network devices down · 1 of 40 access points down";
+// else just how many, "12 network · 40 APs", as on Availability (#499).
+// Empty when nothing is counted.
 export function siteDevices(site: SiteDevices): string {
   if (!site.network_devices && !site.access_points) return "";
   if (!hasDown(site)) return devicesText(site.network_devices, site.access_points);

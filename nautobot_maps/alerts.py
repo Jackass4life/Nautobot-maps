@@ -23,6 +23,7 @@ from nautobot_maps import (
     settings,
     timeutil,
     webhooks,
+    wireless,
 )
 from nautobot_maps.repositories import board as board_store
 
@@ -467,6 +468,7 @@ def tenant_scoped_alerts(
     location_type: str | None,
     override_map: dict,
     tier: str,
+    controller_down=None,
 ) -> dict:
     """Levels for configured tenants, reusing the site's already-monitored devices (#410).
 
@@ -502,6 +504,10 @@ def tenant_scoped_alerts(
         # Its own devices only, never a shared site's other tenants' (#503);
         # one in maintenance counts but isn't down, nor any in a site window.
         down = [d for d in active if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
+        # A wireless controller's down APs (#508): counted, not in the level.
+        if controller_down is not None:
+            already = {id(d) for d in down}
+            down += [d for d in active if id(d) not in already and controller_down(d)]
         kinds = device_kinds([*active, *pending, *in_maintenance], [] if level == "maintenance" else down)
         scoped[tenant] = {
             "alert_level": level,
@@ -1591,6 +1597,8 @@ def build_alert_board_payload(
     stacks: dict[str, dict] = {}
     device_states = None
     alarmed_device_ids: set[str] = set()
+    # What the wireless controllers say (#508); None: none, or not readable.
+    wireless_index = None
     # {device_id: (site_id, state row or None)} as this build saw them.
     next_device_states: dict[str, tuple[str, dict | None]] = {}
     try:
@@ -1619,6 +1627,11 @@ def build_alert_board_payload(
             webhook_index = webhooks.read_index(read_conn)
         except Exception as exc:
             logger.warning("Could not read webhook device alerts: %s", type(exc).__name__)
+        try:
+            if wireless.configured():
+                wireless_index = wireless.read_index(read_conn)
+        except Exception as exc:
+            logger.warning("Could not read the wireless controllers' access points: %s", exc)
         try:
             in_maintenance = maintenance.read_active(read_conn, maintenance.now())
         except Exception as exc:
@@ -2014,12 +2027,21 @@ def build_alert_board_payload(
                 loc.get("location_type") or None,
                 bulk_kwargs.get("override_map") or {},
                 loc.get("tier") or "",
+                controller_down=(lambda device: wireless.is_down(wireless_index, device)) if wireless_index else None,
             )
             # "12 network · 40 APs" (#499), those in maintenance too; down
             # (#503) only the counted ones: none in a device or site window
-            # (a site window leaves its devices counted, for the level).
+            # (a site window leaves its devices counted, for the level).  A
+            # wireless controller's down APs too (#508), never in the level.
+            already_down = {id(d) for d in down_devices}
+            controller_down = (
+                [d for d in devices if id(d) not in already_down and wireless.is_down(wireless_index, d)]
+                if wireless_index
+                else []
+            )
             kinds = device_kinds(
-                [*devices, *pending_devices, *maintenance_devices], [] if site_window is not None else down_devices
+                [*devices, *pending_devices, *maintenance_devices],
+                [] if site_window is not None else [*down_devices, *controller_down],
             )
             alerts.append(
                 {

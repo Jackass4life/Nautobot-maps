@@ -39,7 +39,7 @@ flowchart LR
 ## How the data flows
 
 1. **Sync from Nautobot.** A background scheduler (one thread per worker; a PostgreSQL lock lets only one work at a time) fetches locations, devices, ASNs and circuits from Nautobot every `INVENTORY_SYNC_INTERVAL_SECONDS` (default 300 s). Syncs are incremental (only what changed); once a day a full sync removes deleted objects. The result is stored in PostgreSQL.
-2. **Who is down.** A device's status comes from Nautobot and, when configured, LibreNMS (polled, and pushed within seconds by LibreNMS alert rules). Alertmanager and a generic webhook can also mark devices down ([other sources](sources.md)). Alerts are matched to Nautobot devices by name or primary IP.
+2. **Who is down.** A device's status comes from Nautobot and, when configured, LibreNMS (polled, and pushed within seconds by LibreNMS alert rules). Alertmanager and a generic webhook can also mark devices down ([other sources](sources.md)). Alerts are matched to Nautobot devices by name or primary IP. Wireless controllers (Cisco Catalyst Center, any number) say which access points are down, matched by serial or name: counted, never in a site's level (#508).
 3. **Build the board.** Only **monitored** devices count: those with a primary IP, after exclusions. Each site gets a level: **Critical** (a core device down, or all devices down), **Medium** (over 25 % down), **Low** (one or more down), **OK** or **No data** ([alert levels](alert-board.md#alert-levels)). Maintenance windows, an alert delay and flapping detection keep noise off the board.
 4. **Record history.** Every outage, level change, case and acknowledgement is stored, so history and availability are complete even when nobody has a page open.
 5. **Notify.** When a site reaches the notify level (Critical by default) or recovers, a message goes to Teams, email or a webhook. During a large outage many changes are sent as one summary, not one message per site ([notifications](notifications.md)).
@@ -126,7 +126,7 @@ This starts three containers: `nautobot-maps` (the app), `postgres` and `redis`.
 - Run a **released image**, not a local build ([operations](operations.md#run-a-released-version)).
 - Put **HTTPS and sign-in** in front: the bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` and six settings), or your own SSO proxy with `AUTH_MODE=header`. Roles are **viewer**, **operator** and **admin**, from your groups ([sign-in and roles](authentication.md)). The app trusts identity headers only from the proxy (`AUTH_TRUSTED_PROXIES`, `AUTH_PROXY_SECRET`).
 - Set your own `POSTGRES_PASSWORD` **before the first start**, and back up the database ([backup and restore](operations.md#backup-and-restore)).
-- Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ITSM (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), tenant role scopes on status pages (`TENANT_SCOPE_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
+- Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), wireless controllers (`WIRELESS_CONTROLLERS_FILE`), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ITSM (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), tenant role scopes on status pages (`TENANT_SCOPE_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
 - Monitor `/healthz` and scrape `/metrics` ([monitoring](operations.md#monitoring)).
 - API tokens for scripts, Alertmanager and MCP: `docker compose exec nautobot-maps python -m nautobot_maps token create <name> --role operator`.
 
@@ -143,7 +143,7 @@ The app is designed for **1,200+ sites and 10,000+ devices**, with 20–30 sites
 
 **Can**
 - Show every site on a map and on a board, with a level that means the same everywhere.
-- Combine status from Nautobot, LibreNMS, Alertmanager and any webhook.
+- Combine status from Nautobot, LibreNMS, Alertmanager, any webhook and the wireless controllers' access points.
 - Track who is on an alarm (case numbers, acknowledgements) and link cases to your ITSM.
 - Plan maintenance so planned work is not an alarm, and exclude it from availability.
 - Report availability per site and tenant for any period, with CSV exports that add up.

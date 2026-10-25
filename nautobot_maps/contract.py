@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 NAUTOBOT = "nautobot"
 LIBRENMS = "librenms"
+CATALYST_CENTER = "catalyst_center"
 # Brief nested objects (Nautobot 3.x at depth 0) have only id and url; the
 # name comes from a lookup endpoint then.
 NESTED = ("object", "null")
@@ -428,6 +429,38 @@ CONTRACT: tuple[Endpoint, ...] = (
         checked=False,
         notes=("The alert's own state is ignored: the status is read from the LibreNMS API.",),
     ),
+    Endpoint(
+        CATALYST_CENTER,
+        "network-device?family=Unified AP",
+        "Up/down status of every access point, matched to Nautobot devices by serial, else name (#508)",
+        (
+            Field(
+                "serialNumber",
+                ("string", "null"),
+                becomes="serial",
+                rule="matched to the Nautobot device serial (case-insensitive)",
+            ),
+            Field(
+                "hostname",
+                ("string", "null"),
+                becomes="name",
+                rule="when the serial doesn't match: the Nautobot device name (short name, case-insensitive)",
+            ),
+            Field(
+                "reachabilityStatus",
+                ("string", "null"),
+                required=True,
+                becomes="up",
+                rule="Reachable = up, anything else = down; down is counted as an access point down, never "
+                "in the site's level",
+            ),
+            Field("macAddress", ("string", "null"), becomes="mac"),
+        ),
+        request="POST /dna/system/api/v1/auth/token (basic auth), then GET /dna/intent/api/v1/network-device "
+        "?family=Unified AP, X-Auth-Token, pages of 500 (offset from 1); the response array",
+        stored_in="wireless_ap_status (one row per AP per instance)",
+        notes=("Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.",),
+    ),
 )
 
 NOT_COVERED = (
@@ -615,7 +648,7 @@ def render_markdown() -> str:
         "",
         "<!-- Generated from nautobot_maps/contract.py: python -m nautobot_maps contract-docs > docs/data-contract.md -->",
         "",
-        "What Nautobot Maps reads from Nautobot and LibreNMS, which fields it uses, their types, and what each "
+        "What Nautobot Maps reads from Nautobot, LibreNMS and the wireless controllers, which fields it uses, their types, and what each "
         "becomes in its own tables. Every sync checks the records it fetched against this: a **required** field "
         "that is missing, or any field with another type, is logged once per sync "
         '("Data contract: nautobot dcim/devices/ does not match in 340 records: primary_ip4 is string, '
@@ -631,7 +664,7 @@ def render_markdown() -> str:
         "the lookup endpoints at the end.",
         "",
     ]
-    for source, title in ((NAUTOBOT, "Nautobot"), (LIBRENMS, "LibreNMS")):
+    for source, title in ((NAUTOBOT, "Nautobot"), (LIBRENMS, "LibreNMS"), (CATALYST_CENTER, "Cisco Catalyst Center")):
         lines += [f"## {title}", ""]
         for item in (e for e in CONTRACT if e.source == source):
             lines += [f"### `{item.path}`", "", item.used_for + ".", ""]

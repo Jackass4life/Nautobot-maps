@@ -37,6 +37,26 @@ describe("how fresh the data is", () => {
     expect(bad.lines[1]).toEqual({ state: "down", what: "Can't reach LibreNMS", when: expect.stringMatching(/^last good /) });
     expect(appStatusView(null).text).toBe("Can't reach Nautobot Maps");
   });
+
+  it("several down: how many, and the list names each (#508)", () => {
+    const down = (name: string) => ({ name, state: "down" as const, message: `Can't reach ${name}`, last_success: null });
+    const view = appStatusView(
+      {
+        state: "down",
+        updated_at: null,
+        sources: [down("Catalyst Center dk"), down("Catalyst Center se"), { name: "Nautobot", state: "ok", message: "", last_success: null }],
+      },
+      now,
+    );
+    expect(view.text).toBe("Can't reach 2 sources");
+    // Controllers are amber (#508): still counted as unreachable.
+    const amber = appStatusView(
+      { state: "stale", updated_at: null, sources: [{ ...down("Catalyst Center dk"), state: "stale" }, { ...down("Catalyst Center se"), state: "stale" }] },
+      now,
+    );
+    expect(amber.text).toBe("Can't reach 2 sources");
+    expect(view.lines.map((line) => line.what)).toEqual(["Can't reach Catalyst Center dk", "Can't reach Catalyst Center se", "Nautobot"]);
+  });
 });
 
 describe("find a site", () => {

@@ -1085,6 +1085,60 @@ def relationship_associations(request: Request):
     return _paginate(request, items)
 
 
+# ---------------------------------------------------------------------------
+# Cisco Catalyst Center (#508): the demo's access points as one instance
+# lists them, for WIRELESS_CONTROLLERS_FILE (demo/wireless.yml).  sto-ap02 and
+# one in 200 of the scale demo's are unreachable; one AP isn't in Nautobot.
+# ---------------------------------------------------------------------------
+CATALYST_TOKEN = "mock-catalyst-center-token"
+
+
+def _catalyst_aps() -> list[dict]:
+    aps = [d for d in ALL_DEVICES if (d.get("role") or {}).get("name") == "Access Point"]
+    listed = []
+    for index, device in enumerate(aps):
+        down = device["name"] == "sto-ap02" or (device["id"].startswith("dev-loc-sc") and index % 200 == 7)
+        listed.append(
+            {
+                "id": f"cc-{device['id']}",
+                "hostname": device["name"],
+                "serialNumber": device.get("serial") or "",
+                "macAddress": f"00:11:22:{index // 65536 % 256:02x}:{index // 256 % 256:02x}:{index % 256:02x}",
+                "family": "Unified AP",
+                "reachabilityStatus": "Unreachable" if down else "Reachable",
+            }
+        )
+    listed.append(
+        {
+            "id": "cc-unknown",
+            "hostname": "lab-ap99",
+            "serialNumber": "FGL-NOT-IN-NAUTOBOT",
+            "macAddress": "00:11:22:ff:ff:ff",
+            "family": "Unified AP",
+            "reachabilityStatus": "Reachable",
+        }
+    )
+    return listed
+
+
+@app.post("/dna/system/api/v1/auth/token")
+def catalyst_token(request: Request):
+    if not request.headers.get("Authorization", "").startswith("Basic "):
+        raise HTTPException(status_code=401, detail="Basic auth required")
+    return {"Token": CATALYST_TOKEN}
+
+
+@app.get("/dna/intent/api/v1/network-device")
+def catalyst_devices(request: Request):
+    if request.headers.get("X-Auth-Token") != CATALYST_TOKEN:
+        raise HTTPException(status_code=401, detail="Token expired or invalid")
+    if request.query_params.get("family") != "Unified AP":
+        return {"response": [], "version": "1.0"}
+    offset = max(1, int(request.query_params.get("offset", 1)))
+    limit = min(500, int(request.query_params.get("limit", 500)))
+    return {"response": _catalyst_aps()[offset - 1 : offset - 1 + limit], "version": "1.0"}
+
+
 @app.get("/api/")
 def api_root(request: Request):
     return {"message": "Mock Nautobot API"}
