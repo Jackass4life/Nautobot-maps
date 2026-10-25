@@ -547,9 +547,11 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert page.locator("#filter-section").is_hidden()
     page.locator("#filters-toggle").click()
     # Nuxt UI's list opens from a button (#463); its search field is a combobox.
-    # Status, Tenant, Tenant group: no Location type or Parent location (#480).
-    assert page.locator("#filter-section").get_by_role("button", name="Location type").count() == 0
-    assert page.locator("#filter-section").get_by_role("button", name="Parent location").count() == 0
+    # Status, Tenant, Tenant group (#480); which lists exist is pinned in Vitest,
+    # as the mock has too few parents to show a Parent location list anyway.
+    page.locator("#filter-section").wait_for()
+    labels = page.locator("#filter-section button[aria-label]").evaluate_all("els => els.map(e => e.ariaLabel)")
+    assert labels == ["Status", "Tenant", "Tenant group"], labels
     page.get_by_role("button", name="Tenant", exact=True).click()
     page.get_by_role("combobox", name="Search Tenant", exact=True).fill("Acme")
     page.get_by_role("option", name="Acme Corp", exact=True).click()

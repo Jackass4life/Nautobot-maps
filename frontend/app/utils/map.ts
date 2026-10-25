@@ -118,8 +118,8 @@ export function alarmTitle(count: number, everySite: boolean, anySite: boolean):
 
 // --- Filters (#311, #392) -------------------------------------------------
 
-// No location type or parent location (#480): unused, and the site panel
-// and the search already show both.
+// No location type or parent location (#480): folded away, since the site
+// panel and the search show both.
 export type FilterField = "status" | "tenant" | "tenant_group";
 
 export const FILTERS: { field: FilterField; label: string; all: string }[] = [
