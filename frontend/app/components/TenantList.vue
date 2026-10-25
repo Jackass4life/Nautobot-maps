@@ -17,8 +17,8 @@ const shown = computed(() => (all.value ? props.tenants : props.tenants.slice(0,
         class="tenant-link hover:text-primary hover:underline"
         :href="`/status/${encodeURIComponent(tenant)}`"
         target="_blank"
-        rel="noopener"
-      >{{ tenant }}</a>
+        rel="noopener noreferrer"
+      >{{ tenant }}<span class="sr-only"> (opens in a new tab)</span></a>
       <span v-else>{{ tenant }}</span>
       <UTooltip v-if="descriptions?.[tenant]" :text="descriptions[tenant]">
         <UIcon name="i-lucide-info" class="size-3.5 text-muted" :aria-label="`${tenant}: ${descriptions[tenant]}`" tabindex="0" />

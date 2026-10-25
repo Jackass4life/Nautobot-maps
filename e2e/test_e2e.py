@@ -209,19 +209,32 @@ def test_the_availability_page_answers_first(page):
     tenant = sites.locator(".tenant-link").first
     if tenant.count():
         assert tenant.get_attribute("href").startswith("/status/")
-        assert tenant.get_attribute("target") == "_blank"
-        with page.context.expect_page() as opened:
-            tenant.click()
-        opened.value.locator("#status-tenant").wait_for()
-        assert opened.value.url.startswith(f"{BASE_URL}/status/")
-        opened.value.close()
-        assert page.url.startswith(f"{BASE_URL}/availability"), "Availability stays open"
     assert all(
         name.lower() in n.lower()
         for n in sites.locator("tbody tr:visible").evaluate_all(
             "rows => rows.map(r => r.dataset.name + ' ' + r.dataset.tenants)"
         )
     )
+
+
+def test_a_tenant_opens_its_status_page_in_a_new_tab(page):
+    """From Availability (#461, #494): the status page opens and loads in a new
+    tab, and Availability stays as it was."""
+    page.goto(f"{BASE_URL}/availability")
+    page.locator(".avail-card").first.wait_for()
+    tenant = page.locator('[data-avail-table="tenants"] .tenant-link').first
+    assert tenant.count() == 1, "the mock's tenants table has tenants"
+    assert tenant.get_attribute("target") == "_blank"
+    assert "noreferrer" in tenant.get_attribute("rel")
+    with page.context.expect_page() as opened:
+        tenant.click()
+    status = opened.value
+    # Loaded, not just the heading (which shows the name from the link at once).
+    status.locator(".status-site").first.wait_for()
+    assert status.locator("#status-headline").inner_text() != "Loading…"
+    assert status.url.startswith(f"{BASE_URL}/status/")
+    status.close()
+    assert page.url == f"{BASE_URL}/availability", "Availability stays open"
 
 
 def test_the_availability_tenants_search(page):
