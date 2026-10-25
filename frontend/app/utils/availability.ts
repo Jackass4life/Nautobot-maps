@@ -49,7 +49,8 @@ export function siteRows(sites: SiteRow[]): Row[] {
   });
 }
 
-export function tenantRows(tenants: TenantRow[]): Row[] {
+// A tenant is found by its name or its description (#481).
+export function tenantRows(tenants: TenantRow[], descriptions: Record<string, string> = {}): Row[] {
   return tenants.map((tenant) => ({
     key: tenant.tenant,
     name: tenant.tenant,
@@ -59,7 +60,7 @@ export function tenantRows(tenants: TenantRow[]): Row[] {
     incidents: 0,
     sites: tenant.sites,
     tenants: [],
-    search: tenant.tenant.toLowerCase(),
+    search: [tenant.tenant, descriptions[tenant.tenant] ?? ""].join(" ").toLowerCase(),
   }));
 }
 

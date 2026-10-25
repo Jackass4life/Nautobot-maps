@@ -217,6 +217,35 @@ def test_the_availability_page_answers_first(page):
     )
 
 
+def test_the_availability_tenants_search(page):
+    """With more tenants than fit, the Tenants table gets a search, by name or
+    description (#481); with a few, it has none."""
+    page.goto(f"{BASE_URL}/availability")
+    page.locator(".avail-card").first.wait_for()
+    assert page.locator('[data-avail-table="tenants"] .avail-search').count() == 0
+
+    def many_tenants(route):
+        report = route.fetch().json()
+        report["tenants"] += [
+            {"tenant": f"Tenant {i:02d}", "sites": 3, "availability": 99.5, "downtime_seconds": 60} for i in range(40)
+        ]
+        report["tenant_descriptions"]["Tenant 17"] = "Ferry operator, Bornholm"
+        route.fulfill(json=report)
+
+    page.route("**/api/availability?*", many_tenants)
+    page.route("**/api/availability", many_tenants)
+    page.reload()
+    tenants = page.locator('[data-avail-table="tenants"]')
+    tenants.locator(".avail-search input").wait_for()
+    assert tenants.locator(".avail-tenant").count() == 0, "no tenant picker on the tenants"
+    assert tenants.locator("tbody tr:visible").count() == 10
+    tenants.locator(".avail-search input").fill("bornholm")
+    tenants.locator("tbody tr:visible", has_text="Tenant 17").wait_for()
+    assert tenants.locator("tbody tr:visible").count() == 1
+    tenants.locator(".avail-search input").fill("")
+    page.wait_for_function("() => document.querySelectorAll('[data-avail-table=\"tenants\"] tbody tr').length === 10")
+
+
 @pytest.fixture
 def operator_page(page):
     """*page* as an operator: maintenance changes need the role (#343). CI makes

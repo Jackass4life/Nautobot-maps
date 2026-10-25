@@ -86,6 +86,19 @@ describe("the availability tables", () => {
     const t = tenantRows([{ tenant: "Acme", sites: 3, availability: 99.9, downtime_seconds: 60 }]);
     expect(t[0]).toMatchObject({ name: "Acme", sites: 3, downtime: 60 });
   });
+
+  it("a tenant is found by its name or its description (#481)", () => {
+    const many = tenantRows(
+      Array.from({ length: 300 }, (_, i) => ({ tenant: `Tenant ${i}`, sites: 4, availability: 99 + (i % 100) / 100, downtime_seconds: i })),
+      { "Tenant 7": "Retail bank, Nordic offices" },
+    );
+    const found = (query: string) => filterRows(sortRows(many), { query, limit: 10 });
+    expect(found("tenant 299").shown.map((r) => r.name)).toEqual(["Tenant 299"]);
+    expect(found("NORDIC bank").shown.map((r) => r.name)).toEqual(["Tenant 7"]);
+    expect(found("tenant").matched).toBe(300);
+    expect(found("tenant").shown).toHaveLength(10);
+    expect(found("nobody").matched).toBe(0);
+  });
 });
 
 describe("figures", () => {

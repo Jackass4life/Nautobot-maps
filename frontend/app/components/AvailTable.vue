@@ -1,5 +1,6 @@
 <!-- An availability table (#342): sorted by a column (the worst first),
-     searched and filtered by tenant (sites), the first N and "Show more". -->
+     searched and filtered by tenant (sites), the first N and "Show more".
+     Tenants get the search only when there are more than fit (#481). -->
 <script setup lang="ts">
 import {
   barPercent,
@@ -48,6 +49,7 @@ const columns = computed<{ key: SortKey | null; label: string; num?: boolean }[]
 const sorted = computed(() => sortRows(props.rows, sort.value.key, sort.value.dir));
 const view = computed(() => filterRows(sorted.value, { query: query.value, tenants: tenants.value, limit: shownLimit.value }));
 const more = computed(() => moreText(view.value, props.rows.length));
+const searchable = computed(() => (props.kind === "sites" ? props.rows.length > 0 : props.rows.length > props.limit));
 
 // A new search or tenant starts again from the worst N.
 watch([query, tenants, () => props.rows], () => {
@@ -71,9 +73,9 @@ function ariaSort(key: SortKey | null) {
         <UBadge color="neutral" variant="subtle" size="sm">{{ rows.length.toLocaleString("en") }}</UBadge>
         <HelpTip :text="help" />
       </h2>
-      <div v-if="kind === 'sites' && rows.length" class="avail-filters ml-auto flex flex-wrap gap-2">
-        <UInput v-model="query" class="avail-search w-56" type="search" icon="i-lucide-search" placeholder="Search sites" aria-label="Search sites" autocomplete="off" size="sm" />
-        <USelectMenu v-model="tenants" class="avail-tenant w-48" :items="tenantChoices ?? []" multiple placeholder="All tenants" aria-label="Tenant" size="sm" />
+      <div v-if="searchable" class="avail-filters ml-auto flex flex-wrap gap-2">
+        <UInput v-model="query" class="avail-search w-56" type="search" icon="i-lucide-search" :placeholder="`Search ${kind}`" :aria-label="`Search ${kind}`" autocomplete="off" size="sm" />
+        <USelectMenu v-if="kind === 'sites'" v-model="tenants" class="avail-tenant w-48" :items="tenantChoices ?? []" multiple placeholder="All tenants" aria-label="Tenant" size="sm" />
       </div>
     </div>
     <div class="overflow-x-auto border-t border-default">

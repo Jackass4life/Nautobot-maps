@@ -21,7 +21,7 @@ const HELP = {
   csv: "For a spreadsheet, with the period and totals at the top. Sites and tenants: the tables below, with more detail per site. Every incident: each device outage in the period, to check the figures. Times are UTC, downtime in minutes.",
   downtime: "All sites' downtime in the period added up, without maintenance. An incident is one device going down and coming back.",
   worst: "The tenant with the lowest availability: the average of its sites, each site counting the same.",
-  tenants: "Each tenant's availability is the average of its sites. The worst first; click a column to sort by it.",
+  tenants: "Each tenant's availability is the average of its sites. The worst first; click a column to sort by it, or search for a tenant.",
   sites: "Every monitored site, the worst first. Click a column to sort; search for a site or pick a tenant. Incidents: device outages in the period. The bar runs from 98 to 100 %.",
 };
 
@@ -45,7 +45,7 @@ const shownFrom = computed(() => asked.from || report.value?.period.from || "");
 const shownTo = computed(() => asked.to || report.value?.period.to || "");
 const csvQuery = computed(() => new URLSearchParams({ from: shownFrom.value, to: shownTo.value, basis: basis.value }).toString());
 const sites = computed(() => (report.value ? siteRows(report.value.sites) : []));
-const tenants = computed(() => (report.value ? tenantRows(report.value.tenants) : []));
+const tenants = computed(() => (report.value ? tenantRows(report.value.tenants, report.value.tenant_descriptions) : []));
 const tenantNames = computed(() => (report.value ? report.value.tenants.map((t) => t.tenant).sort() : []));
 const summary = computed(() => report.value?.summary);
 const periodNote = computed(() => {
