@@ -315,7 +315,8 @@ def test_the_availability_period_calendar(page):
     assert page.evaluate("document.activeElement.dataset.step") == "-1"
     page.keyboard.press("Escape")
     page.locator("#period-popover").wait_for(state="hidden")  # it fades out (#463)
-    assert page.evaluate("document.activeElement.id") == "period-button"
+    # The focus comes back once the fade has ended, a moment after "hidden".
+    page.wait_for_function("document.activeElement?.id === 'period-button'")
 
     # Back to a month: its first to last day, shown and reported as the month.
     page.locator("#period-button").click()
