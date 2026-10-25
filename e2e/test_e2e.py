@@ -450,12 +450,14 @@ def test_the_map_at_scale(page):
     page.keyboard.press("Escape")
 
     # Alarms only: the 25 pins and nothing else.
+    # Wait, don't count at once: the count is drawn on Vue's next update, and
+    # the clusters only after the zoom from the alarm click above has ended.
     page.locator("#alarms-only").click()
+    page.locator("#location-count", has_text="25 sites in alarm").wait_for()
     assert page.locator(".leaflet-marker-icon").count() == 25
-    assert page.locator("#location-count").inner_text() == "25 sites in alarm"
     page.locator("#filters-toggle").click()
     page.locator("#clear-filters").click()
-    assert page.locator(".leaflet-marker-icon:has(.quiet-cluster)").count() > 0
+    page.locator(".leaflet-marker-icon:has(.quiet-cluster)").first.wait_for()
 
     # A quiet site inside a cluster opens from a link: the map zooms to it.
     page.goto(f"{BASE_URL}/?location_id=s613")
