@@ -53,6 +53,7 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
     """*tenant*'s sites on *board* (case-insensitive name); None when it has none."""
     wanted = tenant.strip().casefold()
     name = ""
+    description = ""
     sites = []
     checked_at = board.get("checked_at") or ""
     for row in board.get("alerts") or []:
@@ -66,6 +67,10 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
         if scoped is None and row.get("alert_level") == "no_data" and not row.get("device_count"):
             continue
         name = name or match
+        # Only this tenant's, never a shared site's other tenants' (#482).
+        description = description or next(
+            (text for owner, text in (row.get("tenant_descriptions") or {}).items() if owner.casefold() == wanted), ""
+        )
         state = STATES.get((scoped or {}).get("alert_level") or row.get("alert_level") or "", "unknown")
         site = {"name": row.get("name") or "", "state": state, "since": None, "until": None}
         if state in ("outage", "degraded"):
@@ -78,6 +83,7 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
     sites.sort(key=lambda site: (STATE_ORDER.index(site["state"]), site["name"].lower()))
     return {
         "tenant": name,
+        "description": description or None,
         "checked_at": checked_at,
         "summary": {
             "sites": len(sites),

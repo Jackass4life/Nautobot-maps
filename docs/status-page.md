@@ -3,7 +3,7 @@
 `/status/<tenant>` answers "are we affected?" for one tenant, without the whole board. It is meant for account managers and customers (#291).
 
 It shows:
-- the tenant;
+- the tenant, with its description from Nautobot after a dash when it has one ("Acme Corp – Retail bank, 24/7", #482): the same text as the tenant's (i) on the board and Availability, so keep internal notes out of Nautobot's tenant descriptions;
 - one line for the whole tenant ("All 5 sites operational" or "2 of 5 sites affected");
 - each of the tenant's sites with a state and since when, worst first. A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
 

@@ -338,6 +338,18 @@ def test_a_tenant_status_page(page):
     assert page.locator(".status-site").count() > 0
 
 
+def test_the_status_page_shows_the_tenants_description(page):
+    """The name, a dash and the tenant's description from Nautobot (#482);
+    just the name for a tenant without one."""
+    page.goto(f"{BASE_URL}/status/Acme%20Corp")
+    page.locator("#status-description").wait_for()
+    assert page.locator("#status-tenant").inner_text().startswith("Acme Corp – Retail bank.")
+    page.goto(f"{BASE_URL}/status/EuroIX")
+    page.locator(".status-site").first.wait_for()
+    assert page.locator("#status-tenant").inner_text().strip() == "EuroIX"
+    assert page.locator("#status-description").count() == 0
+
+
 def test_the_map_at_scale(page):
     """1,200 sites, 25 in alarm, 3 in maintenance (#334): every one of those is its
     own pin at the first zoom, the rest are a few quiet clusters, and a site

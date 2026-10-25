@@ -21,6 +21,7 @@ class StatusSummary(common.Answer):
 
 class TenantStatus(common.Answer):
     tenant: str = Field(description="The tenant's name as Nautobot spells it.")
+    description: str | None = Field(description="The tenant's description in Nautobot, when it has one (#482).")
     checked_at: str = Field(description="When the board was last built (ISO 8601, UTC).")
     summary: StatusSummary
     sites: list[StatusSite] = Field(description="Worst first, then by name.")

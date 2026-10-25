@@ -4409,6 +4409,18 @@
             "title": "Checked At",
             "type": "string"
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tenant's description in Nautobot, when it has one (#482).",
+            "title": "Description"
+          },
           "sites": {
             "description": "Worst first, then by name.",
             "items": {
@@ -4428,6 +4440,7 @@
         },
         "required": [
           "tenant",
+          "description",
           "checked_at",
           "summary",
           "sites"
