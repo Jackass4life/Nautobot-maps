@@ -309,25 +309,24 @@ def test_planning_maintenance_for_several_sites(operator_page, request):
 
 
 def test_the_planner_finds_a_tenant_by_its_description(operator_page):
-    """Typing part of a tenant's description offers all its sites (#497)."""
+    """Typing part of a tenant's description offers all its sites (#497):
+    the mock's Acme Corp is a "Retail bank", a word no other tenant has."""
     page = operator_page
     answer = api("/api/maintenance/sites")
-    counts = {}
-    for site in answer["sites"]:
-        for tenant in site["tenants"]:
-            counts[tenant] = counts.get(tenant, 0) + 1
-    tenant, description = next(
-        (name, text) for name, text in sorted(answer["tenant_descriptions"].items()) if counts.get(name, 0) > 1
-    )
-    word = description.split()[0].rstrip(".,")
+    description = answer["tenant_descriptions"]["Acme Corp"]
+    assert description.startswith("Retail bank")
+    count = sum("Acme Corp" in site["tenants"] for site in answer["sites"])
+    assert count > 1
     page.goto(f"{BASE_URL}/maintenance")
     page.locator("#maint-plan-open").click()
-    page.locator("#maint-site-search").fill(word)
-    row = page.locator(".maint-match-tenant", has_text=tenant)
+    page.locator("#maint-site-search").fill("retail")
+    row = page.locator(".maint-match-tenant", has_text="Acme Corp")
     row.wait_for()
     assert description in row.inner_text()
+    # The tenant, not each of its sites.
+    assert page.locator(".maint-match:not(.maint-match-tenant)").count() == 0
     row.click()
-    assert page.locator("#maint-chosen .maint-chip").count() == counts[tenant]
+    assert page.locator("#maint-chosen .maint-chip").count() == count
 
 
 def test_a_sites_maintenance_history(page):

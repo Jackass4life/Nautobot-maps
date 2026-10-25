@@ -9,9 +9,14 @@ export interface ChoiceItem {
 
 export const CHOICE_SEARCH_FIELDS = ["label", "description"];
 
+// A tenant's description, or "": an own key only, as names come from Nautobot.
+export function tenantDescriptionIn(descriptions: Record<string, string> | undefined, tenant: string): string {
+  return descriptions && Object.hasOwn(descriptions, tenant) ? descriptions[tenant] || "" : "";
+}
+
 export function choiceItems(values: string[], descriptions: Record<string, string> = {}): ChoiceItem[] {
   return values.map((value) => {
-    const description = Object.hasOwn(descriptions, value) ? descriptions[value] : "";
+    const description = tenantDescriptionIn(descriptions, value);
     return description ? { label: value, value, description } : { label: value, value };
   });
 }

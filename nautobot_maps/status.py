@@ -43,6 +43,11 @@ def site_tenants(row: dict) -> list[str]:
     return [row["tenant"]] if row.get("tenant") else []
 
 
+def tenant_descriptions(rows: list[dict]) -> dict[str, str]:
+    """Every tenant's description, from board rows that each carry their own tenants' (#497)."""
+    return {name: text for row in rows for name, text in (row.get("tenant_descriptions") or {}).items() if text}
+
+
 def _since(row: dict, checked_at: str) -> str | None:
     """When the site's current trouble started, from its longest current downtime."""
     seconds = int(row.get("current_downtime_seconds") or 0)

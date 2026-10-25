@@ -21,7 +21,7 @@ import {
   type PickerSite,
 } from "~/utils/maintenance";
 import { defaultPlan, localDay, type WhenValues } from "~/utils/when";
-import { CHOICE_SEARCH_FIELDS, choiceItems } from "~/utils/tenants";
+import { CHOICE_SEARCH_FIELDS, choiceItems, tenantDescriptionIn } from "~/utils/tenants";
 
 useHead({ title: "Maintenance · Nautobot Maps" });
 
@@ -48,6 +48,7 @@ const history = reactive({
 
 // Hundreds of windows: not deeply reactive.
 const batches = shallowRef<Batch[]>([]);
+// The tenants' descriptions, from the list and the planner's sites (#497).
 const descriptions = shallowRef<Record<string, string>>({});
 const status = ref("Loading…");
 const statusError = ref(false);
@@ -105,7 +106,7 @@ async function loadList() {
     const url = historyView ? `/api/maintenance/history?${historyQuery()}` : `/api/maintenance?recent_days=${limits.value.recent_days}`;
     const payload = await $fetch<{ windows: MaintenanceWindow[]; tenant_descriptions: Record<string, string>; truncated: boolean }>(url);
     const windows = payload.windows || [];
-    descriptions.value = payload.tenant_descriptions || {};
+    descriptions.value = { ...descriptions.value, ...payload.tenant_descriptions };
     batches.value = batchesOf(windows, { keepOrder: historyView, descriptions: descriptions.value });
     now.value = new Date();
     if (historyView && windows[0]?.site_name) history.siteName = windows[0].site_name;
@@ -152,8 +153,6 @@ async function endWindows(ids: number[]) {
 
 const planOpen = ref(false);
 const sites = shallowRef<PickerSite[] | null>(null);
-// The tenants' descriptions, for "Add all sites of NNIT · Novo Nordisk IT" (#497).
-const planDescriptions = shallowRef<Record<string, string>>({});
 const byId = computed(() => new Map((sites.value ?? []).map((site) => [site.id, site])));
 const siteQuery = ref("");
 const matchesOpen = ref(false);
@@ -182,8 +181,8 @@ async function openPlan() {
   if (sites.value) return;
   try {
     const data = await $fetch<{ sites: PickerSite[]; tenant_descriptions?: Record<string, string> }>("/api/maintenance/sites");
-    planDescriptions.value = data.tenant_descriptions || {};
-    sites.value = prepareSites(data.sites || [], planDescriptions.value);
+    descriptions.value = { ...descriptions.value, ...data.tenant_descriptions };
+    sites.value = prepareSites(data.sites || [], descriptions.value);
   } catch (err) {
     planError.value = `Could not load the sites: ${errorMessage(err)}`;
   }
@@ -417,7 +416,7 @@ function until(ready: () => unknown): Promise<void> {
                   @click="addIds(tenant.ids)"
                 >
                   Add all {{ tenant.ids.length }} sites of <strong>{{ tenant.name }}</strong>
-                  <span v-if="Object.hasOwn(planDescriptions, tenant.name)" class="text-muted"> · {{ planDescriptions[tenant.name] }}</span>
+                  <span v-if="tenantDescriptionIn(descriptions, tenant.name)" class="text-muted"> · {{ tenantDescriptionIn(descriptions, tenant.name) }}</span>
                 </li>
                 <li
                   v-for="site in matches.sites"

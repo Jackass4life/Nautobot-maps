@@ -381,9 +381,7 @@ def report(
         key=lambda r: (r["availability"], r["tenant"].lower()),
     )
     # The descriptions of the tenants listed, for their (i) (#342).
-    descriptions: dict[str, str] = {}
-    for site in sites or []:
-        descriptions.update(site.get("tenant_descriptions") or {})
+    descriptions = status.tenant_descriptions(sites or [])
     if with_incidents and _incidents_exceed(conn, start, end, INCIDENT_EXPORT_LIMIT):
         raise ReportError(f"More than {INCIDENT_EXPORT_LIMIT:,} incidents: choose a shorter period")
     result = {
@@ -402,7 +400,7 @@ def report(
         "summary": summarise(site_rows, tenant_rows),
         "sites": site_rows,
         "tenants": tenant_rows,
-        "tenant_descriptions": {name: descriptions[name] for name in tenants if descriptions.get(name)},
+        "tenant_descriptions": {name: descriptions[name] for name in tenants if name in descriptions},
     }
     if with_incidents:
         # Streamed when written (*conn* must stay open until then), with the report's

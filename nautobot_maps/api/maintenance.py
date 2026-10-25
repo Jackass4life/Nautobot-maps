@@ -220,9 +220,6 @@ def api_maintenance_sites():
         for site in _board_sites()
         if site.get("id") and (site.get("device_count") or site.get("maintenance_device_count"))
     ]
-    descriptions = {}
-    for site in rows:
-        descriptions.update(site.get("tenant_descriptions") or {})
     return deps.Json(
         {
             "sites": [
@@ -236,7 +233,7 @@ def api_maintenance_sites():
                 }
                 for site in rows
             ],
-            "tenant_descriptions": {name: text for name, text in descriptions.items() if text},
+            "tenant_descriptions": status.tenant_descriptions(rows),
         }
     )
 

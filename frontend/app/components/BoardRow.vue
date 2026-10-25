@@ -21,6 +21,7 @@ import { siteTenants } from "~/utils/scope";
 import { caseBadge } from "~/utils/wall";
 import { siteAddress } from "~/utils/sitesearch";
 import { maintenanceHistoryHref } from "~/utils/sitepanel";
+import { tenantDescriptionIn } from "~/utils/tenants";
 
 const props = withDefaults(
   defineProps<{
@@ -51,8 +52,7 @@ const devices = computed(() => props.item.down_devices || []);
 const withCase = computed(() => caseDevices(props.item));
 const tenants = computed(() => siteTenants(props.item));
 const restShown = ref(false);
-const descriptionOf = (tenant: string) =>
-  Object.hasOwn(props.item.tenant_descriptions || {}, tenant) ? props.item.tenant_descriptions[tenant] || "" : "";
+const descriptionOf = (tenant: string) => tenantDescriptionIn(props.item.tenant_descriptions, tenant);
 const address = computed(() => siteAddress(props.item));
 const meta = computed(() => props.item.ancestor_path || props.item.parent || "");
 

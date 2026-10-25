@@ -156,8 +156,25 @@ describe("planning", () => {
     );
     const novo = matchPlannableSites(described, "novo");
     expect(novo.tenants.map((t) => [t.name, t.ids.length])).toEqual([["NNIT", 40]]);
-    expect(novo.sites).toHaveLength(MAX_MATCHES);
+    // The tenant, not its 40 sites: a common word in a description would list hundreds.
+    expect(novo.sites).toEqual([]);
     expect(matchPlannableSites(sites, "novo").tenants).toEqual([]);
+  });
+
+  it("a tenant's own name before bigger tenants that only have it in the description (#497)", () => {
+    const tenantOf = (i: number) => (i < 3 ? "Nordic Net" : i % 2 ? "Big One" : "Big Two");
+    const mixed = prepareSites(
+      Array.from({ length: 1200 }, (_, i) => ({ id: `s${i}`, name: `Site ${i}`, path: "", tenants: [tenantOf(i)], devices: 1, maintenance: false })),
+      { "Big One": "Internet and network services", "Big Two": "Managed network", "Nordic Net": "Regional ISP" },
+    );
+    const net = matchPlannableSites(mixed, "net");
+    expect(net.tenants.map((t) => [t.name, t.ids.length])).toEqual([
+      ["Nordic Net", 3],
+      ["Big One", 599],
+      ["Big Two", 598],
+    ]);
+    // Name and description are matched apart, not run together.
+    expect(matchPlannableSites(mixed, "net regional").tenants).toEqual([]);
   });
 
   const values = (extra: Partial<PlanValues>): PlanValues => ({

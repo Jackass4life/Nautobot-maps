@@ -3,6 +3,7 @@
 // groups Active now, Planned and Ended; the site picker and the request.
 import type { components } from "~/api/schema";
 import { formatFeedTime, hasAllWords, searchWords } from "./format";
+import { tenantDescriptionIn } from "./tenants";
 import { whenRequest, type WhenValues } from "./when";
 
 export type MaintenanceWindow = components["schemas"]["DescribedWindow"];
@@ -98,7 +99,7 @@ export function batchesOf(
       batch.reason,
       batch.created_by,
       ...batch.tenants,
-      ...batch.tenants.map((tenant) => describe(descriptions, tenant)),
+      ...batch.tenants.map((tenant) => tenantDescriptionIn(descriptions, tenant)),
       ...batch.windows.flatMap((w) => [siteLabel(w), w.site_path || "", w.device_name || w.device_id]),
     ]
       .join(" ")
@@ -167,36 +168,33 @@ export function countText(batches: Batch[]): string {
 // At most this many sites listed under the search; a tenant adds all of its own.
 export const MAX_MATCHES = 8;
 
-export type PickerSite = PlannableSite & { lowerName: string; lowerTenants: [string, string][]; text: string };
-
-// A tenant's description, or "" (an own key only: names come from Nautobot).
-function describe(descriptions: Record<string, string>, tenant: string): string {
-  return Object.hasOwn(descriptions, tenant) ? descriptions[tenant] || "" : "";
-}
+// Each tenant with its lower-cased name and description.
+export type PickerSite = PlannableSite & { lowerName: string; lowerTenants: [string, string, string][]; text: string };
 
 const byName = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
-// The sites as the picker searches them: sorted by name and lower-cased once;
-// a tenant by its name or its description (#497).
+// The sites as the picker searches them: sorted by name and lower-cased once.
+// A tenant's description finds the tenant, not each of its sites: a common
+// word in it would list hundreds (#497).
 export function prepareSites(sites: PlannableSite[], descriptions: Record<string, string> = {}): PickerSite[] {
   return [...sites]
     .sort((a, b) => byName.compare(a.name, b.name))
     .map((site) => ({
       ...site,
       lowerName: site.name.toLowerCase(),
-      lowerTenants: (site.tenants || []).map((tenant): [string, string] => [
+      lowerTenants: (site.tenants || []).map((tenant): [string, string, string] => [
         tenant,
-        `${tenant} ${describe(descriptions, tenant)}`.toLowerCase(),
+        tenant.toLowerCase(),
+        tenantDescriptionIn(descriptions, tenant).toLowerCase(),
       ]),
-      text: [site.name, site.path, ...(site.tenants || []).flatMap((tenant) => [tenant, describe(descriptions, tenant)])]
-        .join(" ")
-        .toLowerCase(),
+      text: [site.name, site.path, ...(site.tenants || [])].join(" ").toLowerCase(),
     }));
 }
 
 // Sites with every word in the name, path or a tenant, not yet chosen: those
 // whose name has the phrase first, then by name; and the tenants whose name
-// or description has it, with all their sites (two or more, the three biggest).
+// has it, then those whose description has it (#497), with all their sites
+// (two or more, the three biggest of each).
 export function matchPlannableSites(
   sites: PickerSite[],
   query: string,
@@ -207,22 +205,24 @@ export function matchPlannableSites(
   const phrase = words.join(" ");
   const named: PickerSite[] = [];
   const other: PickerSite[] = [];
-  const byTenant = new Map<string, string[]>();
+  // A tenant, whether its name has the phrase (or only its description), its sites.
+  const byTenant = new Map<string, { named: boolean; ids: string[] }>();
   for (const site of sites) {
     if (chosen.has(site.id)) continue;
     if (hasAllWords(site.text, words)) (site.lowerName.includes(phrase) ? named : other).push(site);
-    for (const [tenant, lower] of site.lowerTenants) {
-      if (!lower.includes(phrase)) continue;
-      if (!byTenant.has(tenant)) byTenant.set(tenant, []);
-      byTenant.get(tenant)!.push(site.id);
+    for (const [tenant, lowerName, lowerDescription] of site.lowerTenants) {
+      const named = lowerName.includes(phrase);
+      if (!named && !lowerDescription.includes(phrase)) continue;
+      if (!byTenant.has(tenant)) byTenant.set(tenant, { named, ids: [] });
+      byTenant.get(tenant)!.ids.push(site.id);
     }
   }
   const hits = named.concat(other);
   const tenants = [...byTenant]
-    .map(([name, ids]) => ({ name, ids }))
-    .filter((tenant) => tenant.ids.length > 1)
-    .sort((a, b) => b.ids.length - a.ids.length)
-    .slice(0, 3);
+    .filter(([, { ids }]) => ids.length > 1)
+    .sort(([, a], [, b]) => Number(b.named) - Number(a.named) || b.ids.length - a.ids.length)
+    .slice(0, 3)
+    .map(([name, { ids }]) => ({ name, ids }));
   return { sites: hits.slice(0, MAX_MATCHES), tenants, more: Math.max(0, hits.length - MAX_MATCHES) };
 }
 

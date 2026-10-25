@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { formatFeedTime, nautobotCircuitUrl, nautobotLocationUrl } from "~/utils/format";
 import type { MapLocation } from "~/utils/map";
+import { tenantDescriptionIn } from "~/utils/tenants";
 import {
   circuitMatchNote,
   circuitTermination,
@@ -66,7 +67,7 @@ const subtitle = computed(() => {
 });
 const tenantDescription = computed(() => {
   const loc = props.loc;
-  return loc?.tenant && Object.hasOwn(loc.tenant_descriptions || {}, loc.tenant) ? loc.tenant_descriptions[loc.tenant] : "";
+  return loc?.tenant ? tenantDescriptionIn(loc.tenant_descriptions, loc.tenant) : "";
 });
 // The site's facts that have a value (#398); the ASN is left to the ASNs fold when that lists them.
 const info = computed(() => {
