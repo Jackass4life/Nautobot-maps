@@ -38,7 +38,7 @@ const rows = siteRows([
   site("Bergen", 100, 0, 0, ["Acme"]),
   site("Aarhus", 97.25, 2000, 9, ["Nordic Net"]),
   site("Bodø", 100, 0, 0, []),
-]);
+], { Acme: "Retail bank" });
 const view = (options: { key?: SortKey; dir?: SortDir; query?: string; tenants?: string[]; limit?: number } = {}) =>
   filterRows(sortRows(rows, options.key, options.dir), options);
 const names = (v: ReturnType<typeof view>) => v.shown.map((row) => row.name).join();
@@ -49,7 +49,7 @@ describe("the availability tables", () => {
     expect(names(view({ key: "downtime", dir: "desc" }))).toBe("Aarhus,Oslo,Bergen,Bodø");
     expect(names(view({ key: "name" }))).toBe("Aarhus,Bergen,Bodø,Oslo");
     expect(names(view({ key: "incidents", dir: "asc" }))).toBe("Bergen,Bodø,Oslo,Aarhus");
-    const ties = siteRows(["bodø", "Bergen", "Zürich", "aarhus"].map((name) => site(name, 100, 0, 0, [])));
+    const ties = siteRows(["bodø", "Bergen", "Zürich", "aarhus"].map((name) => site(name, 100, 0, 0, [])), {});
     expect(filterRows(sortRows(ties)).shown.map((r) => r.name).join()).toBe("aarhus,Bergen,bodø,Zürich");
   });
 
@@ -70,9 +70,14 @@ describe("the availability tables", () => {
     expect(moreText(view({ query: "zzz" }), 4)).toBe("Nothing matches.");
   });
 
+  it("a site is found by its tenants' descriptions too (#481)", () => {
+    expect(names(view({ query: "retail BANK" }))).toBe("Oslo,Bergen");
+  });
+
   it("1,200 sites, several tenants", () => {
     const many = siteRows(
       Array.from({ length: 1200 }, (_, i) => site(`Site ${i}`, i < 60 ? 99 : 100, i < 60 ? 600 : 0, 1, [`Tenant ${i % 6}`, "Shared"])),
+      {},
     );
     const limited = filterRows(sortRows(many), { limit: 25 });
     expect(moreText(limited, 1200)).toBe("Showing 25 of 1,200 · 1,140 of the rest with no downtime");
@@ -83,8 +88,21 @@ describe("the availability tables", () => {
   });
 
   it("tenants' rows", () => {
-    const t = tenantRows([{ tenant: "Acme", sites: 3, availability: 99.9, downtime_seconds: 60 }]);
+    const t = tenantRows([{ tenant: "Acme", sites: 3, availability: 99.9, downtime_seconds: 60 }], {});
     expect(t[0]).toMatchObject({ name: "Acme", sites: 3, downtime: 60 });
+  });
+
+  it("a tenant is found by its name or its description (#481)", () => {
+    const many = tenantRows(
+      Array.from({ length: 300 }, (_, i) => ({ tenant: `Tenant ${i}`, sites: 4, availability: 99 + (i % 100) / 100, downtime_seconds: i })),
+      { "Tenant 7": "Retail bank, Nordic offices" },
+    );
+    const found = (query: string) => filterRows(sortRows(many), { query, limit: 10 });
+    expect(found("tenant 299").shown.map((r) => r.name)).toEqual(["Tenant 299"]);
+    expect(found("NORDIC bank").shown.map((r) => r.name)).toEqual(["Tenant 7"]);
+    expect(found("tenant").matched).toBe(300);
+    expect(found("tenant").shown).toHaveLength(10);
+    expect(found("nobody").matched).toBe(0);
   });
 });
 
