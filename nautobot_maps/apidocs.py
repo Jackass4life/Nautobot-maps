@@ -75,7 +75,7 @@ _ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")
 def _group(path: str) -> str:
     if path in MONITORING_PATHS:
         return "Monitoring"
-    if path == navigation.API_DOCS_PATH:
+    if path in navigation.PAGES_UNDER_API:
         return "Pages"
     return "API" if path.startswith("/api/") or path == "/mcp" else "Pages"
 

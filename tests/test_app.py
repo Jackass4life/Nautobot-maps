@@ -6663,8 +6663,9 @@ class TestApiExplorer:
         listed = client.get("/api/endpoints").get_json()["endpoints"]
         assert {(item["path"], method) for item in listed for method in item["methods"]} == self._routes()
         # Swagger UI on /api/docs draws /api/openapi.json (#436, #483): every API
-        # route in it, with its method (pages and files aren't API; nor the two
-        # pages under /api).
+        # route in it, with its method. Pages and files aren't API, nor are the
+        # two routes under /api that describe it: the reference and the spec.
+        # Listed by hand, so an API route left out of the spec by mistake fails.
         spec = client.get("/api/openapi.json").get_json()
         documented = {
             (re.sub(r"\{(\w+)(?::\w+)?\}", r"<\1>", path), method.upper())
@@ -6736,6 +6737,8 @@ class TestApiExplorer:
         for old, new in (("/docs", "/api/docs"), ("/openapi.json", "/api/openapi.json")):
             resp = client.get(old)
             assert resp.status_code == 301 and resp.headers["Location"] == new
+            # With its query: a 301 is remembered.
+            assert client.get(f"{old}?v=2&x=a%20b").headers["Location"] == f"{new}?v=2&x=a%20b"
         listed = {item["path"] for item in client.get("/api/endpoints").get_json()["endpoints"]}
         assert "/docs" not in listed and "/openapi.json" not in listed
 
@@ -6760,6 +6763,14 @@ class TestApiExplorer:
 
         assert not deps.wants_json(browser("/api/docs"))
         assert deps.wants_json(browser("/api/alerts"))
+        # And so a browser gets the error page there, as on any page.
+        wrong = client.post("/api/docs", headers={"Accept": "text/html"})
+        assert wrong.status_code == 405 and "text/html" in wrong.headers["Content-Type"]
+        assert (
+            client.post("/api/alerts", headers={"Accept": "text/html"})
+            .headers["Content-Type"]
+            .startswith("application/json")
+        )
 
     def test_needs_the_viewer_role_like_every_page(self, client, monkeypatch, frontend_build):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)

@@ -304,7 +304,7 @@ def _best_match(accept: str, offers: tuple[str, ...]) -> str | None:
 
 def wants_json(request: Request) -> bool:
     """JSON for the API and for clients that prefer it; a page for browsers."""
-    if request.url.path.startswith("/api/") and request.url.path != navigation.API_DOCS_PATH:
+    if request.url.path.startswith("/api/") and request.url.path not in navigation.PAGES_UNDER_API:
         return True
     return _best_match(request.headers.get("accept", ""), ("application/json", "text/html")) == "application/json"
 

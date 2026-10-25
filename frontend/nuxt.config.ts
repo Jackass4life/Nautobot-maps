@@ -28,16 +28,15 @@ export default defineNuxtConfig({
     fallbackToApi: false,
     clientBundle: { scan: true },
   },
-  // `npm run dev`: the API from the app on :5055 (python app.py).
-  nitro: {
-    devProxy: {
-      "/api": { target: "http://127.0.0.1:5055/api", changeOrigin: true },
-    },
-  },
   // No inline import map in the page (CSP: script-src 'self'); the entry
   // is loaded by its own file name instead.
   experimental: { entryImportMap: false },
   vite: {
+    // `npm run dev`: the API from the app on :5055 (python app.py), but not
+    // /api/docs, which is a page of this app (#483).
+    server: {
+      proxy: { "^/api/(?!docs(?:[/?#]|$))": { target: "http://127.0.0.1:5055", changeOrigin: true } },
+    },
     build: {
       // Swagger UI (about 1.5 MB since 5.34, the API page only, loaded there by a
       // dynamic import) is the one chunk above Vite's 500 kB warning.

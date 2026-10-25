@@ -88,15 +88,21 @@ def openapi(request: Request):
     return deps.Json(request.app.openapi())
 
 
-# The old paths (#483): bookmarks and tools that read the spec keep working.
+# The old paths (#483): bookmarks and tools that read the spec keep working,
+# with their query (a 301 is remembered, so it must not lose one).
+def _moved(request: Request, path: str) -> RedirectResponse:
+    query = request.url.query
+    return RedirectResponse(f"{path}?{query}" if query else path, status_code=301)
+
+
 @router.get("/docs", name="pages.api_docs_moved", include_in_schema=False)
-def api_docs_moved():
-    return RedirectResponse(navigation.API_DOCS_PATH, status_code=301)
+def api_docs_moved(request: Request):
+    return _moved(request, navigation.API_DOCS_PATH)
 
 
 @router.get("/openapi.json", name="ops.openapi_moved", include_in_schema=False)
-def openapi_moved():
-    return RedirectResponse(navigation.API_SPEC_PATH, status_code=301)
+def openapi_moved(request: Request):
+    return _moved(request, navigation.API_SPEC_PATH)
 
 
 @router.get("/help", name="help.help_page", include_in_schema=False)
