@@ -3136,6 +3136,18 @@
             "title": "State",
             "type": "string"
           },
+          "status_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A status token: its tenant's page, /status/<id> (#500); send it as /status/<id>#key=<token>.",
+            "title": "Status Link"
+          },
           "tenant": {
             "anyOf": [
               {
@@ -3527,6 +3539,14 @@
             "title": "Sites",
             "type": "array"
           },
+          "status_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Tenant name to its status page link id: /status/<id> (#500).",
+            "title": "Status Links",
+            "type": "object"
+          },
           "summary": {
             "$ref": "#/components/schemas/AvailabilitySummary"
           },
@@ -3554,7 +3574,8 @@
           "summary",
           "sites",
           "tenants",
-          "tenant_descriptions"
+          "tenant_descriptions",
+          "status_links"
         ],
         "title": "Report",
         "type": "object"
@@ -5811,7 +5832,7 @@
     },
     "/api/availability": {
       "get": {
-        "description": "Query parameters: ``month`` (``2026-10``; default the current month, up\nto now), or ``from`` and ``to`` (``2026-10-03``, both days included, at\nmost 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site\ndown) or ``critical`` (the site at Critical); default\n``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.",
+        "description": "Query parameters: ``month`` (``2026-10``; default the current month, up\nto now), or ``from`` and ``to`` (``2026-10-03``, both days included, at\nmost 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site\ndown) or ``critical`` (the site at Critical); default\n``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.\n``status_links``: each tenant's status page link id, ``/status/<id>``.",
         "operationId": "availability_api_availability_api_availability_get",
         "parameters": [
           {
@@ -8039,17 +8060,17 @@
         ]
       }
     },
-    "/api/status/{tenant}": {
+    "/api/status/{link_id}": {
       "get": {
         "description": "Where each site is (address, coordinates; #493), but no devices, IPs,\ncases or other tenants.  Open as the board is, or\nwith a status token for this tenant (``Authorization: Bearer``).",
-        "operationId": "status_api_status_api_status__tenant__get",
+        "operationId": "status_api_status_api_status__link_id__get",
         "parameters": [
           {
             "in": "path",
-            "name": "tenant",
+            "name": "link_id",
             "required": true,
             "schema": {
-              "title": "Tenant",
+              "title": "Link Id",
               "type": "string"
             }
           }
@@ -8108,14 +8129,14 @@
             "content": {
               "application/json": {
                 "example": {
-                  "error": "No sites for this tenant"
+                  "error": "No sites for this tenant, or no such link"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
               }
             },
-            "description": "No sites for this tenant"
+            "description": "No sites for this tenant, or no such link"
           },
           "503": {
             "content": {
@@ -8131,7 +8152,7 @@
             "description": "No board yet, or it can't be read"
           }
         },
-        "summary": "A tenant's sites and their state: ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.",
+        "summary": "A tenant's sites and their state, for the tenant's random link id (#500; a name answers 404): ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.",
         "tags": [
           "Status page"
         ]
@@ -8198,7 +8219,7 @@
         ]
       },
       "post": {
-        "description": "JSON body: ``name``, ``role`` (viewer, operator or admin) and optional\n``expires_in_days``.  The answer's ``token`` is the secret: shown this\nonce, store it now.",
+        "description": "JSON body: ``name``, ``role`` (viewer, operator or admin) and optional\n``expires_in_days``.  The answer's ``token`` is the secret: shown this\nonce, store it now.  A status token (``role`` status, ``tenant``) also\nanswers ``status_link``, its tenant's page.",
         "operationId": "admin_api_tokens_create_api_tokens_post",
         "requestBody": {
           "content": {
@@ -8549,17 +8570,17 @@
         ]
       }
     },
-    "/status/{tenant}": {
+    "/status/{link_id}": {
       "get": {
-        "description": "Built with Nuxt; the page reads ``/api/status/<tenant>``, with the\nkey from a share link's ``#key=`` (never sent to the server in the URL).",
-        "operationId": "status_status_page_status__tenant__get",
+        "description": "``<link_id>`` is the tenant's random link id, not its name.  Built\nwith Nuxt; the page reads ``/api/status/<link_id>``, with the key\nfrom a share link's ``#key=`` (never sent to the server in the URL).",
+        "operationId": "status_status_page_status__link_id__get",
         "parameters": [
           {
             "in": "path",
-            "name": "tenant",
+            "name": "link_id",
             "required": true,
             "schema": {
-              "title": "Tenant",
+              "title": "Link Id",
               "type": "string"
             }
           }

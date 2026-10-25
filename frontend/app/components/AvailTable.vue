@@ -19,6 +19,8 @@ const props = defineProps<{
   rows: Row[];
   target: number;
   descriptions: Record<string, string>;
+  // Each tenant's status page link id (#500).
+  statusLinks: Record<string, string>;
   limit: number;
   title: string;
   help: string;
@@ -117,7 +119,7 @@ function ariaSort(key: SortKey | null) {
             :data-tenants="kind === 'sites' ? JSON.stringify(row.tenants) : undefined"
           >
             <td class="px-4 py-2">
-              <TenantList v-if="kind === 'tenants'" :tenants="[row.name]" :descriptions="descriptions" links />
+              <TenantList v-if="kind === 'tenants'" :tenants="[row.name]" :descriptions="descriptions" :links="statusLinks" />
               <span v-else>{{ row.name }}</span>
             </td>
             <td class="pct-cell px-4 py-2">
@@ -139,7 +141,7 @@ function ariaSort(key: SortKey | null) {
             <template v-if="kind === 'sites'">
               <td class="px-4 py-2 text-right tabular-nums">{{ row.incidents }}</td>
               <td class="avail-tenants px-4 py-2 text-muted">
-                <TenantList v-if="row.tenants.length" :tenants="row.tenants" :descriptions="descriptions" links />
+                <TenantList v-if="row.tenants.length" :tenants="row.tenants" :descriptions="descriptions" :links="statusLinks" />
                 <template v-else>—</template>
               </td>
             </template>

@@ -10,13 +10,16 @@ version and the one this release expects.
 ``token create NAME --role operator [--expires-days N]``, ``token list`` and
 ``token revoke ID`` manage API tokens (#297); ``create`` is how the first
 admin token is made (``docker compose exec app python -m nautobot_maps ...``).
+
+``status-link TENANT`` prints the tenant's status page link, ``/status/<id>``
+(#500); ``--new`` replaces it, and the old link stops working.
 """
 
 import argparse
 import logging
 import sys
 
-from nautobot_maps import contract, db, tokens
+from nautobot_maps import contract, db, statuslinks, tokens
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,7 +38,27 @@ def build_parser() -> argparse.ArgumentParser:
     token_commands.add_parser("list", help="list tokens (never the secrets)")
     revoke = token_commands.add_parser("revoke", help="revoke a token by its ID")
     revoke.add_argument("id", type=int)
+    link = commands.add_parser("status-link", help="print a tenant's status page link (#500)")
+    link.add_argument("tenant")
+    link.add_argument("--new", action="store_true", help="replace it: the old link stops working")
     return parser
+
+
+def status_link_command(conn, args) -> int:
+    if not args.tenant.strip():
+        print("error: name a tenant", file=sys.stderr)
+        return 1
+    if args.new:
+        link_id = statuslinks.replace(conn, args.tenant)
+    else:
+        link_id = statuslinks.ensure(conn, [args.tenant])[args.tenant]
+    print(f"/status/{link_id}")
+    print(
+        "The status page link; with a status token, share it as /status/<id>#key=<token>."
+        + (" The old link no longer works." if args.new else ""),
+        file=sys.stderr,
+    )
+    return 0
 
 
 def token_command(conn, args) -> int:
@@ -54,6 +77,10 @@ def token_command(conn, args) -> int:
             f"expires {token['expires_at'] or 'never'}). Shown only now: store it.",
             file=sys.stderr,
         )
+        if token.get("tenant"):
+            # The link to send the customer (#500).
+            link_id = statuslinks.ensure(conn, [token["tenant"]])[token["tenant"]]
+            print(f"Share: /status/{link_id}#key={token['token']}", file=sys.stderr)
         return 0
     if args.token_command == "list":
         rows = tokens.list_tokens(conn)
@@ -84,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not db.dialect():
         print("No database configured (NAUTOBOT_MAPS_DATABASE_URL); nothing to do.")
-        return 0 if args.command != "token" else 1
+        return 0 if args.command not in ("token", "status-link") else 1
     if args.command == "migrate":
         db.init_db()
         return 0
@@ -92,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "token":
             return token_command(conn, args)
+        if args.command == "status-link":
+            return status_link_command(conn, args)
         print(f"database: {db.schema_version(conn)}, this release: {db.SCHEMA_VERSION}")
     finally:
         conn.close()

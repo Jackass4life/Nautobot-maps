@@ -378,9 +378,14 @@ def test_the_availability_period_calendar(page):
     assert api(href.replace("/api/availability.csv", "/api/availability"))["month"], href
 
 
+def status_link(tenant: str) -> str:
+    """*tenant*'s status page, by its random link (#500), as Availability links it."""
+    return f"{BASE_URL}/status/{api('/api/availability')['status_links'][tenant]}"
+
+
 def test_a_tenant_status_page(page):
     tenant = next(t for row in api("/api/alerts")["alerts"] for t in row.get("tenants") or [])
-    page.goto(f"{BASE_URL}/status/{urllib.request.quote(tenant)}")
+    page.goto(status_link(tenant))
     headline = page.locator("#status-headline")
     for _ in range(100):
         if headline.inner_text() != "Loading…":
@@ -388,6 +393,11 @@ def test_a_tenant_status_page(page):
         page.wait_for_timeout(100)
     assert "operational" in headline.inner_text().lower() or "affected" in headline.inner_text().lower()
     assert page.locator(".status-site").count() > 0
+    assert page.locator("#status-tenant").inner_text() == tenant
+    # The old link with the name in it opens nothing (#500), and says why.
+    page.goto(f"{BASE_URL}/status/{urllib.request.quote(tenant)}")
+    page.locator("#status-headline", has_text="If it is an old link").wait_for()
+    assert page.locator(".status-site").count() == 0
 
 
 def test_the_status_page_shows_where_each_site_is(page):
@@ -413,7 +423,7 @@ def test_the_status_page_shows_where_each_site_is(page):
         route.fulfill(json=answer)
 
     page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/status/"), three_places)
-    page.goto(f"{BASE_URL}/status/Acme%20Corp")
+    page.goto(status_link("Acme Corp"))
     page.locator(".status-site", has_text="Neither").wait_for()
     places = page.locator(".status-place")
     assert places.count() == 3
@@ -436,12 +446,12 @@ def test_the_status_page_shows_where_each_site_is(page):
 def test_the_status_page_shows_the_tenants_description(page):
     """The name, a dash and the tenant's description from Nautobot (#482);
     just the name for a tenant without one."""
-    page.goto(f"{BASE_URL}/status/Acme%20Corp")
+    page.goto(status_link("Acme Corp"))
     page.locator("#status-description").wait_for()
     # The heading is the name alone; the description follows it (#482).
     assert page.locator("#status-tenant").inner_text() == "Acme Corp"
     assert page.locator("#status-description").inner_text().strip().startswith("– Retail bank.")
-    page.goto(f"{BASE_URL}/status/EuroIX")
+    page.goto(status_link("EuroIX"))
     page.locator(".status-site").first.wait_for()
     assert page.locator("#status-tenant").inner_text().strip() == "EuroIX"
     assert page.locator("#status-description").count() == 0

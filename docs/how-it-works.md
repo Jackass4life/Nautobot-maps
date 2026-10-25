@@ -64,7 +64,7 @@ The wall view and the tenant status page have no bar. The status page is for cus
 | **Availability** | `/availability` | Uptime per site and tenant for any period, maintenance not counted; CSV exports |
 | **Circuits** | `/circuits` | Circuit mapping: circuits without a termination and the site their address points to, with CSV |
 | **Maintenance** | `/maintenance` | Plan windows for many sites or devices at once, see and end them, history |
-| **Tenant status** | `/status/<tenant>` | "Are we affected?" for one customer, without the whole board |
+| **Tenant status** | `/status/<id>` (a random link per tenant, #500) | "Are we affected?" for one customer, without the whole board |
 | **Documentation** | `/help` | These guides as pages in the app: the overview, how it works, setup, sign-in, operations and the rest (#433) |
 | **API** | `/api/docs` | Every API endpoint in Swagger UI, grouped by area, with **Try it out**; the same as OpenAPI at `/api/openapi.json` (#436). The old `/docs` and `/openapi.json` redirect there for good (301, #483) |
 | **Health / metrics** | `/healthz`, `/metrics` | Liveness probe and Prometheus metrics |

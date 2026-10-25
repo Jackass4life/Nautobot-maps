@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from nautobot_maps import auth, contract, db, notify, settings, tokens
+from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens
 from nautobot_maps.api import deps, models
 from nautobot_maps.api.answers import admin as answers
 from nautobot_maps.api.answers import common
@@ -69,7 +69,8 @@ def api_tokens_create(body: Annotated[object, Depends(deps.json_body)]):
 
     JSON body: ``name``, ``role`` (viewer, operator or admin) and optional
     ``expires_in_days``.  The answer's ``token`` is the secret: shown this
-    once, store it now.
+    once, store it now.  A status token (``role`` status, ``tenant``) also
+    answers ``status_link``, its tenant's page (#500).
     """
     conn = db.get_conn()
     if conn is None:
@@ -79,6 +80,9 @@ def api_tokens_create(body: Annotated[object, Depends(deps.json_body)]):
         return deps.Json({"error": "Expected a JSON object"}, status_code=400)
     try:
         token = tokens.create(conn, body, auth.get_current_user().get("username") or "")
+        if token.get("tenant"):
+            # The page to send it with (#500).
+            token["status_link"] = f"/status/{statuslinks.ensure(conn, [token['tenant']])[token['tenant']]}"
     except tokens.TokenError as exc:
         return deps.Json({"error": exc.message}, status_code=400)
     finally:

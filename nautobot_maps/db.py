@@ -721,6 +721,19 @@ def add_device_virtual_chassis(conn) -> None:
     conn.execute("ALTER TABLE nautobot_device_cache ADD COLUMN IF NOT EXISTS vc_master BOOLEAN NOT NULL DEFAULT FALSE")
 
 
+def add_status_links(conn) -> None:
+    """Each tenant's status page link (#500): a random id, not the name."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS status_links (
+            tenant_key  TEXT PRIMARY KEY,
+            link_id     TEXT NOT NULL UNIQUE,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -751,6 +764,7 @@ MIGRATIONS = (
     (24, "nautobot_circuit_cache", add_circuit_cache),
     (25, "nautobot_device_cache virtual chassis", add_device_virtual_chassis),
     (26, "nautobot_location_cache.tenant_scope_json", add_location_tenant_scope),
+    (27, "status_links", add_status_links),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

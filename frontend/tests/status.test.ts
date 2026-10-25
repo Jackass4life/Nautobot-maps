@@ -26,7 +26,7 @@ describe("what the page says", () => {
     expect(statusKey("")).toBe("");
     expect(errorText(403)).toContain("doesn't work");
     expect(errorText(401)).toContain("doesn't work");
-    expect(errorText(404)).toBe("No sites found.");
+    expect(errorText(404)).toBe("No sites found for this link. If it is an old link, ask your contact for a new one.");
     expect(errorText(503)).toContain("Retrying");
   });
 });

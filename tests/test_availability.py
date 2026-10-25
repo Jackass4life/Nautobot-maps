@@ -67,7 +67,8 @@ def run(month="2026-10", basis="any_down", sites=None, from_date=None, to_date=N
         conn.close()
     if not with_incidents:
         # Every report these tests make, as the API would send it, is what /api/docs shows (#449).
-        answers.Report.model_validate_json(deps.Json(result).body, strict=True)
+        # The API adds the status links (#500).
+        answers.Report.model_validate_json(deps.Json({**result, "status_links": {}}).body, strict=True)
     return result
 
 
@@ -490,6 +491,9 @@ class TestPages:
         # The page is on Nuxt (#463): frontend/tests/availability.test.ts and e2e.
         data = client.get("/api/availability?month=2026-10").get_json()
         assert data["sites"][0]["availability"] == 90.0
+        # Each tenant's status page link (#500): random, kept.
+        assert list(data["status_links"]) == ["Acme"] and len(data["status_links"]["Acme"]) == 24
+        assert client.get("/api/availability?month=2026-10").get_json()["status_links"] == data["status_links"]
         csv_text = client.get("/api/availability.csv?month=2026-10").get_data(as_text=True)
         lines = csv_text.lstrip("﻿").splitlines()
         # The first columns as before; the site's details and outages after them (#354).

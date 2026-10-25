@@ -65,3 +65,4 @@ class Report(common.Answer):
     sites: list[SiteRow] = Field(description="Lowest availability first.")
     tenants: list[TenantRow] = Field(description="Lowest availability first.")
     tenant_descriptions: dict[str, str] = Field(description="Tenant name to its description, when it has one.")
+    status_links: dict[str, str] = Field(description="Tenant name to its status page link id: /status/<id> (#500).")

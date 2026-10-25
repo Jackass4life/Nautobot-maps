@@ -53,7 +53,8 @@ export function statusKey(hash: string | null | undefined): string {
 
 export function errorText(code: number): string {
   if (code === 401 || code === 403) return "This link doesn't work (anymore). Ask your contact for a new one.";
-  if (code === 404) return "No sites found.";
+  // An old link with the name in it (#500) answers 404 too.
+  if (code === 404) return "No sites found for this link. If it is an old link, ask your contact for a new one.";
   return "Status is unavailable right now. Retrying…";
 }
 
