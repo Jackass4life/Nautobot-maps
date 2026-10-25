@@ -295,6 +295,10 @@ ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "")
 # Nautobot Relationships (keys or labels) that link a location to more
 # tenants (#238).  Empty: every Location <-> Tenant relationship.
 SITE_TENANT_RELATIONSHIPS = parse_csv_set(os.getenv("SITE_TENANT_RELATIONSHIPS", ""))
+# Nautobot device roles that are access points (#499): Availability counts a
+# site's access points apart from its other network equipment.
+# Case-folded, as the tenant role scopes (#410).
+ACCESS_POINT_ROLES = {role.casefold() for role in parse_csv_set(os.getenv("ACCESS_POINT_ROLES", "Access Point"))}
 
 # Every setting, for tests that check none is read or set elsewhere.
 SETTING_NAMES = tuple(name for name in dir() if name.isupper() and name != "SETTING_NAMES")

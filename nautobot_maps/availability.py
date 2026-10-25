@@ -421,6 +421,9 @@ def _site_row(site_id: str, name: str = "", site: dict | None = None) -> dict:
         "country": site.get("country") or "",
         "tier": site.get("tier") or "",
         "monitored_devices": site.get("device_count") or 0,
+        # How much is there (#499): counts only, the roles left to Nautobot.
+        "network_devices": site.get("network_device_count") or 0,
+        "access_points": site.get("access_point_count") or 0,
         "downtime_seconds": 0,
         "incidents": 0,
         "outages": 0,
@@ -555,6 +558,9 @@ SITE_DETAIL_COLUMNS = (
     "last_outage_utc",
     "maintenance_min",
     "site_id",
+    # Last (#499), so existing spreadsheets keep their columns.
+    "network_devices",
+    "access_points",
 )
 INCIDENT_COLUMNS = (
     "site",
@@ -645,6 +651,8 @@ def _view(data: dict, view: str) -> tuple[tuple, object]:
             export.utc_text(r["last_outage"]),
             export.minutes(r["maintenance_seconds"]),
             r["site_id"],
+            r["network_devices"],
+            r["access_points"],
         )
         for r in data["sites"]
     )

@@ -22,7 +22,7 @@ const HELP = {
   downtime: "All sites' downtime in the period added up, without maintenance. An incident is one device going down and coming back.",
   worst: "The tenant with the lowest availability: the average of its sites, each site counting the same.",
   tenants: "Each tenant's availability is the average of its sites. The worst first; click a column to sort by it. With more than 10 tenants, search for one by name or description.",
-  sites: "Every monitored site, the worst first. Click a column to sort; search for a site (by name, tenant or tenant description) or pick a tenant. Incidents: device outages in the period. The bar runs from 98 to 100 %.",
+  sites: "Every monitored site, the worst first. Click a column to sort; search for a site (by name, tenant or tenant description) or pick a tenant. Incidents: device outages in the period. Devices: how many monitored devices the site has, those in maintenance too; APs are access points, network is everything else. The bar runs from 98 to 100 %.",
 };
 
 // What was asked for, from the address.

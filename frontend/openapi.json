@@ -368,6 +368,12 @@
         "additionalProperties": false,
         "description": "A site (one row of the board): the location as stored, and its alarm.",
         "properties": {
+          "access_point_count": {
+            "default": 0,
+            "description": "Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.",
+            "title": "Access Point Count",
+            "type": "integer"
+          },
           "active_alert_instance_count": {
             "title": "Active Alert Instance Count",
             "type": "integer"
@@ -520,6 +526,12 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "network_device_count": {
+            "default": 0,
+            "description": "The other monitored devices, in maintenance too.",
+            "title": "Network Device Count",
+            "type": "integer"
           },
           "parent": {
             "title": "Parent",
@@ -4066,6 +4078,11 @@
       "SiteRow": {
         "additionalProperties": false,
         "properties": {
+          "access_points": {
+            "description": "Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.",
+            "title": "Access Points",
+            "type": "integer"
+          },
           "address": {
             "title": "Address",
             "type": "string"
@@ -4142,6 +4159,11 @@
             "title": "Name",
             "type": "string"
           },
+          "network_devices": {
+            "description": "Monitored devices that are not access points, in maintenance too.",
+            "title": "Network Devices",
+            "type": "integer"
+          },
           "outages": {
             "title": "Outages",
             "type": "integer"
@@ -4176,6 +4198,8 @@
           "country",
           "tier",
           "monitored_devices",
+          "network_devices",
+          "access_points",
           "downtime_seconds",
           "incidents",
           "outages",

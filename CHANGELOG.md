@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 - **Find a tenant by its description** (#497): every tenant filter (the map, the alert board, Availability, Maintenance) and the Maintenance search and planner find a tenant by its Nautobot description too: "Novo" finds NNIT, "Novo Nordisk IT". The lists show the description under the name. `GET /api/maintenance/sites` answers `tenant_descriptions`
+- **How much is at each site, on Availability** (#499): the Sites table's **Devices** column, "12 network · 40 APs", counts each site's monitored devices without saying what they are; sortable, the most first. Access points are the device roles in `ACCESS_POINT_ROLES` (default `Access Point`). The report and the sites CSV answer `network_devices` and `access_points`
 - **Where each site is, on the status page** (#493): under each site's name, its address, or its GPS coordinates when it has none, opening OpenStreetMap in a new tab. `GET /api/status/<tenant>` answers `address`, `latitude` and `longitude` per site
 - **The status page shows the tenant's description** (#482): "Acme Corp – Retail bank, 24/7" in the header, the same text as the tenant's (i); just the name when it has none. `GET /api/status/<tenant>` answers it as `description`
 - **Search tenants on Availability** (#481): with more than 10 tenants, the Tenants table has a search box, by name or description; the worst first and **Show more** as before

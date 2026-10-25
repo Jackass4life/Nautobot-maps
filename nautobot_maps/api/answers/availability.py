@@ -46,6 +46,8 @@ class SiteRow(common.Answer):
     country: str
     tier: str
     monitored_devices: int
+    network_devices: int = Field(description="Monitored devices that are not access points, in maintenance too.")
+    access_points: int = Field(description="Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.")
     downtime_seconds: int = Field(description="Down time outside maintenance; devices down together count once.")
     incidents: int
     outages: int

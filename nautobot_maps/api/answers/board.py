@@ -98,6 +98,12 @@ class BoardSite(common.Answer):
     device_count: int = Field(description="Monitored devices, not those in maintenance.")
     maintenance_device_count: int
     down_device_count: int
+    # Not required: a board cached by the release before (#499) has neither,
+    # and a missing one must not make /api/alerts fail until the next build.
+    access_point_count: int = Field(
+        0, description="Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too."
+    )
+    network_device_count: int = Field(0, description="The other monitored devices, in maintenance too.")
     current_downtime_seconds: int = Field(description="Its longest current outage.")
     latest_down_at: str | None = Field(description="When its newest open alert started.")
     historical_downtime_seconds: int

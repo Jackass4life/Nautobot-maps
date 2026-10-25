@@ -73,7 +73,7 @@ The devices a site's alert level is computed from.
 | `status.label` | string or null |  | — | — |
 | `status.name` | string or null |  | — | — |
 | `status.display` | string or null |  | — | — |
-| `role` | object, string or null | yes | role | name or display; else extras/roles by id; decides criticality |
+| `role` | object, string or null | yes | role | name or display; else extras/roles by id; decides criticality; ACCESS_POINT_ROLES counts access points |
 | `role.id` | string |  | — | — |
 | `role.name` | string or null |  | — | — |
 | `role.display` | string or null |  | — | — |

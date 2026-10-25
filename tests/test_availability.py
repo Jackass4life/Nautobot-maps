@@ -473,7 +473,17 @@ class TestPages:
     @pytest.fixture
     def client(self, pg_database, clock, monkeypatch):
         write(lambda conn: incident(conn, "s1", "d1", t(2), t(4), name="=Oslo"))
-        monkeypatch.setattr(availability, "board_sites", lambda: [{"id": "s1", "name": "=Oslo", "tenants": ["Acme"]}])
+        # 10 devices, 2 of them in maintenance; 6 access points (#499).
+        site = {
+            "id": "s1",
+            "name": "=Oslo",
+            "tenants": ["Acme"],
+            "device_count": 8,
+            "maintenance_device_count": 2,
+            "access_point_count": 6,
+            "network_device_count": 4,
+        }
+        monkeypatch.setattr(availability, "board_sites", lambda: [site])
         caching.cache.clear()
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
@@ -494,17 +504,19 @@ class TestPages:
         # Each tenant's status page link (#500): random, kept.
         assert list(data["status_links"]) == ["Acme"] and len(data["status_links"]["Acme"]) == 24
         assert client.get("/api/availability?month=2026-10").get_json()["status_links"] == data["status_links"]
+        assert (data["sites"][0]["network_devices"], data["sites"][0]["access_points"]) == (4, 6)
         csv_text = client.get("/api/availability.csv?month=2026-10").get_data(as_text=True)
         lines = csv_text.lstrip("﻿").splitlines()
         # The first columns as before; the site's details and outages after them (#354).
         assert lines[0] == (
             "month,basis,site,tenants,availability_pct,downtime_min,incidents,period_from,period_to,"
             "site_path,address,country,tier,monitored_devices,outages,longest_outage_min,"
-            "mean_time_to_restore_min,first_outage_utc,last_outage_utc,maintenance_min,site_id"
+            "mean_time_to_restore_min,first_outage_utc,last_outage_utc,maintenance_min,site_id,"
+            "network_devices,access_points"
         )
         assert lines[1] == (
             "2026-10,any_down,'=Oslo,Acme,90.0,2880,1,2026-10-01,2026-10-31,"
-            ",,,,0,1,2880,2880,2026-10-02 00:00,2026-10-02 00:00,0,s1"
+            ",,,,8,1,2880,2880,2026-10-02 00:00,2026-10-02 00:00,0,s1,4,6"
         ), "formula-safe"
         tenants = client.get("/api/availability.csv?view=tenants&month=2026-10").get_data(as_text=True)
         assert "2026-10,any_down,Acme,1,90.0,2880,2026-10-01,2026-10-31" in tenants
@@ -521,7 +533,7 @@ class TestPages:
         assert 'filename="availability-sites-2026-10-03_2026-10-04.csv"' in resp.headers["Content-Disposition"]
         assert (
             resp.get_data(as_text=True).lstrip("﻿").splitlines()[1]
-            == ",any_down,'=Oslo,Acme,50.0,1440,1,2026-10-03,2026-10-04,,,,,0,1,1440,1440,2026-10-03 00:00,2026-10-03 00:00,0,s1"
+            == ",any_down,'=Oslo,Acme,50.0,1440,1,2026-10-03,2026-10-04,,,,,8,1,1440,1440,2026-10-03 00:00,2026-10-03 00:00,0,s1,4,6"
         )
         one_day = client.get("/api/availability.csv?from=2026-10-03&to=2026-10-03")
         one_day.get_data()  # streamed (#354): read it, as a browser does

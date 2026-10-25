@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   barPercent,
+  devicesText,
   filterRows,
   formatDowntime,
   moreText,
@@ -23,6 +24,9 @@ const site = (name: string, availability: number, downtime: number, incidents: n
   country: "",
   tier: "",
   monitored_devices: 1,
+  // Oslo is the biggest: 12 network devices and 40 access points (#499).
+  network_devices: name === "Oslo" ? 12 : 1,
+  access_points: name === "Oslo" ? 40 : 0,
   downtime_seconds: downtime,
   incidents,
   outages: incidents,
@@ -44,6 +48,16 @@ const view = (options: { key?: SortKey; dir?: SortDir; query?: string; tenants?:
 const names = (v: ReturnType<typeof view>) => v.shown.map((row) => row.name).join();
 
 describe("the availability tables", () => {
+  it("how much is at a site, not what (#499)", () => {
+    expect(devicesText(12, 40)).toBe("12 network · 40 APs");
+    expect(devicesText(1200, 1)).toBe("1,200 network · 1 AP");
+    expect(devicesText(0, 3)).toBe("3 APs");
+    expect(devicesText(5, 0)).toBe("5 network");
+    expect(devicesText(0, 0)).toBe("—");
+    expect(rows.find((row) => row.name === "Oslo")!.devicesText).toBe("12 network · 40 APs");
+    expect(names(view({ key: "devices", dir: "desc" }))).toBe("Oslo,Aarhus,Bergen,Bodø");
+  });
+
   it("the worst first, ties by name", () => {
     expect(names(view())).toBe("Aarhus,Oslo,Bergen,Bodø");
     expect(names(view({ key: "downtime", dir: "desc" }))).toBe("Aarhus,Oslo,Bergen,Bodø");

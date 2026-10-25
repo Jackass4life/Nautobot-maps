@@ -217,6 +217,27 @@ def test_the_availability_page_answers_first(page):
     )
 
 
+def test_each_sites_devices_on_availability(page):
+    """How much is at each site, not what (#499): the mock's Stockholm PoP has
+    a router and three access points, "1 network · 3 APs"."""
+    report = api("/api/availability")
+    stockholm = next(row for row in report["sites"] if row["name"] == "Stockholm PoP")
+    assert (stockholm["network_devices"], stockholm["access_points"]) == (1, 3)
+    page.goto(f"{BASE_URL}/availability")
+    page.locator(".avail-card").first.wait_for()
+    sites = page.locator('[data-avail-table="sites"]')
+    assert sites.locator("thead th").all_inner_texts()[4].strip() == "Devices"
+    sites.locator(".avail-search input").fill("Stockholm PoP")
+    row = sites.locator('tbody tr[data-name="Stockholm PoP"]')
+    assert row.locator(".avail-devices").inner_text() == "1 network · 3 APs"
+    # Sorted by how many there are, the most first.
+    sites.locator(".avail-search input").fill("")
+    sites.locator("th[data-sort=devices] button").click()
+    totals = {r["name"] or r["site_id"]: r["network_devices"] + r["access_points"] for r in report["sites"]}
+    shown = sites.locator("tbody tr").evaluate_all("rows => rows.map(r => r.dataset.name)")
+    assert [totals[name] for name in shown] == sorted((totals[name] for name in shown), reverse=True)
+
+
 def test_a_tenant_opens_its_status_page_in_a_new_tab(page):
     """From Availability (#461, #494): the status page opens and loads in a new
     tab, and Availability stays as it was."""

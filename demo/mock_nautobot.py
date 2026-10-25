@@ -325,6 +325,20 @@ DEVICES = {
             "serial": "FOX1826GXXX",
             "tenant": TENANTS["ten-acme"],
         },
+        # Access points (#499): Availability shows "1 network · 3 APs".
+        *(
+            {
+                "id": f"dev-sto-ap-{n}",
+                "name": f"sto-ap0{n}",
+                "device_type": {"model": "MR46", "manufacturer": {"name": "Cisco Meraki"}},
+                "role": {"name": "Access Point"},
+                "status": {"label": "Active"},
+                "platform": {"name": "Meraki"},
+                "serial": f"Q2KD-AP0{n}",
+                "tenant": TENANTS["ten-acme"],
+            }
+            for n in range(1, 4)
+        ),
     ],
     "loc-ams": [
         {

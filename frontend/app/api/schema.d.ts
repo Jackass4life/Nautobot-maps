@@ -1220,6 +1220,12 @@ export interface components {
          * @description A site (one row of the board): the location as stored, and its alarm.
          */
         BoardSite: {
+            /**
+             * Access Point Count
+             * @description Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.
+             * @default 0
+             */
+            access_point_count: number;
             /** Active Alert Instance Count */
             active_alert_instance_count: number;
             /** Active Cases */
@@ -1284,6 +1290,12 @@ export interface components {
             maintenance_device_count: number;
             /** Name */
             name: string;
+            /**
+             * Network Device Count
+             * @description The other monitored devices, in maintenance too.
+             * @default 0
+             */
+            network_device_count: number;
             /** Parent */
             parent: string;
             /** Parent Id */
@@ -2768,6 +2780,11 @@ export interface components {
         };
         /** SiteRow */
         SiteRow: {
+            /**
+             * Access Points
+             * @description Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.
+             */
+            access_points: number;
             /** Address */
             address: string;
             /**
@@ -2805,6 +2822,11 @@ export interface components {
             monitored_devices: number;
             /** Name */
             name: string;
+            /**
+             * Network Devices
+             * @description Monitored devices that are not access points, in maintenance too.
+             */
+            network_devices: number;
             /** Outages */
             outages: number;
             /**
