@@ -826,7 +826,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A tenant's sites and their state: ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``.
+         * A tenant's sites and their state: ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.
          * @description No devices, addresses, cases or other tenants.  Open as the board is, or
          *     with a status token for this tenant (``Authorization: Bearer``).
          */

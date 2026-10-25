@@ -39,7 +39,8 @@ def status_page(tenant: str):
 )
 def api_status(tenant: str):
     """A tenant's sites and their state (#291): ``operational``, ``degraded``,
-    ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``.
+    ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``;
+    and the tenant's description from Nautobot (#482), which the page shows.
 
     No devices, addresses, cases or other tenants.  Open as the board is, or
     with a status token for this tenant (``Authorization: Bearer``).

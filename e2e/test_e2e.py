@@ -344,7 +344,9 @@ def test_the_status_page_shows_the_tenants_description(page):
     just the name for a tenant without one."""
     page.goto(f"{BASE_URL}/status/Acme%20Corp")
     page.locator("#status-description").wait_for()
-    assert page.locator("#status-tenant").inner_text().startswith("Acme Corp – Retail bank.")
+    # The heading is the name alone; the description follows it (#482).
+    assert page.locator("#status-tenant").inner_text() == "Acme Corp"
+    assert page.locator("#status-description").inner_text().startswith("– Retail bank.")
     page.goto(f"{BASE_URL}/status/EuroIX")
     page.locator(".status-site").first.wait_for()
     assert page.locator("#status-tenant").inner_text().strip() == "EuroIX"
