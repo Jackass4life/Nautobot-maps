@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALARM_LIST_SHOWN,
+  FILTERS,
   LEVEL_COLORS,
   alarmMeta,
   alarmSites,
@@ -120,7 +121,7 @@ describe("the alarm list", () => {
 describe("the filters", () => {
   const sites = [
     site("a", { tenant: "Acme", tenants: ["Acme", "Nordic"], status: "Active" }),
-    site("b", { tenant: "Nordic", status: "Planned", location_type: "Data Center" }),
+    site("b", { tenant: "Nordic", status: "Planned", tenant_group: "Enterprise" }),
     site("c", { tenant: "", status: "Active" }),
   ];
 
@@ -128,7 +129,11 @@ describe("the filters", () => {
     const choices = filterChoices(sites);
     expect(choices.tenant).toEqual(["Acme", "Nordic"]);
     expect(choices.status).toEqual(["Active", "Planned"]);
-    expect(choices.parent).toEqual([]);
+    expect(choices.tenant_group).toEqual(["Enterprise"]);
+  });
+
+  it("the panel's filters: no location type or parent location (#480)", () => {
+    expect(FILTERS.map((filter) => filter.field)).toEqual(["status", "tenant", "tenant_group"]);
   });
 
   it("any of a filter's values, every filter", () => {
@@ -138,6 +143,7 @@ describe("the filters", () => {
     expect(ids({ tenant: ["Nordic"] })).toEqual(["a", "b"]);
     expect(ids({ tenant: ["Nordic"], status: ["Active"] })).toEqual(["a"]);
     expect(ids({ status: ["Active", "Planned"] })).toEqual(["a", "b", "c"]);
+    expect(ids({ tenant_group: ["Enterprise"] })).toEqual(["b"]);
   });
 
   it("the count", () => {

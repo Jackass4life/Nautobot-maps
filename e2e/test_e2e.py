@@ -580,12 +580,17 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
     assert page.locator("#filter-section").is_hidden()
     page.locator("#filters-toggle").click()
     # Nuxt UI's list opens from a button (#463); its search field is a combobox.
-    page.get_by_role("button", name="Location type", exact=True).click()
-    page.get_by_role("combobox", name="Search Location type", exact=True).fill("Data Center")
-    page.get_by_role("option", name="Data Center", exact=True).click()
+    # Status, Tenant, Tenant group (#480); which lists exist is pinned in Vitest,
+    # as the mock has too few parents to show a Parent location list anyway.
+    page.locator("#filter-section").wait_for()
+    labels = page.locator("#filter-section button[aria-label]").evaluate_all("els => els.map(e => e.ariaLabel)")
+    assert labels == ["Status", "Tenant", "Tenant group"], labels
+    page.get_by_role("button", name="Tenant", exact=True).click()
+    page.get_by_role("combobox", name="Search Tenant", exact=True).fill("Acme")
+    page.get_by_role("option", name="Acme Corp", exact=True).click()
     page.keyboard.press("Escape")
     assert page.locator("#filters-toggle").inner_text() == "Filters · 1"
-    page.locator(".filter-chip", has_text="Data Center").click()
+    page.locator(".filter-chip", has_text="Acme Corp").click()
     assert page.locator("#filters-toggle").inner_text() == "Filters"
 
     # The legend is on the map, behind its button.

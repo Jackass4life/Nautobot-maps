@@ -118,20 +118,20 @@ export function alarmTitle(count: number, everySite: boolean, anySite: boolean):
 
 // --- Filters (#311, #392) -------------------------------------------------
 
-export type FilterField = "status" | "location_type" | "parent" | "tenant" | "tenant_group";
+// No location type or parent location (#480): folded away, since the site
+// panel and the search show both.
+export type FilterField = "status" | "tenant" | "tenant_group";
 
 export const FILTERS: { field: FilterField; label: string; all: string }[] = [
   { field: "status", label: "Status", all: "All statuses" },
-  { field: "location_type", label: "Location type", all: "All types" },
   { field: "tenant", label: "Tenant", all: "All tenants" },
   { field: "tenant_group", label: "Tenant group", all: "All tenant groups" },
-  { field: "parent", label: "Parent location", all: "All parents" },
 ];
 
 export type Criteria = Record<FilterField, string[]>;
 
 export function noCriteria(): Criteria {
-  return { status: [], location_type: [], parent: [], tenant: [], tenant_group: [] };
+  return { status: [], tenant: [], tenant_group: [] };
 }
 
 function valuesOf(loc: MapLocation, field: FilterField): string[] {
