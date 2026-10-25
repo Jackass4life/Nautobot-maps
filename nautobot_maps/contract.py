@@ -202,7 +202,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 NESTED + ("string",),
                 required=True,
                 becomes="role",
-                rule="name or display; else extras/roles by id; decides criticality",
+                rule="name or display; else extras/roles by id; decides criticality; ACCESS_POINT_ROLES counts access points",
             ),
             Field("role.id", ("string",)),
             *_names("role", "name", "display"),

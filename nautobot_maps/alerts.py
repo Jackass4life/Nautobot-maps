@@ -2008,6 +2008,11 @@ def build_alert_board_payload(
                     # Left out of device_count while in a window (#283).
                     "maintenance_device_count": len(maintenance_devices),
                     "down_device_count": len(down_devices),
+                    # Availability's "12 network · 40 APs" (#499), those in maintenance too.
+                    "access_point_count": sum(
+                        (device.get("role") or "").strip().lower() in settings.ACCESS_POINT_ROLES
+                        for device in [*devices, *pending_devices, *maintenance_devices]
+                    ),
                     "current_downtime_seconds": alert_context["current_downtime_seconds"],
                     "latest_down_at": alert_context.get("latest_down_at"),
                     "historical_downtime_seconds": alert_context["historical_downtime_seconds"],

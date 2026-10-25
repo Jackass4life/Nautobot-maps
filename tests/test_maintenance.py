@@ -184,6 +184,23 @@ class TestBoard:
         assert core["maintenance_until"] == "2026-10-09T13:00:00Z" and core["maintenance_reason"] == "Swap"
         assert core["role"] == "Core Router" and core["device_ip"] == "10.0.0.1" and core["status"] == "Active"
 
+    def test_access_points_are_counted_by_role(self, site, monkeypatch):
+        # Availability's "12 network · 40 APs" (#499): by role, capitals aside,
+        # a device in maintenance too, and no AP role means none.
+        build()
+        conn = db.get_conn()
+        try:
+            maintenance.create(
+                conn, {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60, "device_ids": ["core"]}, "olga"
+            )
+        finally:
+            conn.close()
+        assert build()["access_point_count"] == 0
+        monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"access switch"})
+        assert build()["access_point_count"] == 2
+        monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"core router"})
+        assert build()["access_point_count"] == 1, "the core, in maintenance"
+
     def test_a_device_going_down_in_maintenance_is_listed_not_counted(self, site):
         set_devices(core="Active", acc1="Active", acc2="Active")
         build()

@@ -217,6 +217,33 @@ def test_the_availability_page_answers_first(page):
     )
 
 
+def test_each_sites_devices_on_availability(page):
+    """How much is at each site, not what (#499): "12 network · 40 APs"."""
+    report = api("/api/availability")
+    expected = {row["name"] or row["site_id"]: row for row in report["sites"]}
+    page.goto(f"{BASE_URL}/availability")
+    page.locator(".avail-card").first.wait_for()
+    sites = page.locator('[data-avail-table="sites"]')
+    assert sites.locator("thead th").all_inner_texts()[3].strip() == "Devices"
+    for row in sites.locator("tbody tr").all()[:5]:
+        site = expected[row.get_attribute("data-name")]
+        text = row.locator(".avail-devices").inner_text()
+        # The mock has no access points: its devices are all network equipment.
+        assert text == (f"{site['network_devices']} network" if site["network_devices"] else "—"), text
+
+    def access_points(route):
+        answer = route.fetch().json()
+        answer["sites"][0].update(network_devices=12, access_points=40)
+        route.fulfill(json=answer)
+
+    page.route(lambda url: urllib.parse.urlparse(url).path == "/api/availability", access_points)
+    page.reload()
+    sites.locator(".avail-devices", has_text="12 network · 40 APs").wait_for()
+    # Sorted by how many there are, the most first.
+    sites.locator("th[data-sort=devices] button").click()
+    assert sites.locator("tbody tr").first.locator(".avail-devices").inner_text() == "12 network · 40 APs"
+
+
 def test_a_tenant_opens_its_status_page_in_a_new_tab(page):
     """From Availability (#461, #494): the status page opens and loads in a new
     tab, and Availability stays as it was."""

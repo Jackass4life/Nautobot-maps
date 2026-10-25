@@ -48,6 +48,7 @@ const columns = computed<{ key: SortKey | null; label: string; num?: boolean }[]
         { key: "availability", label: "Availability" },
         { key: "downtime", label: "Downtime", num: true },
         { key: "incidents", label: "Incidents", num: true },
+        { key: "devices", label: "Devices", num: true },
         { key: null, label: "Tenants" },
       ],
 );
@@ -143,6 +144,7 @@ function ariaSort(key: SortKey | null) {
             <td class="px-4 py-2 text-right tabular-nums">{{ formatDowntime(row.downtime) }}</td>
             <template v-if="kind === 'sites'">
               <td class="px-4 py-2 text-right tabular-nums">{{ row.incidents }}</td>
+              <td class="avail-devices whitespace-nowrap px-4 py-2 text-right tabular-nums text-muted">{{ row.devicesText }}</td>
               <td class="avail-tenants px-4 py-2 text-muted">
                 <TenantList v-if="row.tenants.length" :tenants="row.tenants" :descriptions="descriptions" :links="statusLinks" />
                 <template v-else>—</template>

@@ -7,7 +7,7 @@ import { hasAllWords, searchWords } from "./format";
 export type Report = components["schemas"]["Report"];
 export type SiteRow = components["schemas"]["SiteRow"];
 export type TenantRow = components["schemas"]["TenantRow"];
-export type SortKey = "name" | "availability" | "downtime" | "incidents" | "sites";
+export type SortKey = "name" | "availability" | "downtime" | "incidents" | "sites" | "devices";
 export type SortDir = "asc" | "desc";
 
 // Which way a column sorts first: the worst first.
@@ -17,6 +17,7 @@ export const FIRST_DIRECTION: Record<SortKey, SortDir> = {
   downtime: "desc",
   incidents: "desc",
   sites: "desc",
+  devices: "desc",
 };
 
 // A row of either table, as the tables sort and search it.
@@ -28,6 +29,9 @@ export interface Row {
   downtime: number;
   incidents: number;
   sites: number;
+  // A site's devices (#499): all of them (the sort), and "12 network · 40 APs".
+  devices: number;
+  devicesText: string;
   tenants: string[];
   search: string;
 }
@@ -44,10 +48,21 @@ export function siteRows(sites: SiteRow[], descriptions: Record<string, string>)
       downtime: site.downtime_seconds,
       incidents: site.incidents,
       sites: 0,
+      devices: site.network_devices + site.access_points,
+      devicesText: devicesText(site.network_devices, site.access_points),
       tenants: site.tenants,
       search: [name, ...site.tenants, ...site.tenants.map((tenant) => descriptions[tenant] ?? "")].join(" ").toLowerCase(),
     };
   });
+}
+
+// "12 network · 40 APs", "1 AP", "—": how much is at a site, not what (#499).
+export function devicesText(network: number, accessPoints: number): string {
+  const parts = [
+    network ? `${network.toLocaleString("en")} network` : "",
+    accessPoints ? `${accessPoints.toLocaleString("en")} AP${accessPoints === 1 ? "" : "s"}` : "",
+  ];
+  return parts.filter(Boolean).join(" · ") || "—";
 }
 
 // A tenant is found by its name or its description (#481).
@@ -60,6 +75,8 @@ export function tenantRows(tenants: TenantRow[], descriptions: Record<string, st
     downtime: tenant.downtime_seconds,
     incidents: 0,
     sites: tenant.sites,
+    devices: 0,
+    devicesText: "",
     tenants: [],
     search: [tenant.tenant, descriptions[tenant.tenant] ?? ""].join(" ").toLowerCase(),
   }));
