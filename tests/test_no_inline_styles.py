@@ -58,7 +58,7 @@ PAGES = [
     ("/alerts", 200),
     ("/alerts?view=wall", 200),
     ("/maintenance", 200),
-    ("/docs", 200),
+    ("/api/docs", 200),
     ("/status/Acme%20Corp", 200),
     ("/no-such-page", 404),
 ]

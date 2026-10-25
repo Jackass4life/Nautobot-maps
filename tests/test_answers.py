@@ -1,4 +1,4 @@
-"""The answers /docs shows (#449): every JSON route has a model, errors are
+"""The answers /api/docs shows (#449): every JSON route has a model, errors are
 shown as the app sends them, and the check that keeps them true works."""
 
 import types
@@ -32,14 +32,14 @@ def test_every_json_route_shows_its_answer():
 
 def test_every_model_has_its_own_name(client):
     # Two models of one name get FastAPI's module path as theirs
-    # ("nautobot_maps__api__answers__board__Site"): in /docs and the
+    # ("nautobot_maps__api__answers__board__Site"): in /api/docs and the
     # frontend's types (#463), each has a plain name of its own.
-    names = client.get("/openapi.json").get_json()["components"]["schemas"]
+    names = client.get("/api/openapi.json").get_json()["components"]["schemas"]
     assert [name for name in names if "__" in name] == []
 
 
 def test_errors_are_shown_as_the_app_sends_them(client):
-    spec = client.get("/openapi.json").get_json()
+    spec = client.get("/api/openapi.json").get_json()
     error = {"$ref": "#/components/schemas/Error"}
     schemas = spec["components"]["schemas"]
     assert "HTTPValidationError" not in schemas and "ValidationError" not in schemas
@@ -74,7 +74,7 @@ def test_a_refusal_is_checked_too(client, monkeypatch):
 
 
 def test_the_answer_is_in_the_spec(client):
-    spec = client.get("/openapi.json").get_json()
+    spec = client.get("/api/openapi.json").get_json()
     health = spec["paths"]["/healthz"]["get"]["responses"]
     assert health["200"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/Health"}
     assert health["503"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/Health"}

@@ -1,5 +1,5 @@
 <!-- The API (#230; Swagger UI since #436; on Nuxt since #463): every endpoint,
-     what it takes and answers, from /openapi.json.  Swagger UI comes from npm
+     what it takes and answers, from /api/openapi.json.  Swagger UI comes from npm
      (swagger-ui-dist), loaded on this page only. -->
 <script setup lang="ts">
 import "swagger-ui-dist/swagger-ui.css";
@@ -14,7 +14,7 @@ onMounted(async () => {
   try {
     const { default: SwaggerUIBundle } = await import("swagger-ui-dist/swagger-ui-es-bundle.js");
     SwaggerUIBundle({
-      url: "/openapi.json",
+      url: "/api/openapi.json",
       domNode: box.value,
       deepLinking: true,
       // Our own page and bar around it: no Swagger top bar.
@@ -39,9 +39,9 @@ onMounted(async () => {
       <p class="max-w-3xl text-sm text-muted">
         Every endpoint, what it takes and what it needs. <strong class="text-highlighted">Try it out</strong> sends a real request as
         you: your login and role apply, and POST and DELETE change data. As OpenAPI:
-        <a class="text-primary hover:underline" href="/openapi.json">/openapi.json</a>.
+        <a class="text-primary hover:underline" href="/api/openapi.json">/api/openapi.json</a>.
       </p>
-      <p v-if="failed" class="text-sm text-error">The API page could not load: {{ failed }}. The API as JSON: <a class="underline" href="/openapi.json">/openapi.json</a>.</p>
+      <p v-if="failed" class="text-sm text-error">The API page could not load: {{ failed }}. The API as JSON: <a class="underline" href="/api/openapi.json">/api/openapi.json</a>.</p>
       <!-- Swagger UI draws the API here. -->
       <div id="swagger-ui" ref="swagger" class="docs-swagger" />
     </main>

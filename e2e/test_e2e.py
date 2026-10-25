@@ -776,7 +776,7 @@ def test_the_top_bar(page):
     assert page.locator(".app-bar").count() == 0
 
 
-@pytest.mark.parametrize("path", ["/", "/alerts", "/availability", "/maintenance", "/circuits", "/help", "/docs"])
+@pytest.mark.parametrize("path", ["/", "/alerts", "/availability", "/maintenance", "/circuits", "/help", "/api/docs"])
 def test_the_top_bar_fits_a_phone(browser, path):
     context = browser.new_context(viewport={"width": 390, "height": 800})
     page = context.new_page()
@@ -814,3 +814,12 @@ def test_the_documentation_pages(page):
     assert page.locator(f"#{anchor}").count() == 1
     page.wait_for_function("() => [...document.images].every((img) => img.complete)")
     assert page.evaluate("() => [...document.images].every((img) => img.complete && img.naturalWidth > 0)")
+
+
+def test_the_api_reference(page):
+    """The reference at /api/docs draws the spec from /api/openapi.json, and the
+    old /docs is sent there (#483)."""
+    page.goto(f"{BASE_URL}/docs")
+    assert urllib.parse.urlparse(page.url).path == "/api/docs"
+    page.locator(".opblock").first.wait_for(timeout=20000)
+    assert page.locator(".opblock-summary-path", has_text="/api/alerts").count() >= 1

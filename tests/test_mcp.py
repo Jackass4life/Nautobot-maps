@@ -61,7 +61,7 @@ BOARD = {
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(settings, "MCP_ENABLED", True)
-    # The rest of a real board's fields, empty (#449: the answer is checked against /docs).
+    # The rest of a real board's fields, empty (#449: the answer is checked against /api/docs).
     board = answers.complete(board_answers.Board, BOARD)
     monkeypatch.setattr(alerts, "get_alert_board_data", lambda **kwargs: json.loads(json.dumps(board)))
     caching.cache.clear()
@@ -364,7 +364,7 @@ class TestTools:
     def test_search_uses_the_route(self, client, monkeypatch):
         from nautobot_maps import inventory
 
-        # A location as get_locations gives it (#449: the answer is checked against /docs).
+        # A location as get_locations gives it (#449: the answer is checked against /api/docs).
         text = ("slug", "status", "location_type", "parent", "parent_id", "ancestor_path", "description")
         text += ("physical_address", "country", "tier", "facility", "tenant", "tenant_id", "tenant_group")
         location = {key: "" for key in (*text, "time_zone", "url")}
