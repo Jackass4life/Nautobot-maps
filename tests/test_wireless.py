@@ -1,5 +1,6 @@
-"""Access point status from the wireless controllers (#508): Catalyst Center,
-any number of instances, counted and never alarmed."""
+"""Access point status from the wireless controllers (#508): Catalyst Center
+and New Central, any number of instances; on the board without a primary IP,
+at WIRELESS_AP_LEVEL under the Wireless chip, never notified (#521)."""
 
 import os
 
@@ -10,18 +11,22 @@ from nautobot_maps import __main__ as cli
 from nautobot_maps import (
     alerts,
     arubacentral,
+    availability,
+    caching,
     catalyst,
     contract,
     db,
     inventory,
     metrics,
+    notify,
     scheduler,
     settings,
     status,
     wireless,
 )
+from nautobot_maps.repositories import board as board_store
 from tests import test_maintenance
-from tests.test_maintenance import build
+from tests.test_app import _snapshot_device, _snapshot_location
 
 clock = test_maintenance.clock
 site = test_maintenance.site
@@ -37,8 +42,13 @@ DK = {
 SE = {**DK, "name": "se", "url": "https://dnac-se.example.com"}
 
 
-def ap(name: str, up: bool, serial: str = "") -> dict:
-    return {"serial": serial, "mac": "", "name": name, "up": up}
+def ap(name: str, up: bool, serial: str = "", ip: str = "") -> dict:
+    return {"serial": serial, "mac": "", "name": name, "up": up, "ip": ip}
+
+
+def ups(keys: dict) -> dict:
+    """An index's keys and whether each AP is up."""
+    return {key: found["up"] for key, found in keys.items()}
 
 
 class TestSettings:
@@ -232,8 +242,14 @@ class TestCatalystCenter:
 
     def test_what_is_kept_of_an_ap(self):
         assert catalyst.ap_record(
-            {"serialNumber": " FGL1 ", "hostname": "ap1", "macAddress": "AA:BB", "reachabilityStatus": "Unreachable"}
-        ) == {"serial": "FGL1", "mac": "aa:bb", "name": "ap1", "up": False}
+            {
+                "serialNumber": " FGL1 ",
+                "hostname": "ap1",
+                "macAddress": "AA:BB",
+                "managementIpAddress": "10.20.31.47",
+                "reachabilityStatus": "Unreachable",
+            }
+        ) == {"serial": "FGL1", "mac": "aa:bb", "name": "ap1", "ip": "10.20.31.47", "up": False}
         assert catalyst.ap_record({"reachabilityStatus": "Reachable"})["up"] is True
         assert catalyst.ap_record({})["up"] is False
 
@@ -358,8 +374,15 @@ class TestArubaCentral:
 
     def test_what_is_kept_of_an_ap(self):
         assert arubacentral.ap_record(
-            {"serialNumber": "CNF1", "deviceName": "ap1", "macAddress": "20:4C:03:AA", "status": "OFFLINE"}
-        ) == {"serial": "CNF1", "mac": "20:4c:03:aa", "name": "ap1", "up": False}
+            {
+                "serialNumber": "CNF1",
+                "deviceName": "ap1",
+                "macAddress": "20:4C:03:AA",
+                "ipv4": "10.9.0.4",
+                "status": "OFFLINE",
+            }
+        ) == {"serial": "CNF1", "mac": "20:4c:03:aa", "name": "ap1", "ip": "10.9.0.4", "up": False}
+        assert arubacentral.ap_record({"ipAddress": "10.9.0.5"})["ip"] == "10.9.0.5"
         assert arubacentral.ap_record({"status": "online"})["up"] is True
         assert arubacentral.ap_record({})["up"] is False
 
@@ -411,8 +434,9 @@ class TestSync:
         controllers["se"] = [ap("SE-AP1.corp.example", False)]
         assert wireless.sync_due() is True, "APs went down: rebuild"
         index = read_index()
-        assert index["serial"] == {"FGL1": True, "FGL2": False}
-        assert index["name"] == {"dk-ap1": True, "dk-ap2": False, "se-ap1": False}
+        assert ups(index["serial"]) == {"FGL1": True, "FGL2": False}
+        assert ups(index["name"]) == {"dk-ap1": True, "dk-ap2": False, "se-ap1": False}
+        assert index["serial"]["FGL2"] == {"up": False, "ip": "", "controller": "Catalyst Center dk", "stale": False}
         assert {name: state["status"] for name, state in sync_states().items()} == {"dk": "idle", "se": "idle"}
         # Not due again within the interval; nothing changed, so no rebuild.
         assert wireless.sync_due() is False
@@ -429,7 +453,7 @@ class TestSync:
         assert states["se"]["status"] == "error" and "connection refused" in states["se"]["error_message"]
         assert states["dk"]["status"] == "idle"
         # se's last answer stays until it is stale; dk's is fresh.
-        assert read_index()["serial"] == {"FGL1": False, "FGL9": False}
+        assert ups(read_index()["serial"]) == {"FGL1": False, "FGL9": False}
 
     def test_an_empty_answer_keeps_the_last_one(self, controllers):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
@@ -437,9 +461,9 @@ class TestSync:
         controllers["dk"] = []
         wireless.sync_controller(DK)
         assert sync_states()["dk"]["status"] == "error"
-        assert read_index()["serial"] == {"FGL1": False}
+        assert ups(read_index()["serial"]) == {"FGL1": False}
 
-    def test_stale_and_removed_instances_are_ignored(self, controllers, monkeypatch):
+    def test_stale_kept_as_last_known_removed_ignored(self, controllers, monkeypatch):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         wireless.sync_due()
@@ -451,9 +475,14 @@ class TestSync:
             )
         finally:
             conn.close()
-        assert read_index()["serial"] == {"FGL1": False}, "se's answer is too old"
+        # se's answer is old: kept as its last known (#521), so it never clears the board.
+        index = read_index()
+        assert ups(index["serial"]) == {"FGL1": False, "FGL9": False}
+        assert (index["serial"]["FGL1"]["stale"], index["serial"]["FGL9"]["stale"]) == (False, True)
+        assert wireless.reason(index["serial"]["FGL9"]) == "last known per Catalyst Center se, which can't be reached"
+        assert wireless.reason(index["serial"]["FGL1"]) == "per Catalyst Center dk"
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (SE,))
-        assert read_index()["serial"] == {}, "dk is no longer configured"
+        assert ups(read_index()["serial"]) == {"FGL9": False}, "dk is no longer configured"
 
     def test_the_same_ap_in_two_instances(self, controllers):
         controllers["dk"] = [ap("ap1", False, "FGL1")]
@@ -463,25 +492,40 @@ class TestSync:
         try:
             # Read at the same moment: up wins, a stale copy never shows it down.
             conn.execute("UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00Z'")
-            assert wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"] == {"FGL1": True}
+            assert ups(wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {"FGL1": True}
             # The newest answer wins.
             conn.execute(
                 "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:30Z' WHERE controller = 'catalyst_center:dk'"
             )
-            assert wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"] == {"FGL1": False}
+            assert ups(wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {"FGL1": False}
         finally:
             conn.close()
 
     def test_matching_by_serial_then_name(self):
-        index = {"serial": {"FGL1": False, "FGL2": True}, "name": {"ap7": False, "ap8": True}}
+        def found(up: bool) -> dict:
+            return {"up": up, "ip": "", "controller": "Catalyst Center dk", "stale": False}
+
+        index = {
+            "serial": {"FGL1": found(False), "FGL2": found(True)},
+            "name": {"ap7": found(False), "ap8": found(True)},
+        }
         ap_role = {"role": "Access Point"}
-        assert wireless.is_down(index, {"serial": "fgl1", "name": "ap8"}) is True
-        assert wireless.is_down(index, {"serial": "FGL2", "name": "ap7", **ap_role}) is False, "the serial decides"
-        assert wireless.is_down(index, {"serial": "FGL3", "name": "AP7.corp.example", **ap_role}) is True
+
+        def up(device):
+            return (wireless.lookup(index, device) or {}).get("up")
+
+        assert up({"serial": "fgl1", "name": "ap8"}) is False
+        assert up({"serial": "FGL2", "name": "ap7", **ap_role}) is True, "the serial decides"
+        assert up({"serial": "FGL3", "name": "AP7.corp.example", **ap_role}) is False
         # By name only for an access point: a switch called ap7 isn't one.
-        assert wireless.is_down(index, {"serial": "", "name": "ap7", "role": "Access Switch"}) is False
-        assert wireless.is_down(index, {"serial": "", "name": "ap9", **ap_role}) is False
-        assert wireless.is_down(None, {"name": "ap7", **ap_role}) is False
+        assert wireless.lookup(index, {"serial": "", "name": "ap7", "role": "Access Switch"}) is None
+        assert wireless.lookup(index, {"serial": "", "name": "ap9", **ap_role}) is None
+        assert wireless.lookup(None, {"name": "ap7", **ap_role}) is None
+        # Attached as new dicts, only to those a controller lists.
+        devices = [{"serial": "FGL1", "name": "x"}, {"serial": "", "name": "sw1"}]
+        attached = wireless.attach(devices, index)
+        assert attached[0]["wireless"]["up"] is False and "wireless" not in devices[0]
+        assert attached[1] is devices[1]
 
     def test_a_name_two_aps_carry_is_not_matched(self, controllers):
         # ap-01 at two sites, in one instance or two: neither is matched by name.
@@ -490,8 +534,8 @@ class TestSync:
         wireless.sync_due()
         index = read_index()
         assert "ap-01" not in index["name"] and "ap-02" not in index["name"]
-        assert index["name"]["ap-04"] is False, "FGL1 in dk and se is one AP"
-        assert index["serial"]["FGL1"] in (True, False)
+        assert index["name"]["ap-04"]["up"] is False, "FGL1 in dk and se is one AP"
+        assert index["serial"]["FGL1"]["up"] in (True, False)
 
     def test_newest_by_time_not_text(self, controllers):
         controllers["dk"] = [ap("ap1", False, "FGL1")]
@@ -506,7 +550,7 @@ class TestSync:
             conn.execute(
                 "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00.5Z' WHERE controller = 'catalyst_center:se'"
             )
-            assert wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"] == {"FGL1": True}
+            assert ups(wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {"FGL1": True}
         finally:
             conn.close()
 
@@ -545,54 +589,237 @@ def _utc(text: str):
     return timeutil.parse_iso_datetime(text)
 
 
-class TestTheBoard:
-    """Counted as an access point down, never in the site's level (#508)."""
+SWITCHES = [f"sw{n}" for n in range(1, 7)]
+APS = [f"ap{n:02d}" for n in range(1, 41)]
 
-    def test_counted_not_alarmed(self, site, monkeypatch):
-        test_maintenance.set_devices(core="Active", acc1="Active", acc2="Active")
-        monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"access switch"})
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
-        before = build()
-        assert before["alert_level"] == "ok" and before["down_access_point_count"] == 0
-        monkeypatch.setattr(wireless, "read_index", lambda conn: {"serial": {}, "name": {"acc2": False, "acc1": True}})
-        row = build()
-        assert row["alert_level"] == "ok", "never raises the level"
-        assert row["down_device_count"] == 0 and row["down_devices"] == []
-        assert (row["access_point_count"], row["down_access_point_count"]) == (2, 1)
-        assert row["summary"]["non_ok"] == 0
 
-    def test_down_in_nautobot_counts_once(self, site, monkeypatch):
-        # acc1 is Offline in Nautobot and down per the controller: one AP down.
-        monkeypatch.setattr(settings, "ACCESS_POINT_ROLES", {"access switch"})
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
-        monkeypatch.setattr(wireless, "read_index", lambda conn: {"serial": {}, "name": {"acc1": False}})
-        assert build()["down_access_point_count"] == 1
+def write_sites(sites: dict[str, dict[str, str]]) -> None:
+    """*sites*: ``{site_id: {device: Nautobot status}}``; ``sw*`` are switches
+    with a primary IP, ``ap*`` access points without one (DHCP), serial FGL-<site>-<ap>."""
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            inventory.write_locations(conn, [_snapshot_location(site_id, site_id.title()) for site_id in sites])
+            inventory.record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_completed_at=test_maintenance.NOW,
+                last_successful_sync=test_maintenance.NOW,
+                cache_version=inventory.CACHE_VERSION,
+            )
+            devices = []
+            for site_id, statuses in sites.items():
+                for name, state in statuses.items():
+                    device = _snapshot_device(f"{site_id}-{name}", site_id, "Access Switch", state)
+                    if name.startswith("ap"):
+                        device.update(role="Access Point", primary_ip="", serial=f"FGL-{site_id}-{name}")
+                    devices.append(device)
+            inventory.write_devices(conn, devices)
+    finally:
+        conn.close()
 
-    def test_unreadable_controllers_leave_the_board_as_it_was(self, site, monkeypatch):
-        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
-        monkeypatch.setattr(wireless, "read_index", lambda conn: 1 / 0)
-        assert build()["down_device_count"] == 2
 
-    def test_a_scoped_tenant_counts_its_own(self):
+def controller_says(monkeypatch, down: dict[str, list[str]], stale: bool = False, every: dict | None = None) -> None:
+    """The controller lists every AP of *every* (``{site: [ap]}``), those in *down* down."""
+    every = every or {site_id: APS for site_id in down}
+    index = {"serial": {}, "name": {}}
+    for site_id, names in every.items():
+        for number, name in enumerate(names, start=1):
+            index["serial"][f"FGL-{site_id}-{name}".upper()] = {
+                "up": name not in down.get(site_id, []),
+                "ip": f"10.20.31.{number}",
+                "controller": "Catalyst Center dk",
+                "stale": stale,
+            }
+    monkeypatch.setattr(wireless, "read_index", lambda conn, now=None: index)
+
+
+def one_site(**statuses) -> dict[str, dict[str, str]]:
+    """Copenhagen: six switches and 40 access points, all Active in Nautobot unless given."""
+    return {"cph": {name: statuses.get(name, "Active") for name in [*SWITCHES, *APS]}}
+
+
+@pytest.fixture
+def board(pg_database, monkeypatch, clock):
+    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
+    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
+    notified = []
+    monkeypatch.setattr(notify, "enqueue_change", lambda conn, site_id, before, after, *a, **k: notified.append(after))
+    return notified
+
+
+def build_board() -> dict:
+    caching.cache.clear()
+    return alerts.build_alert_board_payload(snapshot_only=True)
+
+
+class TestOnTheBoard:
+    """Access points get their address by DHCP, so a controller watches them (#521)."""
+
+    def test_monitored_without_a_primary_ip_with_the_controllers_address(self, board, monkeypatch):
+        write_sites(one_site())
+        controller_says(monkeypatch, {"cph": []})
+        (row,) = build_board()["alerts"]
+        assert row["alert_level"] == "ok"
+        assert (row["device_count"], row["access_point_count"], row["network_device_count"]) == (46, 40, 6)
+        controller_says(monkeypatch, {"cph": ["ap03", "ap07"]})
+        payload = build_board()
+        (row,) = payload["alerts"]
+        assert (row["alert_level"], row["alert_reason"], row.get("wireless_only")) == (
+            "low",
+            "2 access points offline",
+            True,
+        )
+        assert (row["down_access_point_count"], row["down_network_device_count"]) == (2, 0)
+        assert payload["summary"]["wireless"] == 1 and payload["summary"]["low"] == 0
+        assert payload["summary"]["non_ok"] == 0, "not an alarm"
+        ap03 = next(d for d in row["down_devices"] if d["device_name"] == "cph-ap03")
+        assert ap03["device_ip"] == "10.20.31.3", "the controller's address; Nautobot has none"
+        assert ap03["down_reason"] == "per Catalyst Center dk"
+        assert board == [], "never notified"
+
+    def test_access_points_never_dilute_the_share(self, board, monkeypatch):
+        write_sites(one_site(sw1="Offline"))
+        controller_says(monkeypatch, {"cph": ["ap01"]})
+        (row,) = build_board()["alerts"]
+        # One switch of six, not one of 46: as without the APs.
+        assert row["alert_reason"] == "1/6 devices offline (17%)"
+        assert "wireless_only" not in row, "a switch is down: an alarm"
+        write_sites(one_site(**dict.fromkeys(SWITCHES, "Offline")))
+        controller_says(monkeypatch, {"cph": []})
+        (row,) = build_board()["alerts"]
+        assert (row["alert_level"], row["alert_reason"]) == ("critical", "All 6 monitored devices offline")
+
+    def test_every_access_point_down_is_still_the_wireless_level(self, board, monkeypatch):
+        write_sites(one_site())
+        controller_says(monkeypatch, {"cph": APS})
+        (row,) = build_board()["alerts"]
+        assert (row["alert_level"], row["alert_reason"], row["wireless_only"]) == (
+            "low",
+            "40 access points offline",
+            True,
+        )
+        monkeypatch.setattr(settings, "WIRELESS_AP_LEVEL", "medium")
+        (row,) = build_board()["alerts"]
+        assert (row["alert_level"], row["wireless_only"]) == ("medium", True)
+
+    def test_a_level_set_in_nautobot_is_an_alarm(self, board, monkeypatch):
+        write_sites(one_site())
+        conn = db.get_conn()
+        try:
+            conn.execute("UPDATE nautobot_device_cache SET criticality = 'critical' WHERE device_id = 'cph-ap05'")
+        finally:
+            conn.close()
+        controller_says(monkeypatch, {"cph": []})
+        build_board()  # a new site's first level is stored, not notified
+        controller_says(monkeypatch, {"cph": ["ap05", "ap06"]})
+        payload = build_board()
+        (row,) = payload["alerts"]
+        assert row["alert_level"] == "critical" and "wireless_only" not in row
+        assert row["alert_reason"] == "Critical device(s) offline: cph-ap05 (set in Nautobot)"
+        assert payload["summary"]["non_ok"] == 1 and board == ["critical"]
+
+    def test_down_until_it_comes_back_or_its_status_changes(self, board, monkeypatch):
+        write_sites(one_site())
+        controller_says(monkeypatch, {"cph": ["ap09"]})
+        build_board()
+        assert test_maintenance.open_alerts() == {"cph-ap09": "open"}
+        # The controller can't be reached: its last answer stands, and says so.
+        controller_says(monkeypatch, {"cph": ["ap09"]}, stale=True)
+        (row,) = build_board()["alerts"]
+        assert row["down_devices"][0]["down_reason"] == "last known per Catalyst Center dk, which can't be reached"
+        assert test_maintenance.open_alerts() == {"cph-ap09": "open"}
+        # Decommissioning in Nautobot, a status the board leaves out: no longer counted, its alert resolved.
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"})
+        write_sites(one_site(ap09="Decommissioning"))
+        (row,) = build_board()["alerts"]
+        assert row["alert_level"] == "ok" and row["device_count"] == 45
+        assert test_maintenance.open_alerts() == {"cph-ap09": "resolved"}
+
+    def test_unreadable_controllers_write_no_history(self, board, monkeypatch):
+        write_sites(one_site())
+        controller_says(monkeypatch, {"cph": ["ap09"]})
+        build_board()
+        monkeypatch.setattr(wireless, "read_index", lambda conn, now=None: 1 / 0)
+        build_board()
+        assert test_maintenance.open_alerts() == {"cph-ap09": "open"}, "not resolved by a failed read"
+
+    def test_out_of_availability_and_the_feed_but_in_the_history(self, board, monkeypatch):
+        write_sites(one_site(sw2="Offline"))
+        controller_says(monkeypatch, {"cph": ["ap01"]})
+        build_board()
+        conn = db.get_conn()
+        try:
+            flags = {
+                r["device_id"]: r["access_point"]
+                for r in conn.execute("SELECT device_id, access_point FROM alert_instances")
+            }
+            feed = board_store.read_alert_feed(conn, 50)
+            incidents = availability.read_incidents(
+                conn, _utc("2026-10-01T00:00:00Z"), _utc("2026-11-01T00:00:00Z"), _utc(test_maintenance.NOW)
+            )
+        finally:
+            conn.close()
+        assert flags == {"cph-sw2": False, "cph-ap01": True}
+        assert [event["device_id"] for event in feed if event["kind"] == "down"] == ["cph-sw2"]
+        assert list(incidents["cph"]["devices"]) == ["cph-sw2"]
+
+    def test_a_scoped_tenant_sees_wireless_only_too(self):
         devices = [
-            {"id": "ap1", "name": "ap1", "role": "Access Point", "status": "Active"},
-            {"id": "ap2", "name": "ap2", "role": "Access Point", "status": "Active"},
+            {"id": "ap1", "name": "ap1", "role": "Access Point", "status": "offline", "wireless": {"up": False}},
+            {"id": "ap2", "name": "ap2", "role": "Access Point", "status": "Active", "wireless": {"up": True}},
         ]
         scoped = alerts.tenant_scoped_alerts(
-            {"acme": ["access point"]},
-            ["Acme"],
-            devices,
-            [],
-            [],
-            None,
-            "2026-10-09T12:00:00Z",
-            None,
-            {},
-            "",
-            controller_down=lambda device: device["name"] == "ap2",
+            {"acme": ["access point"]}, ["Acme"], devices, [], [], None, "2026-10-09T12:00:00Z", None, {}, ""
         )
-        assert scoped["acme"]["alert_level"] == "ok"
+        assert (scoped["acme"]["alert_level"], scoped["acme"]["wireless_only"]) == ("low", True)
         assert (scoped["acme"]["access_point_count"], scoped["acme"]["down_access_point_count"]) == (2, 1)
+
+    def test_an_access_point_no_controller_lists_says_so(self, board, monkeypatch):
+        device = {"role": "Access Point", "primary_ip": ""}
+        assert alerts.not_monitored_reason(device) == "no primary IP, not in a wireless controller"
+        assert alerts.not_monitored_reason({**device, "role": "Access Switch"}) == "no primary IP"
+        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", ())
+        assert alerts.not_monitored_reason(device) == "no primary IP"
+
+    def test_the_map_and_the_site_panel(self, board, monkeypatch):
+        write_sites(one_site())
+        controller_says(monkeypatch, {"cph": ["ap02"]})
+        build_board()
+        caching.cache.clear()
+        level = alerts.build_location_alert_levels()["levels"]["cph"]
+        assert (level["level"], level["wireless_only"], level["down"], level["monitored"]) == ("low", True, 1, 46)
+        monkeypatch.setattr(alerts, "get_location_alert_levels", lambda: {"levels": {"cph": level}})
+        monkeypatch.setattr(alerts.nautobot, "fetch_all_pages", lambda *a, **k: [])
+        monkeypatch.setattr(alerts, "location_circuits", lambda location_id: ([], ""))
+        detail = alerts.get_location_detail("cph")
+        ap02 = next(d for d in detail["devices"] if d["name"] == "cph-ap02")
+        assert (ap02["status"], ap02["not_monitored"], ap02["level"]) == ("offline", "", "low")
+        assert ap02["wireless"] == {"up": False, "ip": "10.20.31.2", "controller": "Catalyst Center dk", "stale": False}
+        # A maintenance window can pick it, as any monitored device.
+        assert "cph-ap02" in {d["id"] for d in alerts.site_monitored_devices("cph")}
+
+    def test_at_scale_alarms_stay_in_front(self, board, monkeypatch):
+        """120 sites: 30 with only APs down (290 APs in all), 5 with a switch down too, as on a normal day."""
+        sites, down = {}, {}
+        for n in range(120):
+            site_id = f"s{n:03d}"
+            sites[site_id] = {name: "Offline" if n < 5 and name == "sw1" else "Active" for name in [*SWITCHES, *APS]}
+            if n < 35:
+                down[site_id] = APS[: 2 + n % 15]
+        write_sites(sites)
+        controller_says(monkeypatch, down, every={site_id: APS for site_id in sites})
+        payload = build_board()
+        summary = payload["summary"]
+        assert sum(len(names) for names in down.values()) == 290
+        assert (summary["non_ok"], summary["wireless"], summary["ok"]) == (5, 30, 85)
+        assert sum(row["down_access_point_count"] for row in payload["alerts"]) == 290
+        # The alarms first; the wireless-only sites after them.
+        assert [row.get("wireless_only", False) for row in payload["alerts"][:5]] == [False] * 5
+        assert board == [], "nothing notified: the first build only stores the levels"
 
 
 class TestStatusPage:
@@ -600,13 +827,15 @@ class TestStatusPage:
         down = {"device_count": 40, "access_point_count": 40, "down_access_point_count": 2}
         board = {
             "alerts": [
-                {"name": "Fine", "tenant": "Acme", "alert_level": "ok", **down},
+                {"name": "Fine", "tenant": "Acme", "alert_level": "low", "wireless_only": True, **down},
                 {"name": "Work", "tenant": "Acme", "alert_level": "maintenance", **down},
             ]
         }
         result = status.tenant_status(board, "Acme")
+        sites = {site["name"]: site for site in result["sites"]}
+        assert sites["Fine"]["state"] == "operational", "only access points down (#521)"
         assert result["summary"] == {"sites": 2, "affected": 0, "devices_down": 2}
-        assert result["sites"][1]["access_points_down"] == 2
+        assert sites["Work"]["access_points_down"] == 2
 
 
 class TestTopBarAndMetrics:

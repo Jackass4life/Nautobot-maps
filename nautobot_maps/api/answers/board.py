@@ -47,6 +47,7 @@ class DownDevice(common.Answer):
     maintenance_reason: str | None = None
     core: bool | None = Field(None, description="The likely cause of the others; listed first.")
     probable_cause: str | None = Field(None, description="The core device(s) it is likely down because of.")
+    access_point: bool | None = Field(None, description="An access point a wireless controller watches (#521).")
 
 
 class TenantAlert(common.Answer):
@@ -58,6 +59,7 @@ class TenantAlert(common.Answer):
     network_device_count: int = 0
     down_access_point_count: int = 0
     down_network_device_count: int = 0
+    wireless_only: bool = Field(False, description="Only access points down, per a wireless controller (#521).")
 
 
 class SiteMaintenance(common.Answer):
@@ -98,6 +100,11 @@ class BoardSite(common.Answer):
     )
     alert_level: Level
     alert_reason: str
+    wireless_only: bool = Field(
+        False,
+        description="Only access points down, per a wireless controller, at WIRELESS_AP_LEVEL (#521): "
+        "the Wireless chip, not an alarm, never notified.",
+    )
     tier: str = Field(description="A tier in SITE_TIERS; empty otherwise.")
     tier_rank: int = Field(description="0 for the most important tier; 99 without one.")
     device_count: int = Field(description="Monitored devices, not those in maintenance.")
@@ -106,7 +113,9 @@ class BoardSite(common.Answer):
     # Not required: a board cached by the release before (#499) has neither,
     # and a missing one must not make /api/alerts fail until the next build.
     access_point_count: int = Field(
-        0, description="Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too."
+        0,
+        description="Monitored devices with a role in ACCESS_POINT_ROLES or listed by a wireless controller, "
+        "in maintenance too.",
     )
     network_device_count: int = Field(0, description="The other monitored devices, in maintenance too.")
     down_access_point_count: int = Field(
@@ -130,6 +139,7 @@ class BoardSummary(common.Answer):
     no_data: int
     ok: int
     maintenance: int
+    wireless: int = Field(0, description="Sites with only access points down (#521); not in the levels or non_ok.")
     non_ok: int = Field(description="critical + medium + low.")
 
 

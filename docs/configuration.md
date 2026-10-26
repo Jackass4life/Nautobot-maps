@@ -67,12 +67,13 @@ What a push does: the app asks the LibreNMS API for that one device and stores i
 
 ## Wireless controllers (optional)
 
-Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each (#508): an access point the controller reports down is counted ("2 of 40 access points down" on the status page), never raising a site's level or notifying. The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#configuration). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
+Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each (#508). Access points get their address by DHCP, so a controller watches them (#521): one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, never notified, and operational on the status page with them counted ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#configuration). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
 
 | Variable | Default | Description |
 |---|---|---|
 | `WIRELESS_CONTROLLERS_FILE` | — | The YAML file listing the instances, e.g. `/config/wireless.yml` ([every key](sources.md#wireless-controllers-access-points)); a mistake in it, or a file the app can't read, stops the app at startup |
 | `WIRELESS_SYNC_INTERVAL_SECONDS` | `300` | How often each wireless controller is read (at least 60) |
+| `WIRELESS_AP_LEVEL` | `low` | The level of a site with only access points down (`critical`, `medium` or `low`), under the **Wireless** chip, never notified. An access point with a level set in Nautobot (`DEVICE_CRITICALITY_FIELD`), or marked critical on the board, is an alarm at that level instead |
 
 ## Other monitoring tools (optional)
 
@@ -110,7 +111,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |
 | `CRITICAL_ROLE_KEYWORDS` | `core,spine,distribution,router,gateway` | Device role keywords that make a down device **Critical** |
 | `CRITICALITY_RULES_FILE` | — | JSON file with keywords per location type, overriding `CRITICAL_ROLE_KEYWORDS`, e.g. `/config/criticality_rules.json` (start from `criticality_rules.json`) |
-| `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down, also per the [wireless controllers](sources.md#wireless-controllers-access-points) |
+| `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down. A device a [wireless controller](sources.md#wireless-controllers-access-points) lists is an access point too; one of these roles is also matched by name when its serial isn't in the controller |
 | `SITE_TENANT_RELATIONSHIPS` | — | Nautobot Relationships (keys or labels) that link a location to more tenants, shown next to its own tenant. Empty: every Location ↔ Tenant relationship |
 
 ## Sign-in and roles

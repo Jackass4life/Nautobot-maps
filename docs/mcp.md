@@ -4,7 +4,7 @@ With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/
 
 | Tool | What it does | Role when sign-in is on |
 |---|---|---|
-| `get_alert_board` | Sites with alarms (or one level, or all): level, reason, down devices with IP, role and stack (#402), downtime, cases; filter by tenant or text | viewer\* |
+| `get_alert_board` | Sites with alarms (or one level, `wireless` for only access points down, #521, or all): level, reason, down devices with IP, role and stack (#402), downtime, cases; filter by tenant or text | viewer\* |
 | `get_site` | One site by id or name | viewer\* |
 | `get_location_detail` | All devices, ASNs and circuits at a location | viewer\* |
 | `search_locations` | Locations within 5 km of an address or `lat,lon` | viewer\* |

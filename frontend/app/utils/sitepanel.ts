@@ -58,6 +58,23 @@ export function sortDownDevices(devices: SiteDevice[]): SiteDevice[] {
     );
 }
 
+// An access point a wireless controller watches (#521), at the wireless
+// level: not set in Nautobot, not marked critical (core).  The panel folds
+// these under the other down devices.
+export function isWatchedAccessPoint(device: Pick<SiteDevice, "wireless" | "criticality" | "core">): boolean {
+  return Boolean(device.wireless) && !device.criticality && !device.core;
+}
+
+// Its address (#521): Nautobot's primary IP, else what its controller reports
+// (never written to Nautobot), saying where it comes from.
+export function deviceAddress(device: Pick<SiteDevice, "primary_ip" | "wireless">): string {
+  if (device.primary_ip) return `IP ${String(device.primary_ip).split("/")[0]}`;
+  const ap = device.wireless;
+  if (!ap) return "";
+  const from = ap.stale ? `last known from ${ap.controller}, which can't be reached` : `from ${ap.controller}`;
+  return ap.ip ? `IP ${ap.ip} · ${from}` : `Watched by ${ap.controller}${ap.stale ? " (last known)" : ""}`;
+}
+
 export interface StackEntry {
   device: SiteDevice;
   members: SiteDevice[];
@@ -111,7 +128,7 @@ export function deviceFacts(device: SiteDevice, aside: string): string[] {
   return [
     aside !== device.role ? device.role || "" : "",
     [device.manufacturer, device.device_type].filter(Boolean).join(" "),
-    device.primary_ip ? `IP ${String(device.primary_ip).split("/")[0]}` : "",
+    deviceAddress(device),
     device.platform ? `Software ${device.platform}` : "",
     device.serial ? `Serial ${device.serial}` : "",
     device.tenant ? `Tenant ${device.tenant}` : "",

@@ -107,13 +107,24 @@ points, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
 
 - `python -m nautobot_maps wireless-check` lists 4 access points, 1 down, 3
   matching a Nautobot device, and *lab-ap99* as not in Nautobot.
+- On the board, *Stockholm PoP* is under the **Wireless** chip, not Alarms:
+  Low, "1 AP down", *sto-ap02* "per Catalyst Center demo" with the address
+  the controller reports. Nothing is notified, and the activity feed doesn't
+  list it (#521).
 - Acme Corp's status page says *Stockholm PoP* has "1 network device · 1 of 3 access
   points down" while it stays Operational.
+- Start the mock with `MOCK_AP_DHCP=1` to drop the access points' primary IPs,
+  as on a network where they get their address by DHCP: they stay monitored
+  through the controller, and the map's site panel shows *sto-ap02*'s address
+  "from Catalyst Center demo". Without the wireless file they are "Not
+  monitored: no primary IP".
 
 With `MOCK_SCALE=1200` it is an Aruba New Central too (`demo/wireless.yml`
 lists both): Catalyst Center has the even scale sites' access points, New
 Central the odd ones', each with one in 200 offline, so `wireless-check`
-shows two instances of about 4,800 access points each.
+shows two instances of about 4,800 access points each. One site's access
+points are all unreachable in Catalyst Center at once: on the board its row
+folds them into one line, "16 access points down".
 
 ## Stopping the demo
 

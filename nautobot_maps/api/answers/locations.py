@@ -64,6 +64,7 @@ class LocationLevel(common.Answer):
     monitored: int
     since: str | None = Field(None, description="When its newest open alert started.")
     until: str | None = Field(None, description="When its maintenance ends.")
+    wireless_only: bool = Field(False, description="Only access points down, per a wireless controller (#521).")
 
 
 class LocationAlerts(common.Answer):
@@ -102,6 +103,15 @@ class CoordinateCheck(common.Answer):
     sites: list[CoordinateProblem] = Field(description="Worst first: invalid, zero, swapped, missing, far.")
 
 
+class WirelessAp(common.Answer):
+    """What a wireless controller says of the device (#521)."""
+
+    up: bool
+    ip: str = Field(description="Its address as the controller reports it; never written to Nautobot.")
+    controller: str = Field(description='The instance, e.g. "Catalyst Center dk".')
+    stale: bool = Field(description="The controller hasn't answered lately: this is its last known answer.")
+
+
 class SiteDevice(common.Answer):
     """A device at the site, as the panel shows it."""
 
@@ -135,6 +145,9 @@ class SiteDevice(common.Answer):
     alert_pending: bool | None = Field(None, description="Down, within the alert delay.")
     case_numbers: list[str] | None = Field(None, description="Its open alert's cases, newest first (#512).")
     acknowledged_by: str | None = Field(None, description="Who acknowledged its open alert; empty when nobody did.")
+    wireless: WirelessAp | None = Field(
+        None, description="Listed by a wireless controller: monitored without a primary IP (#521)."
+    )
 
 
 class Asn(common.Answer):
@@ -158,6 +171,7 @@ class SiteCircuit(circuits.Circuit):
 class SiteAlert(common.Answer):
     level: Level
     reason: str
+    wireless_only: bool = Field(False, description="Only access points down, per a wireless controller (#521).")
 
 
 class SiteCounts(common.Answer):

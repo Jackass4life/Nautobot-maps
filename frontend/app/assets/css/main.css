@@ -50,6 +50,8 @@
 .dot-critical, .level-bg-critical { background: #e74c3c; }
 .dot-medium, .level-bg-medium { background: #ff8c00; }
 .dot-low, .level-bg-low { background: #eab308; }
+/* Only access points down (#521): the Low colour, softer, ringed. */
+.dot-wireless, .level-bg-wireless { background: #fde68a; box-shadow: inset 0 0 0 2px #eab308; }
 .dot-maintenance, .level-bg-maintenance { background: #2563eb; }
 .dot-ok, .level-bg-ok { background: #2ecc71; }
 .dot-no-data, .dot-no_data, .level-bg-no_data { background: #94a3b8; }

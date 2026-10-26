@@ -66,7 +66,7 @@ UNSUPPORTED_VERSION = -32022
 MAX_REQUEST_BYTES = 64 * 1024
 # Tool calls per caller (user, or address without one) per minute.
 RATE_LIMIT_PER_MINUTE = 120
-BOARD_FILTERS = ("alarms", *alerts.ALERT_LEVEL_ORDER, "all")
+BOARD_FILTERS = ("alarms", *alerts.ALERT_LEVEL_ORDER, "wireless", "all")
 DEFAULT_SITE_LIMIT = 50
 MAX_SITE_LIMIT = 500
 DEFAULT_HISTORY_LIMIT = 50
@@ -220,6 +220,8 @@ def _site(item: dict) -> dict:
         "tenants": status.site_tenants(item),
         "alert_level": item.get("alert_level") or "no_data",
         "alert_reason": item.get("alert_reason") or "",
+        # Only access points down (#521): not an alarm.
+        **({"wireless_only": True} if item.get("wireless_only") else {}),
         "device_count": item.get("device_count") or 0,
         "down_device_count": item.get("down_device_count") or 0,
         "current_downtime_seconds": item.get("current_downtime_seconds") or 0,
@@ -238,6 +240,11 @@ def _matches_filter(item: dict, level_filter: str) -> bool:
     level = item.get("alert_level") or "no_data"
     if level_filter == "all":
         return True
+    # Only access points down (#521): "wireless", as the board's chip, not an alarm.
+    if level_filter == "wireless":
+        return bool(item.get("wireless_only"))
+    if item.get("wireless_only"):
+        return False
     if level_filter == "alarms":
         return level in alerts.ALERT_LEVELS_NON_OK
     return level == level_filter
@@ -392,7 +399,8 @@ TOOLS = {
                 "filter": {
                     "type": "string",
                     "enum": list(BOARD_FILTERS),
-                    "description": "alarms (default): critical, medium and low; one level; or all sites",
+                    "description": "alarms (default): critical, medium and low; one level; wireless: only access "
+                    "points down (#521); or all sites",
                 },
                 "tenant": _TENANT_PROPERTY,
                 "search": _SEARCH_PROPERTY,

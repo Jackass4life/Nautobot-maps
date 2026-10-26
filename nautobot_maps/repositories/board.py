@@ -305,7 +305,9 @@ def read_alert_feed(
     event_types = [event for kind, event in (("down", "opened"), ("up", "resolved")) if kind in kinds]
     if event_types:
         clauses, values = filters("e.event_at", "i.site_id")
-        where = " AND ".join(["e.event_type = ANY(%s)", *clauses])
+        # Access points come and go all day at 10,000 (#521): in their site's
+        # History, not here.
+        where = " AND ".join(["e.event_type = ANY(%s)", "NOT i.access_point", *clauses])
         branches.append(
             f"""
             SELECT CASE e.event_type WHEN 'opened' THEN 'down' ELSE 'up' END AS kind,
@@ -408,19 +410,21 @@ def open_alert_instance(
     last_seen_down_at: str,
     probable_cause: str,
     is_core: bool,
+    access_point: bool = False,
 ) -> int | None:
-    """Open an alert instance; its id, or None when one is already open for *alert_key*."""
+    """Open an alert instance; its id, or None when one is already open for *alert_key*.
+    *access_point*: one a wireless controller watches (#521)."""
     now_sql = db.sql_now()
-    p = db.placeholders(12).split(",")
+    p = db.placeholders(13).split(",")
     conflict_sql = "ON CONFLICT (alert_key) WHERE status = 'open' DO NOTHING"
     inserted = conn.execute(
         f"""
         INSERT INTO alert_instances
             (alert_key, site_id, site_name, device_id, device_name, alert_level, alert_reason,
              status, down_started_at, last_seen_down_at, resolved_at, total_downtime_seconds,
-             created_at, updated_at, probable_cause, is_core)
+             created_at, updated_at, probable_cause, is_core, access_point)
         VALUES ({p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}, {p[5]}, {p[6]}, {p[7]}, {p[8]}, {p[9]},
-                NULL, 0, {now_sql}, {now_sql}, {p[10]}, {p[11]})
+                NULL, 0, {now_sql}, {now_sql}, {p[10]}, {p[11]}, {p[12]})
         {conflict_sql}
         RETURNING id
         """,
@@ -437,6 +441,7 @@ def open_alert_instance(
             last_seen_down_at,
             probable_cause,
             is_core,
+            access_point,
         ),
     ).fetchone()
     inserted_id = db.row_to_dict(inserted).get("id")

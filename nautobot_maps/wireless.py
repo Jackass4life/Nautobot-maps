@@ -5,13 +5,16 @@ Each instance in ``settings.WIRELESS_CONTROLLERS`` is read on its own, in
 bulk, every ``WIRELESS_SYNC_INTERVAL_SECONDS``: its APs replace its rows in
 ``wireless_ap_status``, and its sync state (``wireless:<kind>:<name>``) says
 when it last answered.  One slow or unreachable instance holds up or wipes
-nobody else's APs; its own rows age out after ``stale_seconds()``.
+nobody else's APs; after ``stale_seconds()`` its rows are its last known
+answer (#521), kept until it answers again or is removed from the file.
 
 The board matches a Nautobot device to a controller AP by serial, else (an
-access point only, and a name only one AP carries) by name, and counts one the controller says is down as an access point down.
-It never raises the site's level or notifies: at 10,000 APs single APs drop
-all day.  The same AP in two instances: the newest report wins; on a tie,
-up wins, so a stale copy never shows it down.
+access point only, and a name only one AP carries) by name (``lookup``).  A
+matched device is monitored without a primary IP (APs get theirs by DHCP),
+shown with the controller's address, and down when the controller says so
+(#521): its site at ``WIRELESS_AP_LEVEL``, never notified (``alerts``).  The
+same AP in two instances: the newest report wins; on a tie, up wins, so a
+stale copy never shows it down.
 
 Called as ``wireless.function()`` so tests can replace it on this module.
 """
@@ -100,14 +103,15 @@ def write_aps(conn, controller: dict, aps: list[dict], seen_at: str) -> int:
             str(ap.get("serial") or ""),
             str(ap.get("mac") or ""),
             str(ap.get("name") or ""),
+            str(ap.get("ip") or ""),
             bool(ap.get("up")),
             seen_at,
         )
     conn.execute("DELETE FROM wireless_ap_status WHERE controller = %s", (controller_id(controller),))
     with conn.cursor() as cursor:
         cursor.executemany(
-            "INSERT INTO wireless_ap_status (controller, serial_key, name_key, serial, mac, name, up, seen_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO wireless_ap_status (controller, serial_key, name_key, serial, mac, name, ip, up, seen_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             list(rows.values()),
         )
     return len(rows)
@@ -164,31 +168,42 @@ def due(conn) -> list[dict]:
 
 
 def read_index(conn, now: datetime | None = None) -> dict:
-    """What the configured instances say, fresh answers only:
-    ``{"serial": {key: up}, "name": {key: up}}``.  One query.
+    """What the configured instances say: ``{"serial": {key: ap}, "name":
+    {key: ap}}``, each *ap* ``{"up", "ip", "controller", "stale"}``
+    (*controller* as ``display_name``).  One query.
+
+    An instance that hasn't answered for ``stale_seconds()`` keeps its last
+    answer, marked *stale* (#521): its APs stay down or up as they were, so a
+    controller that can't be reached never clears the board.
 
     A name that two different APs carry (``ap-01`` at two sites) isn't in the
     name index: it would count the wrong one down.  The same AP in two
     instances (the same serial) is one AP."""
-    ids = [controller_id(controller) for controller in configured()]
-    if not ids:
+    names = {controller_id(controller): display_name(controller) for controller in configured()}
+    if not names:
         return {"serial": {}, "name": {}}
-    since = (now or datetime.now(UTC)) - timedelta(seconds=stale_seconds())
+    stale_before = ((now or datetime.now(UTC)) - timedelta(seconds=stale_seconds())).timestamp()
     rows = conn.execute(
-        "SELECT controller, serial_key, name_key, up, extract(epoch FROM seen_at) AS seen "
-        "FROM wireless_ap_status WHERE controller = ANY(%s) AND seen_at >= %s",
-        (ids, since),
+        "SELECT controller, serial_key, name_key, up, ip, extract(epoch FROM seen_at) AS seen "
+        "FROM wireless_ap_status WHERE controller = ANY(%s)",
+        (list(names),),
     ).fetchall()
-    best: dict[str, dict] = {"serial": {}, "name": {}}
+    best: dict[str, dict] = {"serial": {}, "name": {}}  # key: (rank, ap)
     carriers: dict[str, set] = {}  # name: the APs that carry it
     for row in map(db.row_to_dict, rows):
         # The newest answer wins; on a tie, up.  Seconds, not text: a time's
         # text drops zero microseconds and wouldn't sort.
         rank = (float(row["seen"]), bool(row["up"]))
+        ap = {
+            "up": bool(row["up"]),
+            "ip": row["ip"] or "",
+            "controller": names[row["controller"]],
+            "stale": float(row["seen"]) < stale_before,
+        }
         for kind in ("serial", "name"):
             key = row[f"{kind}_key"]
-            if key and (key not in best[kind] or rank > best[kind][key]):
-                best[kind][key] = rank
+            if key and (key not in best[kind] or rank > best[kind][key][0]):
+                best[kind][key] = (rank, ap)
         if row["name_key"]:
             carriers.setdefault(row["name_key"], set()).add(
                 row["serial_key"] or f"{row['controller']}:{row['name_key']}"
@@ -196,25 +211,59 @@ def read_index(conn, now: datetime | None = None) -> dict:
     for name, aps in carriers.items():
         if len(aps) > 1:
             best["name"].pop(name, None)
-    return {kind: {key: rank[1] for key, rank in keys.items()} for kind, keys in best.items()}
+    return {kind: {key: ap for key, (_, ap) in keys.items()} for kind, keys in best.items()}
+
+
+def load_index() -> dict:
+    """``read_index`` on its own connection, for one site's panel; {} when none
+    is configured, without a database, or on an error."""
+    if not configured():
+        return {}
+    conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        return read_index(conn)
+    except Exception as exc:
+        logger.warning("Could not read the wireless controllers' access points: %s", exc)
+        return {}
+    finally:
+        conn.close()
 
 
 def is_access_point(device: dict) -> bool:
     return (device.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES
 
 
-def is_down(index: dict | None, device: dict) -> bool:
-    """A controller says this Nautobot device is down: by its serial, else, for
-    an access point (ACCESS_POINT_ROLES) only, by its name."""
+def lookup(index: dict | None, device: dict) -> dict | None:
+    """What a controller says of this Nautobot device: by its serial, else,
+    for an access point (ACCESS_POINT_ROLES) only, by its name; None when no
+    controller lists it."""
     if not index:
-        return False
+        return None
     serial = serial_key(device.get("serial"))
     if serial and serial in index["serial"]:
-        return not index["serial"][serial]
+        return index["serial"][serial]
     name = name_key(device.get("name"))
     if name and name in index["name"] and is_access_point(device):
-        return not index["name"][name]
-    return False
+        return index["name"][name]
+    return None
+
+
+def attach(devices: list[dict], index: dict | None) -> list[dict]:
+    """*devices* with ``wireless`` (``lookup``'s answer) on each one a
+    controller lists (#521): it is monitored without a primary IP.  New dicts
+    for those only; the (cached) inventory's are never changed."""
+    if not index or not (index["serial"] or index["name"]):
+        return devices
+    return [{**device, "wireless": ap} if (ap := lookup(index, device)) else device for device in devices]
+
+
+def reason(ap: dict) -> str:
+    """Who says the access point is down, on its board row (#521)."""
+    if ap.get("stale"):
+        return f"last known per {ap['controller']}, which can't be reached"
+    return f"per {ap['controller']}"
 
 
 def match_keys(devices: list[dict]) -> tuple[set, set]:
@@ -229,8 +278,13 @@ def matches(ap_serial_key: str, ap_name_key: str, serials: set, names: set) -> b
 
 
 def down_fingerprint(conn) -> tuple:
+    """The APs down, and whether each is only last known: the board shows both."""
     index = read_index(conn)
-    return tuple(sorted(key for kind in ("serial", "name") for key, up in index[kind].items() if not up))
+    return tuple(
+        sorted(
+            (kind, key, ap["stale"]) for kind in ("serial", "name") for key, ap in index[kind].items() if not ap["up"]
+        )
+    )
 
 
 def prune(conn) -> None:

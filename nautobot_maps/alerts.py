@@ -74,8 +74,13 @@ def alert_level_definitions() -> dict:
         "low": f"At least one monitored device is down, but {medium}% or fewer, and none set higher.",
         "no_data": "The site has no monitored devices, or its state could not be computed. Not counted as an alert.",
         "ok": "The site has monitored devices and none of them is down.",
-        "total": "All sites on the board. Only devices with a Nautobot primary IP are monitored.",
+        "total": "All sites on the board. Devices with a Nautobot primary IP are monitored, and access points "
+        "a wireless controller lists.",
         "maintenance": "Sites in a maintenance window: planned work, not an alarm. Nothing is notified until it ends.",
+        "wireless": (
+            f"Sites with only access points down, as a wireless controller reports them, at "
+            f"{settings.WIRELESS_AP_LEVEL.capitalize()}: not an alarm, never notified."
+        ),
     }
 
 
@@ -161,8 +166,8 @@ def stack_of(device: dict, stacks: dict[str, dict], counted: bool = True) -> dic
 
 def board_device_rules() -> dict:
     """Which devices count, wherever a level is worked out (#316): those with
-    a primary IP, not of an excluded status.  The board, the map's marker
-    colours and the site panel all use this."""
+    a primary IP or a wireless controller (#521), not of an excluded status.
+    The board, the map's marker colours and the site panel all use this."""
     return {
         "require_primary_ip": True,
         "excluded_device_statuses": settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES,
@@ -171,7 +176,10 @@ def board_device_rules() -> dict:
 
 def not_monitored_reason(device: dict) -> str:
     """Why *device* doesn't count towards its site's level ("" when it does), for the site panel (#316)."""
-    if not device_has_primary_ip(device):
+    if not is_monitored(device):
+        # An access point no controller lists (#521): say where else to look.
+        if wireless.configured() and wireless.is_access_point(device):
+            return "no primary IP, not in a wireless controller"
         return "no primary IP"
     status = (device.get("status") or "").strip()
     if status_is_excluded(status, settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES):
@@ -183,17 +191,28 @@ def device_has_primary_ip(device: dict) -> bool:
     return bool((device.get("primary_ip") or "").strip())
 
 
+def is_monitored(device: dict) -> bool:
+    """Something watches it: a primary IP (LibreNMS, Alertmanager, a webhook),
+    or a wireless controller that lists it (``wireless.attach``, #521): access
+    points get their address by DHCP, so Nautobot seldom has one."""
+    return device_has_primary_ip(device) or bool(device.get("wireless"))
+
+
 def device_display_ip(device: dict) -> str:
     """Return the address to show for *device* on the alert board.
 
     Prefers the Nautobot primary IP cached at sync (IPv4 before IPv6), without
-    its prefix length.  Falls back to the address LibreNMS polls (its
+    its prefix length.  Falls back to the address a wireless controller reports
+    (#521; never written to Nautobot), the address LibreNMS polls (its
     ``overwrite_ip`` or ``ip``), then to the matched LibreNMS hostname when that
     is itself an IP address.  Returns ``""`` when none is known.
     """
     primary_ip = (device.get("primary_ip") or "").strip()
     if primary_ip:
         return primary_ip.split("/", 1)[0]
+    wireless_ip = ((device.get("wireless") or {}).get("ip") or "").strip()
+    if wireless_ip:
+        return wireless_ip
     librenms_ip = (device.get("librenms_ip") or "").strip()
     if librenms_ip:
         return librenms_ip
@@ -328,10 +347,18 @@ def device_level(device: dict, core_keywords, override_map: dict, tier: str = ""
     "not critical" only cancels the role), a core role keyword (``role``), the
     site tier's default from TIER_DEVICE_LEVEL (``tier``), which so never
     lowers a core device.  ``("", "")``: only the share of devices down counts.
+
+    An access point a wireless controller watches (#521): its Nautobot field,
+    else the override's critical, else WIRELESS_AP_LEVEL (``wireless``), never
+    the tier's or a role's: at 10,000 APs single ones drop all day.
     """
     if device.get("criticality") in settings.DEVICE_LEVELS:
         return device["criticality"], "nautobot"
     device_id = device.get("id") or ""
+    if device.get("wireless"):
+        if override_map.get(device_id):
+            return "critical", "override"
+        return settings.WIRELESS_AP_LEVEL, "wireless"
     if device_id in override_map:
         own = ("critical", "override") if override_map[device_id] else ("", "")
     else:
@@ -376,6 +403,13 @@ def compute_alert_level(
     * **no_data**  – there are no devices to judge.
     * **ok**       – devices present, none down.
 
+    Access points a wireless controller watches (#521) are judged on their
+    own: each down one gives its level (WIRELESS_AP_LEVEL unless set), and
+    they are left out of the share and of "every device down", so 40 APs
+    never make one switch of six a smaller share.  When only they decide the
+    level, by WIRELESS_AP_LEVEL alone, the answer has ``"wireless_only":
+    True``: the board's Wireless chip, not an alarm, never notified.
+
     The optional *location_type* parameter selects the matching keyword set
     when location-type-scoped rules are configured (e.g. "datacenter" vs
     "office").
@@ -402,6 +436,35 @@ def compute_alert_level(
             finally:
                 conn.close()
 
+    wired = [device for device in devices if not device.get("wireless")]
+    alert = _wired_level(wired, core_keywords, override_map, tier) if wired else {"level": "ok", "reason": ""}
+    down_aps = [
+        device
+        for device in devices
+        if device.get("wireless") and (device.get("status") or "").lower().strip() in DOWN_STATUSES
+    ]
+    if not down_aps:
+        return alert
+    levels = [device_level(device, core_keywords, override_map, tier) for device in down_aps]
+    worst = max((level for level, _ in levels), key=lambda level: notify.LEVEL_RANK[level])
+    if notify.LEVEL_RANK[worst] <= notify.LEVEL_RANK.get(alert["level"], 0):
+        return alert
+    names = [
+        device.get("name") or "Unknown" for device, (level, _) in zip(down_aps, levels, strict=True) if level == worst
+    ]
+    sources = [source for level, source in levels if level == worst]
+    if set(sources) == {"wireless"}:
+        count = len(down_aps)
+        reason = f"{count} access point{'s' if count != 1 else ''} offline"
+        # Only APs at the wireless level, nothing else down (#521).
+        if alert["level"] == "ok" and all(source == "wireless" for _, source in levels):
+            return {"level": worst, "reason": reason, "wireless_only": True}
+        return {"level": worst, "reason": reason}
+    return {"level": worst, "reason": _devices_reason(worst, names, [s for s in sources if s != "wireless"], tier)}
+
+
+def _wired_level(devices: list, core_keywords, override_map: dict, tier: str) -> dict:
+    """``compute_alert_level`` of the devices other than controller-watched access points."""
     down_count = 0
     # The worst level the down devices give, and which of them give it.
     device_worst, worst_names, worst_sources = "", [], []
@@ -446,12 +509,13 @@ def compute_alert_level(
 
 
 def device_kinds(counted: list[dict], down: list[dict]) -> dict:
-    """How many of *counted* are access points (a role in ACCESS_POINT_ROLES)
-    and how many network equipment (#499), and the same of *down*, those down
-    now (#503).  Only counts: the status page shows no more."""
+    """How many of *counted* are access points (a role in ACCESS_POINT_ROLES,
+    or one a wireless controller lists, #521) and how many network equipment
+    (#499), and the same of *down*, those down now (#503).  Only counts: the
+    status page shows no more."""
 
     def access_points(devices: list[dict]) -> int:
-        return sum((d.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES for d in devices)
+        return sum(bool(d.get("wireless")) or wireless.is_access_point(d) for d in devices)
 
     total, down_access_points = access_points(counted), access_points(down)
     return {
@@ -473,7 +537,6 @@ def tenant_scoped_alerts(
     location_type: str | None,
     override_map: dict,
     tier: str,
-    controller_down=None,
 ) -> dict:
     """Levels for configured tenants, reusing the site's already-monitored devices (#410).
 
@@ -492,10 +555,10 @@ def tenant_scoped_alerts(
 
         active, pending, in_maintenance = theirs(devices), theirs(pending_devices), theirs(maintenance_devices)
         matches = len(active) + len(pending) + len(in_maintenance)
+        alert = {"level": "ok" if pending else "no_data"}
         if active:
-            level = compute_alert_level(active, location_type, override_map=override_map, tier=tier)["level"]
-        else:
-            level = "ok" if pending else "no_data"
+            alert = compute_alert_level(active, location_type, override_map=override_map, tier=tier)
+        level = alert["level"]
         if matches and (site_window is not None or (in_maintenance and not active)):
             level = "maintenance"
         downtime = max(
@@ -509,13 +572,11 @@ def tenant_scoped_alerts(
         # Its own devices only, never a shared site's other tenants' (#503);
         # one in maintenance counts but isn't down, nor any in a site window.
         down = [d for d in active if (d.get("status") or "").lower().strip() in DOWN_STATUSES]
-        # A wireless controller's down APs (#508): counted, not in the level.
-        if controller_down is not None:
-            already = {id(d) for d in down}
-            down += [d for d in active if id(d) not in already and controller_down(d)]
         kinds = device_kinds([*active, *pending, *in_maintenance], [] if level == "maintenance" else down)
         scoped[tenant] = {
             "alert_level": level,
+            # Only access points down (#521): not an alarm for this tenant either.
+            **({"wireless_only": True} if alert.get("wireless_only") and level != "maintenance" else {}),
             "device_count": matches,
             "current_downtime_seconds": max(0, downtime),
             **kinds,
@@ -671,6 +732,20 @@ def enrich_with_webhooks(devices: list, index: dict) -> list:
     return enriched
 
 
+def enrich_with_wireless(devices: list) -> list:
+    """Mark devices down that their wireless controller says are (#521).
+
+    Additive, as LibreNMS: a device already down stays as it is.  Since when:
+    when a board build first saw it down (``down_since``)."""
+    enriched = []
+    for device in devices:
+        ap = device.get("wireless")
+        if ap and not ap["up"] and (device.get("status") or "").lower().strip() not in DOWN_STATUSES:
+            device = {**device, "status": "offline", "down_source": "wireless"}
+        enriched.append(device)
+    return enriched
+
+
 def webhook_reason(device: dict) -> str:
     """ "alertmanager: Target down": who says the device is down, and why (#292)."""
     summary = device.get("webhook_summary") or ""
@@ -693,11 +768,14 @@ def get_location_devices_and_alert(
     new_librenms_maps: dict | None = None,
     webhook_index: dict | None = None,
     tier: str = "",
+    wireless_index: dict | None = None,
 ) -> tuple[list, dict]:
     """Return ``(devices, alert)`` for a location (*tier*: the site's, #377).
 
     Devices whose Nautobot status is in *excluded_device_statuses* are dropped
-    before scoring and before the LibreNMS merge (#151).
+    before scoring and before the LibreNMS merge (#151).  *wireless_index*
+    (``wireless.read_index``; None: read now) marks the access points a
+    controller watches (#521).
     """
     use_normalized_devices = devices_already_normalized
     if devices_data is None:
@@ -740,8 +818,9 @@ def get_location_devices_and_alert(
         if use_normalized_devices
         else inventory.normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
+    devices = wireless.attach(devices, wireless.load_index() if wireless_index is None else wireless_index)
     if require_primary_ip:
-        devices = [device for device in devices if device_has_primary_ip(device)]
+        devices = [device for device in devices if is_monitored(device)]
     if excluded_device_statuses:
         devices = [
             device for device in devices if not status_is_excluded(device.get("status"), excluded_device_statuses)
@@ -756,6 +835,8 @@ def get_location_devices_and_alert(
         new_librenms_maps=new_librenms_maps,
     )
     enriched = enrich_with_webhooks(enriched, webhooks.load_index() if webhook_index is None else webhook_index)
+    # After the status filter: a Decommissioning AP stays left out (#521).
+    enriched = enrich_with_wireless(enriched)
     if require_primary_ip:
         # Counted as the board counts: a stack is one device (#405).
         enriched = merge_stacks(enriched)
@@ -1020,7 +1101,7 @@ def _down_since(device: dict, checked_at: str) -> str:
     if device.get("webhook_since"):
         # When the other tool says it went down (#292), not in the future.
         return earliest_time(device["webhook_since"], checked_at) or checked_at
-    if device.get("down_source") in ("librenms", "flapping"):
+    if device.get("down_source") in ("librenms", "flapping", "wireless"):
         return checked_at
     changed = timeutil.parse_iso_datetime(device.get("last_updated"))
     observed = timeutil.parse_iso_datetime(checked_at)
@@ -1091,6 +1172,8 @@ def upsert_alert_lifecycle_for_site(
                         checked_at,
                         (probable_causes or {}).get(device_id, ""),
                         device_id in (core_device_ids or ()),
+                        # Left out of availability and the activity feed (#521).
+                        access_point=bool(device.get("wireless")),
                     )
                     if inserted_id is not None:
                         board_store.insert_alert_event(
@@ -1602,8 +1685,11 @@ def build_alert_board_payload(
     stacks: dict[str, dict] = {}
     device_states = None
     alarmed_device_ids: set[str] = set()
-    # What the wireless controllers say (#508); None: none, or not readable.
-    wireless_index = None
+    # What the wireless controllers say (#508, #521); {} without any.
+    wireless_index: dict = {}
+    # Configured but not readable: the APs they watch would look unmonitored,
+    # so, as with maintenance, no history or level changes this build.
+    wireless_unknown = False
     # {device_id: (site_id, state row or None)} as this build saw them.
     next_device_states: dict[str, tuple[str, dict | None]] = {}
     try:
@@ -1636,6 +1722,7 @@ def build_alert_board_payload(
             if wireless.configured():
                 wireless_index = wireless.read_index(read_conn)
         except Exception as exc:
+            wireless_unknown = True
             logger.warning("Could not read the wireless controllers' access points: %s", exc)
         try:
             in_maintenance = maintenance.read_active(read_conn, maintenance.now())
@@ -1696,6 +1783,7 @@ def build_alert_board_payload(
                     lnms_index=lnms_index,
                     new_librenms_maps=new_librenms_maps,
                     webhook_index=webhook_index,
+                    wireless_index=wireless_index,
                     snapshot_only=snapshot_only,
                     tier=loc.get("tier") or "",
                     **board_device_rules(),
@@ -1830,8 +1918,8 @@ def build_alert_board_payload(
                 primary_ip_backfill_pending = None  # read per site below
                 needs_write = True
             # A site in maintenance: its history is frozen (read, not written).
-            # Windows that couldn't be read: nothing is written either.
-            if site_window is not None or maintenance_unknown:
+            # Windows or controllers that couldn't be read: nothing is written either.
+            if site_window is not None or maintenance_unknown or wireless_unknown:
                 needs_write = False
 
             wrote = False
@@ -1908,8 +1996,16 @@ def build_alert_board_payload(
                     **({"location_path": device["location_path"]} if device.get("location_path") else {}),
                     # Up and down FLAP_CHANGES times or more within 30 minutes (#286).
                     **({"flapping": True, "flap_changes": device["flap_changes"]} if device.get("flapping") else {}),
-                    # Down per Alertmanager or a webhook, not Nautobot (#292).
+                    # Down per Alertmanager or a webhook, not Nautobot (#292); per a
+                    # wireless controller, or as it last said (#521).
                     **({"down_reason": webhook_reason(device)} if device.get("webhook_since") else {}),
+                    **(
+                        {"down_reason": wireless.reason(device["wireless"])}
+                        if device.get("down_source") == "wireless"
+                        else {}
+                    ),
+                    # Watched by a wireless controller (#521): folded under the others.
+                    **({"access_point": True} if device.get("wireless") else {}),
                     # Part of a stack: which, and its place in it (#400).
                     # In maintenance it isn't counted: not "all members down" (#405).
                     **(
@@ -1957,6 +2053,8 @@ def build_alert_board_payload(
                     merged["flap_changes"] = current_item["flap_changes"]
                 if current_item.get("down_reason"):
                     merged["down_reason"] = current_item["down_reason"]
+                if current_item.get("access_point"):
+                    merged["access_point"] = True
                 if current_item.get("stack"):
                     merged["stack"] = current_item["stack"]
                 merged["device_ip"] = device_ip_by_key.get(item_key, "")
@@ -2010,9 +2108,12 @@ def build_alert_board_payload(
             level = (alert.get("level") or "ok").lower()
             if site_window is not None:
                 level = "maintenance"
-            summary[level] = summary.get(level, 0) + 1
+            # Only access points down (#521): the Wireless chip, not an alarm;
+            # its level shows on the map, but the feed and notifications see OK.
+            wireless_only = bool(alert.get("wireless_only")) and level != "maintenance"
+            summary["wireless" if wireless_only else level] = summary.get("wireless" if wireless_only else level, 0) + 1
             if observation_succeeded and site_id:
-                observed_levels[site_id] = (loc.get("name") or "", level)
+                observed_levels[site_id] = (loc.get("name") or "", "ok" if wireless_only else level)
                 level_keys[site_id] = site_level_keys(
                     [*devices, *maintenance_devices, *pending_devices],
                     down_devices,
@@ -2032,21 +2133,13 @@ def build_alert_board_payload(
                 loc.get("location_type") or None,
                 bulk_kwargs.get("override_map") or {},
                 loc.get("tier") or "",
-                controller_down=(lambda device: wireless.is_down(wireless_index, device)) if wireless_index else None,
             )
             # "12 network · 40 APs" (#499), those in maintenance too; down
             # (#503) only the counted ones: none in a device or site window
-            # (a site window leaves its devices counted, for the level).  A
-            # wireless controller's down APs too (#508), never in the level.
-            already_down = {id(d) for d in down_devices}
-            controller_down = (
-                [d for d in devices if id(d) not in already_down and wireless.is_down(wireless_index, d)]
-                if wireless_index
-                else []
-            )
+            # (a site window leaves its devices counted, for the level).
             kinds = device_kinds(
                 [*devices, *pending_devices, *maintenance_devices],
-                [] if site_window is not None else [*down_devices, *controller_down],
+                [] if site_window is not None else down_devices,
             )
             alerts.append(
                 {
@@ -2056,6 +2149,7 @@ def build_alert_board_payload(
                     "tenant_alerts": tenant_alerts,
                     "alert_level": level,
                     "alert_reason": alert.get("reason", ""),
+                    **({"wireless_only": True} if wireless_only else {}),
                     # Importance (#293): a known tier and its rank (0 = most important).
                     "tier": (loc.get("tier") or "") if tier_rank(loc.get("tier")) < 99 else "",
                     "tier_rank": tier_rank(loc.get("tier")),
@@ -2108,7 +2202,7 @@ def build_alert_board_payload(
 
     board_store.store_librenms_maps(new_librenms_maps)
 
-    if not persistence_unavailable and not maintenance_unknown:
+    if not persistence_unavailable and not maintenance_unknown and not wireless_unknown:
         try:
             record_site_level_changes(observed_levels, timeutil.iso_utc_now(), observed_sites, quiet_sites, level_keys)
         except Exception as exc:
@@ -2116,7 +2210,8 @@ def build_alert_board_payload(
 
     alerts.sort(
         key=lambda item: (
-            alert_sort_key(item.get("alert_level", "ok")),
+            # Only access points down (#521): after every alarm, before No data.
+            alert_sort_key("low") + 0.5 if item.get("wireless_only") else alert_sort_key(item.get("alert_level", "ok")),
             item.get("tier_rank", 99),  # more important sites first within a level (#293)
             -item.get("down_device_count", 0),
             item.get("name", "").lower(),
@@ -2131,6 +2226,8 @@ def build_alert_board_payload(
             **{level: summary.get(level, 0) for level in ALERT_LEVEL_ORDER},
             # Planned work (#283); not an alarm, not in non_ok.
             "maintenance": summary.get("maintenance", 0),
+            # Only access points down (#521); not an alarm, not in non_ok.
+            "wireless": summary.get("wireless", 0),
             # No data is not an alert (#124).
             "non_ok": sum(summary.get(level, 0) for level in ALERT_LEVELS_NON_OK),
         },
@@ -2143,8 +2240,8 @@ def build_alert_board_payload(
 
 def site_monitored_devices(site_id: str, include_non_operational: bool = False) -> list[dict]:
     """The devices the board counts for the row *site_id*, for choosing what
-    goes into maintenance (#283): with a primary IP, not of an excluded
-    status, including devices below the site when rows are rolled up (not
+    goes into maintenance (#283): with a primary IP or a wireless controller
+    (#521), not of an excluded status, including devices below the site when rows are rolled up (not
     those below an excluded location, unless *include_non_operational*, as
     on the board)."""
     devices = inventory.read_devices()
@@ -2165,8 +2262,8 @@ def site_monitored_devices(site_id: str, include_non_operational: bool = False) 
     monitored = merge_stacks(
         [
             device
-            for device in devices
-            if device_has_primary_ip(device)
+            for device in wireless.attach(devices, wireless.load_index())
+            if is_monitored(device)
             and not status_is_excluded(device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
         ]
     )
@@ -2307,15 +2404,20 @@ def build_location_alert_levels() -> dict:
     # monitored devices, so they are OK even with no others (#311).
     held_back: dict[str, int] = {}
     webhook_index: dict = {}
+    wireless_index: dict = {}
     conn = db.get_conn()
     if conn is not None:
         try:
+            try:
+                wireless_index = wireless.read_index(conn) if wireless.configured() else {}
+            except Exception as exc:
+                logger.warning("Could not read the wireless controllers' access points for the map: %s", exc)
             # Devices in maintenance don't count, like on the board (#283),
             # nor ones down for less than the alert delay (#286).
             in_maintenance = maintenance.read_active(conn, maintenance.now())
             pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
             flapping = board_store.flapping_device_ids(conn, timeutil.iso_utc_now(), FLAP_WINDOW)
-            for device in inventory.read_devices(conn=conn):
+            for device in wireless.attach(inventory.read_devices(conn=conn), wireless_index):
                 if (device.get("id") or "") in pending:
                     # Only a device the board counts (its state row can outlive its IP).
                     if not not_monitored_reason(device):
@@ -2362,6 +2464,8 @@ def build_location_alert_levels() -> dict:
                 "reason": window.get("reason", "") if level == "maintenance" else row.get("alert_reason", ""),
                 "down": row.get("down_device_count", 0),
                 "monitored": row.get("device_count", 0),
+                # Only access points down (#521): its colour, not in the map's alarms.
+                **({"wireless_only": True} if row.get("wireless_only") else {}),
                 # When its newest open alert started: the map's alarm list puts the newest first (#334).
                 **({"since": row["latest_down_at"]} if row.get("latest_down_at") else {}),
                 **({"until": window["until"]} if level == "maintenance" and window.get("until") else {}),
@@ -2382,6 +2486,7 @@ def build_location_alert_levels() -> dict:
             lnms_index=lnms_index,
             new_librenms_maps=new_librenms_maps,
             webhook_index=webhook_index,
+            wireless_index=wireless_index,
             snapshot_only=True,
             override_map=override_map,
             tier=loc.get("tier") or "",
@@ -2391,6 +2496,7 @@ def build_location_alert_levels() -> dict:
             levels[location_id] = {
                 "level": alert["level"],
                 "reason": alert.get("reason", ""),
+                **({"wireless_only": True} if alert.get("wireless_only") else {}),
                 "down": sum((d.get("status") or "").lower().strip() in DOWN_STATUSES for d in counted),
                 # Devices within the alert delay are monitored, as on the board.
                 "monitored": len(counted) + held_back.get(location_id, 0),
@@ -2521,7 +2627,11 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
                 lead["acknowledged_by"] = lead.get("acknowledged_by") or member_ack or ""
     level = get_location_alert_levels()["levels"].get(location_id) if db.dialect() else None
     if level is not None:
-        alert = {"level": level["level"], "reason": level.get("reason", "")}
+        alert = {
+            "level": level["level"],
+            "reason": level.get("reason", ""),
+            **({"wireless_only": True} if level.get("wireless_only") else {}),
+        }
         counts = {key: level[key] for key in ("down", "monitored") if key in level}
     else:
         monitored = [device for device in devices if not device["not_monitored"]]

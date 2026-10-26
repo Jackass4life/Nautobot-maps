@@ -363,8 +363,9 @@ Up/down status of every access point, matched to Nautobot devices by serial, els
 |---|---|---|---|---|
 | `serialNumber` | string or null |  | serial | matched to the Nautobot device serial (case-insensitive) |
 | `hostname` | string or null |  | name | when the serial doesn't match: the Nautobot device name (short name, case-insensitive) |
-| `reachabilityStatus` | string or null | yes | up | Reachable = up, anything else = down; down is counted as an access point down, never in the site's level |
+| `reachabilityStatus` | string or null | yes | up | Reachable = up, anything else = down: the access point is down on the board, its site at WIRELESS_AP_LEVEL (#521) |
 | `macAddress` | string or null |  | mac | — |
+| `managementIpAddress` | string or null |  | ip | shown as the access point's address, without a primary IP in Nautobot (#521); never written to Nautobot |
 
 ## HPE Aruba Networking New Central
 
@@ -380,8 +381,9 @@ Up/down status of every access point in HPE Aruba Networking New Central, matche
 |---|---|---|---|---|
 | `serialNumber` | string | yes | serial | matched to the Nautobot device serial (case-insensitive) |
 | `deviceName` | string or null |  | name | when the serial doesn't match: the Nautobot access point's name (short name, case-insensitive) |
-| `status` | string or null | yes | up | ONLINE = up, anything else = down; down is counted as an access point down, never in the site's level |
+| `status` | string or null | yes | up | ONLINE = up, anything else = down: the access point is down on the board, its site at WIRELESS_AP_LEVEL (#521) |
 | `macAddress` | string or null |  | mac | — |
+| `ipv4` | string or null |  | ip | shown as the access point's address (else ipAddress), without a primary IP in Nautobot (#521); never written to Nautobot |
 
 ## Not covered
 

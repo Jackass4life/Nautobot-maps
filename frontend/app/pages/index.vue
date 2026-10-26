@@ -11,6 +11,7 @@ import { SiteMap, loadLeaflet } from "~/utils/leafletmap";
 import {
   alarmSites,
   alarmTitle,
+  displayLevel,
   filterChoices,
   filterLocations,
   isAlarm,
@@ -155,7 +156,7 @@ async function loadLevels() {
     return;
   }
   const first = !levelsLoaded.value;
-  const next = Object.fromEntries(Object.entries(data.levels).map(([id, entry]) => [id, entry.level as string]));
+  const next = Object.fromEntries(Object.entries(data.levels).map(([id, entry]) => [id, displayLevel(entry)]));
   const old = levels.value;
   const changed = [...new Set([...Object.keys(old), ...Object.keys(next)])].filter((id) => old[id] !== next[id]);
   levelInfo.value = data.levels;
@@ -246,7 +247,7 @@ function openSite(id: string, { ids = [id], trigger = null as HTMLElement | null
   siteMap?.resize();
   if (focusPanel) nextTick(() => panel.value?.focus());
   if (cached) {
-    updateMarkerLevel(id, cached.alert.level);
+    updateMarkerLevel(id, displayLevel(cached.alert));
     return;
   }
   loadDetail(id)
@@ -254,7 +255,7 @@ function openSite(id: string, { ids = [id], trigger = null as HTMLElement | null
       if (selectedId.value !== id) return;
       detail.value = answer;
       detailLoading.value = false;
-      updateMarkerLevel(id, answer.alert.level);
+      updateMarkerLevel(id, displayLevel(answer.alert));
     })
     .catch((err) => {
       if (selectedId.value !== id) return;
@@ -300,10 +301,10 @@ function applyLevelToOpenPanel(info: Record<string, LevelInfo>) {
   const id = selectedId.value;
   const old = detail.value;
   if (!id || !old || detailLoading.value || detailError.value) return;
-  const level = info[id] ?? { level: "no_data", reason: "No monitored devices", down: 0, monitored: Number.NaN };
+  const level = info[id] ?? { level: "no_data", reason: "No monitored devices", down: 0, monitored: Number.NaN, wireless_only: false };
   const counts = Number.isFinite(level.monitored) ? { down: level.down || 0, monitored: level.monitored } : old.counts;
-  const alert = { level: level.level, reason: level.reason || "" };
-  if (old.alert.level === alert.level && old.alert.reason === alert.reason && old.counts.down === counts.down && old.counts.monitored === counts.monitored) return;
+  const alert = { level: level.level, reason: level.reason || "", wireless_only: Boolean(level.wireless_only) };
+  if (old.alert.level === alert.level && old.alert.reason === alert.reason && Boolean(old.alert.wireless_only) === alert.wireless_only && old.counts.down === counts.down && old.counts.monitored === counts.monitored) return;
   detail.value = { ...old, alert, counts };
   // The devices' notes (maintenance, not monitored) may have changed too.
   detailCache.delete(id);

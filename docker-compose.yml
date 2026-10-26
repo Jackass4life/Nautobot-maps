@@ -128,6 +128,7 @@ services:
       # e.g. /config/wireless.yml, from ./config
       - WIRELESS_CONTROLLERS_FILE=${WIRELESS_CONTROLLERS_FILE:-}
       - WIRELESS_SYNC_INTERVAL_SECONDS=${WIRELESS_SYNC_INTERVAL_SECONDS:-}
+      - WIRELESS_AP_LEVEL=${WIRELESS_AP_LEVEL:-low}
       # Delete alert history older than this many days (optional; 0/empty keeps everything)
       - ALERT_HISTORY_RETENTION_DAYS=${ALERT_HISTORY_RETENTION_DAYS:-}
       # Prometheus metrics at /metrics (optional; default on)

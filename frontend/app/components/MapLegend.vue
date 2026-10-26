@@ -6,6 +6,7 @@ const ITEMS = [
   ["critical", "Critical: a core device or every device down"],
   ["medium", "Medium: more than 25% of devices down"],
   ["low", "Low: a device down"],
+  ["wireless", "Only access points down (a wireless controller says so)"],
   ["ok", "OK"],
   ["maintenance", "Maintenance"],
   ["no-data", "No data (no monitored devices)"],

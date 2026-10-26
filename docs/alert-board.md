@@ -4,8 +4,8 @@
 
 The board shows what is needed to decide and act (#311):
 
-- **One line at the top** says what is wrong ("2 alarms · 1 critical · 1 medium"; the (i) explains the levels). The chips next to it choose which sites are listed: **Alarms** (Critical, Medium or Low; the board opens here), **All sites**, **No data** and **Maintenance**, each with its count.
-- **Each row:** the site, how many devices are down of how many monitored, its tenants under its name (the first, and **+N** for the rest), the path above it or its address; the level (hover it for the reason, e.g. "2/7 devices offline (29%)"); since when; the cases; and **+ Case**. The row's other actions (**Acknowledge**, **Copy**, **Maint.**, **History** and **Maint. history**) are behind **⋯**.
+- **One line at the top** says what is wrong ("2 alarms · 1 critical · 1 medium"; the (i) explains the levels). The chips next to it choose which sites are listed: **Alarms** (Critical, Medium or Low; the board opens here), **Wireless** (only access points down, shown when there are some; see [access points](#access-points)), **All sites**, **No data** and **Maintenance**, each with its count.
+- **Each row:** the site, how many devices are down of how many monitored ("1 down · 3 APs down · 46 monitored" when access points are), its tenants under its name (the first, and **+N** for the rest), the path above it or its address; the level (hover it for the reason, e.g. "2/7 devices offline (29%)"); since when; the cases; and **+ Case**. The row's other actions (**Acknowledge**, **Copy**, **Maint.**, **History** and **Maint. history**) are behind **⋯**.
 - **Many sites:** the first 200 rows are drawn and **Show 200 more** adds the next (1,200 sites on **All sites**); a refresh keeps what you opened. On a phone the actions stay at the table's right edge and the Cases column is left out (the cases are in **+ Case** and **Copy**).
 - **Filters:** search and tenant (found by its name or its Nautobot description, shown under the name, #497); **More filters** has the sort, status, location type and non-operational sites. **Reset** appears when a filter is in use.
 
@@ -13,7 +13,7 @@ The board needs PostgreSQL (`NAUTOBOT_MAPS_DATABASE_URL`); without it the board 
 
 ## Alert levels
 
-Each site gets one level, from its **monitored devices**: devices with a Nautobot primary IP (`primary_ip`, `primary_ip4` or `primary_ip6`), after exclusions. This keeps access points and other unmonitored devices off the board without removing them from the map.
+Each site gets one level, from its **monitored devices**: devices with a Nautobot primary IP (`primary_ip`, `primary_ip4` or `primary_ip6`), and access points a [wireless controller](#access-points) lists, after exclusions. This keeps unmonitored devices off the board without removing them from the map.
 
 | Level | When |
 |---|---|
@@ -50,6 +50,17 @@ Down/up status comes from Nautobot's device status, and from LibreNMS when it's 
 **At scale the alarms stay in front** (#334): a site in alarm or maintenance is always its own pin, never inside a cluster, with critical on top. Sites without an alarm (OK, No data) are small dots, grouped into soft numbered circles when zoomed out (Leaflet.markercluster, bundled; only what's in view is drawn). With 1,200 sites and 25 in alarm, the first zoom shows the 25 pins and about ten circles. A link to a site inside a circle (`/?location_id=…`) zooms in to it. The map's panel leads with them (#392): **28 in alarm** with the count per level ("7 critical · 9 medium · 12 low"), then the sites worst first and newest down ("2/8 down · since 14:05"), the first eight and **Show all 28**; a row opens the site, and with none it says **All sites OK**. It follows the filters. **Alarms only** hides every other site, and is remembered in the browser; Clear filters turns it off, and a link to a site shows that site. The **sidebar button** at the left of the top bar folds the panel away so the map fills the screen, and brings it back (#420). While it is folded, a tab on the map's edge shows the alarm count ("● 28 in alarm") and brings it back too, so nothing is missed. `[` does the same from the keyboard. The choice is remembered in the browser; on a phone the panel folds down.
 
 **The rest of the panel is a click away** (#392). One search box finds a site by name, path or address as you type (eight at a time; arrow keys and Enter work), and its last row, Enter or the button search the map for an address or `lat, lon` within 5 km. **Filters** at the bottom opens the status, tenant and tenant group lists, each only when there's something to choose between (#480); a tenant is found by its name or its description (#497); each filter in use shows as a chip that removes it, and the button says how many ("Filters · 2"). The site count and the notes (sites not on the map, alert levels not loaded) sit beside it, only when they apply. The legend is the **i** in the map's corner.
+
+## Access points
+
+Access points get their address by DHCP, so Nautobot seldom has one for them. With [wireless controllers](sources.md#wireless-controllers-access-points) set up, the controller watches them instead (#521):
+
+- **Monitored without a primary IP.** A Nautobot device the controller lists (by serial, else by name for an access point) counts at its site. Its address is the one the controller reports, on the board, in **Copy** and in the map's site panel ("IP 10.20.31.47 · from Catalyst Center dk"); it is never written to Nautobot.
+- **Down when the controller says so**, until it says it is up again, or the device gets a status in `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` (e.g. Decommissioning) in Nautobot. Its row says who says so: "per Catalyst Center dk". If the controller can't be reached, its last answer stays, marked "last known per Catalyst Center dk, which can't be reached". Maintenance, acknowledgements, cases, the alert delay and flapping work as for any device.
+- **Only access points down** makes a site `WIRELESS_AP_LEVEL` (default Low): listed under the **Wireless** chip, not **Alarms** ("down 2m", not "in alarm"), after every alarm on **All sites**; not on the wall, not in the map's alarm list (a soft yellow dot, grouped with the quiet sites), never notified, and Operational on the [status page](status-page.md) with them counted. An access point with a level set in Nautobot (`DEVICE_CRITICALITY_FIELD`), or marked critical by an override, is an alarm at that level like any device.
+- **They never water down the others.** The share of devices down is of the other devices only: at a site with 6 switches and 40 access points, one switch down is 1 of 6, not 1 of 46. A site with a switch down and access points down is in **Alarms** at the switch's level (or the access points', if higher).
+- **Many fold away.** A row lists up to 3 access points with the other down devices; more fold into one line, "34 access points down", that opens in place (on the wall, a count only). The site panel lists them in their own fold, open only when nothing else is down.
+- **Quiet elsewhere too:** they are in each site's **History** and its CSV, but not in the activity feed, nor in [availability](availability.md).
 
 ## Hiding sites and devices
 

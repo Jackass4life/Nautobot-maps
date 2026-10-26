@@ -370,7 +370,7 @@
         "properties": {
           "access_point_count": {
             "default": 0,
-            "description": "Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.",
+            "description": "Monitored devices with a role in ACCESS_POINT_ROLES or listed by a wireless controller, in maintenance too.",
             "title": "Access Point Count",
             "type": "integer"
           },
@@ -624,6 +624,12 @@
           "url": {
             "title": "Url",
             "type": "string"
+          },
+          "wireless_only": {
+            "default": false,
+            "description": "Only access points down, per a wireless controller, at WIRELESS_AP_LEVEL (#521): the Wireless chip, not an alarm, never notified.",
+            "title": "Wireless Only",
+            "type": "boolean"
           }
         },
         "required": [
@@ -702,6 +708,12 @@
           },
           "total": {
             "title": "Total",
+            "type": "integer"
+          },
+          "wireless": {
+            "default": 0,
+            "description": "Sites with only access points down (#521); not in the levels or non_ok.",
+            "title": "Wireless",
             "type": "integer"
           }
         },
@@ -1317,6 +1329,18 @@
         "additionalProperties": false,
         "description": "A device with an open alert (also one in maintenance, marked so).",
         "properties": {
+          "access_point": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An access point a wireless controller watches (#521).",
+            "title": "Access Point"
+          },
           "acknowledged": {
             "anyOf": [
               {
@@ -2534,6 +2558,12 @@
             ],
             "description": "When its maintenance ends.",
             "title": "Until"
+          },
+          "wireless_only": {
+            "default": false,
+            "description": "Only access points down, per a wireless controller (#521).",
+            "title": "Wireless Only",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3683,6 +3713,12 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "wireless_only": {
+            "default": false,
+            "description": "Only access points down, per a wireless controller (#521).",
+            "title": "Wireless Only",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4078,6 +4114,17 @@
               }
             ],
             "title": "Webhook Summary"
+          },
+          "wireless": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WirelessAp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Listed by a wireless controller: monitored without a primary IP (#521)."
           }
         },
         "required": [
@@ -4591,6 +4638,12 @@
             "default": 0,
             "title": "Network Device Count",
             "type": "integer"
+          },
+          "wireless_only": {
+            "default": false,
+            "description": "Only access points down, per a wireless controller (#521).",
+            "title": "Wireless Only",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4985,6 +5038,39 @@
           "truncated"
         ],
         "title": "WindowList",
+        "type": "object"
+      },
+      "WirelessAp": {
+        "additionalProperties": false,
+        "description": "What a wireless controller says of the device (#521).",
+        "properties": {
+          "controller": {
+            "description": "The instance, e.g. \"Catalyst Center dk\".",
+            "title": "Controller",
+            "type": "string"
+          },
+          "ip": {
+            "description": "Its address as the controller reports it; never written to Nautobot.",
+            "title": "Ip",
+            "type": "string"
+          },
+          "stale": {
+            "description": "The controller hasn't answered lately: this is its last known answer.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "up": {
+            "title": "Up",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "up",
+          "ip",
+          "controller",
+          "stale"
+        ],
+        "title": "WirelessAp",
         "type": "object"
       }
     }
