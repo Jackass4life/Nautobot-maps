@@ -2,7 +2,7 @@
 // GET /api/status/{id}, the tenant's random link id (#500).  The key from a share link's "#key=" goes in the
 // Authorization header; the fragment is never sent to the server.
 import type { components } from "~/api/schema";
-import { devicesText, plural } from "./availability";
+import { plural } from "./availability";
 import { formatFeedTime } from "./format";
 
 export type TenantStatus = components["schemas"]["TenantStatus"];
@@ -47,12 +47,14 @@ export function hasDown(site: SiteDevices): boolean {
 
 // What is at a site, counts only (#503): with something down, how many of
 // each kind, "3 of 12 network devices down · 1 of 40 access points down";
-// else just how many, "12 network · 40 APs", as on Availability (#499).
+// else just how many, "12 network devices · 40 access points": full words for
+// the customer (#515; Availability's table says "12 network · 40 APs", #499).
 // Empty when nothing is counted.
 export function siteDevices(site: SiteDevices): string {
   if (!site.network_devices && !site.access_points) return "";
-  if (!hasDown(site)) return devicesText(site.network_devices, site.access_points);
-  return [kindText(site.network_devices, site.network_devices_down, "network device"), kindText(site.access_points, site.access_points_down, "access point")]
+  // Nothing "down" in maintenance or without data: the quiet line.
+  const [networkDown, apsDown] = hasDown(site) ? [site.network_devices_down, site.access_points_down] : [0, 0];
+  return [kindText(site.network_devices, networkDown, "network device"), kindText(site.access_points, apsDown, "access point")]
     .filter(Boolean)
     .join(" · ");
 }
