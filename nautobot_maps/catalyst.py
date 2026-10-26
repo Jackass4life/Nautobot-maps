@@ -13,10 +13,8 @@ Neither the password nor the token is ever logged.
 
 import threading
 import time
-import warnings
 
 import requests
-from urllib3.exceptions import InsecureRequestWarning
 
 from nautobot_maps import http
 
@@ -33,14 +31,13 @@ _tokens_lock = threading.Lock()
 
 
 def _request(controller: dict, method: str, path: str, **kwargs) -> requests.Response:
-    verify = controller.get("verify_ssl", True)
-    url = f"{controller['url']}{path}"
-    with warnings.catch_warnings():
-        if verify is False:
-            warnings.simplefilter("ignore", InsecureRequestWarning)
-        response = http.session().request(method, url, timeout=TIMEOUT_SECONDS, verify=verify, **kwargs)
-    response.raise_for_status()
-    return response
+    return http.request(
+        method,
+        f"{controller['url']}{path}",
+        verify=controller.get("verify_ssl", True),
+        timeout=TIMEOUT_SECONDS,
+        **kwargs,
+    )
 
 
 def token(controller: dict, renew: bool = False) -> str:

@@ -14,12 +14,10 @@ Neither the client secret nor the token is ever logged.
 
 import threading
 import time
-import warnings
 
 import requests
-from urllib3.exceptions import InsecureRequestWarning
 
-from nautobot_maps import http
+from nautobot_maps import http, settings
 
 PAGE_SIZE = 1000
 # Safety net against a server whose cursor never ends: 200,000 APs.
@@ -34,13 +32,10 @@ _tokens_lock = threading.Lock()
 
 
 def _request(controller: dict, method: str, url: str, **kwargs) -> requests.Response:
-    verify = controller.get("verify_ssl", True)
-    with warnings.catch_warnings():
-        if verify is False:
-            warnings.simplefilter("ignore", InsecureRequestWarning)
-        response = http.session().request(method, url, timeout=TIMEOUT_SECONDS, verify=verify, **kwargs)
-    response.raise_for_status()
-    return response
+    # HPE's own sign-in service is always verified: verify_ssl is for a
+    # Central behind a private CA or in a lab, never for sending the secret.
+    verify = True if url == settings.ARUBA_CENTRAL_TOKEN_URL else controller.get("verify_ssl", True)
+    return http.request(method, url, verify=verify, timeout=TIMEOUT_SECONDS, **kwargs)
 
 
 def token(controller: dict, renew: bool = False) -> str:
@@ -61,11 +56,14 @@ def token(controller: dict, renew: bool = False) -> str:
         },
         headers={"Accept": "application/json"},
     )
-    body = response.json() or {}
-    value = body.get("access_token") or ""
-    if not value:
-        raise RuntimeError("Aruba Central answered the sign-in without an access token")
-    lifetime = int(body.get("expires_in") or 7200)
+    body = response.json()
+    value = body.get("access_token") if isinstance(body, dict) else None
+    if not value or not isinstance(value, str):
+        raise RuntimeError("Aruba Central's sign-in answered without an access token")
+    try:
+        lifetime = int(body.get("expires_in") or 7200)
+    except (TypeError, ValueError):
+        lifetime = 7200
     with _tokens_lock:
         _tokens[key] = (value, time.monotonic() + max(60, lifetime - TOKEN_MARGIN_SECONDS))
     return value
@@ -100,13 +98,19 @@ def fetch_aps(controller: dict) -> list[dict]:
     """Every access point this instance knows, as New Central lists them."""
     aps = []
     cursor = None
+    seen = set()
     for _ in range(MAX_PAGES):
         params = {"limit": PAGE_SIZE}
         if cursor:
             params["next"] = str(cursor)
         data = get(controller, "/network-monitoring/v1/aps", params)
+        if not isinstance(data, dict):
+            raise RuntimeError("Aruba Central answered the access point list with something other than an object")
         aps.extend(item for item in data.get("items") or [] if isinstance(item, dict))
         cursor = data.get("next")
         if not cursor:
             return aps
+        if str(cursor) in seen:
+            raise RuntimeError(f"Aruba Central's next page cursor repeated ({cursor}); stopped")
+        seen.add(str(cursor))
     raise RuntimeError(f"Aruba Central listed more than {MAX_PAGES * PAGE_SIZE} access points; stopped")

@@ -8,9 +8,11 @@ a whole inventory sync.
 """
 
 import threading
+import warnings
 
 import requests
 from requests.adapters import HTTPAdapter
+from urllib3.exceptions import InsecureRequestWarning
 from urllib3.util.retry import Retry
 
 RETRY_STATUSES = (429, 502, 503, 504)
@@ -55,3 +57,15 @@ def session() -> requests.Session:
         current.mount("https://", adapter)
         _local.session = current
     return current
+
+
+def request(method: str, url: str, *, verify: bool | str = True, timeout=(10, 30), **kwargs) -> requests.Response:
+    """One request on this thread's session that raises on an error status;
+    without the insecure-request warning only when *verify* is False (the
+    wireless controllers' clients, #508)."""
+    with warnings.catch_warnings():
+        if verify is False:
+            warnings.simplefilter("ignore", InsecureRequestWarning)
+        response = session().request(method, url, timeout=timeout, verify=verify, **kwargs)
+    response.raise_for_status()
+    return response

@@ -120,10 +120,14 @@ ARUBA_CENTRAL_REGION = re.compile(r"^[a-z]{2}[0-9]$")
 
 
 def _http_url(value, where: str, setting: str) -> str:
+    """An https URL: credentials travel over it.  Plain http only on this
+    machine (the demo's mock controllers)."""
     url = str(value).strip().rstrip("/")
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RuntimeError(f"{where}: {setting} must be an absolute http(s) URL")
+        raise RuntimeError(f"{where}: {setting} must be an absolute https URL")
+    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise RuntimeError(f"{where}: {setting} must be https (only localhost may be http)")
     return url
 
 
@@ -137,6 +141,8 @@ def _controller(kind: str, name: str, entry: dict, where: str) -> dict:
             "username": str(entry["username"]).strip(),
             "password": str(entry["password"]),
         }
+    if kind != "aruba_central":
+        raise RuntimeError(f"{where}: no settings for {kind}")
     region = str(entry.get("region") or "").strip().lower()
     if bool(region) == bool(str(entry.get("base_url") or "").strip()):
         raise RuntimeError(f"{where}: give region (e.g. de1) or base_url, one of them")

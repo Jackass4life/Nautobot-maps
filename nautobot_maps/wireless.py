@@ -24,7 +24,7 @@ from nautobot_maps import arubacentral, catalyst, contract, db, inventory, metri
 
 logger = logging.getLogger(__name__)
 
-KIND_NAMES = {"catalyst_center": "Catalyst Center", "aruba_central": "Aruba Central"}
+KIND_NAMES = {"catalyst_center": "Catalyst Center", "aruba_central": "Aruba Central"}  # one per settings kind
 # Instances read at once: enough for a few slow ones, gentle on the app.
 MAX_PARALLEL = 4
 
@@ -61,16 +61,28 @@ def name_key(value) -> str:
     return inventory.librenms_host_key(str(value or ""))
 
 
+# Each kind's client: (read its records, the data contract endpoint, one record as an AP).
+CLIENTS = {
+    "catalyst_center": (
+        lambda controller: catalyst.fetch_devices(controller),
+        (contract.CATALYST_CENTER, "network-device?family=Unified AP"),
+        lambda record: catalyst.ap_record(record),
+    ),
+    "aruba_central": (
+        lambda controller: arubacentral.fetch_aps(controller),
+        (contract.ARUBA_CENTRAL, "network-monitoring/v1/aps"),
+        lambda record: arubacentral.ap_record(record),
+    ),
+}
+
+
 def fetch_aps(controller: dict) -> list[dict]:
-    if controller["kind"] == "catalyst_center":
-        devices = catalyst.fetch_devices(controller)
-        contract.check_and_record(contract.CATALYST_CENTER, "network-device?family=Unified AP", devices)
-        return [catalyst.ap_record(device) for device in devices]
-    if controller["kind"] == "aruba_central":
-        items = arubacentral.fetch_aps(controller)
-        contract.check_and_record(contract.ARUBA_CENTRAL, "network-monitoring/v1/aps", items)
-        return [arubacentral.ap_record(item) for item in items]
-    raise RuntimeError(f"Unknown wireless controller kind {controller['kind']!r}")
+    if controller["kind"] not in CLIENTS:
+        raise RuntimeError(f"Unknown wireless controller kind {controller['kind']!r}")
+    read, (source_name, path), as_ap = CLIENTS[controller["kind"]]
+    records = read(controller)
+    contract.check_and_record(source_name, path, records)
+    return [as_ap(record) for record in records]
 
 
 def write_aps(conn, controller: dict, aps: list[dict], seen_at: str) -> int:

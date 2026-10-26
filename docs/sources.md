@@ -73,13 +73,13 @@ services:
       - ./config/wireless.yml:/config/wireless.yml:ro
 ```
 
-A mistake in the file (a missing password or client secret, a name used twice, both or neither of region and base_url, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password or secret.
+Every URL must be `https` (credentials travel over it; only `localhost` may be `http`, for the demo). HPE's sign-in service is always verified, whatever `verify_ssl` says: that setting is for the Central or Catalyst Center address. A mistake in the file (a missing password or client secret, a name used twice, both or neither of region and base_url, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password or secret.
 
 **How it reads them.** Every instance is read on its own, in bulk, by the background scheduler, never one request per site:
 - Catalyst Center: one sign-in (`POST /dna/system/api/v1/auth/token`), then the access points in pages of 500 (`GET /dna/intent/api/v1/network-device?family=Unified AP`): about 20 requests for 10,000 access points. Online is `Reachable`.
 - New Central: a token (as above), then `GET /network-monitoring/v1/aps` in pages of 1,000, following its `next` cursor: about 10 requests for 10,000. Online is `ONLINE`.
 
- Up to four instances are read at once. The board is rebuilt only when an access point went down or came back.
+Up to four instances are read at once. The board is rebuilt only when an access point went down or came back.
 
 **When one can't be reached:**
 - The others carry on: a slow or failing instance never holds them up or wipes their access points.

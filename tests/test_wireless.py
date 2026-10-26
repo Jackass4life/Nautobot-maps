@@ -73,7 +73,9 @@ catalyst_center:
             ("catalyst_center: {name: dk}", "must be a list"),
             ("catalyst_center: [{name: 'D K', url: 'https://x', username: u, password: p}]", "name must be"),
             ("catalyst_center: [{name: dk, url: 'https://x', username: u}]", "'dk': missing password"),
-            ("catalyst_center: [{name: dk, url: 'ftp://x', username: u, password: p}]", "absolute http(s)"),
+            ("catalyst_center: [{name: dk, url: 'ftp://x', username: u, password: p}]", "absolute https"),
+            # Credentials travel over it: https, but for this machine (the demo's mock).
+            ("catalyst_center: [{name: dk, url: 'http://dnac.example', username: u, password: p}]", "must be https"),
             ("catalyst_center: [{name: dk, url: 'https://x', username: u, password: p, tokn: 1}]", "unknown tokn"),
             (
                 "catalyst_center: [{name: dk, url: 'https://x', username: u, password: p},"
@@ -130,6 +132,7 @@ catalyst_center:
             ("{name: eu, region: de1, client_id: c}", "'eu': missing client_secret"),
             ("{name: eu, base_url: 'x', client_id: c, client_secret: s}", "base_url must be an absolute"),
             ("{name: eu, region: de1, token_url: 'x', client_id: c, client_secret: s}", "token_url must be an"),
+            ("{name: eu, region: de1, token_url: 'http://sso.x', client_id: c, client_secret: s}", "must be https"),
         ],
     )
     def test_aruba_central_mistakes(self, tmp_path, entry, message):
@@ -137,6 +140,12 @@ catalyst_center:
             settings._wireless_controllers(self.write(tmp_path, f"aruba_central: [{entry}]"))
         assert message in str(caught.value)
         assert "s}" not in str(caught.value)
+
+    def test_localhost_may_be_http(self, tmp_path):
+        path = self.write(
+            tmp_path, "catalyst_center: [{name: demo, url: 'http://127.0.0.1:8080', username: u, password: p}]"
+        )
+        assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
 
     def test_a_missing_file_says_so(self, tmp_path):
         with pytest.raises(RuntimeError, match="can't be read: FileNotFoundError"):
@@ -297,6 +306,42 @@ class TestArubaCentral:
         arubacentral._tokens[(EU["token_url"], EU["client_id"])] = ("old", 10**12)
         assert len(arubacentral.fetch_aps(EU)) == 3
         assert fake_central.tokens == 1
+
+    def test_hpe_sign_in_is_always_verified(self, fake_central):
+        # verify_ssl is for a Central behind a private CA or in a lab, never for the secret.
+        fake_central.total = 1
+        verified = []
+        original = fake_central.request
+
+        def request(method, url, timeout=None, verify=None, **kwargs):
+            verified.append((url.rsplit("/", 1)[-1], verify))
+            return original(method, url, timeout=timeout, verify=verify, **kwargs)
+
+        fake_central.request = request
+        arubacentral.fetch_aps({**EU, "verify_ssl": False})
+        assert verified == [("token.oauth2", True), ("aps", False)]
+
+    @pytest.mark.parametrize("body", [b"[]", b'{"token_type": "Bearer"}'])
+    def test_a_sign_in_without_a_token_says_so(self, fake_central, body):
+        original = fake_central.request
+
+        def request(method, url, **kwargs):
+            response = original(method, url, **kwargs)
+            if url.endswith("token.oauth2"):
+                response._content = body
+            return response
+
+        fake_central.request = request
+        with pytest.raises(RuntimeError, match="sign-in answered without an access token"):
+            arubacentral.fetch_aps(EU)
+
+    def test_a_cursor_that_repeats_stops(self, fake_central, monkeypatch):
+        monkeypatch.setattr(arubacentral, "get", lambda controller, path, params: {"items": [{}], "next": "2"})
+        with pytest.raises(RuntimeError, match="cursor repeated"):
+            arubacentral.fetch_aps(EU)
+        monkeypatch.setattr(arubacentral, "get", lambda controller, path, params: [])
+        with pytest.raises(RuntimeError, match="something other than an object"):
+            arubacentral.fetch_aps(EU)
 
     def test_what_is_kept_of_an_ap(self):
         assert arubacentral.ap_record(
