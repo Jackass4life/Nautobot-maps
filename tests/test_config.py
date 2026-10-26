@@ -1,5 +1,6 @@
 """Configuration plumbing: settings in .env must reach the app in Docker (#159)."""
 
+import argparse
 import os
 import pathlib
 import re
@@ -10,11 +11,15 @@ import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+# Removed settings, only read to warn about them (#153): neither passed by
+# docker-compose.yml nor documented as settings.
+LEGACY_SETTINGS = {"NAUTOBOT_MAPS_DB"}
+
 # Read by the code but deliberately not passed by docker-compose.yml.
 NOT_PASSED_BY_COMPOSE = {
     "FLASK_DEBUG",  # only for `python app.py`; Docker runs gunicorn
     "FLASK_RUN_PORT",  # same
-    "NAUTOBOT_MAPS_DB",  # removed SQLite setting, only read to warn (#153)
+    *LEGACY_SETTINGS,
 }
 
 
@@ -25,6 +30,7 @@ def _settings_read_by_code() -> set[str]:
         # Any call with a setting's name first: os.getenv(...) and helpers such as
         # _flag("COMPRESS_RESPONSES", True), which the os.getenv-only match missed.
         names |= set(re.findall(r'\w\(\s*"([A-Z][A-Z0-9_]+)"', source))
+        names |= set(re.findall(r'os\.environ\[\s*"([A-Z][A-Z0-9_]+)"', source))
     return names
 
 
@@ -59,9 +65,15 @@ def test_empty_settings_mean_defaults():
 
 
 def test_only_the_settings_module_reads_the_environment():
-    """app.py reads settings via nautobot_maps.settings, never os.getenv (#165)."""
-    source = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
-    assert not re.search(r"os\.(getenv|environ)", source)
+    """Every module reads settings via nautobot_maps.settings, never os.getenv
+    (#165), so the documentation check below sees every setting (#519)."""
+    files = [REPO_ROOT / "app.py", REPO_ROOT / "asgi.py", *sorted((REPO_ROOT / "nautobot_maps").rglob("*.py"))]
+    readers = [
+        str(path.relative_to(REPO_ROOT))
+        for path in files
+        if path.name != "settings.py" and re.search(r"os\.(getenv|environ)", path.read_text(encoding="utf-8"))
+    ]
+    assert not readers, f"read settings through nautobot_maps.settings: {readers}"
 
 
 def test_importing_the_modules_does_not_touch_the_database():
@@ -94,39 +106,53 @@ def test_the_config_folder_is_mounted_read_only():
     assert "config/" in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
 
 
-# Read only to warn about it (#153): documented in the CHANGELOG, not as a setting.
-NOT_DOCUMENTED = {"NAUTOBOT_MAPS_DB"}
-
-
 def test_every_setting_is_documented():
     """Every setting the code reads is in docs/configuration.md and .env.example (#519)."""
     configuration = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
     example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
-    settings_read = _settings_read_by_code() - NOT_DOCUMENTED
+    settings_read = _settings_read_by_code() - LEGACY_SETTINGS
     missing = sorted(name for name in settings_read if f"`{name}`" not in configuration)
     assert not missing, f"add to docs/configuration.md: {missing}"
-    missing = sorted(name for name in settings_read if name not in example)
+    # As a line of its own ("NAME=" or "# NAME="), not inside a longer name.
+    missing = sorted(name for name in settings_read if not re.search(rf"^#? ?{name}=", example, re.MULTILINE))
     assert not missing, f"add to .env.example: {missing}"
 
 
 def test_every_wireless_controller_key_is_documented():
-    """Each key a wireless controllers file may have is in docs/sources.md's table (#519)."""
+    """Each kind and key a wireless controllers file may have is in the key
+    table of docs/sources.md (#519): a row's first cell, or a column title."""
     from nautobot_maps import settings
 
     sources = (REPO_ROOT / "docs" / "sources.md").read_text(encoding="utf-8")
+    table = sources.split("**Every key in the file**", 1)[1].split("\n\n", 2)[1]
+    first_cells = " ".join(row.split("|")[1] for row in table.splitlines() if row.startswith("|"))
+    header = table.splitlines()[0]
     keys = {key for required, optional in settings.WIRELESS_CONTROLLER_KINDS.values() for key in required | optional}
-    missing = sorted(key for key in keys | set(settings.WIRELESS_CONTROLLER_KINDS) if f"`{key}`" not in sources)
-    assert not missing, f"add to docs/sources.md: {missing}"
+    missing = sorted(key for key in keys if f"`{key}`" not in first_cells)
+    missing += sorted(kind for kind in settings.WIRELESS_CONTROLLER_KINDS if f"`{kind}`" not in header)
+    assert not missing, f"add to the key table in docs/sources.md: {missing}"
+
+
+def _commands(parser) -> list[str]:
+    """Every command and subcommand, as typed: "migrate", "token create"."""
+    found = []
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, sub in action.choices.items():
+                below = _commands(sub)
+                found += [f"{name} {rest}" for rest in below] if below else [name]
+    return found
 
 
 def test_every_command_is_documented():
-    """Each `python -m nautobot_maps` command is in the docs (#519)."""
+    """Each ``python -m nautobot_maps`` command, as typed, is in the README or a guide (#519)."""
     from nautobot_maps import __main__ as cli
 
     docs = "\n".join(
         path.read_text(encoding="utf-8")
         for path in [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").glob("*.md"))]
     )
-    commands = cli.build_parser()._subparsers._group_actions[0].choices
-    missing = sorted(name for name in commands if name not in docs)
-    assert not missing, f"document these commands: {missing}"
+    commands = _commands(cli.build_parser())
+    assert "token create" in commands
+    missing = sorted(command for command in commands if f"nautobot_maps {command}" not in docs)
+    assert not missing, f"document these commands (python -m nautobot_maps ...): {missing}"

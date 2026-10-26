@@ -61,7 +61,7 @@ aruba_central:                    # New Central (not classic Central)
 
 | Key | Catalyst Center (`catalyst_center`) | Aruba New Central (`aruba_central`) |
 |---|---|---|
-| `name` | **required**: 1–32 of `a-z`, `0-9`, `_`, `-`; unique per kind; shown as "Catalyst Center dk" | **required**, the same; shown as "Aruba Central eu" |
+| `name` | **required**: 1–32 of `a-z`, `0-9`, `_`, `-`, starting with a letter or digit (capitals become small); unique per kind; shown as "Catalyst Center dk" | **required**, the same; shown as "Aruba Central eu" |
 | `url` | **required**: `https://` address of the instance | — |
 | `username` / `password` | **required**: a read-only user (the Observer role is enough) | — |
 | `region` | — | the cluster, e.g. `us1`, `de1`, `gb1`, `in1`, `au1` (`cn1` gets its own domain); **this or `base_url`** |

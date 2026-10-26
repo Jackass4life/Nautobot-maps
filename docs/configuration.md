@@ -67,16 +67,11 @@ What a push does: the app asks the LibreNMS API for that one device and stores i
 
 ## Wireless controllers (optional)
 
-Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each (#508): an access point the controller reports down is counted ("2 of 40 access points down" on the status page), never raising a site's level or notifying. The instances, with their read-only accounts, are listed in one YAML file in the [config folder](#configuration):
-
-- **Catalyst Center:** `name`, `url`, `username`, `password`, optional `verify_ssl`.
-- **New Central:** `name`, `region` (or `base_url`), `client_id`, `client_secret` of a Central-scoped GreenLake API client, optional `token_url` and `verify_ssl`.
-
-Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
+Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each (#508): an access point the controller reports down is counted ("2 of 40 access points down" on the status page), never raising a site's level or notifying. The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#configuration). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `WIRELESS_CONTROLLERS_FILE` | — | A YAML file listing any number of Cisco Catalyst Center instances (name, url, read-only username and password, verify_ssl) and HPE Aruba Networking New Central instances (name, region or base_url, API client id and secret), for access point status ([sources](sources.md#wireless-controllers-access-points)), e.g. `/config/wireless.yml`; a mistake in it, or a file the app can't read, stops the app at startup |
+| `WIRELESS_CONTROLLERS_FILE` | — | The YAML file listing the instances, e.g. `/config/wireless.yml` ([every key](sources.md#wireless-controllers-access-points)); a mistake in it, or a file the app can't read, stops the app at startup |
 | `WIRELESS_SYNC_INTERVAL_SECONDS` | `300` | How often each wireless controller is read (at least 60) |
 
 ## Other monitoring tools (optional)
@@ -109,7 +104,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `SITE_TIERS` | `gold,silver,bronze` | The tier values, most important first; other values are no tier |
 | `TIER_DEVICE_LEVEL` | — | What any down device makes a site of that tier, e.g. `gold:critical,silver:medium`; a device's own field overrides it ([device and site criticality](alert-board.md#device-and-site-criticality)) |
 | `DEVICE_CRITICALITY_FIELD` | — | Nautobot custom field on the device (a select: `critical`, `medium`, `low`): what that device makes its site when down; it wins over the tier, the overrides and the role keywords. Setting it makes the next sync a full one |
-| `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`): on the board, the wall, the map's site panel, Copy and notifications |
+| `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`): on the board, the wall, the + Case and History panels, the map's site panel, Copy, notifications and the incidents CSV ([links to tickets](alert-board.md)) |
 | `AVAILABILITY_BASIS` | `any_down` | What the [availability report](availability.md) counts as downtime: `any_down` (any monitored device of the site down) or `critical` (the site at Critical) |
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |
