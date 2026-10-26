@@ -513,7 +513,7 @@ def test_the_status_page_counts_the_devices(page):
     hit.wait_for()
     assert hit.inner_text().strip() == "3 of 12 network devices down · 1 of 40 access points down"
     assert page.locator(".status-site", has_text="Fine").locator(".status-devices").inner_text().strip() == (
-        "12 network · 40 APs"
+        "12 network devices · 40 access points"
     )
     assert page.locator("#status-headline").inner_text().strip() == "1 of 2 sites affected · 4 devices down"
 

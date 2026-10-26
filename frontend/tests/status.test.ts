@@ -25,13 +25,15 @@ describe("what the page says", () => {
     expect(site("degraded", 12, 40, 0, 5)).toBe("12 network devices · 5 of 40 access points down");
     expect(site("outage", 1, 0, 1)).toBe("1 of 1 network device down");
     expect(site("outage", 0, 1200, 0, 300)).toBe("300 of 1,200 access points down");
-    expect(site("operational", 12, 40)).toBe("12 network · 40 APs");
-    expect(site("maintenance", 0, 1)).toBe("1 AP");
+    // Full words for the customer, also when all is well.
+    expect(site("operational", 12, 40)).toBe("12 network devices · 40 access points");
+    expect(site("operational", 6, 0)).toBe("6 network devices");
+    expect(site("maintenance", 0, 1)).toBe("1 access point");
     expect(site("unknown", 0, 0)).toBe("");
     // Nothing down (an alert from a webhook), or in maintenance or without data: the quiet line.
-    expect(site("outage", 12, 40)).toBe("12 network · 40 APs");
-    expect(site("maintenance", 12, 40, 3, 1)).toBe("12 network · 40 APs");
-    expect(site("unknown", 12, 40, 0, 2)).toBe("12 network · 40 APs");
+    expect(site("outage", 12, 40)).toBe("12 network devices · 40 access points");
+    expect(site("maintenance", 12, 40, 3, 1)).toBe("12 network devices · 40 access points");
+    expect(site("unknown", 12, 40, 0, 2)).toBe("12 network devices · 40 access points");
     // An operational site with access points down per its wireless controller (#508).
     expect(site("operational", 12, 40, 0, 2)).toBe("12 network devices · 2 of 40 access points down");
   });
