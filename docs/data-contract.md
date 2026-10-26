@@ -366,6 +366,23 @@ Up/down status of every access point, matched to Nautobot devices by serial, els
 | `reachabilityStatus` | string or null | yes | up | Reachable = up, anything else = down; down is counted as an access point down, never in the site's level |
 | `macAddress` | string or null |  | mac | — |
 
+## HPE Aruba Networking New Central
+
+### `network-monitoring/v1/aps`
+
+Up/down status of every access point in HPE Aruba Networking New Central, matched to Nautobot devices by serial, else name (#508).
+
+- Request: POST https://sso.common.cloud.hpe.com/as/token.oauth2 (client credentials of a Central-scoped API client), then GET https://<region>.api.central.arubanetworks.com/network-monitoring/v1/aps, Authorization: Bearer, limit=1000 and the next cursor; the items array
+- Stored in: `wireless_ap_status (one row per AP per instance)`
+- Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.
+
+| Field | Type | Required | Becomes | Rule |
+|---|---|---|---|---|
+| `serialNumber` | string | yes | serial | matched to the Nautobot device serial (case-insensitive) |
+| `deviceName` | string or null |  | name | when the serial doesn't match: the Nautobot access point's name (short name, case-insensitive) |
+| `status` | string or null | yes | up | ONLINE = up, anything else = down; down is counted as an access point down, never in the site's level |
+| `macAddress` | string or null |  | mac | — |
+
 ## Not covered
 
 The location detail panel's live reads from Nautobot (dcim/locations/<id>/ for the ASN, ipam/asns/, circuits/circuit-terminations/, and dcim/devices/ when the cache is empty): shown as they come, not stored.

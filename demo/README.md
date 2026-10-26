@@ -98,9 +98,9 @@ MOCK_SCALE=1200 docker compose -f demo/docker-compose.yml up --build
 
 This is how the README's screenshots are made (`scripts/screenshots.py`).
 
-### Scenario 8 – Access points from Catalyst Center
-The mock also answers as a Cisco Catalyst Center (#508): it lists every access
-point, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
+### Scenario 8 – Access points from Catalyst Center and Aruba New Central
+The mock also answers as a Cisco Catalyst Center (#508): it lists the access
+points, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
 *lab-ap99*, that isn't in Nautobot. Run the app outside Docker with
 `WIRELESS_CONTROLLERS_FILE=demo/wireless.yml` (the file points at the mock on
 `127.0.0.1:8080`), then:
@@ -109,6 +109,11 @@ point, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
   matching a Nautobot device, and *lab-ap99* as not in Nautobot.
 - Acme Corp's status page says *Stockholm PoP* has "1 network device · 1 of 3 access
   points down" while it stays Operational.
+
+With `MOCK_SCALE=1200` it is an Aruba New Central too (`demo/wireless.yml`
+lists both): Catalyst Center has the even scale sites' access points, New
+Central the odd ones', each with one in 200 offline, so `wireless-check`
+shows two instances of about 4,800 access points each.
 
 ## Stopping the demo
 

@@ -1,4 +1,5 @@
-"""Access point status from the wireless controllers (#508).
+"""Access point status from the wireless controllers (#508): Cisco Catalyst
+Center and HPE Aruba Networking New Central.
 
 Each instance in ``settings.WIRELESS_CONTROLLERS`` is read on its own, in
 bulk, every ``WIRELESS_SYNC_INTERVAL_SECONDS``: its APs replace its rows in
@@ -19,11 +20,11 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
-from nautobot_maps import catalyst, contract, db, inventory, metrics, settings, timeutil
+from nautobot_maps import arubacentral, catalyst, contract, db, inventory, metrics, settings, timeutil
 
 logger = logging.getLogger(__name__)
 
-KIND_NAMES = {"catalyst_center": "Catalyst Center"}
+KIND_NAMES = {"catalyst_center": "Catalyst Center", "aruba_central": "Aruba Central"}
 # Instances read at once: enough for a few slow ones, gentle on the app.
 MAX_PARALLEL = 4
 
@@ -65,6 +66,10 @@ def fetch_aps(controller: dict) -> list[dict]:
         devices = catalyst.fetch_devices(controller)
         contract.check_and_record(contract.CATALYST_CENTER, "network-device?family=Unified AP", devices)
         return [catalyst.ap_record(device) for device in devices]
+    if controller["kind"] == "aruba_central":
+        items = arubacentral.fetch_aps(controller)
+        contract.check_and_record(contract.ARUBA_CENTRAL, "network-monitoring/v1/aps", items)
+        return [arubacentral.ap_record(item) for item in items]
     raise RuntimeError(f"Unknown wireless controller kind {controller['kind']!r}")
 
 

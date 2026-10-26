@@ -1093,8 +1093,19 @@ def relationship_associations(request: Request):
 CATALYST_TOKEN = "mock-catalyst-center-token"
 
 
-def _catalyst_aps() -> list[dict]:
+def _access_points(controller: str) -> list[dict]:
+    """The demo's access points: the nine sites' and the even scale sites' in
+    Catalyst Center, the odd scale sites' in Aruba New Central (#508)."""
     aps = [d for d in ALL_DEVICES if (d.get("role") or {}).get("name") == "Access Point"]
+
+    def odd_scale_site(device: dict) -> bool:
+        return device["id"].startswith("dev-loc-sc") and int(device["id"][len("dev-loc-sc") :].split("-")[0]) % 2 == 1
+
+    return [d for d in aps if odd_scale_site(d) == (controller == "aruba_central")]
+
+
+def _catalyst_aps() -> list[dict]:
+    aps = _access_points("catalyst_center")
     listed = []
     for index, device in enumerate(aps):
         down = device["name"] == "sto-ap02" or (device["id"].startswith("dev-loc-sc") and index % 200 == 7)
@@ -1119,6 +1130,43 @@ def _catalyst_aps() -> list[dict]:
         }
     )
     return listed
+
+
+# HPE Aruba Networking New Central (#508): the odd scale sites' access points,
+# one in 200 offline, in pages with a "next" cursor.  Its sign-in is HPE's
+# OAuth client credentials (token_url in demo/wireless.yml points here).
+CENTRAL_TOKEN = "mock-aruba-central-token"
+
+
+@app.post("/as/token.oauth2")
+async def central_token(request: Request):
+    form = await request.form()
+    if form.get("grant_type") != "client_credentials" or not form.get("client_id") or not form.get("client_secret"):
+        raise HTTPException(status_code=401, detail="invalid_client")
+    return {"access_token": CENTRAL_TOKEN, "token_type": "Bearer", "expires_in": 7200}
+
+
+@app.get("/network-monitoring/v1/aps")
+def central_aps(request: Request):
+    if request.headers.get("Authorization") != f"Bearer {CENTRAL_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    limit = min(1000, int(request.query_params.get("limit", 20)))
+    page = int(request.query_params.get("next") or 1)
+    aps = _access_points("aruba_central")
+    items = [
+        {
+            "id": f"ac-{device['id']}",
+            "type": "ACCESS_POINT",
+            "serialNumber": device.get("serial") or "",
+            "macAddress": f"20:4c:03:{index // 65536 % 256:02x}:{index // 256 % 256:02x}:{index % 256:02x}",
+            "deviceName": device["name"],
+            "siteId": device["location"]["id"],
+            "status": "OFFLINE" if index % 200 == 11 else "ONLINE",
+        }
+        for index, device in enumerate(aps)
+    ][(page - 1) * limit : page * limit]
+    more = page * limit < len(aps)
+    return {"items": items, "count": len(items), "total": len(aps), "next": str(page + 1) if more else None}
 
 
 @app.post("/dna/system/api/v1/auth/token")

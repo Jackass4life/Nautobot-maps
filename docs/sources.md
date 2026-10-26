@@ -22,9 +22,9 @@ Each answer says what happened:
 
 `matched` counts the firing alerts that name a known Nautobot device. If it stays 0, the label or name doesn't match.
 
-## Wireless controllers: access points (Catalyst Center)
+## Wireless controllers: access points
 
-The wireless controllers know best whether an access point is up (#508). The app reads every access point from any number of **Cisco Catalyst Center** instances, matches each one to its Nautobot device, and counts the ones the controller reports down:
+The wireless controllers know best whether an access point is up (#508). The app reads every access point from any number of **Cisco Catalyst Center** and **HPE Aruba Networking New Central** instances, matches each one to its Nautobot device, and counts the ones the controller reports down:
 - on the [status page](status-page.md): "2 of 40 access points down", also at a site that is otherwise fine;
 - on the board's data (`down_access_point_count`).
 
@@ -32,7 +32,7 @@ An access point that is down **never raises a site's level or sends a notificati
 
 **Matching.** By **serial** (capitals don't matter), else by **name** (the part before the first dot), against the Nautobot devices. By name only for a device whose role is an access point, and only for a name one access point carries: `ap-01` at two sites matches neither. Which of them are access points is still `ACCESS_POINT_ROLES` ([configuration](configuration.md)). An access point in maintenance, or at a site in maintenance, isn't down.
 
-**Several instances.** List them in one YAML file, with read-only accounts:
+**Several instances, of either kind.** List them in one YAML file, with read-only accounts:
 
 ```yaml
 # /config/wireless.yml: chmod 600, mounted read-only
@@ -46,7 +46,18 @@ catalyst_center:
     url: https://dnac-se.example.com
     username: maps-ro
     password: "..."
+aruba_central:                    # New Central (not classic Central)
+  - name: eu                      # shown as "Aruba Central eu"
+    region: de1                   # us1, de1, gb1, in1, au1, cn1, ...; or base_url: https://...
+    client_id: "..."              # a Central-scoped API client from the GreenLake workspace
+    client_secret: "..."
+  - name: us
+    region: us1
+    client_id: "..."
+    client_secret: "..."
 ```
+
+For New Central, create the API client under **Manage Workspace → Personal API clients** in HPE GreenLake, for the **Central** instance (a workspace-scoped client can't read Central). It needs only to read monitoring. There is no refresh token to keep: the app asks HPE's sign-in service (`https://sso.common.cloud.hpe.com/as/token.oauth2`, or `token_url`) for a new token, which lasts two hours, when the old one is about to expire.
 
 ```sh
 WIRELESS_CONTROLLERS_FILE=/config/wireless.yml
@@ -62,9 +73,13 @@ services:
       - ./config/wireless.yml:/config/wireless.yml:ro
 ```
 
-A mistake in the file (a missing password, a name used twice, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password.
+A mistake in the file (a missing password or client secret, a name used twice, both or neither of region and base_url, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password or secret.
 
-**How it reads them.** Every instance is read on its own, in bulk, by the background scheduler: one sign-in (`POST /dna/system/api/v1/auth/token`), then the access points in pages of 500 (`GET /dna/intent/api/v1/network-device?family=Unified AP`). That is about 20 requests for 10,000 access points, never one per site. Up to four instances are read at once. The board is rebuilt only when an access point went down or came back.
+**How it reads them.** Every instance is read on its own, in bulk, by the background scheduler, never one request per site:
+- Catalyst Center: one sign-in (`POST /dna/system/api/v1/auth/token`), then the access points in pages of 500 (`GET /dna/intent/api/v1/network-device?family=Unified AP`): about 20 requests for 10,000 access points. Online is `Reachable`.
+- New Central: a token (as above), then `GET /network-monitoring/v1/aps` in pages of 1,000, following its `next` cursor: about 10 requests for 10,000. Online is `ONLINE`.
+
+ Up to four instances are read at once. The board is rebuilt only when an access point went down or came back.
 
 **When one can't be reached:**
 - The others carry on: a slow or failing instance never holds them up or wipes their access points.
@@ -83,11 +98,12 @@ docker compose exec nautobot-maps python -m nautobot_maps wireless-check
 Catalyst Center dk (https://dnac-dk.example.com): 4210 access points, 12 down, 4198 match a Nautobot device
   not in Nautobot (serial or name), e.g.: lab-ap99
 Catalyst Center se (https://dnac-se.example.com): can't read it: 401 Client Error: Unauthorized
+Aruba Central eu (https://de1.api.central.arubanetworks.com): 3870 access points, 4 down, 3870 match a Nautobot device
 ```
 
 It reads each instance now and exits with status 1 when one fails. Access points that match nothing have a serial or name in the controller that no Nautobot device has. `/metrics` has the same per instance: `nautobot_maps_wireless_access_points{controller,state}` and `nautobot_maps_wireless_access_points_matched{controller}` ([operations](operations.md)).
 
-The fields read are in the [data contract](data-contract.md#cisco-catalyst-center).
+The fields read are in the data contract: [Catalyst Center](data-contract.md#cisco-catalyst-center), [New Central](data-contract.md#hpe-aruba-networking-new-central).
 
 ## Prometheus Alertmanager
 

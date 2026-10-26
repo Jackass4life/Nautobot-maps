@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Access point status from HPE Aruba Networking New Central too, any number of instances** (#508): `aruba_central` in `WIRELESS_CONTROLLERS_FILE`, each with a `region` (us1, de1, …) or `base_url` and a Central-scoped API client from GreenLake (client id and secret; no refresh token to keep). Read in pages of 1,000 (`/network-monitoring/v1/aps`), matched and counted like Catalyst Center's: never in a site's level
 - **Access point status from Cisco Catalyst Center, any number of instances** (#508): `WIRELESS_CONTROLLERS_FILE` lists them (a YAML file with read-only accounts); each is read in bulk every `WIRELESS_SYNC_INTERVAL_SECONDS` (default 300), and its access points are matched to Nautobot devices by serial, else name. One the controller reports down is counted ("2 of 40 access points down" on the status page, also at an operational site, and in its headline) but never raises a site's level or notifies. Each instance on its own: the top bar names one that can't be reached, `/metrics` has `nautobot_maps_wireless_access_points{controller,state}` and `…_matched{controller}`, and `python -m nautobot_maps wireless-check` says what each lists and matches. Schema version 28 (`wireless_ap_status`); PyYAML is a new dependency
 
 ## [0.2.0] - 2026-10-25
