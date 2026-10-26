@@ -57,6 +57,19 @@ aruba_central:                    # New Central (not classic Central)
     client_secret: "..."
 ```
 
+**Every key in the file** (anything else stops startup, naming it):
+
+| Key | Catalyst Center (`catalyst_center`) | Aruba New Central (`aruba_central`) |
+|---|---|---|
+| `name` | **required**: 1–32 of `a-z`, `0-9`, `_`, `-`, starting with a letter or digit (capitals become small); unique per kind; shown as "Catalyst Center dk" | **required**, the same; shown as "Aruba Central eu" |
+| `url` | **required**: `https://` address of the instance | — |
+| `username` / `password` | **required**: a read-only user (the Observer role is enough) | — |
+| `region` | — | the cluster, e.g. `us1`, `de1`, `gb1`, `in1`, `au1` (`cn1` gets its own domain); **this or `base_url`** |
+| `base_url` | — | the API's `https://` address, when it isn't `https://<region>.api.central.arubanetworks.com`; **this or `region`** |
+| `client_id` / `client_secret` | — | **required**: a Central-scoped API client from GreenLake |
+| `token_url` | — | default `https://sso.common.cloud.hpe.com/as/token.oauth2` (HPE's sign-in, always verified) |
+| `verify_ssl` | `true` (default), `false`, or a CA bundle path such as `/config/certs/internal-ca.pem` | the same, for the `base_url` (and a custom `token_url`) |
+
 For New Central, create the API client under **Manage Workspace → Personal API clients** in HPE GreenLake, for the **Central** instance (a workspace-scoped client can't read Central). It needs only to read monitoring. There is no refresh token to keep: the app asks HPE's sign-in service (`https://sso.common.cloud.hpe.com/as/token.oauth2`, or `token_url`) for a new token, which lasts two hours, when the old one is about to expire.
 
 ```sh

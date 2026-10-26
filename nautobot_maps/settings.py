@@ -211,7 +211,9 @@ def _wireless_controllers(path: str) -> tuple[dict, ...]:
                 raise RuntimeError(f"{where}: expected name, url, ...")
             name = str(entry.get("name") or "").strip().lower()
             if not CONTROLLER_NAME.match(name):
-                raise RuntimeError(f"{where}: name must be 1-32 of a-z, 0-9, _ and - (e.g. dk)")
+                raise RuntimeError(
+                    f"{where}: name must be 1-32 of a-z, 0-9, _ and -, starting with a letter or digit (e.g. dk)"
+                )
             where = f"WIRELESS_CONTROLLERS_FILE {path!r}: {kind} {name!r}"
             if name in names:
                 raise RuntimeError(f"{where} is listed twice")
