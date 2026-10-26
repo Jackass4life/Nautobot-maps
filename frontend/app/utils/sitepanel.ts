@@ -183,3 +183,32 @@ export function circuitMatchNote(circuit: Pick<SiteCircuit, "match" | "shared_wi
 export function maintenanceHistoryHref(siteId: string): string {
   return `/maintenance?${new URLSearchParams({ view: "history", site_id: siteId })}`;
 }
+
+// Who is on it (#512): the site's cases, the first few and "+N" (a core
+// outage can have many), and the down devices nobody is on: counted on the
+// board, without a case or an acknowledgement.
+export const CASES_SHOWN = 3;
+
+export function casesShown(cases: string[]): { shown: string[]; more: number } {
+  return { shown: cases.slice(0, CASES_SHOWN), more: Math.max(0, cases.length - CASES_SHOWN) };
+}
+
+export function nobodyOnIt(down: SiteDevice[]): number {
+  return down.filter((device) => counted(device) && !device.case_numbers?.length && !device.acknowledged_by).length;
+}
+
+// What the panel says about them: "No case" when nobody is on any, "29
+// without a case" when someone is on some; nothing when the cases couldn't be
+// read (no database), rather than a false alarm.
+export function noCaseText(down: SiteDevice[], casesRead: boolean, hasCases: boolean): string {
+  const waiting = nobodyOnIt(down);
+  if (!casesRead || !waiting) return "";
+  return !hasCases && waiting === down.filter(counted).length ? "No case" : `${waiting.toLocaleString("en")} without a case`;
+}
+
+// A down device's case on its row: "INC0048213", "INC0048213 +1".
+export function deviceCase(device: SiteDevice): string {
+  const cases = device.case_numbers || [];
+  if (!cases.length) return "";
+  return cases.length > 1 ? `${cases[0]} +${cases.length - 1}` : cases[0]!;
+}

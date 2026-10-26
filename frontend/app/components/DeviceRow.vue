@@ -1,10 +1,11 @@
-<!-- One device in the site panel (#394): its status dot, name and role; a
+<!-- One device in the site panel (#394): its status dot, name, case (#512) and role; a
      click opens the rest in place.  A stack's lead (#400) says "Stack of 4"
      and lists its members; *size* is the whole stack's when some members are
      listed elsewhere. -->
 <script setup lang="ts">
 import {
   deviceAside,
+  deviceCase,
   deviceCountNote,
   deviceFacts,
   deviceHealth,
@@ -28,6 +29,8 @@ const note = computed(() => deviceNote(props.device));
 const aside = computed(() => deviceAside(props.device, stackSize.value));
 const facts = computed(() => deviceFacts(props.device, aside.value));
 const countNote = computed(() => deviceCountNote(props.device));
+// Its open alert's case (#512), as on the board.
+const caseText = computed(() => deviceCase(props.device));
 // Counted down, the whole stack is (no number: this site may not have every member).
 const membersTitle = computed(() =>
   health.value === "down" && !note.value ? "The whole stack is down, all its members:" : `Stack of ${stackSize.value}:`,
@@ -45,6 +48,7 @@ const membersTitle = computed(() =>
     >
       <span class="legend-dot" :class="`dot-${dot}`" aria-hidden="true" />
       <span class="device-row-name min-w-0 flex-1 truncate font-medium text-highlighted">{{ device.name || "Unnamed device" }}</span>
+      <span v-if="caseText" class="device-row-case shrink-0 font-mono text-xs text-toned">{{ caseText }}</span>
       <span class="device-row-role shrink-0 truncate text-xs" :class="note ? 'device-row-note text-warning' : 'text-muted'">{{ aside }}</span>
     </button>
     <div v-if="open" class="device-details space-y-0.5 pb-2 pl-7 pr-2 text-xs text-muted">

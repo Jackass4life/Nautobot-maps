@@ -2436,6 +2436,20 @@
             "title": "Asns",
             "type": "array"
           },
+          "cases": {
+            "description": "Its devices' open cases, newest first (#512).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "cases_read": {
+            "default": false,
+            "description": "Whether they could be read: without, no case means nothing.",
+            "title": "Cases Read",
+            "type": "boolean"
+          },
           "circuits": {
             "items": {
               "$ref": "#/components/schemas/SiteCircuit"
@@ -3846,6 +3860,18 @@
         "additionalProperties": false,
         "description": "A device at the site, as the panel shows it.",
         "properties": {
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who acknowledged its open alert; empty when nobody did.",
+            "title": "Acknowledged By"
+          },
           "alert_pending": {
             "anyOf": [
               {
@@ -3857,6 +3883,21 @@
             ],
             "description": "Down, within the alert delay.",
             "title": "Alert Pending"
+          },
+          "case_numbers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its open alert's cases, newest first (#512).",
+            "title": "Case Numbers"
           },
           "core": {
             "description": "Core device: likely the cause when the site is down.",

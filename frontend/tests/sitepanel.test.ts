@@ -3,6 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { COORDINATE_LIST_LIMIT, canShow, coordinateList, coordinateSummary, type CoordinateProblem } from "~/utils/coordinates";
 import {
+  casesShown,
+  deviceCase,
+  nobodyOnIt,
+  noCaseText,
   circuitMatchNote,
   circuitTermination,
   deviceAside,
@@ -182,5 +186,37 @@ describe("the coordinate check (#368, #416)", () => {
     expect(canShow(problem("far"))).toBe(true);
     expect(canShow(problem("missing", { latitude: null }))).toBe(false);
     expect(canShow(problem("invalid"))).toBe(false);
+  });
+});
+
+describe("who is on it (#512)", () => {
+  const device = (extra: Partial<SiteDevice>): SiteDevice => ({ id: "d", name: "d", status: "Offline", not_monitored: "", ...extra }) as SiteDevice;
+
+  it("the site's cases: the first three and how many more", () => {
+    expect(casesShown([])).toEqual({ shown: [], more: 0 });
+    expect(casesShown(["INC1", "INC2", "INC3", "INC4", "INC5"])).toEqual({ shown: ["INC1", "INC2", "INC3"], more: 2 });
+  });
+
+  it("the down devices nobody is on: counted, without a case or an acknowledgement", () => {
+    expect(nobodyOnIt([device({ case_numbers: [] }), device({ acknowledged_by: "olga" }), device({ case_numbers: ["INC1"] })])).toBe(1);
+    // In maintenance, within the alert delay or not monitored: not waiting for anyone.
+    expect(nobodyOnIt([device({ maintenance_until: "x" }), device({ alert_pending: true }), device({ not_monitored: "no IP" })])).toBe(0);
+  });
+
+  it("what the panel says: No case, N without a case, or nothing", () => {
+    const waiting = Array.from({ length: 29 }, () => device({}));
+    expect(noCaseText(waiting, true, false)).toBe("No case");
+    // A core outage with one old case: the 29 others still need someone.
+    expect(noCaseText([...waiting, device({ case_numbers: ["INC1"] })], true, true)).toBe("29 without a case");
+    expect(noCaseText([...waiting, device({ acknowledged_by: "olga" })], true, false)).toBe("29 without a case");
+    expect(noCaseText([device({ case_numbers: ["INC1"] })], true, true)).toBe("");
+    // Not read (no database): no false alarm.
+    expect(noCaseText(waiting, false, false)).toBe("");
+  });
+
+  it("a device's case on its row", () => {
+    expect(deviceCase(device({}))).toBe("");
+    expect(deviceCase(device({ case_numbers: ["INC0048213"] }))).toBe("INC0048213");
+    expect(deviceCase(device({ case_numbers: ["INC0048290", "INC0048213"] }))).toBe("INC0048290 +1");
   });
 });

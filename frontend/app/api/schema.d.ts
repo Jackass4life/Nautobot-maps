@@ -2072,6 +2072,17 @@ export interface components {
             alert: components["schemas"]["SiteAlert"];
             /** Asns */
             asns: components["schemas"]["Asn"][];
+            /**
+             * Cases
+             * @description Its devices' open cases, newest first (#512).
+             */
+            cases?: string[];
+            /**
+             * Cases Read
+             * @description Whether they could be read: without, no case means nothing.
+             * @default false
+             */
+            cases_read: boolean;
             /** Circuits */
             circuits: components["schemas"]["SiteCircuit"][];
             /**
@@ -2695,10 +2706,20 @@ export interface components {
          */
         SiteDevice: {
             /**
+             * Acknowledged By
+             * @description Who acknowledged its open alert; empty when nobody did.
+             */
+            acknowledged_by?: string | null;
+            /**
              * Alert Pending
              * @description Down, within the alert delay.
              */
             alert_pending?: boolean | null;
+            /**
+             * Case Numbers
+             * @description Its open alert's cases, newest first (#512).
+             */
+            case_numbers?: string[] | null;
             /**
              * Core
              * @description Core device: likely the cause when the site is down.

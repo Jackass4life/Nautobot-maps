@@ -2460,18 +2460,26 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     in_window: dict = {}
     pending: set = set()
     overrides: dict = {}
+    # Who is on it (#512); None: not read (no database, or it failed), so the
+    # panel doesn't say "No case" for what it doesn't know.
+    cases: dict | None = None
     conn = db.get_conn() if db.dialect() else None
     if conn is not None:
         try:
-            in_window = maintenance.read_active(conn, maintenance.now())["devices"]
-            pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
-        except Exception as exc:
-            logger.warning("Could not read maintenance and alert delay for the site panel: %s", exc)
-        try:
+            try:
+                in_window = maintenance.read_active(conn, maintenance.now())["devices"]
+                pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
+            except Exception as exc:
+                logger.warning("Could not read maintenance and alert delay for the site panel: %s", exc)
             ids = [d.get("id") for d in devices if d.get("id")]
-            overrides = board_store.read_criticality_overrides(conn, ids) if ids else {}
-        except Exception as exc:
-            logger.warning("Could not read criticality overrides for the site panel: %s", exc)
+            try:
+                overrides = board_store.read_criticality_overrides(conn, ids) if ids else {}
+            except Exception as exc:
+                logger.warning("Could not read criticality overrides for the site panel: %s", exc)
+            try:
+                cases = board_store.open_cases_for_devices(conn, ids)
+            except Exception as exc:
+                logger.warning("Could not read the cases for the site panel: %s", exc)
         finally:
             conn.close()
     # The panel's down list in the board's order (#394): each device's level as
@@ -2487,6 +2495,10 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             device["maintenance_until"] = window["ends_at"]
         if (device.get("id") or "") in pending and not device["not_monitored"]:
             device["alert_pending"] = True
+        on_it = (cases or {}).get("devices", {}).get(device.get("id") or "")
+        if on_it:
+            device["case_numbers"] = on_it["case_numbers"]
+            device["acknowledged_by"] = on_it["acknowledged_by"]
     # A stack is one device (#405): its lead is down when any of its IPs is,
     # and its other members are monitored with it, not on their own.
     for lead, others, down in stack_groups([d for d in devices if not d["not_monitored"]]):
@@ -2496,6 +2508,12 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             member["not_monitored"] = "monitored with its stack"
             member.pop("maintenance_until", None)
             member.pop("alert_pending", None)
+            # A member's open alert is the stack's (#512): its case on the lead's row.
+            member_cases = member.pop("case_numbers", None)
+            member_ack = member.pop("acknowledged_by", None)
+            if member_cases is not None:
+                lead["case_numbers"] = list(dict.fromkeys([*(lead.get("case_numbers") or []), *member_cases]))
+                lead["acknowledged_by"] = lead.get("acknowledged_by") or member_ack or ""
     level = get_location_alert_levels()["levels"].get(location_id) if db.dialect() else None
     if level is not None:
         alert = {"level": level["level"], "reason": level.get("reason", "")}
@@ -2529,6 +2547,9 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
         "devices": devices,
         "alert": alert,
         "counts": counts,
+        # The site's cases (#512): every open one of its devices, newest first, once.
+        "cases": (cases or {}).get("cases", []),
+        "cases_read": cases is not None,
         "asns": asns,
         "circuits": circuits,
         "circuits_error": circuits_error,
