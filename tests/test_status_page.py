@@ -230,6 +230,32 @@ class TestCircuits:
         assert [circuit["cid"] for circuit in sites["London HQ"]] == ["TEL-1", "GTT-3"]
         assert "Telia" not in json.dumps(sites), "never the provider"
 
+    def test_below_the_site_and_one_address_once(self):
+        """A building's circuit is its site's; an address match goes to the
+        site, not again to its building at the same address; two sites at one
+        address both have it, as on the map (review of #511)."""
+        rows = [
+            {"id": "loc-lon", "physical_address": LONDON},
+            {"id": "loc-lon-b", "physical_address": LONDON},  # a building of London HQ, also on the board
+            {"id": "loc-colo", "physical_address": LONDON},  # another site at the same address
+        ]
+        parents = {"loc-lon-f2": "loc-lon-b", "loc-lon-b": "loc-lon", "loc-lon": "loc-uk", "loc-colo": "loc-uk"}
+        circuits = [
+            self.circuit("FLOOR-2", location_ids=["loc-lon-f2"]),
+            self.circuit("BY-ADDRESS", terminated=False, address_key=inventory.address_key(LONDON)),
+            self.circuit("NOWHERE", location_ids=["loc-osl"]),
+        ]
+        placed = {
+            row: [c["cid"] for c in found] for row, found in status.site_circuits(rows, circuits, parents).items()
+        }
+        assert placed == {"loc-lon-b": ["FLOOR-2"], "loc-lon": ["BY-ADDRESS"], "loc-colo": ["BY-ADDRESS"]}
+
+    def test_at_scale_in_one_pass(self):
+        rows = [{"id": f"s{n}", "physical_address": f"{n} Harbour Street, 1000 Town"} for n in range(1200)]
+        circuits = [self.circuit(f"C{n}", location_ids=[f"s{n % 1200}"]) for n in range(1500)]
+        placed = status.site_circuits(rows, circuits, {})
+        assert sum(len(found) for found in placed.values()) == 1500 and len(placed["s0"]) == 2
+
     def test_only_the_tenants_active_circuits(self, pg_database):
         rows = [
             self.circuit("MINE", tenant=" acme corp "),
@@ -237,16 +263,22 @@ class TestCircuits:
             self.circuit("OFFLINE", status="Offline"),
             self.circuit("THEIRS", tenant="Nordnet"),
             self.circuit("UPLINK", tenant=""),
+            # Matched as the board matches tenants (casefold), not as SQL lower() would.
+            self.circuit("STRASSE", tenant="Straße AG"),
+            # Written in the shape before #511: no location_ids or tenant_key.
+            {k: v for k, v in self.circuit("OLD", tenant="Øresund A/S").items() if k != "location_ids"},
         ]
         conn = db.get_conn()
         try:
             with db.transaction(conn):
                 inventory.write_circuits(conn, rows)
             assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "ACME CORP")] == ["MINE"]
+            assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "STRASSE AG")] == ["STRASSE"]
+            assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "øresund a/s")] == ["OLD"]
         finally:
             conn.close()
 
-    def test_on_the_page(self, client, board, monkeypatch):
+    def test_on_the_page(self, client, board):
         conn = db.get_conn()
         try:
             with db.transaction(conn):

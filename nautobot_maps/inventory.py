@@ -437,7 +437,8 @@ def fetch_circuits() -> list[dict] | None:
                 "provider": nautobot.nested_str(circuit.get("provider"), "name", "display"),
                 "circuit_type": nautobot.nested_str(circuit.get("circuit_type"), "name", "display"),
                 "status": nautobot.nested_str(circuit.get("status"), "name", "label", "display"),
-                "tenant": nautobot.nested_str(circuit.get("tenant"), "name", "display"),
+                "tenant": (tenant := nautobot.nested_str(circuit.get("tenant"), "name", "display")),
+                "tenant_key": tenant_key(tenant),
                 "commit_rate": commit_rate
                 if isinstance(commit_rate, int) and not isinstance(commit_rate, bool)
                 else None,
@@ -1070,17 +1071,70 @@ CIRCUIT_COLUMNS = (
     "address_key",
     "terminated",
     "location_ids",
+    "tenant_key",
 )
+
+
+def tenant_key(name) -> str:
+    """A tenant's name as the status page matches it (#511): as the board does."""
+    return str(name or "").strip().casefold()
 
 
 def write_circuits(conn, circuits: list[dict]) -> None:
     """Replace the cached circuits (#383), in one batch."""
     conn.execute("DELETE FROM nautobot_circuit_cache")
+
+    def row(circuit: dict) -> tuple:
+        derived = {"location_ids": circuit.get("location_ids") or [], "tenant_key": tenant_key(circuit.get("tenant"))}
+        return tuple(derived[column] if column in derived else circuit.get(column) for column in CIRCUIT_COLUMNS)
+
     conn.cursor().executemany(
         f"INSERT INTO nautobot_circuit_cache ({', '.join(CIRCUIT_COLUMNS)}) "
         f"VALUES ({db.placeholders(len(CIRCUIT_COLUMNS))}) ON CONFLICT DO NOTHING",
-        [tuple(circuit.get(column) for column in CIRCUIT_COLUMNS) for circuit in circuits],
+        [row(circuit) for circuit in circuits],
     )
+
+
+def circuit_speed(kbps) -> str:
+    """Nautobot circuit speeds are in Kbps; show them as ``10 Gbps`` / ``500 Mbps``."""
+    try:
+        value = int(kbps)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    for unit, size in (("Tbps", 1_000_000_000), ("Gbps", 1_000_000), ("Mbps", 1_000)):
+        if value >= size:
+            amount = value / size
+            return f"{amount:g} {unit}" if amount == int(amount) else f"{amount:.1f} {unit}"
+    return f"{value} Kbps"
+
+
+def circuit_cid(circuit: dict) -> str:
+    """How a circuit is named: its cid, else this."""
+    return circuit.get("cid") or "Unnamed circuit"
+
+
+def read_location_parents(conn, location_ids) -> dict[str, str]:
+    """``{location_id: parent_id}`` for *location_ids* and every location above
+    them, in one query (#511): to find the site a circuit's building is in."""
+    ids = sorted({str(location_id) for location_id in location_ids if location_id})
+    if not ids:
+        return {}
+    rows = conn.execute(
+        """
+        WITH RECURSIVE up(location_id, parent_id, depth) AS (
+            SELECT location_id, parent_id, 0 FROM nautobot_location_cache WHERE location_id = ANY(%s)
+            UNION ALL
+            SELECT l.location_id, l.parent_id, up.depth + 1
+            FROM nautobot_location_cache l JOIN up ON l.location_id = up.parent_id
+            WHERE up.depth < 32
+        )
+        SELECT DISTINCT location_id, parent_id FROM up
+        """,
+        (ids,),
+    ).fetchall()
+    return {row["location_id"]: row["parent_id"] or "" for row in rows}
 
 
 def read_tenant_circuits(conn, tenant: str) -> list[dict]:
@@ -1088,8 +1142,8 @@ def read_tenant_circuits(conn, tenant: str) -> list[dict]:
     whatever its number of sites."""
     rows = conn.execute(
         f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
-        "WHERE lower(trim(tenant)) = %s AND lower(trim(status)) = 'active' ORDER BY lower(cid), circuit_id",
-        (tenant.strip().casefold(),),
+        "WHERE tenant_key = %s AND lower(trim(status)) = 'active' ORDER BY lower(cid), circuit_id",
+        (tenant_key(tenant),),
     ).fetchall()
     return [db.row_to_dict(row) for row in rows]
 

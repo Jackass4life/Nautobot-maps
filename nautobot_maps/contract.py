@@ -315,7 +315,12 @@ CONTRACT: tuple[Endpoint, ...] = (
             *_names("circuit_type", "name", "display"),
             Field("status", NESTED, becomes="status"),
             *_names("status", "name", "label", "display"),
-            Field("tenant", NESTED, becomes="tenant"),
+            Field(
+                "tenant",
+                NESTED,
+                becomes="tenant, tenant_key",
+                rule="the key casefolded: whose status page lists it (#511)",
+            ),
             *_names("tenant", "name", "display"),
             Field("commit_rate", ("integer", "null"), becomes="commit_rate", rule="Kbps"),
             Field(

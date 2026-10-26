@@ -163,7 +163,7 @@ Circuits whose description is a site's address, in the site panel (#383); a tena
 | `status.name` | string or null |  | — | — |
 | `status.label` | string or null |  | — | — |
 | `status.display` | string or null |  | — | — |
-| `tenant` | object or null |  | tenant | — |
+| `tenant` | object or null |  | tenant, tenant_key | the key casefolded: whose status page lists it (#511) |
 | `tenant.name` | string or null |  | — | — |
 | `tenant.display` | string or null |  | — | — |
 | `commit_rate` | integer or null |  | commit_rate | Kbps |

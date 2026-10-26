@@ -92,6 +92,7 @@ class TestFetch:
             "address_key": "roersvej 33|5000",
             "terminated": False,
             "location_ids": [],
+            "tenant_key": "acme corp",
         }
         assert second["cid"] == "Unnamed 2"
         assert second["commit_rate"] is None  # not a number

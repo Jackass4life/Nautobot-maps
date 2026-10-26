@@ -23,17 +23,21 @@ NOT_FOUND = {"error": "No sites for this tenant"}
 NO_DATABASE = {"error": "The status page needs the PostgreSQL database (NAUTOBOT_MAPS_DATABASE_URL)."}
 
 
-def _tenant_for(link_id: str) -> str | None:
-    """The tenant *link_id* opens (#500); raises when the database can't be read."""
+def _tenant_for(link_id: str) -> tuple[str | None, object]:
+    """``(tenant, connection)``: the tenant *link_id* opens (#500), and the
+    connection, still open, for its circuits (#511): one per request.  No
+    connection for anything that isn't a link id.  Raises when the database
+    can't be read."""
     if not statuslinks.ID_PATTERN.match(link_id):
-        return None  # a name, or anything else: no connection for it
+        return None, None  # a name, or anything else: no connection for it
     conn = db.get_conn()
     if conn is None:
         raise LookupError("no database")
     try:
-        return statuslinks.tenant_for(conn, link_id)
-    finally:
+        return statuslinks.tenant_for(conn, link_id), conn
+    except Exception:
         conn.close()
+        raise
 
 
 def _unless_denied(answer: dict, status_code: int):
@@ -47,19 +51,20 @@ def _unless_denied(answer: dict, status_code: int):
     return deps.Json(answer, status_code=status_code)
 
 
-def _circuits(tenant: str) -> list[dict]:
-    """The tenant's active circuits (#511), one query; none when they can't be
-    read: the page still shows its sites."""
-    conn = None
+def _circuits(conn, tenant: str, board: dict) -> tuple[list[dict], dict[str, str]]:
+    """The tenant's active circuits (#511) and the locations above where they
+    and its sites are, two queries; none when they can't be read: the page
+    still shows its sites."""
     try:
-        conn = db.get_conn()
-        return inventory.read_tenant_circuits(conn, tenant) if conn is not None else []
+        circuits = inventory.read_tenant_circuits(conn, tenant)
+        if not circuits:
+            return [], {}
+        where = {location_id for circuit in circuits for location_id in circuit.get("location_ids") or []}
+        where |= {row.get("id") or "" for row in board.get("alerts") or []}
+        return circuits, inventory.read_location_parents(conn, where)
     except Exception as exc:
         logger.warning("Status page: circuits unavailable: %s", type(exc).__name__)
-        return []
-    finally:
-        if conn is not None:
-            conn.close()
+        return [], {}
 
 
 @router.get("/status/{link_id}", name="status.status_page")
@@ -95,12 +100,20 @@ def api_status(link_id: str):
     with a status token for this tenant (``Authorization: Bearer``).
     """
     try:
-        tenant = _tenant_for(link_id)
+        tenant, conn = _tenant_for(link_id)
     except LookupError:
         return _unless_denied(NO_DATABASE, 503)
     except Exception as exc:
         logger.warning("Status page unavailable: %s", type(exc).__name__)
         return _unless_denied(UNAVAILABLE, 503)
+    try:
+        return _answer(tenant, conn)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _answer(tenant: str | None, conn):
     # Access first: one who may not look gets the same answer for any link,
     # so whether one exists is no clue (a status token: 403 for all others).
     denied = auth.status_access(tenant or "")
@@ -109,7 +122,9 @@ def api_status(link_id: str):
     if tenant is None:
         return deps.Json(NOT_FOUND, status_code=404)
     try:
-        result = status.tenant_status(alerts.get_alert_board_data(), tenant, _circuits(tenant))
+        board = alerts.get_alert_board_data()
+        circuits, parents = _circuits(conn, tenant, board)
+        result = status.tenant_status(board, tenant, circuits, parents)
     except Exception as exc:
         logger.warning("Status page unavailable: %s", type(exc).__name__)
         return deps.Json(UNAVAILABLE, status_code=503)

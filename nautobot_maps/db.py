@@ -760,6 +760,10 @@ def add_circuit_locations(conn) -> None:
     conn.execute(
         "ALTER TABLE nautobot_circuit_cache ADD COLUMN IF NOT EXISTS location_ids TEXT[] NOT NULL DEFAULT '{}'"
     )
+    # Its tenant as the status page matches it: casefolded in Python, as the
+    # board matches tenants (SQL lower() folds differently: ß, or under a C locale).
+    conn.execute("ALTER TABLE nautobot_circuit_cache ADD COLUMN IF NOT EXISTS tenant_key TEXT NOT NULL DEFAULT ''")
+    conn.execute("CREATE INDEX IF NOT EXISTS nautobot_circuit_cache_tenant_key ON nautobot_circuit_cache (tenant_key)")
 
 
 # Numbered schema changes, each applied once, in order, and recorded in
@@ -794,7 +798,7 @@ MIGRATIONS = (
     (26, "nautobot_location_cache.tenant_scope_json", add_location_tenant_scope),
     (27, "status_links", add_status_links),
     (28, "wireless_ap_status", add_wireless_ap_status),
-    (29, "nautobot_circuit_cache.location_ids", add_circuit_locations),
+    (29, "nautobot_circuit_cache.location_ids, tenant_key", add_circuit_locations),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045
