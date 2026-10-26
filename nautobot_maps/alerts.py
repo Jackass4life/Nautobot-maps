@@ -85,7 +85,7 @@ def alert_level_definitions() -> dict:
 
 
 # Board order, most severe first (#124).
-ALERT_LEVEL_ORDER = ("critical", "medium", "low", "no_data", "ok")
+ALERT_LEVEL_ORDER = ("critical", "medium", "low", "wireless", "no_data", "ok")
 # Levels that count as an active alert in summary["non_ok"].
 ALERT_LEVELS_NON_OK = ("critical", "medium", "low")
 
@@ -860,6 +860,12 @@ def tier_rank(tier: str) -> int:
     """0 for the most important tier in SITE_TIERS (#293); 99 without a known tier."""
     tier = (tier or "").strip().lower()
     return settings.SITE_TIERS.index(tier) if tier in settings.SITE_TIERS else 99
+
+
+def shown_level(level: str, wireless_only: bool) -> str:
+    """Where a site goes in the board's summary and order: "wireless" when only
+    access points are down (#521), after every alarm; else its level."""
+    return "wireless" if wireless_only else level
 
 
 def alert_sort_key(level: str) -> int:
@@ -2119,7 +2125,8 @@ def build_alert_board_payload(
             # Only access points down (#521): the Wireless chip, not an alarm;
             # its level shows on the map, but the feed and notifications see OK.
             wireless_only = bool(alert.get("wireless_only")) and level != "maintenance"
-            summary["wireless" if wireless_only else level] = summary.get("wireless" if wireless_only else level, 0) + 1
+            key = shown_level(level, wireless_only)
+            summary[key] = summary.get(key, 0) + 1
             if observation_succeeded and site_id:
                 observed_levels[site_id] = (loc.get("name") or "", "ok" if wireless_only else level)
                 level_keys[site_id] = site_level_keys(
@@ -2218,8 +2225,7 @@ def build_alert_board_payload(
 
     alerts.sort(
         key=lambda item: (
-            # Only access points down (#521): after every alarm, before No data.
-            alert_sort_key("low") + 0.5 if item.get("wireless_only") else alert_sort_key(item.get("alert_level", "ok")),
+            alert_sort_key(shown_level(item.get("alert_level", "ok"), bool(item.get("wireless_only")))),
             item.get("tier_rank", 99),  # more important sites first within a level (#293)
             -item.get("down_device_count", 0),
             item.get("name", "").lower(),
@@ -2234,8 +2240,6 @@ def build_alert_board_payload(
             **{level: summary.get(level, 0) for level in ALERT_LEVEL_ORDER},
             # Planned work (#283); not an alarm, not in non_ok.
             "maintenance": summary.get("maintenance", 0),
-            # Only access points down (#521); not an alarm, not in non_ok.
-            "wireless": summary.get("wireless", 0),
             # No data is not an alert (#124).
             "non_ok": sum(summary.get(level, 0) for level in ALERT_LEVELS_NON_OK),
         },

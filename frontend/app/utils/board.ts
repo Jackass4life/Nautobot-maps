@@ -5,6 +5,7 @@ import type { components } from "~/api/schema";
 import { formatFeedTime, nautobotLocationUrl } from "./format";
 import { siteAddress, siteSearchText } from "./sitesearch";
 import { siteTenants, type Scope } from "./scope";
+import { plural } from "./availability";
 
 export type Board = components["schemas"]["Board"];
 export type BoardSite = components["schemas"]["BoardSite"];
@@ -17,7 +18,8 @@ export type Incident = components["schemas"]["Incident"];
 // Levels that are an active alarm; No data is not an alert (#124).
 export const ALARM_LEVELS = ["critical", "medium", "low"];
 // Most severe first; the server sorts the same way (ALERT_LEVEL_ORDER, #124).
-export const SEVERITY_ORDER = ["critical", "medium", "low", "no_data", "ok"];
+// Wireless (#521): only access points down, after every alarm.
+export const SEVERITY_ORDER = ["critical", "medium", "low", "wireless", "no_data", "ok"];
 
 export type SeverityFilter = "alarms" | "wireless" | "all" | "no_data" | "maintenance";
 export const DEFAULT_SEVERITY_FILTER: SeverityFilter = "alarms";
@@ -58,6 +60,12 @@ export function severityWeight(level: string | null | undefined): number {
 
 // Only access points down, per a wireless controller (#521): its level's
 // colour, but not an alarm.
+// Where a site goes in the summary, chips and order: "wireless" when only
+// access points are down (#521), as the server sorts; else its level.
+export function siteLevel(item: Pick<BoardSite, "alert_level" | "wireless_only">): string {
+  return item.wireless_only ? "wireless" : item.alert_level || "no_data";
+}
+
 export function hasActiveAlarm(item: Pick<BoardSite, "alert_level" | "wireless_only">): boolean {
   return ALARM_LEVELS.includes(item.alert_level) && !item.wireless_only;
 }
@@ -97,7 +105,7 @@ export function chipCounts(summary: Partial<BoardSummary>): Record<string, numbe
 export function scopeSummary(sites: Pick<BoardSite, "alert_level" | "wireless_only">[]): Partial<BoardSummary> {
   const summary: Record<string, number> = { total: sites.length };
   sites.forEach((site) => {
-    const level = site.wireless_only ? "wireless" : site.alert_level || "no_data";
+    const level = siteLevel(site);
     summary[level] = (summary[level] || 0) + 1;
   });
   return summary;
@@ -118,7 +126,7 @@ export function siteSummaryText(
   const monitored = `${item.device_count || 0} monitored`;
   if (!aps) return `${item.down_device_count || 0} down · ${monitored}`;
   const others = item.down_network_device_count || 0;
-  return [others ? `${others} down` : "", `${aps} AP${aps === 1 ? "" : "s"} down`, monitored].filter(Boolean).join(" · ");
+  return [others ? `${others} down` : "", `${plural(aps, "AP")} down`, monitored].filter(Boolean).join(" · ");
 }
 
 // Up to this many access points are listed with the other down devices;
@@ -136,7 +144,7 @@ export function downDeviceRows(devices: DownDevice[]): { shown: DownDevice[]; fo
 }
 
 export function accessPointsText(count: number): string {
-  return `${count.toLocaleString("en")} access point${count === 1 ? "" : "s"} down`;
+  return `${plural(count, "access point")} down`;
 }
 
 // The site's down devices: down now, or with an alert still open.  It can be
@@ -260,14 +268,7 @@ export function onTheMap(item: Pick<BoardSite, "id" | "latitude" | "longitude">)
 export function matchesSeverityFilter(item: Pick<BoardSite, "alert_level" | "wireless_only">, filter: SeverityFilter): boolean {
   if (filter === "all") return true;
   if (filter === "alarms") return hasActiveAlarm(item);
-  if (filter === "wireless") return Boolean(item.wireless_only);
-  return (item.alert_level || "no_data") === filter;
-}
-
-// Its place by severity: only access points down after every alarm, before
-// No data, as the server sorts (#521).
-function siteWeight(item: Pick<BoardSite, "alert_level" | "wireless_only">): number {
-  return item.wireless_only ? severityWeight("low") + 0.5 : severityWeight(item.alert_level);
+  return siteLevel(item) === filter;
 }
 
 function compareText(left: string | null | undefined, right: string | null | undefined): number {
@@ -296,7 +297,7 @@ export function compareSites(a: BoardSite, b: BoardSite, sort: Sort): number {
     }
   }
   return (
-    siteWeight(a) - siteWeight(b) ||
+    severityWeight(siteLevel(a)) - severityWeight(siteLevel(b)) ||
     // Within a level, more important sites first (#293).
     (a.tier_rank ?? 99) - (b.tier_rank ?? 99) ||
     (b.down_device_count || 0) - (a.down_device_count || 0) ||

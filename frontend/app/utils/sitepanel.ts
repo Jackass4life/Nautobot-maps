@@ -1,7 +1,7 @@
 // The site panel (#394, #398, #400, #405): its status line, the down devices
 // in the board's order, stacks as one device, and each device's facts.
 import type { components } from "~/api/schema";
-import { ALERT_RANK, LEVEL_NAMES, knownLevel } from "./map";
+import { LEVEL_NAMES, displayLevel, isAlarm, knownLevel } from "./map";
 
 export type SiteDevice = components["schemas"]["SiteDevice"];
 export type SiteCircuit = components["schemas"]["SiteCircuit"];
@@ -24,9 +24,9 @@ export function statusLine(
   counts: { down?: number | null; monitored?: number | null } | null | undefined,
   since = "",
 ): { level: string; text: string; reason: string } {
-  const level = knownLevel(alert?.wireless_only ? "wireless" : alert?.level || "no_data");
+  const level = knownLevel(displayLevel(alert || { level: "no_data" }));
   const monitored = counts && Number.isFinite(counts.monitored) ? counts.monitored! : null;
-  const down = Boolean(ALERT_RANK[level]) || level === "wireless";
+  const down = isAlarm(level) || level === "wireless";
   let what = "";
   if (down && monitored !== null) what = `${counts?.down || 0} of ${monitored} down`;
   else if (level === "ok" && monitored !== null) what = `${monitored} device${monitored === 1 ? "" : "s"}`;

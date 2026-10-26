@@ -19,7 +19,6 @@ stale copy never shows it down.
 Called as ``wireless.function()`` so tests can replace it on this module.
 """
 
-import hashlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -197,7 +196,7 @@ def read_index(conn, now: datetime | None = None, devices: list[dict] | None = N
         # must still be seen, to leave it out.
         serials, short_names = match_keys(devices)
         sql += " AND (serial_key = ANY(%s) OR name_key = ANY(%s))"
-        params += (sorted(serials), sorted(short_names))
+        params += (list(serials), list(short_names))
     rows = conn.execute(sql, params).fetchall()
     best: dict[str, dict] = {"serial": {}, "name": {}}  # key: (rank, ap)
     carriers: dict[str, set] = {}  # name: the APs that carry it
@@ -289,14 +288,18 @@ def matches(ap_serial_key: str, ap_name_key: str, serials: set, names: set) -> b
     return (bool(ap_serial_key) and ap_serial_key in serials) or (bool(ap_name_key) and ap_name_key in names)
 
 
-def fingerprint(conn) -> str:
+def fingerprint(conn, now: datetime | None = None) -> str:
     """Everything of the APs the board shows (#521): which are listed (now
-    monitored), up or down, last known or not, and their addresses."""
-    index = read_index(conn)
-    listed = sorted(
-        (kind, key, ap["up"], ap["stale"], ap["ip"]) for kind in ("serial", "name") for key, ap in index[kind].items()
-    )
-    return hashlib.sha256(repr(listed).encode()).hexdigest()
+    monitored), up or down, last known or not, and their addresses.  Hashed
+    in the database: no 10,000 rows into Python twice a tick."""
+    ids = [controller_id(controller) for controller in configured()]
+    stale_before = (now or datetime.now(UTC)) - timedelta(seconds=stale_seconds())
+    row = conn.execute(
+        "SELECT md5(coalesce(string_agg(concat_ws('|', controller, serial_key, name_key, up, ip, seen_at < %s), ',' "
+        "ORDER BY controller, serial_key, name_key), '')) AS hash FROM wireless_ap_status WHERE controller = ANY(%s)",
+        (stale_before, ids),
+    ).fetchone()
+    return db.row_to_dict(row).get("hash") or ""
 
 
 def prune(conn) -> None:

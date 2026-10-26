@@ -66,7 +66,7 @@ UNSUPPORTED_VERSION = -32022
 MAX_REQUEST_BYTES = 64 * 1024
 # Tool calls per caller (user, or address without one) per minute.
 RATE_LIMIT_PER_MINUTE = 120
-BOARD_FILTERS = ("alarms", *alerts.ALERT_LEVEL_ORDER, "wireless", "all")
+BOARD_FILTERS = ("alarms", *alerts.ALERT_LEVEL_ORDER, "all")
 DEFAULT_SITE_LIMIT = 50
 MAX_SITE_LIMIT = 500
 DEFAULT_HISTORY_LIMIT = 50
