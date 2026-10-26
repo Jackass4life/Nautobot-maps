@@ -17,7 +17,7 @@ import {
   type DownDevice,
 } from "~/utils/board";
 import { alarmSites, displayLevel, worstLevel, type MapLocation } from "~/utils/map";
-import { deviceAddress, deviceFacts, isWatchedAccessPoint, type SiteDevice } from "~/utils/sitepanel";
+import { deviceAddress, deviceFacts, isWatchedAccessPoint, statusLine, type SiteDevice } from "~/utils/sitepanel";
 import { newAlarms, wallSites } from "~/utils/wall";
 
 const device = (id: string, fields: Partial<DownDevice> = {}): DownDevice =>
@@ -76,6 +76,9 @@ describe("the board", () => {
     expect(downDeviceRows([...aps(3), sw]).shown.map((d) => d.device_id)).toEqual(["sw1", "ap1", "ap2", "ap3"]);
     const many = downDeviceRows([...aps(34), sw]);
     expect([many.shown.map((d) => d.device_id), many.folded.length]).toEqual([["sw1"], 34]);
+    // One set in Nautobot, or core, is what made the site's level: never folded.
+    const critical = device("ap9", { access_point: true, set_level: "critical" });
+    expect(downDeviceRows([...aps(5), critical]).shown.map((d) => d.device_id)).toEqual(["ap9"]);
     expect(accessPointsText(34)).toBe("34 access points down");
     expect(accessPointsText(1)).toBe("1 access point down");
   });
@@ -129,6 +132,12 @@ describe("the site panel", () => {
       "Watched by Aruba Central eu",
     );
     expect(deviceFacts(ap(), "Access Point")).toContain("IP 10.20.31.47 · from Catalyst Center dk");
+  });
+
+  it("says access points down, as its marker, whatever the level", () => {
+    const line = statusLine({ level: "critical", reason: "40 access points offline", wireless_only: true }, { down: 40, monitored: 46 }, "14:05");
+    expect(line).toEqual({ level: "wireless", text: "Access points down · 40 of 46 down · since 14:05", reason: "40 access points offline" });
+    expect(statusLine({ level: "critical", reason: "x" }, { down: 1, monitored: 6 }).level).toBe("critical");
   });
 
   it("folds access points at the wireless level, not one set in Nautobot", () => {

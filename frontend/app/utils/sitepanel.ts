@@ -18,19 +18,21 @@ export function deviceHealth(status: string | null | undefined): Health {
 
 // The site's state in one line (#394): its level's name, how many are down,
 // since when; the reason under it, only for an alarm or maintenance.
+// Only access points down (#521): "Access points down", as its marker, not an alarm.
 export function statusLine(
-  alert: { level: string; reason?: string } | null | undefined,
+  alert: { level: string; reason?: string; wireless_only?: boolean | null } | null | undefined,
   counts: { down?: number | null; monitored?: number | null } | null | undefined,
   since = "",
 ): { level: string; text: string; reason: string } {
-  const level = knownLevel(alert?.level || "no_data");
+  const level = knownLevel(alert?.wireless_only ? "wireless" : alert?.level || "no_data");
   const monitored = counts && Number.isFinite(counts.monitored) ? counts.monitored! : null;
+  const down = Boolean(ALERT_RANK[level]) || level === "wireless";
   let what = "";
-  if (ALERT_RANK[level] && monitored !== null) what = `${counts?.down || 0} of ${monitored} down`;
+  if (down && monitored !== null) what = `${counts?.down || 0} of ${monitored} down`;
   else if (level === "ok" && monitored !== null) what = `${monitored} device${monitored === 1 ? "" : "s"}`;
   else if (level === "no_data") what = "no monitored devices";
-  const text = [LEVEL_NAMES[level], what, ALERT_RANK[level] && since ? `since ${since}` : ""].filter(Boolean).join(" · ");
-  const reason = ALERT_RANK[level] || level === "maintenance" ? alert?.reason || "" : "";
+  const text = [LEVEL_NAMES[level], what, down && since ? `since ${since}` : ""].filter(Boolean).join(" · ");
+  const reason = down || level === "maintenance" ? alert?.reason || "" : "";
   return { level, text, reason };
 }
 

@@ -404,11 +404,11 @@ def compute_alert_level(
     * **ok**       – devices present, none down.
 
     Access points a wireless controller watches (#521) are judged on their
-    own: each down one gives its level (WIRELESS_AP_LEVEL unless set), and
-    they are left out of the share and of "every device down", so 40 APs
-    never make one switch of six a smaller share.  When only they decide the
-    level, by WIRELESS_AP_LEVEL alone, the answer has ``"wireless_only":
-    True``: the board's Wireless chip, not an alarm, never notified.
+    own, left out of the share and of "every device down", so 40 APs never
+    make one switch of six a smaller share.  One with a level set (Nautobot,
+    override) gives it, like any device.  The others give WIRELESS_AP_LEVEL
+    only when nothing else is down: then the answer has ``"wireless_only":
+    True``, the board's Wireless chip, not an alarm, never notified.
 
     The optional *location_type* parameter selects the matching keyword set
     when location-type-scoped rules are configured (e.g. "datacenter" vs
@@ -446,21 +446,29 @@ def compute_alert_level(
     if not down_aps:
         return alert
     levels = [device_level(device, core_keywords, override_map, tier) for device in down_aps]
-    worst = max((level for level, _ in levels), key=lambda level: notify.LEVEL_RANK[level])
-    if notify.LEVEL_RANK[worst] <= notify.LEVEL_RANK.get(alert["level"], 0):
-        return alert
-    names = [
-        device.get("name") or "Unknown" for device, (level, _) in zip(down_aps, levels, strict=True) if level == worst
+    # Set in Nautobot or marked critical: an alarm like any device's.
+    own = [
+        (device, level, source)
+        for device, (level, source) in zip(down_aps, levels, strict=True)
+        if source != "wireless"
     ]
-    sources = [source for level, source in levels if level == worst]
-    if set(sources) == {"wireless"}:
-        count = len(down_aps)
-        reason = f"{count} access point{'s' if count != 1 else ''} offline"
-        # Only APs at the wireless level, nothing else down (#521).
-        if alert["level"] == "ok" and all(source == "wireless" for _, source in levels):
-            return {"level": worst, "reason": reason, "wireless_only": True}
-        return {"level": worst, "reason": reason}
-    return {"level": worst, "reason": _devices_reason(worst, names, [s for s in sources if s != "wireless"], tier)}
+    if own:
+        worst = max((level for _, level, _ in own), key=lambda level: notify.LEVEL_RANK[level])
+        if notify.LEVEL_RANK[worst] > notify.LEVEL_RANK.get(alert["level"], 0):
+            names = [device.get("name") or "Unknown" for device, level, _ in own if level == worst]
+            sources = [source for _, level, source in own if level == worst]
+            return {"level": worst, "reason": _devices_reason(worst, names, sources, tier)}
+        return alert
+    # Only at the wireless level: the site's level only when nothing else is
+    # down; a site already in alarm just counts them (#521).
+    if alert["level"] != "ok":
+        return alert
+    count = len(down_aps)
+    return {
+        "level": settings.WIRELESS_AP_LEVEL,
+        "reason": f"{count} access point{'s' if count != 1 else ''} offline",
+        "wireless_only": True,
+    }
 
 
 def _wired_level(devices: list, core_keywords, override_map: dict, tier: str) -> dict:
@@ -818,7 +826,7 @@ def get_location_devices_and_alert(
         if use_normalized_devices
         else inventory.normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
-    devices = wireless.attach(devices, wireless.load_index() if wireless_index is None else wireless_index)
+    devices = wireless.attach(devices, wireless.load_index(devices) if wireless_index is None else wireless_index)
     if require_primary_ip:
         devices = [device for device in devices if is_monitored(device)]
     if excluded_device_statuses:
@@ -2262,7 +2270,7 @@ def site_monitored_devices(site_id: str, include_non_operational: bool = False) 
     monitored = merge_stacks(
         [
             device
-            for device in wireless.attach(devices, wireless.load_index())
+            for device in wireless.attach(devices, wireless.load_index(devices))
             if is_monitored(device)
             and not status_is_excluded(device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
         ]

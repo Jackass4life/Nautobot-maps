@@ -527,6 +527,31 @@ class TestSync:
         assert attached[0]["wireless"]["up"] is False and "wireless" not in devices[0]
         assert attached[1] is devices[1]
 
+    def test_one_sites_devices_read_only_theirs(self, controllers):
+        controllers["dk"] = [
+            ap("ap-01", False, "FGL1", "10.0.0.1"),
+            ap("ap-02", True, "FGL2"),
+            ap("ap-01", True, "FGL3"),
+        ]
+        wireless.sync_due()
+        conn = db.get_conn()
+        try:
+            index = wireless.read_index(
+                conn, devices=[{"serial": "fgl2", "name": "x"}, {"name": "ap-01", "role": "Access Point"}]
+            )
+        finally:
+            conn.close()
+        assert sorted(index["serial"]) == ["FGL1", "FGL2", "FGL3"], "FGL1 and FGL3 by their name"
+        assert "ap-01" not in index["name"], "two APs carry it: still left out"
+
+    def test_the_board_is_rebuilt_for_anything_it_shows(self, controllers, monkeypatch):
+        controllers["dk"] = [ap("ap1", True, "FGL1", "10.0.0.1")]
+        assert wireless.sync_due() is True, "a newly listed AP is monitored now"
+        monkeypatch.setattr(inventory, "state_due", lambda state, interval: True)
+        assert wireless.sync_due() is False, "nothing changed"
+        controllers["dk"] = [ap("ap1", True, "FGL1", "10.0.0.2")]
+        assert wireless.sync_due() is True, "its address changed"
+
     def test_a_name_two_aps_carry_is_not_matched(self, controllers):
         # ap-01 at two sites, in one instance or two: neither is matched by name.
         controllers["dk"] = [ap("ap-01", False, "FGL1"), ap("ap-02", False), ap("ap-02", True, "FGL3")]
@@ -631,7 +656,7 @@ def controller_says(monkeypatch, down: dict[str, list[str]], stale: bool = False
                 "controller": "Catalyst Center dk",
                 "stale": stale,
             }
-    monkeypatch.setattr(wireless, "read_index", lambda conn, now=None: index)
+    monkeypatch.setattr(wireless, "read_index", lambda conn, now=None, devices=None: index)
 
 
 def one_site(**statuses) -> dict[str, dict[str, str]]:
@@ -693,6 +718,27 @@ class TestOnTheBoard:
         (row,) = build_board()["alerts"]
         assert (row["alert_level"], row["alert_reason"]) == ("critical", "All 6 monitored devices offline")
 
+    def test_a_site_already_in_alarm_just_counts_them(self, board, monkeypatch):
+        monkeypatch.setattr(settings, "WIRELESS_AP_LEVEL", "critical")
+        write_sites(one_site(sw1="Offline"))
+        controller_says(monkeypatch, {"cph": APS[:30]})
+        (row,) = build_board()["alerts"]
+        # The switch's level and reason; 30 APs at the wireless level never raise it.
+        assert (row["alert_level"], row["alert_reason"]) == ("low", "1/6 devices offline (17%)")
+        assert row["down_access_point_count"] == 30 and "wireless_only" not in row
+
+    def test_a_reason_names_only_the_access_points_set_in_nautobot(self, board, monkeypatch):
+        write_sites(one_site())
+        conn = db.get_conn()
+        try:
+            conn.execute("UPDATE nautobot_device_cache SET criticality = 'low' WHERE device_id = 'cph-ap40'")
+        finally:
+            conn.close()
+        controller_says(monkeypatch, {"cph": APS})
+        (row,) = build_board()["alerts"]
+        assert (row["alert_level"], row["alert_reason"]) == ("low", "Low device(s) offline: cph-ap40 (set in Nautobot)")
+        assert "wireless_only" not in row, "set in Nautobot: an alarm"
+
     def test_every_access_point_down_is_still_the_wireless_level(self, board, monkeypatch):
         write_sites(one_site())
         controller_says(monkeypatch, {"cph": APS})
@@ -743,7 +789,7 @@ class TestOnTheBoard:
         write_sites(one_site())
         controller_says(monkeypatch, {"cph": ["ap09"]})
         build_board()
-        monkeypatch.setattr(wireless, "read_index", lambda conn, now=None: 1 / 0)
+        monkeypatch.setattr(wireless, "read_index", lambda conn, now=None, devices=None: 1 / 0)
         build_board()
         assert test_maintenance.open_alerts() == {"cph-ap09": "open"}, "not resolved by a failed read"
 

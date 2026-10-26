@@ -126,10 +126,12 @@ export function siteSummaryText(
 export const ACCESS_POINTS_SHOWN = 3;
 
 // A site's down devices for its rows: the others, then the access points a
-// controller watches, *folded* when there are more than ACCESS_POINTS_SHOWN.
+// controller watches at the wireless level, *folded* when there are more than
+// ACCESS_POINTS_SHOWN.  One set in Nautobot or core stays with the others.
 export function downDeviceRows(devices: DownDevice[]): { shown: DownDevice[]; folded: DownDevice[] } {
-  const others = devices.filter((device) => !device.access_point);
-  const aps = devices.filter((device) => device.access_point);
+  const quiet = (device: DownDevice) => Boolean(device.access_point && !device.set_level && !device.core);
+  const others = devices.filter((device) => !quiet(device));
+  const aps = devices.filter(quiet);
   return aps.length > ACCESS_POINTS_SHOWN ? { shown: others, folded: aps } : { shown: [...others, ...aps], folded: [] };
 }
 

@@ -631,7 +631,7 @@ export interface paths {
          * The devices that can be put in maintenance at a site.
          * @description Query parameters: ``site_id`` (a row of the alert board) and
          *     ``include_non_operational=1`` (as on the board).  The devices the board
-         *     counts there: with a primary IP, not of an excluded status, and those
+         *     counts there: with a primary IP or a wireless controller, not of an excluded status, and those
          *     below the site when rows are rolled up to a location type.
          */
         get: operations["maintenance_api_maintenance_devices_api_maintenance_devices_get"];

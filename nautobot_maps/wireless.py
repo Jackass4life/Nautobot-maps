@@ -19,6 +19,7 @@ stale copy never shows it down.
 Called as ``wireless.function()`` so tests can replace it on this module.
 """
 
+import hashlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -167,7 +168,7 @@ def due(conn) -> list[dict]:
     ]
 
 
-def read_index(conn, now: datetime | None = None) -> dict:
+def read_index(conn, now: datetime | None = None, devices: list[dict] | None = None) -> dict:
     """What the configured instances say: ``{"serial": {key: ap}, "name":
     {key: ap}}``, each *ap* ``{"up", "ip", "controller", "stale"}``
     (*controller* as ``display_name``).  One query.
@@ -178,16 +179,26 @@ def read_index(conn, now: datetime | None = None) -> dict:
 
     A name that two different APs carry (``ap-01`` at two sites) isn't in the
     name index: it would count the wrong one down.  The same AP in two
-    instances (the same serial) is one AP."""
+    instances (the same serial) is one AP.
+
+    *devices*: only what these Nautobot devices need (one site's panel),
+    not every AP of every instance."""
     names = {controller_id(controller): display_name(controller) for controller in configured()}
     if not names:
         return {"serial": {}, "name": {}}
     stale_before = ((now or datetime.now(UTC)) - timedelta(seconds=stale_seconds())).timestamp()
-    rows = conn.execute(
+    sql = (
         "SELECT controller, serial_key, name_key, up, ip, extract(epoch FROM seen_at) AS seen "
-        "FROM wireless_ap_status WHERE controller = ANY(%s)",
-        (list(names),),
-    ).fetchall()
+        "FROM wireless_ap_status WHERE controller = ANY(%s)"
+    )
+    params: tuple = (list(names),)
+    if devices is not None:
+        # Every row of these serials and names: a name another AP carries too
+        # must still be seen, to leave it out.
+        serials, short_names = match_keys(devices)
+        sql += " AND (serial_key = ANY(%s) OR name_key = ANY(%s))"
+        params += (sorted(serials), sorted(short_names))
+    rows = conn.execute(sql, params).fetchall()
     best: dict[str, dict] = {"serial": {}, "name": {}}  # key: (rank, ap)
     carriers: dict[str, set] = {}  # name: the APs that carry it
     for row in map(db.row_to_dict, rows):
@@ -214,16 +225,17 @@ def read_index(conn, now: datetime | None = None) -> dict:
     return {kind: {key: ap for key, (_, ap) in keys.items()} for kind, keys in best.items()}
 
 
-def load_index() -> dict:
-    """``read_index`` on its own connection, for one site's panel; {} when none
-    is configured, without a database, or on an error."""
+def load_index(devices: list[dict] | None = None) -> dict:
+    """``read_index`` (of *devices* only, when given) on its own connection,
+    for one site's panel; {} when none is configured, without a database, or
+    on an error."""
     if not configured():
         return {}
     conn = db.get_conn()
     if conn is None:
         return {}
     try:
-        return read_index(conn)
+        return read_index(conn, devices=devices)
     except Exception as exc:
         logger.warning("Could not read the wireless controllers' access points: %s", exc)
         return {}
@@ -277,14 +289,14 @@ def matches(ap_serial_key: str, ap_name_key: str, serials: set, names: set) -> b
     return (bool(ap_serial_key) and ap_serial_key in serials) or (bool(ap_name_key) and ap_name_key in names)
 
 
-def down_fingerprint(conn) -> tuple:
-    """The APs down, and whether each is only last known: the board shows both."""
+def fingerprint(conn) -> str:
+    """Everything of the APs the board shows (#521): which are listed (now
+    monitored), up or down, last known or not, and their addresses."""
     index = read_index(conn)
-    return tuple(
-        sorted(
-            (kind, key, ap["stale"]) for kind in ("serial", "name") for key, ap in index[kind].items() if not ap["up"]
-        )
+    listed = sorted(
+        (kind, key, ap["up"], ap["stale"], ap["ip"]) for kind in ("serial", "name") for key, ap in index[kind].items()
     )
+    return hashlib.sha256(repr(listed).encode()).hexdigest()
 
 
 def prune(conn) -> None:
@@ -312,8 +324,8 @@ def pool() -> ThreadPoolExecutor:
 
 
 def sync_due() -> bool:
-    """Read the instances that are due, a few at a time; returns whether the
-    APs down changed, so the board is rebuilt only then."""
+    """Read the instances that are due, a few at a time; returns whether what
+    the board shows of the APs changed, so it is rebuilt only then."""
     conn = db.get_conn()
     if conn is None:
         return False
@@ -322,7 +334,7 @@ def sync_due() -> bool:
         todo = due(conn) if configured() else []
         if not todo:
             return False
-        before = down_fingerprint(conn)
+        before = fingerprint(conn)
     finally:
         conn.close()
     list(pool().map(sync_controller, todo))
@@ -330,7 +342,7 @@ def sync_due() -> bool:
     if conn is None:
         return False
     try:
-        return down_fingerprint(conn) != before
+        return fingerprint(conn) != before
     finally:
         conn.close()
 

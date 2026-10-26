@@ -7604,7 +7604,7 @@
     },
     "/api/maintenance/devices": {
       "get": {
-        "description": "Query parameters: ``site_id`` (a row of the alert board) and\n``include_non_operational=1`` (as on the board).  The devices the board\ncounts there: with a primary IP, not of an excluded status, and those\nbelow the site when rows are rolled up to a location type.",
+        "description": "Query parameters: ``site_id`` (a row of the alert board) and\n``include_non_operational=1`` (as on the board).  The devices the board\ncounts there: with a primary IP or a wireless controller, not of an excluded status, and those\nbelow the site when rows are rolled up to a location type.",
         "operationId": "maintenance_api_maintenance_devices_api_maintenance_devices_get",
         "parameters": [
           {
