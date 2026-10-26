@@ -2,6 +2,8 @@
 
 Every setting is an environment variable, read from `.env` (copy `.env.example` to start). Only the first two are required. With Docker, `docker-compose.yml` passes each of them to the container; leaving one empty means its default.
 
+A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings). Put those files in the **`config/` folder** next to `docker-compose.yml`: it is mounted read-only in the container at `/config`, so the setting is `/config/<file>` (#517). The folder is git-ignored, so its secrets are never committed. In Docker the app runs as uid 10001, so give it the folder (`sudo chown -R 10001:10001 config`); [config/README.md](../config/README.md) has the steps. An empty folder does nothing.
+
 ## Nautobot
 
 | Variable | Default | Description |
@@ -43,11 +45,11 @@ Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to take device up/down status f
 |---|---|---|
 | `LIBRENMS_URL` | — | Base URL of your LibreNMS |
 | `LIBRENMS_API_TOKEN` | — | LibreNMS API token |
-| `LIBRENMS_VERIFY_SSL` | `true` | `true`, `false`, or a path to a CA bundle |
-| `WIRELESS_CONTROLLERS_FILE` | — | A YAML file listing any number of Cisco Catalyst Center instances (name, url, read-only username and password, verify_ssl) and HPE Aruba Networking New Central instances (name, region or base_url, API client id and secret), for access point status ([sources](sources.md#wireless-controllers-access-points)); a mistake in it stops the app at startup |
+| `LIBRENMS_VERIFY_SSL` | `true` | `true`, `false`, or a path to a CA bundle (e.g. `/config/certs/internal-ca.pem`) |
+| `WIRELESS_CONTROLLERS_FILE` | — | A YAML file listing any number of Cisco Catalyst Center instances (name, url, read-only username and password, verify_ssl) and HPE Aruba Networking New Central instances (name, region or base_url, API client id and secret), for access point status ([sources](sources.md#wireless-controllers-access-points)), e.g. `/config/wireless.yml`; a mistake in it, or a file the app can't read, stops the app at startup |
 | `WIRELESS_SYNC_INTERVAL_SECONDS` | `300` | How often each wireless controller is read (at least 60) |
 
-For a LibreNMS signed by an internal CA, mount the CA certificate into the container and point the setting at it (e.g. `LIBRENMS_VERIFY_SSL=/certs/internal-ca.pem`). `false` skips verification and should be a last resort, since the API token travels over that connection. A path that doesn't exist is logged as an error at startup.
+For a LibreNMS signed by an internal CA, put the CA certificate in `config/certs/` and point the setting at it (`LIBRENMS_VERIFY_SSL=/config/certs/internal-ca.pem`); the same for Nautobot (`NAUTOBOT_VERIFY_SSL`) and a wireless controller (`verify_ssl` in its file). `false` skips verification and should be a last resort, since the API token travels over that connection. A path that doesn't exist is logged as an error at startup.
 
 ### Near-real-time status: LibreNMS alert pushes
 
@@ -100,7 +102,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |
 | `CRITICAL_ROLE_KEYWORDS` | `core,spine,distribution,router,gateway` | Device role keywords that make a down device **Critical** |
-| `CRITICALITY_RULES_FILE` | — | JSON file with keywords per location type, overriding `CRITICAL_ROLE_KEYWORDS`; see `criticality_rules.json` |
+| `CRITICALITY_RULES_FILE` | — | JSON file with keywords per location type, overriding `CRITICAL_ROLE_KEYWORDS`, e.g. `/config/criticality_rules.json` (start from `criticality_rules.json`) |
 | `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down, also per the [wireless controllers](sources.md#wireless-controllers-access-points) |
 | `SITE_TENANT_RELATIONSHIPS` | — | Nautobot Relationships (keys or labels) that link a location to more tenants, shown next to its own tenant. Empty: every Location ↔ Tenant relationship |
 

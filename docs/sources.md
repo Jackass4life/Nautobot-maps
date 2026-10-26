@@ -32,10 +32,10 @@ An access point that is down **never raises a site's level or sends a notificati
 
 **Matching.** By **serial** (capitals don't matter), else by **name** (the part before the first dot), against the Nautobot devices. By name only for a device whose role is an access point, and only for a name one access point carries: `ap-01` at two sites matches neither. Which of them are access points is still `ACCESS_POINT_ROLES` ([configuration](configuration.md)). An access point in maintenance, or at a site in maintenance, isn't down.
 
-**Several instances, of either kind.** List them in one YAML file, with read-only accounts:
+**Several instances, of either kind.** List them in one YAML file, with read-only accounts, `config/wireless.yml` next to `docker-compose.yml` (the app reads it as `/config/wireless.yml`, #517):
 
 ```yaml
-# /config/wireless.yml: chmod 600, mounted read-only
+# config/wireless.yml
 catalyst_center:
   - name: dk                      # a-z, 0-9, _ and -; shown as "Catalyst Center dk"
     url: https://dnac-dk.example.com
@@ -64,14 +64,15 @@ WIRELESS_CONTROLLERS_FILE=/config/wireless.yml
 WIRELESS_SYNC_INTERVAL_SECONDS=300     # how often each one is read (at least 60)
 ```
 
-With Docker, mount the file in a `docker-compose.override.yml`:
+`docker-compose.yml` mounts the `config/` folder read-only at `/config`, and it is git-ignored, so the file's passwords are never committed. In Docker the app runs as uid **10001**: give it the file, then start the app.
 
-```yaml
-services:
-  nautobot-maps:
-    volumes:
-      - ./config/wireless.yml:/config/wireless.yml:ro
+```bash
+chmod 600 config/wireless.yml
+sudo chown -R 10001:10001 config && sudo chmod 700 config
+docker compose up -d --force-recreate nautobot-maps
 ```
+
+A file the app can't read stops it at startup with "can't be read: PermissionError … uid 10001" ([config/README.md](../config/README.md)). After editing the file, run the last command again. Without Docker, `WIRELESS_CONTROLLERS_FILE` is just the file's path.
 
 Every URL must be `https` (credentials travel over it; only `localhost` may be `http`, for the demo). HPE's sign-in service is always verified, whatever `verify_ssl` says: that setting is for the Central or Catalyst Center address. A mistake in the file (a missing password or client secret, a name used twice, both or neither of region and base_url, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password or secret.
 

@@ -46,6 +46,10 @@ services:
   nautobot-maps:
     build: .
     logging: *default-logging
+    # The app's own files (#517): wireless.yml, criticality rules, CA
+    # certificates.  Read-only; empty and harmless when unused (config/README.md).
+    volumes:
+      - ./config:/config:ro
     ports:
       - "127.0.0.1:5000:5000"
     environment:
@@ -121,7 +125,7 @@ services:
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
       - LIBRENMS_VERIFY_SSL=${LIBRENMS_VERIFY_SSL:-true}
       # Wireless controllers' access point status (optional; see docs/sources.md):
-      # the file must be mounted into the container (docker-compose.override.yml)
+      # e.g. /config/wireless.yml, from ./config
       - WIRELESS_CONTROLLERS_FILE=${WIRELESS_CONTROLLERS_FILE:-}
       - WIRELESS_SYNC_INTERVAL_SECONDS=${WIRELESS_SYNC_INTERVAL_SECONDS:-}
       # Delete alert history older than this many days (optional; 0/empty keeps everything)

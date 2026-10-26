@@ -170,6 +170,12 @@ def _wireless_controllers(path: str) -> tuple[dict, ...]:
     try:
         with open(path, encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
+    except PermissionError as exc:
+        # The image runs as uid 10001: a file only its owner on the host may read is unreadable here (#517).
+        raise RuntimeError(
+            f"WIRELESS_CONTROLLERS_FILE {path!r} can't be read: PermissionError; in Docker the app runs as "
+            "uid 10001: sudo chown -R 10001:10001 config (see config/README.md)"
+        ) from exc
     except (OSError, yaml.YAMLError) as exc:
         raise RuntimeError(f"WIRELESS_CONTROLLERS_FILE {path!r} can't be read: {type(exc).__name__}") from exc
     if not isinstance(data, dict):

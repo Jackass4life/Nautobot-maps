@@ -147,6 +147,17 @@ catalyst_center:
         )
         assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
 
+    def test_an_unreadable_file_says_what_to_do(self, tmp_path, monkeypatch):
+        # In Docker the app is uid 10001: a file only its host owner may read (#517).
+        path = self.write(tmp_path, "catalyst_center: []")
+
+        def denied(*args, **kwargs):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr("builtins.open", denied)
+        with pytest.raises(RuntimeError, match="PermissionError; in Docker the app runs as uid 10001: sudo chown"):
+            settings._wireless_controllers(path)
+
     def test_a_missing_file_says_so(self, tmp_path):
         with pytest.raises(RuntimeError, match="can't be read: FileNotFoundError"):
             settings._wireless_controllers(str(tmp_path / "none.yml"))
