@@ -2,7 +2,7 @@
 
 Every setting is an environment variable, read from `.env` (copy `.env.example` to start). Only the first two are required. With Docker, `docker-compose.yml` passes each of them to the container; leaving one empty means its default.
 
-A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings). Put those files in the **`config/` folder** next to `docker-compose.yml`: it is mounted read-only in the container at `/config`, so the setting is `/config/<file>` (#517). The folder is git-ignored, so its secrets are never committed. In Docker the app runs as uid 10001, so let it read the folder through its group (`sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`); [config/README.md](../config/README.md) has the steps. An empty folder does nothing.
+A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings). Put those files in the **`config/` folder** next to `docker-compose.yml`: it is mounted read-only in the container at `/config`, so the setting is `/config/<file>` (#517). The folder is git-ignored and kept out of the image, so its secrets are never committed or built in. In Docker the app runs as uid 10001, so let it read the folder through its group (`sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`); [config/README.md](../config/README.md) has the steps. An empty folder does nothing.
 
 ## Nautobot
 
@@ -11,7 +11,7 @@ A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLL
 | `NAUTOBOT_URL` | **required** | Base URL of your Nautobot instance, e.g. `https://nautobot.example.com` (validated at startup) |
 | `NAUTOBOT_TOKEN` | **required** | Nautobot API token. Read-only is enough: the app never writes to Nautobot |
 | `NAUTOBOT_API_VERSION` | *(server default)* | Pin a Nautobot REST API version (e.g. `2.0`, `3.0`) |
-| `NAUTOBOT_VERIFY_SSL` | `true` | Certificate verification: `true`, `false` (e.g. self-signed), or a path to a CA bundle |
+| `NAUTOBOT_VERIFY_SSL` | `true` | Certificate verification: `true`, `false` (e.g. self-signed), or a path to a CA bundle (e.g. `/config/certs/internal-ca.pem`) |
 
 ## Database (PostgreSQL)
 
@@ -46,10 +46,8 @@ Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to take device up/down status f
 | `LIBRENMS_URL` | — | Base URL of your LibreNMS |
 | `LIBRENMS_API_TOKEN` | — | LibreNMS API token |
 | `LIBRENMS_VERIFY_SSL` | `true` | `true`, `false`, or a path to a CA bundle (e.g. `/config/certs/internal-ca.pem`) |
-| `WIRELESS_CONTROLLERS_FILE` | — | A YAML file listing any number of Cisco Catalyst Center instances (name, url, read-only username and password, verify_ssl) and HPE Aruba Networking New Central instances (name, region or base_url, API client id and secret), for access point status ([sources](sources.md#wireless-controllers-access-points)), e.g. `/config/wireless.yml`; a mistake in it, or a file the app can't read, stops the app at startup |
-| `WIRELESS_SYNC_INTERVAL_SECONDS` | `300` | How often each wireless controller is read (at least 60) |
 
-For a LibreNMS signed by an internal CA, put the CA certificate in `config/certs/` and point the setting at it (`LIBRENMS_VERIFY_SSL=/config/certs/internal-ca.pem`); the same for Nautobot (`NAUTOBOT_VERIFY_SSL`) and a wireless controller (`verify_ssl` in its file). `false` skips verification and should be a last resort, since the API token travels over that connection. A path that doesn't exist is logged as an error at startup.
+For a LibreNMS signed by an internal CA, put the CA certificate in `config/certs/` and point the setting at it (`LIBRENMS_VERIFY_SSL=/config/certs/internal-ca.pem`); the same for Nautobot (`NAUTOBOT_VERIFY_SSL`) and a [wireless controller](#wireless-controllers-optional) (`verify_ssl` in its file). `false` skips verification and should be a last resort, since the API token travels over that connection. A path that doesn't exist is logged as an error at startup.
 
 ### Near-real-time status: LibreNMS alert pushes
 
@@ -66,6 +64,20 @@ Without pushes, a device going down shows on the board after LibreNMS has polled
 4. Use LibreNMS's **Test** button on the transport: the app answers `{"updated": true, ...}` with the device's status. If the body variable isn't filled in by your LibreNMS version, check its [alert template variables](https://docs.librenms.org/Alerting/Templates/) (`hostname` works as well as `device_id`).
 
 What a push does: the app asks the LibreNMS API for that one device and stores its status; the push only says *which* device, so duplicate, late or non-device-down alerts can't set a wrong status. Each stored status remembers which LibreNMS request it came from, and an older answer never overwrites a newer one (from another push or from the periodic sync), so a quick down and up end in the right state; a repeated push just refreshes again. `{"updated": false}` means nothing changed: LibreNMS doesn't know the device, a newer answer was already stored, or the device was added to LibreNMS after the last sync here (the next sync picks it up) (not an error, so LibreNMS doesn't keep retrying). The parameters can also be sent as a form or in the query string (`?device_id=42`).
+
+## Wireless controllers (optional)
+
+Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each (#508): an access point the controller reports down is counted ("2 of 40 access points down" on the status page), never raising a site's level or notifying. The instances, with their read-only accounts, are listed in one YAML file in the [config folder](#configuration):
+
+- **Catalyst Center:** `name`, `url`, `username`, `password`, optional `verify_ssl`.
+- **New Central:** `name`, `region` (or `base_url`), `client_id`, `client_secret` of a Central-scoped GreenLake API client, optional `token_url` and `verify_ssl`.
+
+Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WIRELESS_CONTROLLERS_FILE` | — | A YAML file listing any number of Cisco Catalyst Center instances (name, url, read-only username and password, verify_ssl) and HPE Aruba Networking New Central instances (name, region or base_url, API client id and secret), for access point status ([sources](sources.md#wireless-controllers-access-points)), e.g. `/config/wireless.yml`; a mistake in it, or a file the app can't read, stops the app at startup |
+| `WIRELESS_SYNC_INTERVAL_SECONDS` | `300` | How often each wireless controller is read (at least 60) |
 
 ## Other monitoring tools (optional)
 
@@ -97,7 +109,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `SITE_TIERS` | `gold,silver,bronze` | The tier values, most important first; other values are no tier |
 | `TIER_DEVICE_LEVEL` | — | What any down device makes a site of that tier, e.g. `gold:critical,silver:medium`; a device's own field overrides it ([device and site criticality](alert-board.md#device-and-site-criticality)) |
 | `DEVICE_CRITICALITY_FIELD` | — | Nautobot custom field on the device (a select: `critical`, `medium`, `low`): what that device makes its site when down; it wins over the tier, the overrides and the role keywords. Setting it makes the next sync a full one |
-| `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`) |
+| `CASE_URL_TEMPLATE` | — | Makes every case number a link to its ticket, e.g. `https://itsm.example.com/ticket/{case}` (`{case}` is the URL-encoded number; only `http(s)://`): on the board, the wall, the map's site panel, Copy and notifications |
 | `AVAILABILITY_BASIS` | `any_down` | What the [availability report](availability.md) counts as downtime: `any_down` (any monitored device of the site down) or `critical` (the site at Critical) |
 | `FLAP_CHANGES` | `4` | A device that goes up or down this many times within 30 minutes is flapping: one incident, a FLAPPING label, a steady site level ([flapping](alert-board.md#flapping)). `0`: off |
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |

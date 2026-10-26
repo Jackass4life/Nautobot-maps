@@ -92,3 +92,41 @@ def test_the_config_folder_is_mounted_read_only():
     assert (REPO_ROOT / "config" / "README.md").is_file()
     # Nor built into the image: COPY . . would put the secrets in a layer.
     assert "config/" in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+
+
+# Read only to warn about it (#153): documented in the CHANGELOG, not as a setting.
+NOT_DOCUMENTED = {"NAUTOBOT_MAPS_DB"}
+
+
+def test_every_setting_is_documented():
+    """Every setting the code reads is in docs/configuration.md and .env.example (#519)."""
+    configuration = (REPO_ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    settings_read = _settings_read_by_code() - NOT_DOCUMENTED
+    missing = sorted(name for name in settings_read if f"`{name}`" not in configuration)
+    assert not missing, f"add to docs/configuration.md: {missing}"
+    missing = sorted(name for name in settings_read if name not in example)
+    assert not missing, f"add to .env.example: {missing}"
+
+
+def test_every_wireless_controller_key_is_documented():
+    """Each key a wireless controllers file may have is in docs/sources.md's table (#519)."""
+    from nautobot_maps import settings
+
+    sources = (REPO_ROOT / "docs" / "sources.md").read_text(encoding="utf-8")
+    keys = {key for required, optional in settings.WIRELESS_CONTROLLER_KINDS.values() for key in required | optional}
+    missing = sorted(key for key in keys | set(settings.WIRELESS_CONTROLLER_KINDS) if f"`{key}`" not in sources)
+    assert not missing, f"add to docs/sources.md: {missing}"
+
+
+def test_every_command_is_documented():
+    """Each `python -m nautobot_maps` command is in the docs (#519)."""
+    from nautobot_maps import __main__ as cli
+
+    docs = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").glob("*.md"))]
+    )
+    commands = cli.build_parser()._subparsers._group_actions[0].choices
+    missing = sorted(name for name in commands if name not in docs)
+    assert not missing, f"document these commands: {missing}"
