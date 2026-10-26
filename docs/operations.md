@@ -8,7 +8,7 @@
 # docker-compose.override.yml
 services:
   nautobot-maps:
-    image: ghcr.io/jackass4life/nautobot-maps:0.1.0   # the version to run
+    image: ghcr.io/jackass4life/nautobot-maps:0.2.0   # the version to run
     build: !reset null
 ```
 
@@ -17,6 +17,10 @@ docker compose pull nautobot-maps && docker compose up -d
 ```
 
 To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`. After upgrading Nautobot or LibreNMS, check the log for "Data contract" warnings or `GET /api/contract`: they name any field that no longer looks as the app expects ([data contract](data-contract.md)).
+
+## The config folder
+
+`docker-compose.yml` mounts `./config` read-only at `/config` (#517): the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
 
 ## Local overrides (ports, volumes, …)
 
@@ -53,10 +57,11 @@ services:
 
 ## Backup and restore
 
-PostgreSQL holds two kinds of data:
+What to keep, and what comes back by itself:
 
-- **Rebuilt automatically:** the Nautobot and LibreNMS inventory caches. Losing them costs one full sync.
-- **Not rebuilt from anywhere:** alert history (when devices went down and came back), case numbers, criticality overrides and site level changes. **Back these up.**
+- **Rebuilt automatically:** the Nautobot and LibreNMS inventory caches and the wireless controllers' access points. Losing them costs one full sync.
+- **Not rebuilt from anywhere:** alert history (when devices went down and came back), case numbers, criticality overrides, site level changes, maintenance windows, API tokens and each tenant's status page link (lost, every customer needs a new link). **Back these up.**
+- **Not in the database at all:** `.env` and the `config/` folder (wireless controllers, criticality rules, CA certificates). Keep a copy with your other secrets.
 
 With the bundled `docker-compose.yml` everything lives in the `postgres_data` volume; `docker compose down -v`, or losing the host, deletes it.
 

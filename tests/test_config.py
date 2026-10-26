@@ -81,3 +81,14 @@ def test_importing_the_modules_does_not_touch_the_database():
     )
     assert completed.returncode == 0, completed.stderr[-2000:]
     assert len(modules) >= 7
+
+
+def test_the_config_folder_is_mounted_read_only():
+    """The app's own files (#517): ./config at /config, read-only, and never committed."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "./config:/config:ro" in compose["services"]["nautobot-maps"]["volumes"]
+    ignored = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "config/*" in ignored and "!config/README.md" in ignored
+    assert (REPO_ROOT / "config" / "README.md").is_file()
+    # Nor built into the image: COPY . . would put the secrets in a layer.
+    assert "config/" in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()

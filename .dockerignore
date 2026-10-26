@@ -32,3 +32,6 @@ frontend/.nuxt
 
 # The proxy setup and its certificates never go into the app image (#423).
 deploy/
+# Nor the app's own files: they hold passwords and client secrets, and are
+# mounted at /config when the container runs (#517).
+config/

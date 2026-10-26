@@ -16,6 +16,11 @@ htmlcov/
 # Local, machine-specific Docker Compose settings (ports, volumes, ...)
 docker-compose.override.yml
 
+# The app's own files, mounted at /config (#517): they hold passwords and
+# client secrets, so never commit them.
+config/*
+!config/README.md
+
 # JavaScript dev tools (npm ci)
 node_modules/
 

@@ -72,7 +72,27 @@ docker compose up --build -d
 
 > **Use `docker compose up`, not `docker compose build && docker compose start`.** `start` only restarts containers that already exist and fails with *"service … has no container to start"* on a fresh checkout.
 
-The bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created. For LibreNMS, sign-in and everything else, see [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
+The bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created. Every setting is in [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
+
+Files the app reads (a wireless controllers file, criticality rules, CA certificates) go in the **`config/`** folder next to `docker-compose.yml`: it is mounted read-only at `/config`, git-ignored and kept out of the image. In Docker the app runs as uid 10001, so let it read the folder through its group: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, and `chmod 640` each file ([config/README.md](config/README.md)).
+
+### Add what you need
+
+Each of these is optional and can be added later; the map and the board work without them.
+
+| What | How | Guide |
+|---|---|---|
+| HTTPS and company sign-in | The bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml`), or your own SSO proxy | [Sign-in and roles](docs/authentication.md) |
+| LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN`; alert pushes for near-real time | [Configuration](docs/configuration.md#librenms-optional) |
+| Access points from Catalyst Center or Aruba New Central | `config/wireless.yml` and `WIRELESS_CONTROLLERS_FILE=/config/wireless.yml` | [Other sources](docs/sources.md#wireless-controllers-access-points) |
+| Alertmanager, Zabbix or any webhook | An operator API token | [Other sources](docs/sources.md) |
+| Notifications (webhook, Teams, email) | `NOTIFY_*`, `SMTP_*` | [Notifications](docs/notifications.md) |
+| A status page per customer | A random link per tenant: `python -m nautobot_maps status-link TENANT`, a status token for each customer | [Tenant status page](docs/status-page.md) |
+| Case numbers that link to your ITSM | `CASE_URL_TEMPLATE=https://itsm.example.com/ticket/{case}` | [Configuration](docs/configuration.md#alert-board) |
+| Which sites and devices matter most | Custom fields in Nautobot (below) | [Device and site criticality](docs/alert-board.md#device-and-site-criticality) |
+| AI assistants | `MCP_ENABLED=true` and an API token | [MCP server](docs/mcp.md) |
+
+Commands run inside the container: `docker compose exec nautobot-maps python -m nautobot_maps <command>` (`token create`, `status-link`, `wireless-check`, `migrate`).
 
 Without Docker (for development): `pip install -r requirements.txt`, build the pages once with Node 22 (`cd frontend && npm ci && npm run generate`), then `python app.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 

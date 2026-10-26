@@ -162,6 +162,22 @@ def _controller(kind: str, name: str, entry: dict, where: str) -> dict:
 CONTROLLER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
+# The app's user and group in the container (Dockerfile): the files in
+# ./config, mounted at /config, must be readable by this group (#517).
+CONTAINER_GID = 10001
+
+
+def unreadable_hint(path: str) -> str:
+    """Why *path* can't be read and what to do, for the startup log or error (#517)."""
+    hint = f"{path} can't be read by this process (uid {os.getuid()}, gid {os.getgid()})"
+    if os.getgid() == CONTAINER_GID:
+        hint += (
+            f"; give the file to the container's group: sudo chgrp {CONTAINER_GID} config/<file> "
+            "&& chmod 640 config/<file> (config/README.md)"
+        )
+    return hint
+
+
 def _wireless_controllers(path: str) -> tuple[dict, ...]:
     """Every controller in the file at *path*, checked: fail at startup naming
     the instance and the setting, never echoing a password."""
@@ -170,6 +186,9 @@ def _wireless_controllers(path: str) -> tuple[dict, ...]:
     try:
         with open(path, encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
+    except PermissionError as exc:
+        # In the container the app is uid/gid 10001, not the file's owner on the host (#517).
+        raise RuntimeError(f"WIRELESS_CONTROLLERS_FILE: {unreadable_hint(path)}") from exc
     except (OSError, yaml.YAMLError) as exc:
         raise RuntimeError(f"WIRELESS_CONTROLLERS_FILE {path!r} can't be read: {type(exc).__name__}") from exc
     if not isinstance(data, dict):

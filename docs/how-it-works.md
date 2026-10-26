@@ -119,14 +119,14 @@ cp .env.example .env    # set NAUTOBOT_URL, NAUTOBOT_TOKEN and POSTGRES_PASSWORD
 docker compose up --build -d
 ```
 
-This starts three containers: `nautobot-maps` (the app), `postgres` and `redis`. On start the app migrates the database, then runs gunicorn. Everything is configured with environment variables in `.env` ([every setting](configuration.md)). Use `docker compose up`, not `build && start`.
+This starts three containers: `nautobot-maps` (the app), `postgres` and `redis`. On start the app migrates the database, then runs gunicorn. Everything is configured with environment variables in `.env` ([every setting](configuration.md)); files it reads (wireless controllers, criticality rules, CA certificates) go in `config/`, mounted read-only at `/config` and readable by the app's group 10001 ([config/README.md](../config/README.md)). Use `docker compose up`, not `build && start`.
 
 ### Production checklist
 
 - Run a **released image**, not a local build ([operations](operations.md#run-a-released-version)).
 - Put **HTTPS and sign-in** in front: the bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` and six settings), or your own SSO proxy with `AUTH_MODE=header`. Roles are **viewer**, **operator** and **admin**, from your groups ([sign-in and roles](authentication.md)). The app trusts identity headers only from the proxy (`AUTH_TRUSTED_PROXIES`, `AUTH_PROXY_SECRET`).
 - Set your own `POSTGRES_PASSWORD` **before the first start**, and back up the database ([backup and restore](operations.md#backup-and-restore)).
-- Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), wireless controllers (`WIRELESS_CONTROLLERS_FILE`), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ITSM (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), tenant role scopes on status pages (`TENANT_SCOPE_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
+- Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), wireless controllers (`config/wireless.yml`, `WIRELESS_CONTROLLERS_FILE`; check with `wireless-check`), customer status pages (a link per tenant with `status-link`, a status token per customer), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ITSM (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), tenant role scopes on status pages (`TENANT_SCOPE_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
 - Monitor `/healthz` and scrape `/metrics` ([monitoring](operations.md#monitoring)).
 - API tokens for scripts, Alertmanager and MCP: `docker compose exec nautobot-maps python -m nautobot_maps token create <name> --role operator`.
 

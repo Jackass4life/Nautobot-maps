@@ -36,6 +36,8 @@ def _log_alert_board_exclusions() -> None:
             logger.error(
                 "%s=%r is neither true/false nor an existing CA bundle file: TLS connections will fail", name, value
             )
+        elif isinstance(value, str) and not os.access(value, os.R_OK):
+            logger.error("%s: %s: TLS connections will fail", name, settings.unreadable_hint(value))
     if settings.AUTH_MODE == "disabled" and settings.ALLOW_UNAUTHENTICATED_WRITES:
         logger.warning(
             "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach the app "
