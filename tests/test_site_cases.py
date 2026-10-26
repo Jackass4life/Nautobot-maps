@@ -3,7 +3,6 @@ devices, each device's own, and when nobody is."""
 
 from nautobot_maps import alerts, db, nautobot
 from tests import test_maintenance
-from tests.test_maintenance import build
 
 clock = test_maintenance.clock
 site = test_maintenance.site
@@ -37,9 +36,9 @@ def detail(monkeypatch) -> dict:
 
 class TestSitePanelCases:
     def test_nobody_on_it_then_cases_and_an_acknowledgement(self, site, monkeypatch):
-        build()  # core and acc1 down: open alerts
+        test_maintenance.build()  # core and acc1 down: open alerts
         before = detail(monkeypatch)
-        assert before["cases"] == []
+        assert (before["cases"], before["cases_read"]) == ([], True)
         down = {d["id"]: d for d in before["devices"]}
         # Down with an open alert, nobody on it yet; up: nothing.
         assert (down["core"]["case_numbers"], down["core"]["acknowledged_by"]) == ([], "")
@@ -49,6 +48,7 @@ class TestSitePanelCases:
         add_case(ids["acc1"], "INC0048213", "2026-10-09T12:00:00Z")
         add_case(ids["acc1"], "INC0048290", "2026-10-09T12:05:00Z")
         add_case(ids["core"], "INC0048213", "2026-10-09T12:00:00Z")
+        add_case(ids["core"], "INC0048300", "2026-10-09T12:03:00Z")
         conn = db.get_conn()
         try:
             conn.execute("UPDATE alert_instances SET acknowledged_by = 'olga' WHERE id = %s", (ids["core"],))
@@ -57,14 +57,19 @@ class TestSitePanelCases:
 
         after = detail(monkeypatch)
         devices = {d["id"]: d for d in after["devices"]}
-        # Newest first, each once.
-        assert after["cases"] == ["INC0048290", "INC0048213"]
+        # Newest first across the site's devices, each once.
+        assert after["cases"] == ["INC0048290", "INC0048300", "INC0048213"]
         assert devices["acc1"]["case_numbers"] == ["INC0048290", "INC0048213"]
-        assert (devices["core"]["case_numbers"], devices["core"]["acknowledged_by"]) == (["INC0048213"], "olga")
+        assert (devices["core"]["case_numbers"], devices["core"]["acknowledged_by"]) == (
+            ["INC0048300", "INC0048213"],
+            "olga",
+        )
         assert "case_numbers" not in devices["acc2"], "up: no open alert"
 
     def test_without_a_database_no_cases(self, monkeypatch):
         monkeypatch.setattr(db, "dialect", lambda: "")
         monkeypatch.setattr(alerts, "get_location_devices_and_alert", lambda *args, **kwargs: ([], {}))
         monkeypatch.setattr(nautobot, "fetch_all_pages", lambda *args, **kwargs: [])
-        assert alerts.get_location_detail("loc-x")["cases"] == []
+        found = alerts.get_location_detail("loc-x")
+        # Not read: the panel mustn't say "No case" for what it doesn't know.
+        assert (found["cases"], found["cases_read"]) == ([], False)

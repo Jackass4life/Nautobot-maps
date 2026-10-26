@@ -2444,6 +2444,12 @@
             "title": "Cases",
             "type": "array"
           },
+          "cases_read": {
+            "default": false,
+            "description": "Whether they could be read: without, no case means nothing.",
+            "title": "Cases Read",
+            "type": "boolean"
+          },
           "circuits": {
             "items": {
               "$ref": "#/components/schemas/SiteCircuit"

@@ -6,6 +6,7 @@ import {
   casesShown,
   deviceCase,
   nobodyOnIt,
+  noCaseText,
   circuitMatchNote,
   circuitTermination,
   deviceAside,
@@ -196,15 +197,21 @@ describe("who is on it (#512)", () => {
     expect(casesShown(["INC1", "INC2", "INC3", "INC4", "INC5"])).toEqual({ shown: ["INC1", "INC2", "INC3"], more: 2 });
   });
 
-  it("nobody: a counted down device without a case or an acknowledgement", () => {
-    expect(nobodyOnIt([device({ case_numbers: [] })])).toBe(true);
-    expect(nobodyOnIt([device({ case_numbers: [] }), device({ acknowledged_by: "olga" })])).toBe(false);
-    expect(nobodyOnIt([device({ case_numbers: ["INC1"] })])).toBe(false);
+  it("the down devices nobody is on: counted, without a case or an acknowledgement", () => {
+    expect(nobodyOnIt([device({ case_numbers: [] }), device({ acknowledged_by: "olga" }), device({ case_numbers: ["INC1"] })])).toBe(1);
     // In maintenance, within the alert delay or not monitored: not waiting for anyone.
-    expect(nobodyOnIt([device({ maintenance_until: "2026-10-09T14:00:00Z" })])).toBe(false);
-    expect(nobodyOnIt([device({ alert_pending: true })])).toBe(false);
-    expect(nobodyOnIt([device({ not_monitored: "no primary IP" })])).toBe(false);
-    expect(nobodyOnIt([])).toBe(false);
+    expect(nobodyOnIt([device({ maintenance_until: "x" }), device({ alert_pending: true }), device({ not_monitored: "no IP" })])).toBe(0);
+  });
+
+  it("what the panel says: No case, N without a case, or nothing", () => {
+    const waiting = Array.from({ length: 29 }, () => device({}));
+    expect(noCaseText(waiting, true, false)).toBe("No case");
+    // A core outage with one old case: the 29 others still need someone.
+    expect(noCaseText([...waiting, device({ case_numbers: ["INC1"] })], true, true)).toBe("29 without a case");
+    expect(noCaseText([...waiting, device({ acknowledged_by: "olga" })], true, false)).toBe("29 without a case");
+    expect(noCaseText([device({ case_numbers: ["INC1"] })], true, true)).toBe("");
+    // Not read (no database): no false alarm.
+    expect(noCaseText(waiting, false, false)).toBe("");
   });
 
   it("a device's case on its row", () => {

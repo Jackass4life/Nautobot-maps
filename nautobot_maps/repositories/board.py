@@ -546,13 +546,14 @@ def clear_acknowledgement(conn, instance_id: int) -> None:
     )
 
 
-def open_cases_for_devices(conn, device_ids: list[str]) -> dict[str, dict]:
-    """``{device_id: {"case_numbers": [...], "acknowledged_by": ""}}`` for the
-    devices with an open alert (#512), newest case first: one query, for the
-    map's site panel.  By device, not site: a location on the map can be a
-    building of the board's site."""
+def open_cases_for_devices(conn, device_ids: list[str]) -> dict:
+    """``{"devices": {device_id: {"case_numbers": [...], "acknowledged_by": ""}},
+    "cases": [...]}`` for the devices with an open alert (#512): each device's
+    cases and all of them, newest first across the site, each once.  One
+    query, for the map's site panel.  By device, not site: a location on the
+    map can be a building of the board's site."""
     if not device_ids:
-        return {}
+        return {"devices": {}, "cases": []}
     rows = conn.execute(
         """
         SELECT ai.device_id, ai.acknowledged_by, ac.case_number
@@ -564,13 +565,16 @@ def open_cases_for_devices(conn, device_ids: list[str]) -> dict[str, dict]:
         (list(device_ids),),
     ).fetchall()
     found: dict[str, dict] = {}
+    cases: dict[str, None] = {}  # in the rows' order: newest first, across devices
     for row in map(db.row_to_dict, rows):
         entry = found.setdefault(row["device_id"], {"case_numbers": [], "acknowledged_by": ""})
         case = (row.get("case_number") or "").strip()
         if case and case not in entry["case_numbers"]:
             entry["case_numbers"].append(case)
+        if case:
+            cases.setdefault(case)
         entry["acknowledged_by"] = entry["acknowledged_by"] or (row.get("acknowledged_by") or "")
-    return found
+    return {"devices": found, "cases": list(cases)}
 
 
 def site_alert_rows(conn, site_id: str) -> list[dict]:

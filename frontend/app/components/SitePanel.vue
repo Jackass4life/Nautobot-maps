@@ -17,7 +17,7 @@ import {
   groupStacks,
   healthCounts,
   maintenanceHistoryHref,
-  nobodyOnIt,
+  noCaseText,
   sortDownDevices,
   statusLine,
   type Health,
@@ -99,9 +99,13 @@ const lifecycle = computed(() => (props.loc?.status && props.loc.status.toLowerC
 const devices = computed<SiteDevice[]>(() => (props.detail && !props.loading && !props.error ? props.detail.devices : []));
 const stacks = computed(() => groupStacks(devices.value));
 const down = computed(() => sortDownDevices(devices.value));
-// Who is on it (#512): the site's cases, or that nobody is.
-const cases = computed(() => casesShown(props.detail?.cases || []));
-const noCase = computed(() => !cases.value.shown.length && nobodyOnIt(down.value));
+// Who is on it (#512): the site's cases, linked to the ITSM, and the down
+// devices nobody is on.
+const cases = computed(() => {
+  const { shown, more } = casesShown(props.detail?.cases || []);
+  return { shown: shown.map((number) => ({ number, url: caseUrl(number, props.caseUrlTemplate || "") })), more };
+});
+const noCase = computed(() => noCaseText(down.value, Boolean(props.detail?.cases_read), cases.value.shown.length > 0));
 const downShown = computed(() => (downExpanded.value ? down.value : down.value.slice(0, DOWN_SHOWN)));
 // A stack's lead brings its members, as under All devices (#400), but not
 // those with their own row here; it still says the stack's size (#405).
@@ -209,22 +213,22 @@ function statusClass(status: string) {
               <span class="legend-dot" :class="`dot-${status.level.replace('_', '-')}`" aria-hidden="true" />{{ status.text }}
             </div>
             <div v-if="status.reason" class="site-status-reason mt-0.5 pl-5 text-muted">{{ status.reason }}</div>
-            <div v-if="cases.shown.length" class="site-cases mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5">
-              <span class="text-muted">Case</span>
-              <template v-for="number in cases.shown" :key="number">
-                <a
-                  v-if="caseUrl(number, caseUrlTemplate || '')"
-                  class="site-case font-mono text-xs text-primary hover:underline"
-                  :href="caseUrl(number, caseUrlTemplate || '')"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >{{ number }}</a>
-                <span v-else class="site-case font-mono text-xs text-highlighted">{{ number }}</span>
+            <div v-if="cases.shown.length || noCase" class="site-cases mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5">
+              <template v-if="cases.shown.length">
+                <span class="text-muted">Case</span>
+                <template v-for="item in cases.shown" :key="item.number">
+                  <a
+                    v-if="item.url"
+                    class="site-case font-mono text-xs text-primary hover:underline"
+                    :href="item.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ item.number }}</a>
+                  <span v-else class="site-case font-mono text-xs text-highlighted">{{ item.number }}</span>
+                </template>
+                <span v-if="cases.more" class="text-xs text-muted">+{{ cases.more }}</span>
               </template>
-              <span v-if="cases.more" class="text-xs text-muted">+{{ cases.more }}</span>
-            </div>
-            <div v-else-if="noCase" class="site-no-case mt-1 pl-5">
-              <UBadge color="error" variant="subtle" size="sm">No case</UBadge>
+              <UBadge v-if="noCase" class="site-no-case" color="error" variant="subtle" size="sm">{{ noCase }}</UBadge>
             </div>
           </div>
 

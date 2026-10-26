@@ -170,6 +170,7 @@ class LocationDetail(common.Answer):
     alert: SiteAlert = Field(description="The level the board and the map show.")
     counts: SiteCounts
     cases: list[str] = Field(default_factory=list, description="Its devices' open cases, newest first (#512).")
+    cases_read: bool = Field(False, description="Whether they could be read: without, no case means nothing.")
     asns: list[Asn]
     circuits: list[SiteCircuit]
     circuits_error: str = Field(description="Why circuits couldn't be read; empty when they were.")

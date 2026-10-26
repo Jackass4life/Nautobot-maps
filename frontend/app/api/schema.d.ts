@@ -2077,6 +2077,12 @@ export interface components {
              * @description Its devices' open cases, newest first (#512).
              */
             cases?: string[];
+            /**
+             * Cases Read
+             * @description Whether they could be read: without, no case means nothing.
+             * @default false
+             */
+            cases_read: boolean;
             /** Circuits */
             circuits: components["schemas"]["SiteCircuit"][];
             /**
