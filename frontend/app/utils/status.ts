@@ -8,6 +8,7 @@ import { formatFeedTime } from "./format";
 export type TenantStatus = components["schemas"]["TenantStatus"];
 export type StatusSite = components["schemas"]["StatusSite"];
 export type SiteState = StatusSite["state"];
+export type StatusCircuit = components["schemas"]["StatusCircuit"];
 
 export const STATE_LABELS: Record<SiteState, string> = {
   operational: "Operational",
@@ -106,4 +107,14 @@ export function sitePlace(site: Pick<StatusSite, "address" | "latitude" | "longi
     text ||= `${site.latitude!.toFixed(4)}, ${site.longitude!.toFixed(4)}`;
   }
   return { text, href };
+}
+
+// A site's circuits (#511), folded: "1 circuit", "3 circuits".
+export function circuitsLabel(count: number): string {
+  return `${count.toLocaleString("en")} circuit${count === 1 ? "" : "s"}`;
+}
+
+// One circuit: "DK-TELIA-123456 · Internet Transit · 1 Gbps", without what it lacks.
+export function circuitText(circuit: StatusCircuit): string {
+  return [circuit.cid, circuit.type, circuit.bandwidth].filter(Boolean).join(" · ");
 }

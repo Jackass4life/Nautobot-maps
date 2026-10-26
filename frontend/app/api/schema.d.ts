@@ -2900,6 +2900,27 @@ export interface components {
              */
             whole: boolean;
         };
+        /**
+         * StatusCircuit
+         * @description One of the tenant's active circuits at a site (#511): not its provider.
+         */
+        StatusCircuit: {
+            /**
+             * Bandwidth
+             * @description Its commit rate, e.g. 1 Gbps; empty without one.
+             */
+            bandwidth: string;
+            /**
+             * Cid
+             * @description The circuit ID.
+             */
+            cid: string;
+            /**
+             * Type
+             * @description Its circuit type, e.g. Internet Transit; empty without one.
+             */
+            type: string;
+        };
         /** StatusSite */
         StatusSite: {
             /**
@@ -2917,6 +2938,11 @@ export interface components {
              * @description The site's physical address in Nautobot, when it has one (#493).
              */
             address: string | null;
+            /**
+             * Circuits
+             * @description The tenant's active circuits that end at the site or whose description is its address (#511).
+             */
+            circuits: components["schemas"]["StatusCircuit"][];
             /**
              * Latitude
              * @description Where the site is, when Nautobot has its coordinates (#493).

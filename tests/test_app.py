@@ -7044,7 +7044,7 @@ class TestLocationCircuits:
         ],
     )
     def test_circuit_speed(self, kbps, expected):
-        assert alerts.circuit_speed(kbps) == expected
+        assert inventory.circuit_speed(kbps) == expected
 
 
 LOCATION_TENANT_RELATIONSHIPS = [

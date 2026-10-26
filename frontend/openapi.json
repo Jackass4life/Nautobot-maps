@@ -4330,6 +4330,34 @@
         "title": "Stack",
         "type": "object"
       },
+      "StatusCircuit": {
+        "additionalProperties": false,
+        "description": "One of the tenant's active circuits at a site (#511): not its provider.",
+        "properties": {
+          "bandwidth": {
+            "description": "Its commit rate, e.g. 1 Gbps; empty without one.",
+            "title": "Bandwidth",
+            "type": "string"
+          },
+          "cid": {
+            "description": "The circuit ID.",
+            "title": "Cid",
+            "type": "string"
+          },
+          "type": {
+            "description": "Its circuit type, e.g. Internet Transit; empty without one.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cid",
+          "type",
+          "bandwidth"
+        ],
+        "title": "StatusCircuit",
+        "type": "object"
+      },
       "StatusSite": {
         "additionalProperties": false,
         "properties": {
@@ -4354,6 +4382,14 @@
             ],
             "description": "The site's physical address in Nautobot, when it has one (#493).",
             "title": "Address"
+          },
+          "circuits": {
+            "description": "The tenant's active circuits that end at the site or whose description is its address (#511).",
+            "items": {
+              "$ref": "#/components/schemas/StatusCircuit"
+            },
+            "title": "Circuits",
+            "type": "array"
           },
           "latitude": {
             "anyOf": [
@@ -4440,7 +4476,8 @@
           "network_devices",
           "access_points",
           "network_devices_down",
-          "access_points_down"
+          "access_points_down",
+          "circuits"
         ],
         "title": "StatusSite",
         "type": "object"

@@ -12,7 +12,7 @@ descriptions).
 
 from datetime import timedelta
 
-from nautobot_maps import timeutil
+from nautobot_maps import inventory, timeutil
 
 # Board level -> what the page says.
 STATES = {
@@ -83,12 +83,60 @@ def _devices(counts: dict) -> dict:
     }
 
 
-def tenant_status(board: dict, tenant: str) -> dict | None:
-    """*tenant*'s sites on *board* (case-insensitive name); None when it has none."""
+def site_circuits(rows: list[dict], circuits: list[dict], parents: dict[str, str]) -> dict[str, list[dict]]:
+    """``{row id: its circuits}`` for the tenant's site rows (#511): circuit ID,
+    type and bandwidth, never the provider.  In one pass, whatever the number
+    of sites and circuits.
+
+    A circuit that ends at a site, or at a building, floor or room below it
+    (*parents*: ``{location_id: parent_id}``), is the site's.  One without a
+    termination whose description is a site's address (#383) is that site's;
+    a building at the same address below it is the same site, not another."""
+    row_ids = {row.get("id") or "" for row in rows} - {""}
+
+    def row_of(location_id: str, skip_self: bool = False) -> str | None:
+        current = parents.get(location_id, "") if skip_self else location_id
+        for _ in range(32):
+            if not current:
+                return None
+            if current in row_ids:
+                return current
+            current = parents.get(current, "")
+        return None
+
+    keys = {row.get("id") or "": inventory.address_key(row.get("physical_address") or "") for row in rows}
+    by_key: dict[str, set] = {}  # address key: the rows its circuits go to (two sites at one address: both)
+    for row_id, key in keys.items():
+        if key and keys.get(row_of(row_id, skip_self=True) or "") != key:
+            by_key.setdefault(key, set()).add(row_id)
+    placed: dict[str, list[dict]] = {}
+    for circuit in circuits:
+        if circuit.get("terminated"):
+            where = {row_of(location_id) for location_id in circuit.get("location_ids") or []} - {None}
+        else:
+            where = by_key.get(circuit.get("address_key") or "", set())
+        for row_id in sorted(where):
+            placed.setdefault(row_id, []).append(
+                {
+                    "cid": inventory.circuit_cid(circuit),
+                    "type": circuit.get("circuit_type") or "",
+                    "bandwidth": inventory.circuit_speed(circuit.get("commit_rate")),
+                }
+            )
+    return placed
+
+
+def tenant_status(
+    board: dict, tenant: str, circuits: list[dict] | None = None, parents: dict[str, str] | None = None
+) -> dict | None:
+    """*tenant*'s sites on *board* (case-insensitive name); None when it has none.
+    *circuits*: the tenant's active circuits (``inventory.read_tenant_circuits``),
+    *parents* the locations above where they end (``inventory.read_location_parents``)."""
     wanted = tenant.strip().casefold()
     name = ""
     description = ""
     sites = []
+    rows = []
     checked_at = board.get("checked_at") or ""
     for row in board.get("alerts") or []:
         match = next((t for t in site_tenants(row) if t.casefold() == wanted), None)
@@ -113,14 +161,19 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
             "until": None,
             **_place(row),
             **_devices(scoped if scoped is not None else row),
+            "circuits": [],
         }
         if state in ("outage", "degraded"):
             site["since"] = _since({**row, **(scoped or {})}, checked_at)
         elif state == "maintenance":
             site["until"] = (row.get("maintenance") or {}).get("until")
         sites.append(site)
+        rows.append(row)
     if not sites:
         return None
+    placed = site_circuits(rows, circuits or [], parents or {})
+    for row, site in zip(rows, sites, strict=True):
+        site["circuits"] = placed.get(row.get("id") or "", [])
     sites.sort(key=lambda site: (STATE_ORDER.index(site["state"]), site["name"].lower()))
     return {
         "tenant": name,

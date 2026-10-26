@@ -91,6 +91,8 @@ class TestFetch:
             "description": "Roersvej 33, 5000 Odense C",
             "address_key": "roersvej 33|5000",
             "terminated": False,
+            "location_ids": [],
+            "tenant_key": "acme corp",
         }
         assert second["cid"] == "Unnamed 2"
         assert second["commit_rate"] is None  # not a number
@@ -107,12 +109,21 @@ class TestFetch:
             _circuit("none", "N", "", circuit_termination_a=None),
         ]
         monkeypatch.setattr(nautobot, "fetch_all_pages", lambda *args, **kwargs: circuits)
-        assert {c["cid"]: c["terminated"] for c in inventory.fetch_circuits()} == {
+        fetched = inventory.fetch_circuits()
+        assert {c["cid"]: c["terminated"] for c in fetched} == {
             "A": True,
             "Z": True,
             "PN": False,
             "B": False,
             "N": False,
+        }
+        # Where each ends (#511), for the status page.
+        assert {c["cid"]: c["location_ids"] for c in fetched} == {
+            "A": ["loc-1"],
+            "Z": ["loc-1"],
+            "PN": [],
+            "B": [],
+            "N": [],
         }
 
     def test_no_circuits_app_is_no_circuits(self, monkeypatch):

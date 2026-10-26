@@ -1,6 +1,6 @@
 // The tenant status page's logic (#291, #407; on Nuxt since #463).
 import { describe, expect, it } from "vitest";
-import { errorText, FOLD_ABOVE, headline, siteDevices, sitePlace, siteWhen, splitSites, stateLabel, statusKey } from "~/utils/status";
+import { circuitsLabel, circuitText, errorText, FOLD_ABOVE, headline, siteDevices, sitePlace, siteWhen, splitSites, stateLabel, statusKey } from "~/utils/status";
 
 const now = new Date("2026-10-09T12:00:00Z");
 
@@ -52,6 +52,15 @@ describe("what the page says", () => {
     expect(errorText(401)).toContain("doesn't work");
     expect(errorText(404)).toBe("No sites found for this link. If it is an old link, ask your contact for a new one.");
     expect(errorText(503)).toContain("Retrying");
+  });
+});
+
+describe("each site's circuits (#511)", () => {
+  it("folded as how many, one line each when opened, without what is missing", () => {
+    expect(circuitsLabel(1)).toBe("1 circuit");
+    expect(circuitsLabel(1200)).toBe("1,200 circuits");
+    expect(circuitText({ cid: "DK-TELIA-123456", type: "Internet Transit", bandwidth: "1 Gbps" })).toBe("DK-TELIA-123456 · Internet Transit · 1 Gbps");
+    expect(circuitText({ cid: "GTT-7781", type: "", bandwidth: "500 Mbps" })).toBe("GTT-7781 · 500 Mbps");
   });
 });
 

@@ -7,7 +7,7 @@ Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 chara
 It shows:
 - the tenant, with its description from Nautobot after a dash when it has one ("Acme Corp – Retail bank, 24/7", #482): the same text as the tenant's (i) on the board and Availability, so keep internal notes out of Nautobot's tenant descriptions;
 - one line for the whole tenant ("All 5 sites operational", or "2 of 5 sites affected · 4 devices down");
-- each of the tenant's sites with a state and since when, and under its name where it is: its address from Nautobot (or its facility, as on the board), or its GPS coordinates when it has no address, opening OpenStreetMap in a new tab: a pin when the coordinates are known, else a search for the address (#493); and how many devices it has (#503): with something down, how many of each kind, "3 of 12 network devices down · 1 of 40 access points down", else just "12 network · 40 APs", quietly; worst first. Access points a [wireless controller](sources.md#wireless-controllers-access-points) reports down show at a site that is otherwise operational too, and in the headline ("All 75 sites operational · 3 devices down"), without changing its state (#508). A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
+- each of the tenant's sites with a state and since when, and under its name where it is: its address from Nautobot (or its facility, as on the board), or its GPS coordinates when it has no address, opening OpenStreetMap in a new tab: a pin when the coordinates are known, else a search for the address (#493); and how many devices it has (#503): with something down, how many of each kind, "3 of 12 network devices down · 1 of 40 access points down", else just "12 network · 40 APs", quietly; worst first. Access points a [wireless controller](sources.md#wireless-controllers-access-points) reports down show at a site that is otherwise operational too, and in the headline ("All 75 sites operational · 3 devices down"), without changing its state (#508). Under that, folded, the site's **circuits** (#511): "▸ 3 circuits", which opens to one line each, "DK-TELIA-123456 · Internet Transit · 1 Gbps" (circuit ID, type and bandwidth, never the provider). Only the tenant's own circuits (their tenant in Nautobot is this one; your uplinks and other customers' are never shown, so set the tenant on customer circuits) and only **Active** ones: those that end at the site, and those without a termination whose description is its address, as on the map (#383). A site without any has no line. A tenant with **more than 10 sites** sees only the ones that need a look first (Outage, Degraded, Planned maintenance, No data). The operational ones fold into one line, "▸ 72 sites operational", which opens to list them and stays open across the minute's refresh (#407). With every site fine, that line is all there is under "All 75 sites operational":
 
 | State | Board level |
 |-------|-------------|
@@ -81,11 +81,22 @@ As on every unauthenticated route, the proxy must **remove** `X-Forwarded-User` 
 ```json
 {
   "tenant": "Acme Corp",
+  "description": "Retail bank, 24/7",
   "checked_at": "2026-10-09T12:00:00Z",
-  "summary": {"sites": 5, "affected": 2},
+  "summary": {"sites": 5, "affected": 2, "devices_down": 4},
   "sites": [
-    {"name": "London HQ", "state": "outage", "since": "2026-10-09T11:00:00Z", "until": null},
-    {"name": "Amsterdam", "state": "maintenance", "since": null, "until": "2026-10-09T14:00:00Z"}
+    {
+      "name": "London HQ", "state": "outage", "since": "2026-10-09T11:00:00Z", "until": null,
+      "address": "1 Canada Square, London E14 5AB", "latitude": 51.5054, "longitude": -0.0235,
+      "network_devices": 12, "access_points": 40, "network_devices_down": 3, "access_points_down": 1,
+      "circuits": [{"cid": "DK-TELIA-123456", "type": "Internet Transit", "bandwidth": "1 Gbps"}]
+    },
+    {
+      "name": "Amsterdam", "state": "maintenance", "since": null, "until": "2026-10-09T14:00:00Z",
+      "address": null, "latitude": null, "longitude": null,
+      "network_devices": 4, "access_points": 0, "network_devices_down": 0, "access_points_down": 0,
+      "circuits": []
+    }
   ]
 }
 ```

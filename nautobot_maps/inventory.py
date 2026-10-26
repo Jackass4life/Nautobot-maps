@@ -395,6 +395,15 @@ def address_key(text: str) -> str:
     return "text:" + words if len(words.split()) >= 4 and any(c.isdigit() for c in words) else ""
 
 
+def termination_locations(circuit: dict) -> list[str]:
+    """The locations a circuit's A and Z terminations are at (none, one or two)."""
+    return [
+        str(term["location"]["id"])
+        for term in (circuit.get("circuit_termination_a"), circuit.get("circuit_termination_z"))
+        if isinstance(term, dict) and isinstance(term.get("location"), dict) and term["location"].get("id")
+    ]
+
+
 def fetch_circuits() -> list[dict] | None:
     """Every Nautobot circuit, with the address key of its description (#383).
 
@@ -428,18 +437,16 @@ def fetch_circuits() -> list[dict] | None:
                 "provider": nautobot.nested_str(circuit.get("provider"), "name", "display"),
                 "circuit_type": nautobot.nested_str(circuit.get("circuit_type"), "name", "display"),
                 "status": nautobot.nested_str(circuit.get("status"), "name", "label", "display"),
-                "tenant": nautobot.nested_str(circuit.get("tenant"), "name", "display"),
+                "tenant": (tenant := nautobot.nested_str(circuit.get("tenant"), "name", "display")),
+                "tenant_key": tenant_key(tenant),
                 "commit_rate": commit_rate
                 if isinstance(commit_rate, int) and not isinstance(commit_rate, bool)
                 else None,
                 "description": description,
                 "address_key": address_key(description),
-                "terminated": any(
-                    isinstance(term, dict)
-                    and isinstance(term.get("location"), dict)
-                    and bool(term["location"].get("id"))
-                    for term in (circuit.get("circuit_termination_a"), circuit.get("circuit_termination_z"))
-                ),
+                "terminated": bool(locations := termination_locations(circuit)),
+                # Where it ends (#511): the status page lists it at those sites.
+                "location_ids": locations,
             }
         )
     return result
@@ -1063,17 +1070,82 @@ CIRCUIT_COLUMNS = (
     "description",
     "address_key",
     "terminated",
+    "location_ids",
+    "tenant_key",
 )
+
+
+def tenant_key(name) -> str:
+    """A tenant's name as the status page matches it (#511): as the board does."""
+    return str(name or "").strip().casefold()
 
 
 def write_circuits(conn, circuits: list[dict]) -> None:
     """Replace the cached circuits (#383), in one batch."""
     conn.execute("DELETE FROM nautobot_circuit_cache")
+
+    def row(circuit: dict) -> tuple:
+        derived = {"location_ids": circuit.get("location_ids") or [], "tenant_key": tenant_key(circuit.get("tenant"))}
+        return tuple(derived[column] if column in derived else circuit.get(column) for column in CIRCUIT_COLUMNS)
+
     conn.cursor().executemany(
         f"INSERT INTO nautobot_circuit_cache ({', '.join(CIRCUIT_COLUMNS)}) "
         f"VALUES ({db.placeholders(len(CIRCUIT_COLUMNS))}) ON CONFLICT DO NOTHING",
-        [tuple(circuit.get(column) for column in CIRCUIT_COLUMNS) for circuit in circuits],
+        [row(circuit) for circuit in circuits],
     )
+
+
+def circuit_speed(kbps) -> str:
+    """Nautobot circuit speeds are in Kbps; show them as ``10 Gbps`` / ``500 Mbps``."""
+    try:
+        value = int(kbps)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    for unit, size in (("Tbps", 1_000_000_000), ("Gbps", 1_000_000), ("Mbps", 1_000)):
+        if value >= size:
+            amount = value / size
+            return f"{amount:g} {unit}" if amount == int(amount) else f"{amount:.1f} {unit}"
+    return f"{value} Kbps"
+
+
+def circuit_cid(circuit: dict) -> str:
+    """How a circuit is named: its cid, else this."""
+    return circuit.get("cid") or "Unnamed circuit"
+
+
+def read_location_parents(conn, location_ids) -> dict[str, str]:
+    """``{location_id: parent_id}`` for *location_ids* and every location above
+    them, in one query (#511): to find the site a circuit's building is in."""
+    ids = sorted({str(location_id) for location_id in location_ids if location_id})
+    if not ids:
+        return {}
+    rows = conn.execute(
+        """
+        WITH RECURSIVE up(location_id, parent_id, depth) AS (
+            SELECT location_id, parent_id, 0 FROM nautobot_location_cache WHERE location_id = ANY(%s)
+            UNION ALL
+            SELECT l.location_id, l.parent_id, up.depth + 1
+            FROM nautobot_location_cache l JOIN up ON l.location_id = up.parent_id
+            WHERE up.depth < 32
+        )
+        SELECT DISTINCT location_id, parent_id FROM up
+        """,
+        (ids,),
+    ).fetchall()
+    return {row["location_id"]: row["parent_id"] or "" for row in rows}
+
+
+def read_tenant_circuits(conn, tenant: str) -> list[dict]:
+    """A tenant's active circuits (#511), for its status page: one query,
+    whatever its number of sites."""
+    rows = conn.execute(
+        f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
+        "WHERE tenant_key = %s AND lower(trim(status)) = 'active' ORDER BY lower(cid), circuit_id",
+        (tenant_key(tenant),),
+    ).fetchall()
+    return [db.row_to_dict(row) for row in rows]
 
 
 def read_circuits_at_address(conn, key: str) -> list[dict]:

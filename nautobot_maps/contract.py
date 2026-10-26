@@ -303,7 +303,8 @@ CONTRACT: tuple[Endpoint, ...] = (
     Endpoint(
         NAUTOBOT,
         "circuits/circuits/",
-        "Circuits whose description is a site's address, in the site panel (#383)",
+        "Circuits whose description is a site's address, in the site panel (#383); a tenant's circuits per site "
+        "on its status page (#511)",
         (
             Field("id", ("string",), required=True, becomes="circuit_id"),
             Field("cid", ("string",), required=True, becomes="cid", rule="cid, else display"),
@@ -314,7 +315,12 @@ CONTRACT: tuple[Endpoint, ...] = (
             *_names("circuit_type", "name", "display"),
             Field("status", NESTED, becomes="status"),
             *_names("status", "name", "label", "display"),
-            Field("tenant", NESTED, becomes="tenant"),
+            Field(
+                "tenant",
+                NESTED,
+                becomes="tenant, tenant_key",
+                rule="the key casefolded: whose status page lists it (#511)",
+            ),
             *_names("tenant", "name", "display"),
             Field("commit_rate", ("integer", "null"), becomes="commit_rate", rule="Kbps"),
             Field(
@@ -330,9 +336,14 @@ CONTRACT: tuple[Endpoint, ...] = (
                 becomes="terminated",
                 rule="a termination (A or Z) with a location: never matched by address",
             ),
-            Field("circuit_termination_a.location", NESTED),
+            Field(
+                "circuit_termination_a.location",
+                NESTED,
+                becomes="location_ids",
+                rule="the id of each termination's location: where the status page lists the circuit",
+            ),
             Field("circuit_termination_z", NESTED),
-            Field("circuit_termination_z.location", NESTED),
+            Field("circuit_termination_z.location", NESTED, becomes="location_ids"),
         ),
         request="all pages, depth=1; read in full on every sync; a 404 (no circuits app) is no circuits",
         stored_in="nautobot_circuit_cache",

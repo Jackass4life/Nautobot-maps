@@ -143,7 +143,7 @@ Tenant names, descriptions (tooltip) and tenant groups.
 
 ### `circuits/circuits/`
 
-Circuits whose description is a site's address, in the site panel (#383).
+Circuits whose description is a site's address, in the site panel (#383); a tenant's circuits per site on its status page (#511).
 
 - Request: all pages, depth=1; read in full on every sync; a 404 (no circuits app) is no circuits
 - Stored in: `nautobot_circuit_cache`
@@ -163,15 +163,15 @@ Circuits whose description is a site's address, in the site panel (#383).
 | `status.name` | string or null |  | — | — |
 | `status.label` | string or null |  | — | — |
 | `status.display` | string or null |  | — | — |
-| `tenant` | object or null |  | tenant | — |
+| `tenant` | object or null |  | tenant, tenant_key | the key casefolded: whose status page lists it (#511) |
 | `tenant.name` | string or null |  | — | — |
 | `tenant.display` | string or null |  | — | — |
 | `commit_rate` | integer or null |  | commit_rate | Kbps |
 | `description` | string or null |  | description, address_key | the key: street, number and postcode ("Roersvej 33, 5000 Odense C" → roersvej 33\|5000), else the words of a full address; matched against a location's physical_address |
 | `circuit_termination_a` | object or null |  | terminated | a termination (A or Z) with a location: never matched by address |
-| `circuit_termination_a.location` | object or null |  | — | — |
+| `circuit_termination_a.location` | object or null |  | location_ids | the id of each termination's location: where the status page lists the circuit |
 | `circuit_termination_z` | object or null |  | — | — |
-| `circuit_termination_z.location` | object or null |  | — | — |
+| `circuit_termination_z.location` | object or null |  | location_ids | — |
 
 ### `extras/relationships/`
 

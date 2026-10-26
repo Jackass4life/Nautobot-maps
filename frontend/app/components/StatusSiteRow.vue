@@ -1,8 +1,9 @@
 <!-- One site on the tenant status page (#291, #463): its state, and since or
      until when; under its name, where it is, opening OpenStreetMap in a new
-     tab (#493); and how many devices it has, and how many are down (#503). -->
+     tab (#493); how many devices it has, and how many are down (#503); and
+     its circuits, folded (#511). -->
 <script setup lang="ts">
-import { hasDown, siteDevices, sitePlace, siteWhen, stateLabel, type StatusSite } from "~/utils/status";
+import { circuitsLabel, circuitText, hasDown, siteDevices, sitePlace, siteWhen, stateLabel, type StatusSite } from "~/utils/status";
 
 const props = defineProps<{ site: StatusSite; now: Date; dot: Record<string, string> }>();
 const place = computed(() => sitePlace(props.site));
@@ -28,6 +29,18 @@ const devices = computed(() => siteDevices(props.site));
       <span v-if="devices" class="status-devices block text-sm" :class="hasDown(site) ? 'text-toned' : 'text-muted'">{{
         devices
       }}</span>
+      <!-- Folded: one line per circuit only when opened (#511). -->
+      <details v-if="site.circuits.length" class="status-circuits group mt-0.5 text-sm">
+        <summary class="inline-flex cursor-pointer list-none items-center gap-1 text-muted hover:text-highlighted">
+          <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+          {{ circuitsLabel(site.circuits.length) }}
+        </summary>
+        <ul class="mt-1 space-y-0.5 pl-4.5 text-toned">
+          <li v-for="(circuit, index) in site.circuits" :key="`${circuit.cid}-${index}`" class="status-circuit break-words">
+            {{ circuitText(circuit) }}
+          </li>
+        </ul>
+      </details>
     </div>
     <span :class="site.state === 'outage' || site.state === 'degraded' ? 'font-semibold text-highlighted' : 'text-muted'">
       {{ stateLabel(site.state) }}

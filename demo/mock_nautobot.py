@@ -908,6 +908,8 @@ CIRCUIT_TERMINATIONS["loc-cph"][0]["circuit"]["description"] = "Vermlandsgade 51
 ADDRESS_CIRCUITS += [
     {
         **_circuit(f"cir-{loc['id']}", f"SC-{index:05d}", "prov-gtt", "ct-mpls", "Active", 1_000_000),
+        # The site's customer's (#511): it sees it on its status page.
+        "tenant": loc["tenant"],
         "description": f"Fibre – {loc['physical_address']}" if index % 30 == 0 else loc["physical_address"],
     }
     for index, loc in enumerate(loc for loc in LOCATIONS if loc["id"].startswith("loc-sc"))

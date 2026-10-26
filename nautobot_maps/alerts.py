@@ -2535,21 +2535,6 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     }
 
 
-def circuit_speed(kbps) -> str:
-    """Nautobot circuit speeds are in Kbps; show them as ``10 Gbps`` / ``500 Mbps``."""
-    try:
-        value = int(kbps)
-    except (TypeError, ValueError):
-        return ""
-    if value <= 0:
-        return ""
-    for unit, size in (("Tbps", 1_000_000_000), ("Gbps", 1_000_000), ("Mbps", 1_000)):
-        if value >= size:
-            amount = value / size
-            return f"{amount:g} {unit}" if amount == int(amount) else f"{amount:.1f} {unit}"
-    return f"{value} Kbps"
-
-
 def location_circuits(location_id: str) -> tuple[list[dict], str]:
     """Return ``(circuits, error)``: every circuit termination at *location_id* (#235).
 
@@ -2574,15 +2559,15 @@ def location_circuits(location_id: str) -> tuple[list[dict], str]:
         circuits.append(
             {
                 "id": circuit.get("id") or "",
-                "cid": circuit.get("cid") or nautobot.nested_str(circuit, "display") or "Unnamed circuit",
+                "cid": inventory.circuit_cid({"cid": circuit.get("cid") or nautobot.nested_str(circuit, "display")}),
                 "provider": nautobot.nested_str(circuit.get("provider"), "name", "display"),
                 "circuit_type": nautobot.nested_str(circuit.get("circuit_type"), "name", "display"),
                 "status": nautobot.nested_str(circuit.get("status"), "name", "label", "display"),
                 "tenant": nautobot.nested_str(circuit.get("tenant"), "name", "display"),
-                "commit_rate": circuit_speed(circuit.get("commit_rate")),
+                "commit_rate": inventory.circuit_speed(circuit.get("commit_rate")),
                 "term_side": term.get("term_side") or "",
-                "port_speed": circuit_speed(term.get("port_speed")),
-                "upstream_speed": circuit_speed(term.get("upstream_speed")),
+                "port_speed": inventory.circuit_speed(term.get("port_speed")),
+                "upstream_speed": inventory.circuit_speed(term.get("upstream_speed")),
                 "xconnect_id": term.get("xconnect_id") or "",
                 "pp_info": term.get("pp_info") or "",
                 "description": term.get("description") or circuit.get("description") or "",
@@ -2626,11 +2611,11 @@ def cached_circuit(circuit: dict) -> dict:
     """A stored circuit as the site panel and the circuit mapping show it (#383, #385)."""
     return {
         "id": circuit["circuit_id"],
-        "cid": circuit["cid"] or "Unnamed circuit",
+        "cid": inventory.circuit_cid(circuit),
         "provider": circuit["provider"],
         "circuit_type": circuit["circuit_type"],
         "status": circuit["status"],
         "tenant": circuit["tenant"],
-        "commit_rate": circuit_speed(circuit["commit_rate"]),
+        "commit_rate": inventory.circuit_speed(circuit["commit_rate"]),
         "description": circuit["description"],
     }
