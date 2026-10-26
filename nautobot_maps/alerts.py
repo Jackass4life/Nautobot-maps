@@ -256,6 +256,11 @@ if settings.CRITICALITY_RULES_FILE:
                 "Criticality rules file %s must contain a JSON object; ignoring.",
                 settings.CRITICALITY_RULES_FILE,
             )
+    except PermissionError:
+        logger.error(
+            "Could not load criticality rules: %s; using CRITICAL_ROLE_KEYWORDS",
+            settings.unreadable_hint(settings.CRITICALITY_RULES_FILE),
+        )
     except Exception as exc:
         logger.warning("Could not load criticality rules from %s: %s", settings.CRITICALITY_RULES_FILE, exc)
 

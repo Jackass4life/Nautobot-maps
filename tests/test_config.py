@@ -90,3 +90,5 @@ def test_the_config_folder_is_mounted_read_only():
     ignored = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert "config/*" in ignored and "!config/README.md" in ignored
     assert (REPO_ROOT / "config" / "README.md").is_file()
+    # Nor built into the image: COPY . . would put the secrets in a layer.
+    assert "config/" in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()

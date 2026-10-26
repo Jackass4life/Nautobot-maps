@@ -20,7 +20,7 @@ To roll back, set the previous version and run the same commands. The app refuse
 
 ## The config folder
 
-`docker-compose.yml` mounts `./config` read-only at `/config` (#517): the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored, so its passwords are never committed, and the app (uid 10001 in the container) must be able to read it: `sudo chown -R 10001:10001 config`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
+`docker-compose.yml` mounts `./config` read-only at `/config` (#517): the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
 
 ## Local overrides (ports, volumes, …)
 

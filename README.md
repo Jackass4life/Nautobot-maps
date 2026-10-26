@@ -74,7 +74,7 @@ docker compose up --build -d
 
 The bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created. Every setting is in [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
 
-Files the app reads (a wireless controllers file, criticality rules, CA certificates) go in the **`config/`** folder next to `docker-compose.yml`: it is mounted read-only at `/config` and git-ignored. In Docker the app runs as uid 10001, so give it the folder: `sudo chown -R 10001:10001 config` ([config/README.md](config/README.md)).
+Files the app reads (a wireless controllers file, criticality rules, CA certificates) go in the **`config/`** folder next to `docker-compose.yml`: it is mounted read-only at `/config`, git-ignored and kept out of the image. In Docker the app runs as uid 10001, so let it read the folder through its group: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, and `chmod 640` each file ([config/README.md](config/README.md)).
 
 ### Add what you need
 

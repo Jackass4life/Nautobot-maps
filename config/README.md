@@ -14,18 +14,22 @@ used only when a setting in `.env` points at it.
 
 ## Permissions
 
-In Docker the app runs as user **10001**, not as you. Give it the folder, and
-keep everyone else out:
+In Docker the app runs as user and group **10001**, not as you. Keep owning
+the folder and its files yourself (so git, the build and your editor keep
+working), and let the app read them through its group:
 
 ```bash
-chmod 600 config/wireless.yml        # each file, while it is still yours
-sudo chown -R 10001:10001 config     # then give the folder to the app
-sudo chmod 700 config
+sudo chgrp -R 10001 config   # the app's group in the container
+sudo chmod 2750 config       # you: all; the app: read; others: nothing. New files get the group too
+chmod 640 config/wireless.yml   # each file: you read and write, the app reads
 ```
 
-Edit the files with `sudo` afterwards (or `sudo -u '#10001'`). If the app
-can't read a file it stops at startup and says so ("can't be read:
-PermissionError … uid 10001"). Without Docker (`python app.py`), point the
-settings at the files wherever they are; the app then runs as you.
+A file you add later gets the group by itself (the `2` in `2750`); make sure
+it is `640`, not `600` (a copy of a `600` file stays `600`). If the app can't
+read the wireless controllers file it stops at startup and says what to run;
+an unreadable criticality rules file or CA certificate is logged as an error
+at startup (the app then uses `CRITICAL_ROLE_KEYWORDS`, or its TLS
+connections fail). Without Docker (`python app.py`) the app runs as you:
+nothing to do.
 
 After changing a file, restart the app: `docker compose up -d --force-recreate nautobot-maps`.

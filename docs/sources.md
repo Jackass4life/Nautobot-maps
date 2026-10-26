@@ -64,15 +64,15 @@ WIRELESS_CONTROLLERS_FILE=/config/wireless.yml
 WIRELESS_SYNC_INTERVAL_SECONDS=300     # how often each one is read (at least 60)
 ```
 
-`docker-compose.yml` mounts the `config/` folder read-only at `/config`, and it is git-ignored, so the file's passwords are never committed. In Docker the app runs as uid **10001**: give it the file, then start the app.
+`docker-compose.yml` mounts the `config/` folder read-only at `/config`, and it is git-ignored and kept out of the image, so the file's passwords are never committed or built in. In Docker the app runs as user and group **10001**: keep the file yours and let the app read it through its group, then start the app.
 
 ```bash
-chmod 600 config/wireless.yml
-sudo chown -R 10001:10001 config && sudo chmod 700 config
+sudo chgrp -R 10001 config && sudo chmod 2750 config
+chmod 640 config/wireless.yml
 docker compose up -d --force-recreate nautobot-maps
 ```
 
-A file the app can't read stops it at startup with "can't be read: PermissionError … uid 10001" ([config/README.md](../config/README.md)). After editing the file, run the last command again. Without Docker, `WIRELESS_CONTROLLERS_FILE` is just the file's path.
+A file the app can't read stops it at startup, saying what to run ([config/README.md](../config/README.md)). After editing the file, run the last command again. Without Docker, `WIRELESS_CONTROLLERS_FILE` is just the file's path.
 
 Every URL must be `https` (credentials travel over it; only `localhost` may be `http`, for the demo). HPE's sign-in service is always verified, whatever `verify_ssl` says: that setting is for the Central or Catalyst Center address. A mistake in the file (a missing password or client secret, a name used twice, both or neither of region and base_url, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password or secret.
 

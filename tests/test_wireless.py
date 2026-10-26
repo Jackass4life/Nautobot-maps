@@ -1,6 +1,8 @@
 """Access point status from the wireless controllers (#508): Catalyst Center,
 any number of instances, counted and never alarmed."""
 
+import os
+
 import pytest
 import requests
 
@@ -147,15 +149,15 @@ catalyst_center:
         )
         assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
 
+    @pytest.mark.skipif(os.getuid() == 0, reason="root reads any file")
     def test_an_unreadable_file_says_what_to_do(self, tmp_path, monkeypatch):
-        # In Docker the app is uid 10001: a file only its host owner may read (#517).
+        # In the container the app is uid/gid 10001, not the file's owner on the host (#517).
         path = self.write(tmp_path, "catalyst_center: []")
-
-        def denied(*args, **kwargs):
-            raise PermissionError(13, "Permission denied")
-
-        monkeypatch.setattr("builtins.open", denied)
-        with pytest.raises(RuntimeError, match="PermissionError; in Docker the app runs as uid 10001: sudo chown"):
+        os.chmod(path, 0)
+        with pytest.raises(RuntimeError, match="can't be read by this process"):
+            settings._wireless_controllers(path)
+        monkeypatch.setattr(os, "getgid", lambda: settings.CONTAINER_GID)
+        with pytest.raises(RuntimeError, match="sudo chgrp 10001 config/<file> && chmod 640"):
             settings._wireless_controllers(path)
 
     def test_a_missing_file_says_so(self, tmp_path):

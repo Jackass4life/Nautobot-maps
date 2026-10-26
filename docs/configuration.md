@@ -2,7 +2,7 @@
 
 Every setting is an environment variable, read from `.env` (copy `.env.example` to start). Only the first two are required. With Docker, `docker-compose.yml` passes each of them to the container; leaving one empty means its default.
 
-A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings). Put those files in the **`config/` folder** next to `docker-compose.yml`: it is mounted read-only in the container at `/config`, so the setting is `/config/<file>` (#517). The folder is git-ignored, so its secrets are never committed. In Docker the app runs as uid 10001, so give it the folder (`sudo chown -R 10001:10001 config`); [config/README.md](../config/README.md) has the steps. An empty folder does nothing.
+A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings). Put those files in the **`config/` folder** next to `docker-compose.yml`: it is mounted read-only in the container at `/config`, so the setting is `/config/<file>` (#517). The folder is git-ignored, so its secrets are never committed. In Docker the app runs as uid 10001, so let it read the folder through its group (`sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`); [config/README.md](../config/README.md) has the steps. An empty folder does nothing.
 
 ## Nautobot
 

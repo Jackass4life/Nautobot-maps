@@ -40,7 +40,8 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 # Run as an unprivileged user.  The code stays root-owned (read-only for the
 # app); all state lives in PostgreSQL.
-RUN useradd --create-home --uid 10001 app
+# Group 10001 too, explicitly: the files in ./config are given to it (#517).
+RUN groupadd --gid 10001 app && useradd --create-home --uid 10001 --gid 10001 app
 
 COPY . .
 COPY --from=frontend /frontend/.output/public /app/frontend/.output/public

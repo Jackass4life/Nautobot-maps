@@ -119,7 +119,7 @@ cp .env.example .env    # set NAUTOBOT_URL, NAUTOBOT_TOKEN and POSTGRES_PASSWORD
 docker compose up --build -d
 ```
 
-This starts three containers: `nautobot-maps` (the app), `postgres` and `redis`. On start the app migrates the database, then runs gunicorn. Everything is configured with environment variables in `.env` ([every setting](configuration.md)); files it reads (wireless controllers, criticality rules, CA certificates) go in `config/`, mounted read-only at `/config` and owned by uid 10001 ([config/README.md](../config/README.md)). Use `docker compose up`, not `build && start`.
+This starts three containers: `nautobot-maps` (the app), `postgres` and `redis`. On start the app migrates the database, then runs gunicorn. Everything is configured with environment variables in `.env` ([every setting](configuration.md)); files it reads (wireless controllers, criticality rules, CA certificates) go in `config/`, mounted read-only at `/config` and readable by the app's group 10001 ([config/README.md](../config/README.md)). Use `docker compose up`, not `build && start`.
 
 ### Production checklist
 
