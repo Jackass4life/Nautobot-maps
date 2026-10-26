@@ -154,6 +154,9 @@ def tenant_status(
             (text for owner, text in (row.get("tenant_descriptions") or {}).items() if owner.casefold() == wanted), ""
         )
         state = STATES.get((scoped or {}).get("alert_level") or row.get("alert_level") or "", "unknown")
+        if (scoped if scoped is not None else row).get("wireless_only"):
+            # Only access points down (#521): operational, with them counted, as before.
+            state = "operational"
         site = {
             "name": row.get("name") or "",
             "state": state,

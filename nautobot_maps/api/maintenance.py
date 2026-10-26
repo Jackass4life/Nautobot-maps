@@ -244,7 +244,7 @@ def api_maintenance_devices(query: Annotated[models.MaintenanceDevices, Query()]
 
     Query parameters: ``site_id`` (a row of the alert board) and
     ``include_non_operational=1`` (as on the board).  The devices the board
-    counts there: with a primary IP, not of an excluded status, and those
+    counts there: with a primary IP or a wireless controller (#521), not of an excluded status, and those
     below the site when rows are rolled up to a location type.
     """
     if not query.site_id:

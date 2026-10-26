@@ -16,6 +16,8 @@ export const LEVEL_COLORS: Record<string, string> = {
   critical: "#e74c3c",
   medium: "#ff8c00",
   low: "#eab308",
+  // Only access points down (#521): the Low colour, softer; a quiet dot, not a pin.
+  wireless: "#fde68a",
   maintenance: "#2563eb",
   ok: "#2ecc71",
   no_data: "#94a3b8",
@@ -29,13 +31,14 @@ export const LEVEL_NAMES: Record<string, string> = {
   ok: "OK",
   maintenance: "In maintenance",
   no_data: "No data",
+  wireless: "Access points down",
 };
 
 // Alarms, least to most severe; "ok" and "no_data" are not alerts (#124).
 export const ALERT_RANK: Record<string, number> = { low: 1, medium: 2, critical: 3 };
 
 // What a stack or cluster shows: its worst member (#234, #311).
-const DISPLAY_RANK: Record<string, number> = { no_data: 0, ok: 1, maintenance: 2, low: 3, medium: 4, critical: 5 };
+const DISPLAY_RANK: Record<string, number> = { no_data: 0, ok: 1, wireless: 2, maintenance: 3, low: 4, medium: 5, critical: 6 };
 
 // Levels that are never clustered: always their own pin, on top (#334).
 const ATTENTION = new Set(["critical", "medium", "low", "maintenance"]);
@@ -43,6 +46,12 @@ const ATTENTION = new Set(["critical", "medium", "low", "maintenance"]);
 // A level for its colour: an unknown one (or Object.prototype's keys) is No data.
 export function knownLevel(level: string | null | undefined): string {
   return level && Object.hasOwn(LEVEL_COLORS, level) ? level : "no_data";
+}
+
+// The level a marker shows (#521): "wireless" for a site with only access
+// points down, so it is neither in the alarm list nor its own pin.
+export function displayLevel(entry: { level: string; wireless_only?: boolean | null }): string {
+  return entry.wireless_only ? "wireless" : entry.level;
 }
 
 export function isAlarm(level: string | null | undefined): boolean {

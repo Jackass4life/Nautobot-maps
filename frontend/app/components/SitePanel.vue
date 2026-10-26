@@ -6,7 +6,7 @@
 import { formatFeedTime, nautobotCircuitUrl, nautobotLocationUrl } from "~/utils/format";
 import type { MapLocation } from "~/utils/map";
 import { tenantDescriptionIn } from "~/utils/tenants";
-import { caseUrl } from "~/utils/board";
+import { accessPointsText, caseUrl } from "~/utils/board";
 import {
   casesShown,
   circuitMatchNote,
@@ -16,6 +16,7 @@ import {
   filterDevices,
   groupStacks,
   healthCounts,
+  isWatchedAccessPoint,
   maintenanceHistoryHref,
   noCaseText,
   sortDownDevices,
@@ -51,6 +52,7 @@ defineExpose({ focus: () => closeButton.value?.focus() });
 const folds = ref(new Map<string, boolean>());
 const openDevices = ref(new Set<string>());
 const downExpanded = ref(false);
+const apsExpanded = ref(false);
 const deviceFilter = ref<"all" | Health>("all");
 const deviceSearch = ref("");
 watch(
@@ -59,6 +61,7 @@ watch(
     folds.value = new Map();
     openDevices.value = new Set();
     downExpanded.value = false;
+    apsExpanded.value = false;
     deviceFilter.value = "all";
     deviceSearch.value = "";
   },
@@ -98,7 +101,12 @@ const lifecycle = computed(() => (props.loc?.status && props.loc.status.toLowerC
 
 const devices = computed<SiteDevice[]>(() => (props.detail && !props.loading && !props.error ? props.detail.devices : []));
 const stacks = computed(() => groupStacks(devices.value));
-const down = computed(() => sortDownDevices(devices.value));
+const allDown = computed(() => sortDownDevices(devices.value));
+// Access points a controller watches fold under the others (#521): at 40 an
+// AP, the site's own outage must stay on top.
+const down = computed(() => allDown.value.filter((device) => !isWatchedAccessPoint(device)));
+const downAps = computed(() => allDown.value.filter(isWatchedAccessPoint));
+const downApsShown = computed(() => (apsExpanded.value ? downAps.value : downAps.value.slice(0, DOWN_SHOWN)));
 // Who is on it (#512): the site's cases, linked to the ITSM, and the down
 // devices nobody is on.
 const cases = computed(() => {
@@ -110,7 +118,7 @@ const downShown = computed(() => (downExpanded.value ? down.value : down.value.s
 // A stack's lead brings its members, as under All devices (#400), but not
 // those with their own row here; it still says the stack's size (#405).
 const stackOf = computed(() => new Map(stacks.value.map(({ device, members }) => [device, members])));
-const downSet = computed(() => new Set(down.value));
+const downSet = computed(() => new Set(allDown.value));
 function downMembers(device: SiteDevice) {
   return (stackOf.value.get(device) || []).filter((member) => !downSet.value.has(member));
 }
@@ -277,6 +285,30 @@ function statusClass(status: string) {
 
           <div class="panel-folds space-y-2">
             <p v-if="!devices.length" class="inspector-empty text-sm text-muted">No devices at this site.</p>
+            <!-- Access points a wireless controller says are down (#521): open only when nothing else is down. -->
+            <details v-if="downAps.length" class="panel-fold" data-fold="access-points" :open="foldOpen('access-points', !down.length)">
+              <summary class="panel-fold-title" @click="toggleFold('access-points', $event)">{{ accessPointsText(downAps.length) }}</summary>
+              <div class="panel-fold-body">
+                <ul class="device-rows" aria-label="Access points down">
+                  <DeviceRow
+                    v-for="device in downApsShown"
+                    :key="deviceKey(device)"
+                    :device="device"
+                    :open="openDevices.has(deviceKey(device))"
+                    @toggle="toggleDevice"
+                  />
+                </ul>
+                <UButton
+                  v-if="downAps.length > DOWN_SHOWN"
+                  class="panel-more mt-1"
+                  data-aps-toggle
+                  size="xs"
+                  color="neutral"
+                  variant="link"
+                  @click="apsExpanded = !apsExpanded"
+                >{{ apsExpanded ? "Show fewer" : `Show all ${downAps.length}` }}</UButton>
+              </div>
+            </details>
             <details v-if="devices.length" class="panel-fold" data-fold="devices" :open="foldOpen('devices', !down.length && devices.length <= TOOLBAR_ABOVE)">
               <summary class="panel-fold-title" @click="toggleFold('devices', $event)">All devices · {{ deviceCount }}</summary>
               <div class="panel-fold-body">

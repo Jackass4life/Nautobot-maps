@@ -24,11 +24,12 @@ Each answer says what happened:
 
 ## Wireless controllers: access points
 
-The wireless controllers know best whether an access point is up (#508). The app reads every access point from any number of **Cisco Catalyst Center** and **HPE Aruba Networking New Central** instances, matches each one to its Nautobot device, and counts the ones the controller reports down:
-- on the [status page](status-page.md): "2 of 40 access points down", also at a site that is otherwise fine;
-- on the board's data (`down_access_point_count`).
+The wireless controllers know best whether an access point is up (#508), and its address: access points get theirs by DHCP, so Nautobot seldom has one. The app reads every access point from any number of **Cisco Catalyst Center** and **HPE Aruba Networking New Central** instances and matches each one to its Nautobot device. A matched device is **monitored without a primary IP**, shown with the address the controller reports (never written to Nautobot), and **down on the board** when the controller says so (#521):
+- a site with only access points down is at `WIRELESS_AP_LEVEL` (default Low) under the board's **Wireless** chip: not an alarm, never notified (at 10,000 access points, single ones drop all day);
+- on the [status page](status-page.md) it stays Operational: "2 of 40 access points down";
+- access points never water down the share of the other devices down.
 
-An access point that is down **never raises a site's level or sends a notification**: at 10,000 access points, single ones drop all day, and an alarm for each would bury real outages. Nautobot's own status still counts as it always has.
+What the board does with them: [access points](alert-board.md#access-points). Nautobot's own status still counts as it always has.
 
 **Matching.** By **serial** (capitals don't matter), else by **name** (the part before the first dot), against the Nautobot devices. By name only for a device whose role is an access point, and only for a name one access point carries: `ap-01` at two sites matches neither. Which of them are access points is still `ACCESS_POINT_ROLES` ([configuration](configuration.md)). An access point in maintenance, or at a site in maintenance, isn't down.
 
@@ -97,7 +98,7 @@ Up to four instances are read at once. The board is rebuilt only when an access 
 
 **When one can't be reached:**
 - The others carry on: a slow or failing instance never holds them up or wipes their access points.
-- Its last answer counts for three intervals (at least 15 minutes), then its access points are simply not counted as down.
+- Its last answer stands (#521): its access points stay down or up as they were, marked "last known" after three intervals (at least 15 minutes), so an unreachable controller never clears the board. They go when it answers again, or when it is removed from the file.
 - The top bar says "Can't reach Catalyst Center dk" in amber (not red: the alarms don't depend on it), or "Can't reach 2 sources" when several fail, and its menu lists each one.
 
 **The same access point in two instances** (moved, or during a migration): the newest answer wins. When two are equally new, up wins, so a stale copy never shows it down.

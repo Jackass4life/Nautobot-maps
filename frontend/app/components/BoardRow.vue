@@ -5,16 +5,19 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
 import {
+  accessPointsText,
   ackText,
   caseDevices,
   deviceDowntimeSeconds,
   deviceMeta,
+  downDeviceRows,
   flapTitle,
   maintenanceNote,
   onTheMap,
   setLevel,
   siteAlarmSeconds,
   sinceLabel,
+  siteSummaryText,
   type BoardSite,
 } from "~/utils/board";
 import { siteTenants } from "~/utils/scope";
@@ -49,6 +52,12 @@ const emit = defineEmits<{
 
 const name = computed(() => props.item.name || props.item.id || "Unknown site");
 const devices = computed(() => props.item.down_devices || []);
+// Many access points down fold into one line, opened in place (#521); on the wall, a count only.
+const deviceRows = computed(() => downDeviceRows(devices.value));
+const accessPointsShown = ref(false);
+const listed = computed(() =>
+  accessPointsShown.value && !props.wall ? [...deviceRows.value.shown, ...deviceRows.value.folded] : deviceRows.value.shown,
+);
 const withCase = computed(() => caseDevices(props.item));
 const tenants = computed(() => siteTenants(props.item));
 const restShown = ref(false);
@@ -110,7 +119,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
             <!-- The site's importance (#293); the most important tier is accented. -->
             <span v-if="item.tier" class="tier-pill" :class="{ 'tier-top': item.tier_rank === 0 }" title="Importance tier">{{ item.tier.toUpperCase() }}</span>
           </div>
-          <div class="site-summary text-xs text-muted">{{ item.down_device_count || 0 }} down · {{ item.device_count || 0 }} monitored</div>
+          <div class="site-summary text-xs text-muted">{{ siteSummaryText(item) }}</div>
           <!-- The first tenant, and "+N" that shows the rest in place (#279). -->
           <div v-if="tenants.length" class="site-tenants text-xs text-toned">
             <template v-for="(tenant, index) in restShown ? tenants : tenants.slice(0, 1)" :key="tenant">
@@ -136,7 +145,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
         {{ maintenanceNote(item.maintenance.until, item.maintenance.reason) }}
       </div>
     </td>
-    <td class="since-cell whitespace-nowrap text-sm text-toned">{{ wall ? "" : sinceLabel("in alarm", siteAlarmSeconds(item)) }}</td>
+    <td class="since-cell whitespace-nowrap text-sm text-toned">{{ wall ? "" : sinceLabel(item.wireless_only ? "down" : "in alarm", siteAlarmSeconds(item)) }}</td>
     <td class="cases-cell col-cases"><CasePills :cases="item.active_cases" :template="caseTemplate" empty="—" /></td>
     <td v-if="!wall" class="col-action">
       <div class="action-row flex items-center justify-end gap-1">
@@ -166,7 +175,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
     </td>
   </tr>
   <template v-if="wall ? item.alert_level !== 'maintenance' : expanded">
-    <tr v-for="device in devices" :key="device.device_id" class="down-device-row" :class="{ 'case-handled': handled }">
+    <tr v-for="device in listed" :key="device.device_id" class="down-device-row" :class="{ 'case-handled': handled }">
       <td class="down-device-cell pl-9" :aria-label="`Down device for ${name}`">
         <div class="down-device-name text-sm">
           <span class="sr-only">Down device for {{ name }}: </span>↳ {{ device.device_name || device.device_id || "Unknown device" }}
@@ -190,6 +199,21 @@ const menu = computed<DropdownMenuItem[]>(() => {
       <td class="since-cell whitespace-nowrap text-sm text-toned">{{ sinceLabel("down", deviceDowntimeSeconds(device, now)) }}</td>
       <td class="cases-cell col-cases"><CasePills :cases="device.case_numbers" :template="caseTemplate" empty="—" /></td>
       <td v-if="!wall" class="col-action" />
+    </tr>
+    <tr v-if="deviceRows.folded.length" class="access-points-row" :class="{ 'case-handled': handled }">
+      <td class="down-device-cell pl-9" :colspan="wall ? 4 : 5">
+        <span v-if="wall" class="access-points-count text-sm text-toned">↳ {{ accessPointsText(deviceRows.folded.length) }}</span>
+        <UButton
+          v-else
+          class="access-points-toggle -ml-1"
+          size="xs"
+          color="neutral"
+          variant="link"
+          :icon="accessPointsShown ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+          :aria-expanded="accessPointsShown ? 'true' : 'false'"
+          @click="accessPointsShown = !accessPointsShown"
+        >{{ accessPointsShown ? "Hide access points" : accessPointsText(deviceRows.folded.length) }}</UButton>
+      </td>
     </tr>
   </template>
 </template>

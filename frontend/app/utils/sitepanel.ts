@@ -1,7 +1,7 @@
 // The site panel (#394, #398, #400, #405): its status line, the down devices
 // in the board's order, stacks as one device, and each device's facts.
 import type { components } from "~/api/schema";
-import { ALERT_RANK, LEVEL_NAMES, knownLevel } from "./map";
+import { LEVEL_NAMES, displayLevel, isAlarm, knownLevel } from "./map";
 
 export type SiteDevice = components["schemas"]["SiteDevice"];
 export type SiteCircuit = components["schemas"]["SiteCircuit"];
@@ -18,19 +18,21 @@ export function deviceHealth(status: string | null | undefined): Health {
 
 // The site's state in one line (#394): its level's name, how many are down,
 // since when; the reason under it, only for an alarm or maintenance.
+// Only access points down (#521): "Access points down", as its marker, not an alarm.
 export function statusLine(
-  alert: { level: string; reason?: string } | null | undefined,
+  alert: { level: string; reason?: string; wireless_only?: boolean | null } | null | undefined,
   counts: { down?: number | null; monitored?: number | null } | null | undefined,
   since = "",
 ): { level: string; text: string; reason: string } {
-  const level = knownLevel(alert?.level || "no_data");
+  const level = knownLevel(displayLevel(alert || { level: "no_data" }));
   const monitored = counts && Number.isFinite(counts.monitored) ? counts.monitored! : null;
+  const down = isAlarm(level) || level === "wireless";
   let what = "";
-  if (ALERT_RANK[level] && monitored !== null) what = `${counts?.down || 0} of ${monitored} down`;
+  if (down && monitored !== null) what = `${counts?.down || 0} of ${monitored} down`;
   else if (level === "ok" && monitored !== null) what = `${monitored} device${monitored === 1 ? "" : "s"}`;
   else if (level === "no_data") what = "no monitored devices";
-  const text = [LEVEL_NAMES[level], what, ALERT_RANK[level] && since ? `since ${since}` : ""].filter(Boolean).join(" · ");
-  const reason = ALERT_RANK[level] || level === "maintenance" ? alert?.reason || "" : "";
+  const text = [LEVEL_NAMES[level], what, down && since ? `since ${since}` : ""].filter(Boolean).join(" · ");
+  const reason = down || level === "maintenance" ? alert?.reason || "" : "";
   return { level, text, reason };
 }
 
@@ -56,6 +58,23 @@ export function sortDownDevices(devices: SiteDevice[]): SiteDevice[] {
       (a, b) =>
         rank(a) - rank(b) || Number(Boolean(b.core)) - Number(Boolean(a.core)) || (a.name || "").localeCompare(b.name || ""),
     );
+}
+
+// An access point a wireless controller watches (#521), at the wireless
+// level: not set in Nautobot, not marked critical (core).  The panel folds
+// these under the other down devices.
+export function isWatchedAccessPoint(device: Pick<SiteDevice, "wireless" | "criticality" | "core">): boolean {
+  return Boolean(device.wireless) && !device.criticality && !device.core;
+}
+
+// Its address (#521): Nautobot's primary IP, else what its controller reports
+// (never written to Nautobot), saying where it comes from.
+export function deviceAddress(device: Pick<SiteDevice, "primary_ip" | "wireless">): string {
+  if (device.primary_ip) return `IP ${String(device.primary_ip).split("/")[0]}`;
+  const ap = device.wireless;
+  if (!ap) return "";
+  const from = ap.stale ? `last known from ${ap.controller}, which can't be reached` : `from ${ap.controller}`;
+  return ap.ip ? `IP ${ap.ip} · ${from}` : `Watched by ${ap.controller}${ap.stale ? " (last known)" : ""}`;
 }
 
 export interface StackEntry {
@@ -111,7 +130,7 @@ export function deviceFacts(device: SiteDevice, aside: string): string[] {
   return [
     aside !== device.role ? device.role || "" : "",
     [device.manufacturer, device.device_type].filter(Boolean).join(" "),
-    device.primary_ip ? `IP ${String(device.primary_ip).split("/")[0]}` : "",
+    deviceAddress(device),
     device.platform ? `Software ${device.platform}` : "",
     device.serial ? `Serial ${device.serial}` : "",
     device.tenant ? `Tenant ${device.tenant}` : "",

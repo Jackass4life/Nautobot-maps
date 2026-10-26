@@ -85,11 +85,12 @@ def get(controller: dict, path: str, params: dict) -> dict:
 
 
 def ap_record(item: dict) -> dict:
-    """What the app keeps of one AP: its serial, MAC and name, and whether it is up."""
+    """What the app keeps of one AP: its serial, MAC, name and address (#521), and whether it is up."""
     return {
         "serial": str(item.get("serialNumber") or "").strip(),
         "mac": str(item.get("macAddress") or "").strip().lower(),
         "name": str(item.get("deviceName") or "").strip(),
+        "ip": str(item.get("ipv4") or item.get("ipAddress") or "").strip(),
         "up": str(item.get("status") or "").strip().upper() == "ONLINE",
     }
 

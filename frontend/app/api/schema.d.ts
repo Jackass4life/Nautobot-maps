@@ -631,7 +631,7 @@ export interface paths {
          * The devices that can be put in maintenance at a site.
          * @description Query parameters: ``site_id`` (a row of the alert board) and
          *     ``include_non_operational=1`` (as on the board).  The devices the board
-         *     counts there: with a primary IP, not of an excluded status, and those
+         *     counts there: with a primary IP or a wireless controller, not of an excluded status, and those
          *     below the site when rows are rolled up to a location type.
          */
         get: operations["maintenance_api_maintenance_devices_api_maintenance_devices_get"];
@@ -1222,7 +1222,7 @@ export interface components {
         BoardSite: {
             /**
              * Access Point Count
-             * @description Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.
+             * @description Monitored devices with a role in ACCESS_POINT_ROLES or listed by a wireless controller, in maintenance too.
              * @default 0
              */
             access_point_count: number;
@@ -1356,6 +1356,12 @@ export interface components {
             time_zone: string;
             /** Url */
             url: string;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller, at WIRELESS_AP_LEVEL (#521): the Wireless chip, not an alarm, never notified.
+             * @default false
+             */
+            wireless_only: boolean;
         };
         /** BoardSummary */
         BoardSummary: {
@@ -1378,6 +1384,12 @@ export interface components {
             ok: number;
             /** Total */
             total: number;
+            /**
+             * Wireless
+             * @description Sites with only access points down (#521); not in the levels or non_ok.
+             * @default 0
+             */
+            wireless: number;
         };
         /** CaseAdded */
         CaseAdded: {
@@ -1625,6 +1637,11 @@ export interface components {
          * @description A device with an open alert (also one in maintenance, marked so).
          */
         DownDevice: {
+            /**
+             * Access Point
+             * @description An access point a wireless controller watches (#521).
+             */
+            access_point?: boolean | null;
             /** @description Someone is on it. */
             acknowledged?: components["schemas"]["Acknowledged"] | null;
             /** Case Numbers */
@@ -2117,6 +2134,12 @@ export interface components {
              * @description When its maintenance ends.
              */
             until?: string | null;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller (#521).
+             * @default false
+             */
+            wireless_only: boolean;
         };
         /** Locations */
         Locations: {
@@ -2643,6 +2666,12 @@ export interface components {
             level: "critical" | "medium" | "low" | "ok" | "maintenance" | "no_data";
             /** Reason */
             reason: string;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller (#521).
+             * @default false
+             */
+            wireless_only: boolean;
         };
         /**
          * SiteCircuit
@@ -2801,6 +2830,8 @@ export interface components {
             webhook_since?: string | null;
             /** Webhook Summary */
             webhook_summary?: string | null;
+            /** @description Listed by a wireless controller: monitored without a primary IP (#521). */
+            wireless?: components["schemas"]["WirelessAp"] | null;
         };
         /** SiteMaintenance */
         SiteMaintenance: {
@@ -3048,6 +3079,12 @@ export interface components {
              * @default 0
              */
             network_device_count: number;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller (#521).
+             * @default false
+             */
+            wireless_only: boolean;
         };
         /** TenantRow */
         TenantRow: {
@@ -3227,6 +3264,29 @@ export interface components {
              * @description Soonest first.
              */
             windows: components["schemas"]["DescribedWindow"][];
+        };
+        /**
+         * WirelessAp
+         * @description What a wireless controller says of the device (#521).
+         */
+        WirelessAp: {
+            /**
+             * Controller
+             * @description The instance, e.g. "Catalyst Center dk".
+             */
+            controller: string;
+            /**
+             * Ip
+             * @description Its address as the controller reports it; never written to Nautobot.
+             */
+            ip: string;
+            /**
+             * Stale
+             * @description The controller hasn't answered lately: this is its last known answer.
+             */
+            stale: boolean;
+            /** Up */
+            up: boolean;
         };
     };
     responses: never;

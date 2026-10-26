@@ -396,6 +396,14 @@ for _item in filter(None, (item.strip() for item in os.getenv("TIER_DEVICE_LEVEL
         logging.getLogger(__name__).warning(
             "TIER_DEVICE_LEVEL entry %r ignored: expected tier:level, the level critical, medium or low", _item
         )
+# A site with only access points down, as a wireless controller reports them
+# (#521): this level, under the board's Wireless chip, never notified.
+WIRELESS_AP_LEVEL = os.getenv("WIRELESS_AP_LEVEL", "").strip().lower() or "low"
+if WIRELESS_AP_LEVEL not in DEVICE_LEVELS:
+    logging.getLogger(__name__).warning(
+        "WIRELESS_AP_LEVEL %r ignored: expected critical, medium or low; using low", WIRELESS_AP_LEVEL
+    )
+    WIRELESS_AP_LEVEL = "low"
 # "gold:low,silver:medium": NOTIFY_MIN_LEVEL for those tiers.
 NOTIFY_MIN_LEVEL_BY_TIER = {
     tier.strip().lower(): level.strip().lower()

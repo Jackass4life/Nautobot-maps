@@ -780,7 +780,10 @@ def _attach_location_and_primary_ip() -> None:
                 "id": location_id,
                 "url": f"http://mock-nautobot:8080/api/dcim/locations/{location_id}/",
             }
-            if device["id"] in DEVICES_WITHOUT_PRIMARY_IP:
+            # MOCK_AP_DHCP=1 (#521): access points without one, as on a network
+            # where they get their address by DHCP; the controllers know it.
+            ap_dhcp = os.environ.get("MOCK_AP_DHCP") == "1" and (device.get("role") or {}).get("name") == "Access Point"
+            if device["id"] in DEVICES_WITHOUT_PRIMARY_IP or ap_dhcp:
                 device["primary_ip4"] = None
                 continue
             # 10.<site/256>.<site%256>.<device>: valid past 255 sites (scale mode).
@@ -1106,11 +1109,31 @@ def _access_points(controller: str) -> list[dict]:
     return [d for d in aps if odd_scale_site(d) == (controller == "aruba_central")]
 
 
+def _dhcp_address(index: int) -> str:
+    """The address a controller reports for its *index*-th access point (#521)."""
+    return f"172.16.{index // 256 % 256}.{index % 256}"
+
+
+def _wifi_outage_site(aps: list[dict]) -> str:
+    """At scale, the Catalyst Center site with the most access points: all of
+    them unreachable at once (#521), so the board folds them."""
+    counts: dict[str, int] = {}
+    for device in aps:
+        if device["id"].startswith("dev-loc-sc"):
+            counts[device["location"]["id"]] = counts.get(device["location"]["id"], 0) + 1
+    return max(sorted(counts), key=lambda site: counts[site]) if counts else ""
+
+
 def _catalyst_aps() -> list[dict]:
     aps = _access_points("catalyst_center")
+    outage = _wifi_outage_site(aps)
     listed = []
     for index, device in enumerate(aps):
-        down = device["name"] == "sto-ap02" or (device["id"].startswith("dev-loc-sc") and index % 200 == 7)
+        down = (
+            device["name"] == "sto-ap02"
+            or (device["id"].startswith("dev-loc-sc") and index % 200 == 7)
+            or device["location"]["id"] == outage
+        )
         listed.append(
             {
                 "id": f"cc-{device['id']}",
@@ -1118,6 +1141,7 @@ def _catalyst_aps() -> list[dict]:
                 "serialNumber": device.get("serial") or "",
                 "macAddress": f"00:11:22:{index // 65536 % 256:02x}:{index // 256 % 256:02x}:{index % 256:02x}",
                 "family": "Unified AP",
+                "managementIpAddress": _dhcp_address(index),
                 "reachabilityStatus": "Unreachable" if down else "Reachable",
             }
         )
@@ -1162,6 +1186,7 @@ def central_aps(request: Request):
             "serialNumber": device.get("serial") or "",
             "macAddress": f"20:4c:03:{index // 65536 % 256:02x}:{index // 256 % 256:02x}:{index % 256:02x}",
             "deviceName": device["name"],
+            "ipv4": _dhcp_address(index),
             "siteId": device["location"]["id"],
             "status": "OFFLINE" if index % 200 == 11 else "ONLINE",
         }

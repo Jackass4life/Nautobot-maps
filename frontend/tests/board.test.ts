@@ -103,6 +103,7 @@ describe("the summary", () => {
       total: 9,
       no_data: 3,
       maintenance: 1,
+      wireless: 0,
     });
     const scoped = scopeSummary([site("a", { alert_level: "critical" }), site("b"), site("c", { alert_level: "critical" })]);
     expect(scoped).toEqual({ total: 3, critical: 2, ok: 1 });

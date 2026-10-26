@@ -766,6 +766,14 @@ def add_circuit_locations(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS nautobot_circuit_cache_tenant_key ON nautobot_circuit_cache (tenant_key)")
 
 
+def add_wireless_ap_ip(conn) -> None:
+    """Access points from the controllers on the board (#521): each AP's
+    address as its controller reports it, and which incidents are of access
+    points (left out of the availability report and the activity feed)."""
+    conn.execute("ALTER TABLE wireless_ap_status ADD COLUMN IF NOT EXISTS ip TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS access_point BOOLEAN NOT NULL DEFAULT FALSE")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -799,6 +807,7 @@ MIGRATIONS = (
     (27, "status_links", add_status_links),
     (28, "wireless_ap_status", add_wireless_ap_status),
     (29, "nautobot_circuit_cache.location_ids, tenant_key", add_circuit_locations),
+    (30, "wireless_ap_status.ip, alert_instances.access_point", add_wireless_ap_ip),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

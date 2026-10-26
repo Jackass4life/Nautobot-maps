@@ -8,7 +8,7 @@ import {
   DEFAULT_SORT,
   FEED_COLLAPSED_KEY,
   ROWS_STEP,
-  SEVERITY_CHIPS,
+  shownChips,
   SORTS,
   SORT_KEY,
   ackRequestBody,
@@ -411,7 +411,7 @@ function shortLabel(values: string[], all: string) {
         <p v-if="scope" id="board-scope" class="board-scope text-sm text-toned">Only <strong id="board-scope-label">{{ scopeText }}</strong> · <a class="text-primary hover:underline" href="/alerts">Show all sites</a></p>
         <div class="severity-chips flex flex-wrap gap-2" role="group" aria-label="Show sites">
           <UButton
-            v-for="chip in SEVERITY_CHIPS"
+            v-for="chip in shownChips(counts, criteria.severity)"
             :key="chip.filter"
             class="severity-chip"
             :data-severity-filter="chip.filter"

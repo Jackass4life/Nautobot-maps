@@ -2,7 +2,7 @@
 // only, every site open, nothing to click; the sites nobody is on first
 // (#271), maintenance last (#283); a chime and a notification for a new
 // Critical or a site nobody is on (#290).  No page access at import.
-import { ALARM_LEVELS, compareSites, hasActiveAlarm, siteCaseState, type BoardSite } from "./board";
+import { compareSites, hasActiveAlarm, siteCaseState, type BoardSite } from "./board";
 
 // The wall reloads every minute as well, so a screen nobody touches
 // recovers from errors and an unknown next update.
@@ -86,7 +86,8 @@ export function newAlarms(
   const events: WallAlarm[] = [];
   sites.forEach((site) => {
     const id = String(site.id || "");
-    if (!id || !ALARM_LEVELS.includes(site.alert_level)) return;
+    // Only access points down is not an alarm: no sound (#521).
+    if (!id || !hasActiveAlarm(site)) return;
     const kinds: WallAlarm["kind"][] = [];
     if (site.alert_level === "critical") kinds.push("critical");
     if (siteCaseState(site).state === "none") kinds.push("nobody");

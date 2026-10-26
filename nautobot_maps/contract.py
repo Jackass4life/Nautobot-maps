@@ -463,10 +463,17 @@ CONTRACT: tuple[Endpoint, ...] = (
                 ("string", "null"),
                 required=True,
                 becomes="up",
-                rule="Reachable = up, anything else = down; down is counted as an access point down, never "
-                "in the site's level",
+                rule="Reachable = up, anything else = down: the access point is down on the board, its site "
+                "at WIRELESS_AP_LEVEL (#521)",
             ),
             Field("macAddress", ("string", "null"), becomes="mac"),
+            Field(
+                "managementIpAddress",
+                ("string", "null"),
+                becomes="ip",
+                rule="shown as the access point's address, without a primary IP in Nautobot (#521); never written "
+                "to Nautobot",
+            ),
         ),
         request="POST /dna/system/api/v1/auth/token (basic auth), then GET /dna/intent/api/v1/network-device "
         "?family=Unified AP, X-Auth-Token, pages of 500 (offset from 1); the response array",
@@ -497,10 +504,17 @@ CONTRACT: tuple[Endpoint, ...] = (
                 ("string", "null"),
                 required=True,
                 becomes="up",
-                rule="ONLINE = up, anything else = down; down is counted as an access point down, never in the "
-                "site's level",
+                rule="ONLINE = up, anything else = down: the access point is down on the board, its site at "
+                "WIRELESS_AP_LEVEL (#521)",
             ),
             Field("macAddress", ("string", "null"), becomes="mac"),
+            Field(
+                "ipv4",
+                ("string", "null"),
+                becomes="ip",
+                rule="shown as the access point's address (else ipAddress), without a primary IP in Nautobot "
+                "(#521); never written to Nautobot",
+            ),
         ),
         request="POST https://sso.common.cloud.hpe.com/as/token.oauth2 (client credentials of a Central-scoped "
         "API client), then GET https://<region>.api.central.arubanetworks.com/network-monitoring/v1/aps, "

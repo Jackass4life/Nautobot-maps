@@ -4,7 +4,8 @@ Availability = 1 − downtime ÷ the period (a month, or any days from–to;
 up to now when it hasn't ended, UTC).  Downtime, by ``AVAILABILITY_BASIS``:
 
 * ``any_down``: the time any monitored device of the site was down, from
-  the incident history (overlapping devices count once);
+  the incident history (overlapping devices count once), not the access
+  points a wireless controller watches (#521);
 * ``critical``: the time the site was at Critical, from its level changes.
 
 Time inside maintenance windows is not downtime (#303): a site window
@@ -192,7 +193,11 @@ def read_maintenance(conn, start: datetime, end: datetime) -> tuple[dict, dict]:
 
 
 # Incidents down at any point in a period: the same expression as idx_alert_instances_period.
-INCIDENTS_IN_PERIOD = "COALESCE(i.resolved_at, 'infinity'::timestamptz) > %s AND i.down_started_at < %s"
+# Not those of access points a wireless controller watches (#521): at 10,000
+# they would make every site's figure red; they stay in each site's History.
+INCIDENTS_IN_PERIOD = (
+    "COALESCE(i.resolved_at, 'infinity'::timestamptz) > %s AND i.down_started_at < %s AND NOT i.access_point"
+)
 
 
 def _down_span(row, at: datetime) -> Interval | None:

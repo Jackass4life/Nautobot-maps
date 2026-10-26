@@ -719,6 +719,7 @@ class TestAlertBoard:
             "ok": 1,
             "non_ok": 2,
             "maintenance": 0,
+            "wireless": 0,
         }
         assert [item["id"] for item in data["alerts"]] == ["loc-1", "loc-2", "loc-3"]
         assert data["alerts"][0]["down_device_count"] == 1
@@ -5760,6 +5761,7 @@ class TestSeverityTiers:
             "ok": 1,
             "non_ok": 3,  # No data is not an alert
             "maintenance": 0,
+            "wireless": 0,
         }
         assert "unknown" not in summary
 
