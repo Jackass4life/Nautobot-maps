@@ -754,6 +754,14 @@ def add_wireless_ap_status(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS wireless_ap_status_controller ON wireless_ap_status (controller)")
 
 
+def add_circuit_locations(conn) -> None:
+    """Where each cached circuit ends (#511): the locations of its A and Z
+    terminations, so a tenant's status page lists its circuits per site."""
+    conn.execute(
+        "ALTER TABLE nautobot_circuit_cache ADD COLUMN IF NOT EXISTS location_ids TEXT[] NOT NULL DEFAULT '{}'"
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -786,6 +794,7 @@ MIGRATIONS = (
     (26, "nautobot_location_cache.tenant_scope_json", add_location_tenant_scope),
     (27, "status_links", add_status_links),
     (28, "wireless_ap_status", add_wireless_ap_status),
+    (29, "nautobot_circuit_cache.location_ids", add_circuit_locations),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

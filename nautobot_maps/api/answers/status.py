@@ -7,6 +7,14 @@ from pydantic import Field
 from nautobot_maps.api.answers import common
 
 
+class StatusCircuit(common.Answer):
+    """One of the tenant's active circuits at a site (#511): not its provider."""
+
+    cid: str = Field(description="The circuit ID.")
+    type: str = Field(description="Its circuit type, e.g. Internet Transit; empty without one.")
+    bandwidth: str = Field(description="Its commit rate, e.g. 1 Gbps; empty without one.")
+
+
 class StatusSite(common.Answer):
     name: str
     state: Literal["outage", "degraded", "maintenance", "unknown", "operational"]
@@ -19,6 +27,9 @@ class StatusSite(common.Answer):
     access_points: int = Field(description="Its monitored devices with a role in ACCESS_POINT_ROLES (#503).")
     network_devices_down: int = Field(description="Of ``network_devices``, down now; not those in maintenance.")
     access_points_down: int = Field(description="Of ``access_points``, down now; not those in maintenance.")
+    circuits: list[StatusCircuit] = Field(
+        description="The tenant's active circuits that end at the site or whose description is its address (#511)."
+    )
 
 
 class StatusSummary(common.Answer):

@@ -47,6 +47,21 @@ def _unless_denied(answer: dict, status_code: int):
     return deps.Json(answer, status_code=status_code)
 
 
+def _circuits(tenant: str) -> list[dict]:
+    """The tenant's active circuits (#511), one query; none when they can't be
+    read: the page still shows its sites."""
+    conn = None
+    try:
+        conn = db.get_conn()
+        return inventory.read_tenant_circuits(conn, tenant) if conn is not None else []
+    except Exception as exc:
+        logger.warning("Status page: circuits unavailable: %s", type(exc).__name__)
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 @router.get("/status/{link_id}", name="status.status_page")
 def status_page(link_id: str):
     """A tenant's status page (#291): its sites and their state, for a customer.
@@ -94,7 +109,7 @@ def api_status(link_id: str):
     if tenant is None:
         return deps.Json(NOT_FOUND, status_code=404)
     try:
-        result = status.tenant_status(alerts.get_alert_board_data(), tenant)
+        result = status.tenant_status(alerts.get_alert_board_data(), tenant, _circuits(tenant))
     except Exception as exc:
         logger.warning("Status page unavailable: %s", type(exc).__name__)
         return deps.Json(UNAVAILABLE, status_code=503)

@@ -71,7 +71,13 @@ class TestTenantStatus:
         assert result["description"] == "Retail bank, 24/7"
         assert result["summary"] == {"sites": 5, "affected": 2, "devices_down": 4}
         # Whole records: a field added later must be added here on purpose.
-        none = {"network_devices": 0, "access_points": 0, "network_devices_down": 0, "access_points_down": 0}
+        none = {
+            "network_devices": 0,
+            "access_points": 0,
+            "network_devices_down": 0,
+            "access_points_down": 0,
+            "circuits": [],
+        }
         nowhere = {"address": None, "latitude": None, "longitude": None, **none}
         london = {
             "address": "1 Canada Square",
@@ -82,6 +88,7 @@ class TestTenantStatus:
             "access_points": 40,
             "network_devices_down": 3,
             "access_points_down": 1,
+            "circuits": [],
         }
         paris = {**nowhere, "network_devices": 2}
         assert result["sites"] == [
@@ -182,6 +189,81 @@ class TestTenantStatus:
         assert status.tenant_status(BOARD, "Nobody") is None
 
 
+LONDON = "1 Canada Square, Canary Wharf, London E14 5AB, UK"
+
+
+class TestCircuits:
+    """Each site's circuits, for the customer (#511): theirs, active, no provider."""
+
+    def circuit(self, cid, **fields):
+        return {
+            "circuit_id": cid.lower(),
+            "cid": cid,
+            "provider": "Telia Carrier",
+            "circuit_type": "Internet Transit",
+            "status": "Active",
+            "tenant": "Acme Corp",
+            "commit_rate": 1_000_000,
+            "description": "",
+            "address_key": "",
+            "terminated": True,
+            "location_ids": [],
+            **fields,
+        }
+
+    def test_at_the_site_or_its_address(self):
+        circuits = [
+            self.circuit("TEL-1", location_ids=["loc-lon", "loc-par"]),
+            self.circuit("TEL-2", circuit_type="", commit_rate=None, location_ids=["loc-par"]),
+            # No termination; its description is London's address.
+            self.circuit("GTT-3", terminated=False, address_key=inventory.address_key(LONDON), commit_rate=500_000),
+            # Terminated elsewhere: never matched by address.
+            self.circuit("TEL-4", address_key=inventory.address_key(LONDON), location_ids=["loc-osl"]),
+        ]
+        assert inventory.address_key(LONDON)
+        board = {"alerts": [{**BOARD["alerts"][0], "physical_address": LONDON}, BOARD["alerts"][1]]}
+        sites = {site["name"]: site["circuits"] for site in status.tenant_status(board, "Acme Corp", circuits)["sites"]}
+        assert sites["Paris PoP"] == [
+            {"cid": "TEL-1", "type": "Internet Transit", "bandwidth": "1 Gbps"},
+            {"cid": "TEL-2", "type": "", "bandwidth": ""},
+        ]
+        assert [circuit["cid"] for circuit in sites["London HQ"]] == ["TEL-1", "GTT-3"]
+        assert "Telia" not in json.dumps(sites), "never the provider"
+
+    def test_only_the_tenants_active_circuits(self, pg_database):
+        rows = [
+            self.circuit("MINE", tenant=" acme corp "),
+            self.circuit("PLANNED", status="Planned"),
+            self.circuit("OFFLINE", status="Offline"),
+            self.circuit("THEIRS", tenant="Nordnet"),
+            self.circuit("UPLINK", tenant=""),
+        ]
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_circuits(conn, rows)
+            assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "ACME CORP")] == ["MINE"]
+        finally:
+            conn.close()
+
+    def test_on_the_page(self, client, board, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_circuits(conn, [self.circuit("TEL-1", location_ids=["loc-par"])])
+        finally:
+            conn.close()
+        sites = client.get(f"/api/status/{link('Acme Corp')}").get_json()["sites"]
+        assert next(s for s in sites if s["name"] == "Paris PoP")["circuits"] == [
+            {"cid": "TEL-1", "type": "Internet Transit", "bandwidth": "1 Gbps"}
+        ]
+
+    def test_without_circuits_the_page_still_answers(self, client, board, monkeypatch):
+        monkeypatch.setattr(inventory, "read_tenant_circuits", lambda conn, tenant: 1 / 0)
+        sites = client.get(f"/api/status/{link('Acme Corp')}").get_json()["sites"]
+        assert all(site["circuits"] == [] for site in sites)
+
+
 class TestTenantScopes:
     def test_scoped_level_and_since_use_only_the_matching_roles(self):
         checked_at = "2026-10-09T12:00:00Z"
@@ -245,6 +327,7 @@ class TestTenantScopes:
                 "access_points": 1,
                 "network_devices_down": 1,
                 "access_points_down": 0,
+                "circuits": [],
             }
         ]
         assert result["summary"]["devices_down"] == 1

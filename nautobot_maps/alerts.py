@@ -21,6 +21,7 @@ from nautobot_maps import (
     nautobot,
     notify,
     settings,
+    status,
     timeutil,
     webhooks,
     wireless,
@@ -2537,17 +2538,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
 
 def circuit_speed(kbps) -> str:
     """Nautobot circuit speeds are in Kbps; show them as ``10 Gbps`` / ``500 Mbps``."""
-    try:
-        value = int(kbps)
-    except (TypeError, ValueError):
-        return ""
-    if value <= 0:
-        return ""
-    for unit, size in (("Tbps", 1_000_000_000), ("Gbps", 1_000_000), ("Mbps", 1_000)):
-        if value >= size:
-            amount = value / size
-            return f"{amount:g} {unit}" if amount == int(amount) else f"{amount:.1f} {unit}"
-    return f"{value} Kbps"
+    return status.speed(kbps)
 
 
 def location_circuits(location_id: str) -> tuple[list[dict], str]:

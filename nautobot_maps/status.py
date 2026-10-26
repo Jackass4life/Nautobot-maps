@@ -12,7 +12,7 @@ descriptions).
 
 from datetime import timedelta
 
-from nautobot_maps import timeutil
+from nautobot_maps import inventory, timeutil
 
 # Board level -> what the page says.
 STATES = {
@@ -83,8 +83,45 @@ def _devices(counts: dict) -> dict:
     }
 
 
-def tenant_status(board: dict, tenant: str) -> dict | None:
-    """*tenant*'s sites on *board* (case-insensitive name); None when it has none."""
+def _site_circuits(row: dict, circuits: list[dict]) -> list[dict]:
+    """The circuits at a site (#511): those that end there, and those without a
+    termination whose description is its address (#383).  Circuit ID, type and
+    bandwidth only: not the provider."""
+    site_key = inventory.address_key(row.get("physical_address") or "")
+    at_site = [
+        circuit
+        for circuit in circuits
+        if (row.get("id") or "") in (circuit.get("location_ids") or [])
+        or (site_key and not circuit.get("terminated") and circuit.get("address_key") == site_key)
+    ]
+    return [
+        {
+            "cid": circuit.get("cid") or "Unnamed circuit",
+            "type": circuit.get("circuit_type") or "",
+            "bandwidth": speed(circuit.get("commit_rate")),
+        }
+        for circuit in at_site
+    ]
+
+
+def speed(kbps) -> str:
+    """Nautobot's commit rate is in Kbps: ``1 Gbps``, ``500 Mbps``; empty without one."""
+    try:
+        value = int(kbps)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    for unit, size in (("Tbps", 1_000_000_000), ("Gbps", 1_000_000), ("Mbps", 1_000)):
+        if value >= size:
+            amount = value / size
+            return f"{amount:g} {unit}" if amount == int(amount) else f"{amount:.1f} {unit}"
+    return f"{value} Kbps"
+
+
+def tenant_status(board: dict, tenant: str, circuits: list[dict] | None = None) -> dict | None:
+    """*tenant*'s sites on *board* (case-insensitive name); None when it has none.
+    *circuits*: the tenant's active circuits (``inventory.read_tenant_circuits``)."""
     wanted = tenant.strip().casefold()
     name = ""
     description = ""
@@ -113,6 +150,7 @@ def tenant_status(board: dict, tenant: str) -> dict | None:
             "until": None,
             **_place(row),
             **_devices(scoped if scoped is not None else row),
+            "circuits": _site_circuits(row, circuits or []),
         }
         if state in ("outage", "degraded"):
             site["since"] = _since({**row, **(scoped or {})}, checked_at)

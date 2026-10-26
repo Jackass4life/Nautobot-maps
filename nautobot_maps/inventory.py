@@ -395,6 +395,15 @@ def address_key(text: str) -> str:
     return "text:" + words if len(words.split()) >= 4 and any(c.isdigit() for c in words) else ""
 
 
+def termination_locations(circuit: dict) -> list[str]:
+    """The locations a circuit's A and Z terminations are at (none, one or two)."""
+    return [
+        str(term["location"]["id"])
+        for term in (circuit.get("circuit_termination_a"), circuit.get("circuit_termination_z"))
+        if isinstance(term, dict) and isinstance(term.get("location"), dict) and term["location"].get("id")
+    ]
+
+
 def fetch_circuits() -> list[dict] | None:
     """Every Nautobot circuit, with the address key of its description (#383).
 
@@ -434,12 +443,9 @@ def fetch_circuits() -> list[dict] | None:
                 else None,
                 "description": description,
                 "address_key": address_key(description),
-                "terminated": any(
-                    isinstance(term, dict)
-                    and isinstance(term.get("location"), dict)
-                    and bool(term["location"].get("id"))
-                    for term in (circuit.get("circuit_termination_a"), circuit.get("circuit_termination_z"))
-                ),
+                "terminated": bool(locations := termination_locations(circuit)),
+                # Where it ends (#511): the status page lists it at those sites.
+                "location_ids": locations,
             }
         )
     return result
@@ -1063,6 +1069,7 @@ CIRCUIT_COLUMNS = (
     "description",
     "address_key",
     "terminated",
+    "location_ids",
 )
 
 
@@ -1074,6 +1081,17 @@ def write_circuits(conn, circuits: list[dict]) -> None:
         f"VALUES ({db.placeholders(len(CIRCUIT_COLUMNS))}) ON CONFLICT DO NOTHING",
         [tuple(circuit.get(column) for column in CIRCUIT_COLUMNS) for circuit in circuits],
     )
+
+
+def read_tenant_circuits(conn, tenant: str) -> list[dict]:
+    """A tenant's active circuits (#511), for its status page: one query,
+    whatever its number of sites."""
+    rows = conn.execute(
+        f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
+        "WHERE lower(trim(tenant)) = %s AND lower(trim(status)) = 'active' ORDER BY lower(cid), circuit_id",
+        (tenant.strip().casefold(),),
+    ).fetchall()
+    return [db.row_to_dict(row) for row in rows]
 
 
 def read_circuits_at_address(conn, key: str) -> list[dict]:
