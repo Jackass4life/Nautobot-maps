@@ -28,6 +28,8 @@ describe("what the page says", () => {
     // Full words for the customer, also when all is well.
     expect(site("operational", 12, 40)).toBe("12 network devices · 40 access points");
     expect(site("operational", 6, 0)).toBe("6 network devices");
+    expect(site("operational", 1, 0)).toBe("1 network device");
+    expect(site("operational", 0, 3)).toBe("3 access points");
     expect(site("maintenance", 0, 1)).toBe("1 access point");
     expect(site("unknown", 0, 0)).toBe("");
     // Nothing down (an alert from a webhook), or in maintenance or without data: the quiet line.

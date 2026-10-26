@@ -8,6 +8,7 @@ import { circuitsLabel, circuitText, hasDown, siteDevices, sitePlace, siteWhen, 
 const props = defineProps<{ site: StatusSite; now: Date; dot: Record<string, string> }>();
 const place = computed(() => sitePlace(props.site));
 const devices = computed(() => siteDevices(props.site));
+const down = computed(() => hasDown(props.site));
 </script>
 
 <template>
@@ -26,7 +27,7 @@ const devices = computed(() => siteDevices(props.site));
         <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
         <span class="min-w-0 break-words">{{ place.text }}</span>
       </a>
-      <span v-if="devices" class="status-devices block text-sm" :class="hasDown(site) ? 'text-toned' : 'text-muted'">{{
+      <span v-if="devices" class="status-devices block text-sm" :class="down ? 'text-toned' : 'text-muted'">{{
         devices
       }}</span>
       <!-- Folded: one line per circuit only when opened (#511). -->

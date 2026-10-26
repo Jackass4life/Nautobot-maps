@@ -52,11 +52,9 @@ export function hasDown(site: SiteDevices): boolean {
 // Empty when nothing is counted.
 export function siteDevices(site: SiteDevices): string {
   if (!site.network_devices && !site.access_points) return "";
-  const down = hasDown(site);
-  return [
-    kindText(site.network_devices, down ? site.network_devices_down : 0, "network device"),
-    kindText(site.access_points, down ? site.access_points_down : 0, "access point"),
-  ]
+  // Nothing "down" in maintenance or without data: the quiet line.
+  const [networkDown, apsDown] = hasDown(site) ? [site.network_devices_down, site.access_points_down] : [0, 0];
+  return [kindText(site.network_devices, networkDown, "network device"), kindText(site.access_points, apsDown, "access point")]
     .filter(Boolean)
     .join(" · ");
 }
