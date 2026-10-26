@@ -105,12 +105,60 @@ LIBRENMS_API_TOKEN = os.getenv("LIBRENMS_API_TOKEN", "").strip()
 LIBRENMS_VERIFY_SSL = _verify_ssl(os.getenv("LIBRENMS_VERIFY_SSL", "true"))
 
 # Wireless controllers (#508): access point status from Cisco Catalyst
-# Center, any number of instances, listed in one YAML file (read-only
-# accounts).  Its controllers are read every WIRELESS_SYNC_INTERVAL_SECONDS.
+# Center and HPE Aruba Networking New Central, any number of instances of
+# each, listed in one YAML file (read-only accounts, API clients).  Its
+# controllers are read every WIRELESS_SYNC_INTERVAL_SECONDS.
 WIRELESS_CONTROLLER_KINDS = {
     # kind: (the settings each instance needs, those it may have)
     "catalyst_center": ({"name", "url", "username", "password"}, {"verify_ssl"}),
+    # New Central: a Central-scoped API client from the GreenLake workspace;
+    # region (us1, de1, ...) or base_url.
+    "aruba_central": ({"name", "client_id", "client_secret"}, {"region", "base_url", "token_url", "verify_ssl"}),
 }
+ARUBA_CENTRAL_TOKEN_URL = "https://sso.common.cloud.hpe.com/as/token.oauth2"
+ARUBA_CENTRAL_REGION = re.compile(r"^[a-z]{2}[0-9]$")
+
+
+def _http_url(value, where: str, setting: str) -> str:
+    """An https URL: credentials travel over it.  Plain http only on this
+    machine (the demo's mock controllers)."""
+    url = str(value).strip().rstrip("/")
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(f"{where}: {setting} must be an absolute https URL")
+    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise RuntimeError(f"{where}: {setting} must be https (only localhost may be http)")
+    return url
+
+
+def _controller(kind: str, name: str, entry: dict, where: str) -> dict:
+    """One instance's settings, by kind."""
+    common = {"kind": kind, "name": name, "verify_ssl": _verify_ssl(str(entry.get("verify_ssl", "true")))}
+    if kind == "catalyst_center":
+        return {
+            **common,
+            "url": _http_url(entry["url"], where, "url"),
+            "username": str(entry["username"]).strip(),
+            "password": str(entry["password"]),
+        }
+    if kind != "aruba_central":
+        raise RuntimeError(f"{where}: no settings for {kind}")
+    region = str(entry.get("region") or "").strip().lower()
+    if bool(region) == bool(str(entry.get("base_url") or "").strip()):
+        raise RuntimeError(f"{where}: give region (e.g. de1) or base_url, one of them")
+    if region and not ARUBA_CENTRAL_REGION.match(region):
+        raise RuntimeError(f"{where}: region must be like us1, de1 or gb1")
+    # China's cluster has its own domain.
+    domain = "api.central.arubanetworks.com.cn" if region == "cn1" else "api.central.arubanetworks.com"
+    return {
+        **common,
+        "url": f"https://{region}.{domain}" if region else _http_url(entry["base_url"], where, "base_url"),
+        "token_url": _http_url(entry.get("token_url") or ARUBA_CENTRAL_TOKEN_URL, where, "token_url"),
+        "client_id": str(entry["client_id"]).strip(),
+        "client_secret": str(entry["client_secret"]),
+    }
+
+
 CONTROLLER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
@@ -155,20 +203,7 @@ def _wireless_controllers(path: str) -> tuple[dict, ...]:
             missing = sorted(key for key in required if not str(entry.get(key) or "").strip())
             if missing:
                 raise RuntimeError(f"{where}: missing {', '.join(missing)}")
-            url = str(entry["url"]).strip().rstrip("/")
-            parsed = urlsplit(url)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise RuntimeError(f"{where}: url must be an absolute http(s) URL")
-            controllers.append(
-                {
-                    "kind": kind,
-                    "name": name,
-                    "url": url,
-                    "username": str(entry["username"]).strip(),
-                    "password": str(entry["password"]),
-                    "verify_ssl": _verify_ssl(str(entry.get("verify_ssl", "true"))),
-                }
-            )
+            controllers.append(_controller(kind, name, entry, where))
     return tuple(controllers)
 
 

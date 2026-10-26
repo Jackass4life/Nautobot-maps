@@ -5,7 +5,19 @@ import pytest
 import requests
 
 from nautobot_maps import __main__ as cli
-from nautobot_maps import alerts, catalyst, db, inventory, metrics, scheduler, settings, status, wireless
+from nautobot_maps import (
+    alerts,
+    arubacentral,
+    catalyst,
+    contract,
+    db,
+    inventory,
+    metrics,
+    scheduler,
+    settings,
+    status,
+    wireless,
+)
 from tests import test_maintenance
 from tests.test_maintenance import build
 
@@ -61,7 +73,9 @@ catalyst_center:
             ("catalyst_center: {name: dk}", "must be a list"),
             ("catalyst_center: [{name: 'D K', url: 'https://x', username: u, password: p}]", "name must be"),
             ("catalyst_center: [{name: dk, url: 'https://x', username: u}]", "'dk': missing password"),
-            ("catalyst_center: [{name: dk, url: 'ftp://x', username: u, password: p}]", "absolute http(s)"),
+            ("catalyst_center: [{name: dk, url: 'ftp://x', username: u, password: p}]", "absolute https"),
+            # Credentials travel over it: https, but for this machine (the demo's mock).
+            ("catalyst_center: [{name: dk, url: 'http://dnac.example', username: u, password: p}]", "must be https"),
             ("catalyst_center: [{name: dk, url: 'https://x', username: u, password: p, tokn: 1}]", "unknown tokn"),
             (
                 "catalyst_center: [{name: dk, url: 'https://x', username: u, password: p},"
@@ -81,6 +95,57 @@ catalyst_center:
         with pytest.raises(RuntimeError) as caught:
             settings._wireless_controllers(path)
         assert "hunter2" not in str(caught.value)
+
+    def test_aruba_central_by_region_or_base_url(self, tmp_path):
+        path = self.write(
+            tmp_path,
+            """
+aruba_central:
+  - {name: eu, region: DE1, client_id: c1, client_secret: s1}
+  - {name: cn, region: cn1, client_id: c2, client_secret: s2}
+  - {name: lab, base_url: "https://central.lab.example/", token_url: "https://sso.lab.example/token",
+     client_id: c3, client_secret: s3, verify_ssl: false}
+catalyst_center:
+  - {name: eu, url: "https://dnac.example.com", username: u, password: p}
+""",
+        )
+        dnac, eu, cn, lab = settings._wireless_controllers(path)
+        assert dnac["kind"] == "catalyst_center", "the same name in two kinds is two instances"
+        assert (eu["url"], eu["token_url"]) == (
+            "https://de1.api.central.arubanetworks.com",
+            "https://sso.common.cloud.hpe.com/as/token.oauth2",
+        )
+        assert cn["url"] == "https://cn1.api.central.arubanetworks.com.cn"
+        assert (lab["url"], lab["token_url"], lab["verify_ssl"]) == (
+            "https://central.lab.example",
+            "https://sso.lab.example/token",
+            False,
+        )
+        assert (eu["client_id"], eu["client_secret"]) == ("c1", "s1")
+
+    @pytest.mark.parametrize(
+        ("entry", "message"),
+        [
+            ("{name: eu, client_id: c, client_secret: s}", "give region (e.g. de1) or base_url"),
+            ("{name: eu, region: de1, base_url: 'https://x', client_id: c, client_secret: s}", "one of them"),
+            ("{name: eu, region: europe, client_id: c, client_secret: s}", "region must be like"),
+            ("{name: eu, region: de1, client_id: c}", "'eu': missing client_secret"),
+            ("{name: eu, base_url: 'x', client_id: c, client_secret: s}", "base_url must be an absolute"),
+            ("{name: eu, region: de1, token_url: 'x', client_id: c, client_secret: s}", "token_url must be an"),
+            ("{name: eu, region: de1, token_url: 'http://sso.x', client_id: c, client_secret: s}", "must be https"),
+        ],
+    )
+    def test_aruba_central_mistakes(self, tmp_path, entry, message):
+        with pytest.raises(RuntimeError) as caught:
+            settings._wireless_controllers(self.write(tmp_path, f"aruba_central: [{entry}]"))
+        assert message in str(caught.value)
+        assert "s}" not in str(caught.value)
+
+    def test_localhost_may_be_http(self, tmp_path):
+        path = self.write(
+            tmp_path, "catalyst_center: [{name: demo, url: 'http://127.0.0.1:8080', username: u, password: p}]"
+        )
+        assert settings._wireless_controllers(path)[0]["url"] == "http://127.0.0.1:8080"
 
     def test_a_missing_file_says_so(self, tmp_path):
         with pytest.raises(RuntimeError, match="can't be read: FileNotFoundError"):
@@ -158,6 +223,141 @@ class TestCatalystCenter:
         ) == {"serial": "FGL1", "mac": "aa:bb", "name": "ap1", "up": False}
         assert catalyst.ap_record({"reachabilityStatus": "Reachable"})["up"] is True
         assert catalyst.ap_record({})["up"] is False
+
+
+EU = {
+    "kind": "aruba_central",
+    "name": "eu",
+    "url": "https://de1.api.central.arubanetworks.com",
+    "token_url": "https://sso.common.cloud.hpe.com/as/token.oauth2",
+    "client_id": "maps-ro",
+    "client_secret": "s3cret-client",
+    "verify_ssl": True,
+}
+
+
+class FakeCentral:
+    """Answers HPE's sign-in and New Central's AP pages; records each request."""
+
+    def __init__(self, total_aps: int = 2500, expired_once: bool = False):
+        self.calls = []
+        self.total = total_aps
+        self.expired_once = expired_once
+        self.tokens = 0
+
+    def request(self, method, url, timeout=None, verify=None, **kwargs):
+        import json
+
+        self.calls.append((method, url, kwargs))
+        response = requests.Response()
+        response.url = url
+        response.status_code = 200
+        if url.endswith("/token.oauth2"):
+            self.tokens += 1
+            response._content = json.dumps({"access_token": f"tok-{self.tokens}", "expires_in": 7200}).encode()
+            return response
+        if self.expired_once:
+            self.expired_once = False
+            response.status_code = 401
+            return response
+        page, limit = int(kwargs["params"].get("next") or 1), kwargs["params"]["limit"]
+        items = [
+            {"serialNumber": f"CNF{n:05d}", "deviceName": f"ap{n}", "status": "ONLINE"}
+            for n in range((page - 1) * limit, min(self.total, page * limit))
+        ]
+        more = page * limit < self.total
+        response._content = json.dumps({"items": items, "next": str(page + 1) if more else None}).encode()
+        return response
+
+
+@pytest.fixture
+def fake_central(monkeypatch):
+    arubacentral._tokens.clear()
+    fake = FakeCentral()
+    monkeypatch.setattr(arubacentral.http, "session", lambda: fake)
+    yield fake
+    arubacentral._tokens.clear()
+
+
+class TestArubaCentral:
+    def test_pages_by_cursor_one_sign_in(self, fake_central):
+        items = arubacentral.fetch_aps(EU)
+        assert len(items) == 2500
+        pages = [kwargs["params"] for method, url, kwargs in fake_central.calls if method == "GET"]
+        assert pages == [{"limit": 1000}, {"limit": 1000, "next": "2"}, {"limit": 1000, "next": "3"}]
+        sign_in = fake_central.calls[0]
+        assert sign_in[1] == EU["token_url"]
+        assert sign_in[2]["data"] == {
+            "grant_type": "client_credentials",
+            "client_id": "maps-ro",
+            "client_secret": "s3cret-client",
+        }
+        get = fake_central.calls[1]
+        assert get[1] == "https://de1.api.central.arubanetworks.com/network-monitoring/v1/aps"
+        assert get[2]["headers"]["Authorization"] == "Bearer tok-1"
+        # Kept until shortly before it expires; per API client.
+        arubacentral.fetch_aps(EU)
+        assert fake_central.tokens == 1
+        arubacentral.fetch_aps({**EU, "name": "us", "client_id": "other"})
+        assert fake_central.tokens == 2
+
+    def test_a_refused_token_asks_again_once(self, fake_central):
+        fake_central.total, fake_central.expired_once = 3, True
+        arubacentral._tokens[(EU["token_url"], EU["client_id"])] = ("old", 10**12)
+        assert len(arubacentral.fetch_aps(EU)) == 3
+        assert fake_central.tokens == 1
+
+    def test_hpe_sign_in_is_always_verified(self, fake_central):
+        # verify_ssl is for a Central behind a private CA or in a lab, never for the secret.
+        fake_central.total = 1
+        verified = []
+        original = fake_central.request
+
+        def request(method, url, timeout=None, verify=None, **kwargs):
+            verified.append((url.rsplit("/", 1)[-1], verify))
+            return original(method, url, timeout=timeout, verify=verify, **kwargs)
+
+        fake_central.request = request
+        arubacentral.fetch_aps({**EU, "verify_ssl": False})
+        assert verified == [("token.oauth2", True), ("aps", False)]
+
+    @pytest.mark.parametrize("body", [b"[]", b'{"token_type": "Bearer"}'])
+    def test_a_sign_in_without_a_token_says_so(self, fake_central, body):
+        original = fake_central.request
+
+        def request(method, url, **kwargs):
+            response = original(method, url, **kwargs)
+            if url.endswith("token.oauth2"):
+                response._content = body
+            return response
+
+        fake_central.request = request
+        with pytest.raises(RuntimeError, match="sign-in answered without an access token"):
+            arubacentral.fetch_aps(EU)
+
+    def test_a_cursor_that_repeats_stops(self, fake_central, monkeypatch):
+        monkeypatch.setattr(arubacentral, "get", lambda controller, path, params: {"items": [{}], "next": "2"})
+        with pytest.raises(RuntimeError, match="cursor repeated"):
+            arubacentral.fetch_aps(EU)
+        monkeypatch.setattr(arubacentral, "get", lambda controller, path, params: [])
+        with pytest.raises(RuntimeError, match="something other than an object"):
+            arubacentral.fetch_aps(EU)
+
+    def test_what_is_kept_of_an_ap(self):
+        assert arubacentral.ap_record(
+            {"serialNumber": "CNF1", "deviceName": "ap1", "macAddress": "20:4C:03:AA", "status": "OFFLINE"}
+        ) == {"serial": "CNF1", "mac": "20:4c:03:aa", "name": "ap1", "up": False}
+        assert arubacentral.ap_record({"status": "online"})["up"] is True
+        assert arubacentral.ap_record({})["up"] is False
+
+    def test_read_through_the_wireless_module(self, fake_central, monkeypatch):
+        checked = []
+        monkeypatch.setattr(contract, "check_and_record", lambda source, path, records: checked.append((source, path)))
+        fake_central.total = 2
+        aps = wireless.fetch_aps(EU)
+        assert [ap["serial"] for ap in aps] == ["CNF00000", "CNF00001"]
+        assert checked == [("aruba_central", "network-monitoring/v1/aps")]
+        assert wireless.display_name(EU) == "Aruba Central eu"
 
 
 @pytest.fixture

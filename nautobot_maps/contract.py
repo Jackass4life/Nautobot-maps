@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 NAUTOBOT = "nautobot"
 LIBRENMS = "librenms"
 CATALYST_CENTER = "catalyst_center"
+ARUBA_CENTRAL = "aruba_central"
 # Brief nested objects (Nautobot 3.x at depth 0) have only id and url; the
 # name comes from a lookup endpoint then.
 NESTED = ("object", "null")
@@ -461,6 +462,41 @@ CONTRACT: tuple[Endpoint, ...] = (
         stored_in="wireless_ap_status (one row per AP per instance)",
         notes=("Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.",),
     ),
+    Endpoint(
+        ARUBA_CENTRAL,
+        "network-monitoring/v1/aps",
+        "Up/down status of every access point in HPE Aruba Networking New Central, matched to Nautobot devices "
+        "by serial, else name (#508)",
+        (
+            Field(
+                "serialNumber",
+                ("string",),
+                required=True,
+                becomes="serial",
+                rule="matched to the Nautobot device serial (case-insensitive)",
+            ),
+            Field(
+                "deviceName",
+                ("string", "null"),
+                becomes="name",
+                rule="when the serial doesn't match: the Nautobot access point's name (short name, case-insensitive)",
+            ),
+            Field(
+                "status",
+                ("string", "null"),
+                required=True,
+                becomes="up",
+                rule="ONLINE = up, anything else = down; down is counted as an access point down, never in the "
+                "site's level",
+            ),
+            Field("macAddress", ("string", "null"), becomes="mac"),
+        ),
+        request="POST https://sso.common.cloud.hpe.com/as/token.oauth2 (client credentials of a Central-scoped "
+        "API client), then GET https://<region>.api.central.arubanetworks.com/network-monitoring/v1/aps, "
+        "Authorization: Bearer, limit=1000 and the next cursor; the items array",
+        stored_in="wireless_ap_status (one row per AP per instance)",
+        notes=("Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.",),
+    ),
 )
 
 NOT_COVERED = (
@@ -664,7 +700,12 @@ def render_markdown() -> str:
         "the lookup endpoints at the end.",
         "",
     ]
-    for source, title in ((NAUTOBOT, "Nautobot"), (LIBRENMS, "LibreNMS"), (CATALYST_CENTER, "Cisco Catalyst Center")):
+    for source, title in (
+        (NAUTOBOT, "Nautobot"),
+        (LIBRENMS, "LibreNMS"),
+        (CATALYST_CENTER, "Cisco Catalyst Center"),
+        (ARUBA_CENTRAL, "HPE Aruba Networking New Central"),
+    ):
         lines += [f"## {title}", ""]
         for item in (e for e in CONTRACT if e.source == source):
             lines += [f"### `{item.path}`", "", item.used_for + ".", ""]

@@ -108,7 +108,7 @@ Everything else lives in modules under `nautobot_maps/` (#165):
 - `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
   `librenms.fetch_inventory()`).
 - `nautobot_maps/wireless.py`: access point status from the wireless controllers (#508): each
-  instance's sync, `wireless_ap_status`, the index the board reads; `catalyst.py`: the Catalyst Center client.
+  instance's sync, `wireless_ap_status`, the index the board reads; `catalyst.py` and `arubacentral.py`: the Catalyst Center and New Central clients.
 - `nautobot_maps/caching.py`: the shared response cache (cachelib: in-process, Redis or none).
 - `nautobot_maps/http.py`: the HTTP session both clients use (one per thread, connections reused), with retries and backoff for transient upstream errors.
 - `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,

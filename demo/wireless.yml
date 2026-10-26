@@ -1,7 +1,14 @@
-# The demo's wireless controller (#508): the mock Nautobot also answers as a
-# Cisco Catalyst Center.  WIRELESS_CONTROLLERS_FILE=demo/wireless.yml
+# The demo's wireless controllers (#508): the mock Nautobot also answers as a
+# Cisco Catalyst Center and, for the scale demo (MOCK_SCALE), an Aruba New
+# Central.  WIRELESS_CONTROLLERS_FILE=demo/wireless.yml
 catalyst_center:
   - name: demo
     url: http://127.0.0.1:8080
     username: maps-ro
     password: demo
+aruba_central:
+  - name: demo
+    base_url: http://127.0.0.1:8080
+    token_url: http://127.0.0.1:8080/as/token.oauth2
+    client_id: maps-ro
+    client_secret: demo
