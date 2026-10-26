@@ -1,0 +1,300 @@
+"""Access point status from the wireless controllers (#508).
+
+Each instance in ``settings.WIRELESS_CONTROLLERS`` is read on its own, in
+bulk, every ``WIRELESS_SYNC_INTERVAL_SECONDS``: its APs replace its rows in
+``wireless_ap_status``, and its sync state (``wireless:<kind>:<name>``) says
+when it last answered.  One slow or unreachable instance holds up or wipes
+nobody else's APs; its own rows age out after ``stale_seconds()``.
+
+The board matches a Nautobot device to a controller AP by serial, else (an
+access point only, and a name only one AP carries) by name, and counts one the controller says is down as an access point down.
+It never raises the site's level or notifies: at 10,000 APs single APs drop
+all day.  The same AP in two instances: the newest report wins; on a tie,
+up wins, so a stale copy never shows it down.
+
+Called as ``wireless.function()`` so tests can replace it on this module.
+"""
+
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+
+from nautobot_maps import catalyst, contract, db, inventory, metrics, settings, timeutil
+
+logger = logging.getLogger(__name__)
+
+KIND_NAMES = {"catalyst_center": "Catalyst Center"}
+# Instances read at once: enough for a few slow ones, gentle on the app.
+MAX_PARALLEL = 4
+
+
+def controller_id(controller: dict) -> str:
+    return f"{controller['kind']}:{controller['name']}"
+
+
+def source(controller: dict) -> str:
+    """Its key in inventory_sync_state."""
+    return f"wireless:{controller_id(controller)}"
+
+
+def display_name(controller: dict) -> str:
+    """'Catalyst Center dk', as the top bar and the check say it."""
+    return f"{KIND_NAMES.get(controller['kind'], controller['kind'])} {controller['name']}"
+
+
+def configured() -> tuple[dict, ...]:
+    return tuple(settings.WIRELESS_CONTROLLERS or ())
+
+
+def stale_seconds() -> int:
+    """How long an instance's last answer counts: as the top bar's staleness (#419)."""
+    return max(metrics.STALE_INTERVALS * settings.WIRELESS_SYNC_INTERVAL_SECONDS, metrics.STALE_FLOOR_SECONDS)
+
+
+def serial_key(value) -> str:
+    return str(value or "").strip().upper()
+
+
+def name_key(value) -> str:
+    """As a LibreNMS host: lower case, the part before the first dot."""
+    return inventory.librenms_host_key(str(value or ""))
+
+
+def fetch_aps(controller: dict) -> list[dict]:
+    if controller["kind"] == "catalyst_center":
+        devices = catalyst.fetch_devices(controller)
+        contract.check_and_record(contract.CATALYST_CENTER, "network-device?family=Unified AP", devices)
+        return [catalyst.ap_record(device) for device in devices]
+    raise RuntimeError(f"Unknown wireless controller kind {controller['kind']!r}")
+
+
+def write_aps(conn, controller: dict, aps: list[dict], seen_at: str) -> int:
+    """Replace this instance's rows with *aps*; returns how many were kept
+    (one per serial, else per name: an AP listed twice counts once)."""
+    rows = {}
+    for ap in aps:
+        serial, name = serial_key(ap.get("serial")), name_key(ap.get("name"))
+        if not serial and not name:
+            continue
+        rows[serial or f"name:{name}"] = (
+            controller_id(controller),
+            serial,
+            name,
+            str(ap.get("serial") or ""),
+            str(ap.get("mac") or ""),
+            str(ap.get("name") or ""),
+            bool(ap.get("up")),
+            seen_at,
+        )
+    conn.execute("DELETE FROM wireless_ap_status WHERE controller = %s", (controller_id(controller),))
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO wireless_ap_status (controller, serial_key, name_key, serial, mac, name, up, seen_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            list(rows.values()),
+        )
+    return len(rows)
+
+
+def sync_controller(controller: dict) -> None:
+    """Read one instance and store what it says; a failure is recorded on its
+    sync state (the top bar shows it) and leaves its last answer to age out."""
+    conn = db.get_conn()
+    if conn is None:
+        return
+    key = source(controller)
+    started_at = timeutil.iso_utc_now()
+    try:
+        with db.transaction(conn):
+            inventory.record_sync_state(conn, key, last_started_at=started_at, status="running")
+        aps = fetch_aps(controller)
+        existing = conn.execute(
+            "SELECT count(*) AS n FROM wireless_ap_status WHERE controller = %s", (controller_id(controller),)
+        ).fetchone()
+        if not aps and int(db.row_to_dict(existing).get("n") or 0):
+            raise RuntimeError("it listed no access points; keeping its last answer")
+        with db.transaction(conn):
+            completed_at = timeutil.iso_utc_now()
+            kept = write_aps(conn, controller, aps, completed_at)
+            inventory.record_sync_state(
+                conn, key, last_started_at=started_at, last_completed_at=completed_at, status="idle"
+            )
+        logger.info("%s: %s access points", display_name(controller), kept)
+    except Exception as exc:
+        # The exception's text names the URL at most, never the password or token.
+        logger.warning("Could not read %s: %s", display_name(controller), exc)
+        with db.transaction(conn):
+            inventory.record_sync_state(
+                conn,
+                key,
+                last_started_at=started_at,
+                last_completed_at=timeutil.iso_utc_now(),
+                status="error",
+                error_message=str(exc)[:500],
+            )
+    finally:
+        conn.close()
+
+
+def due(conn) -> list[dict]:
+    return [
+        controller
+        for controller in configured()
+        if inventory.state_due(
+            inventory.get_sync_state(source(controller), conn=conn), settings.WIRELESS_SYNC_INTERVAL_SECONDS
+        )
+    ]
+
+
+def read_index(conn, now: datetime | None = None) -> dict:
+    """What the configured instances say, fresh answers only:
+    ``{"serial": {key: up}, "name": {key: up}}``.  One query.
+
+    A name that two different APs carry (``ap-01`` at two sites) isn't in the
+    name index: it would count the wrong one down.  The same AP in two
+    instances (the same serial) is one AP."""
+    ids = [controller_id(controller) for controller in configured()]
+    if not ids:
+        return {"serial": {}, "name": {}}
+    since = (now or datetime.now(UTC)) - timedelta(seconds=stale_seconds())
+    rows = conn.execute(
+        "SELECT controller, serial_key, name_key, up, extract(epoch FROM seen_at) AS seen "
+        "FROM wireless_ap_status WHERE controller = ANY(%s) AND seen_at >= %s",
+        (ids, since),
+    ).fetchall()
+    best: dict[str, dict] = {"serial": {}, "name": {}}
+    carriers: dict[str, set] = {}  # name: the APs that carry it
+    for row in map(db.row_to_dict, rows):
+        # The newest answer wins; on a tie, up.  Seconds, not text: a time's
+        # text drops zero microseconds and wouldn't sort.
+        rank = (float(row["seen"]), bool(row["up"]))
+        for kind in ("serial", "name"):
+            key = row[f"{kind}_key"]
+            if key and (key not in best[kind] or rank > best[kind][key]):
+                best[kind][key] = rank
+        if row["name_key"]:
+            carriers.setdefault(row["name_key"], set()).add(
+                row["serial_key"] or f"{row['controller']}:{row['name_key']}"
+            )
+    for name, aps in carriers.items():
+        if len(aps) > 1:
+            best["name"].pop(name, None)
+    return {kind: {key: rank[1] for key, rank in keys.items()} for kind, keys in best.items()}
+
+
+def is_access_point(device: dict) -> bool:
+    return (device.get("role") or "").strip().casefold() in settings.ACCESS_POINT_ROLES
+
+
+def is_down(index: dict | None, device: dict) -> bool:
+    """A controller says this Nautobot device is down: by its serial, else, for
+    an access point (ACCESS_POINT_ROLES) only, by its name."""
+    if not index:
+        return False
+    serial = serial_key(device.get("serial"))
+    if serial and serial in index["serial"]:
+        return not index["serial"][serial]
+    name = name_key(device.get("name"))
+    if name and name in index["name"] and is_access_point(device):
+        return not index["name"][name]
+    return False
+
+
+def match_keys(devices: list[dict]) -> tuple[set, set]:
+    """The Nautobot devices' serials, and their access points' names, to match APs against."""
+    serials = {serial_key(d.get("serial")) for d in devices} - {""}
+    names = {name_key(d.get("name")) for d in devices if is_access_point(d)} - {""}
+    return serials, names
+
+
+def matches(ap_serial_key: str, ap_name_key: str, serials: set, names: set) -> bool:
+    return (bool(ap_serial_key) and ap_serial_key in serials) or (bool(ap_name_key) and ap_name_key in names)
+
+
+def down_fingerprint(conn) -> tuple:
+    index = read_index(conn)
+    return tuple(sorted(key for kind in ("serial", "name") for key, up in index[kind].items() if not up))
+
+
+def prune(conn) -> None:
+    """Forget instances no longer in the file (renamed or removed): their APs
+    and sync state, so neither /metrics nor the top bar keeps them."""
+    ids = [controller_id(controller) for controller in configured()]
+    with db.transaction(conn):
+        conn.execute("DELETE FROM wireless_ap_status WHERE NOT (controller = ANY(%s))", (ids,))
+        conn.execute(
+            "DELETE FROM inventory_sync_state WHERE source LIKE 'wireless:%%' AND NOT (source = ANY(%s))",
+            ([f"wireless:{controller_id}" for controller_id in ids],),
+        )
+
+
+# Kept between syncs: its threads keep their HTTP sessions, so each instance's
+# connection is reused rather than opened anew every interval.
+_pool: ThreadPoolExecutor | None = None
+
+
+def pool() -> ThreadPoolExecutor:
+    global _pool
+    if _pool is None:
+        _pool = ThreadPoolExecutor(max_workers=MAX_PARALLEL, thread_name_prefix="wireless")
+    return _pool
+
+
+def sync_due() -> bool:
+    """Read the instances that are due, a few at a time; returns whether the
+    APs down changed, so the board is rebuilt only then."""
+    conn = db.get_conn()
+    if conn is None:
+        return False
+    try:
+        prune(conn)
+        todo = due(conn) if configured() else []
+        if not todo:
+            return False
+        before = down_fingerprint(conn)
+    finally:
+        conn.close()
+    list(pool().map(sync_controller, todo))
+    conn = db.get_conn()
+    if conn is None:
+        return False
+    try:
+        return down_fingerprint(conn) != before
+    finally:
+        conn.close()
+
+
+def check() -> list[dict]:
+    """For ``python -m nautobot_maps wireless-check``: each instance read now,
+    how many APs it lists and how many match a Nautobot device."""
+    serials, names = match_keys(inventory.read_devices())
+    results, seen = [], {}
+    for controller in configured():
+        result = {"controller": display_name(controller), "url": controller["url"]}
+        try:
+            aps = fetch_aps(controller)
+        except Exception as exc:
+            result["error"] = str(exc)[:300]
+            results.append(result)
+            continue
+        matched, unmatched = 0, []
+        for ap in aps:
+            if matches(serial_key(ap["serial"]), name_key(ap["name"]), serials, names):
+                matched += 1
+            elif len(unmatched) < 10:
+                unmatched.append(ap["name"] or ap["serial"])
+            if serial_key(ap["serial"]):
+                seen.setdefault(serial_key(ap["serial"]), set()).add(display_name(controller))
+        result.update(
+            {
+                "access_points": len(aps),
+                "down": sum(1 for ap in aps if not ap["up"]),
+                "matched": matched,
+                "unmatched_examples": unmatched,
+            }
+        )
+        results.append(result)
+    duplicates = {serial: sorted(where) for serial, where in seen.items() if len(where) > 1}
+    if duplicates:
+        results.append({"duplicates": dict(list(sorted(duplicates.items()))[:20]), "duplicate_count": len(duplicates)})
+    return results

@@ -734,6 +734,26 @@ def add_status_links(conn) -> None:
     )
 
 
+def add_wireless_ap_status(conn) -> None:
+    """Access point status from the wireless controllers (#508): one row per
+    AP per controller instance, replaced by each of its syncs."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wireless_ap_status (
+            controller  TEXT NOT NULL,
+            serial_key  TEXT NOT NULL,
+            name_key    TEXT NOT NULL,
+            serial      TEXT NOT NULL,
+            mac         TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            up          BOOLEAN NOT NULL,
+            seen_at     TIMESTAMPTZ NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS wireless_ap_status_controller ON wireless_ap_status (controller)")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -765,6 +785,7 @@ MIGRATIONS = (
     (25, "nautobot_device_cache virtual chassis", add_device_virtual_chassis),
     (26, "nautobot_location_cache.tenant_scope_json", add_location_tenant_scope),
     (27, "status_links", add_status_links),
+    (28, "wireless_ap_status", add_wireless_ap_status),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

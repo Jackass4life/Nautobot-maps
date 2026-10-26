@@ -237,7 +237,7 @@ onBeforeUnmount(() => {
           <span class="size-2 shrink-0 rounded-full" :class="DOT[view.state]" aria-hidden="true" />
           <span
             id="app-status-text"
-            class="max-w-48 truncate max-sm:hidden"
+            class="max-w-72 truncate max-sm:hidden"
             :class="view.state === 'down' ? 'text-error' : view.state === 'stale' ? 'text-warning' : 'text-muted'"
           >{{ view.text }}</span>
         </UButton>

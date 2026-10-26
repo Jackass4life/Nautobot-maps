@@ -24,7 +24,9 @@ class StatusSite(common.Answer):
 class StatusSummary(common.Answer):
     sites: int
     affected: int = Field(description="Sites in outage or degraded.")
-    devices_down: int = Field(description="Devices down now at the affected sites (#503).")
+    devices_down: int = Field(
+        description="Devices down now, but not at sites in maintenance or without data (#503, #508)."
+    )
 
 
 class TenantStatus(common.Answer):

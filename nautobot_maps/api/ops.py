@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
-from nautobot_maps import alerts, apidocs, caching, coordinates, db, mcp, metrics, settings
+from nautobot_maps import alerts, apidocs, caching, coordinates, db, mcp, metrics, settings, wireless
 from nautobot_maps.api import deps
 from nautobot_maps.api.answers import ops as answers
 
@@ -115,8 +115,10 @@ def api_app_status():
         intervals={
             "INVENTORY_SYNC_INTERVAL_SECONDS": settings.INVENTORY_SYNC_INTERVAL_SECONDS,
             "LIBRENMS_SYNC_INTERVAL_SECONDS": settings.LIBRENMS_SYNC_INTERVAL_SECONDS,
+            "WIRELESS_SYNC_INTERVAL_SECONDS": settings.WIRELESS_SYNC_INTERVAL_SECONDS,
         },
         now=time.time(),
+        wireless=tuple((wireless.source(c), wireless.display_name(c)) for c in wireless.configured()),
     )
     return deps.Json(body, headers={"Cache-Control": "no-store"})
 

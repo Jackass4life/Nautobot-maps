@@ -2,7 +2,7 @@
 
 <!-- Generated from nautobot_maps/contract.py: python -m nautobot_maps contract-docs > docs/data-contract.md -->
 
-What Nautobot Maps reads from Nautobot and LibreNMS, which fields it uses, their types, and what each becomes in its own tables. Every sync checks the records it fetched against this: a **required** field that is missing, or any field with another type, is logged once per sync ("Data contract: nautobot dcim/devices/ does not match in 340 records: primary_ip4 is string, expected object or null (12)"), counted in `/metrics` (`nautobot_maps_contract_mismatches{source,endpoint,field}`) and shown by `GET /api/contract`. A mismatch is a warning: the sync goes on with what it can use.
+What Nautobot Maps reads from Nautobot, LibreNMS and the wireless controllers, which fields it uses, their types, and what each becomes in its own tables. Every sync checks the records it fetched against this: a **required** field that is missing, or any field with another type, is logged once per sync ("Data contract: nautobot dcim/devices/ does not match in 340 records: primary_ip4 is string, expected object or null (12)"), counted in `/metrics` (`nautobot_maps_contract_mismatches{source,endpoint,field}`) and shown by `GET /api/contract`. A mismatch is a warning: the sync goes on with what it can use.
 
 After a Nautobot or LibreNMS upgrade, look there first. CI checks this contract against a real Nautobot on every change.
 
@@ -348,6 +348,23 @@ An alert push from LibreNMS's API transport (#284); only says which device to re
 |---|---|---|---|---|
 | `device_id` | integer or string |  | — | LibreNMS device id; JSON, form or query string |
 | `hostname` | string |  | — | when there is no device_id |
+
+## Cisco Catalyst Center
+
+### `network-device?family=Unified AP`
+
+Up/down status of every access point, matched to Nautobot devices by serial, else name (#508).
+
+- Request: POST /dna/system/api/v1/auth/token (basic auth), then GET /dna/intent/api/v1/network-device ?family=Unified AP, X-Auth-Token, pages of 500 (offset from 1); the response array
+- Stored in: `wireless_ap_status (one row per AP per instance)`
+- Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.
+
+| Field | Type | Required | Becomes | Rule |
+|---|---|---|---|---|
+| `serialNumber` | string or null |  | serial | matched to the Nautobot device serial (case-insensitive) |
+| `hostname` | string or null |  | name | when the serial doesn't match: the Nautobot device name (short name, case-insensitive) |
+| `reachabilityStatus` | string or null | yes | up | Reachable = up, anything else = down; down is counted as an access point down, never in the site's level |
+| `macAddress` | string or null |  | mac | — |
 
 ## Not covered
 

@@ -29,9 +29,11 @@ export function appStatusView(status: AppStatus | null, now: Date = new Date()):
   const sources = status.sources || [];
   const worst = sources.find((s) => s.state === "down") || sources.find((s) => s.state === "stale");
   const updated = status.updated_at ? formatFeedTime(status.updated_at, now) : "";
+  // Several unreachable (wireless controllers, #508): one line says how many; the list names them.
+  const unreachable = sources.filter((s) => s.state !== "ok" && s.message.startsWith("Can't reach")).length;
   return {
     state: status.state,
-    text: worst ? worst.message : updated ? `Updated ${updated}` : "Up to date",
+    text: unreachable > 1 ? `Can't reach ${unreachable} sources` : worst ? worst.message : updated ? `Updated ${updated}` : "Up to date",
     intro:
       status.state === "ok"
         ? "The map and board are up to date."

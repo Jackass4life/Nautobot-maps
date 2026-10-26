@@ -7,7 +7,7 @@ are in the access log (#193).
 
 from datetime import UTC, datetime
 
-from nautobot_maps import contract, db, timeutil
+from nautobot_maps import contract, db, settings, timeutil
 
 SYNC_SOURCES = ("nautobot_inventory", "nautobot_inventory_reconcile", "librenms_inventory")
 
@@ -66,7 +66,10 @@ def collect(conn) -> str:
 
     syncs = sync_rows(conn)
     success, attempt, duration, failing, running = [], [], [], [], []
-    for source in SYNC_SOURCES:
+    # Each wireless controller instance in the file too (#508): wireless:<kind>:<name>.
+    configured = [f"{c['kind']}:{c['name']}" for c in settings.WIRELESS_CONTROLLERS or ()]
+    wireless_sources = [f"wireless:{controller}" for controller in configured if f"wireless:{controller}" in syncs]
+    for source in (*SYNC_SOURCES, *wireless_sources):
         row = syncs.get(source)
         if row is None:
             continue
@@ -89,6 +92,40 @@ def collect(conn) -> str:
     out.gauge("nautobot_maps_sync_last_duration_seconds", "How long the last finished sync took.", duration)
     out.gauge("nautobot_maps_sync_failing", "1 if the last sync failed.", failing)
     out.gauge("nautobot_maps_sync_running", "1 while a sync runs.", running)
+
+    # Access points per wireless controller instance (#508): listed, down, and
+    # matched to a Nautobot device (by serial, else name).  A low match means
+    # the serials or names in Nautobot and the controller differ.
+    # Matched here, from two plain reads: an SQL join on rewritten keys would
+    # scan the devices once per AP on every scrape.
+    listed, matched = {}, {}
+    if configured:
+        devices = conn.execute("SELECT serial, name, role FROM nautobot_device_cache").fetchall()
+        serials = {str(d["serial"] or "").strip().upper() for d in devices} - {""}
+        names = {
+            str(d["name"] or "").strip().lower().split(".", 1)[0]
+            for d in devices
+            if str(d["role"] or "").strip().casefold() in settings.ACCESS_POINT_ROLES
+        } - {""}
+        aps = conn.execute(
+            "SELECT controller, serial_key, name_key, up FROM wireless_ap_status WHERE controller = ANY(%s)",
+            (configured,),
+        ).fetchall()
+        for row in aps:
+            key = (row["controller"], "up" if row["up"] else "down")
+            listed[key] = listed.get(key, 0) + 1
+            if (row["serial_key"] and row["serial_key"] in serials) or (row["name_key"] and row["name_key"] in names):
+                matched[row["controller"]] = matched.get(row["controller"], 0) + 1
+    out.gauge(
+        "nautobot_maps_wireless_access_points",
+        "Access points each wireless controller instance listed at its last answer, up or down.",
+        [({"controller": controller, "state": state}, n) for (controller, state), n in sorted(listed.items())],
+    )
+    out.gauge(
+        "nautobot_maps_wireless_access_points_matched",
+        "Of those, how many match a Nautobot device (by serial, else name).",
+        [({"controller": controller}, matched.get(controller, 0)) for controller in sorted({c for c, _ in listed})],
+    )
 
     open_alerts = conn.execute(
         "SELECT alert_level, count(*) AS n FROM alert_instances WHERE status = 'open' GROUP BY alert_level"
@@ -217,11 +254,12 @@ def _iso(timestamp: float | None) -> str | None:
     return datetime.fromtimestamp(timestamp, UTC).isoformat().replace("+00:00", "Z") if timestamp is not None else None
 
 
-def app_status(rows: dict | None, *, librenms: bool, intervals: dict, now: float) -> dict:
+def app_status(rows: dict | None, *, librenms: bool, intervals: dict, now: float, wireless: tuple = ()) -> dict:
     """How fresh the app's data is: ``state`` (ok, stale or down), ``updated_at``
     (the oldest source's last good sync: the data is only as fresh as that) and
     one entry per source.  *rows*: ``sync_rows``; None when the database
-    didn't answer.  Calls nothing upstream."""
+    didn't answer.  *wireless*: ``(sync source, name)`` per wireless controller
+    instance (#508), read every WIRELESS_SYNC_INTERVAL_SECONDS.  Calls nothing upstream."""
     if rows is None:
         return {
             "state": "down",
@@ -229,12 +267,19 @@ def app_status(rows: dict | None, *, librenms: bool, intervals: dict, now: float
             "sources": [{"name": "Database", "state": "down", "message": "Can't reach the database"}],
         }
     sources, successes = [], []
-    for key, name, interval_setting in APP_STATUS_SOURCES:
+    wireless_sources = tuple((key, name, "WIRELESS_SYNC_INTERVAL_SECONDS") for key, name in wireless)
+    wireless_keys = {key for key, _ in wireless}
+    for key, name, interval_setting in (*APP_STATUS_SOURCES, *wireless_sources):
         if key == "librenms_inventory" and not librenms:
             continue
         row = rows.get(key) or {}
         succeeded = _timestamp(row.get("last_succeeded_at"))
-        successes.append(succeeded)
+        # A wireless controller only adds access points down, counted and
+        # never alarmed (#508): its trouble is amber, not red, and the board's
+        # freshness ("Updated 14:05") is the core sources'.
+        controller = key in wireless_keys
+        if not controller:
+            successes.append(succeeded)
         stale_after = max(STALE_INTERVALS * int(intervals.get(interval_setting) or 0), STALE_FLOOR_SECONDS)
         if row.get("status") == "error":
             state, message = "down", f"Can't reach {name}"
@@ -244,6 +289,8 @@ def app_status(rows: dict | None, *, librenms: bool, intervals: dict, now: float
             state, message = "stale", f"{name} data is {int((now - succeeded) // 60)} min old"
         else:
             state, message = "ok", f"{name} is up to date"
+        if controller and state == "down":
+            state = "stale"
         sources.append(
             {
                 "name": name,

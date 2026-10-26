@@ -7,7 +7,7 @@ import logging
 import threading
 from datetime import UTC
 
-from nautobot_maps import alerts, caching, db, inventory, notify, settings, timeutil, webhooks
+from nautobot_maps import alerts, caching, db, inventory, notify, settings, timeutil, webhooks, wireless
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,8 @@ def tick_seconds() -> int:
     intervals = [settings.INVENTORY_SYNC_INTERVAL_SECONDS]
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         intervals.append(settings.LIBRENMS_SYNC_INTERVAL_SECONDS)
+    if settings.WIRELESS_CONTROLLERS:
+        intervals.append(settings.WIRELESS_SYNC_INTERVAL_SECONDS)
     return max(1, min(MAX_TICK_SECONDS, *intervals))
 
 
@@ -58,6 +60,9 @@ def tick() -> bool:
         send_notifications()
         prune_alert_history_if_due()
         worked = inventory.ensure_snapshot(wait=True)
+        # The wireless controllers (#508), on their own thread: a slow or
+        # unreachable one never holds up the tick, notifications or rebuilds.
+        start_wireless_sync()
         # LibreNMS pushes (#284) and webhook alerts (#292) whose own rebuild
         # didn't get the lock.
         pushes = pending_librenms_pushes()
@@ -73,6 +78,43 @@ def tick() -> bool:
         return worked or bool(pushes) or received is not None or changed is not None
     finally:
         release()
+
+
+WIRELESS_THREAD_NAME = "wireless-sync"
+_wireless_running = threading.Lock()
+
+
+def sync_wireless() -> bool:
+    """The controllers that are due (#508), under their own lock (one process
+    at a time); when an AP went down or came back, the board is rebuilt as
+    for any change.  A failure is logged, never raised."""
+    release = db.try_advisory_lock("wireless_sync")
+    if not callable(release):
+        return False
+    try:
+        changed = wireless.sync_due()
+    except Exception as exc:
+        logger.warning("Wireless controller sync failed: %s", exc, exc_info=True)
+        return False
+    finally:
+        release()
+    if changed:
+        board_changed()
+    return changed
+
+
+def start_wireless_sync() -> None:
+    """Run ``sync_wireless`` in the background unless it is still running."""
+    if not settings.WIRELESS_CONTROLLERS or not _wireless_running.acquire(blocking=False):
+        return
+
+    def run() -> None:
+        try:
+            sync_wireless()
+        finally:
+            _wireless_running.release()
+
+    threading.Thread(target=run, name=WIRELESS_THREAD_NAME, daemon=True).start()
 
 
 def rebuild_board(trigger: str = "scheduler") -> None:

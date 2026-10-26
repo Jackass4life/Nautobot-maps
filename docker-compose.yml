@@ -120,6 +120,10 @@ services:
       - LIBRENMS_URL=${LIBRENMS_URL:-}
       - LIBRENMS_API_TOKEN=${LIBRENMS_API_TOKEN:-}
       - LIBRENMS_VERIFY_SSL=${LIBRENMS_VERIFY_SSL:-true}
+      # Wireless controllers' access point status (optional; see docs/sources.md):
+      # the file must be mounted into the container (docker-compose.override.yml)
+      - WIRELESS_CONTROLLERS_FILE=${WIRELESS_CONTROLLERS_FILE:-}
+      - WIRELESS_SYNC_INTERVAL_SECONDS=${WIRELESS_SYNC_INTERVAL_SECONDS:-}
       # Delete alert history older than this many days (optional; 0/empty keeps everything)
       - ALERT_HISTORY_RETENTION_DAYS=${ALERT_HISTORY_RETENTION_DAYS:-}
       # Prometheus metrics at /metrics (optional; default on)

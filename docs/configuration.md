@@ -44,6 +44,8 @@ Set both `LIBRENMS_URL` and `LIBRENMS_API_TOKEN` to take device up/down status f
 | `LIBRENMS_URL` | — | Base URL of your LibreNMS |
 | `LIBRENMS_API_TOKEN` | — | LibreNMS API token |
 | `LIBRENMS_VERIFY_SSL` | `true` | `true`, `false`, or a path to a CA bundle |
+| `WIRELESS_CONTROLLERS_FILE` | — | A YAML file listing any number of Cisco Catalyst Center instances (name, url, read-only username and password, verify_ssl), for access point status ([sources](sources.md#wireless-controllers-access-points-catalyst-center)); a mistake in it stops the app at startup |
+| `WIRELESS_SYNC_INTERVAL_SECONDS` | `300` | How often each wireless controller is read (at least 60) |
 
 For a LibreNMS signed by an internal CA, mount the CA certificate into the container and point the setting at it (e.g. `LIBRENMS_VERIFY_SSL=/certs/internal-ca.pem`). `false` skips verification and should be a last resort, since the API token travels over that connection. A path that doesn't exist is logged as an error at startup.
 
@@ -99,7 +101,7 @@ What these do is explained in [the alert board guide](alert-board.md). List sett
 | `ALERT_DELAY_SECONDS` | `0` | A device must be down this long before it alarms; shorter blips are not shown, counted, recorded or notified ([alert delay](alert-board.md#alert-delay)) |
 | `CRITICAL_ROLE_KEYWORDS` | `core,spine,distribution,router,gateway` | Device role keywords that make a down device **Critical** |
 | `CRITICALITY_RULES_FILE` | — | JSON file with keywords per location type, overriding `CRITICAL_ROLE_KEYWORDS`; see `criticality_rules.json` |
-| `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down |
+| `ACCESS_POINT_ROLES` | `Access Point` | Nautobot device roles (comma-separated, capitals don't matter) that are access points: Availability shows each site's "12 network · 40 APs", every other monitored device counting as network equipment ([availability](availability.md)); the [status page](status-page.md) counts them too, and how many are down, also per the [wireless controllers](sources.md#wireless-controllers-access-points-catalyst-center) |
 | `SITE_TENANT_RELATIONSHIPS` | — | Nautobot Relationships (keys or labels) that link a location to more tenants, shown next to its own tenant. Empty: every Location ↔ Tenant relationship |
 
 ## Sign-in and roles

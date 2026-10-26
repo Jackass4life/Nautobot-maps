@@ -20,3 +20,5 @@ markdown-it-py==4.2.0
 # The pages' templates and the cache (#436; they came with Flask before).
 jinja2==3.1.6
 cachelib==0.17.0
+# The wireless controllers file (#508).
+pyyaml==6.0.3

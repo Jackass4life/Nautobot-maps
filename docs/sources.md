@@ -22,6 +22,73 @@ Each answer says what happened:
 
 `matched` counts the firing alerts that name a known Nautobot device. If it stays 0, the label or name doesn't match.
 
+## Wireless controllers: access points (Catalyst Center)
+
+The wireless controllers know best whether an access point is up (#508). The app reads every access point from any number of **Cisco Catalyst Center** instances, matches each one to its Nautobot device, and counts the ones the controller reports down:
+- on the [status page](status-page.md): "2 of 40 access points down", also at a site that is otherwise fine;
+- on the board's data (`down_access_point_count`).
+
+An access point that is down **never raises a site's level or sends a notification**: at 10,000 access points, single ones drop all day, and an alarm for each would bury real outages. Nautobot's own status still counts as it always has.
+
+**Matching.** By **serial** (capitals don't matter), else by **name** (the part before the first dot), against the Nautobot devices. By name only for a device whose role is an access point, and only for a name one access point carries: `ap-01` at two sites matches neither. Which of them are access points is still `ACCESS_POINT_ROLES` ([configuration](configuration.md)). An access point in maintenance, or at a site in maintenance, isn't down.
+
+**Several instances.** List them in one YAML file, with read-only accounts:
+
+```yaml
+# /config/wireless.yml: chmod 600, mounted read-only
+catalyst_center:
+  - name: dk                      # a-z, 0-9, _ and -; shown as "Catalyst Center dk"
+    url: https://dnac-dk.example.com
+    username: maps-ro
+    password: "..."
+    verify_ssl: true              # true, false, or a path to a CA bundle
+  - name: se
+    url: https://dnac-se.example.com
+    username: maps-ro
+    password: "..."
+```
+
+```sh
+WIRELESS_CONTROLLERS_FILE=/config/wireless.yml
+WIRELESS_SYNC_INTERVAL_SECONDS=300     # how often each one is read (at least 60)
+```
+
+With Docker, mount the file in a `docker-compose.override.yml`:
+
+```yaml
+services:
+  nautobot-maps:
+    volumes:
+      - ./config/wireless.yml:/config/wireless.yml:ro
+```
+
+A mistake in the file (a missing password, a name used twice, an unknown setting) stops the app at startup with a message that names the instance, and never shows the password.
+
+**How it reads them.** Every instance is read on its own, in bulk, by the background scheduler: one sign-in (`POST /dna/system/api/v1/auth/token`), then the access points in pages of 500 (`GET /dna/intent/api/v1/network-device?family=Unified AP`). That is about 20 requests for 10,000 access points, never one per site. Up to four instances are read at once. The board is rebuilt only when an access point went down or came back.
+
+**When one can't be reached:**
+- The others carry on: a slow or failing instance never holds them up or wipes their access points.
+- Its last answer counts for three intervals (at least 15 minutes), then its access points are simply not counted as down.
+- The top bar says "Can't reach Catalyst Center dk" in amber (not red: the alarms don't depend on it), or "Can't reach 2 sources" when several fail, and its menu lists each one.
+
+**The same access point in two instances** (moved, or during a migration): the newest answer wins. When two are equally new, up wins, so a stale copy never shows it down.
+
+**Check the setup:**
+
+```sh
+docker compose exec nautobot-maps python -m nautobot_maps wireless-check
+```
+
+```
+Catalyst Center dk (https://dnac-dk.example.com): 4210 access points, 12 down, 4198 match a Nautobot device
+  not in Nautobot (serial or name), e.g.: lab-ap99
+Catalyst Center se (https://dnac-se.example.com): can't read it: 401 Client Error: Unauthorized
+```
+
+It reads each instance now and exits with status 1 when one fails. Access points that match nothing have a serial or name in the controller that no Nautobot device has. `/metrics` has the same per instance: `nautobot_maps_wireless_access_points{controller,state}` and `nautobot_maps_wireless_access_points_matched{controller}` ([operations](operations.md)).
+
+The fields read are in the [data contract](data-contract.md#cisco-catalyst-center).
+
 ## Prometheus Alertmanager
 
 Send the alerts that mean "this device is down" to the app. A route keeps other alerts out:
