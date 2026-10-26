@@ -133,6 +133,8 @@ class SiteDevice(common.Answer):
     webhook_summary: str | None = None
     maintenance_until: str | None = Field(None, description="In a maintenance window until then.")
     alert_pending: bool | None = Field(None, description="Down, within the alert delay.")
+    case_numbers: list[str] | None = Field(None, description="Its open alert's cases, newest first (#512).")
+    acknowledged_by: str | None = Field(None, description="Who acknowledged its open alert; empty when nobody did.")
 
 
 class Asn(common.Answer):
@@ -167,6 +169,7 @@ class LocationDetail(common.Answer):
     devices: list[SiteDevice]
     alert: SiteAlert = Field(description="The level the board and the map show.")
     counts: SiteCounts
+    cases: list[str] = Field(default_factory=list, description="Its devices' open cases, newest first (#512).")
     asns: list[Asn]
     circuits: list[SiteCircuit]
     circuits_error: str = Field(description="Why circuits couldn't be read; empty when they were.")

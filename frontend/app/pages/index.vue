@@ -564,6 +564,7 @@ onBeforeUnmount(() => {
         :error="detailError"
         :since="selectedId ? levelInfo[selectedId]?.since : null"
         :nautobot-url="config.nautobot_url"
+        :case-url-template="config.board?.case_url_template || ''"
         @close="closeSite()"
         @select="(id) => openSite(id, { ids: groupIds, focusPanel: false })"
         @retry="retryDetail"

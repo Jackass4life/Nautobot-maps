@@ -2460,6 +2460,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     in_window: dict = {}
     pending: set = set()
     overrides: dict = {}
+    cases: dict = {}
     conn = db.get_conn() if db.dialect() else None
     if conn is not None:
         try:
@@ -2472,6 +2473,11 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             overrides = board_store.read_criticality_overrides(conn, ids) if ids else {}
         except Exception as exc:
             logger.warning("Could not read criticality overrides for the site panel: %s", exc)
+        try:
+            # Who is on it (#512): the cases and acknowledgements of the open alerts.
+            cases = board_store.open_cases_for_devices(conn, [d.get("id") for d in devices if d.get("id")])
+        except Exception as exc:
+            logger.warning("Could not read the cases for the site panel: %s", exc)
         finally:
             conn.close()
     # The panel's down list in the board's order (#394): each device's level as
@@ -2487,6 +2493,10 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             device["maintenance_until"] = window["ends_at"]
         if (device.get("id") or "") in pending and not device["not_monitored"]:
             device["alert_pending"] = True
+        on_it = cases.get(device.get("id") or "")
+        if on_it:
+            device["case_numbers"] = on_it["case_numbers"]
+            device["acknowledged_by"] = on_it["acknowledged_by"]
     # A stack is one device (#405): its lead is down when any of its IPs is,
     # and its other members are monitored with it, not on their own.
     for lead, others, down in stack_groups([d for d in devices if not d["not_monitored"]]):
@@ -2525,10 +2535,13 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     circuits, circuits_error = location_circuits(location_id)
     if not circuits_error:  # without the terminations, they couldn't be told apart (#383)
         circuits += address_circuits(location_id, {circuit["id"] for circuit in circuits})
+    # The site's cases (#512): every open one of its devices, newest first, once.
+    site_cases = list(dict.fromkeys(case for entry in cases.values() for case in entry["case_numbers"]))
     return {
         "devices": devices,
         "alert": alert,
         "counts": counts,
+        "cases": site_cases,
         "asns": asns,
         "circuits": circuits,
         "circuits_error": circuits_error,

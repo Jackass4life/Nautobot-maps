@@ -183,3 +183,24 @@ export function circuitMatchNote(circuit: Pick<SiteCircuit, "match" | "shared_wi
 export function maintenanceHistoryHref(siteId: string): string {
   return `/maintenance?${new URLSearchParams({ view: "history", site_id: siteId })}`;
 }
+
+// Who is on it (#512): the site's cases, the first few and "+N" (a core
+// outage can have many), and whether nobody is: a down device counted on the
+// board without a case or an acknowledgement.
+export const CASES_SHOWN = 3;
+
+export function casesShown(cases: string[]): { shown: string[]; more: number } {
+  return { shown: cases.slice(0, CASES_SHOWN), more: Math.max(0, cases.length - CASES_SHOWN) };
+}
+
+export function nobodyOnIt(down: SiteDevice[]): boolean {
+  const counted = down.filter((device) => !device.not_monitored && !device.maintenance_until && !device.alert_pending);
+  return counted.length > 0 && counted.every((device) => !device.case_numbers?.length && !device.acknowledged_by);
+}
+
+// A down device's case on its row: "INC0048213", "INC0048213 +1".
+export function deviceCase(device: SiteDevice): string {
+  const cases = device.case_numbers || [];
+  if (!cases.length) return "";
+  return cases.length > 1 ? `${cases[0]} +${cases.length - 1}` : cases[0]!;
+}
