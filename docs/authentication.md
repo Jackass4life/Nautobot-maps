@@ -106,6 +106,35 @@ What it does:
 - Use a confidential client.
 - Add a **Group Membership** mapper with the claim name `groups`, *Full group path* off, added to the ID token.
 
+**GitLab** (self-managed or gitlab.com, #526):
+- Create the application under **Admin Area → Applications** (instance-wide) or a group's **Settings → Applications**: redirect URI `https://<your host>/oauth2/callback`, **Confidential** on, scopes `openid`, `profile` and `email`.
+- `OIDC_ISSUER_URL=https://gitlab.example.com` (the GitLab address itself, no path), and its application ID and secret as `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`.
+- `OIDC_GROUPS_CLAIM=groups_direct`: the groups the user is a direct member of, as full paths such as `netops/noc`. Use those paths in `AUTH_*_GROUPS` (e.g. `AUTH_OPERATOR_GROUPS=netops/noc`). Membership through a parent group doesn't count: add the users to the group itself.
+- `AUTH_DEFAULT_ROLE` (a role for everyone who signs in) is only safe on a self-managed GitLab whose accounts are your staff. **Never on gitlab.com**: anyone with a gitlab.com account can sign in to the application.
+- A self-managed GitLab with a certificate from your company CA also needs `OIDC_CA_FILE` (below).
+
+#### Company CA
+
+oauth2-proxy checks the identity provider's certificate against the public CAs. A self-managed GitLab, an on-prem Keycloak or ADFS with a certificate from your company's own CA then stops it at start:
+
+```
+error while discovery OIDC configuration: ... tls: failed to verify certificate: x509: certificate signed by unknown authority
+```
+
+Give it that CA (#526):
+
+1. Get the CA certificate as a PEM file: the root (and any intermediate) CA from your IT, or the host's bundle if the host already trusts it (`/etc/ssl/certs/ca-certificates.crt` on Debian and Ubuntu, `/etc/pki/tls/certs/ca-bundle.crt` on RHEL). Copy it into the [config folder](configuration.md#configuration), e.g. `config/company-ca.pem`.
+2. Make it readable by all: `chmod 644 config/company-ca.pem`. oauth2-proxy runs as a user of its own, not the app's group, and a CA certificate is public anyway.
+3. `OIDC_CA_FILE=./config/company-ca.pem` in `.env`, then `docker compose up -d`.
+
+It is trusted **together with** the public CAs, so a provider with a public certificate keeps working. A path that doesn't exist stops `docker compose up` with an error.
+
+Don't turn the certificate check off instead (`OAUTH2_PROXY_SSL_INSECURE_SKIP_VERIFY=true`): then anyone on the network who can answer for the identity provider's address can sign in as anyone, admin included.
+
+#### HTTPS on another port
+
+HTTPS must stay on port 443: the sign-in's redirect (`https://<PUBLIC_HOSTNAME>/oauth2/callback`) and nginx's HTTP→HTTPS redirect name no port. HTTP can move when port 80 is taken (`PROXY_HTTP_PORT=8080`); only the redirect from `http://` to `https://` is then lost.
+
 ### Changes from another site are refused
 
 Behind any sign-in proxy, the browser's session cookie comes along with every request, so a page on another site could make a signed-in user send a change (a form posting to `/api/maintenance/<id>/end`, say).

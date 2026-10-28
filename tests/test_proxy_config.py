@@ -46,3 +46,18 @@ def test_images_are_pinned_and_the_app_trusts_only_nginx():
     assert "AUTH_TRUSTED_PROXIES=${PROXY_IP:-172.30.0.10}/32" in COMPOSE
     assert "ipv4_address: ${PROXY_IP:-172.30.0.10}" in COMPOSE
     assert "AUTH_REQUIRE_VIEWER=true" in COMPOSE
+
+
+def test_a_company_ca_for_the_identity_provider():
+    """#526: OIDC_CA_FILE is mounted into oauth2-proxy and trusted with the
+    public CAs; unset, no CA file is set at all (oauth2-proxy then uses the
+    public ones), and a missing file is an error, not a directory."""
+    assert "OAUTH2_PROXY_PROVIDER_CA_FILES=${OIDC_CA_FILE:+/etc/oauth2-proxy/provider-ca.pem}" in COMPOSE
+    assert "OAUTH2_PROXY_USE_SYSTEM_TRUST_STORE=true" in COMPOSE
+    oauth2 = re.search(r"\n  oauth2-proxy:\n(.*?)\n  nginx:", COMPOSE, re.S).group(1)
+    mount = re.search(r"- type: bind\n(.*?)create_host_path: false", oauth2, re.S)
+    assert mount, "a bind mount that never creates the host path"
+    assert "source: ${OIDC_CA_FILE:-/dev/null}" in mount.group(1)
+    assert "target: /etc/oauth2-proxy/provider-ca.pem" in mount.group(1)
+    assert "read_only: true" in mount.group(1)
+    assert "SSL_INSECURE_SKIP_VERIFY" not in COMPOSE
