@@ -177,6 +177,11 @@ def board_device_rules() -> dict:
 def not_monitored_reason(device: dict) -> str:
     """Why *device* doesn't count towards its site's level ("" when it does), for the site panel (#316)."""
     if not is_monitored(device):
+        # Being onboarded with Plug and Play (#534): not down, not yet watched.
+        if device.get("onboarding"):
+            pnp = device["onboarding"]
+            last_known = "last known " if pnp.get("stale") else ""
+            return f"{wireless.onboarding_text(pnp)}, {last_known}per {pnp['controller']}"
         # An access point no controller lists (#521): say where else to look.
         if wireless.configured() and wireless.is_access_point(device):
             return "no primary IP, not in a wireless controller"

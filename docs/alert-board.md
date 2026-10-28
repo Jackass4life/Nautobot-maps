@@ -61,6 +61,7 @@ Access points get their address by DHCP, so Nautobot seldom has one for them. Wi
 - **They never water down the others.** The share of devices down is of the other devices only: at a site with 6 switches and 40 access points, one switch down is 1 of 6, not 1 of 46. A site with a switch down and access points down is in **Alarms** at the switch's level: the access points are counted, never raising it (unless one has a level set).
 - **Many fold away.** A row lists up to 3 access points with the other down devices; more fold into one line, "34 access points down", that opens in place (on the wall, a count only). The site panel lists them in their own fold, open only when nothing else is down.
 - **Quiet elsewhere too:** they are in each site's **History** and its CSV, but not in the activity feed, nor in [availability](availability.md).
+- **Being onboarded with Plug and Play** (Catalyst Center, #534): an access point in Nautobot that the controller's inventory doesn't list yet, but its Plug and Play does, isn't down and isn't watched yet. The map's site panel says where it is, "Onboarding (PnP: Unclaimed) · per Catalyst Center dk", or "PnP error" with the reason, instead of "Not monitored". The board shows nothing for it, and it is never notified. Once it has joined its controller, the inventory decides whether it is up.
 
 ## Hiding sites and devices
 

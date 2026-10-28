@@ -481,6 +481,47 @@ CONTRACT: tuple[Endpoint, ...] = (
         notes=("Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.",),
     ),
     Endpoint(
+        CATALYST_CENTER,
+        "onboarding/pnp-device",
+        "Access points onboarding with Plug and Play, before they join their controller (#534): shown in the "
+        "site panel, never down or notified",
+        (
+            Field("deviceInfo", NESTED, required=True),
+            Field(
+                "deviceInfo.serialNumber",
+                ("string", "null"),
+                becomes="serial",
+                rule="matched to the Nautobot device serial (case-insensitive); a device the inventory "
+                "(network-device) lists is shown from there instead; one Nautobot doesn't have is ignored",
+            ),
+            Field(
+                "deviceInfo.state",
+                ("string", "null"),
+                becomes="state",
+                rule="Unclaimed, Planned, Onboarding, Provisioned or Error: \"onboarding (PnP: <state>)\" in the site "
+                "panel; Error is \"PnP error\"",
+            ),
+            Field("deviceInfo.onbState", ("string", "null"), becomes="onb_state"),
+            Field(
+                "deviceInfo.errorDetails",
+                ("object", "string", "null"),
+                becomes="error",
+                rule="its message and details, shown after \"PnP error:\"",
+            ),
+            Field("deviceInfo.hostname", ("string", "null"), becomes="hostname"),
+            Field("deviceInfo.pid", ("string", "null"), becomes="pid"),
+            Field("deviceInfo.lastContact", ("integer", "number", "null"), becomes="last_contact", rule="ms since 1970"),
+        ),
+        request="GET /dna/intent/api/v1/onboarding/pnp-device, X-Auth-Token, pages of 500 (offset from 0); the "
+        "list itself (or its \"response\"); with the access points, never one request per AP",
+        stored_in="wireless_pnp_status (one row per serial per instance)",
+        notes=(
+            "Not yet checked against a real Catalyst Center: the fields are from Cisco's API documentation.",
+            "Read after the access points; when it can't be read, the last answer is kept and the access points "
+            "are unaffected.",
+        ),
+    ),
+    Endpoint(
         ARUBA_CENTRAL,
         "network-monitoring/v1/aps",
         "Up/down status of every access point in HPE Aruba Networking New Central, matched to Nautobot devices "

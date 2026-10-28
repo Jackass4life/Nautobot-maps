@@ -2580,6 +2580,37 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /**
+         * Onboarding
+         * @description Where Plug and Play is with a device no inventory lists yet (#534).
+         */
+        Onboarding: {
+            /**
+             * Controller
+             * @description The instance, e.g. "Catalyst Center dk".
+             */
+            controller: string;
+            /**
+             * Error
+             * @description Why it failed; empty when it didn't.
+             */
+            error: string;
+            /**
+             * Onb State
+             * @description Its onboarding step, as Catalyst Center says it; may be empty.
+             */
+            onb_state: string;
+            /**
+             * Stale
+             * @description The controller hasn't answered lately: this is its last known answer.
+             */
+            stale: boolean;
+            /**
+             * State
+             * @description Unclaimed, Planned, Onboarding, Provisioned or Error, as Catalyst Center says it.
+             */
+            state: string;
+        };
         /** Override */
         Override: {
             /**
@@ -2928,6 +2959,8 @@ export interface components {
              * @description Why it isn't counted; empty when it is.
              */
             not_monitored: string;
+            /** @description Not in a controller's inventory yet, but in its Plug and Play (#534): not monitored, not down. */
+            onboarding?: components["schemas"]["Onboarding"] | null;
             /** Platform */
             platform: string;
             /** Primary Ip */

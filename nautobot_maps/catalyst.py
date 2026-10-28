@@ -100,3 +100,52 @@ def fetch_devices(controller: dict) -> list[dict]:
         if len(devices) < PAGE_SIZE:
             return aps
     raise RuntimeError(f"Catalyst Center listed more than {MAX_PAGES * PAGE_SIZE} access points; stopped")
+
+
+# Plug and Play (#534): an AP being onboarded isn't in the device inventory
+# until it has joined its controller.  A few dozen at a time, hundreds in a
+# large rollout: pages of 500, at most 10,000.
+PNP_PAGE_SIZE = 500
+PNP_MAX_PAGES = 20
+
+
+def _error_text(value) -> str:
+    """``errorDetails`` as text: a string, or an object's message and details."""
+    if isinstance(value, dict):
+        parts = [str(value.get(key) or "").strip() for key in ("message", "details")]
+        return " ".join(dict.fromkeys(part for part in parts if part))
+    return str(value or "").strip()
+
+
+def pnp_record(device: dict) -> dict:
+    """What the app keeps of one Plug and Play device: its serial (the match),
+    name, model, where it is in onboarding and why it failed."""
+    info = device.get("deviceInfo") if isinstance(device.get("deviceInfo"), dict) else {}
+    last_contact = info.get("lastContact")
+    return {
+        "serial": str(info.get("serialNumber") or "").strip(),
+        "hostname": str(info.get("hostname") or "").strip(),
+        "pid": str(info.get("pid") or "").strip(),
+        "state": str(info.get("state") or "").strip(),
+        "onb_state": str(info.get("onbState") or "").strip(),
+        "error": _error_text(info.get("errorDetails")),
+        # Milliseconds since the epoch.
+        "last_contact": last_contact / 1000 if isinstance(last_contact, int | float) and last_contact > 0 else None,
+    }
+
+
+def fetch_pnp_devices(controller: dict) -> list[dict]:
+    """Every device Plug and Play lists on this instance (#534), in pages."""
+    devices = []
+    for page in range(PNP_MAX_PAGES):
+        data = get(
+            controller,
+            "/dna/intent/api/v1/onboarding/pnp-device",
+            {"offset": page * PNP_PAGE_SIZE, "limit": PNP_PAGE_SIZE},
+        )
+        # The list itself; some releases wrap it in "response".
+        listed = data if isinstance(data, list) else (data.get("response") or [] if isinstance(data, dict) else [])
+        devices.extend(device for device in listed if isinstance(device, dict))
+        if len(listed) < PNP_PAGE_SIZE:
+            return devices
+    raise RuntimeError(f"Catalyst Center's Plug and Play listed more than {PNP_MAX_PAGES * PNP_PAGE_SIZE} devices")

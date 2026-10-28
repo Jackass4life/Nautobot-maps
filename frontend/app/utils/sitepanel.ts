@@ -110,8 +110,15 @@ export function groupStacks(devices: SiteDevice[]): StackEntry[] {
   return entries;
 }
 
+// Where Plug and Play is with it (#534): "Onboarding (PnP: Unclaimed)", "PnP error".
+export function onboardingNote(onboarding: NonNullable<SiteDevice["onboarding"]>): string {
+  if (onboarding.state.toLowerCase() === "error" || onboarding.error) return "PnP error";
+  return `Onboarding (PnP: ${onboarding.state || "unknown"})`;
+}
+
 // Why it doesn't count, where the role would be (#316).
 export function deviceNote(device: SiteDevice): string {
+  if (device.not_monitored && device.onboarding) return onboardingNote(device.onboarding);
   if (device.not_monitored) return "Not monitored";
   if (device.maintenance_until) return "Maintenance";
   return device.alert_pending ? "Alert delay" : "";
@@ -140,6 +147,8 @@ export function deviceFacts(device: SiteDevice, aside: string): string[] {
 
 // Why a device isn't in the site's "N down · M monitored", if it isn't (#316).
 export function deviceCountNote(device: SiteDevice): string {
+  // Being onboarded: not down, not watched yet (#534); the server's words.
+  if (device.not_monitored && device.onboarding) return `Not counted yet: ${device.not_monitored}`;
   if (device.not_monitored) return `Not monitored: ${device.not_monitored}`;
   if (device.maintenance_until) {
     const until = new Date(device.maintenance_until);

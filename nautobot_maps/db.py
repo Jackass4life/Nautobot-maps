@@ -774,6 +774,28 @@ def add_wireless_ap_ip(conn) -> None:
     conn.execute("ALTER TABLE alert_instances ADD COLUMN IF NOT EXISTS access_point BOOLEAN NOT NULL DEFAULT FALSE")
 
 
+def add_wireless_pnp_status(conn) -> None:
+    """Access points onboarding with Plug and Play (#534): one row per serial
+    per Catalyst Center instance, replaced by each of its syncs."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wireless_pnp_status (
+            controller   TEXT NOT NULL,
+            serial_key   TEXT NOT NULL,
+            serial       TEXT NOT NULL,
+            hostname     TEXT NOT NULL,
+            pid          TEXT NOT NULL,
+            state        TEXT NOT NULL,
+            onb_state    TEXT NOT NULL,
+            error        TEXT NOT NULL,
+            last_contact TIMESTAMPTZ,
+            seen_at      TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (controller, serial_key)
+        )
+        """
+    )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -808,6 +830,7 @@ MIGRATIONS = (
     (28, "wireless_ap_status", add_wireless_ap_status),
     (29, "nautobot_circuit_cache.location_ids, tenant_key", add_circuit_locations),
     (30, "wireless_ap_status.ip, alert_instances.access_point", add_wireless_ap_ip),
+    (31, "wireless_pnp_status", add_wireless_pnp_status),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

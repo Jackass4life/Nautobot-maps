@@ -3294,6 +3294,46 @@
         "title": "NotificationResults",
         "type": "object"
       },
+      "Onboarding": {
+        "additionalProperties": false,
+        "description": "Where Plug and Play is with a device no inventory lists yet (#534).",
+        "properties": {
+          "controller": {
+            "description": "The instance, e.g. \"Catalyst Center dk\".",
+            "title": "Controller",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed; empty when it didn't.",
+            "title": "Error",
+            "type": "string"
+          },
+          "onb_state": {
+            "description": "Its onboarding step, as Catalyst Center says it; may be empty.",
+            "title": "Onb State",
+            "type": "string"
+          },
+          "stale": {
+            "description": "The controller hasn't answered lately: this is its last known answer.",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "Unclaimed, Planned, Onboarding, Provisioned or Error, as Catalyst Center says it.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "onb_state",
+          "error",
+          "controller",
+          "stale"
+        ],
+        "title": "Onboarding",
+        "type": "object"
+      },
       "Override": {
         "additionalProperties": false,
         "properties": {
@@ -4079,6 +4119,17 @@
             "description": "Why it isn't counted; empty when it is.",
             "title": "Not Monitored",
             "type": "string"
+          },
+          "onboarding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Onboarding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Not in a controller's inventory yet, but in its Plug and Play (#534): not monitored, not down."
           },
           "platform": {
             "title": "Platform",

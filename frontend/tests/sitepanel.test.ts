@@ -92,6 +92,23 @@ describe("devices", () => {
     expect(deviceCountNote(device("a", { alert_pending: true }))).toContain("not an alarm yet");
   });
 
+  it("an access point onboarding with Plug and Play (#534)", () => {
+    const pnp = { state: "Unclaimed", onb_state: "", error: "", controller: "Catalyst Center dk", stale: false };
+    const unclaimed = device("ap17", {
+      role: "Access Point",
+      primary_ip: "",
+      not_monitored: "onboarding (PnP: Unclaimed), per Catalyst Center dk",
+      onboarding: pnp,
+    });
+    expect(deviceAside(unclaimed, 1)).toBe("Onboarding (PnP: Unclaimed)");
+    expect(deviceCountNote(unclaimed)).toBe("Not counted yet: onboarding (PnP: Unclaimed), per Catalyst Center dk");
+    const failed = device("ap18", {
+      not_monitored: "PnP error: Image download failed, per Catalyst Center dk",
+      onboarding: { ...pnp, state: "Error", error: "Image download failed" },
+    });
+    expect(deviceAside(failed, 1)).toBe("PnP error");
+  });
+
   it("an opened device's facts", () => {
     const facts = deviceFacts(
       device("sw1", { status: "offline", manufacturer: "Cisco", device_type: "C9300", serial: "FOC1", platform: "IOS-XE" }),

@@ -367,6 +367,26 @@ Up/down status of every access point, matched to Nautobot devices by serial, els
 | `macAddress` | string or null |  | mac | — |
 | `managementIpAddress` | string or null |  | ip | shown as the access point's address, without a primary IP in Nautobot (#521); never written to Nautobot |
 
+### `onboarding/pnp-device`
+
+Access points onboarding with Plug and Play, before they join their controller (#534): shown in the site panel, never down or notified.
+
+- Request: GET /dna/intent/api/v1/onboarding/pnp-device, X-Auth-Token, pages of 500 (offset from 0); the list itself (or its "response"); with the access points, never one request per AP
+- Stored in: `wireless_pnp_status (one row per serial per instance)`
+- Not yet checked against a real Catalyst Center: the fields are from Cisco's API documentation.
+- Read after the access points; when it can't be read, the last answer is kept and the access points are unaffected.
+
+| Field | Type | Required | Becomes | Rule |
+|---|---|---|---|---|
+| `deviceInfo` | object or null | yes | — | — |
+| `deviceInfo.serialNumber` | string or null |  | serial | matched to the Nautobot device serial (case-insensitive); a device the inventory (network-device) lists is shown from there instead; one Nautobot doesn't have is ignored |
+| `deviceInfo.state` | string or null |  | state | Unclaimed, Planned, Onboarding, Provisioned or Error: "onboarding (PnP: <state>)" in the site panel; Error is "PnP error" |
+| `deviceInfo.onbState` | string or null |  | onb_state | — |
+| `deviceInfo.errorDetails` | object, string or null |  | error | its message and details, shown after "PnP error:" |
+| `deviceInfo.hostname` | string or null |  | hostname | — |
+| `deviceInfo.pid` | string or null |  | pid | — |
+| `deviceInfo.lastContact` | integer, number or null |  | last_contact | ms since 1970 |
+
 ## HPE Aruba Networking New Central
 
 ### `network-monitoring/v1/aps`

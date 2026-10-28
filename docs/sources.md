@@ -101,6 +101,8 @@ Up to four instances are read at once. The board is rebuilt only when an access 
 - Its last answer stands (#521): its access points stay down or up as they were, marked "last known" after three intervals (at least 15 minutes), so an unreachable controller never clears the board. They go when it answers again, or when it is removed from the file.
 - The top bar says "Can't reach Catalyst Center dk" in amber (not red: the alarms don't depend on it), or "Can't reach 2 sources" when several fail, and its menu lists each one.
 
+**Plug and Play** (Catalyst Center, #534): an access point being onboarded isn't in the inventory until it has joined its controller (WLC). So with the access points, each instance's Plug and Play list is read too (`/dna/intent/api/v1/onboarding/pnp-device`, in pages of 500, never one request per AP) and matched by serial. A Nautobot device the inventory doesn't list but Plug and Play does shows in the map's site panel with its state ("Onboarding (PnP: Unclaimed)", "PnP error: Image download failed"), never on the board and never notified; one the inventory lists is shown from there. Devices Plug and Play lists that Nautobot doesn't have are ignored. If the list can't be read, the last answer stays, and the access points are unaffected. The fields are in the [data contract](data-contract.md#cisco-catalyst-center); they haven't been checked against a real Catalyst Center yet, so `wireless-check` and the contract's check after a sync are the place to look first.
+
 **The same access point in two instances** (moved, or during a migration): the newest answer wins. When two are equally new, up wins, so a stale copy never shows it down.
 
 **Check the setup:**

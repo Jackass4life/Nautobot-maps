@@ -119,6 +119,73 @@ def write_aps(conn, controller: dict, aps: list[dict], seen_at: str) -> int:
     return len(rows)
 
 
+# Which kinds list devices onboarding with Plug and Play (#534), and how.
+PNP_CLIENTS = {
+    "catalyst_center": (
+        lambda controller: catalyst.fetch_pnp_devices(controller),
+        (contract.CATALYST_CENTER, "onboarding/pnp-device"),
+        lambda record: catalyst.pnp_record(record),
+    ),
+}
+
+
+def fetch_pnp(controller: dict) -> list[dict] | None:
+    """The devices Plug and Play lists on this instance, or None for a kind without it."""
+    if controller["kind"] not in PNP_CLIENTS:
+        return None
+    read, (source_name, path), as_pnp = PNP_CLIENTS[controller["kind"]]
+    records = read(controller)
+    contract.check_and_record(source_name, path, records)
+    return [as_pnp(record) for record in records]
+
+
+def write_pnp(conn, controller: dict, devices: list[dict], seen_at: str) -> int:
+    """Replace this instance's Plug and Play rows with *devices*, one per serial."""
+    rows = {}
+    for device in devices:
+        serial = serial_key(device.get("serial"))
+        if not serial:
+            continue
+        last_contact = device.get("last_contact")
+        rows[serial] = (
+            controller_id(controller),
+            serial,
+            str(device.get("serial") or ""),
+            str(device.get("hostname") or ""),
+            str(device.get("pid") or ""),
+            str(device.get("state") or ""),
+            str(device.get("onb_state") or ""),
+            str(device.get("error") or "")[:500],
+            datetime.fromtimestamp(last_contact, UTC) if last_contact else None,
+            seen_at,
+        )
+    conn.execute("DELETE FROM wireless_pnp_status WHERE controller = %s", (controller_id(controller),))
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO wireless_pnp_status (controller, serial_key, serial, hostname, pid, state, onb_state, error, "
+            "last_contact, seen_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            list(rows.values()),
+        )
+    return len(rows)
+
+
+def sync_pnp(conn, controller: dict) -> None:
+    """Read and store what this instance's Plug and Play lists (#534).  A
+    failure is logged and keeps its last answer, as its access points do; it
+    never fails the access points' sync."""
+    try:
+        devices = fetch_pnp(controller)
+        if devices is None:
+            return
+        with db.transaction(conn):
+            kept = write_pnp(conn, controller, devices, timeutil.iso_utc_now())
+        logger.info("%s: %s devices in Plug and Play", display_name(controller), kept)
+    except Exception as exc:
+        logger.warning(
+            "Could not read %s's Plug and Play devices; keeping its last answer: %s", display_name(controller), exc
+        )
+
+
 def sync_controller(controller: dict) -> None:
     """Read one instance and store what it says; a failure is recorded on its
     sync state (the top bar shows it) and leaves its last answer to age out."""
@@ -143,6 +210,7 @@ def sync_controller(controller: dict) -> None:
                 conn, key, last_started_at=started_at, last_completed_at=completed_at, status="idle"
             )
         logger.info("%s: %s access points", display_name(controller), kept)
+        sync_pnp(conn, controller)
     except Exception as exc:
         # The exception's text names the URL at most, never the password or token.
         logger.warning("Could not read %s: %s", display_name(controller), exc)
@@ -186,7 +254,7 @@ def read_index(conn, now: datetime | None = None, devices: list[dict] | None = N
     not every AP of every instance."""
     names = {controller_id(controller): display_name(controller) for controller in configured()}
     if not names:
-        return {"serial": {}, "name": {}}
+        return {"serial": {}, "name": {}, "pnp": {}}
     stale_before = ((now or datetime.now(UTC)) - timedelta(seconds=stale_seconds())).timestamp()
     sql = (
         "SELECT controller, serial_key, name_key, up, ip, extract(epoch FROM seen_at) AS seen "
@@ -223,7 +291,39 @@ def read_index(conn, now: datetime | None = None, devices: list[dict] | None = N
     for name, aps in carriers.items():
         if len(aps) > 1:
             best["name"].pop(name, None)
-    return {kind: {key: ap for key, (_, ap) in keys.items()} for kind, keys in best.items()}
+    index = {kind: {key: ap for key, (_, ap) in keys.items()} for kind, keys in best.items()}
+    index["pnp"] = read_pnp(conn, names, stale_before, None if devices is None else match_keys(devices)[0])
+    return index
+
+
+def read_pnp(conn, names: dict, stale_before: float, serials: set | None = None) -> dict:
+    """The devices onboarding with Plug and Play (#534), by serial: ``{"state",
+    "onb_state", "error", "controller", "stale"}``; the newest answer wins.
+    *serials*: only these."""
+    sql = (
+        "SELECT controller, serial_key, state, onb_state, error, extract(epoch FROM seen_at) AS seen "
+        "FROM wireless_pnp_status WHERE controller = ANY(%s)"
+    )
+    params: tuple = (list(names),)
+    if serials is not None:
+        sql += " AND serial_key = ANY(%s)"
+        params += (list(serials),)
+    found: dict[str, tuple] = {}
+    for row in map(db.row_to_dict, conn.execute(sql, params).fetchall()):
+        seen = float(row["seen"])
+        if row["serial_key"] in found and found[row["serial_key"]][0] >= seen:
+            continue
+        found[row["serial_key"]] = (
+            seen,
+            {
+                "state": row["state"],
+                "onb_state": row["onb_state"],
+                "error": row["error"],
+                "controller": names[row["controller"]],
+                "stale": seen < stale_before,
+            },
+        )
+    return {serial: pnp for serial, (_, pnp) in found.items()}
 
 
 def load_index(devices: list[dict] | None = None) -> dict:
@@ -265,11 +365,29 @@ def lookup(index: dict | None, device: dict) -> dict | None:
 
 def attach(devices: list[dict], index: dict | None) -> list[dict]:
     """*devices* with ``wireless`` (``lookup``'s answer) on each one a
-    controller lists (#521): it is monitored without a primary IP.  New dicts
-    for those only; the (cached) inventory's are never changed."""
-    if not index or not (index["serial"] or index["name"]):
+    controller lists (#521): it is monitored without a primary IP.  One no
+    controller lists, but Plug and Play does, gets ``onboarding`` instead
+    (#534): not monitored yet, and the panel says why.  New dicts for those
+    only; the (cached) inventory's are never changed."""
+    if not index or not (index["serial"] or index["name"] or index.get("pnp")):
         return devices
-    return [{**device, "wireless": ap} if (ap := lookup(index, device)) else device for device in devices]
+    attached = []
+    for device in devices:
+        if ap := lookup(index, device):
+            device = {**device, "wireless": ap}
+        elif pnp := (index.get("pnp") or {}).get(serial_key(device.get("serial"))):
+            device = {**device, "onboarding": pnp}
+        attached.append(device)
+    return attached
+
+
+def onboarding_text(pnp: dict) -> str:
+    """Where a device is in Plug and Play, for the site panel (#534):
+    "onboarding (PnP: Unclaimed)", "PnP error: ..."."""
+    state = pnp.get("state") or "unknown"
+    if state.casefold() == "error" or pnp.get("error"):
+        return f"PnP error: {pnp['error']}" if pnp.get("error") else "PnP error"
+    return f"onboarding (PnP: {state})"
 
 
 def reason(ap: dict) -> str:
@@ -310,6 +428,7 @@ def prune(conn) -> None:
     ids = [controller_id(controller) for controller in configured()]
     with db.transaction(conn):
         conn.execute("DELETE FROM wireless_ap_status WHERE NOT (controller = ANY(%s))", (ids,))
+        conn.execute("DELETE FROM wireless_pnp_status WHERE NOT (controller = ANY(%s))", (ids,))
         conn.execute(
             "DELETE FROM inventory_sync_state WHERE source LIKE 'wireless:%%' AND NOT (source = ANY(%s))",
             ([f"wireless:{controller_id}" for controller_id in ids],),
