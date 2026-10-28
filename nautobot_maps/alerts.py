@@ -1371,15 +1371,16 @@ def get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dict
 SYNC_RUNNING_STALE_SECONDS = 900
 
 
-def nautobot_sync_in_progress() -> bool:
+def nautobot_sync_in_progress(state: dict | None = None) -> bool:
     """Return whether a Nautobot inventory sync is currently running.
 
-    Reads the shared ``inventory_sync_state`` row, so every worker process
-    sees syncs started by any other worker.
+    Reads the shared ``inventory_sync_state`` row (unless given as *state*),
+    so every worker process sees syncs started by any other worker.
     """
     if not db.dialect():
         return False
-    state = inventory.get_sync_state("nautobot_inventory")
+    if state is None:
+        state = inventory.get_sync_state("nautobot_inventory")
     if state.get("status") != "running":
         return False
     started_at = timeutil.parse_iso_datetime(state.get("last_started_at"))
@@ -1439,11 +1440,13 @@ def apply_alert_board_freshness(
     payload: dict,
     sync_enqueued: bool = False,
     next_update_in_seconds: int | None = None,
+    nautobot_state: dict | None = None,
 ) -> dict:
     """Attach freshness and sync-progress metadata to an alert-board payload.
 
     ``sync_pending`` is true while an inventory sync is running (or was just
-    enqueued by this request); the UI polls until it clears.
+    enqueued by this request); the UI polls until it clears.  *nautobot_state*:
+    the Nautobot sync's state, when already read.
     ``next_update_in_seconds`` is relative so a skewed browser clock does not
     shift the board's countdown.
     """
@@ -1456,10 +1459,11 @@ def apply_alert_board_freshness(
         except ValueError:
             age_seconds = 0
     result = dict(payload)
+    result.pop(BOARD_SNAPSHOT_KEY, None)
     stale_after_seconds = int(result.get("stale_after_seconds", settings.CACHE_TTL))
     result["age_seconds"] = age_seconds
     result["stale"] = age_seconds > stale_after_seconds
-    result["sync_pending"] = bool(sync_enqueued) or nautobot_sync_in_progress()
+    result["sync_pending"] = bool(sync_enqueued) or nautobot_sync_in_progress(nautobot_state)
     # The board reads only the persisted snapshot, so without a database it is
     # always empty; the UI uses this flag to say why (#136).
     result["persistence_configured"] = bool(db.dialect())
@@ -2368,7 +2372,23 @@ def _board_build_lock(stored=None):
             return ("stored", found)
 
 
-def board(trigger: str = "request", rebuild: bool = False, include_non_operational: bool = False) -> dict:
+# The snapshot a stored board was built from (``inventory.board_snapshot``);
+# never in an answer.
+BOARD_SNAPSHOT_KEY = "_snapshot"
+
+
+def _board_current(stored: dict, version: str | None) -> bool:
+    """Whether a stored board was built from the snapshot there is now."""
+    built_from = stored.get(BOARD_SNAPSHOT_KEY)
+    return version is None or built_from is None or built_from == version
+
+
+def board(
+    trigger: str = "request",
+    rebuild: bool = False,
+    include_non_operational: bool = False,
+    snapshot: dict | None = None,
+) -> dict:
     """The stored alert board, built when it is missing, or with *rebuild*.
 
     One build at a time across workers (#295): a caller that finds another
@@ -2376,27 +2396,43 @@ def board(trigger: str = "request", rebuild: bool = False, include_non_operation
     same board again.  *trigger* (``request``, ``scheduler``, ``push``,
     ``change``) is counted in board_build_stats.  *include_non_operational*:
     the variant with the excluded locations, stored on its own.
+    *snapshot*: ``inventory.board_snapshot()``, when already read.
     """
     key = f"{BOARD_CACHE_KEY}:include-non-operational" if include_non_operational else BOARD_CACHE_KEY
-    if not rebuild:
+    # A board built before a sync committed is never served after it (#523):
+    # the sync drops the stored board only after its commit, and a build
+    # running across the commit stores what it read before.
+    snapshot = snapshot if snapshot is not None else inventory.board_snapshot()
+    version, initialized = snapshot["version"], snapshot["initialized"]
+
+    def stored():
         cached = caching.get(key)
+        return cached if cached is not None and _board_current(cached, version) else None
+
+    if not rebuild:
+        cached = stored()
         if cached is not None:
             return cached
-    release = _board_build_lock(None if rebuild else lambda: caching.get(key))
+    release = _board_build_lock(None if rebuild else stored)
     if isinstance(release, tuple):
         return release[1]  # another worker built it while we waited
     try:
         if not rebuild:
-            cached = caching.get(key)
+            cached = stored()
             if cached is not None:
                 return cached  # built while we waited
         started = time.monotonic()
+        # *version* and *initialized* were read before the build: an empty
+        # board is stored only when the snapshot it was built from was
+        # complete, and one read from an older snapshot is rebuilt next time.
         payload = (
             build_alert_board_payload(snapshot_only=True, include_non_operational=True)
             if include_non_operational
             else build_alert_board_payload(snapshot_only=True)
         )
-        if payload.get("alerts") or inventory.snapshot_initialized():
+        if version is not None:
+            payload[BOARD_SNAPSHOT_KEY] = version
+        if payload.get("alerts") or initialized:
             caching.set(key, payload, timeout=board_cache_seconds(payload))
         board_store.record_board_build(trigger, time.monotonic() - started)
         return payload
@@ -2423,10 +2459,13 @@ def get_alert_board_data(
         # an open board keeps itself up to date (#152).  This request still
         # makes no upstream calls itself.
         sync_enqueued = inventory.ensure_snapshot(wait=False)
+    # One read for both: "sync done" never comes with a board built before it (#523).
+    snapshot = inventory.board_snapshot()
     return apply_alert_board_freshness(
-        board("request", include_non_operational=include_non_operational),
+        board("request", include_non_operational=include_non_operational, snapshot=snapshot),
         sync_enqueued=sync_enqueued,
         next_update_in_seconds=next_update_in_seconds,
+        nautobot_state=snapshot["nautobot"],
     )
 
 

@@ -2748,8 +2748,8 @@ class TestAlertLifecycleTracking:
             ) as ensure_snapshot,
             patch.object(
                 inventory,
-                "snapshot_initialized",
-                return_value=True,
+                "board_snapshot",
+                return_value={"version": None, "initialized": True, "nautobot": {}},
             ),
         ):
             first = alerts.get_alert_board_data(force_refresh=True)
@@ -2813,8 +2813,8 @@ class TestAlertLifecycleTracking:
             ) as cache_set,
             patch.object(
                 inventory,
-                "snapshot_initialized",
-                return_value=False,
+                "board_snapshot",
+                return_value={"version": None, "initialized": False, "nautobot": {}},
             ),
             patch.object(inventory, "ensure_snapshot"),
         ):

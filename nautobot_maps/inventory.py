@@ -1018,6 +1018,46 @@ def cache_version_mismatch(state: dict | None) -> bool:
     return (state or {}).get("cache_version") != cache_version()
 
 
+# The syncs whose data the alert board is built from (#523).
+BOARD_SOURCES = ("nautobot_inventory", "librenms_inventory")
+
+
+def board_snapshot(conn=None) -> dict:
+    """What the alert board would be built from now (#523), in one read.
+
+    ``version``: each source's last success, which changes in the same
+    transaction as its data (None without a database, or when it can't be
+    read); ``initialized``: ``snapshot_initialized()``; ``nautobot``: the
+    Nautobot sync's state (``get_sync_state``), for ``sync_pending``.
+    """
+    owns_conn = conn is None
+    if owns_conn and not db.dialect():
+        return {"version": None, "initialized": False, "nautobot": {}}
+    try:
+        if owns_conn:
+            conn = db.get_conn()
+        if conn is None:
+            return {"version": None, "initialized": False, "nautobot": {}}
+        rows = conn.execute(
+            "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, "
+            "error_message, last_succeeded_at FROM inventory_sync_state WHERE source = ANY(%s) ORDER BY source",
+            (list(BOARD_SOURCES),),
+        ).fetchall()
+    except Exception as exc:
+        logger.debug("Could not read the board's snapshot: %s", exc)
+        return {"version": None, "initialized": False, "nautobot": {}}
+    finally:
+        if owns_conn and conn is not None:
+            conn.close()
+    states = {state["source"]: state for state in map(db.row_to_dict, rows)}
+    nautobot_state = states.get("nautobot_inventory", {})
+    return {
+        "version": "|".join(f"{source}={state['last_succeeded_at'] or ''}" for source, state in states.items()),
+        "initialized": bool(nautobot_state.get("status") == "idle" and nautobot_state.get("last_completed_at")),
+        "nautobot": {key: value for key, value in nautobot_state.items() if key != "last_succeeded_at"},
+    }
+
+
 def snapshot_initialized(conn=None) -> bool:
     """Return whether Nautobot inventory snapshot has completed at least once."""
     state = get_sync_state("nautobot_inventory", conn=conn)

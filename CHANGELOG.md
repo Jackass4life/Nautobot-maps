@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 - **A status token for a tenant Nautobot doesn't have is refused** (#528): `token create --role status --tenant` and `POST /api/tokens` answer `no tenant 'Acme' in Nautobot (as of the last sync)`, as `status-link` does, instead of making a link that shows nothing; the token keeps Nautobot's spelling of the tenant
+- **The board fills in after the first sync** (#523): a board built while an inventory sync committed could be stored after the sync dropped the old one, so a first open showed "no sites" (and the board stopped polling) until the next refresh. A stored board now carries the syncs it was built from and is rebuilt when Nautobot or LibreNMS has synced since
 
 ## [0.2.0] - 2026-10-25
 
