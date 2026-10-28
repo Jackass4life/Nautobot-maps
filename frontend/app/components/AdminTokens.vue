@@ -71,8 +71,9 @@ async function revoke(token: Token) {
   busy.value = true;
   try {
     await $fetch(`/api/tokens/${token.id}/revoke`, { method: "POST" });
-    message.value = `Revoked ${token.name}: it stops working from the next request.`;
+    // Said once the list shows it.
     await load();
+    message.value = `Revoked ${token.name}: it stops working from the next request.`;
   } catch (err) {
     message.value = `Could not revoke ${token.name}: ${errorMessage(err)}`;
   } finally {
@@ -85,8 +86,8 @@ async function purge() {
   busy.value = true;
   try {
     const answer = await $fetch<{ purged: number }>("/api/tokens/purge", { method: "POST", body: {} });
-    message.value = purgedText(answer.purged);
     await load();
+    message.value = purgedText(answer.purged);
   } catch (err) {
     message.value = `Could not purge: ${errorMessage(err)}`;
   } finally {

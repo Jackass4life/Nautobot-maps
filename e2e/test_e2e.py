@@ -1068,14 +1068,15 @@ def test_api_tokens_from_the_admin_page(admin_page, request):
     assert revoke.inner_text() == "Sure? Revoke"
     revoke.click()
     page.locator("#token-message", has_text=f"Revoked {name}").wait_for()
-    assert page.locator(f'.token-row[data-name="{name}"]').count() == 0, "only the active ones"
+    # Only the active ones.
+    page.locator(f'.token-row[data-name="{name}"]').wait_for(state="detached")
     page.locator("#token-show-all").click()
     page.locator(f'.token-row[data-name="{name}"][data-state="revoked"]').wait_for()
     purge = page.locator("#token-purge")
     purge.click()
     purge.click()
     page.locator("#token-message", has_text="Deleted").wait_for()
-    assert page.locator(f'.token-row[data-name="{name}"]').count() == 0
+    page.locator(f'.token-row[data-name="{name}"]').wait_for(state="detached")
 
 
 def test_share_a_tenants_status_page_from_availability(admin_page, browser):
