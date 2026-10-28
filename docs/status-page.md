@@ -44,7 +44,7 @@ Create the token on the command line:
 docker compose exec nautobot-maps python -m nautobot_maps token create acme-status --role status --tenant "Acme Corp" --expires-days 365
 ```
 
-It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`.
+It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`. The tenant must be one Nautobot has (as of the last sync; capitals don't matter), and the token keeps Nautobot's spelling: a typo such as `"Acme"` for "Acme Corp" is refused with `no tenant 'Acme' in Nautobot (as of the last sync)`, instead of making a link that shows nothing (#528).
 
 Or with the API (admin role): `POST /api/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`.
 

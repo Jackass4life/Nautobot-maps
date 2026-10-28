@@ -144,9 +144,14 @@ On the command line (this is how the first admin token is made):
 docker compose exec nautobot-maps python -m nautobot_maps token create librenms --role operator --expires-days 365
 docker compose exec nautobot-maps python -m nautobot_maps token list
 docker compose exec nautobot-maps python -m nautobot_maps token revoke 3
+docker compose exec nautobot-maps python -m nautobot_maps token purge --older-than 90 --dry-run
 ```
 
-Or through the API (admin role; also on the API page, `/api/docs`): `POST /api/tokens` with `{"name": "librenms", "role": "operator", "expires_in_days": 365}` returns the token once; `GET /api/tokens` lists them (name, first characters, role, expiry, last use, state; never the secret); `POST /api/tokens/<id>/revoke` revokes one from the next request on.
+`token list` shows the tokens that work, then "+N revoked or expired (--all to show)"; `--all` lists those too, and `--tenant "Acme Corp"` only that tenant's status tokens (#528).
+
+A revoked or expired token stays in the list with its name, for the audit trail: changes made with it are recorded as `token:<name>`, and a name can't be used twice. `token purge` deletes revoked and expired tokens for good, never an active one; `--older-than DAYS` only those that stopped working more than DAYS ago, so a recent revocation stays visible a while; `--dry-run` lists what would go and deletes nothing. Each purge is logged (`API token 'x' purged by cli`), and the names are free again. Nothing else refers to a token's record: cases and maintenance windows keep their `token:<name>` text, only the token's own record (when it was made and revoked) is gone.
+
+Or through the API (admin role; also on the API page, `/api/docs`): `POST /api/tokens` with `{"name": "librenms", "role": "operator", "expires_in_days": 365}` returns the token once; `GET /api/tokens` lists the active ones (name, first characters, role, expiry, last use, state; never the secret) and `inactive`, how many are revoked or expired, `?all=true` lists those too and `?tenant=Acme%20Corp` only that tenant's; `POST /api/tokens/<id>/revoke` revokes one from the next request on; `POST /api/tokens/purge` with `{"older_than_days": 90, "dry_run": true}` (both optional) answers the tokens it deleted, or would delete.
 
 ### Behind a sign-in proxy
 

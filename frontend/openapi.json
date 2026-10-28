@@ -4874,8 +4874,13 @@
       "Tokens": {
         "additionalProperties": false,
         "properties": {
+          "inactive": {
+            "description": "How many of them are revoked or expired, listed or not.",
+            "title": "Inactive",
+            "type": "integer"
+          },
           "tokens": {
-            "description": "Newest first.",
+            "description": "Newest first; only the active ones unless all=true (#528).",
             "items": {
               "$ref": "#/components/schemas/Token"
             },
@@ -4884,9 +4889,39 @@
           }
         },
         "required": [
-          "tokens"
+          "tokens",
+          "inactive"
         ],
         "title": "Tokens",
+        "type": "object"
+      },
+      "TokensPurged": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "purged": {
+            "description": "How many were deleted; 0 with dry_run.",
+            "title": "Purged",
+            "type": "integer"
+          },
+          "tokens": {
+            "description": "The tokens deleted (or, with dry_run, that would be), newest first.",
+            "items": {
+              "$ref": "#/components/schemas/Token"
+            },
+            "title": "Tokens",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens",
+          "purged",
+          "dry_run"
+        ],
+        "title": "TokensPurged",
         "type": "object"
       },
       "WebhookResult": {
@@ -8419,8 +8454,42 @@
     },
     "/api/tokens": {
       "get": {
-        "description": "API tokens (#297): name, first characters, role, expiry, last use, state; never the secret.",
+        "description": "Only the active ones unless ``all=true``; ``inactive`` counts the\nrevoked and expired ones either way.  ``tenant``: only that tenant's\nstatus tokens.",
         "operationId": "admin_api_tokens_list_api_tokens_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "all",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "All"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -8431,6 +8500,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
           },
           "401": {
             "content": {
@@ -8594,6 +8676,110 @@
           }
         },
         "summary": "Create an API token for ``Authorization: Bearer <token>``.",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/tokens/purge": {
+      "post": {
+        "description": "JSON body, all optional: ``older_than_days`` (only those revoked or\nexpired longer ago) and ``dry_run`` (list them, delete nothing).  Their\nnames are free again; cases and maintenance windows keep their\n``token:<name>``.",
+        "operationId": "admin_api_tokens_purge_api_tokens_purge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Which tokens to delete for good (#528): revoked and expired ones, only\nthose that stopped working more than ``older_than_days`` ago when given;\n``dry_run`` deletes nothing.",
+                "properties": {
+                  "dry_run": {
+                    "default": false,
+                    "title": "Dry Run",
+                    "type": "boolean"
+                  },
+                  "older_than_days": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Older Than Days"
+                  }
+                },
+                "title": "TokenPurge",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokensPurged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad older_than_days"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad older_than_days"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Delete revoked and expired API tokens for good, never an active one.",
         "tags": [
           "Administration"
         ]

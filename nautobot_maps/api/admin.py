@@ -4,7 +4,7 @@ notification and the data contract."""
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens
 from nautobot_maps.api import deps, models
@@ -44,15 +44,22 @@ def api_contract():
     responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("admin")],
 )
-def api_tokens_list():
-    """API tokens (#297): name, first characters, role, expiry, last use, state; never the secret."""
+def api_tokens_list(query: Annotated[models.TokenList, Query()]):
+    """API tokens (#297): name, first characters, role, expiry, last use, state; never the secret.
+
+    Only the active ones unless ``all=true`` (#528); ``inactive`` counts the
+    revoked and expired ones either way.  ``tenant``: only that tenant's
+    status tokens.
+    """
     conn = db.get_conn()
     if conn is None:
         return deps.Json(NO_DATABASE, status_code=503)
     try:
-        return deps.Json({"tokens": tokens.list_tokens(conn)})
+        rows = tokens.list_tokens(conn, tenant=query.tenant)
     finally:
         conn.close()
+    active = [token for token in rows if token["state"] == "active"]
+    return deps.Json({"tokens": rows if models.flag(query.all) else active, "inactive": len(rows) - len(active)})
 
 
 def _status_link(conn, tenant: str) -> str | None:
@@ -119,6 +126,46 @@ def api_tokens_revoke(token_id: int):
     if token is None:
         return deps.Json({"error": "No such token"}, status_code=404)
     return deps.Json({"token": token})
+
+
+@router.post(
+    "/api/tokens/purge",
+    name="admin.api_tokens_purge",
+    response_model=answers.TokensPurged,
+    responses={**NO_DATABASE_RESPONSE, 400: {"model": common.Error, "description": "Bad older_than_days"}},
+    dependencies=[deps.require_role("admin")],
+    openapi_extra=deps.body_schema(models.TokenPurge),
+)
+def api_tokens_purge(body: Annotated[object, Depends(deps.json_body)]):
+    """Delete revoked and expired API tokens for good (#528), never an active one.
+
+    JSON body, all optional: ``older_than_days`` (only those revoked or
+    expired longer ago) and ``dry_run`` (list them, delete nothing).  Their
+    names are free again; cases and maintenance windows keep their
+    ``token:<name>``.
+    """
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return deps.Json({"error": "Expected a JSON object"}, status_code=400)
+    dry_run = body.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        return deps.Json({"error": "dry_run must be true or false"}, status_code=400)
+    conn = db.get_conn()
+    if conn is None:
+        return deps.Json(NO_DATABASE, status_code=503)
+    try:
+        purged = tokens.purge(
+            conn,
+            auth.get_current_user().get("username") or "",
+            older_than_days=body.get("older_than_days"),
+            dry_run=dry_run,
+        )
+    except tokens.TokenError as exc:
+        return deps.Json({"error": exc.message}, status_code=400)
+    finally:
+        conn.close()
+    return deps.Json({"tokens": purged, "purged": 0 if dry_run else len(purged), "dry_run": dry_run})
 
 
 @router.post(

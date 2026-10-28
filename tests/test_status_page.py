@@ -60,6 +60,19 @@ def link(tenant: str) -> str:
 
 
 @pytest.fixture
+def known_tenants(pg_database):
+    """The tenants Nautobot has, as of the last sync: a status token needs one (#528)."""
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            inventory.write_tenants(
+                conn, [{"tenant_id": "t-acme", "name": "Acme Corp"}, {"tenant_id": "t-other", "name": "Other Co"}]
+            )
+    finally:
+        conn.close()
+
+
+@pytest.fixture
 def board(monkeypatch):
     monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: BOARD)
 
@@ -477,7 +490,7 @@ class TestTenantScopes:
 
 
 class TestAccess:
-    def test_a_status_token_opens_only_its_tenant(self, client, board):
+    def test_a_status_token_opens_only_its_tenant(self, known_tenants, client, board):
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
         acme, other = link("Acme Corp"), link("Other Co")
         assert client.get(f"/api/status/{acme}", headers=bearer(token)).status_code == 200
@@ -489,7 +502,7 @@ class TestAccess:
         response = client.post("/api/alert-cases", json={}, headers=bearer(token))
         assert response.status_code == 403
 
-    def test_a_revoked_status_token_gets_401(self, client, board):
+    def test_a_revoked_status_token_gets_401(self, known_tenants, client, board):
         from nautobot_maps import tokens
 
         created = make("acme-status", "status", tenant="Acme Corp")
@@ -501,7 +514,7 @@ class TestAccess:
         assert client.get(f"/api/status/{link('Acme Corp')}", headers=bearer(created["token"])).status_code == 401
 
     def test_with_require_viewer_the_page_loads_but_the_data_needs_access(
-        self, client, board, monkeypatch, frontend_build
+        self, known_tenants, client, board, monkeypatch, frontend_build
     ):
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         token = make("acme-status", "status", tenant="Acme Corp")["token"]
@@ -627,7 +640,7 @@ class TestLinks:
         finally:
             conn.close()
 
-    def test_a_status_token_is_shown_even_when_its_link_fails(self, client, monkeypatch):
+    def test_a_status_token_is_shown_even_when_its_link_fails(self, known_tenants, client, monkeypatch):
         admin = make("admin", "admin")["token"]
 
         def broken(*args, **kwargs):
@@ -640,7 +653,7 @@ class TestLinks:
         created = response.get_json()["token"]
         assert created["token"].startswith("nmt_") and created["status_link"] is None
 
-    def test_a_status_token_comes_with_its_link(self, client, capsys):
+    def test_a_status_token_comes_with_its_link(self, known_tenants, client, capsys):
         assert cli.main(["token", "create", "acme-cli", "--role", "status", "--tenant", "Acme Corp"]) == 0
         out, err = capsys.readouterr()
         assert f"Share: /status/{link('Acme Corp')}#key={out.strip()}" in err
@@ -668,7 +681,34 @@ class TestStatusTokens:
         with pytest.raises(tokens.TokenError, match=message):
             make("t", **body)
 
-    def test_verify_and_cli(self, pg_database, clock, capsys):
+    def test_a_tenant_nautobot_does_not_have_is_refused(self, client, known_tenants, capsys):
+        """#528: a typo makes no token and no link, on the command line and the API."""
+        from nautobot_maps import tokens
+
+        assert cli.main(["token", "create", "acme", "--role", "status", "--tenant", "Acme"]) == 1
+        assert "no tenant 'Acme' in Nautobot (as of the last sync)" in capsys.readouterr().err
+        admin = make("admin", "admin")["token"]
+        refused = client.post(
+            "/api/tokens", json={"name": "acme", "role": "status", "tenant": "Acme"}, headers=bearer(admin)
+        )
+        assert refused.status_code == 400
+        assert refused.get_json() == {"error": "no tenant 'Acme' in Nautobot (as of the last sync)"}
+        conn = db.get_conn()
+        try:
+            assert conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"] == 0
+            assert not statuslinks.known(conn, "Acme")
+        finally:
+            conn.close()
+        # Capitals don't matter; the token keeps Nautobot's spelling.
+        created = make("acme", "status", tenant="ACME corp")
+        assert created["tenant"] == "Acme Corp" and tokens.verify(created["token"])["tenant"] == "Acme Corp"
+        assert cli.main(["token", "list", "--tenant", "acme corp"]) == 0
+        out = capsys.readouterr().out
+        assert "(tenant Acme Corp)" in out and "admin" not in out
+        listed = client.get("/api/tokens?tenant=Other%20Co", headers=bearer(admin)).get_json()
+        assert listed == {"tokens": [], "inactive": 0}
+
+    def test_verify_and_cli(self, known_tenants, pg_database, clock, capsys):
         from nautobot_maps import __main__ as cli
         from nautobot_maps import tokens
 

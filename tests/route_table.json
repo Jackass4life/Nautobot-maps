@@ -360,6 +360,14 @@
   "view": "api_tokens_revoke"
  },
  {
+  "path": "/api/tokens/purge",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "admin",
+  "view": "api_tokens_purge"
+ },
+ {
   "path": "/availability",
   "methods": [
    "GET"

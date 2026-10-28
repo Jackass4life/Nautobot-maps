@@ -185,6 +185,22 @@ class DeviceStatus(BaseModel):
     started_at: str | None = None
 
 
+class TokenList(Query):
+    """``all``: revoked and expired tokens too (#528); ``tenant``: only its status tokens."""
+
+    all: str | None = None
+    tenant: str | None = None
+
+
+class TokenPurge(BaseModel):
+    """Which tokens to delete for good (#528): revoked and expired ones, only
+    those that stopped working more than ``older_than_days`` ago when given;
+    ``dry_run`` deletes nothing."""
+
+    older_than_days: int | None = None
+    dry_run: bool = False
+
+
 class TokenCreate(BaseModel):
     """A new API token (#297)."""
 

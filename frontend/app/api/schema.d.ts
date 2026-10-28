@@ -851,7 +851,9 @@ export interface paths {
         };
         /**
          * API tokens: name, first characters, role, expiry, last use, state; never the secret.
-         * @description API tokens (#297): name, first characters, role, expiry, last use, state; never the secret.
+         * @description Only the active ones unless ``all=true``; ``inactive`` counts the
+         *     revoked and expired ones either way.  ``tenant``: only that tenant's
+         *     status tokens.
          */
         get: operations["admin_api_tokens_list_api_tokens_get"];
         put?: never;
@@ -863,6 +865,29 @@ export interface paths {
          *     answers ``status_link``, its tenant's page.
          */
         post: operations["admin_api_tokens_create_api_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tokens/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete revoked and expired API tokens for good, never an active one.
+         * @description JSON body, all optional: ``older_than_days`` (only those revoked or
+         *     expired longer ago) and ``dry_run`` (list them, delete nothing).  Their
+         *     names are free again; cases and maintenance windows keep their
+         *     ``token:<name>``.
+         */
+        post: operations["admin_api_tokens_purge_api_tokens_purge_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3178,8 +3203,28 @@ export interface components {
         /** Tokens */
         Tokens: {
             /**
+             * Inactive
+             * @description How many of them are revoked or expired, listed or not.
+             */
+            inactive: number;
+            /**
              * Tokens
-             * @description Newest first.
+             * @description Newest first; only the active ones unless all=true (#528).
+             */
+            tokens: components["schemas"]["Token"][];
+        };
+        /** TokensPurged */
+        TokensPurged: {
+            /** Dry Run */
+            dry_run: boolean;
+            /**
+             * Purged
+             * @description How many were deleted; 0 with dry_run.
+             */
+            purged: number;
+            /**
+             * Tokens
+             * @description The tokens deleted (or, with dry_run, that would be), newest first.
              */
             tokens: components["schemas"]["Token"][];
         };
@@ -5629,7 +5674,10 @@ export interface operations {
     };
     admin_api_tokens_list_api_tokens_get: {
         parameters: {
-            query?: never;
+            query?: {
+                all?: string | null;
+                tenant?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5643,6 +5691,20 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Tokens"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Not signed in */
@@ -5732,6 +5794,94 @@ export interface operations {
                     /**
                      * @example {
                      *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    admin_api_tokens_purge_api_tokens_purge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Dry Run
+                     * @default false
+                     */
+                    dry_run?: boolean;
+                    /** Older Than Days */
+                    older_than_days?: number | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensPurged"];
+                };
+            };
+            /** @description Bad older_than_days */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad older_than_days"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
