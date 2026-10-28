@@ -141,6 +141,23 @@ Tenant names, descriptions (tooltip) and tenant groups.
 | `tenant_group.name` | string or null |  | — | — |
 | `tenant_group.display` | string or null |  | — | — |
 
+### `dcim/cables/`
+
+Which switch port each access point is on, when Catalyst Center's topology doesn't say (#524).
+
+- Request: all pages, depth=1, incremental with last_updated__gte like the devices; a full sync replaces them
+- Stored in: `nautobot_cable_cache`
+
+| Field | Type | Required | Becomes | Rule |
+|---|---|---|---|---|
+| `id` | string | yes | cable_id | — |
+| `termination_a` | object or null |  | — | an interface; a cable whose ends aren't both devices' is skipped |
+| `termination_a.device` | object or null |  | a_device_id | its id |
+| `termination_a.name` | string or null |  | a_port | — |
+| `termination_b` | object or null |  | — | — |
+| `termination_b.device` | object or null |  | b_device_id | — |
+| `termination_b.name` | string or null |  | b_port | — |
+
 ### `circuits/circuits/`
 
 Circuits whose description is a site's address, in the site panel (#383); a tenant's circuits per site on its status page (#511).
@@ -365,6 +382,7 @@ Up/down status of every access point, matched to Nautobot devices by serial, els
 | `hostname` | string or null |  | name | when the serial doesn't match: the Nautobot device name (short name, case-insensitive) |
 | `reachabilityStatus` | string or null | yes | up | Reachable = up, anything else = down: the access point is down on the board, its site at WIRELESS_AP_LEVEL (#521) |
 | `macAddress` | string or null |  | mac | — |
+| `id` | string or null |  | id | the access point's node in the topology (#524) |
 | `managementIpAddress` | string or null |  | ip | shown as the access point's address, without a primary IP in Nautobot (#521); never written to Nautobot |
 
 ### `onboarding/pnp-device`
@@ -386,6 +404,22 @@ Access points onboarding with Plug and Play, before they join their controller (
 | `deviceInfo.hostname` | string or null |  | hostname | — |
 | `deviceInfo.pid` | string or null |  | pid | — |
 | `deviceInfo.lastContact` | integer, number or null |  | last_contact | ms since 1970 |
+
+### `topology/physical-topology`
+
+Which switch and port each access point is on (#524): CDP/LLDP neighbours, shown with a down access point and as "12 of 16 behind <switch>".
+
+- Request: GET /dna/intent/api/v1/topology/physical-topology, X-Auth-Token, with the access points, once per instance; its response's links (checked here) and nodes (id, label = the name, family = Unified AP for an access point)
+- Stored in: `wireless_ap_neighbours (one row per AP per instance)`
+- Not yet checked against a real Catalyst Center: the fields are from Cisco's API documentation.
+- An access point's node id is its id in network-device; when it can't be read, the last answer is kept.
+
+| Field | Type | Required | Becomes | Rule |
+|---|---|---|---|---|
+| `source` | string | yes | — | a node id: the access point or the switch |
+| `target` | string | yes | — | — |
+| `startPortName` | string or null |  | switch_port | the switch's port: startPortName when the switch is the source, else endPortName |
+| `endPortName` | string or null |  | switch_port | — |
 
 ## HPE Aruba Networking New Central
 

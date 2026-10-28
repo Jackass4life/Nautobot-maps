@@ -117,6 +117,9 @@ describe("devices", () => {
     expect(facts).toEqual(["Cisco C9300", "IP 10.0.0.1", "Software IOS-XE", "Serial FOC1", "Status offline"]);
     // The role is in the facts when something else stands in its place.
     expect(deviceFacts(device("sw1"), "Stack of 4")[0]).toBe("Access");
+    // An access point's switch and port (#524).
+    const ap = device("ap3", { role: "Access Point", neighbour: { device: "hel-sw02", port: "Gi1/0/14", source: "Nautobot" } });
+    expect(deviceFacts(ap, "Access Point")).toContain("Connected to hel-sw02 · Gi1/0/14");
   });
 
   it("a key without an id", () => {

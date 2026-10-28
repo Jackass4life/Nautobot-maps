@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from nautobot_maps.api.answers import circuits, common
+from nautobot_maps.api.answers import board, circuits, common
 
 Level = Literal["critical", "medium", "low", "ok", "maintenance", "no_data"]
 
@@ -158,6 +158,7 @@ class SiteDevice(common.Answer):
     wireless: WirelessAp | None = Field(
         None, description="Listed by a wireless controller: monitored without a primary IP (#521)."
     )
+    neighbour: board.Neighbour | None = Field(None, description="The switch and port this access point is on (#524).")
     onboarding: Onboarding | None = Field(
         None,
         description="Not in a controller's inventory yet, but in its Plug and Play (#534): not monitored, not down.",

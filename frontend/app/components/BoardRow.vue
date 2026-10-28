@@ -20,6 +20,7 @@ import {
   siteSummaryText,
   type BoardSite,
 } from "~/utils/board";
+import { behindText, neighbourText } from "~/utils/format";
 import { siteTenants } from "~/utils/scope";
 import { caseBadge } from "~/utils/wall";
 import { siteAddress } from "~/utils/sitesearch";
@@ -144,6 +145,10 @@ const menu = computed<DropdownMenuItem[]>(() => {
       <div v-if="item.maintenance" class="maintenance-note mt-1 text-xs text-muted">
         {{ maintenanceNote(item.maintenance.until, item.maintenance.reason) }}
       </div>
+      <!-- The switch, its uplink or its PoE is the likely problem, not the access points (#524). -->
+      <div v-if="item.behind && !wall" class="behind-note mt-1 text-xs text-toned" :title="`Access points down behind one switch: ${item.behind.device}, its uplink or its PoE is the likely problem`">
+        {{ behindText(item.behind) }}
+      </div>
     </td>
     <td class="since-cell whitespace-nowrap text-sm text-toned">{{ wall ? "" : sinceLabel(item.wireless_only ? "down" : "in alarm", siteAlarmSeconds(item)) }}</td>
     <td class="cases-cell col-cases"><CasePills :cases="item.active_cases" :template="caseTemplate" empty="—" /></td>
@@ -191,6 +196,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
         <div class="site-meta text-xs text-muted">{{ deviceMeta(device) }}</div>
         <div v-if="ackText(device)" class="ack-note text-xs text-success">{{ ackText(device) }}</div>
         <div v-if="device.probable_cause" class="cause-note text-xs text-muted">Likely caused by {{ device.probable_cause }}</div>
+        <div v-if="device.neighbour" class="neighbour-note text-xs text-muted">{{ neighbourText(device.neighbour) }}</div>
         <div v-if="device.maintenance_until" class="maintenance-note mt-1 text-xs text-muted">
           <LevelBadge level="maintenance" /> {{ maintenanceNote(device.maintenance_until, device.maintenance_reason) }}
         </div>

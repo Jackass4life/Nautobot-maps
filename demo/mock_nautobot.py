@@ -1098,6 +1098,38 @@ def circuits(request: Request):
     return _paginate(request, [*terminated.values(), *ADDRESS_CIRCUITS])
 
 
+def _ap_uplinks() -> list[tuple[dict, dict, str]]:
+    """Which device each access point is plugged into (#524): at each site,
+    the first switch (else its first other device), port 1/0/n for the n-th."""
+    uplinks = []
+    for devices in DEVICES.values():
+        aps = [d for d in devices if (d.get("role") or {}).get("name") == "Access Point"]
+        others = [d for d in devices if d not in aps]
+        if not aps or not others:
+            continue
+        switch = next((d for d in others if "Switch" in ((d.get("role") or {}).get("name") or "")), others[0])
+        uplinks.extend((ap, switch, f"1/0/{n}") for n, ap in enumerate(aps, start=1))
+    return uplinks
+
+
+@app.get("/api/dcim/cables/")
+def cables(request: Request):
+    """Nautobot's cables between the access points and their switches (#524)."""
+    _check_auth(request)
+    items = [
+        {
+            "id": f"cable-{ap['id']}",
+            "termination_a_type": "dcim.interface",
+            "termination_a": {"id": f"if-{switch['id']}-{port}", "name": f"Gi{port}", "device": {"id": switch["id"]}},
+            "termination_b_type": "dcim.interface",
+            "termination_b": {"id": f"if-{ap['id']}-0", "name": "GigabitEthernet0", "device": {"id": ap["id"]}},
+            "last_updated": MOCK_LAST_UPDATED,
+        }
+        for ap, switch, port in _ap_uplinks()
+    ]
+    return _paginate(request, items)
+
+
 @app.get("/api/extras/relationships/")
 def relationships(request: Request):
     _check_auth(request)
@@ -1256,6 +1288,35 @@ def catalyst_pnp_devices(request: Request):
     offset = max(0, int(request.query_params.get("offset", 0)))
     limit = min(1000, int(request.query_params.get("limit", 50)))
     return devices[offset : offset + limit]
+
+
+@app.get("/dna/intent/api/v1/topology/physical-topology")
+def catalyst_topology(request: Request):
+    """Catalyst Center's CDP/LLDP neighbours (#524): its access points and the
+    switches they are on, which it calls GigabitEthernet1/0/n."""
+    if request.headers.get("X-Auth-Token") != CATALYST_TOKEN:
+        raise HTTPException(status_code=401, detail="Token expired or invalid")
+    listed = {ap["id"] for ap in _catalyst_aps()}
+    nodes, links = {}, []
+    for ap, switch, port in _ap_uplinks():
+        if f"cc-{ap['id']}" not in listed:
+            continue
+        nodes[f"cc-{ap['id']}"] = {"id": f"cc-{ap['id']}", "label": ap["name"], "family": "Unified AP"}
+        nodes[f"sw-{switch['id']}"] = {
+            "id": f"sw-{switch['id']}",
+            "label": switch["name"],
+            "family": "Switches and Hubs",
+        }
+        links.append(
+            {
+                "source": f"sw-{switch['id']}",
+                "target": f"cc-{ap['id']}",
+                "startPortName": f"GigabitEthernet{port}",
+                "endPortName": "GigabitEthernet0",
+                "linkStatus": "up",
+            }
+        )
+    return {"response": {"nodes": list(nodes.values()), "links": links}, "version": "1.0"}
 
 
 @app.get("/dna/intent/api/v1/network-device")

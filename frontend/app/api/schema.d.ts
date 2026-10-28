@@ -1286,6 +1286,24 @@ export interface components {
              */
             role: string;
         };
+        /** Behind */
+        Behind: {
+            /**
+             * Device
+             * @description The switch most of the site's down access points are on.
+             */
+            device: string;
+            /**
+             * Down
+             * @description How many access points on it are down (at least 2).
+             */
+            down: number;
+            /**
+             * Total
+             * @description How many access points are on it.
+             */
+            total: number;
+        };
         /** Board */
         Board: {
             /** Age Seconds */
@@ -1367,6 +1385,8 @@ export interface components {
             ancestor_path: string;
             /** Asn */
             asn: number | null;
+            /** @description "12 of 16 behind sw02" (#524): two or more of its down access points are on one switch. */
+            behind?: components["schemas"]["Behind"] | null;
             /** Country */
             country: string;
             /**
@@ -1806,6 +1826,8 @@ export interface components {
             maintenance_reason?: string | null;
             /** Maintenance Until */
             maintenance_until?: string | null;
+            /** @description The switch and port this access point is on (#524). */
+            neighbour?: components["schemas"]["Neighbour"] | null;
             /**
              * Probable Cause
              * @description The core device(s) it is likely down because of.
@@ -2521,6 +2543,32 @@ export interface components {
             /** Url */
             url: string;
         };
+        /**
+         * Neighbour
+         * @description The switch and port an access point is on (#524).
+         */
+        Neighbour: {
+            /**
+             * Device
+             * @description The switch, e.g. "hel0008-acc-sw02".
+             */
+            device: string;
+            /**
+             * Device Id
+             * @description The switch's Nautobot id, when a Nautobot cable says so.
+             */
+            device_id?: string | null;
+            /**
+             * Port
+             * @description Its port, e.g. "Gi1/0/14"; may be empty.
+             */
+            port: string;
+            /**
+             * Source
+             * @description Who says so: a Catalyst Center ("Catalyst Center dk", CDP/LLDP) or "Nautobot" (a cable).
+             */
+            source: string;
+        };
         /** NewToken */
         NewToken: {
             /** Created At */
@@ -2954,6 +3002,8 @@ export interface components {
             manufacturer: string;
             /** Name */
             name: string;
+            /** @description The switch and port this access point is on (#524). */
+            neighbour?: components["schemas"]["Neighbour"] | null;
             /**
              * Not Monitored
              * @description Why it isn't counted; empty when it is.

@@ -186,6 +186,43 @@ def sync_pnp(conn, controller: dict) -> None:
         )
 
 
+def sync_neighbours(conn, controller: dict, aps: list[dict]) -> None:
+    """Which switch and port each of this instance's APs is on (#524): its
+    physical topology (CDP/LLDP), one request, matched to the APs just read
+    by the topology's node id.  A failure keeps the last answer."""
+    if controller["kind"] != "catalyst_center":
+        return
+    try:
+        topology = catalyst.fetch_topology(controller)
+        contract.check_and_record(contract.CATALYST_CENTER, "topology/physical-topology", topology.get("links") or [])
+        by_id = {ap["id"]: ap for ap in aps if ap.get("id")}
+        rows = {}
+        seen_at = timeutil.iso_utc_now()
+        for neighbour in catalyst.ap_neighbours(topology):
+            ap = by_id.get(neighbour["ap_id"]) or {}
+            serial, name = serial_key(ap.get("serial")), name_key(ap.get("name") or neighbour["ap_name"])
+            if serial or name:
+                rows[serial or f"name:{name}"] = (
+                    controller_id(controller),
+                    serial,
+                    name,
+                    neighbour["switch"],
+                    neighbour["port"],
+                    seen_at,
+                )
+        with db.transaction(conn):
+            conn.execute("DELETE FROM wireless_ap_neighbours WHERE controller = %s", (controller_id(controller),))
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO wireless_ap_neighbours (controller, serial_key, name_key, switch_name, switch_port, "
+                    "seen_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                    list(rows.values()),
+                )
+        logger.info("%s: %s access points' switches", display_name(controller), len(rows))
+    except Exception as exc:
+        logger.warning("Could not read %s's topology; keeping its last answer: %s", display_name(controller), exc)
+
+
 def sync_controller(controller: dict) -> None:
     """Read one instance and store what it says; a failure is recorded on its
     sync state (the top bar shows it) and leaves its last answer to age out."""
@@ -211,6 +248,7 @@ def sync_controller(controller: dict) -> None:
             )
         logger.info("%s: %s access points", display_name(controller), kept)
         sync_pnp(conn, controller)
+        sync_neighbours(conn, controller, aps)
     except Exception as exc:
         # The exception's text names the URL at most, never the password or token.
         logger.warning("Could not read %s: %s", display_name(controller), exc)
@@ -429,6 +467,7 @@ def prune(conn) -> None:
     with db.transaction(conn):
         conn.execute("DELETE FROM wireless_ap_status WHERE NOT (controller = ANY(%s))", (ids,))
         conn.execute("DELETE FROM wireless_pnp_status WHERE NOT (controller = ANY(%s))", (ids,))
+        conn.execute("DELETE FROM wireless_ap_neighbours WHERE NOT (controller = ANY(%s))", (ids,))
         conn.execute(
             "DELETE FROM inventory_sync_state WHERE source LIKE 'wireless:%%' AND NOT (source = ANY(%s))",
             ([f"wireless:{controller_id}" for controller_id in ids],),

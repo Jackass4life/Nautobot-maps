@@ -244,13 +244,14 @@ class TestCatalystCenter:
     def test_what_is_kept_of_an_ap(self):
         assert catalyst.ap_record(
             {
+                "id": "node-1",
                 "serialNumber": " FGL1 ",
                 "hostname": "ap1",
                 "macAddress": "AA:BB",
                 "managementIpAddress": "10.20.31.47",
                 "reachabilityStatus": "Unreachable",
             }
-        ) == {"serial": "FGL1", "mac": "aa:bb", "name": "ap1", "ip": "10.20.31.47", "up": False}
+        ) == {"id": "node-1", "serial": "FGL1", "mac": "aa:bb", "name": "ap1", "ip": "10.20.31.47", "up": False}
         assert catalyst.ap_record({"reachabilityStatus": "Reachable"})["up"] is True
         assert catalyst.ap_record({})["up"] is False
 
@@ -421,6 +422,17 @@ def controllers(pg_database, monkeypatch):
 
     monkeypatch.setattr(wireless, "fetch_pnp", fetch_pnp)
     answers["pnp"] = pnp
+    # The physical topology (#524): no links unless a test says so.
+    topology = {"dk": {"nodes": [], "links": []}, "se": {"nodes": [], "links": []}}
+
+    def fetch_topology(controller):
+        answer = topology[controller["name"]]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(catalyst, "fetch_topology", fetch_topology)
+    answers["topology"] = topology
     return answers
 
 

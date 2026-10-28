@@ -1,6 +1,7 @@
 // The site panel (#394, #398, #400, #405): its status line, the down devices
 // in the board's order, stacks as one device, and each device's facts.
 import type { components } from "~/api/schema";
+import { neighbourText } from "./format";
 import { LEVEL_NAMES, displayLevel, isAlarm, knownLevel } from "./map";
 
 export type SiteDevice = components["schemas"]["SiteDevice"];
@@ -141,6 +142,7 @@ export function deviceFacts(device: SiteDevice, aside: string): string[] {
     device.platform ? `Software ${device.platform}` : "",
     device.serial ? `Serial ${device.serial}` : "",
     device.tenant ? `Tenant ${device.tenant}` : "",
+    neighbourText(device.neighbour),
     device.status && health !== "active" ? `Status ${device.status}` : "",
   ].filter(Boolean);
 }

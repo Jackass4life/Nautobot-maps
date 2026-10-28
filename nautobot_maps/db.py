@@ -796,6 +796,38 @@ def add_wireless_pnp_status(conn) -> None:
     )
 
 
+def add_ap_neighbours(conn) -> None:
+    """Which switch and port each access point is on (#524): what each
+    Catalyst Center's physical topology (CDP/LLDP) says, per instance, and
+    Nautobot's cables, kept with the inventory like its devices."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wireless_ap_neighbours (
+            controller  TEXT NOT NULL,
+            serial_key  TEXT NOT NULL,
+            name_key    TEXT NOT NULL,
+            switch_name TEXT NOT NULL,
+            switch_port TEXT NOT NULL,
+            seen_at     TIMESTAMPTZ NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS wireless_ap_neighbours_controller ON wireless_ap_neighbours (controller)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nautobot_cable_cache (
+            cable_id    TEXT PRIMARY KEY,
+            a_device_id TEXT NOT NULL,
+            a_port      TEXT NOT NULL,
+            b_device_id TEXT NOT NULL,
+            b_port      TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS nautobot_cable_cache_a ON nautobot_cable_cache (a_device_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS nautobot_cable_cache_b ON nautobot_cable_cache (b_device_id)")
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -831,6 +863,7 @@ MIGRATIONS = (
     (29, "nautobot_circuit_cache.location_ids, tenant_key", add_circuit_locations),
     (30, "wireless_ap_status.ip, alert_instances.access_point", add_wireless_ap_ip),
     (31, "wireless_pnp_status", add_wireless_pnp_status),
+    (32, "wireless_ap_neighbours, nautobot_cable_cache", add_ap_neighbours),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

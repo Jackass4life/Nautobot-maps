@@ -339,6 +339,27 @@ describe("Copy, History and the wall link", () => {
     expect(lines.at(-1)).toContain("Likely caused by core");
   });
 
+  it("access points with their switch, and the switch most are behind (#524)", () => {
+    const report = siteReport(
+      site("s2", {
+        name: "Helsinki",
+        alert_level: "low",
+        device_count: 17,
+        down_device_count: 12,
+        behind: { device: "hel0008-acc-sw02", down: 12, total: 16 },
+        down_devices: [
+          device("a", {
+            device_name: "hel0008-ap03",
+            access_point: true,
+            neighbour: { device: "hel0008-acc-sw02", port: "Gi1/0/14", source: "Catalyst Center dnac01" },
+          }),
+        ],
+      }),
+    );
+    expect(report).toContain("Access points: 12 of 16 behind hel0008-acc-sw02");
+    expect(report.split("\n").at(-1)).toMatch(/^- hel0008-ap03 \| .*\| Connected to hel0008-acc-sw02 · Gi1\/0\/14$/);
+  });
+
   it("the history's CSV for a period", () => {
     expect(historyExportUrl("s 1", "devices", "7")).toBe("/api/alert-history.csv?site_id=s+1&days=7&view=devices");
   });
