@@ -442,6 +442,20 @@ def test_a_tenant_status_page(page):
     assert page.locator(".status-site").count() == 0
 
 
+def test_a_new_key_pasted_into_the_open_status_page_is_used(page):
+    """#527: pasting /status/<id>#key=… into the open tab changes only the
+    fragment, so the browser doesn't reload; the page loads again with it."""
+    tenant = next(t for row in api("/api/alerts")["alerts"] for t in row.get("tenants") or [])
+    page.goto(status_link(tenant))
+    page.locator(".status-site").first.wait_for()
+    with page.expect_request(
+        lambda request: (
+            "/api/status/" in request.url and request.headers.get("authorization") == "Bearer nmt_pasted-later"
+        )
+    ):
+        page.evaluate("window.location.hash = '#key=nmt_pasted-later'")
+
+
 def test_the_status_page_shows_where_each_site_is(page):
     """Under each site's name, its address, else its coordinates, opening
     OpenStreetMap in a new tab; nothing for a site with neither (#493)."""

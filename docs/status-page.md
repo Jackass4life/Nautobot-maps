@@ -76,6 +76,8 @@ Before #463 the page loaded files from `/static/` (`css/alerts.css`, `js/status/
 
 Let these past the proxy's sign-in (oauth2-proxy: `--skip-auth-route`). The app then checks access on `/api/status/` itself.
 
+So that staff can open a tenant's page from Availability without a key, `/api/status/` should still carry who is signed in, when someone is: ask the proxy *optionally* there, passing on the user and groups when the session is valid and going on as anonymous (never to the login) when not. The [bundled proxy](authentication.md#the-bundled-proxy-https-and-company-sign-in-423) does this (#527): an internal location asks oauth2-proxy's `/oauth2/auth` and turns its 401 into a 202 with no identity. A customer's key link works either way.
+
 As on every unauthenticated route, the proxy must **remove** `X-Forwarded-User` and `X-Forwarded-Groups` from the client (see [authentication](authentication.md#api-tokens)).
 
 ## API

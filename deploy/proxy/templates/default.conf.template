@@ -89,6 +89,30 @@ server {
         return 302 /oauth2/start?rd=https://${PUBLIC_HOSTNAME}$request_uri;
     }
 
+    # Asked on the status API (#527): staff signed in get their identity, so a
+    # tenant's name on Availability opens its page without a key; anyone else
+    # goes on as anonymous (202 without identity, never the login), and the
+    # app asks for a status token.
+    location = /oauth2/auth-optional {
+        internal;
+        if ($api_token) {
+            return 202;
+        }
+        proxy_pass http://oauth2-proxy:4180/oauth2/auth;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Uri $request_uri;
+        proxy_set_header Content-Length "";
+        proxy_pass_request_body off;
+        proxy_buffer_size 32k;
+        proxy_buffers 4 32k;
+        proxy_intercept_errors on;
+        error_page 401 403 = @anonymous;
+    }
+    location @anonymous {
+        return 202;
+    }
+
     # No login (the app checks access itself), and no identity passed on.
     location = /healthz {
         include /etc/nginx/conf.d/proxy-to-app.inc;
@@ -99,7 +123,12 @@ server {
     location /status/ {
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
+    # Its data: a status token, or staff signed in (#527), never the login.
     location /api/status/ {
+        auth_request /oauth2/auth-optional;
+        auth_request_set $auth_user $upstream_http_x_auth_request_preferred_username;
+        auth_request_set $auth_email $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups $upstream_http_x_auth_request_groups;
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
     location /_nuxt/ {

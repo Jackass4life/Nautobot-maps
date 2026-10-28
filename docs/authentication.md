@@ -81,19 +81,20 @@ Instead of setting up a proxy yourself, use the one in `deploy/proxy/`: **nginx*
 
 What it does:
 
-- **Port 80** only redirects to HTTPS, except `/healthz` for probes. **443** serves TLS 1.2 and 1.3 with HSTS.
+- **Port 80** only redirects to HTTPS, except `/healthz` for probes. **443** serves TLS 1.2 and 1.3 with HSTS. nginx listens on IPv6 too where the host has it, and on IPv4 only where it doesn't (#527).
 - **Every request** is checked with oauth2-proxy. Someone not signed in goes to your login page and comes back. The app gets the user (username, else e-mail) and groups as `X-Forwarded-User` / `X-Forwarded-Groups`, with `AUTH_PROXY_SECRET`. The top bar shows "olga · operator".
 - **Without the company login:**
   - Requests with `Authorization: Bearer nmt_…` (API tokens: LibreNMS, Alertmanager, scripts, MCP). Matched on the header, not a path. The app checks the token.
-  - The tenant [status page](status-page.md) and its files, because customers have no company login. The app checks their status token.
+  - The tenant [status page](status-page.md) and its files, because customers have no company login. The app checks their status token. Staff who are signed in are still recognised on the status page's data (`/api/status/`, #527): oauth2-proxy is asked, but only to pass on who is signed in, never to send anyone to the login. So a tenant's name on Availability opens its page for staff without a key, and a customer's key link works whether or not they are signed in.
   - `/healthz`.
   
-  On these, nginx clears the identity headers, so nobody can claim a user by sending them.
+  On these, nginx overwrites the identity headers (empty unless oauth2-proxy says who is signed in), so nobody can claim a user by sending them.
 - **`/metrics`** is not served through the proxy. Prometheus scrapes the app inside the network.
 - **The app:**
   - is no longer published on a host port;
   - trusts identity headers only from nginx's fixed address (`PROXY_IP`, default `172.30.0.10` on its own network `PROXY_SUBNET`; change both if that range is taken) and only with the secret;
   - runs with `AUTH_REQUIRE_VIEWER=true`.
+- **The login** uses PKCE (`S256`, #527), which Entra ID, Keycloak, Okta, Google and GitLab all accept.
 - **Sessions** last 12 hours and are refreshed while in use. The identity provider is not asked on every request. The session cookie is `SameSite=Lax`, so a browser never sends it with a POST from another site.
 - **Users in many groups** (Entra ID sends an ID of 36 characters each) are fine: nginx's header buffers are raised to 32 KB.
 
