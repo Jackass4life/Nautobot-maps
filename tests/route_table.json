@@ -8,6 +8,14 @@
   "view": "index"
  },
  {
+  "path": "/admin",
+  "methods": [
+   "GET"
+  ],
+  "required_role": null,
+  "view": "admin_page"
+ },
+ {
   "path": "/alerts",
   "methods": [
    "GET"
@@ -350,6 +358,14 @@
   ],
   "required_role": null,
   "view": "api_status"
+ },
+ {
+  "path": "/api/tenants",
+  "methods": [
+   "GET"
+  ],
+  "required_role": "admin",
+  "view": "api_tenants"
  },
  {
   "path": "/api/tokens",

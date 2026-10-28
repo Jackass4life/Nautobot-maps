@@ -46,6 +46,8 @@ docker compose exec nautobot-maps python -m nautobot_maps token create acme-stat
 
 It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`. The tenant must be one Nautobot has (as of the last sync; capitals don't matter), and the token keeps Nautobot's spelling: a typo such as `"Acme"` for "Acme Corp" is refused with `no tenant 'Acme' in Nautobot (as of the last sync)`, instead of making a link that shows nothing (#528).
 
+Or on **Availability** (admins, #530): **Share…** next to a tenant's name, then **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. **Replace link…** there replaces a link that leaked (it asks once more). The tenant's name still opens its page.
+
 Or with the API (admin role): `POST /api/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`.
 
 Then send this link:

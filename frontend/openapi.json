@@ -48,6 +48,30 @@
         "title": "Acknowledged",
         "type": "object"
       },
+      "AdminSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "notification_channels": {
+            "description": "The notification channels set up (webhook, teams, email): the test notification's.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notification Channels",
+            "type": "array"
+          },
+          "wireless_controllers": {
+            "description": "How many wireless controllers WIRELESS_CONTROLLERS_FILE lists.",
+            "title": "Wireless Controllers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "notification_channels",
+          "wireless_controllers"
+        ],
+        "title": "AdminSettings",
+        "type": "object"
+      },
       "AlertHistory": {
         "additionalProperties": false,
         "properties": {
@@ -3371,6 +3395,17 @@
       "PageConfig": {
         "additionalProperties": false,
         "properties": {
+          "admin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSettings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only for those who may administer (#530): what the Admin page shows; null for everyone else."
+          },
           "availability": {
             "$ref": "#/components/schemas/AvailabilityLimits"
           },
@@ -3415,7 +3450,8 @@
           "maintenance",
           "availability",
           "map",
-          "board"
+          "board",
+          "admin"
         ],
         "title": "PageConfig",
         "type": "object"
@@ -4644,6 +4680,26 @@
         "title": "StatusSummary",
         "type": "object"
       },
+      "Tenant": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "Its Nautobot description; empty when it has none.",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "Tenant",
+        "type": "object"
+      },
       "TenantAlert": {
         "additionalProperties": false,
         "properties": {
@@ -4780,6 +4836,24 @@
           "sites"
         ],
         "title": "TenantStatus",
+        "type": "object"
+      },
+      "Tenants": {
+        "additionalProperties": false,
+        "properties": {
+          "tenants": {
+            "description": "Nautobot's tenants as of the last sync, by name.",
+            "items": {
+              "$ref": "#/components/schemas/Tenant"
+            },
+            "title": "Tenants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tenants"
+        ],
+        "title": "Tenants",
         "type": "object"
       },
       "Token": {
@@ -8839,6 +8913,67 @@
         "summary": "A tenant's sites and their state, for the tenant's random link id (#500; a name answers 404): ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.",
         "tags": [
           "Status page"
+        ]
+      }
+    },
+    "/api/tenants": {
+      "get": {
+        "description": "Nautobot's tenants as of the last sync (#530), with their\ndescriptions, by name: what a status token can be made for.",
+        "operationId": "admin_api_tenants_api_tenants_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tenants"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Nautobot's tenants as of the last sync, with their descriptions, by name: what a status token can be made for.",
+        "tags": [
+          "Administration"
         ]
       }
     },

@@ -16,6 +16,7 @@ export function usePageConfig() {
         availability: { today: "", oldest_day: "", basis: "any_down", target: 99.9 },
         map: { tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", tile_attribution: "", view: null },
         board: { case_url_template: "", levels: {} },
+        admin: null,
       }) as PageConfig,
   });
 }

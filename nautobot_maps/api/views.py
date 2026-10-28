@@ -7,7 +7,18 @@ import pathlib
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from nautobot_maps import alerts, availability, guide, maintenance, navigation, settings, templating
+from nautobot_maps import (
+    alerts,
+    auth,
+    availability,
+    guide,
+    maintenance,
+    navigation,
+    notify,
+    settings,
+    templating,
+    wireless,
+)
 from nautobot_maps.api import deps, files, frontend
 from nautobot_maps.api import maintenance as api_maintenance
 from nautobot_maps.api.answers import common
@@ -53,6 +64,12 @@ def api_page_config():
                 "case_url_template": settings.CASE_URL_TEMPLATE or "",
                 "levels": alerts.alert_level_definitions(),
             },
+            "admin": {
+                "notification_channels": notify.configured_channels(),
+                "wireless_controllers": len(wireless.configured()),
+            }
+            if auth.may_administer()
+            else None,
         },
         headers={"Cache-Control": "no-store"},
     )

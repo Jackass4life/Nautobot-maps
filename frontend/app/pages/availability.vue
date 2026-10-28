@@ -194,6 +194,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :descriptions="report.tenant_descriptions"
           :status-links="report.status_links"
           :limit="10"
+          :share="Boolean(config?.admin)"
         />
         <AvailTable
           kind="sites"

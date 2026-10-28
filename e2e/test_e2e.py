@@ -1033,3 +1033,84 @@ def test_the_api_reference(page):
     assert urllib.parse.urlparse(page.url).path == "/api/docs"
     page.locator(".opblock").first.wait_for(timeout=20000)
     assert page.locator(".opblock-summary-path", has_text="/api/alerts").count() >= 1
+
+
+@pytest.fixture
+def admin_page(page):
+    """*page* as an admin (#530). CI makes the token (``token create e2e-admin
+    --role admin``) before the tests run."""
+    token = os.getenv("E2E_ADMIN_TOKEN", "")
+    assert token.startswith("nmt_"), "set E2E_ADMIN_TOKEN to an admin token (see the e2e job)"
+    page.context.set_extra_http_headers({"Authorization": f"Bearer {token}"})
+    return page
+
+
+def test_api_tokens_from_the_admin_page(admin_page, request):
+    """Make a token (its key shown once), revoke it, purge it (#530)."""
+    page = admin_page
+    name = f"e2e {request.node.callspec.id} {int(time.time())}"  # new on every run
+    page.goto(f"{BASE_URL}/admin")
+    open_menu(page)
+    assert page.locator(".app-nav-admin").count() == 1
+    page.keyboard.press("Escape")
+    page.locator("#token-new").click()
+    page.locator("#token-form .token-name input").fill(name)
+    page.locator("#token-create").click()
+    created = page.locator("#token-created")
+    created.wait_for()
+    assert page.locator("#token-created .token-secret input").input_value().startswith("nmt_")
+    created.get_by_role("button", name="Done").click()
+    assert page.locator("#token-created").count() == 0, "the key leaves the page"
+    row = page.locator(f'.token-row[data-name="{name}"]')
+    row.wait_for()
+    revoke = row.locator(".token-revoke")
+    revoke.click()
+    assert revoke.inner_text() == "Sure? Revoke"
+    revoke.click()
+    page.locator("#token-message", has_text=f"Revoked {name}").wait_for()
+    assert page.locator(f'.token-row[data-name="{name}"]').count() == 0, "only the active ones"
+    page.locator("#token-show-all").click()
+    page.locator(f'.token-row[data-name="{name}"][data-state="revoked"]').wait_for()
+    purge = page.locator("#token-purge")
+    purge.click()
+    purge.click()
+    page.locator("#token-message", has_text="Deleted").wait_for()
+    assert page.locator(f'.token-row[data-name="{name}"]').count() == 0
+
+
+def test_share_a_tenants_status_page_from_availability(admin_page, browser):
+    """An admin makes a customer link next to a tenant; the customer opens it (#530)."""
+    page = admin_page
+    page.goto(f"{BASE_URL}/availability")
+    share = page.locator('[data-avail-table="tenants"] tr', has=page.locator(".share-status")).first
+    share.wait_for()
+    tenant = share.get_attribute("data-name")
+    share.locator(".share-status").click()
+    page.locator(".share-create").click()
+    link = page.locator(".share-link input")
+    link.wait_for()
+    url = link.input_value()
+    assert url.startswith(f"{BASE_URL}/status/") and "#key=nmt_" in url
+    # The customer: no sign-in, only the link.
+    customer = browser.new_context()
+    try:
+        status = customer.new_page()
+        status.goto(url)
+        status.locator(".status-site").first.wait_for()
+        assert status.locator("#status-tenant").inner_text() == tenant
+    finally:
+        customer.close()
+
+
+def test_no_administration_without_the_role(page):
+    """Viewers (here: no sign-in, no ALLOW_UNAUTHENTICATED_WRITES) see nothing new (#530)."""
+    if api("/api/page-config")["admin"] is not None:
+        pytest.skip("the app lets anyone administer (ALLOW_UNAUTHENTICATED_WRITES)")
+    page.goto(f"{BASE_URL}/admin")
+    page.locator("#admin-refused").wait_for()
+    assert page.locator("#admin-tokens").count() == 0
+    open_menu(page)
+    assert page.locator(".app-nav-admin").count() == 0
+    page.goto(f"{BASE_URL}/availability")
+    page.locator('[data-avail-table="tenants"] tr[data-name]').first.wait_for()
+    assert page.locator(".share-status").count() == 0

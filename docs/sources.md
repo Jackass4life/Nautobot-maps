@@ -118,7 +118,7 @@ Aruba Central eu (https://de1.api.central.arubanetworks.com): 3870 access points
 
 It reads each instance now and exits with status 1 when one fails. Access points that match nothing have a serial or name in the controller that no Nautobot device has. `/metrics` has the same per instance: `nautobot_maps_wireless_access_points{controller,state}` and `nautobot_maps_wireless_access_points_matched{controller}` ([operations](operations.md)).
 
-The same from the API (admin role, #529): `POST /api/wireless/check` answers one result per controller: `reachable`, `signed_in`, `access_points`, `down`, `matched`, a few `unmatched_examples`, and `error` in plain words when it can't be read; never the credentials. One check runs at a time (429 while one does), so the controllers aren't asked by several at once.
+On the **Admin** page (admins, #530), **Check now** under Wireless controllers does the same and shows a line per controller. The same from the API (admin role, #529): `POST /api/wireless/check` answers one result per controller: `reachable`, `signed_in`, `access_points`, `down`, `matched`, a few `unmatched_examples`, and `error` in plain words when it can't be read; never the credentials. One check runs at a time (429 while one does), so the controllers aren't asked by several at once.
 
 The fields read are in the data contract: [Catalyst Center](data-contract.md#cisco-catalyst-center), [New Central](data-contract.md#hpe-aruba-networking-new-central).
 
