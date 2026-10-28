@@ -521,6 +521,16 @@ class TestPages:
         tenants = client.get("/api/availability.csv?view=tenants&month=2026-10").get_data(as_text=True)
         assert "2026-10,any_down,Acme,1,90.0,2880,2026-10-01,2026-10-31" in tenants
 
+    def test_the_target_follows_the_setting(self, client, monkeypatch):
+        # #525: the 90 % site is below the default 99.9 %, not below an 85 % target.
+        monkeypatch.setattr(settings, "AVAILABILITY_TARGET_PCT", 85.0)
+        summary = client.get("/api/availability?month=2026-10").get_json()["summary"]
+        assert summary["target"] == 85.0 and summary["below_target"] == 0
+        assert client.get("/api/page-config").get_json()["availability"]["target"] == 85.0
+        lines = client.get("/api/availability.csv?month=2026-10&header=1").get_data(as_text=True).splitlines()
+        header = dict(line.split(",", 1) for line in lines[: lines.index("")])
+        assert header["target_pct"] == "85.0" and header["sites_below_target"] == "0"
+
     def test_a_from_to_period_on_the_page_json_and_csv(self, client):
         # #341: down the 2nd and 3rd; the 3rd and 4th asked for: half.
         query = "from=2026-10-03&to=2026-10-04"

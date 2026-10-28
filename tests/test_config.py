@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 
+import pytest
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -156,3 +157,32 @@ def test_every_command_is_documented():
     assert "token create" in commands
     missing = sorted(command for command in commands if f"nautobot_maps {command}" not in docs)
     assert not missing, f"document these commands (python -m nautobot_maps ...): {missing}"
+
+
+@pytest.mark.parametrize("value", ["0", "100", "-1", "abc", "99,5"])
+def test_an_invalid_availability_target_stops_startup(value):
+    """#525: a target outside 0–100 (or not a number) is refused with a clear message."""
+    env = {**os.environ, "AVAILABILITY_TARGET_PCT": value, "AUTH_MODE": "disabled"}
+    completed = subprocess.run(
+        [sys.executable, "-c", "from nautobot_maps import settings"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert f"Invalid AVAILABILITY_TARGET_PCT {value!r}" in completed.stderr
+
+
+def test_the_availability_target_setting():
+    env = {**os.environ, "AVAILABILITY_TARGET_PCT": "99.95", "AUTH_MODE": "disabled"}
+    completed = subprocess.run(
+        [sys.executable, "-c", "from nautobot_maps import settings; print(settings.AVAILABILITY_TARGET_PCT)"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert completed.stdout.strip().splitlines()[-1] == "99.95"
