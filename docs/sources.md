@@ -112,11 +112,13 @@ docker compose exec nautobot-maps python -m nautobot_maps wireless-check
 ```
 Catalyst Center dk (https://dnac-dk.example.com): 4210 access points, 12 down, 4198 match a Nautobot device
   not in Nautobot (serial or name), e.g.: lab-ap99
-Catalyst Center se (https://dnac-se.example.com): can't read it: 401 Client Error: Unauthorized
+Catalyst Center se (https://dnac-se.example.com): can't read it: the account was refused (HTTP 401): check its user and password, or client id and secret
 Aruba Central eu (https://de1.api.central.arubanetworks.com): 3870 access points, 4 down, 3870 match a Nautobot device
 ```
 
 It reads each instance now and exits with status 1 when one fails. Access points that match nothing have a serial or name in the controller that no Nautobot device has. `/metrics` has the same per instance: `nautobot_maps_wireless_access_points{controller,state}` and `nautobot_maps_wireless_access_points_matched{controller}` ([operations](operations.md)).
+
+The same from the API (admin role, #529): `POST /api/wireless/check` answers one result per controller: `reachable`, `signed_in`, `access_points`, `down`, `matched`, a few `unmatched_examples`, and `error` in plain words when it can't be read; never the credentials. One check runs at a time (429 while one does), so the controllers aren't asked by several at once.
 
 The fields read are in the data contract: [Catalyst Center](data-contract.md#cisco-catalyst-center), [New Central](data-contract.md#hpe-aruba-networking-new-central).
 

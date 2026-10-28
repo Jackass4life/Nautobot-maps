@@ -56,6 +56,8 @@ EXAMPLE_BODIES = {
     "admin.api_tokens_create": {"name": "librenms", "role": "operator", "expires_in_days": 365},
     "admin.api_tokens_revoke": {},
     "admin.api_tokens_purge": {"older_than_days": 90, "dry_run": True},
+    "admin.api_status_link_replace": {},
+    "admin.api_wireless_check": {},
     "board.api_acknowledge": {"site_id": "<site id>", "note": "On my way"},
     "board.api_unacknowledge": {"site_id": "<site id>"},
     "board.api_add_alert_case": {

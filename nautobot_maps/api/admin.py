@@ -2,11 +2,12 @@
 notification and the data contract."""
 
 import logging
+import threading
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens
+from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens, wireless
 from nautobot_maps.api import deps, models
 from nautobot_maps.api.answers import admin as answers
 from nautobot_maps.api.answers import common
@@ -166,6 +167,115 @@ def api_tokens_purge(body: Annotated[object, Depends(deps.json_body)]):
     finally:
         conn.close()
     return deps.Json({"tokens": purged, "purged": 0 if dry_run else len(purged), "dry_run": dry_run})
+
+
+def _known_tenant(conn, tenant: str) -> str | None:
+    """*tenant* as Nautobot spells it, or as given when only its link is left
+    (a removed tenant, #500); None when neither: the CLI's check (#528)."""
+    if not tenant.strip() or not statuslinks.known(conn, tenant):
+        return None
+    return statuslinks.nautobot_name(conn, tenant) or tenant.strip()
+
+
+NO_TENANT_RESPONSE = {**NO_DATABASE_RESPONSE, 404: {"model": common.Error, "description": "No such tenant"}}
+
+
+@router.get(
+    "/api/status-links/{tenant:path}",
+    name="admin.api_status_link",
+    response_model=answers.StatusLink,
+    responses=NO_TENANT_RESPONSE,
+    dependencies=[deps.require_role("admin")],
+)
+def api_status_link(tenant: str):
+    """A tenant's status page link (#529), as ``status-link TENANT`` prints it:
+    ``/status/<id>``, made the first time it is asked for.  404 for a tenant
+    Nautobot doesn't have (as of the last sync)."""
+    conn = db.get_conn()
+    if conn is None:
+        return deps.Json(NO_DATABASE, status_code=503)
+    try:
+        name = _known_tenant(conn, tenant)
+        if name is None:
+            return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
+        with db.transaction(conn):
+            link_id = statuslinks.ensure(conn, [name])[name]
+    finally:
+        conn.close()
+    return deps.Json({"tenant": name, "status_link": f"/status/{link_id}"})
+
+
+@router.post(
+    "/api/status-links/{tenant:path}/replace",
+    name="admin.api_status_link_replace",
+    response_model=answers.StatusLinkReplaced,
+    responses=NO_TENANT_RESPONSE,
+    dependencies=[deps.require_role("admin")],
+)
+def api_status_link_replace(tenant: str):
+    """Replace a tenant's status page link that leaked (#529), as
+    ``status-link TENANT --new``: the old link stops working at once; the
+    tenant's status tokens keep working with the new one."""
+    conn = db.get_conn()
+    if conn is None:
+        return deps.Json(NO_DATABASE, status_code=503)
+    try:
+        name = _known_tenant(conn, tenant)
+        if name is None:
+            return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
+        with db.transaction(conn):
+            link_id = statuslinks.replace(conn, name)
+    finally:
+        conn.close()
+    logger.info("Status link of tenant %r replaced by %s", name, auth.get_current_user().get("username") or "unknown")
+    return deps.Json(
+        {
+            "tenant": name,
+            "status_link": f"/status/{link_id}",
+            "message": "The old link no longer works. The tenant's status tokens still work: send them with this link.",
+        }
+    )
+
+
+# One check at a time (#529): in this process, and across workers through
+# the database, so the controllers are never asked by several at once.
+_wireless_check_running = threading.Lock()
+WIRELESS_CHECK_LOCK = "wireless_check"
+
+
+@router.post(
+    "/api/wireless/check",
+    name="admin.api_wireless_check",
+    response_model=answers.WirelessCheck,
+    responses={429: {"model": common.Error, "description": "A check is running already"}},
+    dependencies=[deps.require_role("admin")],
+)
+def api_wireless_check():
+    """Read every wireless controller now (#529), as ``wireless-check``: per
+    instance whether it answers, takes the account, how many access points it
+    lists and how many match a Nautobot device.  Never the credentials.  One
+    check at a time: 429 while one runs."""
+    if not _wireless_check_running.acquire(blocking=False):
+        return deps.Json({"error": "A wireless check is running already; try again in a minute"}, status_code=429)
+    try:
+        release = db.try_advisory_lock(WIRELESS_CHECK_LOCK)
+        if release is False:
+            return deps.Json({"error": "A wireless check is running already; try again in a minute"}, status_code=429)
+        try:
+            results = wireless.check()
+        finally:
+            if callable(release):
+                release()
+    finally:
+        _wireless_check_running.release()
+    duplicates = next((result for result in results if "duplicates" in result), None)
+    return deps.Json(
+        {
+            "controllers": [result for result in results if "duplicates" not in result],
+            "duplicates": duplicates["duplicates"] if duplicates else {},
+            "duplicate_count": duplicates["duplicate_count"] if duplicates else 0,
+        }
+    )
 
 
 @router.post(

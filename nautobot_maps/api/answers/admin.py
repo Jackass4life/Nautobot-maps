@@ -88,6 +88,38 @@ class TokenRevoked(common.Answer):
     token: Token
 
 
+class StatusLink(common.Answer):
+    tenant: str = Field(description="The tenant, as Nautobot spells it.")
+    status_link: str = Field(
+        description="Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>."
+    )
+
+
+class StatusLinkReplaced(StatusLink):
+    message: str = Field(description="What changed: the old link stopped working; the tenant's tokens still work.")
+
+
+class WirelessControllerCheck(common.Answer):
+    controller: str = Field(description='Its name as the top bar says it, e.g. "Catalyst Center dk".')
+    kind: Literal["catalyst_center", "aruba_central"]
+    url: str
+    reachable: bool = Field(description="Whether it answered at all.")
+    signed_in: bool | None = Field(description="Whether it took the account; null when that is unknown.")
+    access_points: int | None = Field(None, description="How many access points it lists.")
+    down: int | None = Field(None, description="How many of them it reports down.")
+    matched: int | None = Field(None, description="How many match a Nautobot device (serial, else name).")
+    unmatched_examples: list[str] | None = Field(None, description="Up to 10 it lists that Nautobot doesn't have.")
+    error: str | None = Field(None, description="Why it couldn't be read, in plain words; never a credential.")
+
+
+class WirelessCheck(common.Answer):
+    controllers: list[WirelessControllerCheck] = Field(description="One per instance in WIRELESS_CONTROLLERS_FILE.")
+    duplicates: dict[str, list[str]] = Field(
+        description="Up to 20 serials more than one controller lists, and which (the newest answer wins)."
+    )
+    duplicate_count: int
+
+
 class NotificationResults(common.Answer):
     results: dict[str, str] = Field(
         description='Per configured channel (webhook, teams, email): "ok" or the error, never a URL or password.'

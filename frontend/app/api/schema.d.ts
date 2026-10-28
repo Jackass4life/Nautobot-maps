@@ -820,6 +820,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/status-links/{tenant}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A tenant's status page link, as ``status-link TENANT`` prints it: ``/status/<id>``, made the first time it is asked for. 404 for a tenant Nautobot doesn't have (as of the last sync).
+         * @description A tenant's status page link (#529), as ``status-link TENANT`` prints it:
+         *     ``/status/<id>``, made the first time it is asked for.  404 for a tenant
+         *     Nautobot doesn't have (as of the last sync).
+         */
+        get: operations["admin_api_status_link_api_status_links__tenant__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/status-links/{tenant}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a tenant's status page link that leaked, as ``status-link TENANT --new``: the old link stops working at once; the tenant's status tokens keep working with the new one.
+         * @description Replace a tenant's status page link that leaked (#529), as
+         *     ``status-link TENANT --new``: the old link stops working at once; the
+         *     tenant's status tokens keep working with the new one.
+         */
+        post: operations["admin_api_status_link_replace_api_status_links__tenant__replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/status/{link_id}": {
         parameters: {
             query?: never;
@@ -908,6 +952,29 @@ export interface paths {
          * @description Revoke an API token (#297): refused from the next request on.
          */
         post: operations["admin_api_tokens_revoke_api_tokens__token_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/wireless/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read every wireless controller now, as ``wireless-check``: per instance whether it answers, takes the account, how many access points it lists and how many match a Nautobot device. Never the credentials. One check at a time: 429 while one runs.
+         * @description Read every wireless controller now (#529), as ``wireless-check``: per
+         *     instance whether it answers, takes the account, how many access points it
+         *     lists and how many match a Nautobot device.  Never the credentials.  One
+         *     check at a time: 429 while one runs.
+         */
+        post: operations["admin_api_wireless_check_api_wireless_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2998,6 +3065,37 @@ export interface components {
              */
             type: string;
         };
+        /** StatusLink */
+        StatusLink: {
+            /**
+             * Status Link
+             * @description Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>.
+             */
+            status_link: string;
+            /**
+             * Tenant
+             * @description The tenant, as Nautobot spells it.
+             */
+            tenant: string;
+        };
+        /** StatusLinkReplaced */
+        StatusLinkReplaced: {
+            /**
+             * Message
+             * @description What changed: the old link stopped working; the tenant's tokens still work.
+             */
+            message: string;
+            /**
+             * Status Link
+             * @description Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>.
+             */
+            status_link: string;
+            /**
+             * Tenant
+             * @description The tenant, as Nautobot spells it.
+             */
+            tenant: string;
+        };
         /** StatusSite */
         StatusSite: {
             /**
@@ -3332,6 +3430,73 @@ export interface components {
             stale: boolean;
             /** Up */
             up: boolean;
+        };
+        /** WirelessCheck */
+        WirelessCheck: {
+            /**
+             * Controllers
+             * @description One per instance in WIRELESS_CONTROLLERS_FILE.
+             */
+            controllers: components["schemas"]["WirelessControllerCheck"][];
+            /** Duplicate Count */
+            duplicate_count: number;
+            /**
+             * Duplicates
+             * @description Up to 20 serials more than one controller lists, and which (the newest answer wins).
+             */
+            duplicates: {
+                [key: string]: string[];
+            };
+        };
+        /** WirelessControllerCheck */
+        WirelessControllerCheck: {
+            /**
+             * Access Points
+             * @description How many access points it lists.
+             */
+            access_points?: number | null;
+            /**
+             * Controller
+             * @description Its name as the top bar says it, e.g. "Catalyst Center dk".
+             */
+            controller: string;
+            /**
+             * Down
+             * @description How many of them it reports down.
+             */
+            down?: number | null;
+            /**
+             * Error
+             * @description Why it couldn't be read, in plain words; never a credential.
+             */
+            error?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "catalyst_center" | "aruba_central";
+            /**
+             * Matched
+             * @description How many match a Nautobot device (serial, else name).
+             */
+            matched?: number | null;
+            /**
+             * Reachable
+             * @description Whether it answered at all.
+             */
+            reachable: boolean;
+            /**
+             * Signed In
+             * @description Whether it took the account; null when that is unknown.
+             */
+            signed_in: boolean | null;
+            /**
+             * Unmatched Examples
+             * @description Up to 10 it lists that Nautobot doesn't have.
+             */
+            unmatched_examples?: string[] | null;
+            /** Url */
+            url: string;
         };
     };
     responses: never;
@@ -5580,6 +5745,190 @@ export interface operations {
             };
         };
     };
+    admin_api_status_link_api_status_links__tenant__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusLink"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such tenant"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    admin_api_status_link_replace_api_status_links__tenant__replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusLinkReplaced"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such tenant"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     status_api_status_api_status__link_id__get: {
         parameters: {
             query?: never;
@@ -6016,6 +6365,68 @@ export interface operations {
                     /**
                      * @example {
                      *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    admin_api_wireless_check_api_wireless_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WirelessCheck"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A check is running already */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "A check is running already"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];

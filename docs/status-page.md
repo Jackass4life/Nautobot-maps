@@ -56,6 +56,8 @@ https://maps.example.com/status/<id>#key=nmt_…
 
 The tenant's page link on its own: `python -m nautobot_maps status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
 
+The same through the API (admin role, #529): `GET /api/status-links/Acme%20Corp` answers `{"tenant": "Acme Corp", "status_link": "/status/<id>"}`, and `POST /api/status-links/Acme%20Corp/replace` replaces it. A tenant Nautobot doesn't have answers 404.
+
 How the link and token behave:
 - The key goes after `#`, so the browser never sends it to the server: it isn't in access logs, proxy logs or a `Referer`. The page's script sends it as `Authorization: Bearer`.
 - A status token opens **only** that tenant's `/api/status/…`. Everything else answers 403, including other tenants, the board and the API.

@@ -27,7 +27,7 @@ AUTH_ADMIN_GROUPS=nautobot-admins
 |---|---|
 | `viewer` | Open the map, the board and the read APIs, when `AUTH_REQUIRE_VIEWER=true` (otherwise they are open to everyone) |
 | `operator` | Also add cases, view alert history, manage maintenance windows and criticality overrides |
-| `admin` | Everything an operator can, send test notifications (`POST /api/notifications/test`) and manage API tokens |
+| `admin` | Everything an operator can, send test notifications (`POST /api/notifications/test`), manage API tokens, show and replace tenants' status page links (`/api/status-links/…`) and check the wireless controllers (`POST /api/wireless/check`) |
 
 A user's role is the highest one any of their groups maps to, or `AUTH_DEFAULT_ROLE` when none does.
 
