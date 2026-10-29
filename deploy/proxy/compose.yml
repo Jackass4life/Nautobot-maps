@@ -55,6 +55,8 @@ services:
       - OAUTH2_PROXY_SET_XAUTHREQUEST=true
       - OAUTH2_PROXY_UPSTREAMS=static://202
       - OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true
+      # PKCE (#527): Entra ID, Keycloak, Okta, Google and GitLab accept S256.
+      - OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256
       - OAUTH2_PROXY_WHITELIST_DOMAINS=${PUBLIC_HOSTNAME}
     networks:
       - edge
@@ -76,6 +78,8 @@ services:
     volumes:
       - ./deploy/proxy/templates:/etc/nginx/templates:ro
       - ./deploy/proxy/certs:/etc/nginx/certs:ro
+      # Listens on IPv6 only where the host has it (#527).
+      - ./deploy/proxy/entrypoint/30-listen-ipv6-only-if-available.sh:/docker-entrypoint.d/30-listen-ipv6-only-if-available.sh:ro
     depends_on:
       - nautobot-maps
       - oauth2-proxy

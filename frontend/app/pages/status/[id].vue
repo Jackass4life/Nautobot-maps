@@ -26,18 +26,26 @@ useHead({
   meta: [{ name: "referrer", content: "no-referrer" }],
 });
 
+// Each load's number: only the newest one's answer is shown, and only it
+// plans the next (a new key, #527, starts a new one).
+let generation = 0;
+
 // Load the status; whether to try again later (not for a refused link).
-async function refresh(): Promise<boolean> {
+// Undefined when a newer load has started meanwhile.
+async function refresh(mine: number): Promise<boolean | undefined> {
   const key = statusKey(window.location.hash);
   try {
-    data.value = await $fetch<TenantStatus>(`/api/status/${encodeURIComponent(linkId.value)}`, {
+    const answer = await $fetch<TenantStatus>(`/api/status/${encodeURIComponent(linkId.value)}`, {
       headers: key ? { Authorization: `Bearer ${key}` } : {},
       cache: "no-store",
     });
+    if (mine !== generation) return undefined;
+    data.value = answer;
     error.value = "";
     now.value = new Date();
     return true;
   } catch (err) {
+    if (mine !== generation) return undefined;
     const code = err instanceof FetchError ? (err.statusCode ?? 0) : 0;
     error.value = errorText(code);
     data.value = null;
@@ -47,10 +55,21 @@ async function refresh(): Promise<boolean> {
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 async function tick() {
-  if (await refresh()) timer = setTimeout(tick, REFRESH_MS);
+  clearTimeout(timer);
+  const mine = ++generation;
+  if ((await refresh(mine)) && mine === generation) timer = setTimeout(tick, REFRESH_MS);
 }
-onMounted(tick);
-onBeforeUnmount(() => clearTimeout(timer));
+// A new link pasted into the open tab changes only the "#key=": the browser
+// doesn't reload, so load again with the new key (#527).
+onMounted(() => {
+  window.addEventListener("hashchange", tick);
+  tick();
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("hashchange", tick);
+  clearTimeout(timer);
+  generation++;
+});
 
 const DOT: Record<string, string> = {
   outage: "bg-error",

@@ -6,6 +6,7 @@ The app must run with AUTH_MODE=header and noc-operators as an operator group.
 """
 
 import json
+import os
 import re
 import ssl
 import sys
@@ -103,6 +104,19 @@ status, _, _ = get(f"{HTTPS}/static/css/other.css")
 results.append(check("other files do", status == 302, status))
 status, _, _ = get(f"{HTTPS}/api/status/Acme%20Corp", FORGED)
 results.append(check("forged headers on the status API are dropped", status in (401, 403), status))
+
+# A tenant's real link and a status token, made by CI (#527).
+link, key = os.environ.get("STATUS_LINK", ""), os.environ.get("STATUS_TOKEN", "")
+results.append(check("CI made a status link and token", link.startswith("/status/") and key.startswith("nmt_")))
+api = f"{HTTPS}/api{link}"
+status, _, _ = get(api, SIGNED_IN)
+results.append(check("staff signed in open a tenant's status page without a key", status == 200, status))
+status, headers, _ = get(api)
+results.append(check("anonymous without a key: refused by the app, not sent to the login", status == 401, status))
+status, _, _ = get(api, {"Authorization": f"Bearer {key}"})
+results.append(check("a customer's key works", status == 200, status))
+status, _, _ = get(api, {"Authorization": f"Bearer {key}"} | SIGNED_IN)
+results.append(check("a customer's key works signed in too", status == 200, status))
 
 status, _, _ = get(f"{HTTPS}/metrics", SIGNED_IN)
 results.append(check("/metrics is not served", status == 404, status))

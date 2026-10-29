@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Fixed
 - **A status token for a tenant Nautobot doesn't have is refused** (#528): `token create --role status --tenant` and `POST /api/tokens` answer `no tenant 'Acme' in Nautobot (as of the last sync)`, as `status-link` does, instead of making a link that shows nothing; the token keeps Nautobot's spelling of the tenant
 - **The board fills in after the first sync** (#523): a board built while an inventory sync committed could be stored after the sync dropped the old one, so a first open showed "no sites" (and the board stopped polling) until the next refresh. A stored board now carries the syncs it was built from and is rebuilt when Nautobot or LibreNMS has synced since
+- **The bundled proxy: staff open a tenant's status page, IPv4-only hosts, PKCE** (#527): a signed-in admin or operator who clicks a tenant on Availability now gets its status page instead of "This link doesn't work" (nginx asks oauth2-proxy optionally on `/api/status/`: who is signed in, never the login; a customer's key link works signed in or not). nginx no longer stops on a host without IPv6 (`listen [::]` only where there is IPv6). The login uses PKCE (`S256`). The status page loads again when a new `#key=` is pasted into an open tab
 
 ## [0.2.0] - 2026-10-25
 

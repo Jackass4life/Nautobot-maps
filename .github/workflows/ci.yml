@@ -406,6 +406,20 @@ jobs:
       - name: Start the app behind the proxy
         run: docker compose up -d --build --wait --wait-timeout 180
 
+      - name: A status link and token (#527)
+        run: |
+          # The tenant is known once the first Nautobot sync is done.
+          for attempt in $(seq 1 60); do
+            if link=$(docker compose exec -T nautobot-maps python -m nautobot_maps status-link "Acme Corp" 2>/dev/null); then
+              break
+            fi
+            sleep 2
+          done
+          token=$(docker compose exec -T nautobot-maps python -m nautobot_maps token create smoke-status --role status --tenant "Acme Corp" 2>/dev/null)
+          echo "::add-mask::$token"
+          echo "STATUS_LINK=$link" >> "$GITHUB_ENV"
+          echo "STATUS_TOKEN=$token" >> "$GITHUB_ENV"
+
       - name: The proxy's rules
         run: python3 deploy/proxy/ci/smoke.py https://localhost:443 http://localhost:80
 
