@@ -133,3 +133,79 @@ def test_the_variant_with_excluded_locations_is_built_once_too(site, monkeypatch
     alerts.get_alert_board_data(include_non_operational=True)
     assert calls == [{"snapshot_only": True, "include_non_operational": True}]
     assert stats() == {"request": 1}
+
+
+def commit_sync(completed_at: str, **statuses) -> None:
+    """A Nautobot sync committing London's devices, without dropping the stored board."""
+    from nautobot_maps import inventory
+    from tests.test_app import _snapshot_device, _snapshot_location
+
+    roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ")])
+            inventory.write_devices(
+                conn, [_snapshot_device(name, "loc-lon", roles[name], status) for name, status in statuses.items()]
+            )
+            inventory.record_sync_state(
+                conn,
+                "nautobot_inventory",
+                last_completed_at=completed_at,
+                last_successful_sync=completed_at,
+                cache_version=inventory.CACHE_VERSION,
+            )
+    finally:
+        conn.close()
+
+
+def london_down(board: dict) -> int:
+    return next(row for row in board["alerts"] if row["id"] == "loc-lon")["down_device_count"]
+
+
+def test_a_sync_committed_before_the_board_is_dropped_is_served_at_once(site):
+    """Between a sync's commit and its drop of the stored board, a request
+    gets the new data, not the board stored before (#523)."""
+    caching.cache.clear()
+    assert london_down(alerts.board()) == 2
+    commit_sync("2026-10-09T12:05:00Z", core="Active", acc1="Active", acc2="Active")
+    assert london_down(alerts.board()) == 0
+    assert london_down(alerts.apply_alert_board_freshness(alerts.board())) == 0
+    assert "_snapshot" not in alerts.apply_alert_board_freshness(alerts.board())
+
+
+def test_a_build_across_a_sync_commit_is_not_served_after_it(site, monkeypatch):
+    caching.cache.clear()
+    real_build = alerts.build_alert_board_payload
+
+    def build_then_commit(**kwargs):
+        payload = real_build(**kwargs)  # read before the commit
+        commit_sync("2026-10-09T12:05:00Z", core="Active", acc1="Active", acc2="Active")
+        return payload
+
+    monkeypatch.setattr(alerts, "build_alert_board_payload", build_then_commit)
+    assert london_down(alerts.board()) == 2
+    monkeypatch.setattr(alerts, "build_alert_board_payload", real_build)
+    assert london_down(alerts.board()) == 0
+
+
+def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(pg_database, monkeypatch):
+    """The first sync commits while a request builds the (empty) board: that
+    board must not be stored as the finished one (#523)."""
+    from nautobot_maps import inventory
+
+    monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    caching.cache.clear()
+    real_build = alerts.build_alert_board_payload
+
+    def build_then_commit(**kwargs):
+        payload = real_build(**kwargs)
+        commit_sync("2026-10-09T12:05:00Z", core="Offline", acc1="Active", acc2="Active")
+        return payload
+
+    monkeypatch.setattr(alerts, "build_alert_board_payload", build_then_commit)
+    assert alerts.board()["alerts"] == []
+    monkeypatch.setattr(alerts, "build_alert_board_payload", real_build)
+    assert london_down(alerts.board()) == 1
