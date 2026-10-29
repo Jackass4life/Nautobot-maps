@@ -91,6 +91,7 @@ Each of these is optional and can be added later; the map and the board work wit
 | A status page per customer | A random link per tenant: `python -m nautobot_maps status-link TENANT`, a status token for each customer | [Tenant status page](docs/status-page.md) |
 | Case numbers that link to your ITSM | `CASE_URL_TEMPLATE=https://itsm.example.com/ticket/{case}` | [Configuration](docs/configuration.md#alert-board) |
 | Which sites and devices matter most | Custom fields in Nautobot (below) | [Device and site criticality](docs/alert-board.md#device-and-site-criticality) |
+| Your availability target (SLA) | `AVAILABILITY_TARGET_PCT=99.5` (default 99.9) | [Availability](docs/availability.md) |
 | Which devices are access points | `ACCESS_POINT_ROLES` (Nautobot role names, default `Access Point`) | [Configuration](docs/configuration.md#alert-board) |
 | One board row per Site, buildings and floors rolled up | `ALERT_BOARD_SITE_LOCATION_TYPE=Site` | [One row per Site](docs/alert-board.md#one-row-per-site) |
 | Each tenant's own devices on a shared site | `TENANT_SCOPE_FIELD`, a JSON custom field on the location | [Per-site device roles](docs/status-page.md#per-site-device-roles) |

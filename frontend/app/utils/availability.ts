@@ -127,8 +127,11 @@ export function formatDowntime(seconds: number): string {
 }
 
 // The bar runs from 98 to 100 % (most targets are 99–100 %); below 98 % a short stub.
-export function barPercent(availability: number): number {
-  return Math.max(2, Math.min(100, ((availability - 98) / 2) * 100));
+// The bar runs from 98 % to 100 %, or from 1 point below a lower target
+// (AVAILABILITY_TARGET_PCT, #525), so sites near the target aren't stubs.
+export function barPercent(availability: number, target = 99.9): number {
+  const from = Math.min(98, target - 1);
+  return Math.max(2, Math.min(100, ((availability - from) / (100 - from)) * 100));
 }
 
 export function plural(count: number, word: string): string {

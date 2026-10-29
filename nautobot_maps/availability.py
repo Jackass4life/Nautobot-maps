@@ -24,8 +24,13 @@ MONTH_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Longest from–to period (#341): a year, so a report stays a few quick queries.
 MAX_PERIOD_DAYS = 366
-# Below this a site or tenant is shown in red (#287) and counted as below target (#342).
-TARGET_PCT = 99.9
+
+
+def target_pct() -> float:
+    """Below this a site or tenant is shown in red (#287) and counted as below
+    target (#342): ``AVAILABILITY_TARGET_PCT`` (#525)."""
+    return settings.AVAILABILITY_TARGET_PCT
+
 
 Interval = tuple[datetime, datetime]
 
@@ -461,14 +466,15 @@ def summarise(site_rows: list[dict], tenant_rows: list[dict]) -> dict:
     count = len(site_rows)
     # No tenant had downtime: no "worst" to name.
     worst = tenant_rows[0] if tenant_rows and tenant_rows[0]["downtime_seconds"] else None
+    target = target_pct()
     return {
         "sites": count,
         "availability": round(sum(r["availability"] for r in site_rows) / count, 3) if count else 100.0,
         "downtime_seconds": sum(r["downtime_seconds"] for r in site_rows),
         "incidents": sum(r["incidents"] for r in site_rows),
-        "below_target": sum(1 for r in site_rows if r["availability"] < TARGET_PCT),
+        "below_target": sum(1 for r in site_rows if r["availability"] < target),
         "no_downtime": sum(1 for r in site_rows if not r["downtime_seconds"]),
-        "target": TARGET_PCT,
+        "target": target,
         "worst_tenant": worst,
     }
 

@@ -426,6 +426,18 @@ COMPRESS_RESPONSES = _flag("COMPRESS_RESPONSES", True)
 AVAILABILITY_BASIS = os.getenv("AVAILABILITY_BASIS", "").strip().lower() or "any_down"
 if AVAILABILITY_BASIS not in ("any_down", "critical"):
     AVAILABILITY_BASIS = "any_down"
+# The availability target, in percent (#525): a site or tenant below it is
+# shown in red and counted as below target.
+_availability_target = os.getenv("AVAILABILITY_TARGET_PCT", "").strip() or "99.9"
+try:
+    AVAILABILITY_TARGET_PCT = float(_availability_target)
+except ValueError:
+    AVAILABILITY_TARGET_PCT = float("nan")
+if not 0 < AVAILABILITY_TARGET_PCT < 100:
+    raise RuntimeError(
+        f"Invalid AVAILABILITY_TARGET_PCT {_availability_target!r}: expected a percentage above 0 and below 100, "
+        "such as 99.9"
+    )
 # Location type whose locations are the alert-board rows (e.g. "Site"); devices
 # in descendant locations roll up into them (#158).  Empty: one row per location.
 ALERT_BOARD_SITE_LOCATION_TYPE = os.getenv("ALERT_BOARD_SITE_LOCATION_TYPE", "").strip().lower()

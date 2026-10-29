@@ -133,4 +133,11 @@ describe("figures", () => {
     expect(barPercent(99)).toBe(50);
     expect(barPercent(50)).toBe(2);
   });
+
+  it("the bar from 1 point below a lower target (#525)", () => {
+    expect(barPercent(99, 99.5)).toBe(50);
+    expect(barPercent(96, 97)).toBe(2);
+    expect(barPercent(98, 97)).toBe(50);
+    expect(barPercent(100, 97)).toBe(100);
+  });
 });

@@ -140,7 +140,7 @@ function ariaSort(key: SortKey | null) {
                   <span
                     class="block h-full rounded-full"
                     :class="row.availability < target ? 'bg-error' : 'bg-success'"
-                    :style="{ width: `${barPercent(row.availability)}%` }"
+                    :style="{ width: `${barPercent(row.availability, target)}%` }"
                   />
                 </span>
               </div>

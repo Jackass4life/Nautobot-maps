@@ -53,7 +53,7 @@ def api_page_config():
                 "today": f"{at:%Y-%m-%d}",
                 "oldest_day": availability.oldest_day(at),
                 "basis": settings.AVAILABILITY_BASIS,
-                "target": availability.TARGET_PCT,
+                "target": availability.target_pct(),
             },
             "map": {
                 "tile_url": settings.MAP_TILE_URL,
