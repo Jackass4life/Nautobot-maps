@@ -145,7 +145,8 @@ Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-
 | `OIDC_GROUPS_CLAIM` | `groups` | The ID token claim with the user's groups |
 | `OIDC_EMAIL_CLAIM` | `email` | Entra ID: `preferred_username` |
 | `OIDC_SCOPE` | `openid email profile` | The scopes asked for |
-| `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on |
+| `OIDC_CA_FILE` | — | A PEM file with the CA(s) of an identity provider whose certificate comes from a company CA, e.g. `./config/company-ca.pem`; trusted together with the public CAs ([company CA](authentication.md#company-ca)) |
+| `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
 | `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
 
 The certificate goes in `deploy/proxy/certs/` as `fullchain.pem` and `privkey.pem`.

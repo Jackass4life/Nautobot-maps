@@ -58,6 +58,20 @@ services:
       # PKCE (#527): Entra ID, Keycloak, Okta, Google and GitLab accept S256.
       - OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256
       - OAUTH2_PROXY_WHITELIST_DOMAINS=${PUBLIC_HOSTNAME}
+      # A company CA for the identity provider (#526): OIDC_CA_FILE, trusted
+      # together with the public CAs. Unset: the public CAs only (an empty
+      # variable counts as not set).
+      - OAUTH2_PROXY_PROVIDER_CA_FILES=${OIDC_CA_FILE:+/etc/oauth2-proxy/provider-ca.pem}
+      - OAUTH2_PROXY_USE_SYSTEM_TRUST_STORE=true
+    volumes:
+      # Nothing (/dev/null) without OIDC_CA_FILE; a missing file is an error,
+      # not an empty directory made in its place.
+      - type: bind
+        source: ${OIDC_CA_FILE:-/dev/null}
+        target: /etc/oauth2-proxy/provider-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - edge
 
