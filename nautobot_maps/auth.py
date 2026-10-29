@@ -161,6 +161,18 @@ def disabled_mode_allows(method: str, open_when_disabled: bool) -> bool:
     return method in ("GET", "HEAD", "OPTIONS") or open_when_disabled or settings.ALLOW_UNAUTHENTICATED_WRITES
 
 
+def may_administer() -> bool:
+    """Whether the current request may use the admin role's changes (#530):
+    what ``role_problem("admin")`` allows a POST, so the pages show the
+    administration only to those who may use it."""
+    if settings.AUTH_MODE == "disabled" and not get_current_user().get("token"):
+        return disabled_mode_allows("POST", False)
+    if not is_config_valid():
+        return False
+    current_user = get_current_user()
+    return bool(current_user["is_authenticated"]) and role_level(current_user["role"]) >= role_level("admin")
+
+
 def role_problem(required_role: str, open_when_disabled: bool = False):
     """None when the current request may use a route needing *required_role*,
     else the refusal as ``(body, status)``; see ``disabled_mode_allows`` for

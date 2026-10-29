@@ -52,6 +52,13 @@ class BoardSettings(common.Answer):
     )
 
 
+class AdminSettings(common.Answer):
+    notification_channels: list[str] = Field(
+        description="The notification channels set up (webhook, teams, email): the test notification's."
+    )
+    wireless_controllers: int = Field(description="How many wireless controllers WIRELESS_CONTROLLERS_FILE lists.")
+
+
 class PageConfig(common.Answer):
     user: BarUser | None = Field(description="Who is signed in; null with AUTH_MODE=disabled or no sign-in.")
     nautobot_url: str = Field(description="Nautobot's address, for links to its pages; empty when not set.")
@@ -60,3 +67,6 @@ class PageConfig(common.Answer):
     availability: AvailabilityLimits
     map: MapSettings
     board: BoardSettings
+    admin: AdminSettings | None = Field(
+        description="Only for those who may administer (#530): what the Admin page shows; null for everyone else."
+    )

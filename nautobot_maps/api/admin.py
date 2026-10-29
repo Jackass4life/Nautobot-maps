@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens, wireless
-from nautobot_maps.api import deps, models
+from nautobot_maps.api import deps, frontend, models
 from nautobot_maps.api.answers import admin as answers
 from nautobot_maps.api.answers import common
 
@@ -36,6 +36,34 @@ def api_contract():
         finally:
             conn.close()
     return deps.Json({"contract": contract.as_json(), "checks": checks})
+
+
+@router.get("/admin", name="admin.admin_page", include_in_schema=False)
+def admin_page():
+    """Administration (#530): API tokens, a test notification and the
+    wireless controllers' check; drawn from the API, which keeps each
+    action to the admin role."""
+    return frontend.shell()
+
+
+@router.get(
+    "/api/tenants",
+    name="admin.api_tenants",
+    response_model=answers.Tenants,
+    responses=NO_DATABASE_RESPONSE,
+    dependencies=[deps.require_role("admin")],
+)
+def api_tenants():
+    """Nautobot's tenants as of the last sync (#530), with their
+    descriptions, by name: what a status token can be made for."""
+    conn = db.get_conn()
+    if conn is None:
+        return deps.Json(NO_DATABASE, status_code=503)
+    try:
+        rows = conn.execute("SELECT name, description FROM nautobot_tenant_cache ORDER BY lower(name), name").fetchall()
+    finally:
+        conn.close()
+    return deps.Json({"tenants": [{"name": row["name"], "description": row["description"] or ""} for row in rows]})
 
 
 @router.get(

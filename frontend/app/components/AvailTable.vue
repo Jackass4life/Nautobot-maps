@@ -26,6 +26,8 @@ const props = defineProps<{
   title: string;
   help: string;
   tenantChoices?: string[];
+  // Admins share a tenant's status page from its row (#530).
+  share?: boolean;
 }>();
 
 const sort = ref<{ key: SortKey; dir: SortDir }>({ key: "availability", dir: "asc" });
@@ -123,7 +125,10 @@ function ariaSort(key: SortKey | null) {
             :data-tenants="kind === 'sites' ? JSON.stringify(row.tenants) : undefined"
           >
             <td class="px-4 py-2">
-              <TenantList v-if="kind === 'tenants'" :tenants="[row.name]" :descriptions="descriptions" :links="statusLinks" />
+              <span v-if="kind === 'tenants'" class="inline-flex flex-wrap items-center gap-1">
+                <TenantList :tenants="[row.name]" :descriptions="descriptions" :links="statusLinks" />
+                <ShareStatus v-if="share" :tenant="row.name" />
+              </span>
               <span v-else>{{ row.name }}</span>
             </td>
             <td class="pct-cell px-4 py-2">

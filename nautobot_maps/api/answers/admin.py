@@ -88,6 +88,15 @@ class TokenRevoked(common.Answer):
     token: Token
 
 
+class Tenant(common.Answer):
+    name: str
+    description: str = Field(description="Its Nautobot description; empty when it has none.")
+
+
+class Tenants(common.Answer):
+    tenants: list[Tenant] = Field(description="Nautobot's tenants as of the last sync, by name.")
+
+
 class StatusLink(common.Answer):
     tenant: str = Field(description="The tenant, as Nautobot spells it.")
     status_link: str = Field(

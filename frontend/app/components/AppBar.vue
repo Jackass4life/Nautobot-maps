@@ -21,17 +21,28 @@ const props = withDefaults(
 const { data: config } = usePageConfig();
 const { dark, toggle: toggleTheme } = useTheme();
 
-// The menu: every page, this one marked.
-const menu = computed<DropdownMenuItem[]>(() =>
-  (config.value?.pages ?? []).map((page) => ({
+// The menu: every page, this one marked; Admin last, only for admins (#530).
+const menu = computed<DropdownMenuItem[][]>(() => {
+  const pages: DropdownMenuItem[] = (config.value?.pages ?? []).map((page) => ({
     label: page.label,
     to: scoped(page.href),
     external: true,
     active: page.key === props.active,
     "aria-current": page.key === props.active ? "page" : undefined,
     class: "app-nav-link",
-  })),
-);
+  }));
+  if (!config.value?.admin) return [pages];
+  const admin: DropdownMenuItem = {
+    label: "Admin",
+    icon: "i-lucide-shield",
+    to: "/admin",
+    external: true,
+    active: props.active === "admin",
+    "aria-current": props.active === "admin" ? "page" : undefined,
+    class: "app-nav-link app-nav-admin",
+  };
+  return [pages, [admin]];
+});
 
 // The map and the board keep the scope; the wall ("view=wall") too, after it.
 function scoped(href: string): string {

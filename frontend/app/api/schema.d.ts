@@ -886,6 +886,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Nautobot's tenants as of the last sync, with their descriptions, by name: what a status token can be made for.
+         * @description Nautobot's tenants as of the last sync (#530), with their
+         *     descriptions, by name: what a status token can be made for.
+         */
+        get: operations["admin_api_tenants_api_tenants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tokens": {
         parameters: {
             query?: never;
@@ -1154,6 +1175,19 @@ export interface components {
             by: string;
             /** Note */
             note: string;
+        };
+        /** AdminSettings */
+        AdminSettings: {
+            /**
+             * Notification Channels
+             * @description The notification channels set up (webhook, teams, email): the test notification's.
+             */
+            notification_channels: string[];
+            /**
+             * Wireless Controllers
+             * @description How many wireless controllers WIRELESS_CONTROLLERS_FILE lists.
+             */
+            wireless_controllers: number;
         };
         /** AlertHistory */
         AlertHistory: {
@@ -2594,6 +2628,8 @@ export interface components {
         };
         /** PageConfig */
         PageConfig: {
+            /** @description Only for those who may administer (#530): what the Admin page shows; null for everyone else. */
+            admin: components["schemas"]["AdminSettings"] | null;
             availability: components["schemas"]["AvailabilityLimits"];
             board: components["schemas"]["BoardSettings"];
             maintenance: components["schemas"]["MaintenanceLimits"];
@@ -3171,6 +3207,16 @@ export interface components {
             /** Sites */
             sites: number;
         };
+        /** Tenant */
+        Tenant: {
+            /**
+             * Description
+             * @description Its Nautobot description; empty when it has none.
+             */
+            description: string;
+            /** Name */
+            name: string;
+        };
         /** TenantAlert */
         TenantAlert: {
             /**
@@ -3247,6 +3293,14 @@ export interface components {
              * @description The tenant's name as Nautobot spells it.
              */
             tenant: string;
+        };
+        /** Tenants */
+        Tenants: {
+            /**
+             * Tenants
+             * @description Nautobot's tenants as of the last sync, by name.
+             */
+            tenants: components["schemas"]["Tenant"][];
         };
         /**
          * Token
@@ -6014,6 +6068,68 @@ export interface operations {
                     /**
                      * @example {
                      *       "error": "No board yet, it can't be read, or no database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    admin_api_tenants_api_tenants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tenants"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];

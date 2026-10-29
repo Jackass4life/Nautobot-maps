@@ -35,6 +35,7 @@ import {
   type Incident,
   type SeverityFilter,
 } from "~/utils/board";
+import { copyText } from "~/utils/clipboard";
 import { errorMessage } from "~/utils/format";
 import { inScope, linkParams, readScope, scopeLabel, scopeParams } from "~/utils/scope";
 import { CHOICE_SEARCH_FIELDS, choiceItems, mergedDescriptions } from "~/utils/tenants";
@@ -221,32 +222,6 @@ function setNonOperational(on: boolean) {
   load();
 }
 
-// The clipboard API needs HTTPS (or localhost); plain HTTP falls back to the
-// older copy command.  Whether the text was copied.
-async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Denied: try the fallback.
-    }
-  }
-  const buffer = document.createElement("textarea");
-  buffer.className = "clipboard-buffer";
-  buffer.value = text;
-  buffer.setAttribute("readonly", "");
-  document.body.appendChild(buffer);
-  buffer.select();
-  let copied = false;
-  try {
-    copied = document.execCommand("copy");
-  } catch {
-    copied = false;
-  }
-  buffer.remove();
-  return copied;
-}
 
 const COPIED_MS = 2000;
 const announce = ref("");

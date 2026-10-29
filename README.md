@@ -27,6 +27,7 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 - **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers, summarised, never one per device.
 - **One top bar on every page**: find any site, see at a glance whether the data is fresh (amber when a sync is late, red when Nautobot or LibreNMS can't be reached), who is signed in, dark or light, and every page in the ☰ menu.
 - **HTTPS and company sign-in, ready to use**: an optional nginx + oauth2-proxy setup for Entra ID, Keycloak, Okta or Google, or your own SSO proxy. Roles: viewer, operator, admin. **API tokens** cover scripts and MCP clients, and changes sent from other sites are refused.
+- **Admin page** for admins (☰ → **Admin**): API tokens (make one, its key shown once; revoke; purge the old ones), a test notification and a check of the wireless controllers. **Share…** next to a tenant on Availability makes a customer's status page link. What the command line and the API can do, the pages can do too.
 - **MCP server** (optional) so AI assistants can read the board and add cases.
 - **Operations**: Prometheus `/metrics`, a `/healthz` probe, JSON logs, released Docker images.
 - **The documentation in the app**: **Documentation** in the ☰ menu shows these guides as pages (`/help`).
