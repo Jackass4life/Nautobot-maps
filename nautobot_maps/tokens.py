@@ -13,7 +13,7 @@ import re
 import secrets
 from datetime import datetime, timedelta
 
-from nautobot_maps import db, timeutil
+from nautobot_maps import db, statuslinks, timeutil
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,12 @@ def create(conn, body: dict, created_by: str) -> dict:
     if role == STATUS_ROLE:
         if not isinstance(tenant, str) or not tenant.strip() or len(tenant.strip()) > MAX_TENANT_LENGTH:
             raise TokenError(f"tenant is required for role status (up to {MAX_TENANT_LENGTH} characters)")
-        tenant = tenant.strip()
+        # A typo would make a working-looking link that shows nothing (#528):
+        # only a tenant Nautobot has, kept as Nautobot spells it.
+        found = statuslinks.nautobot_name(conn, tenant)
+        if found is None:
+            raise TokenError(statuslinks.unknown_tenant(tenant))
+        tenant = found
     elif tenant is not None:
         raise TokenError("tenant is only for role status")
     days = body.get("expires_in_days")
@@ -106,16 +111,56 @@ def create(conn, body: dict, created_by: str) -> dict:
             (name, hash_token(token), token[:SHOWN_CHARACTERS], role, tenant, created_by, current, expires_at),
         ).fetchone()
     if row is None:
-        raise TokenError("A token with this name already exists (revoked ones keep their name)")
+        raise TokenError(
+            "A token with this name already exists (revoked and expired ones keep their name until purged; "
+            "see token list --all)"
+        )
     logger.info("API token %r created (role %s) by %s", name, role, created_by or "unknown")
     return {**_with_state(db.row_to_dict(row), current), "token": token}
 
 
-def list_tokens(conn) -> list[dict]:
-    """Every token, newest first, without secrets."""
+def list_tokens(conn, tenant: str | None = None) -> list[dict]:
+    """Every token (only *tenant*'s, capitals ignored, when given), newest
+    first, without secrets."""
     current = now()
-    rows = conn.execute(f"SELECT {COLUMNS} FROM api_tokens ORDER BY created_at DESC, id DESC").fetchall()
+    where, params = ("WHERE lower(tenant) = lower(%s)", (tenant.strip(),)) if tenant else ("", ())
+    rows = conn.execute(
+        f"SELECT {COLUMNS} FROM api_tokens {where} ORDER BY created_at DESC, id DESC", params
+    ).fetchall()
     return [_with_state(token, current) for token in map(db.row_to_dict, rows)]
+
+
+def purge(conn, purged_by: str, older_than_days: int | None = None, dry_run: bool = False) -> list[dict]:
+    """Delete revoked and expired tokens for good (#528), never an active one;
+    with *older_than_days*, only those that stopped working longer ago.  Their
+    names are free again.  Returns them (newest first); *dry_run* deletes
+    nothing.  Cases and maintenance windows keep their ``token:<name>`` text:
+    nothing refers to a token's row."""
+    if older_than_days is not None and (
+        isinstance(older_than_days, bool)
+        or not isinstance(older_than_days, int)
+        or not 0 <= older_than_days <= MAX_EXPIRY_DAYS
+    ):
+        raise TokenError(f"older_than_days must be a whole number from 0 to {MAX_EXPIRY_DAYS}")
+    current = now()
+    cutoff = current - timedelta(days=older_than_days or 0)
+    # When it stopped working: revoked or expired, whichever came first.
+    inactive = "(revoked_at IS NOT NULL OR expires_at <= %s) AND LEAST(revoked_at, expires_at) <= %s"
+    with db.transaction(conn):
+        if dry_run:
+            sql = f"SELECT {COLUMNS} FROM api_tokens WHERE {inactive}"
+        else:
+            sql = f"DELETE FROM api_tokens WHERE {inactive} RETURNING {COLUMNS}"
+        rows = conn.execute(sql, (current, cutoff)).fetchall()
+    purged = sorted(
+        (_with_state(token, current) for token in map(db.row_to_dict, rows)),
+        key=lambda token: (token["created_at"], token["id"]),
+        reverse=True,
+    )
+    if not dry_run:
+        for token in purged:
+            logger.info("API token %r purged by %s", token["name"], purged_by or "unknown")
+    return purged
 
 
 def revoke(conn, token_id: int, revoked_by: str) -> dict | None:

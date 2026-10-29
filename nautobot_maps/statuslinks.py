@@ -58,9 +58,26 @@ def tenant_for(conn, link_id: str) -> str | None:
     return row["tenant_key"] if row else None
 
 
+def unknown_tenant(tenant: str) -> str:
+    """The refusal for a tenant Nautobot doesn't have (#528), the same everywhere."""
+    return f"no tenant {tenant.strip()!r} in Nautobot (as of the last sync)"
+
+
+def nautobot_name(conn, tenant: str) -> str | None:
+    """*tenant* as Nautobot spells it (the last sync; capitals don't matter),
+    or None when Nautobot has no such tenant (#528)."""
+    row = conn.execute(
+        "SELECT name FROM nautobot_tenant_cache WHERE lower(name) = lower(%s) ORDER BY name LIMIT 1",
+        (tenant.strip(),),
+    ).fetchone()
+    return row["name"] if row else None
+
+
 def known(conn, tenant: str) -> bool:
     """Whether *tenant* is one Nautobot has (the last sync) or has a link: so a
-    typo doesn't make a link, or leave a leaked one working."""
+    typo doesn't make a link, or leave a leaked one working.  A link without
+    a Nautobot tenant is one whose tenant was removed since: its leaked link
+    can still be replaced.  A status token can't make one (#528)."""
     key = _key(tenant)
     row = conn.execute(
         "SELECT 1 FROM status_links WHERE tenant_key = %s "

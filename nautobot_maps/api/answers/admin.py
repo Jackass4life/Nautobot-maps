@@ -70,7 +70,14 @@ class NewToken(Token):
 
 
 class Tokens(common.Answer):
-    tokens: list[Token] = Field(description="Newest first.")
+    tokens: list[Token] = Field(description="Newest first; only the active ones unless all=true (#528).")
+    inactive: int = Field(description="How many of them are revoked or expired, listed or not.")
+
+
+class TokensPurged(common.Answer):
+    tokens: list[Token] = Field(description="The tokens deleted (or, with dry_run, that would be), newest first.")
+    purged: int = Field(description="How many were deleted; 0 with dry_run.")
+    dry_run: bool
 
 
 class TokenCreated(common.Answer):
@@ -79,6 +86,38 @@ class TokenCreated(common.Answer):
 
 class TokenRevoked(common.Answer):
     token: Token
+
+
+class StatusLink(common.Answer):
+    tenant: str = Field(description="The tenant, as Nautobot spells it.")
+    status_link: str = Field(
+        description="Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>."
+    )
+
+
+class StatusLinkReplaced(StatusLink):
+    message: str = Field(description="What changed: the old link stopped working; the tenant's tokens still work.")
+
+
+class WirelessControllerCheck(common.Answer):
+    controller: str = Field(description='Its name as the top bar says it, e.g. "Catalyst Center dk".')
+    kind: Literal["catalyst_center", "aruba_central"]
+    url: str
+    reachable: bool = Field(description="Whether it answered at all.")
+    signed_in: bool | None = Field(description="Whether it took the account; null when that is unknown.")
+    access_points: int | None = Field(None, description="How many access points it lists.")
+    down: int | None = Field(None, description="How many of them it reports down.")
+    matched: int | None = Field(None, description="How many match a Nautobot device (serial, else name).")
+    unmatched_examples: list[str] | None = Field(None, description="Up to 10 it lists that Nautobot doesn't have.")
+    error: str | None = Field(None, description="Why it couldn't be read, in plain words; never a credential.")
+
+
+class WirelessCheck(common.Answer):
+    controllers: list[WirelessControllerCheck] = Field(description="One per instance in WIRELESS_CONTROLLERS_FILE.")
+    duplicates: dict[str, list[str]] = Field(
+        description="Up to 20 serials more than one controller lists, and which (the newest answer wins)."
+    )
+    duplicate_count: int
 
 
 class NotificationResults(common.Answer):

@@ -329,6 +329,80 @@ class TestCli:
         assert cli.main(["schema-version"]) == 0
 
 
+class TestListAndPurge:
+    """#528: the list shows the tokens that work; purge deletes the rest for good."""
+
+    @pytest.fixture
+    def mixed(self, pg_database, clock):
+        """An active token, one revoked 100 days ago, one expired 10 days ago, one revoked now."""
+        clock["now"] = "2026-06-01T12:00:00Z"
+        old = make("old-revoked")
+        expiring = make("expired", expires_in_days=120)  # expires 2026-09-29
+        conn = db.get_conn()
+        try:
+            tokens.revoke(conn, old["id"], "admin-user")
+            clock["now"] = NOW
+            fresh = make("fresh-revoked")
+            tokens.revoke(conn, fresh["id"], "admin-user")
+        finally:
+            conn.close()
+        active = make("active")
+        return {"active": active, "old": old, "expired": expiring, "fresh": fresh}
+
+    def test_cli_lists_the_active_ones(self, mixed, capsys):
+        assert cli.main(["token", "list"]) == 0
+        lines = capsys.readouterr().out.strip().splitlines()
+        assert len(lines) == 2 and lines[0].endswith("  active")
+        assert lines[1] == "+3 revoked or expired (--all to show)"
+        assert cli.main(["token", "list", "--all"]) == 0
+        out = capsys.readouterr().out
+        assert all(name in out for name in ("old-revoked", "expired", "fresh-revoked")) and "+" not in out
+
+    def test_the_api_lists_the_active_ones(self, mixed):
+        admin = make("admin", "admin")["token"]
+        with http_client.FlaskStyleClient() as client:
+            listed = client.get("/api/tokens", headers=bearer(admin)).get_json()
+            assert [t["name"] for t in listed["tokens"]] == ["admin", "active"] and listed["inactive"] == 3
+            everything = client.get("/api/tokens?all=true", headers=bearer(admin)).get_json()
+            assert len(everything["tokens"]) == 5 and everything["inactive"] == 3
+
+    def test_purge_never_an_active_one(self, mixed, capsys, caplog):
+        caplog.set_level(logging.INFO, logger="nautobot_maps.tokens")
+        assert cli.main(["token", "purge", "--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "3 token(s) would be purged" in out and len(raw_rows()) == 4
+        assert cli.main(["token", "purge", "--older-than", "30"]) == 0
+        assert "1 token(s) purged" in capsys.readouterr().out
+        assert sorted(row["name"] for row in raw_rows()) == ["active", "expired", "fresh-revoked"]
+        assert "API token 'old-revoked' purged by cli" in caplog.text
+        assert cli.main(["token", "purge"]) == 0
+        assert [row["name"] for row in raw_rows()] == ["active"]
+        assert tokens.verify(mixed["active"]["token"])
+        # The names are free again.
+        assert make("old-revoked")["name"] == "old-revoked"
+        assert cli.main(["token", "purge", "--older-than", "-1"]) == 1
+        assert "--older-than must be a whole number" in capsys.readouterr().err
+
+    def test_purge_through_the_api(self, mixed):
+        admin = make("admin", "admin")["token"]
+        operator = make("op")["token"]
+        with http_client.FlaskStyleClient() as client:
+            assert client.post("/api/tokens/purge", json={}, headers=bearer(operator)).status_code == 403
+            dry = client.post("/api/tokens/purge", json={"dry_run": True}, headers=bearer(admin)).get_json()
+            assert dry["dry_run"] and dry["purged"] == 0
+            assert [t["name"] for t in dry["tokens"]] == ["fresh-revoked", "expired", "old-revoked"]
+            assert len(raw_rows()) == 6
+            done = client.post("/api/tokens/purge", json={"older_than_days": 30}, headers=bearer(admin)).get_json()
+            assert done["purged"] == 1 and done["tokens"][0]["name"] == "old-revoked"
+            assert client.post("/api/tokens/purge", headers=bearer(admin)).get_json()["purged"] == 2
+            for body in ({"older_than_days": "30"}, {"older_than_days": -1}, {"dry_run": "yes"}, [1]):
+                assert client.post("/api/tokens/purge", json=body, headers=bearer(admin)).status_code == 400, body
+
+    def test_the_name_taken_says_how_to_see_it(self, mixed):
+        with pytest.raises(tokens.TokenError, match="token list --all"):
+            make("old-revoked")
+
+
 def test_bearer_parsing():
     with http_client.fake_request(headers={"Authorization": "bearer  nmt_abc "}):
         assert auth.bearer_token() == "nmt_abc"

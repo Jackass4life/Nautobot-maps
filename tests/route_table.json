@@ -328,6 +328,22 @@
   "view": "api_search"
  },
  {
+  "path": "/api/status-links/<path:tenant>",
+  "methods": [
+   "GET"
+  ],
+  "required_role": "admin",
+  "view": "api_status_link"
+ },
+ {
+  "path": "/api/status-links/<path:tenant>/replace",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "admin",
+  "view": "api_status_link_replace"
+ },
+ {
   "path": "/api/status/<link_id>",
   "methods": [
    "GET"
@@ -358,6 +374,22 @@
   ],
   "required_role": "admin",
   "view": "api_tokens_revoke"
+ },
+ {
+  "path": "/api/tokens/purge",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "admin",
+  "view": "api_tokens_purge"
+ },
+ {
+  "path": "/api/wireless/check",
+  "methods": [
+   "POST"
+  ],
+  "required_role": "admin",
+  "view": "api_wireless_check"
  },
  {
   "path": "/availability",

@@ -2,11 +2,12 @@
 notification and the data contract."""
 
 import logging
+import threading
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
-from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens
+from nautobot_maps import auth, contract, db, notify, settings, statuslinks, tokens, wireless
 from nautobot_maps.api import deps, models
 from nautobot_maps.api.answers import admin as answers
 from nautobot_maps.api.answers import common
@@ -44,15 +45,22 @@ def api_contract():
     responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("admin")],
 )
-def api_tokens_list():
-    """API tokens (#297): name, first characters, role, expiry, last use, state; never the secret."""
+def api_tokens_list(query: Annotated[models.TokenList, Query()]):
+    """API tokens (#297): name, first characters, role, expiry, last use, state; never the secret.
+
+    Only the active ones unless ``all=true`` (#528); ``inactive`` counts the
+    revoked and expired ones either way.  ``tenant``: only that tenant's
+    status tokens.
+    """
     conn = db.get_conn()
     if conn is None:
         return deps.Json(NO_DATABASE, status_code=503)
     try:
-        return deps.Json({"tokens": tokens.list_tokens(conn)})
+        rows = tokens.list_tokens(conn, tenant=query.tenant)
     finally:
         conn.close()
+    active = [token for token in rows if token["state"] == "active"]
+    return deps.Json({"tokens": rows if models.flag(query.all) else active, "inactive": len(rows) - len(active)})
 
 
 def _status_link(conn, tenant: str) -> str | None:
@@ -119,6 +127,155 @@ def api_tokens_revoke(token_id: int):
     if token is None:
         return deps.Json({"error": "No such token"}, status_code=404)
     return deps.Json({"token": token})
+
+
+@router.post(
+    "/api/tokens/purge",
+    name="admin.api_tokens_purge",
+    response_model=answers.TokensPurged,
+    responses={**NO_DATABASE_RESPONSE, 400: {"model": common.Error, "description": "Bad older_than_days"}},
+    dependencies=[deps.require_role("admin")],
+    openapi_extra=deps.body_schema(models.TokenPurge),
+)
+def api_tokens_purge(body: Annotated[object, Depends(deps.json_body)]):
+    """Delete revoked and expired API tokens for good (#528), never an active one.
+
+    JSON body, all optional: ``older_than_days`` (only those revoked or
+    expired longer ago) and ``dry_run`` (list them, delete nothing).  Their
+    names are free again; cases and maintenance windows keep their
+    ``token:<name>``.
+    """
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return deps.Json({"error": "Expected a JSON object"}, status_code=400)
+    dry_run = body.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        return deps.Json({"error": "dry_run must be true or false"}, status_code=400)
+    conn = db.get_conn()
+    if conn is None:
+        return deps.Json(NO_DATABASE, status_code=503)
+    try:
+        purged = tokens.purge(
+            conn,
+            auth.get_current_user().get("username") or "",
+            older_than_days=body.get("older_than_days"),
+            dry_run=dry_run,
+        )
+    except tokens.TokenError as exc:
+        return deps.Json({"error": exc.message}, status_code=400)
+    finally:
+        conn.close()
+    return deps.Json({"tokens": purged, "purged": 0 if dry_run else len(purged), "dry_run": dry_run})
+
+
+def _known_tenant(conn, tenant: str) -> str | None:
+    """*tenant* as Nautobot spells it, or as given when only its link is left
+    (a removed tenant, #500); None when neither: the CLI's check (#528)."""
+    if not tenant.strip() or not statuslinks.known(conn, tenant):
+        return None
+    return statuslinks.nautobot_name(conn, tenant) or tenant.strip()
+
+
+NO_TENANT_RESPONSE = {**NO_DATABASE_RESPONSE, 404: {"model": common.Error, "description": "No such tenant"}}
+
+
+@router.get(
+    "/api/status-links/{tenant:path}",
+    name="admin.api_status_link",
+    response_model=answers.StatusLink,
+    responses=NO_TENANT_RESPONSE,
+    dependencies=[deps.require_role("admin")],
+)
+def api_status_link(tenant: str):
+    """A tenant's status page link (#529), as ``status-link TENANT`` prints it:
+    ``/status/<id>``, made the first time it is asked for.  404 for a tenant
+    Nautobot doesn't have (as of the last sync)."""
+    conn = db.get_conn()
+    if conn is None:
+        return deps.Json(NO_DATABASE, status_code=503)
+    try:
+        name = _known_tenant(conn, tenant)
+        if name is None:
+            return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
+        with db.transaction(conn):
+            link_id = statuslinks.ensure(conn, [name])[name]
+    finally:
+        conn.close()
+    return deps.Json({"tenant": name, "status_link": f"/status/{link_id}"})
+
+
+@router.post(
+    "/api/status-links/{tenant:path}/replace",
+    name="admin.api_status_link_replace",
+    response_model=answers.StatusLinkReplaced,
+    responses=NO_TENANT_RESPONSE,
+    dependencies=[deps.require_role("admin")],
+)
+def api_status_link_replace(tenant: str):
+    """Replace a tenant's status page link that leaked (#529), as
+    ``status-link TENANT --new``: the old link stops working at once; the
+    tenant's status tokens keep working with the new one."""
+    conn = db.get_conn()
+    if conn is None:
+        return deps.Json(NO_DATABASE, status_code=503)
+    try:
+        name = _known_tenant(conn, tenant)
+        if name is None:
+            return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
+        with db.transaction(conn):
+            link_id = statuslinks.replace(conn, name)
+    finally:
+        conn.close()
+    logger.info("Status link of tenant %r replaced by %s", name, auth.get_current_user().get("username") or "unknown")
+    return deps.Json(
+        {
+            "tenant": name,
+            "status_link": f"/status/{link_id}",
+            "message": "The old link no longer works. The tenant's status tokens still work: send them with this link.",
+        }
+    )
+
+
+# One check at a time (#529): in this process, and across workers through
+# the database, so the controllers are never asked by several at once.
+_wireless_check_running = threading.Lock()
+WIRELESS_CHECK_LOCK = "wireless_check"
+
+
+@router.post(
+    "/api/wireless/check",
+    name="admin.api_wireless_check",
+    response_model=answers.WirelessCheck,
+    responses={429: {"model": common.Error, "description": "A check is running already"}},
+    dependencies=[deps.require_role("admin")],
+)
+def api_wireless_check():
+    """Read every wireless controller now (#529), as ``wireless-check``: per
+    instance whether it answers, takes the account, how many access points it
+    lists and how many match a Nautobot device.  Never the credentials.  One
+    check at a time: 429 while one runs."""
+    if not _wireless_check_running.acquire(blocking=False):
+        return deps.Json({"error": "A wireless check is running already; try again in a minute"}, status_code=429)
+    try:
+        release = db.try_advisory_lock(WIRELESS_CHECK_LOCK)
+        if release is False:
+            return deps.Json({"error": "A wireless check is running already; try again in a minute"}, status_code=429)
+        try:
+            results = wireless.check()
+        finally:
+            if callable(release):
+                release()
+    finally:
+        _wireless_check_running.release()
+    duplicates = next((result for result in results if "duplicates" in result), None)
+    return deps.Json(
+        {
+            "controllers": [result for result in results if "duplicates" not in result],
+            "duplicates": duplicates["duplicates"] if duplicates else {},
+            "duplicate_count": duplicates["duplicate_count"] if duplicates else 0,
+        }
+    )
 
 
 @router.post(

@@ -23,6 +23,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
+import requests
+
 from nautobot_maps import arubacentral, catalyst, contract, db, inventory, metrics, settings, timeutil
 
 logger = logging.getLogger(__name__)
@@ -350,17 +352,52 @@ def sync_due() -> bool:
         conn.close()
 
 
+def check_failure(exc: Exception) -> dict:
+    """Why reading an instance failed, in plain words (#529): whether it
+    answered at all (``reachable``) and took the account (``signed_in``,
+    None when that is unknown).  Never the credentials."""
+    if isinstance(exc, requests.exceptions.SSLError):
+        return {
+            "reachable": False,
+            "signed_in": False,
+            "error": "its certificate isn't trusted (a company CA: verify_ssl with the CA file)",
+        }
+    if isinstance(exc, requests.exceptions.Timeout):
+        return {
+            "reachable": False,
+            "signed_in": False,
+            "error": "no answer in time (a firewall, or the server is down)",
+        }
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return {
+            "reachable": False,
+            "signed_in": False,
+            "error": "can't connect (the address, DNS, a firewall, or the server is down)",
+        }
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403):
+        return {
+            "reachable": True,
+            "signed_in": False,
+            "error": f"the account was refused (HTTP {status}): check its user and password, or client id and secret",
+        }
+    if status is not None:
+        return {"reachable": True, "signed_in": None, "error": f"answered HTTP {status}"}
+    return {"reachable": True, "signed_in": None, "error": str(exc)[:300]}
+
+
 def check() -> list[dict]:
-    """For ``python -m nautobot_maps wireless-check``: each instance read now,
-    how many APs it lists and how many match a Nautobot device."""
+    """For ``python -m nautobot_maps wireless-check`` and ``POST
+    /api/wireless/check`` (#529): each instance read now, how many APs it
+    lists and how many match a Nautobot device."""
     serials, names = match_keys(inventory.read_devices())
     results, seen = [], {}
     for controller in configured():
-        result = {"controller": display_name(controller), "url": controller["url"]}
+        result = {"controller": display_name(controller), "kind": controller["kind"], "url": controller["url"]}
         try:
             aps = fetch_aps(controller)
         except Exception as exc:
-            result["error"] = str(exc)[:300]
+            result.update(check_failure(exc))
             results.append(result)
             continue
         matched, unmatched = 0, []
@@ -373,6 +410,8 @@ def check() -> list[dict]:
                 seen.setdefault(serial_key(ap["serial"]), set()).add(display_name(controller))
         result.update(
             {
+                "reachable": True,
+                "signed_in": True,
                 "access_points": len(aps),
                 "down": sum(1 for ap in aps if not ap["up"]),
                 "matched": matched,

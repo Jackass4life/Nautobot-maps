@@ -4446,6 +4446,54 @@
         "title": "StatusCircuit",
         "type": "object"
       },
+      "StatusLink": {
+        "additionalProperties": false,
+        "properties": {
+          "status_link": {
+            "description": "Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>.",
+            "title": "Status Link",
+            "type": "string"
+          },
+          "tenant": {
+            "description": "The tenant, as Nautobot spells it.",
+            "title": "Tenant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "status_link"
+        ],
+        "title": "StatusLink",
+        "type": "object"
+      },
+      "StatusLinkReplaced": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "What changed: the old link stopped working; the tenant's tokens still work.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_link": {
+            "description": "Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>.",
+            "title": "Status Link",
+            "type": "string"
+          },
+          "tenant": {
+            "description": "The tenant, as Nautobot spells it.",
+            "title": "Tenant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "status_link",
+          "message"
+        ],
+        "title": "StatusLinkReplaced",
+        "type": "object"
+      },
       "StatusSite": {
         "additionalProperties": false,
         "properties": {
@@ -4874,8 +4922,13 @@
       "Tokens": {
         "additionalProperties": false,
         "properties": {
+          "inactive": {
+            "description": "How many of them are revoked or expired, listed or not.",
+            "title": "Inactive",
+            "type": "integer"
+          },
           "tokens": {
-            "description": "Newest first.",
+            "description": "Newest first; only the active ones unless all=true (#528).",
             "items": {
               "$ref": "#/components/schemas/Token"
             },
@@ -4884,9 +4937,39 @@
           }
         },
         "required": [
-          "tokens"
+          "tokens",
+          "inactive"
         ],
         "title": "Tokens",
+        "type": "object"
+      },
+      "TokensPurged": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "purged": {
+            "description": "How many were deleted; 0 with dry_run.",
+            "title": "Purged",
+            "type": "integer"
+          },
+          "tokens": {
+            "description": "The tokens deleted (or, with dry_run, that would be), newest first.",
+            "items": {
+              "$ref": "#/components/schemas/Token"
+            },
+            "title": "Tokens",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens",
+          "purged",
+          "dry_run"
+        ],
+        "title": "TokensPurged",
         "type": "object"
       },
       "WebhookResult": {
@@ -5071,6 +5154,152 @@
           "stale"
         ],
         "title": "WirelessAp",
+        "type": "object"
+      },
+      "WirelessCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "controllers": {
+            "description": "One per instance in WIRELESS_CONTROLLERS_FILE.",
+            "items": {
+              "$ref": "#/components/schemas/WirelessControllerCheck"
+            },
+            "title": "Controllers",
+            "type": "array"
+          },
+          "duplicate_count": {
+            "title": "Duplicate Count",
+            "type": "integer"
+          },
+          "duplicates": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Up to 20 serials more than one controller lists, and which (the newest answer wins).",
+            "title": "Duplicates",
+            "type": "object"
+          }
+        },
+        "required": [
+          "controllers",
+          "duplicates",
+          "duplicate_count"
+        ],
+        "title": "WirelessCheck",
+        "type": "object"
+      },
+      "WirelessControllerCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "access_points": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many access points it lists.",
+            "title": "Access Points"
+          },
+          "controller": {
+            "description": "Its name as the top bar says it, e.g. \"Catalyst Center dk\".",
+            "title": "Controller",
+            "type": "string"
+          },
+          "down": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many of them it reports down.",
+            "title": "Down"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it couldn't be read, in plain words; never a credential.",
+            "title": "Error"
+          },
+          "kind": {
+            "enum": [
+              "catalyst_center",
+              "aruba_central"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "matched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many match a Nautobot device (serial, else name).",
+            "title": "Matched"
+          },
+          "reachable": {
+            "description": "Whether it answered at all.",
+            "title": "Reachable",
+            "type": "boolean"
+          },
+          "signed_in": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether it took the account; null when that is unknown.",
+            "title": "Signed In"
+          },
+          "unmatched_examples": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Up to 10 it lists that Nautobot doesn't have.",
+            "title": "Unmatched Examples"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "controller",
+          "kind",
+          "url",
+          "reachable",
+          "signed_in"
+        ],
+        "title": "WirelessControllerCheck",
         "type": "object"
       }
     }
@@ -8319,6 +8548,202 @@
         ]
       }
     },
+    "/api/status-links/{tenant}": {
+      "get": {
+        "description": "A tenant's status page link (#529), as ``status-link TENANT`` prints it:\n``/status/<id>``, made the first time it is asked for.  404 for a tenant\nNautobot doesn't have (as of the last sync).",
+        "operationId": "admin_api_status_link_api_status_links__tenant__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "title": "Tenant",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No such tenant"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such tenant"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "A tenant's status page link, as ``status-link TENANT`` prints it: ``/status/<id>``, made the first time it is asked for. 404 for a tenant Nautobot doesn't have (as of the last sync).",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/status-links/{tenant}/replace": {
+      "post": {
+        "description": "Replace a tenant's status page link that leaked (#529), as\n``status-link TENANT --new``: the old link stops working at once; the\ntenant's status tokens keep working with the new one.",
+        "operationId": "admin_api_status_link_replace_api_status_links__tenant__replace_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "title": "Tenant",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusLinkReplaced"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No such tenant"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such tenant"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Replace a tenant's status page link that leaked, as ``status-link TENANT --new``: the old link stops working at once; the tenant's status tokens keep working with the new one.",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
     "/api/status/{link_id}": {
       "get": {
         "description": "Where each site is (address, coordinates; #493), but no devices, IPs,\ncases or other tenants.  Open as the board is, or\nwith a status token for this tenant (``Authorization: Bearer``).",
@@ -8419,8 +8844,42 @@
     },
     "/api/tokens": {
       "get": {
-        "description": "API tokens (#297): name, first characters, role, expiry, last use, state; never the secret.",
+        "description": "Only the active ones unless ``all=true``; ``inactive`` counts the\nrevoked and expired ones either way.  ``tenant``: only that tenant's\nstatus tokens.",
         "operationId": "admin_api_tokens_list_api_tokens_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "all",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "All"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -8431,6 +8890,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
           },
           "401": {
             "content": {
@@ -8599,6 +9071,110 @@
         ]
       }
     },
+    "/api/tokens/purge": {
+      "post": {
+        "description": "JSON body, all optional: ``older_than_days`` (only those revoked or\nexpired longer ago) and ``dry_run`` (list them, delete nothing).  Their\nnames are free again; cases and maintenance windows keep their\n``token:<name>``.",
+        "operationId": "admin_api_tokens_purge_api_tokens_purge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Which tokens to delete for good (#528): revoked and expired ones, only\nthose that stopped working more than ``older_than_days`` ago when given;\n``dry_run`` deletes nothing.",
+                "properties": {
+                  "dry_run": {
+                    "default": false,
+                    "title": "Dry Run",
+                    "type": "boolean"
+                  },
+                  "older_than_days": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Older Than Days"
+                  }
+                },
+                "title": "TokenPurge",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokensPurged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad older_than_days"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad older_than_days"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Delete revoked and expired API tokens for good, never an active one.",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
     "/api/tokens/{token_id}/revoke": {
       "post": {
         "description": "Revoke an API token (#297): refused from the next request on.",
@@ -8692,6 +9268,67 @@
           }
         },
         "summary": "Revoke an API token: refused from the next request on.",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/wireless/check": {
+      "post": {
+        "description": "Read every wireless controller now (#529), as ``wireless-check``: per\ninstance whether it answers, takes the account, how many access points it\nlists and how many match a Nautobot device.  Never the credentials.  One\ncheck at a time: 429 while one runs.",
+        "operationId": "admin_api_wireless_check_api_wireless_check_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WirelessCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "A check is running already"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A check is running already"
+          }
+        },
+        "summary": "Read every wireless controller now, as ``wireless-check``: per instance whether it answers, takes the account, how many access points it lists and how many match a Nautobot device. Never the credentials. One check at a time: 429 while one runs.",
         "tags": [
           "Administration"
         ]

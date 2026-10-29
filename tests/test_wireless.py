@@ -954,7 +954,7 @@ class TestCheck:
         assert cli.main(["wireless-check"]) == 1
         out = capsys.readouterr().out
         assert "Catalyst Center dk (https://dnac-dk.example.com): 1 access points, 0 down, 0 match" in out
-        assert "Catalyst Center se (https://dnac-se.example.com): can't read it: refused" in out
+        assert "Catalyst Center se (https://dnac-se.example.com): can't read it: can't connect (" in out
         assert "s3cret" not in out
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", ())
         assert cli.main(["wireless-check"]) == 0

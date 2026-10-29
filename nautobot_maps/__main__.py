@@ -7,9 +7,11 @@ version and the one this release expects.
 
 ``contract-docs`` prints docs/data-contract.md from the data contract (#309).
 
-``token create NAME --role operator [--expires-days N]``, ``token list`` and
-``token revoke ID`` manage API tokens (#297); ``create`` is how the first
-admin token is made (``docker compose exec app python -m nautobot_maps ...``).
+``token create NAME --role operator [--expires-days N]``, ``token list
+[--all] [--tenant TENANT]``, ``token revoke ID`` and ``token purge
+[--older-than DAYS] [--dry-run]`` manage API tokens (#297, #528); ``create``
+is how the first admin token is made (``docker compose exec app python -m
+nautobot_maps ...``).
 
 ``status-link TENANT`` prints the tenant's status page link, ``/status/<id>``
 (#500); ``--new`` replaces it, and the old link stops working.
@@ -39,9 +41,16 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--role", required=True, choices=(*tokens.ROLES, tokens.STATUS_ROLE))
     create.add_argument("--tenant", default=None, help="with --role status: the tenant whose status page it opens")
     create.add_argument("--expires-days", type=int, default=None)
-    token_commands.add_parser("list", help="list tokens (never the secrets)")
+    listing = token_commands.add_parser("list", help="list the active tokens (never the secrets)")
+    listing.add_argument("--all", action="store_true", help="revoked and expired ones too")
+    listing.add_argument("--tenant", default=None, help="only this tenant's status tokens")
     revoke = token_commands.add_parser("revoke", help="revoke a token by its ID")
     revoke.add_argument("id", type=int)
+    purge = token_commands.add_parser("purge", help="delete revoked and expired tokens for good (#528)")
+    purge.add_argument(
+        "--older-than", type=int, default=None, metavar="DAYS", help="only those revoked or expired over DAYS ago"
+    )
+    purge.add_argument("--dry-run", action="store_true", help="list what would go, delete nothing")
     link = commands.add_parser("status-link", help="print a tenant's status page link (#500)")
     link.add_argument("tenant")
     link.add_argument("--new", action="store_true", help="replace it: the old link stops working")
@@ -78,7 +87,7 @@ def wireless_check_command() -> int:
 def status_link_command(conn, args) -> int:
     if not args.tenant.strip() or not statuslinks.known(conn, args.tenant):
         # A typo must not make a link, or leave a leaked one working.
-        print(f"error: no tenant {args.tenant!r} in Nautobot (as of the last sync)", file=sys.stderr)
+        print(f"error: {statuslinks.unknown_tenant(args.tenant)}", file=sys.stderr)
         return 1
     if args.new:
         link_id = statuslinks.replace(conn, args.tenant)
@@ -91,6 +100,16 @@ def status_link_command(conn, args) -> int:
         file=sys.stderr,
     )
     return 0
+
+
+def print_token(token: dict) -> None:
+    tenant = f"  (tenant {token['tenant']})" if token.get("tenant") else ""
+    ended = f"  revoked {token['revoked_at']}" if token.get("revoked_at") else ""
+    print(
+        f"{token['id']:>4}  {token['prefix']}…  {token['role']:<8}  {token['state']:<7}  "
+        f"expires {token['expires_at'] or 'never'}  last used {token['last_used_at'] or 'never'}{ended}  "
+        f"{token['name']}{tenant}"
+    )
 
 
 def token_command(conn, args) -> int:
@@ -119,16 +138,27 @@ def token_command(conn, args) -> int:
                 print(f"Share: /status/{link_id}#key={token['token']}", file=sys.stderr)
         return 0
     if args.token_command == "list":
-        rows = tokens.list_tokens(conn)
-        if not rows:
-            print("No tokens.")
-        for token in rows:
-            tenant = f"  (tenant {token['tenant']})" if token.get("tenant") else ""
-            print(
-                f"{token['id']:>4}  {token['prefix']}…  {token['role']:<8}  {token['state']:<7}  "
-                f"expires {token['expires_at'] or 'never'}  last used {token['last_used_at'] or 'never'}  "
-                f"{token['name']}{tenant}"
-            )
+        rows = tokens.list_tokens(conn, tenant=args.tenant)
+        shown = rows if args.all else [token for token in rows if token["state"] == "active"]
+        if not shown:
+            print("No active tokens." if rows else "No tokens.")
+        for token in shown:
+            print_token(token)
+        if len(shown) < len(rows):
+            print(f"+{len(rows) - len(shown)} revoked or expired (--all to show)")
+        return 0
+    if args.token_command == "purge":
+        try:
+            purged = tokens.purge(conn, "cli", older_than_days=args.older_than, dry_run=args.dry_run)
+        except tokens.TokenError as exc:
+            print(f"error: {exc.message.replace('older_than_days', '--older-than')}", file=sys.stderr)
+            return 1
+        for token in purged:
+            print_token(token)
+        if args.dry_run:
+            print(f"{len(purged)} token(s) would be purged (--dry-run: nothing deleted).")
+        else:
+            print(f"{len(purged)} token(s) purged; their names are free again.")
         return 0
     token = tokens.revoke(conn, args.id, "cli")
     if token is None:
