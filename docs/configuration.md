@@ -129,7 +129,7 @@ See [authentication](authentication.md).
 | `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | IPs/CIDRs of the proxy; identity headers from anywhere else are ignored and logged |
 | `AUTH_PROXY_SECRET` | — | When set, identity headers only count if the proxy also sends it in `X-Auth-Proxy-Secret` |
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
-| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows and sending test notifications (logged as a warning) |
+| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows, sending test notifications, API tokens, status page links and the wireless check, and the Admin page (logged as a warning) |
 
 ### The bundled HTTPS and sign-in proxy
 
@@ -149,7 +149,7 @@ Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-
 | `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
 | `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
 
-The certificate goes in `deploy/proxy/certs/` as `fullchain.pem` and `privkey.pem`.
+The certificate goes in `deploy/proxy/certs/` as `fullchain.pem` and `privkey.pem` ([your own certificate](authentication.md#your-own-certificate)).
 
 ## Notifications
 

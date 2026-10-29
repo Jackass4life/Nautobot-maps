@@ -4,8 +4,11 @@ Run the mock at a NOC's scale and the app against an empty database, then this:
 
     MOCK_SCALE=1200 python demo/mock_nautobot.py &
     NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=demo-token python app.py &
-    python -m nautobot_maps token create shots --role operator --expires-days 1
-    python scripts/screenshots.py --token nmt_...
+    python -m nautobot_maps token create shots --role admin --expires-days 1
+    python scripts/screenshots.py --token nmt_... --seed
+
+Run the app with WIRELESS_CONTROLLERS_FILE=demo/wireless.yml for the access
+points.  An operator token works too, without the Admin page's picture.
 
 Needs Playwright (requirements-e2e.txt) and Pillow (`pip install Pillow`). --seed adds
 cases, acknowledgements and maintenance through the API first: run it once
@@ -104,6 +107,16 @@ def seed(base, token, board):
                 "duration_minutes": 90,
             },
         )
+    # The Admin page (#530): the tokens a NOC has; an operator token can't make them.
+    if (api(base, token, "/api/page-config") or {}).get("admin") is not None:
+        for name, role, tenant in (
+            ("librenms", "operator", None),
+            ("alertmanager", "operator", None),
+            ("mcp-claude", "viewer", None),
+            ("tidal-ports-status", "status", STATUS_TENANT),
+        ):
+            body = {"name": name, "role": role, "expires_in_days": 365}
+            api(base, token, "/api/tokens", {**body, "tenant": tenant} if tenant else body)
 
 
 def with_token(page, base, token):
@@ -166,6 +179,14 @@ def screenshots(browser, base, token, out, burst):
         page.wait_for_selector(loaded, timeout=60000)
         page.wait_for_timeout(1000)  # fonts and the last render
         shoot(page, out, name)
+    if (api(base, token, "/api/page-config") or {}).get("admin") is not None:
+        page = pages["light"]
+        page.goto(base + "/admin")
+        page.wait_for_selector("#admin-tokens .token-row", timeout=60000)
+        page.wait_for_timeout(1000)
+        shoot(page, out, "admin")
+    else:
+        print("not an admin token: Admin page skipped")
     status_page(browser, base, token, out)
     for page in pages.values():
         page.context.close()
@@ -237,7 +258,7 @@ def clip(browser, base, token, out, burst):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base-url", default="http://127.0.0.1:5000")
-    parser.add_argument("--token", required=True, help="an operator API token")
+    parser.add_argument("--token", required=True, help="an admin API token (operator: no Admin page)")
     parser.add_argument("--out", default="docs/images")
     parser.add_argument("--seed", action="store_true", help="add cases, acks and maintenance first")
     parser.add_argument("--no-clip", action="store_true")

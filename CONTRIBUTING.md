@@ -110,7 +110,7 @@ Everything else lives in modules under `nautobot_maps/` (#165):
 - `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
   `librenms.fetch_inventory()`).
 - `nautobot_maps/wireless.py`: access point status from the wireless controllers (#508): each
-  instance's sync, `wireless_ap_status`, the index the board reads; `catalyst.py` and `arubacentral.py`: the Catalyst Center and New Central clients.
+  instance's sync, `wireless_ap_status`, the index the board reads, Plug and Play (#534); `catalyst.py` and `arubacentral.py`: the Catalyst Center and New Central clients; `neighbours.py`: which switch port an access point is on (#524), from Catalyst Center's topology or Nautobot's cables.
 - `nautobot_maps/caching.py`: the shared response cache (cachelib: in-process, Redis or none).
 - `nautobot_maps/http.py`: the HTTP session both clients use (one per thread, connections reused), with retries and backoff for transient upstream errors.
 - `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,
@@ -125,8 +125,8 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   them on `nautobot_maps.repositories.board`.
 - `nautobot_maps/scheduler.py`: the background scheduler (`scheduler.start()`, started by
   gunicorn in each worker).
-- `nautobot_maps/web.py`: the wiring: security headers and the CSP, error pages, the sign-in
-  check, and `web.register(app)`, which registers the routes.
+- `nautobot_maps/web.py`: the Content-Security-Policy; `api/deps.py` sends it with the other
+  security headers, the error pages and the sign-in check.
 - `nautobot_maps/guide.py`: the documentation pages at `/help` (#433): `README.md`, `docs/*.md` and
   this file rendered with markdown-it-py (raw HTML off, GitHub's heading anchors, links between the
   docs rewritten). A new guide goes in `guide.PAGES`; `tests/test_help_pages.py` checks every
@@ -140,8 +140,9 @@ Everything else lives in modules under `nautobot_maps/` (#165):
   share, `models` the typed queries and bodies, `answers` what each area's JSON looks like, `pages` and `files` the HTML and file answers.
   `tests/route_table.json` freezes every URL, method and role: `python -m tests.test_route_table`
   rewrites it after a deliberate change.
-- `nautobot_maps/auth.py`: optional header-based authentication and roles
-  (`@auth.require_role("operator")`).
+- `nautobot_maps/auth.py`: optional header-based authentication and roles (routes ask
+  `deps.require_role("operator")`); `tokens.py`: API tokens; `statuslinks.py`: each tenant's
+  random status page link.
 - `nautobot_maps/timeutil.py`: time helpers; tests freeze time with
   `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`.
 
@@ -232,8 +233,13 @@ CI fails when a lock file doesn't match its `.in` file, or when `pip-audit`, `np
 The suite:
 
 - `tests/test_app.py`: unit tests, mock-based; persistence tests run against PostgreSQL.
-- `tests/test_integration.py`: starts a local mock Nautobot and exercises the full HTTP stack;
-  some tests run the page JavaScript in `node`.
+- `tests/test_integration.py`: starts a local mock Nautobot and exercises the full HTTP stack.
+- One file per feature for the rest (`test_wireless.py`, `test_tokens.py`, `test_status_page.py`, …).
+- `tests/answers.py`: every JSON answer a test gets is checked against its route's
+  `response_model`; `tests/test_route_table.py`: every URL, method and role, frozen.
+- `tests/test_config.py`, `tests/test_help_pages.py`: every setting documented, every link in the
+  guides lands on a heading.
+- `frontend/tests/`: Vitest for the pages' logic in `app/utils/`; `e2e/`: Playwright in Chromium.
 - `tests/test_mcp.py`: the MCP server.
 - `tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
@@ -241,8 +247,8 @@ The suite:
 ### Screenshots
 
 The README's pictures (`docs/images/`) come from `scripts/screenshots.py`, run against the
-scale demo (`MOCK_SCALE=1200`, [demo/README.md](demo/README.md)) and an empty database; its
-docstring has the steps. Run it again when a page they show changes.
+scale demo (`MOCK_SCALE=1200`, [demo/README.md](demo/README.md)), `WIRELESS_CONTROLLERS_FILE=demo/wireless.yml`
+and an empty database, with an admin token (for the Admin page); its docstring has the steps. Run it again when a page they show changes.
 
 ### How the inventory sync works
 

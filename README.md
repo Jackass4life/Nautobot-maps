@@ -23,7 +23,7 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 - **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm. A history of every window, with CSV.
 - **Availability** per site and tenant for any period, with maintenance left out, and CSV exports down to every incident. Each site says how much is there ("12 network · 40 APs"), and a tenant's name opens its status page.
 - **Tenant status page**: "are we affected?" for one tenant, shareable with a customer at a random link (not the tenant's name, so another customer's page can't be guessed). Each site with its address and its devices, "3 of 12 network devices down · 1 of 40 access points down", counts only, and the customer's own circuits, folded. A large tenant sees what's wrong first; the operational sites fold into one line.
-- **More sources**: LibreNMS status (optional) next to Nautobot's, pushed within seconds by LibreNMS alerts; Prometheus Alertmanager and a generic webhook can mark devices down. Access points from any number of Cisco Catalyst Centers and Aruba New Centrals: monitored without a primary IP (they get theirs by DHCP), with the controller's address, under their own **Wireless** chip rather than the alarms, never notified.
+- **More sources**: LibreNMS status (optional) next to Nautobot's, pushed within seconds by LibreNMS alerts; Prometheus Alertmanager and a generic webhook can mark devices down. Access points from any number of Cisco Catalyst Centers and Aruba New Centrals: monitored without a primary IP (they get theirs by DHCP), with the controller's address, under their own **Wireless** chip rather than the alarms, never notified. A down access point says which switch and port it is on, and one still being onboarded with Plug and Play says so in the site panel (Catalyst Center).
 - **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers, summarised, never one per device.
 - **One top bar on every page**: find any site, see at a glance whether the data is fresh (amber when a sync is late, red when Nautobot or LibreNMS can't be reached), who is signed in, dark or light, and every page in the ☰ menu.
 - **HTTPS and company sign-in, ready to use**: an optional nginx + oauth2-proxy setup for Entra ID, Keycloak, Okta or Google, or your own SSO proxy. Roles: viewer, operator, admin. **API tokens** cover scripts and MCP clients, and changes sent from other sites are refused.
@@ -43,8 +43,10 @@ Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a 
 | **Alert board**: worst and newest first, with cases | **Dark mode**, on every page |
 | ![The wall view: alarms with their down devices, no buttons](docs/images/wall-view.png) | ![Availability: per tenant for October, with downtime](docs/images/availability.png) |
 | **Wall view** for the NOC screen | **Availability** per site and tenant |
-| ![Maintenance: two active windows and two planned, one across 40 sites](docs/images/maintenance.png) | ![A tenant's status page: 3 of 75 sites affected, 7 devices down, the 72 operational sites folded](docs/images/status-page.png) |
+| ![Maintenance: two active windows and two planned, one across 40 sites](docs/images/maintenance.png) | ![A tenant's status page: 3 of 75 sites affected, 11 devices down, the 72 operational sites folded](docs/images/status-page.png) |
 | **Maintenance**: now and planned, one line per change | **Status page**, as the customer sees it |
+| ![The Admin page: five API tokens with their roles, and the wireless controllers' Check now](docs/images/admin.png) | |
+| **Admin**: API tokens, a test notification, the wireless check | |
 
 The pictures come from `scripts/screenshots.py` with the scale demo.
 
@@ -124,7 +126,7 @@ Every guide below is also in the app: **Documentation** in the ☰ menu (`/help`
 | [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
 | [Availability](docs/availability.md) | Uptime per site and tenant, by month, without maintenance |
 | [Tenant status page](docs/status-page.md) | "Are we affected?" for one tenant, shareable with a customer |
-| [Other monitoring sources](docs/sources.md) | Prometheus Alertmanager and a generic webhook mark devices down |
+| [Other monitoring sources](docs/sources.md) | Prometheus Alertmanager and a generic webhook mark devices down; access points from Catalyst Center and Aruba New Central |
 | [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
 | [Sign-in and roles](docs/authentication.md) | The bundled HTTPS and sign-in proxy (nginx + oauth2-proxy), or your own; what each role can do; API tokens |
 | [Data contract](docs/data-contract.md) | What is read from Nautobot and LibreNMS, and what it becomes |
