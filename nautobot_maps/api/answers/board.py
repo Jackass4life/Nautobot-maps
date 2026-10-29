@@ -26,6 +26,23 @@ class Stack(common.Answer):
     members: list[str] | None = Field(None, description="The members' names, when the whole stack is down.")
 
 
+class Neighbour(common.Answer):
+    """The switch and port an access point is on (#524)."""
+
+    device: str = Field(description='The switch, e.g. "hel0008-acc-sw02".')
+    port: str = Field(description='Its port, e.g. "Gi1/0/14"; may be empty.')
+    source: str = Field(
+        description='Who says so: a Catalyst Center ("Catalyst Center dk", CDP/LLDP) or "Nautobot" (a cable).'
+    )
+    device_id: str | None = Field(None, description="The switch's Nautobot id, when a Nautobot cable says so.")
+
+
+class Behind(common.Answer):
+    device: str = Field(description="The switch most of the site's down access points are on.")
+    down: int = Field(description="How many access points on it are down (at least 2).")
+    total: int = Field(description="How many access points are on it.")
+
+
 class DownDevice(common.Answer):
     """A device with an open alert (also one in maintenance, marked so)."""
 
@@ -48,6 +65,7 @@ class DownDevice(common.Answer):
     core: bool | None = Field(None, description="The likely cause of the others; listed first.")
     probable_cause: str | None = Field(None, description="The core device(s) it is likely down because of.")
     access_point: bool | None = Field(None, description="An access point a wireless controller watches (#521).")
+    neighbour: Neighbour | None = Field(None, description="The switch and port this access point is on (#524).")
 
 
 class TenantAlert(common.Answer):
@@ -128,6 +146,9 @@ class BoardSite(common.Answer):
     active_alert_instance_count: int
     active_cases: list[str]
     down_devices: list[DownDevice] = Field(description="The likely cause first.")
+    behind: Behind | None = Field(
+        None, description='"12 of 16 behind sw02" (#524): two or more of its down access points are on one switch.'
+    )
     maintenance: SiteMaintenance | None = Field(None, description="The whole site is in a maintenance window.")
 
 

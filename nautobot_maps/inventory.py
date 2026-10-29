@@ -404,6 +404,64 @@ def termination_locations(circuit: dict) -> list[str]:
     ]
 
 
+def cable_end(cable: dict, side: str) -> tuple[str, str]:
+    """``(device id, port)`` of one end of a Nautobot cable (depth=1): the
+    termination's device, and its name; ``("", "")`` when it isn't a device's
+    (a circuit termination, a power port without a device)."""
+    termination = cable.get(f"termination_{side}")
+    if not isinstance(termination, dict):
+        return "", ""
+    device = termination.get("device")
+    device_id = device.get("id") if isinstance(device, dict) else device
+    port = termination.get("name") or termination.get("display") or ""
+    return str(device_id or ""), str(port)
+
+
+def fetch_cables(params: dict | None) -> list[dict] | None:
+    """Nautobot's cables between devices (#524): which switch port each
+    access point is on.  Incremental like the devices (*params*: the sync's
+    ``last_updated__gte``); ``None`` when they could not be read, so the
+    caller keeps what it has."""
+    try:
+        cables = nautobot.fetch_all_pages("dcim/cables/", {**(params or {}), "depth": 1}, use_cache=False)
+    except Exception as exc:
+        logger.warning("Could not read cables from Nautobot: %s", exc)
+        return None
+    contract.check_and_record(contract.NAUTOBOT, "dcim/cables/", cables, bool(params))
+    result = []
+    for cable in cables:
+        a_device, a_port = cable_end(cable, "a")
+        b_device, b_port = cable_end(cable, "b")
+        if cable.get("id") and a_device and b_device:
+            result.append(
+                {
+                    "cable_id": str(cable["id"]),
+                    "a_device_id": a_device,
+                    "a_port": a_port,
+                    "b_device_id": b_device,
+                    "b_port": b_port,
+                }
+            )
+    return result
+
+
+def write_cables(conn, cables: list[dict], full: bool) -> None:
+    """Store the cables (#524): a full sync replaces them all (a cable removed
+    in Nautobot goes), an incremental one adds and updates."""
+    if full:
+        conn.execute("DELETE FROM nautobot_cable_cache")
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """
+            INSERT INTO nautobot_cable_cache (cable_id, a_device_id, a_port, b_device_id, b_port)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (cable_id) DO UPDATE SET a_device_id = EXCLUDED.a_device_id, a_port = EXCLUDED.a_port,
+                b_device_id = EXCLUDED.b_device_id, b_port = EXCLUDED.b_port
+            """,
+            [(c["cable_id"], c["a_device_id"], c["a_port"], c["b_device_id"], c["b_port"]) for c in cables],
+        )
+
+
 def fetch_circuits() -> list[dict] | None:
     """Every Nautobot circuit, with the address key of its description (#383).
 
@@ -1516,6 +1574,7 @@ def sync_nautobot(force: bool = False) -> None:
         tenant_links = fetch_location_tenant_links()
         tenants = fetch_tenants()
         circuits = fetch_circuits()
+        cables = fetch_cables(params or None)
         completed_at = timeutil.iso_utc_now()
         watermark = last_successful_sync
         observed_last_updated = timeutil.max_last_updated(raw_locations + raw_devices)
@@ -1537,6 +1596,9 @@ def sync_nautobot(force: bool = False) -> None:
                 write_tenants(conn, tenants)
             if circuits is not None:
                 write_circuits(conn, circuits)
+            # A full sync whose cables couldn't be read keeps the old ones.
+            if cables is not None:
+                write_cables(conn, cables, full=full_reconcile)
             record_sync_state(
                 conn,
                 source,

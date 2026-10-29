@@ -92,6 +92,23 @@ describe("devices", () => {
     expect(deviceCountNote(device("a", { alert_pending: true }))).toContain("not an alarm yet");
   });
 
+  it("an access point onboarding with Plug and Play (#534)", () => {
+    const pnp = { state: "Unclaimed", onb_state: "", error: "", controller: "Catalyst Center dk", stale: false };
+    const unclaimed = device("ap17", {
+      role: "Access Point",
+      primary_ip: "",
+      not_monitored: "onboarding (PnP: Unclaimed), per Catalyst Center dk",
+      onboarding: pnp,
+    });
+    expect(deviceAside(unclaimed, 1)).toBe("Onboarding (PnP: Unclaimed)");
+    expect(deviceCountNote(unclaimed)).toBe("Not counted yet: onboarding (PnP: Unclaimed), per Catalyst Center dk");
+    const failed = device("ap18", {
+      not_monitored: "PnP error: Image download failed, per Catalyst Center dk",
+      onboarding: { ...pnp, state: "Error", error: "Image download failed" },
+    });
+    expect(deviceAside(failed, 1)).toBe("PnP error");
+  });
+
   it("an opened device's facts", () => {
     const facts = deviceFacts(
       device("sw1", { status: "offline", manufacturer: "Cisco", device_type: "C9300", serial: "FOC1", platform: "IOS-XE" }),
@@ -100,6 +117,9 @@ describe("devices", () => {
     expect(facts).toEqual(["Cisco C9300", "IP 10.0.0.1", "Software IOS-XE", "Serial FOC1", "Status offline"]);
     // The role is in the facts when something else stands in its place.
     expect(deviceFacts(device("sw1"), "Stack of 4")[0]).toBe("Access");
+    // An access point's switch and port (#524).
+    const ap = device("ap3", { role: "Access Point", neighbour: { device: "hel-sw02", port: "Gi1/0/14", source: "Nautobot" } });
+    expect(deviceFacts(ap, "Access Point")).toContain("Connected to hel-sw02 · Gi1/0/14");
   });
 
   it("a key without an id", () => {

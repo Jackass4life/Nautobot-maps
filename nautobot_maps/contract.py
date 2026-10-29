@@ -302,6 +302,22 @@ CONTRACT: tuple[Endpoint, ...] = (
     ),
     Endpoint(
         NAUTOBOT,
+        "dcim/cables/",
+        "Which switch port each access point is on, when Catalyst Center's topology doesn't say (#524)",
+        (
+            Field("id", ("string",), required=True, becomes="cable_id"),
+            Field("termination_a", NESTED, rule="an interface; a cable whose ends aren't both devices' is skipped"),
+            Field("termination_a.device", NESTED, becomes="a_device_id", rule="its id"),
+            Field("termination_a.name", ("string", "null"), becomes="a_port"),
+            Field("termination_b", NESTED),
+            Field("termination_b.device", NESTED, becomes="b_device_id"),
+            Field("termination_b.name", ("string", "null"), becomes="b_port"),
+        ),
+        request="all pages, depth=1, incremental with last_updated__gte like the devices; a full sync replaces them",
+        stored_in="nautobot_cable_cache",
+    ),
+    Endpoint(
+        NAUTOBOT,
         "circuits/circuits/",
         "Circuits whose description is a site's address, in the site panel (#383); a tenant's circuits per site "
         "on its status page (#511)",
@@ -467,6 +483,7 @@ CONTRACT: tuple[Endpoint, ...] = (
                 "at WIRELESS_AP_LEVEL (#521)",
             ),
             Field("macAddress", ("string", "null"), becomes="mac"),
+            Field("id", ("string", "null"), becomes="id", rule="the access point's node in the topology (#524)"),
             Field(
                 "managementIpAddress",
                 ("string", "null"),
@@ -479,6 +496,74 @@ CONTRACT: tuple[Endpoint, ...] = (
         "?family=Unified AP, X-Auth-Token, pages of 500 (offset from 1); the response array",
         stored_in="wireless_ap_status (one row per AP per instance)",
         notes=("Every instance in WIRELESS_CONTROLLERS_FILE is checked; the last one read is shown.",),
+    ),
+    Endpoint(
+        CATALYST_CENTER,
+        "onboarding/pnp-device",
+        "Access points onboarding with Plug and Play, before they join their controller (#534): shown in the "
+        "site panel, never down or notified",
+        (
+            Field("deviceInfo", NESTED, required=True),
+            Field(
+                "deviceInfo.serialNumber",
+                ("string", "null"),
+                becomes="serial",
+                rule="matched to the Nautobot device serial (case-insensitive); a device the inventory "
+                "(network-device) lists is shown from there instead; one Nautobot doesn't have is ignored",
+            ),
+            Field(
+                "deviceInfo.state",
+                ("string", "null"),
+                becomes="state",
+                rule='Unclaimed, Planned, Onboarding, Provisioned or Error: "onboarding (PnP: <state>)" in the site '
+                'panel; Error is "PnP error"',
+            ),
+            Field("deviceInfo.onbState", ("string", "null"), becomes="onb_state"),
+            Field(
+                "deviceInfo.errorDetails",
+                ("object", "string", "null"),
+                becomes="error",
+                rule='its message and details, shown after "PnP error:"',
+            ),
+            Field("deviceInfo.hostname", ("string", "null"), becomes="hostname"),
+            Field("deviceInfo.pid", ("string", "null"), becomes="pid"),
+            Field(
+                "deviceInfo.lastContact", ("integer", "number", "null"), becomes="last_contact", rule="ms since 1970"
+            ),
+        ),
+        request="GET /dna/intent/api/v1/onboarding/pnp-device, X-Auth-Token, pages of 500 (offset from 0); the "
+        'list itself (or its "response"); with the access points, never one request per AP',
+        stored_in="wireless_pnp_status (one row per serial per instance)",
+        notes=(
+            "Not yet checked against a real Catalyst Center: the fields are from Cisco's API documentation.",
+            "Read after the access points; when it can't be read, the last answer is kept and the access points "
+            "are unaffected.",
+        ),
+    ),
+    Endpoint(
+        CATALYST_CENTER,
+        "topology/physical-topology",
+        "Which switch and port each access point is on (#524): CDP/LLDP neighbours, shown with a down access "
+        'point and as "12 of 16 behind <switch>"',
+        (
+            Field("source", ("string",), required=True, rule="a node id: the access point or the switch"),
+            Field("target", ("string",), required=True),
+            Field(
+                "startPortName",
+                ("string", "null"),
+                becomes="switch_port",
+                rule="the switch's port: startPortName when the switch is the source, else endPortName",
+            ),
+            Field("endPortName", ("string", "null"), becomes="switch_port"),
+        ),
+        request="GET /dna/intent/api/v1/topology/physical-topology, X-Auth-Token, with the access points, once per "
+        "instance; its response's links (checked here) and nodes (id, label = the name, family = Unified AP for "
+        "an access point)",
+        stored_in="wireless_ap_neighbours (one row per AP per instance)",
+        notes=(
+            "Not yet checked against a real Catalyst Center: the fields are from Cisco's API documentation.",
+            "An access point's node id is its id in network-device; when it can't be read, the last answer is kept.",
+        ),
     ),
     Endpoint(
         ARUBA_CENTRAL,

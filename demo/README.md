@@ -118,6 +118,14 @@ points, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
   through the controller, and the map's site panel shows *sto-ap02*'s address
   "from Catalyst Center demo". Without the wireless file they are "Not
   monitored: no primary IP".
+- Each access point is on its site's first switch (#524): Catalyst Center's
+  topology says "GigabitEthernet1/0/n", Nautobot's cables "Gi1/0/n". A down
+  access point's line says "Connected to … · …"; at scale, the site whose
+  access points are all down says "16 of 16 behind <its switch>".
+- *sto-ap04* and *sto-ap05* are being onboarded with Plug and Play (#534): not
+  in the controller's inventory, only in its Plug and Play list. The map's
+  site panel for *Stockholm PoP* says "Onboarding (PnP: Unclaimed)" and "PnP
+  error" ("Image download failed: timeout"); the board shows nothing for them.
 
 With `MOCK_SCALE=1200` it is an Aruba New Central too (`demo/wireless.yml`
 lists both): Catalyst Center has the even scale sites' access points, New

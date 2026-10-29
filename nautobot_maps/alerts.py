@@ -19,6 +19,7 @@ from nautobot_maps import (
     librenms,
     maintenance,
     nautobot,
+    neighbours,
     notify,
     settings,
     timeutil,
@@ -177,6 +178,11 @@ def board_device_rules() -> dict:
 def not_monitored_reason(device: dict) -> str:
     """Why *device* doesn't count towards its site's level ("" when it does), for the site panel (#316)."""
     if not is_monitored(device):
+        # Being onboarded with Plug and Play (#534): not down, not yet watched.
+        if device.get("onboarding"):
+            pnp = device["onboarding"]
+            last_known = "last known " if pnp.get("stale") else ""
+            return f"{wireless.onboarding_text(pnp)}, {last_known}per {pnp['controller']}"
         # An access point no controller lists (#521): say where else to look.
         if wireless.configured() and wireless.is_access_point(device):
             return "no primary IP, not in a wireless controller"
@@ -860,6 +866,14 @@ def tier_rank(tier: str) -> int:
     """0 for the most important tier in SITE_TIERS (#293); 99 without a known tier."""
     tier = (tier or "").strip().lower()
     return settings.SITE_TIERS.index(tier) if tier in settings.SITE_TIERS else 99
+
+
+def site_behind(devices: list[dict], down_devices: list[dict], index: dict) -> dict | None:
+    """The switch at least two of the site's down access points are behind (#524)."""
+    down_ids = {d.get("id") or "" for d in down_devices if neighbours.is_ap(d)} - {""}
+    if len(down_ids) < neighbours.BEHIND_MIN_DOWN:
+        return None
+    return neighbours.behind([d for d in devices if neighbours.is_ap(d)], down_ids, index)
 
 
 def shown_level(level: str, wireless_only: bool) -> str:
@@ -1701,6 +1715,8 @@ def build_alert_board_payload(
     alarmed_device_ids: set[str] = set()
     # What the wireless controllers say (#508, #521); {} without any.
     wireless_index: dict = {}
+    # Which switch and port each access point is on (#524).
+    neighbour_index: dict = neighbours.empty_index()
     # Configured but not readable: the APs they watch would look unmonitored,
     # so, as with maintenance, no history or level changes this build.
     wireless_unknown = False
@@ -1738,6 +1754,10 @@ def build_alert_board_payload(
         except Exception as exc:
             wireless_unknown = True
             logger.warning("Could not read the wireless controllers' access points: %s", exc)
+        try:
+            neighbour_index = neighbours.read_index(read_conn)
+        except Exception as exc:
+            logger.warning("Could not read the access points' switches; not named this build: %s", exc)
         try:
             in_maintenance = maintenance.read_active(read_conn, maintenance.now())
         except Exception as exc:
@@ -2020,6 +2040,12 @@ def build_alert_board_payload(
                     ),
                     # Watched by a wireless controller (#521): folded under the others.
                     **({"access_point": True} if device.get("wireless") else {}),
+                    # The switch and port an access point is on (#524).
+                    **(
+                        {"neighbour": neighbour}
+                        if neighbours.is_ap(device) and (neighbour := neighbours.lookup(neighbour_index, device))
+                        else {}
+                    ),
                     # Part of a stack: which, and its place in it (#400).
                     # In maintenance it isn't counted: not "all members down" (#405).
                     **(
@@ -2069,6 +2095,8 @@ def build_alert_board_payload(
                     merged["down_reason"] = current_item["down_reason"]
                 if current_item.get("access_point"):
                     merged["access_point"] = True
+                if current_item.get("neighbour"):
+                    merged["neighbour"] = current_item["neighbour"]
                 if current_item.get("stack"):
                     merged["stack"] = current_item["stack"]
                 merged["device_ip"] = device_ip_by_key.get(item_key, "")
@@ -2182,6 +2210,12 @@ def build_alert_board_payload(
                     ),
                     "active_cases": alert_context["active_cases"],
                     "down_devices": merged_down_devices,
+                    # "12 of 16 behind sw02" (#524): the switch is the likely problem.
+                    **(
+                        {"behind": behind}
+                        if site_window is None and (behind := site_behind(devices, down_devices, neighbour_index))
+                        else {}
+                    ),
                     **(
                         {
                             "maintenance": {
@@ -2608,7 +2642,12 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     # The panel's down list in the board's order (#394): each device's level as
     # the board weighs it (#377), and whether it is core, the likely cause (#285).
     core_keywords = get_critical_keywords(location_type)
+    aps = [device for device in devices if neighbours.is_ap(device)]
+    neighbour_index = neighbours.load_index(aps) if aps else None
     for device in devices:
+        # The switch and port an access point is on (#524).
+        if neighbours.is_ap(device) and (neighbour := neighbours.lookup(neighbour_index, device)):
+            device["neighbour"] = neighbour
         device["core"] = is_core_device(device, core_keywords, overrides)
         device["level"] = device_level(device, core_keywords, overrides)[0]
         device["not_monitored"] = not_monitored_reason(device)

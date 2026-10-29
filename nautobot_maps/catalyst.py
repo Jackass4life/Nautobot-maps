@@ -77,6 +77,8 @@ def get(controller: dict, path: str, params: dict) -> dict:
 def ap_record(device: dict) -> dict:
     """What the app keeps of one AP: its serial, MAC, name and address (#521), and whether it is up."""
     return {
+        # Its id in Catalyst Center: the topology's node id (#524).
+        "id": str(device.get("id") or "").strip(),
         "serial": str(device.get("serialNumber") or "").strip(),
         "mac": str(device.get("macAddress") or "").strip().lower(),
         "name": str(device.get("hostname") or "").strip(),
@@ -100,3 +102,95 @@ def fetch_devices(controller: dict) -> list[dict]:
         if len(devices) < PAGE_SIZE:
             return aps
     raise RuntimeError(f"Catalyst Center listed more than {MAX_PAGES * PAGE_SIZE} access points; stopped")
+
+
+# Plug and Play (#534): an AP being onboarded isn't in the device inventory
+# until it has joined its controller.  A few dozen at a time, hundreds in a
+# large rollout: pages of 500, at most 10,000.
+PNP_PAGE_SIZE = 500
+PNP_MAX_PAGES = 20
+
+
+def _error_text(value) -> str:
+    """``errorDetails`` as text: a string, or an object's message and details."""
+    if isinstance(value, dict):
+        parts = [str(value.get(key) or "").strip() for key in ("message", "details")]
+        return " ".join(dict.fromkeys(part for part in parts if part))
+    return str(value or "").strip()
+
+
+def pnp_record(device: dict) -> dict:
+    """What the app keeps of one Plug and Play device: its serial (the match),
+    name, model, where it is in onboarding and why it failed."""
+    info = device.get("deviceInfo") if isinstance(device.get("deviceInfo"), dict) else {}
+    last_contact = info.get("lastContact")
+    return {
+        "serial": str(info.get("serialNumber") or "").strip(),
+        "hostname": str(info.get("hostname") or "").strip(),
+        "pid": str(info.get("pid") or "").strip(),
+        "state": str(info.get("state") or "").strip(),
+        "onb_state": str(info.get("onbState") or "").strip(),
+        "error": _error_text(info.get("errorDetails")),
+        # Milliseconds since the epoch.
+        "last_contact": last_contact / 1000 if isinstance(last_contact, int | float) and last_contact > 0 else None,
+    }
+
+
+def fetch_pnp_devices(controller: dict) -> list[dict]:
+    """Every device Plug and Play lists on this instance (#534), in pages."""
+    devices = []
+    for page in range(PNP_MAX_PAGES):
+        data = get(
+            controller,
+            "/dna/intent/api/v1/onboarding/pnp-device",
+            {"offset": page * PNP_PAGE_SIZE, "limit": PNP_PAGE_SIZE},
+        )
+        # The list itself; some releases wrap it in "response".
+        listed = data if isinstance(data, list) else (data.get("response") or [] if isinstance(data, dict) else [])
+        devices.extend(device for device in listed if isinstance(device, dict))
+        if len(listed) < PNP_PAGE_SIZE:
+            return devices
+    raise RuntimeError(f"Catalyst Center's Plug and Play listed more than {PNP_MAX_PAGES * PNP_PAGE_SIZE} devices")
+
+
+# Which switch and port each access point is on (#524): the physical
+# topology (CDP/LLDP), one request per instance, never one per AP.
+AP_FAMILY = "unified ap"
+
+
+def fetch_topology(controller: dict) -> dict:
+    """The instance's physical topology: ``{"nodes": [...], "links": [...]}``."""
+    data = get(controller, "/dna/intent/api/v1/topology/physical-topology", {})
+    topology = data.get("response") if isinstance(data, dict) else None
+    return topology if isinstance(topology, dict) else {"nodes": [], "links": []}
+
+
+def ap_neighbours(topology: dict) -> list[dict]:
+    """Each access point's link to a device that isn't one: ``{"ap_id",
+    "ap_name", "switch", "port"}``; the AP's own port is left out.  An AP
+    with several such links (a second uplink) keeps its first."""
+    nodes = {str(node.get("id")): node for node in topology.get("nodes") or [] if isinstance(node, dict)}
+
+    def is_ap(node: dict) -> bool:
+        return str(node.get("family") or node.get("deviceType") or "").strip().lower() == AP_FAMILY
+
+    found: dict[str, dict] = {}
+    for link in topology.get("links") or []:
+        if not isinstance(link, dict):
+            continue
+        source, target = nodes.get(str(link.get("source"))), nodes.get(str(link.get("target")))
+        if not source or not target or is_ap(source) == is_ap(target):
+            continue
+        ap, switch, port = (
+            (source, target, link.get("endPortName")) if is_ap(source) else (target, source, link.get("startPortName"))
+        )
+        ap_id = str(ap.get("id"))
+        if ap_id in found:
+            continue
+        found[ap_id] = {
+            "ap_id": ap_id,
+            "ap_name": str(ap.get("label") or "").strip(),
+            "switch": str(switch.get("label") or "").strip(),
+            "port": str(port or "").strip(),
+        }
+    return [neighbour for neighbour in found.values() if neighbour["switch"]]

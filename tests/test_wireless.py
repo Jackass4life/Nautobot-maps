@@ -3,6 +3,7 @@ and New Central, any number of instances; on the board without a primary IP,
 at WIRELESS_AP_LEVEL under the Wireless chip, never notified (#521)."""
 
 import os
+from datetime import UTC, datetime
 
 import pytest
 import requests
@@ -243,13 +244,14 @@ class TestCatalystCenter:
     def test_what_is_kept_of_an_ap(self):
         assert catalyst.ap_record(
             {
+                "id": "node-1",
                 "serialNumber": " FGL1 ",
                 "hostname": "ap1",
                 "macAddress": "AA:BB",
                 "managementIpAddress": "10.20.31.47",
                 "reachabilityStatus": "Unreachable",
             }
-        ) == {"serial": "FGL1", "mac": "aa:bb", "name": "ap1", "ip": "10.20.31.47", "up": False}
+        ) == {"id": "node-1", "serial": "FGL1", "mac": "aa:bb", "name": "ap1", "ip": "10.20.31.47", "up": False}
         assert catalyst.ap_record({"reachabilityStatus": "Reachable"})["up"] is True
         assert catalyst.ap_record({})["up"] is False
 
@@ -409,6 +411,28 @@ def controllers(pg_database, monkeypatch):
         return answer
 
     monkeypatch.setattr(wireless, "fetch_aps", fetch)
+    # Plug and Play (#534): nothing onboarding unless a test says so.
+    pnp = {"dk": [], "se": []}
+
+    def fetch_pnp(controller):
+        answer = pnp[controller["name"]]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(wireless, "fetch_pnp", fetch_pnp)
+    answers["pnp"] = pnp
+    # The physical topology (#524): no links unless a test says so.
+    topology = {"dk": {"nodes": [], "links": []}, "se": {"nodes": [], "links": []}}
+
+    def fetch_topology(controller):
+        answer = topology[controller["name"]]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(catalyst, "fetch_topology", fetch_topology)
+    answers["topology"] = topology
     return answers
 
 
@@ -958,3 +982,140 @@ class TestCheck:
         assert "s3cret" not in out
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", ())
         assert cli.main(["wireless-check"]) == 0
+
+
+def pnp(serial: str, state: str = "Unclaimed", error: str = "") -> dict:
+    return {"serial": serial, "hostname": "", "pid": "C9120AXI", "state": state, "onb_state": "", "error": error}
+
+
+def store_pnp(controller: dict, devices: list[dict]) -> None:
+    """As a sync just now (staleness is by the real clock)."""
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            wireless.write_pnp(conn, controller, devices, datetime.now(UTC).isoformat())
+    finally:
+        conn.close()
+
+
+class TestPlugAndPlay:
+    """Access points onboarding with Plug and Play (#534): in the site panel
+    with where they are, never on the board, never notified."""
+
+    def test_the_record(self):
+        record = catalyst.pnp_record(
+            {
+                "deviceInfo": {
+                    "serialNumber": " FJC1 ",
+                    "hostname": "ap17",
+                    "pid": "C9120AXI",
+                    "state": "Error",
+                    "onbState": "Provisioning",
+                    "lastContact": 1798000000000,
+                    "errorDetails": {"message": "Image download failed", "details": "timeout"},
+                }
+            }
+        )
+        assert record == {
+            "serial": "FJC1",
+            "hostname": "ap17",
+            "pid": "C9120AXI",
+            "state": "Error",
+            "onb_state": "Provisioning",
+            "error": "Image download failed timeout",
+            "last_contact": 1798000000.0,
+        }
+        assert catalyst.pnp_record({"deviceInfo": {"errorDetails": "refused"}})["error"] == "refused"
+        assert catalyst.pnp_record({})["serial"] == "" and catalyst.pnp_record({})["last_contact"] is None
+
+    def test_read_in_pages(self, monkeypatch):
+        asked = []
+
+        def get(controller, path, params):
+            asked.append((path, params))
+            total = 503
+            start = params["offset"]
+            return [
+                {"deviceInfo": {"serialNumber": f"S{n}"}} for n in range(start, min(total, start + params["limit"]))
+            ]
+
+        monkeypatch.setattr(catalyst, "get", get)
+        assert len(catalyst.fetch_pnp_devices(DK)) == 503
+        assert asked == [
+            ("/dna/intent/api/v1/onboarding/pnp-device", {"offset": 0, "limit": 500}),
+            ("/dna/intent/api/v1/onboarding/pnp-device", {"offset": 500, "limit": 500}),
+        ]
+        # Some releases wrap it.
+        monkeypatch.setattr(catalyst, "get", lambda c, p, q: {"response": [{"deviceInfo": {"serialNumber": "S1"}}]})
+        assert len(catalyst.fetch_pnp_devices(DK)) == 1
+        # Aruba Central has none here.
+        assert wireless.fetch_pnp({**DK, "kind": "aruba_central"}) is None
+
+    def test_synced_with_the_access_points_and_a_failure_keeps_the_last_answer(self, controllers, monkeypatch):
+        controllers["dk"] = [ap("dk-ap1", True, "FGL1")]
+        controllers["pnp"]["dk"] = [pnp("fjc1"), pnp("FJC2", "Error", "Image download failed"), pnp("")]
+        wireless.sync_controller(DK)
+        found = read_index()["pnp"]
+        assert set(found) == {"FJC1", "FJC2"}, "by serial; one without a serial can't be matched"
+        assert found["FJC2"] == {
+            "state": "Error",
+            "onb_state": "",
+            "error": "Image download failed",
+            "controller": "Catalyst Center dk",
+            "stale": False,
+        }
+        controllers["pnp"]["dk"] = requests.ConnectionError("refused")
+        wireless.sync_controller(DK)
+        assert sync_states()["dk"]["status"] == "idle", "the access points are unaffected"
+        assert set(read_index()["pnp"]) == {"FJC1", "FJC2"}, "kept"
+        # An instance no longer in the file is forgotten.
+        store_pnp(SE, [pnp("FJC9")])
+        assert "FJC9" in read_index()["pnp"]
+        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
+        conn = db.get_conn()
+        try:
+            wireless.prune(conn)
+            assert (
+                conn.execute("SELECT count(*) AS n FROM wireless_pnp_status WHERE serial_key = 'FJC9'").fetchone()["n"]
+                == 0
+            )
+        finally:
+            conn.close()
+
+    def test_the_site_panel_says_where_it_is_and_the_board_nothing(self, board, monkeypatch):
+        write_sites({"cph": {"sw1": "Active", "ap01": "Active", "ap02": "Planned", "ap03": "Planned"}})
+        before = build_board()["alerts"][0]
+        # ap01 joined its controller; ap02 waits to be claimed, ap03 failed; one isn't in Nautobot.
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                wireless.write_aps(conn, DK, [ap("cph-ap01", True, "FGL-cph-ap01")], datetime.now(UTC).isoformat())
+        finally:
+            conn.close()
+        store_pnp(
+            DK,
+            [
+                pnp("FGL-cph-ap01"),
+                pnp("FGL-cph-ap02"),
+                pnp("FGL-cph-ap03", "Error", "Image download failed"),
+                pnp("NOT-IN-NAUTOBOT"),
+            ],
+        )
+        monkeypatch.setattr(alerts.nautobot, "fetch_all_pages", lambda *a, **k: [])
+        monkeypatch.setattr(alerts, "location_circuits", lambda location_id: ([], ""))
+        devices = {d["name"]: d for d in alerts.get_location_detail("cph")["devices"]}
+        assert "onboarding" not in devices["cph-ap01"] and devices["cph-ap01"]["wireless"], "the inventory wins"
+        assert devices["cph-ap02"]["not_monitored"] == "onboarding (PnP: Unclaimed), per Catalyst Center dk"
+        assert devices["cph-ap02"]["onboarding"]["state"] == "Unclaimed"
+        assert devices["cph-ap03"]["not_monitored"] == "PnP error: Image download failed, per Catalyst Center dk"
+        assert len(devices) == 4, "a device Nautobot doesn't have is ignored"
+        after = build_board()["alerts"][0]
+        assert after["alert_level"] == before["alert_level"] == "ok"
+        assert after["device_count"] == before["device_count"] + 1, "only ap01, which joined, is monitored"
+        assert after.get("down_access_point_count", 0) == 0
+
+    def test_last_known(self):
+        text = alerts.not_monitored_reason(
+            {"onboarding": {"state": "Planned", "error": "", "controller": "Catalyst Center dk", "stale": True}}
+        )
+        assert text == "onboarding (PnP: Planned), last known per Catalyst Center dk"

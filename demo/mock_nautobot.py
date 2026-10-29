@@ -339,6 +339,20 @@ DEVICES = {
             }
             for n in range(1, 4)
         ),
+        # Two more being onboarded with Plug and Play (#534): no address yet,
+        # not in Catalyst Center's inventory, only in its PnP list.
+        *(
+            {
+                "id": f"dev-sto-ap-{n}",
+                "name": f"sto-ap0{n}",
+                "device_type": {"model": "C9120AXI", "manufacturer": {"name": "Cisco"}},
+                "role": {"name": "Access Point"},
+                "status": {"label": "Planned"},
+                "serial": f"FJC-PNP-0{n}",
+                "tenant": TENANTS["ten-acme"],
+            }
+            for n in (4, 5)
+        ),
     ],
     "loc-ams": [
         {
@@ -559,7 +573,15 @@ DEVICES["loc-aar-bld-a-f2"] = [
     }
 ]
 
-DEVICES_WITHOUT_PRIMARY_IP = {"dev-lon-7", "dev-par-stk-2", "dev-par-stk-3", "dev-par-stk-4"}
+DEVICES_WITHOUT_PRIMARY_IP = {
+    "dev-lon-7",
+    "dev-par-stk-2",
+    "dev-par-stk-3",
+    "dev-par-stk-4",
+    # Onboarding with Plug and Play (#534).
+    "dev-sto-ap-4",
+    "dev-sto-ap-5",
+}
 
 
 # Nautobot returns last_updated on every object; the incremental sync and the
@@ -1076,6 +1098,38 @@ def circuits(request: Request):
     return _paginate(request, [*terminated.values(), *ADDRESS_CIRCUITS])
 
 
+def _ap_uplinks() -> list[tuple[dict, dict, str]]:
+    """Which device each access point is plugged into (#524): at each site,
+    the first switch (else its first other device), port 1/0/n for the n-th."""
+    uplinks = []
+    for devices in DEVICES.values():
+        aps = [d for d in devices if (d.get("role") or {}).get("name") == "Access Point"]
+        others = [d for d in devices if d not in aps]
+        if not aps or not others:
+            continue
+        switch = next((d for d in others if "Switch" in ((d.get("role") or {}).get("name") or "")), others[0])
+        uplinks.extend((ap, switch, f"1/0/{n}") for n, ap in enumerate(aps, start=1))
+    return uplinks
+
+
+@app.get("/api/dcim/cables/")
+def cables(request: Request):
+    """Nautobot's cables between the access points and their switches (#524)."""
+    _check_auth(request)
+    items = [
+        {
+            "id": f"cable-{ap['id']}",
+            "termination_a_type": "dcim.interface",
+            "termination_a": {"id": f"if-{switch['id']}-{port}", "name": f"Gi{port}", "device": {"id": switch["id"]}},
+            "termination_b_type": "dcim.interface",
+            "termination_b": {"id": f"if-{ap['id']}-0", "name": "GigabitEthernet0", "device": {"id": ap["id"]}},
+            "last_updated": MOCK_LAST_UPDATED,
+        }
+        for ap, switch, port in _ap_uplinks()
+    ]
+    return _paginate(request, items)
+
+
 @app.get("/api/extras/relationships/")
 def relationships(request: Request):
     _check_auth(request)
@@ -1124,8 +1178,14 @@ def _wifi_outage_site(aps: list[dict]) -> str:
     return max(sorted(counts), key=lambda site: counts[site]) if counts else ""
 
 
+# Catalyst Center's Plug and Play (#534): sto-ap04 waits to be claimed,
+# sto-ap05 failed; neither has joined its controller, so the inventory
+# doesn't list them.  One more isn't in Nautobot (ignored).
+PNP_APS = {"sto-ap04": ("Unclaimed", "", None), "sto-ap05": ("Error", "Provisioning", "Image download failed: timeout")}
+
+
 def _catalyst_aps() -> list[dict]:
-    aps = _access_points("catalyst_center")
+    aps = [device for device in _access_points("catalyst_center") if device["name"] not in PNP_APS]
     outage = _wifi_outage_site(aps)
     listed = []
     for index, device in enumerate(aps):
@@ -1201,6 +1261,62 @@ def catalyst_token(request: Request):
     if not request.headers.get("Authorization", "").startswith("Basic "):
         raise HTTPException(status_code=401, detail="Basic auth required")
     return {"Token": CATALYST_TOKEN}
+
+
+@app.get("/dna/intent/api/v1/onboarding/pnp-device")
+def catalyst_pnp_devices(request: Request):
+    if request.headers.get("X-Auth-Token") != CATALYST_TOKEN:
+        raise HTTPException(status_code=401, detail="Token expired or invalid")
+    devices = [
+        {
+            "id": f"pnp-{device['id']}",
+            "deviceInfo": {
+                "serialNumber": device["serial"],
+                "hostname": device["name"],
+                "pid": device["device_type"]["model"],
+                "state": state,
+                "onbState": onb_state,
+                "lastContact": 1798000000000,
+                **({"errorDetails": {"message": error}} if error else {}),
+            },
+        }
+        for device in ALL_DEVICES
+        if device["name"] in PNP_APS
+        for state, onb_state, error in [PNP_APS[device["name"]]]
+    ]
+    devices.append({"id": "pnp-unknown", "deviceInfo": {"serialNumber": "FJC-NOT-IN-NAUTOBOT", "state": "Unclaimed"}})
+    offset = max(0, int(request.query_params.get("offset", 0)))
+    limit = min(1000, int(request.query_params.get("limit", 50)))
+    return devices[offset : offset + limit]
+
+
+@app.get("/dna/intent/api/v1/topology/physical-topology")
+def catalyst_topology(request: Request):
+    """Catalyst Center's CDP/LLDP neighbours (#524): its access points and the
+    switches they are on, which it calls GigabitEthernet1/0/n."""
+    if request.headers.get("X-Auth-Token") != CATALYST_TOKEN:
+        raise HTTPException(status_code=401, detail="Token expired or invalid")
+    listed = {ap["id"] for ap in _catalyst_aps()}
+    nodes, links = {}, []
+    for ap, switch, port in _ap_uplinks():
+        if f"cc-{ap['id']}" not in listed:
+            continue
+        nodes[f"cc-{ap['id']}"] = {"id": f"cc-{ap['id']}", "label": ap["name"], "family": "Unified AP"}
+        nodes[f"sw-{switch['id']}"] = {
+            "id": f"sw-{switch['id']}",
+            "label": switch["name"],
+            "family": "Switches and Hubs",
+        }
+        links.append(
+            {
+                "source": f"sw-{switch['id']}",
+                "target": f"cc-{ap['id']}",
+                "startPortName": f"GigabitEthernet{port}",
+                "endPortName": "GigabitEthernet0",
+                "linkStatus": "up",
+            }
+        )
+    return {"response": {"nodes": list(nodes.values()), "links": links}, "version": "1.0"}
 
 
 @app.get("/dna/intent/api/v1/network-device")

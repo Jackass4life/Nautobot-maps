@@ -38,3 +38,16 @@ export function nautobotLocationUrl(nautobotUrl: string, locationId: string): st
 export function nautobotCircuitUrl(nautobotUrl: string, circuitId: string): string {
   return `${nautobotUrl.replace(/\/+$/, "")}/circuits/circuits/${encodeURIComponent(circuitId)}/`;
 }
+
+// The switch and port an access point is on (#524): "Connected to
+// hel0008-acc-sw02 · Gi1/0/14".
+export function neighbourText(neighbour: { device: string; port?: string | null } | null | undefined): string {
+  if (!neighbour?.device) return "";
+  return [`Connected to ${neighbour.device}`, neighbour.port || ""].filter(Boolean).join(" · ");
+}
+
+// Down access points behind one switch (#524): "12 of 16 behind hel0008-acc-sw02".
+export function behindText(behind: { device: string; down: number; total: number } | null | undefined): string {
+  if (!behind?.device) return "";
+  return `${behind.down.toLocaleString("en")} of ${behind.total.toLocaleString("en")} behind ${behind.device}`;
+}

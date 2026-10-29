@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from nautobot_maps.api.answers import circuits, common
+from nautobot_maps.api.answers import board, circuits, common
 
 Level = Literal["critical", "medium", "low", "ok", "maintenance", "no_data"]
 
@@ -112,6 +112,16 @@ class WirelessAp(common.Answer):
     stale: bool = Field(description="The controller hasn't answered lately: this is its last known answer.")
 
 
+class Onboarding(common.Answer):
+    """Where Plug and Play is with a device no inventory lists yet (#534)."""
+
+    state: str = Field(description="Unclaimed, Planned, Onboarding, Provisioned or Error, as Catalyst Center says it.")
+    onb_state: str = Field(description="Its onboarding step, as Catalyst Center says it; may be empty.")
+    error: str = Field(description="Why it failed; empty when it didn't.")
+    controller: str = Field(description='The instance, e.g. "Catalyst Center dk".')
+    stale: bool = Field(description="The controller hasn't answered lately: this is its last known answer.")
+
+
 class SiteDevice(common.Answer):
     """A device at the site, as the panel shows it."""
 
@@ -147,6 +157,11 @@ class SiteDevice(common.Answer):
     acknowledged_by: str | None = Field(None, description="Who acknowledged its open alert; empty when nobody did.")
     wireless: WirelessAp | None = Field(
         None, description="Listed by a wireless controller: monitored without a primary IP (#521)."
+    )
+    neighbour: board.Neighbour | None = Field(None, description="The switch and port this access point is on (#524).")
+    onboarding: Onboarding | None = Field(
+        None,
+        description="Not in a controller's inventory yet, but in its Plug and Play (#534): not monitored, not down.",
     )
 
 

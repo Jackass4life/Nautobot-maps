@@ -2,7 +2,7 @@
 // order, and the words on its rows, panels and feed.  No page access: the
 // tests run these as they are.
 import type { components } from "~/api/schema";
-import { formatFeedTime, nautobotLocationUrl } from "./format";
+import { behindText, formatFeedTime, nautobotLocationUrl, neighbourText } from "./format";
 import { siteAddress, siteSearchText } from "./sitesearch";
 import { siteTenants, type Scope } from "./scope";
 import { plural } from "./availability";
@@ -525,6 +525,8 @@ export function siteReport(item: BoardSite, { nautobotUrl = "", caseTemplate = "
   if (cores.length && behind) {
     lines.push(`Likely cause: ${cores.join(", ")} down; ${behind} other device${behind === 1 ? "" : "s"} probably behind it`);
   }
+  // Access points down behind one switch (#524).
+  if (item.behind) lines.push(`Access points: ${behindText(item.behind)}`);
   lines.push("", `Down devices (${devices.length}):`);
   devices.forEach((device) => {
     const since = formatReportTime(device.down_started_at);
@@ -541,6 +543,7 @@ export function siteReport(item: BoardSite, { nautobotUrl = "", caseTemplate = "
       device.core ? "Core device" : "",
       device.set_level ? `Set ${device.set_level} in Nautobot` : "",
       device.probable_cause ? `Likely caused by ${device.probable_cause}` : "",
+      neighbourText(device.neighbour),
     ];
     lines.push(`- ${fields.filter(Boolean).join(" | ")}`);
   });
