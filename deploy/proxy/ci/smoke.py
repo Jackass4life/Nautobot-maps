@@ -133,6 +133,15 @@ results.append(
         (status, headers.get("Location")),
     )
 )
+# Without OIDC_LOGOUT_URL (GitLab): a page that never sends anyone to the login.
+status, headers, body = get(f"{HTTPS}/signed-out")
+results.append(
+    check(
+        "the signed-out page needs no login and links the identity provider",
+        status == 200 and "You are signed out" in body and 'href="https://idp.example.com"' in body,
+        status,
+    )
+)
 
 status, _, _ = get(f"{HTTPS}/metrics", SIGNED_IN)
 results.append(check("/metrics is not served", status == 404, status))

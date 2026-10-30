@@ -89,10 +89,12 @@ services:
     environment:
       - PUBLIC_HOSTNAME=${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
       - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET}
-      # After Sign out: the identity provider's logout (#546), else the app.
+      # After Sign out: the identity provider's logout (#546), else a page
+      # that links its sign-in (OIDC_ISSUER_URL) to sign out there.
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL}
       - OIDC_LOGOUT_URL=${OIDC_LOGOUT_URL:-}
       # Only these are filled into the templates; nginx's own $variables stay.
-      - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_LOGOUT_URL)$
+      - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_ISSUER_URL|OIDC_LOGOUT_URL)$
     volumes:
       - ./deploy/proxy/templates:/etc/nginx/templates:ro
       - ./deploy/proxy/certs:/etc/nginx/certs:ro
