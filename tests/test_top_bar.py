@@ -1,7 +1,13 @@
 """One top bar on every staff page (#419): a site search, how fresh the data
 is, who is signed in, the theme and the pages."""
 
+import os
+import pathlib
+import subprocess
+import sys
 from datetime import UTC, datetime
+
+import pytest
 
 from nautobot_maps import metrics, settings
 from tests.test_app import auth_config
@@ -93,7 +99,29 @@ class TestPageConfig:
             config = client.get(
                 "/api/page-config", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
             ).get_json()
-        assert config["user"] == {"name": "olga", "role": "operator"}
+        assert config["user"] == {"name": "olga", "role": "operator", "sign_out_url": ""}
+
+    def test_sign_out_for_someone_signed_in_through_the_proxy(self, client, monkeypatch):
+        """#546: AUTH_SIGN_OUT_URL is where the top bar's Sign out goes."""
+        monkeypatch.setattr(settings, "AUTH_SIGN_OUT_URL", "/oauth2/sign_out")
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            config = client.get(
+                "/api/page-config", headers={"X-Forwarded-User": "olga", "X-Forwarded-Groups": "noc"}
+            ).get_json()
+            anonymous = client.get("/api/page-config").get_json()
+        assert config["user"]["sign_out_url"] == "/oauth2/sign_out"
+        assert anonymous["user"] is None
+
+    def test_no_sign_out_for_a_token_or_without_sign_in(self, monkeypatch):
+        """A token has no session to end; with AUTH_MODE=disabled nobody is signed in."""
+        from nautobot_maps import templating
+
+        monkeypatch.setattr(settings, "AUTH_SIGN_OUT_URL", "/oauth2/sign_out")
+        monkeypatch.setattr(settings, "AUTH_MODE", "header")
+        assert templating.sign_out_url({"username": "olga"}) == "/oauth2/sign_out"
+        assert templating.sign_out_url({"username": "token:librenms", "token": "librenms"}) == ""
+        monkeypatch.setattr(settings, "AUTH_MODE", "disabled")
+        assert templating.sign_out_url({"username": "token:librenms", "token": "librenms"}) == ""
 
     def test_the_boards_case_links_and_levels(self, client, monkeypatch):
         from nautobot_maps import alerts
@@ -126,3 +154,29 @@ class TestPageConfig:
         assert pages["map"] == "/?tenant=Acme%20Corp&q=DNK"
         assert pages["wall"] == "/alerts?view=wall&tenant=Acme%20Corp&q=DNK"
         assert pages["circuits"] == "/circuits"
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("/oauth2/sign_out", "/oauth2/sign_out"),
+        ("https://sso.example.com/logout", "https://sso.example.com/logout"),
+        ("//evil.example.com/", ""),
+        ("javascript:alert(1)", ""),
+        ("", ""),
+    ],
+)
+def test_the_sign_out_url_is_a_path_or_http(value, expected):
+    """#546: anything else is ignored with a warning, never put in a link."""
+    code = "from nautobot_maps import settings; print(settings.AUTH_SIGN_OUT_URL)"
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=pathlib.Path(__file__).resolve().parent.parent,
+        env={**os.environ, "AUTH_SIGN_OUT_URL": value},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert completed.stdout.strip() == expected
+    if value and not expected:
+        assert "AUTH_SIGN_OUT_URL ignored" in completed.stderr

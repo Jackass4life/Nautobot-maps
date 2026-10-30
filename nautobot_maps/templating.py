@@ -8,7 +8,7 @@ import pathlib
 
 import jinja2
 
-from nautobot_maps import auth
+from nautobot_maps import auth, settings
 
 TEMPLATES = pathlib.Path(__file__).resolve().parent.parent / "templates"
 
@@ -20,7 +20,15 @@ def bar_user() -> dict | None:
     name = user.get("token") or user.get("username") or ""
     if not user.get("is_authenticated") or not name:
         return None
-    return {"name": name, "role": user.get("role") or ""}
+    return {"name": name, "role": user.get("role") or "", "sign_out_url": sign_out_url(user)}
+
+
+def sign_out_url(user: dict) -> str:
+    """Where Sign out goes (#546): AUTH_SIGN_OUT_URL for someone signed in
+    through the proxy; "" for an API token, which has no session to end."""
+    if settings.AUTH_MODE != "header" or user.get("token"):
+        return ""
+    return settings.AUTH_SIGN_OUT_URL
 
 
 def url_for(endpoint: str, **values) -> str:

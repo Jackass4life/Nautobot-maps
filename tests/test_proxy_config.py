@@ -72,10 +72,23 @@ def test_identity_headers_always_come_from_nginx():
     assert TO_APP.count("proxy_pass http://nautobot-maps:5000;") == 1
 
 
-def test_only_the_two_settings_are_filled_in():
+def test_only_the_three_settings_are_filled_in():
     used = set(re.findall(r"\$\{([A-Z_]+)\}", SITE + TO_APP))
-    assert used == {"PUBLIC_HOSTNAME", "AUTH_PROXY_SECRET"}
-    assert "NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET)$" in COMPOSE
+    assert used == {"PUBLIC_HOSTNAME", "AUTH_PROXY_SECRET", "OIDC_LOGOUT_URL"}
+    assert "NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_LOGOUT_URL)$" in COMPOSE
+
+
+def test_sign_out_ends_up_at_the_identity_providers_logout():
+    """#546: the top bar's Sign out is nginx's own sign-out location, which
+    sends oauth2-proxy's "/" on to OIDC_LOGOUT_URL, else to the app."""
+    assert "AUTH_SIGN_OUT_URL=${AUTH_SIGN_OUT_URL:-/oauth2/sign_out}" in COMPOSE
+    assert "OIDC_LOGOUT_URL=${OIDC_LOGOUT_URL:-}" in COMPOSE
+    sign_out = re.search(r"location = /oauth2/sign_out \{(.*?)\n    \}", SITE, re.S).group(1)
+    assert "proxy_pass http://oauth2-proxy:4180;" in sign_out
+    # Not $request_uri, as /oauth2/ has: oauth2-proxy would send it back here.
+    assert "proxy_set_header X-Auth-Request-Redirect /;" in sign_out
+    assert "proxy_redirect ~^/$ $sign_out_next;" in sign_out
+    assert 'map "${OIDC_LOGOUT_URL}" $sign_out_next {\n    "" /;\n    default "${OIDC_LOGOUT_URL}";\n}' in SITE
 
 
 def test_a_token_skips_the_login_by_its_header_not_a_path():

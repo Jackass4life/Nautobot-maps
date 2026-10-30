@@ -390,6 +390,7 @@ jobs:
       OIDC_ISSUER_URL: https://idp.example.com
       OIDC_CLIENT_ID: nautobot-maps
       OIDC_CLIENT_SECRET: unused-by-the-stub
+      OIDC_LOGOUT_URL: https://idp.example.com/logout?post_logout_redirect_uri=https://localhost/
       OAUTH2_COOKIE_SECRET: 0123456789abcdef0123456789abcdef
       NAUTOBOT_URL: http://mock-nautobot:8080
       NAUTOBOT_TOKEN: demo-token

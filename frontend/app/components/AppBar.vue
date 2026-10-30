@@ -21,7 +21,8 @@ const props = withDefaults(
 const { data: config } = usePageConfig();
 const { dark, toggle: toggleTheme } = useTheme();
 
-// The menu: every page, this one marked; Admin last, only for admins (#530).
+// The menu: every page, this one marked; Admin, only for admins (#530); Sign
+// out last, for someone signed in through the sign-in proxy (#546).
 const menu = computed<DropdownMenuItem[][]>(() => {
   const pages: DropdownMenuItem[] = (config.value?.pages ?? []).map((page) => ({
     label: page.label,
@@ -31,17 +32,25 @@ const menu = computed<DropdownMenuItem[][]>(() => {
     "aria-current": page.key === props.active ? "page" : undefined,
     class: "app-nav-link",
   }));
-  if (!config.value?.admin) return [pages];
-  const admin: DropdownMenuItem = {
-    label: "Admin",
-    icon: "i-lucide-shield",
-    to: "/admin",
-    external: true,
-    active: props.active === "admin",
-    "aria-current": props.active === "admin" ? "page" : undefined,
-    class: "app-nav-link app-nav-admin",
-  };
-  return [pages, [admin]];
+  const groups: DropdownMenuItem[][] = [pages];
+  if (config.value?.admin) {
+    groups.push([
+      {
+        label: "Admin",
+        icon: "i-lucide-shield",
+        to: "/admin",
+        external: true,
+        active: props.active === "admin",
+        "aria-current": props.active === "admin" ? "page" : undefined,
+        class: "app-nav-link app-nav-admin",
+      },
+    ]);
+  }
+  const signOut = config.value?.user?.sign_out_url;
+  if (signOut) {
+    groups.push([{ label: "Sign out", icon: "i-lucide-log-out", to: signOut, external: true, class: "app-nav-sign-out" }]);
+  }
+  return groups;
 });
 
 // The map and the board keep the scope; the wall ("view=wall") too, after it.

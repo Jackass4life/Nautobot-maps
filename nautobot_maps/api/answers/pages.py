@@ -8,6 +8,9 @@ from nautobot_maps.api.answers import common
 class BarUser(common.Answer):
     name: str = Field(description="The signed-in user, or an API token's name.")
     role: str = Field(description="viewer, operator or admin; empty when unknown.")
+    sign_out_url: str = Field(
+        description="Where the top bar's Sign out goes (AUTH_SIGN_OUT_URL, #546); empty for an API token or without it."
+    )
 
 
 class MenuPage(common.Answer):

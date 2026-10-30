@@ -128,6 +128,7 @@ See [authentication](authentication.md).
 | `AUTH_DEFAULT_ROLE` | — | Role (`viewer`, `operator`, `admin`) for signed-in users with no matching group |
 | `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | IPs/CIDRs of the proxy; identity headers from anywhere else are ignored and logged |
 | `AUTH_PROXY_SECRET` | — | When set, identity headers only count if the proxy also sends it in `X-Auth-Proxy-Secret` |
+| `AUTH_SIGN_OUT_URL` | — | Header mode: where the top bar's **Sign out** goes, your proxy's sign-out address (a path such as `/oauth2/sign_out`, or an `http(s)://` address); empty: no Sign out. The bundled proxy sets it ([signing out](authentication.md#signing-out)) |
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
 | `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows, sending test notifications, API tokens, status page links and the wireless check, and the Admin page (logged as a warning) |
 
@@ -146,6 +147,7 @@ Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-
 | `OIDC_EMAIL_CLAIM` | `email` | Entra ID: `preferred_username` |
 | `OIDC_SCOPE` | `openid email profile` | The scopes asked for |
 | `OIDC_CA_FILE` | — | A PEM file with the CA(s) of an identity provider whose certificate comes from a company CA, e.g. `./config/company-ca.pem`; trusted together with the public CAs ([company CA](authentication.md#company-ca)) |
+| `OIDC_LOGOUT_URL` | — | Your identity provider's logout address: **Sign out** ends the app's session, then goes here so the provider's session ends too ([signing out](authentication.md#signing-out)). Empty: back to the app, and the provider signs you straight in again |
 | `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
 | `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
 

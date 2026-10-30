@@ -20,6 +20,8 @@ services:
       - AUTH_REQUIRE_VIEWER=true
       - AUTH_TRUSTED_PROXIES=${PROXY_IP:-172.30.0.10}/32
       - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET (see .env.example)}
+      # The top bar's Sign out (#546): nginx's sign-out location.
+      - AUTH_SIGN_OUT_URL=${AUTH_SIGN_OUT_URL:-/oauth2/sign_out}
     networks:
       - default
       - edge
@@ -87,8 +89,10 @@ services:
     environment:
       - PUBLIC_HOSTNAME=${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
       - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET}
+      # After Sign out: the identity provider's logout (#546), else the app.
+      - OIDC_LOGOUT_URL=${OIDC_LOGOUT_URL:-}
       # Only these are filled into the templates; nginx's own $variables stay.
-      - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET)$
+      - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_LOGOUT_URL)$
     volumes:
       - ./deploy/proxy/templates:/etc/nginx/templates:ro
       - ./deploy/proxy/certs:/etc/nginx/certs:ro

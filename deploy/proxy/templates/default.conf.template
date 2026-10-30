@@ -1,12 +1,19 @@
 # nginx in front of Nautobot Maps (#423): HTTPS, and company sign-in through
-# oauth2-proxy.  ${PUBLIC_HOSTNAME} and ${AUTH_PROXY_SECRET} are filled in when
-# the container starts; everything else with a $ is nginx's own.
+# oauth2-proxy.  ${PUBLIC_HOSTNAME}, ${AUTH_PROXY_SECRET} and ${OIDC_LOGOUT_URL}
+# are filled in when the container starts; everything else with a $ is nginx's own.
 
 # An API token (LibreNMS, Alertmanager, scripts, MCP) skips the login: the app
 # checks it.  Matched on the header, so no path is open without one.
 map $http_authorization $api_token {
     "~*^Bearer\s+nmt_" 1;
     default 0;
+}
+
+# Where Sign out ends up (#546): the identity provider's logout, so its
+# session ends too (else it signs the user straight back in); without one, the app.
+map "${OIDC_LOGOUT_URL}" $sign_out_next {
+    "" /;
+    default "${OIDC_LOGOUT_URL}";
 }
 
 # The name the app shows: the username, else the e-mail address.
@@ -67,6 +74,18 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Auth-Request-Redirect $request_uri;
+    }
+
+    # Sign out (#546): oauth2-proxy deletes its session cookie and sends the
+    # browser to "/" (not back here, as $request_uri would); nginx turns that
+    # into the identity provider's logout when there is one.
+    location = /oauth2/sign_out {
+        proxy_pass http://oauth2-proxy:4180;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Auth-Request-Redirect /;
+        proxy_redirect ~^/$ $sign_out_next;
     }
 
     # Asked before every request below: 202 signed in, 401 not.
