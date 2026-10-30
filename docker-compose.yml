@@ -113,6 +113,7 @@ services:
       - AUTH_REQUIRE_VIEWER=${AUTH_REQUIRE_VIEWER:-}
       - AUTH_TRUSTED_PROXIES=${AUTH_TRUSTED_PROXIES:-}
       - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:-}
+      - AUTH_SIGN_OUT_URL=${AUTH_SIGN_OUT_URL:-}
       - ALLOW_UNAUTHENTICATED_WRITES=${ALLOW_UNAUTHENTICATED_WRITES:-}
       # Map tiles and address search (optional; default: public OpenStreetMap)
       - MAP_TILE_URL=${MAP_TILE_URL:-}

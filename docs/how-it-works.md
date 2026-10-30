@@ -52,7 +52,7 @@ Every staff page has the same top bar (#392, #419), one slim line:
 
 - **Nautobot Maps** (back to the map) and **Find a site**: type a few letters of a site's name, path or address, then pick it to open it on the map, or **Board** to see it on the alert board. `/` jumps there from anywhere. The map leaves it out, because its own search also finds places.
 - **How fresh the data is:** a quiet dot and "Updated 14:05". It turns amber with "LibreNMS data is 45 min old" when a sync is late (three sync intervals, at least 15 minutes) and red with "Can't reach LibreNMS" when the last sync failed. A click explains it, per source. It reads what the scheduler records once a minute (`GET /api/app-status`) and never calls Nautobot or LibreNMS itself.
-- **Who is signed in** ("olga · operator", or a token's name). Nothing with `AUTH_MODE=disabled`.
+- **Who is signed in** ("olga · operator", or a token's name). Nothing with `AUTH_MODE=disabled`. **Sign out** is in the ☰ menu behind a sign-in proxy (#546).
 - The **theme** button and the **☰** menu with every page below.
 
 The wall view and the tenant status page have no bar. The status page is for customers, so no staff names, search or menu.

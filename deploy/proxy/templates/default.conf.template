@@ -1,12 +1,21 @@
 # nginx in front of Nautobot Maps (#423): HTTPS, and company sign-in through
-# oauth2-proxy.  ${PUBLIC_HOSTNAME} and ${AUTH_PROXY_SECRET} are filled in when
-# the container starts; everything else with a $ is nginx's own.
+# oauth2-proxy.  ${PUBLIC_HOSTNAME}, ${AUTH_PROXY_SECRET}, ${OIDC_ISSUER_URL} and
+# ${OIDC_LOGOUT_URL} are filled in when the container starts; everything else
+# with a $ is nginx's own.
 
 # An API token (LibreNMS, Alertmanager, scripts, MCP) skips the login: the app
 # checks it.  Matched on the header, so no path is open without one.
 map $http_authorization $api_token {
     "~*^Bearer\s+nmt_" 1;
     default 0;
+}
+
+# Where Sign out ends up (#546): the identity provider's logout, so its
+# session ends too; without one (GitLab has none), a page that says so, not
+# the app, where the identity provider would sign the user straight back in.
+map "${OIDC_LOGOUT_URL}" $sign_out_next {
+    "" /signed-out;
+    default "${OIDC_LOGOUT_URL}";
 }
 
 # The name the app shows: the username, else the e-mail address.
@@ -69,6 +78,18 @@ server {
         proxy_set_header X-Auth-Request-Redirect $request_uri;
     }
 
+    # Sign out (#546): oauth2-proxy deletes its session cookie and sends the
+    # browser to "/" (not back here, as $request_uri would); nginx turns that
+    # into the identity provider's logout when there is one.
+    location = /oauth2/sign_out {
+        proxy_pass http://oauth2-proxy:4180;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Auth-Request-Redirect /;
+        proxy_redirect ~^/$ $sign_out_next;
+    }
+
     # Asked before every request below: 202 signed in, 401 not.
     location = /oauth2/auth {
         internal;
@@ -117,6 +138,17 @@ server {
     location = /healthz {
         include /etc/nginx/conf.d/proxy-to-app.inc;
     }
+    # After Sign out without OIDC_LOGOUT_URL (#546): no login here, or the
+    # identity provider would sign the user straight back in.  Fixed text,
+    # no data; its own CSP for its own styles.
+    location = /signed-out {
+        default_type text/html;
+        add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+        add_header Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        return 200 '<!DOCTYPE html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Signed out</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1f2937;background:#fff}a{color:#2563eb}.button{display:inline-block;padding:.5rem 1rem;border-radius:.375rem;background:#2563eb;color:#fff;text-decoration:none}p.note{color:#6b7280;font-size:14px}@media (prefers-color-scheme:dark){body{color:#e5e7eb;background:#0f172a}a{color:#60a5fa}.button{background:#3b82f6;color:#fff}p.note{color:#9ca3af}}</style><h1>You are signed out</h1><p><a class="button" href="/">Sign in again</a></p><p class="note">You are still signed in at your company sign-in, so signing in again won’t ask for a password. To end that too, sign out at <a href="${OIDC_ISSUER_URL}">${OIDC_ISSUER_URL}</a>.</p></html>';
+    }
+
     # The tenant status page: customers have no company login; their status
     # token is checked by the app (#291).  Its files: the Nuxt build's
     # /_nuxt/ (#463), the app's code only, no data.

@@ -328,6 +328,16 @@ AUTH_TRUSTED_PROXIES = _networks(
     "AUTH_TRUSTED_PROXIES", os.getenv("AUTH_TRUSTED_PROXIES", "").strip() or "127.0.0.1/32,::1/128"
 )
 AUTH_PROXY_SECRET = os.getenv("AUTH_PROXY_SECRET", "").strip()
+# Header mode: where the top bar's Sign out goes (#546), e.g. the bundled
+# proxy's /oauth2/sign_out.  A path on this site or an http(s):// address;
+# empty: no Sign out.
+AUTH_SIGN_OUT_URL = os.getenv("AUTH_SIGN_OUT_URL", "").strip()
+if AUTH_SIGN_OUT_URL and not (
+    (AUTH_SIGN_OUT_URL.startswith("/") and not AUTH_SIGN_OUT_URL.startswith("//"))
+    or AUTH_SIGN_OUT_URL.lower().startswith(("https://", "http://"))
+):
+    logging.getLogger(__name__).warning("AUTH_SIGN_OUT_URL ignored: it must be a path (/...) or an http(s):// address")
+    AUTH_SIGN_OUT_URL = ""
 # AUTH_MODE=disabled: allow changing criticality overrides without
 # authentication.  Off by default: anyone who can reach the app could change
 # which devices count as critical (#188).

@@ -118,6 +118,31 @@ results.append(check("a customer's key works", status == 200, status))
 status, _, _ = get(api, {"Authorization": f"Bearer {key}"} | SIGNED_IN)
 results.append(check("a customer's key works signed in too", status == 200, status))
 
+# Sign out (#546): the top bar links nginx's sign-out location, which deletes
+# the session cookie and ends at the identity provider's logout.
+status, _, body = get(f"{HTTPS}/api/page-config", SIGNED_IN)
+user = (json.loads(body).get("user") or {}) if status == 200 else {}
+results.append(check("the top bar's Sign out", user.get("sign_out_url") == "/oauth2/sign_out", user or status))
+status, headers, _ = get(f"{HTTPS}/oauth2/sign_out", SIGNED_IN)
+results.append(
+    check(
+        "sign out: the cookie goes, then the identity provider's logout",
+        status == 302
+        and headers.get("Location") == os.environ.get("OIDC_LOGOUT_URL")
+        and "_nautobot_maps=;" in headers.get("Set-Cookie", ""),
+        (status, headers.get("Location")),
+    )
+)
+# Without OIDC_LOGOUT_URL (GitLab): a page that never sends anyone to the login.
+status, headers, body = get(f"{HTTPS}/signed-out")
+results.append(
+    check(
+        "the signed-out page needs no login and links the identity provider",
+        status == 200 and "You are signed out" in body and 'href="https://idp.example.com"' in body,
+        status,
+    )
+)
+
 status, _, _ = get(f"{HTTPS}/metrics", SIGNED_IN)
 results.append(check("/metrics is not served", status == 404, status))
 

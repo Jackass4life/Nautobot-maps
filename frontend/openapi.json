@@ -274,11 +274,17 @@
             "description": "viewer, operator or admin; empty when unknown.",
             "title": "Role",
             "type": "string"
+          },
+          "sign_out_url": {
+            "description": "Where the top bar's Sign out goes (AUTH_SIGN_OUT_URL, #546); empty for an API token or without it.",
+            "title": "Sign Out Url",
+            "type": "string"
           }
         },
         "required": [
           "name",
-          "role"
+          "role",
+          "sign_out_url"
         ],
         "title": "BarUser",
         "type": "object"

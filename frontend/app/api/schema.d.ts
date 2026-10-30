@@ -1285,6 +1285,11 @@ export interface components {
              * @description viewer, operator or admin; empty when unknown.
              */
             role: string;
+            /**
+             * Sign Out Url
+             * @description Where the top bar's Sign out goes (AUTH_SIGN_OUT_URL, #546); empty for an API token or without it.
+             */
+            sign_out_url: string;
         };
         /** Behind */
         Behind: {

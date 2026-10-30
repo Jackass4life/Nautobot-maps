@@ -156,6 +156,25 @@ Then `docker compose exec nginx nginx -t` and `docker compose restart nginx`: ng
 
 HTTPS must stay on port 443: the sign-in's redirect (`https://<PUBLIC_HOSTNAME>/oauth2/callback`) and nginx's HTTP→HTTPS redirect name no port. HTTP can move when port 80 is taken (`PROXY_HTTP_PORT=8080`); only the redirect from `http://` to `https://` is then lost.
 
+### Signing out
+
+**Sign out** in the ☰ menu (#546) is there for someone signed in through the proxy (not with an API token, and not with `AUTH_MODE=disabled`). It goes to `AUTH_SIGN_OUT_URL`; with your own proxy, set that to its sign-out address.
+
+The bundled proxy sets it to `/oauth2/sign_out`: oauth2-proxy deletes its session cookie, then nginx sends the browser to `OIDC_LOGOUT_URL`, your identity provider's logout, so its session ends too.
+
+Without `OIDC_LOGOUT_URL` you land on **"You are signed out"** (`/signed-out`, served by nginx without the login): going to the app instead would send you to the identity provider, which still has you signed in and would sign you straight back in. The page has **Sign in again** and says you are still signed in at the identity provider, with a link to it (`OIDC_ISSUER_URL`) to sign out there too.
+
+| Provider | `OIDC_LOGOUT_URL` |
+|---|---|
+| Entra ID | `https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/logout?post_logout_redirect_uri=https://<your host>/` |
+| Keycloak | `https://keycloak.example.com/realms/<realm>/protocol/openid-connect/logout?client_id=<client id>&post_logout_redirect_uri=https://<your host>/` |
+| GitLab | none: GitLab has no logout address for other applications (sign-out there is a form, and its OpenID Connect has no `end_session_endpoint`). Leave it empty: Sign out ends the app's session and shows "You are signed out" with a link to GitLab, to sign out there too. Until then, **Sign in again** gets back in without a password |
+
+- **Entra ID:** add `https://<your host>/` under the app registration's **Authentication → Redirect URIs** (Web) to come back to the app's sign-in; otherwise Entra ID still signs you out and stops at its own "You signed out" page.
+- **Keycloak:** add `https://<your host>/` to the client's **Valid post logout redirect URIs**. Keycloak may ask "Do you want to log out?" first.
+
+Ending the identity provider's session signs you out of it in that browser, as its own logout does: other web applications that use it (Outlook on the web, say) ask you to sign in again the next time they check with it.
+
 ### Changes from another site are refused
 
 Behind any sign-in proxy, the browser's session cookie comes along with every request, so a page on another site could make a signed-in user send a change (a form posting to `/api/maintenance/<id>/end`, say).
