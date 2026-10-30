@@ -137,9 +137,8 @@ export const ACCESS_POINTS_SHOWN = 3;
 // controller watches at the wireless level, *folded* when there are more than
 // ACCESS_POINTS_SHOWN.  One set in Nautobot or core stays with the others.
 export function downDeviceRows(devices: DownDevice[]): { shown: DownDevice[]; folded: DownDevice[] } {
-  const quiet = (device: DownDevice) => Boolean(device.access_point && !device.set_level && !device.core);
-  const others = devices.filter((device) => !quiet(device));
-  const aps = devices.filter(quiet);
+  const others = devices.filter((device) => !isQuietAccessPoint(device));
+  const aps = devices.filter(isQuietAccessPoint);
   return aps.length > ACCESS_POINTS_SHOWN ? { shown: others, folded: aps } : { shown: [...others, ...aps], folded: [] };
 }
 
@@ -498,8 +497,10 @@ export function formatReportTime(value: string | null | undefined): string {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())} ${zone}`;
 }
 
-// A site and its down devices as plain text, for an ITSM ticket (#227): one
-// line per device, the likely cause first (#285), then newest down first.
+// A site and its down devices as plain text, for an ITSM ticket (#227),
+// readable at scale (#548): the network devices one line each, the likely
+// cause first (#285), then newest down; the access points a controller
+// watches one line per switch they are on (#524).  Every device is listed.
 export function siteReport(item: BoardSite, { nautobotUrl = "", caseTemplate = "" } = {}): string {
   const level = item.alert_level || "no_data";
   const lines = [`Site: ${item.name || item.id || "Unknown site"}`];
@@ -510,44 +511,118 @@ export function siteReport(item: BoardSite, { nautobotUrl = "", caseTemplate = "
   const tenants = siteTenants(item);
   if (tenants.length > 1) lines.push(`Tenants (${tenants.length}): ${tenants.join(", ")}`);
   else if (tenants.length) lines.push(`Tenant: ${tenants[0]}`);
-  lines.push(`Severity: ${levelLabel(level)} (${item.down_device_count || 0} of ${item.device_count || 0} devices down)`);
-  if (item.alert_reason) lines.push(`Reason: ${item.alert_reason}`);
-  if (item.active_cases?.length) lines.push(`Cases: ${item.active_cases.map((value) => caseWithUrl(value, caseTemplate)).join(", ")}`);
-  if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotLocationUrl(nautobotUrl, item.id)}`);
 
   const devices = [...(item.down_devices || [])].sort(
     (a, b) =>
       Number(Boolean(b.core)) - Number(Boolean(a.core)) ||
-      (Date.parse(b.down_started_at || "") || 0) - (Date.parse(a.down_started_at || "") || 0),
+      (Date.parse(b.down_started_at || "") || 0) - (Date.parse(a.down_started_at || "") || 0) ||
+      byName(a, b),
   );
-  const cores = devices.filter((device) => device.core).map((device) => device.device_name || device.device_id);
+  const aps = devices.filter(isQuietAccessPoint);
+  const others = devices.filter((device) => !isQuietAccessPoint(device));
+  const first = devices.map((device) => device.down_started_at || "").filter(Boolean).sort()[0] || "";
+
+  const down = `${item.down_device_count || 0} of ${item.device_count || 0} devices down`;
+  const severity = [levelLabel(level), aps.length ? `${down} (${aps.length} of them access points)` : down];
+  if (first) severity.push(`since ${formatReportTime(first)}`);
+  lines.push(`Severity: ${severity.join(" · ")}`);
+  if (item.alert_reason) lines.push(`Reason: ${item.alert_reason}`);
+  if (item.active_cases?.length) lines.push(`Cases: ${item.active_cases.map((value) => caseWithUrl(value, caseTemplate)).join(", ")}`);
+  if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotLocationUrl(nautobotUrl, item.id)}`);
+
+  const cores = others.filter((device) => device.core).map((device) => device.device_name || device.device_id);
   const behind = devices.filter((device) => device.probable_cause).length;
   if (cores.length && behind) {
     lines.push(`Likely cause: ${cores.join(", ")} down; ${behind} other device${behind === 1 ? "" : "s"} probably behind it`);
   }
   // Access points down behind one switch (#524).
   if (item.behind) lines.push(`Access points: ${behindText(item.behind)}`);
-  lines.push("", `Down devices (${devices.length}):`);
-  devices.forEach((device) => {
-    const since = formatReportTime(device.down_started_at);
-    const cases = device.case_numbers || [];
-    const fields = [
-      device.device_name || device.device_id || "Unknown device",
-      `IP ${device.device_ip || "—"}`,
-      `Role ${device.role || "—"}`,
-      stackText(device.stack, { names: true }),
-      `Status ${device.status || "—"}`,
-      device.location_path ? `Location ${device.location_path}` : "",
-      since ? `Down since ${since}` : "",
-      cases.length ? `Case ${cases.map((value) => caseWithUrl(value, caseTemplate)).join(", ")}` : "",
-      device.core ? "Core device" : "",
-      device.set_level ? `Set ${device.set_level} in Nautobot` : "",
-      device.probable_cause ? `Likely caused by ${device.probable_cause}` : "",
-      neighbourText(device.neighbour),
-    ];
-    lines.push(`- ${fields.filter(Boolean).join(" | ")}`);
-  });
+
+  const cases = (device: DownDevice) => (device.case_numbers || []).map((value) => caseWithUrl(value, caseTemplate)).join(", ");
+  const day = first ? dayOf(first) : "";
+  if (others.length) {
+    lines.push("", `Network devices down (${others.length}):`);
+    others.forEach((device) => {
+      const since = reportTimeOnDay(device.down_started_at, day);
+      const fields = [
+        device.device_name || device.device_id || "Unknown device",
+        device.device_ip || "",
+        device.role || "",
+        device.core ? "CORE" : "",
+        device.set_level ? `set ${device.set_level} in Nautobot` : "",
+        stackText(device.stack, { names: true }),
+        device.location_path || "",
+        since ? `down since ${since}` : "",
+        cases(device),
+        neighbourText(device.neighbour),
+      ];
+      lines.push(`- ${fields.filter(Boolean).join(" · ")}`);
+    });
+  }
+  if (aps.length) {
+    lines.push("", `Access points down (${aps.length}), by switch:`);
+    for (const [uplink, group] of accessPointsBySwitch(aps)) {
+      const names = group.map((device) => {
+        const where = shortPort(device.neighbour?.port) || (uplink ? "" : device.device_ip || "");
+        const onIt = cases(device);
+        return [device.device_name || device.device_id || "Unknown device", where, onIt ? `(${onIt})` : ""].filter(Boolean).join(" ");
+      });
+      lines.push(`- ${uplink || "Switch not known"} (${group.length}): ${names.join(", ")}`);
+    }
+  }
   return lines.join("\n");
+}
+
+// An access point the board folds away: watched by a controller, at the
+// wireless level (neither core nor set to a level in Nautobot, #521).
+function isQuietAccessPoint(device: DownDevice): boolean {
+  return Boolean(device.access_point && !device.set_level && !device.core);
+}
+
+// The access points by the switch they are on (#524), the switch with the most
+// first, "" (not known) last; by name within each.
+function accessPointsBySwitch(aps: DownDevice[]): [string, DownDevice[]][] {
+  const groups = new Map<string, DownDevice[]>();
+  for (const device of aps) {
+    const uplink = device.neighbour?.device || "";
+    groups.set(uplink, [...(groups.get(uplink) || []), device]);
+  }
+  return [...groups.entries()]
+    .map(([uplink, group]): [string, DownDevice[]] => [uplink, group.sort(byName)])
+    .sort(([a, x], [b, y]) => Number(!a) - Number(!b) || y.length - x.length || a.localeCompare(b, "en", { numeric: true }));
+}
+
+function byName(a: DownDevice, b: DownDevice): number {
+  return (a.device_name || a.device_id || "").localeCompare(b.device_name || b.device_id || "", "en", { numeric: true });
+}
+
+// Cisco's interface names as written on a switch's console, "Gi1/0/14" for
+// "GigabitEthernet1/0/14" (Catalyst Center's topology writes them in full).
+const PORT_PREFIXES: [string, string][] = [
+  ["TwentyFiveGigE", "Twe"],
+  ["HundredGigE", "Hu"],
+  ["FortyGigabitEthernet", "Fo"],
+  ["TenGigabitEthernet", "Te"],
+  ["FiveGigabitEthernet", "Fi"],
+  ["TwoGigabitEthernet", "Tw"],
+  ["GigabitEthernet", "Gi"],
+  ["FastEthernet", "Fa"],
+];
+export function shortPort(port: string | null | undefined): string {
+  const name = (port || "").trim();
+  const match = PORT_PREFIXES.find(([long]) => name.startsWith(long) && /^[\d/.:]/.test(name.slice(long.length)));
+  return match ? match[1] + name.slice(match[0].length) : name;
+}
+
+// The local day of a time ("2026-10-24"), as formatReportTime writes it.
+function dayOf(value: string): string {
+  return formatReportTime(value).slice(0, 10);
+}
+
+// "09:00" on the report's first day (its zone is in the Severity line), else the full time.
+function reportTimeOnDay(value: string | null | undefined, day: string): string {
+  const full = formatReportTime(value);
+  return full && full.slice(0, 10) === day ? full.slice(11, 16) : full;
 }
 
 // The site's history as a CSV download (#277).
