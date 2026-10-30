@@ -63,7 +63,7 @@ The same through the API (admin role, #529): `GET /api/status-links/Acme%20Corp`
 How the link and token behave:
 - The key goes after `#`, so the browser never sends it to the server: it isn't in access logs, proxy logs or a `Referer`. The page's script sends it as `Authorization: Bearer`.
 - A status token opens **only** that tenant's `/api/status/…`. Everything else answers 403, including other tenants, the board and the API.
-- To cut a link off, revoke the token (`token revoke <id>` or `POST /api/tokens/<id>/revoke`). The page then says the link no longer works.
+- To cut a link off, revoke the token (`token revoke <id>`, **Revoke** on the Admin page, or `POST /api/tokens/<id>/revoke`). The page then says the link no longer works.
 
 ## Behind an SSO proxy
 

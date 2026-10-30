@@ -69,7 +69,7 @@ the board fills in by itself after a few seconds.
 > It opens on **Alarms**: London HQ is Medium with 2 down devices
 > (`lon-acc-sw01`, `lon-acc-sw02`), and *Etage 2* (a floor in the Danish
 > hierarchy) is Critical. **All sites** shows every site. Try **+ Case** and
-> **Copy** on London HQ, and **Wall view** in the top bar.
+> **Copy** on London HQ, and **Wall view** in the ☰ menu.
 
 ### Scenario 6 – Tenant descriptions
 On the alert board, London HQ has four tenants; the row shows the first and

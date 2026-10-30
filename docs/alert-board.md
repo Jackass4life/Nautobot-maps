@@ -93,7 +93,7 @@ Not every site matters the same (#293). With `SITE_TIER_FIELD` set to a Nautobot
 
 ## Likely cause
 
-When a **core** device at a site is down, the site's other down devices are probably down because of it (#285). The board and the wall list the core device first, marked **CORE**, and each other down device says "Likely caused by core-rt01". Copy, notifications ("Likely cause: core-rt01 down; 2 other devices probably behind it") and the history (panel and `probable_cause` in the incidents CSV) say the same. It is a guess from the roles, not from cabling: a device can be down for its own reason while its core is down too.
+When a **core** device at a site is down, the site's other down devices are probably down because of it (#285). The board and the wall list the core device first, marked **CORE**, and each other down device says "Likely caused by core-rt01". Copy, notifications ("Likely cause: core-rt01 down; 2 other devices probably behind it") and the history (panel and `probable_cause` in the incidents CSV) say the same. It is a guess from the roles, not from cabling: a device can be down for its own reason while its core is down too. Access points are the exception: they say which switch they are behind ([access points](#access-points)).
 
 ## Alert delay
 
@@ -120,7 +120,7 @@ Planned work is not an alarm. A **maintenance window** covers a whole site or so
 - While a window is active, the alert history is **frozen** for what it covers: nothing opens, and open alerts are neither updated nor closed.
 - **Notifications:** none when a site goes into maintenance. When the window ends and the site is still Critical, the normal message is sent.
 
-**The Maintenance page** (`/maintenance`, **Maintenance** in the top navigation, #343) is the place to plan work ahead, for many sites at once:
+**The Maintenance page** (`/maintenance`, **Maintenance** in the ☰ menu, #343) is the place to plan work ahead, for many sites at once:
 
 - **Active now**, **Planned** and **Ended in the last 7 days** (folded). Windows planned together are one line: "30 sites · until 16:00 · Core upgrade · by olga", with the first site names, the tenants and their (i), **Show 30** to list every site, and **End all 30** or **Cancel all 30** (a second click confirms). Search covers sites, devices, reasons, people and tenants (by name or description, #497); the tenant list picks one. Each group shows 25 and **Show 25 more**.
 - **Plan maintenance**: find sites by name, path or tenant (Enter or a click adds one; **Add all 40 sites of Acme** adds a tenant's sites, found by its description too, #497); the whole sites, or ticked devices when one site is chosen; **Now, for** 1–8 hours or **Planned**: click the first and last day on the calendar (the same day twice for one day) and choose the times in 15-minute steps, in your browser's time zone; and a reason. Up to 200 sites in one go, saved together.
@@ -156,7 +156,7 @@ Syncs are incremental (only what changed in Nautobot since the last one); a dail
 
 ## Wall view
 
-**Wall view** in the top navigation opens `/alerts?view=wall`, for a NOC screen nobody clicks on: sites with alarms only, each with its address, down devices and cases, with no buttons or filters. Text is the browser's standard size, as on the board; to make it bigger on a TV, use the browser's zoom (Ctrl/⌘ +), which the browser remembers for this site.
+**Wall view** in the ☰ menu opens `/alerts?view=wall`, for a NOC screen nobody clicks on: sites with alarms only, each with its address, down devices and cases, with no buttons or filters. Text is the browser's standard size, as on the board; to make it bigger on a TV, use the browser's zoom (Ctrl/⌘ +), which the browser remembers for this site.
 
 - **Who's on it:** next to each site's level, **NO CASE** (no down device has a case or an acknowledgement), **"1 of 2 no case or ack"** (some do), or a blue **✓ INC-1234** (or **✓ ACK**) when every down device has one. Sites where every device has a case or an acknowledgement turn grey and are sorted below a dashed line, so the bright rows at the top are the ones nobody has picked up. The top line counts them ("· 2 without case or ack"). The site name is plain text here (no link).
 - It reloads every minute and shows **"Updated hh:mm"**, which turns red ("NOT UPDATED since …") after 10 minutes without a successful update.

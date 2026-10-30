@@ -11,6 +11,7 @@ used only when a setting in `.env` points at it.
 | `wireless.yml` | `WIRELESS_CONTROLLERS_FILE=/config/wireless.yml` | Catalyst Center and Aruba New Central instances and their read-only accounts ([sources](../docs/sources.md#wireless-controllers-access-points)) |
 | `criticality_rules.json` | `CRITICALITY_RULES_FILE=/config/criticality_rules.json` | Critical role keywords per location type (start from `../criticality_rules.json`) |
 | `certs/internal-ca.pem` | `NAUTOBOT_VERIFY_SSL`, `LIBRENMS_VERIFY_SSL` or a controller's `verify_ssl` = `/config/certs/internal-ca.pem` | Your internal CA, when a server's certificate is signed by it |
+| `company-ca.pem` | `OIDC_CA_FILE=./config/company-ca.pem` (a host path: the bundled proxy's oauth2-proxy reads it, not the app) | The CA of an identity provider with a company certificate ([company CA](../docs/authentication.md#company-ca)); `chmod 644`, since oauth2-proxy runs as another user |
 
 ## Permissions
 
