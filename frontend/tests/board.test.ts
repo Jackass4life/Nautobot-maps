@@ -35,6 +35,7 @@ import {
   siteCaseState,
   sinceLabel,
   setLevel,
+  shortPort,
   siteReport,
   stackText,
   wallLinkFor,
@@ -330,13 +331,74 @@ describe("Copy, History and the wall link", () => {
       { nautobotUrl: "https://nautobot.example/", caseTemplate: "https://itsm.example/{case}" },
     );
     expect(report).toContain("Site: Oslo\nLocation: EMEA › NOR\nTenants (2): Acme Corp, Nordic Net");
-    expect(report).toContain("Severity: CRITICAL (2 of 7 devices down)");
+    expect(report).toContain("Severity: CRITICAL · 2 of 7 devices down · since 2026-10-24 09:00 +00:00");
     expect(report).toContain("Cases: INC-1 (https://itsm.example/INC-1)");
     expect(report).toContain("Nautobot: https://nautobot.example/dcim/locations/s1/");
     expect(report).toContain("Likely cause: core down; 1 other device probably behind it");
+    // One line per device, no empty fields, the time on the first day without its date.
+    expect(report.split("\n").slice(-3)).toEqual([
+      "Network devices down (2):",
+      "- core · 10.0.0.1 · CORE · down since 09:00",
+      "- edge · down since 10:00",
+    ]);
+    expect(report).not.toContain("Status");
+    expect(report).not.toContain("Likely caused by");
+  });
+
+  it("many switches and access points: two groups, the access points one line per switch (#548)", () => {
+    const switches = Array.from({ length: 6 }, (_, i) =>
+      device(`sw${i}`, {
+        device_name: `cop-acc-sw0${i}`,
+        device_ip: `10.0.3.${i + 2}`,
+        role: "Access Switch",
+        down_started_at: "2026-10-24T08:08:00Z",
+        case_numbers: ["INC-7"],
+      }),
+    );
+    const ap = (n: number, uplink: string | null, extra: Partial<DownDevice> = {}) =>
+      device(`ap${n}`, {
+        device_name: `cop-ap${String(n).padStart(2, "0")}`,
+        device_ip: `10.20.31.${n}`,
+        role: "Access Point",
+        access_point: true,
+        down_started_at: "2026-10-24T08:09:00Z",
+        neighbour: uplink ? { device: uplink, port: `GigabitEthernet1/0/${n}`, source: "Catalyst Center dk" } : null,
+        ...extra,
+      });
+    const report = siteReport(
+      site("s3", {
+        name: "Copenhagen Office 01",
+        alert_level: "critical",
+        device_count: 40,
+        down_device_count: 22,
+        down_devices: [
+          ...switches,
+          ...Array.from({ length: 12 }, (_, i) => ap(i + 1, "cop-acc-sw04")),
+          ap(13, "cop-acc-sw05"),
+          ap(14, null),
+          ap(15, null, { case_numbers: ["INC-9"] }),
+          // Set to a level in Nautobot: an alarm like the switches, so with them.
+          ap(16, "cop-acc-sw05", { set_level: "critical", down_started_at: "2026-10-25T07:00:00Z" }),
+        ],
+      }),
+    );
+    expect(report).toContain("Severity: CRITICAL · 22 of 40 devices down (15 of them access points) · since 2026-10-24 08:08 +00:00");
     const lines = report.split("\n");
-    expect(lines.at(-2)).toMatch(/^- core \| IP 10\.0\.0\.1 \| .*Down since 2026-10-24 09:00 \+00:00 .*\| Core device$/);
-    expect(lines.at(-1)).toContain("Likely caused by core");
+    const network = lines.indexOf("Network devices down (7):");
+    expect(lines[network + 1]).toBe(
+      "- cop-ap16 · 10.20.31.16 · Access Point · set critical in Nautobot · down since 2026-10-25 07:00 +00:00 · Connected to cop-acc-sw05 · GigabitEthernet1/0/16",
+    );
+    // Down at the same minute: by name.
+    expect(lines.slice(network + 2, network + 8).map((line) => line.split(" · ")[0])).toEqual(
+      Array.from({ length: 6 }, (_, i) => `- cop-acc-sw0${i}`),
+    );
+    expect(lines[network + 2]).toBe("- cop-acc-sw00 · 10.0.3.2 · Access Switch · down since 08:08 · INC-7");
+    expect(lines.slice(lines.indexOf("Access points down (15), by switch:") + 1)).toEqual([
+      `- cop-acc-sw04 (12): ${Array.from({ length: 12 }, (_, i) => `cop-ap${String(i + 1).padStart(2, "0")} Gi1/0/${i + 1}`).join(", ")}`,
+      "- cop-acc-sw05 (1): cop-ap13 Gi1/0/13",
+      "- Switch not known (2): cop-ap14 10.20.31.14, cop-ap15 10.20.31.15 (INC-9)",
+    ]);
+    expect(lines.length).toBeLessThan(25);
   });
 
   it("access points with their switch, and the switch most are behind (#524)", () => {
@@ -357,7 +419,18 @@ describe("Copy, History and the wall link", () => {
       }),
     );
     expect(report).toContain("Access points: 12 of 16 behind hel0008-acc-sw02");
-    expect(report.split("\n").at(-1)).toMatch(/^- hel0008-ap03 \| .*\| Connected to hel0008-acc-sw02 · Gi1\/0\/14$/);
+    expect(report).not.toContain("Network devices down");
+    expect(report.split("\n").at(-1)).toBe("- hel0008-acc-sw02 (1): hel0008-ap03 Gi1/0/14");
+  });
+
+  it("Cisco's short interface names (#548)", () => {
+    expect(shortPort("GigabitEthernet1/0/14")).toBe("Gi1/0/14");
+    expect(shortPort("TenGigabitEthernet1/1/1")).toBe("Te1/1/1");
+    expect(shortPort("TwoGigabitEthernet2/0/3")).toBe("Tw2/0/3");
+    expect(shortPort("Gi1/0/14")).toBe("Gi1/0/14");
+    expect(shortPort("GigabitEthernetX")).toBe("GigabitEthernetX");
+    expect(shortPort("eth0")).toBe("eth0");
+    expect(shortPort(null)).toBe("");
   });
 
   it("the history's CSV for a period", () => {
