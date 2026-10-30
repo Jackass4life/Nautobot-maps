@@ -3,7 +3,7 @@
 The session cookie ``_nautobot_maps=olga`` is "signed in" as olga in the
 noc-operators group (``=many``: also in 150 other groups); anything else is not.  Only what nginx uses: /oauth2/auth
 (202 or 401, with the X-Auth-Request-* headers), /oauth2/start (to the login) and
-/oauth2/sign_out (deletes the cookie, then to X-Auth-Request-Redirect, as oauth2-proxy does, #546).
+/oauth2/sign_out (deletes the cookie, then to "/", where nginx's X-Auth-Request-Redirect sends oauth2-proxy, #546).
 """
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,7 +27,9 @@ class Stub(BaseHTTPRequestHandler):
         elif self.path.startswith("/oauth2/sign_out"):
             self.send_response(302)
             self.send_header("Set-Cookie", "_nautobot_maps=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
-            self.send_header("Location", self.headers.get("X-Auth-Request-Redirect") or "/")
+            # Fixed, never the request's header (CodeQL: response splitting);
+            # tests/test_proxy_config.py checks nginx asks for "/".
+            self.send_header("Location", "/")
         elif self.path.startswith("/oauth2/start"):
             self.send_response(302)
             self.send_header("Location", "https://idp.example.com/authorize")
