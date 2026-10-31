@@ -2,4 +2,4 @@
 # requirements-e2e.txt with hashes; edit here, then recompile).
 -c requirements-dev.txt
 -r requirements-dev.in
-playwright==1.64.0
+playwright==1.64.1
