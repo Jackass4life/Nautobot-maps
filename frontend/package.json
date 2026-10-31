@@ -38,6 +38,9 @@
     "esbuild": "0.28.2",
     "archiver-utils": {
       "glob": "13.0.6"
+    },
+    "openapi-typescript": {
+      "typescript": "$typescript"
     }
   },
   "scarfSettings": {
