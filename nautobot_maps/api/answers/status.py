@@ -15,6 +15,14 @@ class StatusCircuit(common.Answer):
     bandwidth: str = Field(description="Its commit rate, e.g. 1 Gbps; empty without one.")
 
 
+class StatusDevice(common.Answer):
+    """One of the tenant's own devices at a site, by name (#555): nothing else of it."""
+
+    name: str = Field(description="Its name in Nautobot; a stack's name for a stack.")
+    state: Literal["down", "maintenance", "up"]
+    since: str | None = Field(description="When it went down (ISO 8601, UTC); null unless down.")
+
+
 class StatusSite(common.Answer):
     name: str
     state: Literal["outage", "degraded", "maintenance", "unknown", "operational"]
@@ -27,6 +35,10 @@ class StatusSite(common.Answer):
     access_points: int = Field(description="Its monitored devices with a role in ACCESS_POINT_ROLES (#503).")
     network_devices_down: int = Field(description="Of ``network_devices``, down now; not those in maintenance.")
     access_points_down: int = Field(description="Of ``access_points``, down now; not those in maintenance.")
+    devices: list[StatusDevice] = Field(
+        description="With STATUS_PAGE_TENANT_DEVICES, the devices whose Nautobot tenant is this one (#555), "
+        "down first, then by name; else empty."
+    )
     circuits: list[StatusCircuit] = Field(
         description="The tenant's active circuits that end at the site or whose description is its address (#511)."
     )

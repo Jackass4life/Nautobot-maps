@@ -1484,6 +1484,13 @@ export interface components {
             tenant_descriptions: {
                 [key: string]: string;
             };
+            /**
+             * Tenant Devices
+             * @description STATUS_PAGE_TENANT_DEVICES (#555): the devices whose Nautobot tenant is each of the site's tenants (lower-case name), for their status page; absent without the setting.
+             */
+            tenant_devices?: {
+                [key: string]: components["schemas"]["TenantDevice"][];
+            };
             /** Tenant Group */
             tenant_group: string;
             /** Tenant Id */
@@ -3189,6 +3196,27 @@ export interface components {
              */
             type: string;
         };
+        /**
+         * StatusDevice
+         * @description One of the tenant's own devices at a site, by name (#555): nothing else of it.
+         */
+        StatusDevice: {
+            /**
+             * Name
+             * @description Its name in Nautobot; a stack's name for a stack.
+             */
+            name: string;
+            /**
+             * Since
+             * @description When it went down (ISO 8601, UTC); null unless down.
+             */
+            since: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "down" | "maintenance" | "up";
+        };
         /** StatusLink */
         StatusLink: {
             /**
@@ -3242,6 +3270,11 @@ export interface components {
              * @description The tenant's active circuits that end at the site or whose description is its address (#511).
              */
             circuits: components["schemas"]["StatusCircuit"][];
+            /**
+             * Devices
+             * @description With STATUS_PAGE_TENANT_DEVICES, the devices whose Nautobot tenant is this one (#555), down first, then by name; else empty.
+             */
+            devices: components["schemas"]["StatusDevice"][];
             /**
              * Latitude
              * @description Where the site is, when Nautobot has its coordinates (#493).
@@ -3342,6 +3375,27 @@ export interface components {
              * @default false
              */
             wireless_only: boolean;
+        };
+        /**
+         * TenantDevice
+         * @description One of a tenant's own devices, as its status page names it (#555).
+         */
+        TenantDevice: {
+            /**
+             * Name
+             * @description The device's name; a stack's name for a stack.
+             */
+            name: string;
+            /**
+             * Since
+             * @description When it went down (ISO 8601, UTC); null unless down.
+             */
+            since: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "up" | "down" | "maintenance";
         };
         /** TenantRow */
         TenantRow: {

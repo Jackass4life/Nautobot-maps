@@ -598,6 +598,57 @@ def tenant_scoped_alerts(
     return scoped
 
 
+def tenant_devices(
+    scopes: dict,
+    tenants: list[str],
+    devices: list[dict],
+    pending_devices: list[dict],
+    maintenance_devices: list[dict],
+    site_window: dict | None,
+    checked_at: str,
+    stacks: dict[str, dict],
+) -> dict:
+    """``{tenant (lower-case): [{name, state, since}]}``: the site's monitored
+    devices each of its *tenants* may see by name on their status page (#555),
+    with STATUS_PAGE_TENANT_DEVICES; {} without it.  Counted as the device
+    counts are: down only when counted (not still within the delay, not in a
+    device or site window); a stack once, by its name, as its lead's.  Never
+    more than name and state: the page shows nothing else of a device."""
+    if not settings.STATUS_PAGE_TENANT_DEVICES:
+        return {}
+    tenant_names = {tenant.strip().casefold() for tenant in tenants if tenant}
+    in_maintenance = {id(device) for device in maintenance_devices}
+    counted = {id(device) for device in devices}
+    listed: dict[str, list[dict]] = {}
+    for device in [*devices, *pending_devices, *maintenance_devices]:
+        owner = tenant_sees(device, tenant_names, scopes)
+        if not owner:
+            continue
+        down = (device.get("status") or "").lower().strip() in DOWN_STATUSES and id(device) in counted
+        if site_window is not None or id(device) in in_maintenance:
+            state, since = "maintenance", None
+        elif down:
+            state, since = "down", device.get("first_seen_down_at") or down_since(device, checked_at)
+        else:
+            state, since = "up", None
+        stack = stacks.get(device.get("vc_id") or "")
+        name = (stack and device.get("vc_name")) or device.get("name") or "Unknown"
+        listed.setdefault(owner, []).append({"name": name, "state": state, "since": since})
+    return listed
+
+
+def tenant_sees(device: dict, tenant_names: set[str], scopes: dict) -> str:
+    """Which of the site's tenants (lower-case) may see *device* by name (#555):
+    its own tenant in Nautobot, when one of them, and one of their roles when
+    TENANT_SCOPE_FIELD gives them any; "" for none."""
+    owner = (device.get("tenant") or "").strip().casefold()
+    if owner not in tenant_names:
+        return ""
+    if owner in scopes and (device.get("role") or "").strip().casefold() not in set(scopes[owner]):
+        return ""
+    return owner
+
+
 def librenms_index(lnms_devices: list) -> dict:
     """Look-ups into the LibreNMS inventory by device id, hostname and IP (#240).
 
@@ -2194,6 +2245,23 @@ def build_alert_board_payload(
                     # Its own tenant first, then those linked by a Relationship (#238).
                     "tenants": tenants,
                     "tenant_alerts": tenant_alerts,
+                    # Named on their status page (#555): only with the setting.
+                    **(
+                        {"tenant_devices": named}
+                        if (
+                            named := tenant_devices(
+                                tenant_scopes,
+                                tenants,
+                                devices,
+                                pending_devices,
+                                maintenance_devices,
+                                site_window,
+                                checked_at,
+                                stacks,
+                            )
+                        )
+                        else {}
+                    ),
                     "alert_level": level,
                     "alert_reason": alert.get("reason", ""),
                     **({"wireless_only": True} if wireless_only else {}),

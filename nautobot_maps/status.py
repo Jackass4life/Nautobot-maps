@@ -12,7 +12,7 @@ descriptions).
 
 from datetime import timedelta
 
-from nautobot_maps import inventory, timeutil
+from nautobot_maps import inventory, settings, timeutil
 
 # Board level -> what the page says.
 STATES = {
@@ -81,6 +81,21 @@ def _devices(counts: dict) -> dict:
         "network_devices_down": int(counts.get("down_network_device_count") or 0),
         "access_points_down": int(counts.get("down_access_point_count") or 0),
     }
+
+
+DEVICE_ORDER = ("down", "maintenance", "up")
+
+
+def _named(row: dict, tenant: str) -> list[dict]:
+    """The tenant's own devices at the site by name (#555), down first; []
+    without STATUS_PAGE_TENANT_DEVICES, also from a board built with it."""
+    if not settings.STATUS_PAGE_TENANT_DEVICES:
+        return []
+    devices = (row.get("tenant_devices") or {}).get(tenant) or []
+    return sorted(
+        ({"name": d["name"], "state": d["state"], "since": d.get("since")} for d in devices),
+        key=lambda d: (DEVICE_ORDER.index(d["state"]), d["name"].lower()),
+    )
 
 
 def site_circuits(rows: list[dict], circuits: list[dict], parents: dict[str, str]) -> dict[str, list[dict]]:
@@ -164,6 +179,7 @@ def tenant_status(
             "until": None,
             **_place(row),
             **_devices(scoped if scoped is not None else row),
+            "devices": _named(row, match.casefold()),
             "circuits": [],
         }
         if state in ("outage", "degraded"):

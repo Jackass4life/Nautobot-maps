@@ -1,6 +1,17 @@
 // The tenant status page's logic (#291, #407; on Nuxt since #463).
 import { describe, expect, it } from "vitest";
-import { circuitsLabel, circuitText, errorText, FOLD_ABOVE, headline, siteDevices, sitePlace, siteWhen, splitSites, stateLabel, statusKey } from "~/utils/status";
+import {
+  circuitsLabel,
+  circuitText,
+  DEVICES_LISTED,
+  devicesUpLabel,
+  deviceText,
+  errorText, FOLD_ABOVE, headline, siteDevices, sitePlace, siteWhen, splitDevices,
+  splitSites,
+  stateLabel,
+  statusKey,
+  type StatusDevice,
+} from "~/utils/status";
 
 const now = new Date("2026-10-09T12:00:00Z");
 
@@ -129,5 +140,26 @@ describe("where a site is (#493)", () => {
   it("nothing when Nautobot has neither", () => {
     expect(sitePlace({ address: null, latitude: null, longitude: null })).toBeNull();
     expect(sitePlace({ address: null, latitude: 55.1, longitude: null })).toBeNull();
+  });
+});
+
+describe("the tenant's own devices (#555)", () => {
+  const device = (i: number, state: StatusDevice["state"]): StatusDevice => ({ name: `dev-${i}`, state, since: state === "down" ? "2026-10-09T09:12:00Z" : null });
+
+  it("says each one's state, and since when it is down", () => {
+    expect(deviceText(device(1, "down"), now)).toMatch(/^Down since \d\d:\d\d/);
+    expect(deviceText(device(2, "maintenance"), now)).toBe("Maintenance");
+    expect(deviceText(device(3, "up"), now)).toBe("Up");
+    expect(devicesUpLabel(1)).toBe("1 device up");
+    expect(devicesUpLabel(1200)).toBe("1,200 devices up");
+  });
+
+  it("lists a few, and folds those up when there are many", () => {
+    const few = Array.from({ length: DEVICES_LISTED }, (_, i) => device(i, "up"));
+    expect(splitDevices(few)).toEqual({ shown: few, up: [] });
+    const many = [device(0, "down"), device(1, "maintenance"), ...Array.from({ length: 4 }, (_, i) => device(i + 2, "up"))];
+    const { shown, up } = splitDevices(many);
+    expect(shown.map((d) => d.state)).toEqual(["down", "maintenance"]);
+    expect(up).toHaveLength(4);
   });
 });
