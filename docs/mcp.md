@@ -1,10 +1,20 @@
 # MCP server (AI assistants)
 
+Lets an AI assistant (Claude Code, Claude Desktop, or any MCP client) answer questions such as "which sites are down and since when?" from the live board, and add a case to an alarm. Off by default.
+
+## In short
+
+1. Turn it on: `MCP_ENABLED=true` in `.env`, then `docker compose up -d`.
+2. Connect the assistant to `https://<your host>/mcp` ([connecting a client](#connecting-a-client)).
+3. It can only see and do what its user could on the board, and it never changes Nautobot.
+
+## Tools
+
 With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/) server at `/mcp`, so an AI assistant (Claude Code, Claude Desktop, or any MCP client) can answer questions like "which sites are down and since when?" and add a case to an alarm.
 
 | Tool | What it does | Role when sign-in is on |
 |---|---|---|
-| `get_alert_board` | Sites with alarms (or one level, `wireless` for only access points down, #521, or all): level, reason, down devices with IP, role and stack (#402), downtime, cases; filter by tenant or text | viewer\* |
+| `get_alert_board` | Sites with alarms (or one level, `wireless` for only access points down, or all): level, reason, down devices with IP, role and stack, downtime, cases; filter by tenant or text | viewer\* |
 | `get_site` | One site by id or name | viewer\* |
 | `get_location_detail` | All devices, ASNs and circuits at a location | viewer\* |
 | `search_locations` | Locations within 5 km of an address or `lat,lon` | viewer\* |
@@ -14,7 +24,7 @@ With `MCP_ENABLED=true` the app serves an [MCP](https://modelcontextprotocol.io/
 
 \*only with `AUTH_REQUIRE_VIEWER=true`.
 
-`tenant` and `search` match sites as the board's `?tenant=` / `?q=` link does: the tenant's whole name with case ignored, and the text in the site's name, path, address or country (#375). For `get_alert_feed` the server filters before the limit, so the newest changes asked for are that tenant's, not the whole network's. It counts every stored site, including those `get_alert_board` leaves out unless `include_non_operational` is set, and when no site matches it says so in `note` rather than looking like nothing changed.
+`tenant` and `search` match sites as the board's `?tenant=` / `?q=` link does: the tenant's whole name with case ignored, and the text in the site's name, path, address or country. For `get_alert_feed` the server filters before the limit, so the newest changes asked for are that tenant's, not the whole network's. It counts every stored site, including those `get_alert_board` leaves out unless `include_non_operational` is set, and when no site matches it says so in `note` rather than looking like nothing changed.
 
 The tools run the same code and the same sign-in and role checks as the web pages, so an assistant can never do more than its user could on the board. `add_case` is the only change it can make; nothing is ever written to Nautobot.
 

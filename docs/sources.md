@@ -1,31 +1,21 @@
 # Other monitoring sources
 
-By default a device's status comes from Nautobot and, if configured, LibreNMS. **Prometheus Alertmanager** and a **generic webhook** can also mark devices down (#292). Anything that can send an HTTP request can use the generic webhook, for example Zabbix media types, Uptime Kuma or a script.
+Besides Nautobot and LibreNMS, the app can take status from **wireless controllers** (for access points) and from any monitoring tool that can send an alert: **Prometheus Alertmanager**, **Zabbix**, Uptime Kuma or a script.
 
-How a device is matched and counted:
-- Like LibreNMS, an alert is matched to a Nautobot device by **name** (the part before the first dot, case-insensitive), or by **primary IP** when the alert names an IP.
-- A matched device counts as **down** for as long as the alert fires. It is additive: these sources never mark a device up that Nautobot has down.
-- Down since = when the alert started.
-- The board, history, notifications and the map treat it like any other down device. On the board its line says who reported it: "alertmanager: Target down".
+## In short
 
-Both endpoints need an **operator** [API token](authentication.md#api-tokens) and the database:
+| Source | What it adds | Set up |
+|---|---|---|
+| **Cisco Catalyst Center**, **HPE Aruba New Central** | Access points: up or down, their address, and the switch port they are on | A file with read-only accounts ([wireless controllers](#wireless-controllers-access-points)) |
+| **Prometheus Alertmanager** | Devices down while an alert fires | A webhook receiver and an operator token ([Alertmanager](#prometheus-alertmanager)) |
+| **Zabbix**, Uptime Kuma, scripts | Devices down or up | The generic webhook and an operator token ([generic webhook](#generic-webhook), [Zabbix](#zabbix)) |
 
-```sh
-docker compose exec nautobot-maps python -m nautobot_maps token create alertmanager --role operator
-```
-
-Each answer says what happened:
-
-```json
-{"firing": 3, "resolved": 1, "skipped": 0, "matched": 3}
-```
-
-`matched` counts the firing alerts that name a known Nautobot device. If it stays 0, the label or name doesn't match.
+In Nautobot, devices need the same **name** as in the tool (or the alert names their primary IP), and access points need their **serial** ([what to set](nautobot-setup.md#access-points)).
 
 ## Wireless controllers: access points
 
-The wireless controllers know best whether an access point is up (#508), and its address: access points get theirs by DHCP, so Nautobot seldom has one. The app reads every access point from any number of **Cisco Catalyst Center** and **HPE Aruba Networking New Central** instances and matches each one to its Nautobot device. A matched device is **monitored without a primary IP**, shown with the address the controller reports (never written to Nautobot), and **down on the board** when the controller says so (#521):
-- a site with only access points down is at `WIRELESS_AP_LEVEL` (default Low) under the board's **Wireless** chip: not an alarm, never notified (at 10,000 access points, single ones drop all day);
+The wireless controllers know best whether an access point is up, and its address: access points get theirs by DHCP, so Nautobot seldom has one. The app reads every access point from any number of **Cisco Catalyst Center** and **HPE Aruba Networking New Central** instances and matches each one to its Nautobot device. A matched device is **monitored without a primary IP**, shown with the address the controller reports (never written to Nautobot), and **down on the board** when the controller says so:
+- a site with only access points down is at `WIRELESS_AP_LEVEL` (default Low) under the board's **Wireless** chip: not an alarm, not notified (at 10,000 access points, single ones drop all day); one with its own level set in Nautobot is an ordinary alarm;
 - on the [status page](status-page.md) it stays Operational: "2 of 40 access points down";
 - access points never water down the share of the other devices down.
 
@@ -33,7 +23,7 @@ What the board does with them: [access points](alert-board.md#access-points). Na
 
 **Matching.** By **serial** (capitals don't matter), else by **name** (the part before the first dot), against the Nautobot devices. By name only for a device whose role is an access point, and only for a name one access point carries: `ap-01` at two sites matches neither. Which of them are access points is still `ACCESS_POINT_ROLES` ([configuration](configuration.md)). An access point in maintenance, or at a site in maintenance, isn't down.
 
-**Several instances, of either kind.** List them in one YAML file, with read-only accounts, `config/wireless.yml` next to `docker-compose.yml` (the app reads it as `/config/wireless.yml`, #517):
+**Several instances, of either kind.** List them in one YAML file, with read-only accounts, `config/wireless.yml` next to `docker-compose.yml` (the app reads it as `/config/wireless.yml`):
 
 ```yaml
 # config/wireless.yml
@@ -98,12 +88,12 @@ Up to four instances are read at once. The board is rebuilt only when an access 
 
 **When one can't be reached:**
 - The others carry on: a slow or failing instance never holds them up or wipes their access points.
-- Its last answer stands (#521): its access points stay down or up as they were, marked "last known" after three intervals (at least 15 minutes), so an unreachable controller never clears the board. They go when it answers again, or when it is removed from the file.
+- Its last answer stands: its access points stay down or up as they were, marked "last known" after three intervals (at least 15 minutes), so an unreachable controller never clears the board. They go when it answers again, or when it is removed from the file.
 - The top bar says "Can't reach Catalyst Center dk" in amber (not red: the alarms don't depend on it), or "Can't reach 2 sources" when several fail, and its menu lists each one.
 
-**Which switch and port** (#524): with the access points, each Catalyst Center's physical topology (CDP/LLDP) is read too, one request per instance (`/dna/intent/api/v1/topology/physical-topology`), and each access point's link to a switch kept. Where Catalyst Center doesn't say (Aruba New Central, or no topology), a **Nautobot cable** between the access point's interface and another device's is used: the inventory sync reads `dcim/cables/` incrementally like the devices, and a full sync replaces them. The board names the switch and port of a down access point, and the switch most of a site's down access points are behind. Either source that can't be read keeps its last answer.
+**Which switch and port**: with the access points, each Catalyst Center's physical topology (CDP/LLDP) is read too, one request per instance (`/dna/intent/api/v1/topology/physical-topology`), and each access point's link to a switch kept. Where Catalyst Center doesn't say (Aruba New Central, or no topology), a **Nautobot cable** between the access point's interface and another device's is used: the inventory sync reads `dcim/cables/` incrementally like the devices, and a full sync replaces them. The board names the switch and port of a down access point, and the switch most of a site's down access points are behind. Either source that can't be read keeps its last answer.
 
-**Plug and Play** (Catalyst Center, #534): an access point being onboarded isn't in the inventory until it has joined its controller (WLC). So with the access points, each instance's Plug and Play list is read too (`/dna/intent/api/v1/onboarding/pnp-device`, in pages of 500, never one request per AP) and matched by serial. A Nautobot device the inventory doesn't list but Plug and Play does shows in the map's site panel with its state ("Onboarding (PnP: Unclaimed)", "PnP error: Image download failed"), never on the board and never notified; one the inventory lists is shown from there. Devices Plug and Play lists that Nautobot doesn't have are ignored. If the list can't be read, the last answer stays, and the access points are unaffected. The fields are in the [data contract](data-contract.md#cisco-catalyst-center); they haven't been checked against a real Catalyst Center yet, so `wireless-check` and the contract's check after a sync are the place to look first.
+**Plug and Play** (Catalyst Center): an access point being onboarded isn't in the inventory until it has joined its controller (WLC). So with the access points, each instance's Plug and Play list is read too (`/dna/intent/api/v1/onboarding/pnp-device`, in pages of 500, never one request per AP) and matched by serial. A Nautobot device the inventory doesn't list but Plug and Play does shows in the map's site panel with its state ("Onboarding (PnP: Unclaimed)", "PnP error: Image download failed"), never on the board and never notified; one the inventory lists is shown from there. Devices Plug and Play lists that Nautobot doesn't have are ignored. If the list can't be read, the last answer stays, and the access points are unaffected. The fields are in the [data contract](data-contract.md#cisco-catalyst-center); they haven't been checked against a real Catalyst Center yet, so `wireless-check` and the contract's check after a sync are the place to look first.
 
 **The same access point in two instances** (moved, or during a migration): the newest answer wins. When two are equally new, up wins, so a stale copy never shows it down.
 
@@ -122,9 +112,33 @@ Aruba Central eu (https://de1.api.central.arubanetworks.com): 3870 access points
 
 It reads each instance now and exits with status 1 when one fails. Access points that match nothing have a serial or name in the controller that no Nautobot device has. `/metrics` has the same per instance: `nautobot_maps_wireless_access_points{controller,state}` and `nautobot_maps_wireless_access_points_matched{controller}` ([operations](operations.md)).
 
-On the **Admin** page (admins, #530), **Check now** under Wireless controllers does the same and shows a line per controller. The same from the API (admin role, #529): `POST /api/wireless/check` answers one result per controller: `reachable`, `signed_in`, `access_points`, `down`, `matched`, a few `unmatched_examples`, and `error` in plain words when it can't be read; never the credentials. One check runs at a time (429 while one does), so the controllers aren't asked by several at once.
+On the **Admin** page (admins), **Check now** under Wireless controllers does the same and shows a line per controller. The same from the API (admin role): `POST /api/wireless/check` answers one result per controller: `reachable`, `signed_in`, `access_points`, `down`, `matched`, a few `unmatched_examples`, and `error` in plain words when it can't be read; never the credentials. One check runs at a time (429 while one does), so the controllers aren't asked by several at once.
 
 The fields read are in the data contract: [Catalyst Center](data-contract.md#cisco-catalyst-center), [New Central](data-contract.md#hpe-aruba-networking-new-central).
+
+## Alerts from other tools: how they count
+
+By default a device's status comes from Nautobot and, if configured, LibreNMS. **Prometheus Alertmanager** and a **generic webhook** can also mark devices down. Anything that can send an HTTP request can use the generic webhook, for example Zabbix media types, Uptime Kuma or a script.
+
+How a device is matched and counted:
+- Like LibreNMS, an alert is matched to a Nautobot device by **name** (the part before the first dot, case-insensitive), or by **primary IP** when the alert names an IP.
+- A matched device counts as **down** for as long as the alert fires. It is additive: these sources never mark a device up that Nautobot has down.
+- Down since = when the alert started.
+- The board, history, notifications and the map treat it like any other down device. On the board its line says who reported it: "alertmanager: Target down".
+
+Both endpoints need an **operator** [API token](authentication.md#api-tokens) and the database:
+
+```sh
+docker compose exec nautobot-maps python -m nautobot_maps token create alertmanager --role operator
+```
+
+Each answer says what happened:
+
+```json
+{"firing": 3, "resolved": 1, "skipped": 0, "matched": 3}
+```
+
+`matched` counts the firing alerts that name a known Nautobot device. If it stays 0, the label or name doesn't match.
 
 ## Prometheus Alertmanager
 

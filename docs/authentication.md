@@ -1,5 +1,27 @@
 # Sign-in and roles
 
+Who can open the app, and who can change things in it. The app has no login screen of its own: people sign in with your company's login (Entra ID, Keycloak, Okta, Google, GitLab…) through a **sign-in proxy** in front of it, and their groups give them a **role**.
+
+## In short
+
+**Pick one of three setups:**
+
+| Setup | For | How |
+|---|---|---|
+| **No sign-in** (the default) | Trying it out, or a network only trusted people can reach | Nothing to do. Anyone who can reach it can look; changes are limited ([below](#without-sign-in-default)) |
+| **The bundled proxy** (recommended) | Production: HTTPS and your company login, ready to use | A certificate and a few settings ([the bundled proxy](#the-bundled-proxy-https-and-company-sign-in)) |
+| **Your own proxy** | You already have an SSO gateway | Point it at the app and pass the user and groups ([with a sign-in proxy](#with-a-sign-in-proxy)) |
+
+**The three roles:**
+
+| Role | Can |
+|---|---|
+| **viewer** | Look: the map, the board, availability |
+| **operator** | Also act: cases, acknowledgements, maintenance, history |
+| **admin** | Everything: also API tokens, customer status page links, test notifications |
+
+**Scripts and tools** (LibreNMS, Alertmanager, MCP) use an [API token](#api-tokens) instead of a login.
+
 ## Without sign-in (default)
 
 With `AUTH_MODE=disabled`:
@@ -10,7 +32,7 @@ With `AUTH_MODE=disabled`:
 
 ## With a sign-in proxy
 
-Set `AUTH_MODE=header` and put the app behind a reverse proxy or SSO gateway that handles the login and passes the user and their groups in headers. The app ships one ready to use, nginx + oauth2-proxy ([the bundled proxy](#the-bundled-proxy-https-and-company-sign-in-423)); the settings below are what it sets for you, and what your own proxy needs.
+Set `AUTH_MODE=header` and put the app behind a reverse proxy or SSO gateway that handles the login and passes the user and their groups in headers. The app ships one ready to use, nginx + oauth2-proxy ([the bundled proxy](#the-bundled-proxy-https-and-company-sign-in)); the settings below are what it sets for you, and what your own proxy needs.
 
 ```dotenv
 AUTH_MODE=header
@@ -66,7 +88,7 @@ location / {
 }
 ```
 
-### The bundled proxy: HTTPS and company sign-in (#423)
+### The bundled proxy: HTTPS and company sign-in
 
 Instead of setting up a proxy yourself, use the one in `deploy/proxy/`: **nginx** for HTTPS and **oauth2-proxy** for the login with any OIDC provider (Entra ID, Keycloak, Okta, Google).
 
@@ -79,13 +101,13 @@ Instead of setting up a proxy yourself, use the one in `deploy/proxy/`: **nginx*
 3. **Settings** in `.env` (see `.env.example`, "HTTPS and sign-in"): `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml`, `PUBLIC_HOSTNAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `AUTH_PROXY_SECRET` and `OAUTH2_COOKIE_SECRET`, plus `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` with your provider's group names or IDs.
 4. `docker compose up -d`, then open `https://<your host>`.
 
-What it does:
+#### What it does
 
-- **Port 80** only redirects to HTTPS, except `/healthz` for probes. **443** serves TLS 1.2 and 1.3 with HSTS. nginx listens on IPv6 too where the host has it, and on IPv4 only where it doesn't (#527).
+- **Port 80** only redirects to HTTPS, except `/healthz` for probes. **443** serves TLS 1.2 and 1.3 with HSTS. nginx listens on IPv6 too where the host has it, and on IPv4 only where it doesn't.
 - **Every request** is checked with oauth2-proxy. Someone not signed in goes to your login page and comes back. The app gets the user (username, else e-mail) and groups as `X-Forwarded-User` / `X-Forwarded-Groups`, with `AUTH_PROXY_SECRET`. The top bar shows "olga · operator".
 - **Without the company login:**
   - Requests with `Authorization: Bearer nmt_…` (API tokens: LibreNMS, Alertmanager, scripts, MCP). Matched on the header, not a path. The app checks the token.
-  - The tenant [status page](status-page.md) and its files, because customers have no company login. The app checks their status token. Staff who are signed in are still recognised on the status page's data (`/api/status/`, #527): oauth2-proxy is asked, but only to pass on who is signed in, never to send anyone to the login. So a tenant's name on Availability opens its page for staff without a key, and a customer's key link works whether or not they are signed in.
+  - The tenant [status page](status-page.md) and its files, because customers have no company login. The app checks their status token. Staff who are signed in are still recognised on the status page's data (`/api/status/`): oauth2-proxy is asked, but only to pass on who is signed in, never to send anyone to the login. So a tenant's name on Availability opens its page for staff without a key, and a customer's key link works whether or not they are signed in.
   - `/healthz`.
   
   On these, nginx overwrites the identity headers (empty unless oauth2-proxy says who is signed in), so nobody can claim a user by sending them.
@@ -94,20 +116,23 @@ What it does:
   - is no longer published on a host port;
   - trusts identity headers only from nginx's fixed address (`PROXY_IP`, default `172.30.0.10` on its own network `PROXY_SUBNET`; change both if that range is taken) and only with the secret;
   - runs with `AUTH_REQUIRE_VIEWER=true`.
-- **The login** uses PKCE (`S256`, #527), which Entra ID, Keycloak, Okta, Google and GitLab all accept.
+- **The login** uses PKCE (`S256`), which Entra ID, Keycloak, Okta, Google and GitLab all accept.
 - **Sessions** last 12 hours and are refreshed while in use. The identity provider is not asked on every request. The session cookie is `SameSite=Lax`, so a browser never sends it with a POST from another site.
 - **Users in many groups** (Entra ID sends an ID of 36 characters each) are fine: nginx's header buffers are raised to 32 KB.
 
-**Entra ID (Azure AD):**
+#### Entra ID (Azure AD)
+
 - `OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0` and `OIDC_EMAIL_CLAIM=preferred_username`.
 - In the app registration, under **Token configuration**, add the **groups** claim to the ID token. Groups then arrive as object IDs, so use those IDs in `AUTH_*_GROUPS`. Users in more than 200 groups get no list: assign groups to the application (Enterprise app, Users and groups) or use app roles.
 
-**Keycloak:**
+#### Keycloak
+
 - `OIDC_ISSUER_URL=https://keycloak.example.com/realms/<realm>`.
 - Use a confidential client.
 - Add a **Group Membership** mapper with the claim name `groups`, *Full group path* off, added to the ID token.
 
-**GitLab** (self-managed or gitlab.com, #526):
+#### GitLab (self-managed or gitlab.com)
+
 - Create the application under **Admin Area → Applications** (instance-wide) or a group's **Settings → Applications**: redirect URI `https://<your host>/oauth2/callback`, **Confidential** on, scopes `openid`, `profile` and `email`.
 - `OIDC_ISSUER_URL=https://gitlab.example.com` (the GitLab address itself, no path), and its application ID and secret as `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`.
 - `OIDC_GROUPS_CLAIM=groups_direct`: the groups the user is a direct member of, as full paths such as `netops/noc`. Use those paths in `AUTH_*_GROUPS` (e.g. `AUTH_OPERATOR_GROUPS=netops/noc`). Membership through a parent group doesn't count: add the users to the group itself.
@@ -122,7 +147,7 @@ oauth2-proxy checks the identity provider's certificate against the public CAs. 
 error while discovery OIDC configuration: ... tls: failed to verify certificate: x509: certificate signed by unknown authority
 ```
 
-Give it that CA (#526):
+Give it that CA:
 
 1. Get the CA certificate as a PEM file: the root (and any intermediate) CA from your IT, or the host's bundle if the host already trusts it (`/etc/ssl/certs/ca-certificates.crt` on Debian and Ubuntu, `/etc/pki/tls/certs/ca-bundle.crt` on RHEL). Copy it into the [config folder](configuration.md#configuration), e.g. `config/company-ca.pem`.
 2. Make it readable by all: `chmod 644 config/company-ca.pem`. oauth2-proxy runs as a user of its own, not the app's group, and a CA certificate is public anyway.
@@ -158,7 +183,7 @@ HTTPS must stay on port 443: the sign-in's redirect (`https://<PUBLIC_HOSTNAME>/
 
 ### Signing out
 
-**Sign out** in the ☰ menu (#546) is there for someone signed in through the proxy (not with an API token, and not with `AUTH_MODE=disabled`). It goes to `AUTH_SIGN_OUT_URL`; with your own proxy, set that to its sign-out address.
+**Sign out** in the ☰ menu is there for someone signed in through the proxy (not with an API token, and not with `AUTH_MODE=disabled`). It goes to `AUTH_SIGN_OUT_URL`; with your own proxy, set that to its sign-out address.
 
 The bundled proxy sets it to `/oauth2/sign_out`: oauth2-proxy deletes its session cookie, then nginx sends the browser to `OIDC_LOGOUT_URL`, your identity provider's logout, so its session ends too.
 
@@ -216,9 +241,9 @@ docker compose exec nautobot-maps python -m nautobot_maps token revoke 3
 docker compose exec nautobot-maps python -m nautobot_maps token purge --older-than 90 --dry-run
 ```
 
-On the **Admin** page (☰ → **Admin**, only for admins, #530) the same without a command line: the active tokens newest first (a search past 25), **New token** (name, role, for a status token its tenant picked from Nautobot's, and how long it works) shows the key once with **Copy**, **Revoke** per row (asks once more), and "+N revoked or expired" opens them, with **Purge**. With `AUTH_MODE=disabled` the page is there only with `ALLOW_UNAUTHENTICATED_WRITES=true`, as the routes it uses.
+On the **Admin** page (☰ → **Admin**, only for admins) the same without a command line: the active tokens newest first (a search past 25), **New token** (name, role, for a status token its tenant picked from Nautobot's, and how long it works) shows the key once with **Copy**, **Revoke** per row (asks once more), and "+N revoked or expired" opens them, with **Purge**. With `AUTH_MODE=disabled` the page is there only with `ALLOW_UNAUTHENTICATED_WRITES=true`, as the routes it uses.
 
-`token list` shows the tokens that work, then "+N revoked or expired (--all to show)"; `--all` lists those too, and `--tenant "Acme Corp"` only that tenant's status tokens (#528).
+`token list` shows the tokens that work, then "+N revoked or expired (--all to show)"; `--all` lists those too, and `--tenant "Acme Corp"` only that tenant's status tokens.
 
 A revoked or expired token stays in the list with its name, for the audit trail: changes made with it are recorded as `token:<name>`, and a name can't be used twice. `token purge` deletes revoked and expired tokens for good, never an active one; `--older-than DAYS` only those that stopped working more than DAYS ago, so a recent revocation stays visible a while; `--dry-run` lists what would go and deletes nothing. Each purge is logged (`API token 'x' purged by cli`), and the names are free again. Nothing else refers to a token's record: cases and maintenance windows keep their `token:<name>` text, only the token's own record (when it was made and revoked) is gone.
 
