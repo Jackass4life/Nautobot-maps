@@ -1,8 +1,35 @@
 # Configuration
 
-Every setting is an environment variable, read from `.env` (copy `.env.example` to start). Only the first two are required. With Docker, `docker-compose.yml` passes each of them to the container; leaving one empty means its default.
+Every setting the app has, with its default. This page is for the person installing and running the app; what to fill in **in Nautobot** is on [What to set in Nautobot and LibreNMS](nautobot-setup.md).
 
-A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings). Put those files in the **`config/` folder** next to `docker-compose.yml`: it is mounted read-only in the container at `/config`, so the setting is `/config/<file>` (#517). The folder is git-ignored and kept out of the image, so its secrets are never committed or built in. In Docker the app runs as uid 10001, so let it read the folder through its group (`sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`); [config/README.md](../config/README.md) has the steps. An empty folder does nothing.
+## In short
+
+- **Where settings go:** in the `.env` file next to `docker-compose.yml` (copy `.env.example` to start). After a change: `docker compose up -d`.
+- **Required:** only `NAUTOBOT_URL` and `NAUTOBOT_TOKEN`, plus your own `POSTGRES_PASSWORD` before the first start.
+- **Leaving a setting empty** means its default. With Docker, `docker-compose.yml` passes each one to the container.
+- **Files** (wireless controllers, criticality rules, CA certificates) go in the `config/` folder: [below](#files-the-app-reads-the-config-folder).
+
+**The settings most people change:**
+
+| You want… | Setting | Section |
+|---|---|---|
+| LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN` | [LibreNMS](#librenms-optional) |
+| HTTPS and company sign-in | `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` and the proxy settings | [The bundled proxy](#the-bundled-https-and-sign-in-proxy) |
+| Messages to Teams or email | `NOTIFY_TEAMS_WEBHOOK_URL`, `NOTIFY_EMAIL_TO`, `SMTP_*` | [Notifications](#notifications) |
+| One board row per Site | `ALERT_BOARD_SITE_LOCATION_TYPE=Site` | [Alert board](#alert-board) |
+| Important sites and devices | `SITE_TIER_FIELD`, `TIER_DEVICE_LEVEL`, `DEVICE_CRITICALITY_FIELD` | [Alert board](#alert-board) |
+| Case numbers that open your ticket | `CASE_URL_TEMPLATE` | [Alert board](#alert-board) |
+| Your SLA target | `AVAILABILITY_TARGET_PCT` | [Alert board](#alert-board) |
+| Access points from controllers | `WIRELESS_CONTROLLERS_FILE` | [Wireless controllers](#wireless-controllers-optional) |
+
+### Files the app reads: the config folder
+
+A few settings point at a **file**: the wireless controllers (`WIRELESS_CONTROLLERS_FILE`), the criticality rules (`CRITICALITY_RULES_FILE`) and CA certificates (the `*_VERIFY_SSL` settings).
+
+1. Put the file in the **`config/` folder** next to `docker-compose.yml`. It is mounted read-only in the container at `/config`, so the setting is `/config/<file>`.
+2. Let the app read it. In Docker the app runs as uid 10001, so give the folder to its group: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, and `chmod 640` each file. [config/README.md](../config/README.md) has the steps.
+
+The folder is git-ignored and kept out of the image, so its secrets are never committed or built in. An empty folder does nothing.
 
 ## Nautobot
 
@@ -35,7 +62,7 @@ The alert board needs PostgreSQL; the map works without it. The bundled `docker-
 | `CACHE_TTL` | `300` | Seconds to cache Nautobot API responses |
 | `CACHE_TYPE` | `SimpleCache` (`RedisCache` in `docker-compose.yml`) | Cache backend (cachelib). `SimpleCache` is per worker; `RedisCache` shares the cache and rate limits between workers |
 | `CACHE_REDIS_URL` | — (`redis://redis:6379/0` in `docker-compose.yml`) | Redis URL; required with `CACHE_TYPE=RedisCache` |
-| `COMPRESS_RESPONSES` | `true` | gzip text answers over 1 KB (pages, JSON, CSS, JS, CSV) for browsers that accept it (#349): at 1,200 sites the board's data goes from about 1.3 MB to a tenth. `false` where the proxy in front compresses instead (see [operations](operations.md#what-the-container-does)) |
+| `COMPRESS_RESPONSES` | `true` | gzip text answers over 1 KB (pages, JSON, CSS, JS, CSV) for browsers that accept it: at 1,200 sites the board's data goes from about 1.3 MB to a tenth. `false` where the proxy in front compresses instead (see [operations](operations.md#what-the-container-does)) |
 
 ## LibreNMS (optional)
 
@@ -67,7 +94,7 @@ What a push does: the app asks the LibreNMS API for that one device and stores i
 
 ## Wireless controllers (optional)
 
-Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each (#508). Access points get their address by DHCP, so a controller watches them (#521): one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, never notified, and operational on the status page with them counted ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#configuration). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
+Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each. Access points get their address by DHCP, so a controller watches them: one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, not notified, and operational on the status page with them counted (an access point with its own level set is an ordinary alarm) ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#files-the-app-reads-the-config-folder). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -135,7 +162,7 @@ See [authentication](authentication.md).
 
 ### The bundled HTTPS and sign-in proxy
 
-Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in-423)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
+Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
 
 | Variable | Default | Description |
 |---|---|---|

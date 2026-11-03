@@ -1,5 +1,19 @@
 # Running in production
 
+For the person who keeps the app running: upgrades, backups, monitoring and the Docker details. Installing it the first time: [README](../README.md#install).
+
+## In short
+
+| Task | How | More |
+|---|---|---|
+| Upgrade | Set the new version in `docker-compose.override.yml`, then `docker compose pull nautobot-maps && docker compose up -d` | [Run a released version](#run-a-released-version) |
+| Roll back | Set the previous version, restore the backup taken before the upgrade | [Backup and restore](#backup-and-restore) |
+| Back up | The database, plus `.env` and the `config/` folder | [Backup and restore](#backup-and-restore) |
+| Change a port or volume | `docker-compose.override.yml`, never `docker-compose.yml` | [Local overrides](#local-overrides-ports-volumes-) |
+| Watch it | `/healthz` for probes, `/metrics` for Prometheus | [Monitoring](#monitoring) |
+| Fix sites missing from the map | The map's **Check** list | [Missing or wrong coordinates](#sites-with-missing-or-wrong-coordinates) |
+| See what happened | `docker compose logs nautobot-maps` | [What the container does](#what-the-container-does) |
+
 ## Run a released version
 
 `docker compose up --build` builds the image from your checkout. In production, run a published release instead, so every host runs exactly what CI built and tested, and a rollback is one line:
@@ -20,7 +34,7 @@ To roll back, set the previous version and run the same commands. The app refuse
 
 ## The config folder
 
-`docker-compose.yml` mounts `./config` read-only at `/config` (#517): the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
+`docker-compose.yml` mounts `./config` read-only at `/config`: the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
 
 ## Local overrides (ports, volumes, …)
 
@@ -42,8 +56,8 @@ services:
 ## What the container does
 
 - **Logs** go to `docker compose logs`: the app's messages (unexpected errors with their stack trace) and an access log line per request with the signed-in user, status and response time in ms (successful `/healthz` probes are left out). The bundled `docker-compose.yml` caps each container's log at 5 × 10 MB. `LOG_FORMAT=json` gives one JSON object per line.
-- **Security headers** on every response: a Content-Security-Policy that only runs the app's own scripts and styles (no inline ones: an HTML injection can't restyle the page, #370) and loads images only from the app and the `MAP_TILE_URL` host, plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
-- **Compression** (#349): text answers over 1 KB (pages, JSON, CSS, JS, CSV) are gzipped for browsers that accept it, with `Vary: Accept-Encoding`. At 1,200 sites the board's data (about 1.3 MB) and the map's (0.8 MB) shrink to about a tenth, which matters with many boards and wall screens refreshing. Streamed exports, partial and not-modified answers, and a new API token's answer are left as they are. The access log's response size is then the compressed size. To compress in your proxy instead, set `COMPRESS_RESPONSES=false` there and, for nginx, turn it on for proxied JSON (by default nginx compresses only HTML, and nothing proxied):
+- **Security headers** on every response: a Content-Security-Policy that only runs the app's own scripts and styles (no inline ones: an HTML injection can't restyle the page) and loads images only from the app and the `MAP_TILE_URL` host, plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
+- **Compression**: text answers over 1 KB (pages, JSON, CSS, JS, CSV) are gzipped for browsers that accept it, with `Vary: Accept-Encoding`. At 1,200 sites the board's data (about 1.3 MB) and the map's (0.8 MB) shrink to about a tenth, which matters with many boards and wall screens refreshing. Streamed exports, partial and not-modified answers, and a new API token's answer are left as they are. The access log's response size is then the compressed size. To compress in your proxy instead, set `COMPRESS_RESPONSES=false` there and, for nginx, turn it on for proxied JSON (by default nginx compresses only HTML, and nothing proxied):
   ```nginx
   gzip on;
   gzip_proxied any;
@@ -96,7 +110,7 @@ Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
 | 100 incidents a day | ≈ 45 MB a year |
 | 1,000 incidents a day | ≈ 450 MB a year |
 
-These figures were measured on PostgreSQL 17 with 20,000 incidents. Notes, cases and longer reasons add a little. A flapping device is one incident (#286), not one per change.
+These figures were measured on PostgreSQL 17 with 20,000 incidents. Notes, cases and longer reasons add a little. A flapping device is one incident, not one per change.
 
 How to choose:
 - **Upgrading from a version that kept everything:** the first daily prune deletes history older than two years. To keep it, set `ALERT_HISTORY_RETENTION_DAYS=0` (or a longer period) before upgrading, or back up first.
@@ -119,7 +133,7 @@ Rolling back to an older release after its database was migrated is refused at s
 
 ## Monitoring
 
-`/healthz` is the liveness probe: 200 while the app answers and, when a database is configured, the database too; 503 when a configured database doesn't answer. Without `NAUTOBOT_MAPS_DATABASE_URL` (a map-only setup) it checks only the app. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if never) without failing on it, since restarting the app can't fix a sync that fails upstream. For people, the top bar on every page says the same in plain words, from `GET /api/app-status` (`state`: ok, stale or down, and why per source; #419).
+`/healthz` is the liveness probe: 200 while the app answers and, when a database is configured, the database too; 503 when a configured database doesn't answer. Without `NAUTOBOT_MAPS_DATABASE_URL` (a map-only setup) it checks only the app. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if never) without failing on it, since restarting the app can't fix a sync that fails upstream. For people, the top bar on every page says the same in plain words, from `GET /api/app-status` (`state`: ok, stale or down, and why per source).
 
 `/metrics` serves Prometheus metrics, read from the database when scraped (so every worker gives the same answer):
 
@@ -139,7 +153,7 @@ Rolling back to an older release after its database was migrated is refused at s
 | `nautobot_maps_table_bytes{table}` / `nautobot_maps_table_rows_estimate{table}` | Each table's size on disk (with indexes) and PostgreSQL's row estimate ([growth](#backup-and-restore)) |
 | `nautobot_maps_history_oldest_timestamp_seconds` | The oldest site level change kept: how far back history goes |
 | `nautobot_maps_sites_coordinate_problems{problem}` | Board sites with missing or wrong coordinates: `invalid`, `zero`, `swapped`, `far`, `missing` ([below](#sites-with-missing-or-wrong-coordinates)) |
-| `nautobot_maps_wireless_access_points{controller,state}` / `nautobot_maps_wireless_access_points_matched{controller}` | Access points each [wireless controller](sources.md#wireless-controllers-access-points) instance listed at its last answer, up or down, and how many match a Nautobot device; each instance's sync is in the `sync` series as `source="wireless:catalyst_center:<name>"` or `"wireless:aruba_central:<name>"` (#508) |
+| `nautobot_maps_wireless_access_points{controller,state}` / `nautobot_maps_wireless_access_points_matched{controller}` | Access points each [wireless controller](sources.md#wireless-controllers-access-points) instance listed at its last answer, up or down, and how many match a Nautobot device; each instance's sync is in the `sync` series as `source="wireless:catalyst_center:<name>"` or `"wireless:aruba_central:<name>"` |
 | `nautobot_maps_contract_mismatches{source,endpoint,field}` | Records of the last sync whose field didn't match the [data contract](data-contract.md); 0 series when all match |
 
 `source` is `nautobot_inventory`, `nautobot_inventory_reconcile` (daily full sync), `librenms_inventory` or a wireless controller's (above). Request counts and response times are in the access log. `/metrics` needs no sign-in, even with `AUTH_REQUIRE_VIEWER=true`, since it holds only counts (no site or device names); set `METRICS_ENABLED=false` if even those should stay private.
@@ -163,7 +177,7 @@ An example alert, for a sync interval of 5 minutes:
 
 ## Sites with missing or wrong coordinates
 
-A site without coordinates is missing from the map, and one with wrong coordinates pulls the map's first view out over the sea (#368). The map shows a line under its count when the alert board has any, e.g. "12 sites aren't on the map · 2 have wrong coordinates · **Check**"; **Check** lists them worst first (the first 50, the rest in the CSV), each with a link to fix it in Nautobot and **Show** for those on the map.
+A site without coordinates is missing from the map, and one with wrong coordinates pulls the map's first view out over the sea. The map shows a line under its count when the alert board has any, e.g. "12 sites aren't on the map · 2 have wrong coordinates · **Check**"; **Check** lists them worst first (the first 50, the rest in the CSV), each with a link to fix it in Nautobot and **Show** for those on the map.
 
 | Problem | Meaning |
 |---|---|
@@ -173,9 +187,9 @@ A site without coordinates is missing from the map, and one with wrong coordinat
 | `missing` | No coordinates: on the board, not on the map |
 | `far` | Far from the other sites in its region: a hint to check (a lone site abroad can be right) |
 
-**"Far" is measured within the site's region** (#416), not from the middle of the whole network, so a network on several continents isn't flagged. The region is the closest part of the site's Nautobot location tree ("EMEA › DNK", then "EMEA") with at least 3 sites with coordinates; with none, the whole network. A site is far when it is more than 4 × the region's typical distance from the region's middle (the median point), and at least 1,000 km (2,000 km for the whole network). Each one says what it is compared with: "9,194 km from the other sites in EMEA › DNK". A page for some sites only (`?tenant=`) still compares them with every site in their region.
+**"Far" is measured within the site's region**, not from the middle of the whole network, so a network on several continents isn't flagged. The region is the closest part of the site's Nautobot location tree ("EMEA › DNK", then "EMEA") with at least 3 sites with coordinates; with none, the whole network. A site is far when it is more than 4 × the region's typical distance from the region's middle (the median point), and at least 1,000 km (2,000 km for the whole network). Each one says what it is compared with: "9,194 km from the other sites in EMEA › DNK". A page for some sites only (`?tenant=`) still compares them with every site in their region.
 
 `far` is only a hint: the line counts the sites that are missing or wrong, and the far ones come last in the list under their own heading ("2 sites are far from the others" only when nothing else is wrong).
 
-Only the board's sites are checked, and one without coordinates (or at 0,0) only when it has devices, in maintenance or down ones included: regions and buildings above the sites have none by design. The middle is a median per axis, so a region across the 180° meridian gets wrong results: read `far` there with care (and set `MAP_DEFAULT_VIEW`, #362). It reads the stored board, so it costs no Nautobot call; the map checks again every 15 minutes. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`, both taking `tenant=` and `q=` like the map: on a map for some sites only, the line, the list and the CSV cover those sites. The metric is left out until a board is stored (a scrape never builds one).
+Only the board's sites are checked, and one without coordinates (or at 0,0) only when it has devices, in maintenance or down ones included: regions and buildings above the sites have none by design. The middle is a median per axis, so a region across the 180° meridian gets wrong results: read `far` there with care (and set `MAP_DEFAULT_VIEW`). It reads the stored board, so it costs no Nautobot call; the map checks again every 15 minutes. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`, both taking `tenant=` and `q=` like the map: on a map for some sites only, the line, the list and the CSV cover those sites. The metric is left out until a board is stored (a scrape never builds one).
 
