@@ -6,32 +6,47 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 
 *1,200 sites, 29 in alarm: the map, a site with 34 devices down, the alert board, and a case on the top row (the [scale demo](demo/README.md#scenario-7--a-nocs-real-load)).*
 
-## Features
+## Start here
 
-Built for a NOC: 1,200+ sites and 10,000+ devices, with 20–30 sites down on a normal day. Lists summarise and put what needs action first.
+| You are… | Read |
+|---|---|
+| **In the NOC**: you watch for outages and handle them | [The alert board](docs/alert-board.md), [Availability](docs/availability.md) |
+| **An account manager**: you tell customers whether they are affected | [Tenant status page](docs/status-page.md), [Availability](docs/availability.md) |
+| **Keeping Nautobot up to date**: you decide what the app shows | [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) |
+| **Installing or running the app** | [Install](#install) below, then [Configuration](docs/configuration.md) and [Running in production](docs/operations.md) |
+| **New to the app** and want the big picture | [How it works](docs/how-it-works.md) |
 
-- **Map** of every Nautobot location with coordinates, coloured by alert level. Sites in alarm or maintenance are always their own pin; the rest cluster, so the sites that need action stand out at any zoom.
-  - **Click a site** for its devices, ASNs and circuits, including those whose description is the site's address ([circuits by address](docs/how-it-works.md#circuits-in-the-site-panel)).
-  - **One search box** finds a site by name or address as you type, or a place or `lat,lon` with every site within 5 km.
-  - **The left panel** folds away with the sidebar button for a full-screen map, and still shows the alarm count while folded.
-- **Alert board**: each site's level (Critical, Medium, Low), its down devices with IP, role and down-since time, the likely cause, downtime, tenants and case numbers. It opens on sites with alarms, the ones nobody is on first, and updates itself.
-- **Searchable filters** on the map, board, Availability and Maintenance: type to find a value and tick several. A tenant is found by its name or its Nautobot description ("Container" finds Tidal Ports, "Container terminals"). A site matches any pick within a filter and every filter together. Closed controls show one name and **+N**; the map's chips remove individual picks. Arrows move, Enter ticks the highlighted match, and Escape closes; typing and picking make no requests, at 1,200 sites too. Staff (viewer, operator, admin) can carry tenant picks in Map / Alert Board / Wall view links and **Copy wall link**, using repeated `?tenant=` values. Customer status pages remain single-tenant, without filters or access to the map or board.
-- **Criticality from Nautobot**: mark which sites and devices matter with custom fields in Nautobot. A gold site makes every down device Critical; one device can be set Critical (or Low) on its own, and the device's field wins. With nothing set, the share of devices down decides, and all down is still Critical. Editing these doesn't page anyone ([set it up](#criticality-in-nautobot)).
-- **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning when it stops updating. A link with `?tenant=` / `?q=` gives a team its own wall, board and map, with **Copy wall link** on the board.
-- **Cases and ITSM**: attach a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. History and an activity feed show what went down and came back.
-- **Circuit mapping**: circuits without a termination in Nautobot, grouped by the site their description's address points to (one, several, none), with CSV: the worklist for linking them properly ([circuit mapping](docs/how-it-works.md#circuit-mapping)).
-- **Maintenance windows** for sites or single devices, now or planned ahead: planned work is not an alarm. A history of every window, with CSV.
-- **Availability** per site and tenant for any period, with maintenance left out, and CSV exports down to every incident. Each site says how much is there ("12 network · 40 APs"), and a tenant's name opens its status page.
-- **Tenant status page**: "are we affected?" for one tenant, shareable with a customer at a random link (not the tenant's name, so another customer's page can't be guessed). Each site with its address and its devices, "3 of 12 network devices down · 1 of 40 access points down", counts only, and the customer's own circuits, folded. A large tenant sees what's wrong first; the operational sites fold into one line.
-- **More sources**: LibreNMS status (optional) next to Nautobot's, pushed within seconds by LibreNMS alerts; Prometheus Alertmanager and a generic webhook can mark devices down. Access points from any number of Cisco Catalyst Centers and Aruba New Centrals: monitored without a primary IP (they get theirs by DHCP), with the controller's address, under their own **Wireless** chip rather than the alarms, never notified. A down access point says which switch and port it is on, and one still being onboarded with Plug and Play says so in the site panel (Catalyst Center).
-- **Notifications** to a webhook, Microsoft Teams or email when a site becomes Critical and when it recovers, summarised, never one per device.
-- **One top bar on every page**: find any site, see at a glance whether the data is fresh (amber when a sync is late, red when Nautobot or LibreNMS can't be reached), who is signed in, dark or light, and every page in the ☰ menu.
-- **HTTPS and company sign-in, ready to use**: an optional nginx + oauth2-proxy setup for Entra ID, Keycloak, Okta or Google, or your own SSO proxy. Roles: viewer, operator, admin. **API tokens** cover scripts and MCP clients, and changes sent from other sites are refused.
-- **Admin page** for admins (☰ → **Admin**): API tokens (make one, its key shown once; revoke; purge the old ones), a test notification and a check of the wireless controllers. **Share…** next to a tenant on Availability makes a customer's status page link. What the command line and the API can do, the pages can do too.
-- **MCP server** (optional) so AI assistants can read the board and add cases.
-- **Operations**: Prometheus `/metrics`, a `/healthz` probe, JSON logs, released Docker images.
-- **The documentation in the app**: **Documentation** in the ☰ menu shows these guides as pages (`/help`).
-- **Read-only towards Nautobot**: the app never changes anything there, so a read-only API token is enough.
+Every guide is also in the app: **Documentation** in the ☰ menu.
+
+## What it does
+
+Built for a NOC with 1,200+ sites and 10,000+ devices, where 20–30 sites are down on a normal day. Every page puts what needs action first.
+
+### For the NOC
+
+- **Map**: every site, coloured by how bad things are. Sites with a problem are always their own pin; the quiet ones are grouped, so problems stand out at any zoom. Click a site for its devices, ASNs and circuits. One search box finds a site by name or address, or a place with every site within 5 km.
+- **Alert board**: each site's level (Critical, Medium, Low), its down devices and since when, the likely cause, the customers on it and the case numbers. It opens on the alarms, the ones nobody is handling first, and updates itself.
+- **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning if it stops updating. A team can have its own wall for its customers.
+- **Cases**: add a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. Case numbers can link to your ticket system.
+- **Maintenance windows** for a site or single devices, now or planned ahead: planned work is not an alarm.
+- **Notifications** to Teams, email or a webhook when a site becomes Critical and when it recovers: one message per site, never one per device.
+- **Filters** everywhere (map, board, Availability, Maintenance): type to find a customer, status or location type, and tick several.
+
+### For customers and account managers
+
+- **Status page per customer**: "are we affected?" on a private link you send them. Each of their sites, its state and its description, its devices ("3 of 12 network devices down"), and their circuits. Optionally, their own devices by name.
+- **Availability** per site and customer for any month, with planned maintenance left out, and spreadsheets (CSV) down to every incident.
+
+### For the people running it
+
+- **Reads Nautobot, never changes it**: a read-only API token is enough. What it shows depends on what is in Nautobot ([what to set](docs/nautobot-setup.md)).
+- **More sources**: LibreNMS (down within seconds with alert pushes), Prometheus Alertmanager, Zabbix or any webhook. Access points from Cisco Catalyst Center and Aruba New Central, with the switch and port each one is on.
+- **Importance from Nautobot**: mark important sites (gold, silver, bronze) and devices with custom fields, and their outages alarm louder. Editing them never pages anyone.
+- **Circuit mapping**: the worklist of circuits not yet linked to a site in Nautobot ([circuit mapping](docs/how-it-works.md#circuit-mapping)).
+- **HTTPS and company sign-in** ready to use (nginx + oauth2-proxy for Entra ID, Keycloak, Okta, Google, GitLab), or your own sign-in proxy. Three roles: viewer, operator, admin.
+- **Admin page**: API tokens, a test notification, a check of the wireless controllers, and status page links for customers.
+- **Open to other tools**: an API (☰ → **API**), an MCP server for AI assistants, Prometheus `/metrics`, a `/healthz` probe, JSON logs and released Docker images.
+- **One top bar on every page**: find any site, see whether the data is fresh (amber when a sync is late, red when Nautobot or LibreNMS can't be reached), who is signed in, and dark or light.
 
 ### Screenshots
 
@@ -63,7 +78,7 @@ See [`demo/README.md`](demo/README.md) for the seed data and things to try.
 
 ## Install
 
-You need Docker and a Nautobot 2.x or 3.x with an API token.
+You need Docker and a Nautobot 2.x or 3.x with a read-only API token.
 
 ```bash
 git clone https://github.com/Jackass4life/Nautobot-maps.git
@@ -75,9 +90,11 @@ docker compose up --build -d
 
 > **Use `docker compose up`, not `docker compose build && docker compose start`.** `start` only restarts containers that already exist and fails with *"service … has no container to start"* on a fresh checkout.
 
-The bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created. Every setting is in [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
-
-Files the app reads (a wireless controllers file, criticality rules, CA certificates) go in the **`config/`** folder next to `docker-compose.yml`: it is mounted read-only at `/config`, git-ignored and kept out of the image. In Docker the app runs as uid 10001, so let it read the folder through its group: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, and `chmod 640` each file ([config/README.md](config/README.md)).
+- **The database:** the bundled PostgreSQL holds the alert board's data. Set `POSTGRES_PASSWORD` before the first start: it is fixed when the data volume is created.
+- **Settings:** every setting is in [configuration](docs/configuration.md). In production, run a released image rather than a local build ([operations](docs/operations.md#run-a-released-version)).
+- **Files the app reads** (wireless controllers, criticality rules, CA certificates) go in the **`config/`** folder next to `docker-compose.yml`. It is mounted read-only at `/config`, git-ignored and kept out of the image. In Docker the app runs as uid 10001, so let it read the folder through its group: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, and `chmod 640` each file ([config/README.md](config/README.md)).
+- **Commands** run inside the container: `docker compose exec nautobot-maps python -m nautobot_maps <command>` (`token create`, `status-link`, `wireless-check`, `migrate`).
+- **Without Docker** (for development): `pip install -r requirements.txt`, build the pages once with Node 22 (`cd frontend && npm ci && npm run generate`), then `python app.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Add what you need
 
@@ -85,34 +102,21 @@ Each of these is optional and can be added later; the map and the board work wit
 
 | What | How | Guide |
 |---|---|---|
-| HTTPS and company sign-in | The bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml`), or your own SSO proxy | [Sign-in and roles](docs/authentication.md) |
-| LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN`; alert pushes for near-real time | [Configuration](docs/configuration.md#librenms-optional) |
+| The right data in Nautobot | Coordinates, primary IPs, tenants, and optional custom fields | [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) |
+| HTTPS and company sign-in | The bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml`), or your own sign-in proxy | [Sign-in and roles](docs/authentication.md) |
+| LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN`; alert pushes for near-real time | [LibreNMS](docs/nautobot-setup.md#librenms-optional) |
 | Access points from Catalyst Center or Aruba New Central | `config/wireless.yml` and `WIRELESS_CONTROLLERS_FILE=/config/wireless.yml` | [Other sources](docs/sources.md#wireless-controllers-access-points) |
 | Alertmanager, Zabbix or any webhook | An operator API token | [Other sources](docs/sources.md) |
 | Notifications (webhook, Teams, email) | `NOTIFY_*`, `SMTP_*` | [Notifications](docs/notifications.md) |
-| A status page per customer | A random link per tenant: `python -m nautobot_maps status-link TENANT`, a status token for each customer | [Tenant status page](docs/status-page.md) |
-| Case numbers that link to your ITSM | `CASE_URL_TEMPLATE=https://itsm.example.com/ticket/{case}` | [Configuration](docs/configuration.md#alert-board) |
-| Which sites and devices matter most | Custom fields in Nautobot (below) | [Device and site criticality](docs/alert-board.md#device-and-site-criticality) |
+| A status page per customer | A private link per tenant, from **Share…** on Availability | [Tenant status page](docs/status-page.md) |
+| Case numbers that link to your ticket system | `CASE_URL_TEMPLATE=https://itsm.example.com/ticket/{case}` | [Configuration](docs/configuration.md#alert-board) |
+| Which sites and devices matter most | Custom fields in Nautobot | [How serious an outage is](docs/nautobot-setup.md#how-serious-an-outage-is) |
 | Your availability target (SLA) | `AVAILABILITY_TARGET_PCT=99.5` (default 99.9) | [Availability](docs/availability.md) |
-| Which devices are access points | `ACCESS_POINT_ROLES` (Nautobot role names, default `Access Point`) | [Configuration](docs/configuration.md#alert-board) |
-| One board row per Site, buildings and floors rolled up | `ALERT_BOARD_SITE_LOCATION_TYPE=Site` | [One row per Site](docs/alert-board.md#one-row-per-site) |
-| Each tenant's own devices on a shared site | `TENANT_SCOPE_FIELD`, a JSON custom field on the location | [Per-site device roles](docs/status-page.md#per-site-device-roles) |
 | AI assistants | `MCP_ENABLED=true` and an API token | [MCP server](docs/mcp.md) |
-
-Commands run inside the container: `docker compose exec nautobot-maps python -m nautobot_maps <command>` (`token create`, `status-link`, `wireless-check`, `migrate`).
-
-Without Docker (for development): `pip install -r requirements.txt`, build the pages once with Node 22 (`cd frontend && npm ci && npm run generate`), then `python app.py`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Criticality in Nautobot
 
-Optional, and read-only like the rest: the app only reads these fields. In Nautobot, under **Extensibility → Custom Fields**, add:
-
-| Custom field | Content type | Type and choices | Setting in `.env` |
-|---|---|---|---|
-| `tier` | `dcim \| location` | Selection: `gold`, `silver`, `bronze` | `SITE_TIER_FIELD=tier` |
-| `criticality` | `dcim \| device` | Selection: `critical`, `medium`, `low` | `DEVICE_CRITICALITY_FIELD=criticality` |
-
-Then say what a site's tier makes its devices, e.g. `TIER_DEVICE_LEVEL=gold:critical,silver:medium`. The setting uses the custom field's key, and changing one makes the next sync a full one. How the levels combine: [device and site criticality](docs/alert-board.md#device-and-site-criticality).
+Moved to [How serious an outage is](docs/nautobot-setup.md#how-serious-an-outage-is): the `tier` and `criticality` custom fields, and the settings that go with them.
 
 ## Documentation
 
@@ -120,24 +124,25 @@ Every guide below is also in the app: **Documentation** in the ☰ menu (`/help`
 
 | | |
 |---|---|
-| [How it works](docs/how-it-works.md) | The building blocks, the data flow, setup, and what the app can and can't do |
-| [Configuration](docs/configuration.md) | Every setting |
-| [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, automatic updates, wall view |
-| [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
-| [Availability](docs/availability.md) | Uptime per site and tenant, by month, without maintenance |
-| [Tenant status page](docs/status-page.md) | "Are we affected?" for one tenant, shareable with a customer |
-| [Other monitoring sources](docs/sources.md) | Prometheus Alertmanager and a generic webhook mark devices down; access points from Catalyst Center and Aruba New Central |
+| [How it works](docs/how-it-works.md) | The big picture: the building blocks, the data flow, setup, and what the app can and can't do |
+| [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) | Every field the app reads, required and optional, where to set it |
+| [The alert board](docs/alert-board.md) | Alert levels, hiding sites and devices, one row per Site, cases, wall view |
+| [Availability](docs/availability.md) | Uptime per site and customer, by month, without maintenance |
+| [Tenant status page](docs/status-page.md) | "Are we affected?" for one customer, on a private link |
 | [Notifications](docs/notifications.md) | Webhook, Teams and email when a site's level changes |
-| [Sign-in and roles](docs/authentication.md) | The bundled HTTPS and sign-in proxy (nginx + oauth2-proxy), or your own; what each role can do; API tokens |
-| [Data contract](docs/data-contract.md) | What is read from Nautobot and LibreNMS, and what it becomes |
+| [Configuration](docs/configuration.md) | Every setting |
+| [Running in production](docs/operations.md) | Released images, overrides, backup and restore, migrations, monitoring |
+| [Sign-in and roles](docs/authentication.md) | The bundled HTTPS and sign-in proxy, or your own; what each role can do; API tokens |
+| [Other monitoring sources](docs/sources.md) | Wireless controllers, Prometheus Alertmanager, Zabbix and a generic webhook |
 | [MCP server](docs/mcp.md) | Connecting AI assistants |
+| [Data contract](docs/data-contract.md) | Exactly what is read from Nautobot, LibreNMS and the controllers, and what it becomes |
 | API | **API** in the ☰ menu opens `/api/docs`: every endpoint in Swagger UI with **Try it out**, and the OpenAPI spec at `/api/openapi.json` (the old `/docs` and `/openapi.json` redirect there) |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, tests, code layout |
 
 ## Nautobot versions
 
-Tested with Nautobot 2.x and 3.x. In 3.x, ASNs are read from the field on each Location (the `ipam/asns/` endpoint needs the BGP Models plugin), and names missing from brief nested objects are looked up separately, so both work without extra setup. Only locations with both latitude and longitude appear on the map.
+Tested with Nautobot 2.x and 3.x. In 3.x, ASNs are read from the field on each Location (the `ipam/asns/` endpoint needs the BGP Models plugin), and names missing from brief nested objects are looked up separately, so both work without extra setup.
 
 ## License
 
