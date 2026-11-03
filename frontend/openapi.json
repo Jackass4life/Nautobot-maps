@@ -4770,6 +4770,18 @@
             "title": "Circuits",
             "type": "array"
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The location's description in Nautobot, when it has one (#558).",
+            "title": "Description"
+          },
           "devices": {
             "description": "With STATUS_PAGE_TENANT_DEVICES, the devices whose Nautobot tenant is this one (#555), down first, then by name; else empty.",
             "items": {
@@ -4854,6 +4866,7 @@
         },
         "required": [
           "name",
+          "description",
           "state",
           "since",
           "until",

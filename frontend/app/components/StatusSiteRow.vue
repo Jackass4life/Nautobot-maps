@@ -1,5 +1,6 @@
 <!-- One site on the tenant status page (#291, #463): its state, and since or
-     until when; under its name, where it is, opening OpenStreetMap in a new
+     until when; under its name, its description from Nautobot when it has
+     one (#558), and where it is, opening OpenStreetMap in a new
      tab (#493); how many devices it has, and how many are down (#503); and
      its circuits, folded (#511); with STATUS_PAGE_TENANT_DEVICES, the
      tenant's own devices by name, those up folded when many (#555). -->
@@ -30,6 +31,9 @@ const named = computed(() => splitDevices(props.site.devices ?? []));
     <span class="size-2.5 shrink-0 rounded-full" :class="dot[site.state] || 'bg-slate-400'" aria-hidden="true" />
     <div class="min-w-0 flex-1 basis-48">
       <span class="block font-semibold break-words text-highlighted">{{ site.name }}</span>
+      <span v-if="site.description" class="status-description block text-sm break-words whitespace-pre-line text-toned">{{
+        site.description
+      }}</span>
       <a
         v-if="place"
         class="status-place inline-flex max-w-full items-start gap-1 text-sm text-muted hover:text-primary hover:underline"

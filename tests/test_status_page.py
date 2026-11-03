@@ -24,6 +24,7 @@ BOARD = {
             "alert_level": "critical",
             "current_downtime_seconds": 3600,
             "physical_address": "1 Canada Square",
+            "description": "  Head office, trading floor\n",
             "latitude": 51.5054,
             "longitude": -0.0235,
             "down_devices": [{"device_name": "lon-core-01", "primary_ip": "10.0.0.1"}],
@@ -34,7 +35,14 @@ BOARD = {
             "active_cases": [{"case_number": "INC-1"}],
             "tenant_descriptions": {"Acme Corp": "Retail bank, 24/7", "Nordnet": "Nordnet's own note"},
         },
-        {"id": "loc-par", "name": "Paris PoP", "tenant": "acme corp", "alert_level": "ok", "network_device_count": 2},
+        {
+            "id": "loc-par",
+            "name": "Paris PoP",
+            "tenant": "acme corp",
+            "alert_level": "ok",
+            "network_device_count": 2,
+            "description": "   ",
+        },
         {
             "id": "loc-ams",
             "name": "Amsterdam",
@@ -92,8 +100,9 @@ class TestTenantStatus:
             "devices": [],
             "circuits": [],
         }
-        nowhere = {"address": None, "latitude": None, "longitude": None, **none}
+        nowhere = {"description": None, "address": None, "latitude": None, "longitude": None, **none}
         london = {
+            "description": "Head office, trading floor",
             "address": "1 Canada Square",
             "latitude": 51.5054,
             "longitude": -0.0235,
@@ -364,6 +373,7 @@ class TestTenantScopes:
         assert result["sites"] == [
             {
                 "name": "Scoped site",
+                "description": None,
                 "state": "degraded",
                 "since": "2026-10-09T11:00:00Z",
                 "until": None,

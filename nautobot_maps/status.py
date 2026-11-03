@@ -174,6 +174,8 @@ def tenant_status(
             state = "operational"
         site = {
             "name": row.get("name") or "",
+            # The location's description in Nautobot, when it has one (#558).
+            "description": (row.get("description") or "").strip() or None,
             "state": state,
             "since": None,
             "until": None,
