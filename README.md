@@ -25,7 +25,7 @@ Built for a NOC with 1,200+ sites and 10,000+ devices, where 20–30 sites are d
 ### For the NOC
 
 - **Map**: every site, coloured by how bad things are. Sites with a problem are always their own pin; the quiet ones are grouped, so problems stand out at any zoom. Click a site for its devices, ASNs and circuits. One search box finds a site by name or address, or a place with every site within 5 km.
-- **Alert board**: each site's level (Critical, Medium, Low), its down devices and since when, the likely cause, the customers on it and the case numbers. It opens on the alarms, the ones nobody is handling first, and updates itself.
+- **Alert board**: each site's level (Critical, Medium, Low), its down devices and since when, the likely cause, the customers on it and the case numbers. It opens on the alarms, the newest first, and updates itself. The wall view puts the ones nobody is handling first.
 - **Wall view** for a NOC screen: alarms only, no buttons, and a loud warning if it stops updating. A team can have its own wall for its customers.
 - **Cases**: add a case number to many down devices at once, acknowledge with a note, or copy a site as text for a ticket. Case numbers can link to your ticket system.
 - **Maintenance windows** for a site or single devices, now or planned ahead: planned work is not an alarm.
