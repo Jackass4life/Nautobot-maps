@@ -19,7 +19,7 @@ It shows:
 
 A site belongs to the tenant when it is the site's own tenant or one linked by a Relationship, the same rule as the board's tenant filter. Tenant names are matched without regard to case. Locations with nothing monitored (regions, buildings) are left out.
 
-Access points are the device roles in `ACCESS_POINT_ROLES` (default `Access Point`), every other monitored device is network equipment, as on [Availability](availability.md). A device in maintenance, or at a site in maintenance, counts at its site but isn't down; nor are the devices of a site with no data. Only counts are shown: the page never shows device names, roles, IP addresses, cases, acknowledgements, maintenance reasons or other tenants. A site's address and coordinates are shown (#493): with a status token a customer only ever sees their own sites, and where the page is open to anyone, the board is too, and it already shows every site's address. It refreshes every minute and follows the viewer's light or dark setting.
+Access points are the device roles in `ACCESS_POINT_ROLES` (default `Access Point`), every other monitored device is network equipment, as on [Availability](availability.md). A device in maintenance, or at a site in maintenance, counts at its site but isn't down; nor are the devices of a site with no data. Only counts are shown: the page never shows device names (except [the tenant's own devices](#the-tenants-own-devices), when turned on), roles, IP addresses, cases, acknowledgements, maintenance reasons or other tenants. A site's address and coordinates are shown (#493): with a status token a customer only ever sees their own sites, and where the page is open to anyone, the board is too, and it already shows every site's address. It refreshes every minute and follows the viewer's light or dark setting.
 
 ## Per-site device roles
 
@@ -32,6 +32,30 @@ Set `TENANT_SCOPE_FIELD` to the name of a JSON custom field on Nautobot Location
 Tenant and role names are matched without regard to case. A tenant with no entry sees the whole site, as before. A tenant with an entry sees the state and downtime start calculated from devices in those roles; no device names or IP addresses are returned, and the device counts are of those roles only (#503), never another tenant's devices. If no monitored device at a site has a matching role, the site is hidden for that tenant. Maintenance and virtual chassis stacks are counted as they are on the board.
 
 Leave `TENANT_SCOPE_FIELD` empty to turn this off. If the configured field contains malformed JSON or has an invalid shape, the sync logs one warning and that site falls back to all monitored devices.
+
+## The tenant's own devices
+
+For customers who need to know **which** device is down, not only "2 of 2 access points down" (#555): set `STATUS_PAGE_TENANT_DEVICES=true`, and each site also lists, by name, the monitored devices whose **Tenant in Nautobot** is that customer:
+
+```
+Aarhus Office                                   Degraded since 05:21
+3 of 8 network devices down · 1 of 6 access points down
+aar-acc-sw01  Down since 05:21
+aar-ap01      Down since 05:21
+▸ 10 devices up
+```
+
+Down first (since when), then in maintenance, then up, by name. A site with more than 5 lists only those down or in maintenance; the ones up fold into "▸ 10 devices up". Only the name and the state: never the role, IP address, serial, cases or maintenance reasons.
+
+What to set in Nautobot, per device: its **Tenant** (Device → Edit → Tenancy; many at once with Edit Selected). A stack is listed once, by its virtual chassis name, with its master's tenant. The device is named only when:
+
+- the site is on the tenant's page (its own tenant, or linked by a Relationship);
+- the device is monitored (it counts in "8 network devices · 6 access points": a primary IP, or listed by a wireless controller);
+- with `TENANT_SCOPE_FIELD` giving the tenant roles at that site, its role is one of them.
+
+A device without a tenant, or with another one (yours, another customer's), is never named. Down, maintenance and "since" follow the counts: a device still within `ALERT_DELAY_SECONDS` is up, one in a maintenance window (or at a site in one) is in maintenance.
+
+Turning it on names **every** monitored device that already has a tenant. Check first, per customer with a link: Nautobot → Devices, filtered by Tenant. A tenant change in Nautobot shows after the next inventory sync.
 
 ## Who can see it
 

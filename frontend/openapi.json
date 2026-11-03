@@ -659,6 +659,17 @@
             "title": "Tenant Descriptions",
             "type": "object"
           },
+          "tenant_devices": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/TenantDevice"
+              },
+              "type": "array"
+            },
+            "description": "STATUS_PAGE_TENANT_DEVICES (#555): the devices whose Nautobot tenant is each of the site's tenants (lower-case name), for their status page; absent without the setting.",
+            "title": "Tenant Devices",
+            "type": "object"
+          },
           "tenant_group": {
             "title": "Tenant Group",
             "type": "string"
@@ -4639,6 +4650,45 @@
         "title": "StatusCircuit",
         "type": "object"
       },
+      "StatusDevice": {
+        "additionalProperties": false,
+        "description": "One of the tenant's own devices at a site, by name (#555): nothing else of it.",
+        "properties": {
+          "name": {
+            "description": "Its name in Nautobot; a stack's name for a stack.",
+            "title": "Name",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it went down (ISO 8601, UTC); null unless down.",
+            "title": "Since"
+          },
+          "state": {
+            "enum": [
+              "down",
+              "maintenance",
+              "up"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "since"
+        ],
+        "title": "StatusDevice",
+        "type": "object"
+      },
       "StatusLink": {
         "additionalProperties": false,
         "properties": {
@@ -4718,6 +4768,14 @@
               "$ref": "#/components/schemas/StatusCircuit"
             },
             "title": "Circuits",
+            "type": "array"
+          },
+          "devices": {
+            "description": "With STATUS_PAGE_TENANT_DEVICES, the devices whose Nautobot tenant is this one (#555), down first, then by name; else empty.",
+            "items": {
+              "$ref": "#/components/schemas/StatusDevice"
+            },
+            "title": "Devices",
             "type": "array"
           },
           "latitude": {
@@ -4806,6 +4864,7 @@
           "access_points",
           "network_devices_down",
           "access_points_down",
+          "devices",
           "circuits"
         ],
         "title": "StatusSite",
@@ -4913,6 +4972,45 @@
           "current_downtime_seconds"
         ],
         "title": "TenantAlert",
+        "type": "object"
+      },
+      "TenantDevice": {
+        "additionalProperties": false,
+        "description": "One of a tenant's own devices, as its status page names it (#555).",
+        "properties": {
+          "name": {
+            "description": "The device's name; a stack's name for a stack.",
+            "title": "Name",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it went down (ISO 8601, UTC); null unless down.",
+            "title": "Since"
+          },
+          "state": {
+            "enum": [
+              "up",
+              "down",
+              "maintenance"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "since"
+        ],
+        "title": "TenantDevice",
         "type": "object"
       },
       "TenantRow": {

@@ -80,6 +80,14 @@ class TenantAlert(common.Answer):
     wireless_only: bool = Field(False, description="Only access points down, per a wireless controller (#521).")
 
 
+class TenantDevice(common.Answer):
+    """One of a tenant's own devices, as its status page names it (#555)."""
+
+    name: str = Field(description="The device's name; a stack's name for a stack.")
+    state: Literal["up", "down", "maintenance"]
+    since: str | None = Field(description="When it went down (ISO 8601, UTC); null unless down.")
+
+
 class SiteMaintenance(common.Answer):
     until: str
     reason: str
@@ -115,6 +123,11 @@ class BoardSite(common.Answer):
     tenants: list[str] = Field(description="Its own tenant first, then those linked to it.")
     tenant_alerts: dict[str, TenantAlert] = Field(
         description="TENANT_SCOPE_FIELD: the level for each tenant with its own device roles (lower-case name)."
+    )
+    tenant_devices: dict[str, list[TenantDevice]] = Field(
+        default_factory=dict,
+        description="STATUS_PAGE_TENANT_DEVICES (#555): the devices whose Nautobot tenant is each of the site's "
+        "tenants (lower-case name), for their status page; absent without the setting.",
     )
     alert_level: Level
     alert_reason: str

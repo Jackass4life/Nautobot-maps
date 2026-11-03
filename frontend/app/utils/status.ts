@@ -120,3 +120,31 @@ export function circuitsLabel(count: number): string {
 export function circuitText(circuit: StatusCircuit): string {
   return [circuit.cid, circuit.type, circuit.bandwidth].filter(Boolean).join(" · ");
 }
+
+// The tenant's own devices at a site, by name (#555, STATUS_PAGE_TENANT_DEVICES).
+export type StatusDevice = components["schemas"]["StatusDevice"];
+
+export const DEVICE_STATE_LABELS: Record<StatusDevice["state"], string> = {
+  down: "Down",
+  maintenance: "Maintenance",
+  up: "Up",
+};
+
+// "Down since 14:05", "Maintenance", "Up".
+export function deviceText(device: StatusDevice, now: Date): string {
+  const label = DEVICE_STATE_LABELS[device.state] ?? device.state;
+  return device.since && device.state === "down" ? `${label} since ${formatFeedTime(device.since, now)}` : label;
+}
+
+// Up to this many devices at a site, all listed; above, those up fold into
+// "N devices up" (the API lists down first), so what is wrong stands out.
+export const DEVICES_LISTED = 5;
+
+export function splitDevices(devices: StatusDevice[]): { shown: StatusDevice[]; up: StatusDevice[] } {
+  if (devices.length <= DEVICES_LISTED) return { shown: devices, up: [] };
+  return { shown: devices.filter((d) => d.state !== "up"), up: devices.filter((d) => d.state === "up") };
+}
+
+export function devicesUpLabel(count: number): string {
+  return `${count.toLocaleString("en")} device${count === 1 ? "" : "s"} up`;
+}

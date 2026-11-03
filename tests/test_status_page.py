@@ -89,6 +89,7 @@ class TestTenantStatus:
             "access_points": 0,
             "network_devices_down": 0,
             "access_points_down": 0,
+            "devices": [],
             "circuits": [],
         }
         nowhere = {"address": None, "latitude": None, "longitude": None, **none}
@@ -101,6 +102,7 @@ class TestTenantStatus:
             "access_points": 40,
             "network_devices_down": 3,
             "access_points_down": 1,
+            "devices": [],
             "circuits": [],
         }
         paris = {**nowhere, "network_devices": 2}
@@ -372,6 +374,7 @@ class TestTenantScopes:
                 "access_points": 1,
                 "network_devices_down": 1,
                 "access_points_down": 0,
+                "devices": [],
                 "circuits": [],
             }
         ]
@@ -487,6 +490,139 @@ class TestTenantScopes:
         warnings = [record for record in caplog.records if "Invalid tenant_scope custom field" in record.message]
         assert len(warnings) == 1
         assert "2 locations" in warnings[0].message
+
+
+class TestTenantDevices:
+    """STATUS_PAGE_TENANT_DEVICES (#555): the devices whose tenant is the customer, by name."""
+
+    CHECKED_AT = "2026-10-09T12:00:00Z"
+
+    @pytest.fixture(autouse=True)
+    def _on(self, monkeypatch):
+        monkeypatch.setattr(settings, "STATUS_PAGE_TENANT_DEVICES", True)
+
+    def named(self, devices=(), pending=(), maintenance=(), window=None, scopes=None, stacks=None, tenants=None):
+        return alerts.tenant_devices(
+            scopes or {},
+            tenants or ["Acme Corp", "Nordnet"],
+            list(devices),
+            list(pending),
+            list(maintenance),
+            window,
+            self.CHECKED_AT,
+            stacks or {},
+        )
+
+    def test_only_each_tenants_own_devices_on_a_shared_site(self):
+        devices = [
+            {"id": "a", "name": "acme-sw", "tenant": "ACME Corp", "status": "Active"},
+            {"id": "b", "name": "acme-ap", "tenant": "Acme Corp", "status": "Offline", "first_seen_down_at": "x"},
+            {"id": "n", "name": "nordnet-fw", "tenant": "Nordnet", "status": "Active"},
+            {"id": "o", "name": "core-01", "tenant": "", "status": "Offline"},
+            {"id": "z", "name": "other-sw", "tenant": "Other Co", "status": "Active"},
+        ]
+        assert self.named(devices) == {
+            "acme corp": [
+                {"name": "acme-sw", "state": "up", "since": None},
+                {"name": "acme-ap", "state": "down", "since": "x"},
+            ],
+            "nordnet": [{"name": "nordnet-fw", "state": "up", "since": None}],
+        }
+
+    def test_counted_as_the_device_counts(self):
+        """Within the delay: up; in a device window: maintenance; a site window: all maintenance."""
+        down = {"id": "d", "name": "down", "tenant": "Acme Corp", "status": "Offline", "first_seen_down_at": "t1"}
+        pending = {"id": "p", "name": "pending", "tenant": "Acme Corp", "status": "Offline"}
+        resting = {"id": "m", "name": "resting", "tenant": "Acme Corp", "status": "Offline"}
+        states = {d["name"]: d["state"] for d in self.named([down], [pending], [resting])["acme corp"]}
+        assert states == {"down": "down", "pending": "up", "resting": "maintenance"}
+        in_window = self.named([down], window={"until": "later"})["acme corp"]
+        assert in_window == [{"name": "down", "state": "maintenance", "since": None}]
+
+    def test_a_stack_once_by_its_name_and_the_tenants_roles(self):
+        stack = alerts.merge_stacks(
+            [
+                {"id": "lead", "name": "sw1-1", "role": "Access Switch", "status": "Active", "tenant": "Acme Corp"}
+                | {"vc_id": "vc1", "vc_name": "sw1", "vc_master": True},
+                {"id": "member", "name": "sw1-2", "role": "Access Switch", "status": "Offline", "tenant": "Acme Corp"}
+                | {"vc_id": "vc1", "vc_name": "sw1", "vc_position": 2},
+            ]
+        )
+        firewall = {"id": "fw", "name": "fw1", "role": "Firewall", "status": "Active", "tenant": "Acme Corp"}
+        named = self.named([*stack, firewall], stacks={"vc1": {"members": [], "names": []}})
+        assert named["acme corp"][0] == {"name": "sw1", "state": "down", "since": self.CHECKED_AT}
+        assert len(named["acme corp"]) == 2
+        # TENANT_SCOPE_FIELD: only the roles the tenant's status page counts.
+        scoped = self.named([*stack, firewall], scopes={"acme corp": ["firewall"]})
+        assert scoped == {"acme corp": [{"name": "fw1", "state": "up", "since": None}]}
+
+    def test_off_names_nothing(self, monkeypatch):
+        device = {"id": "a", "name": "acme-sw", "tenant": "Acme Corp", "status": "Offline"}
+        board = {"alerts": [{"name": "Site", "tenant": "Acme Corp", "alert_level": "low"}]}
+        board["alerts"][0]["tenant_devices"] = self.named([device])
+        assert status.tenant_status(board, "Acme Corp")["sites"][0]["devices"]
+        monkeypatch.setattr(settings, "STATUS_PAGE_TENANT_DEVICES", False)
+        assert self.named([device]) == {}
+        # Also from a board built while it was on.
+        assert status.tenant_status(board, "Acme Corp")["sites"][0]["devices"] == []
+        assert "acme-sw" not in json.dumps(status.tenant_status(board, "Acme Corp"))
+
+    def test_down_first_then_by_name(self):
+        board = {
+            "alerts": [
+                {
+                    "name": "Site",
+                    "tenant": "Acme Corp",
+                    "alert_level": "low",
+                    "tenant_devices": {
+                        "acme corp": [
+                            {"name": "b-up", "state": "up", "since": None},
+                            {"name": "z-down", "state": "down", "since": "t"},
+                            {"name": "A-up", "state": "up", "since": None},
+                            {"name": "m", "state": "maintenance", "since": None},
+                        ],
+                        "nordnet": [{"name": "nordnet-fw", "state": "down", "since": "t"}],
+                    },
+                }
+            ]
+        }
+        devices = status.tenant_status(board, "ACME CORP")["sites"][0]["devices"]
+        assert [d["name"] for d in devices] == ["z-down", "m", "A-up", "b-up"]
+
+    def test_from_the_board_build_to_the_page(self, client, pg_database, monkeypatch):
+        """Nautobot's device tenant, through the board, to /api/status (and its answer model)."""
+        from tests.test_app import _snapshot_device, _snapshot_location
+
+        for name, value in (("NAUTOBOT_URL", ""), ("NAUTOBOT_TOKEN", ""), ("LIBRENMS_URL", "")):
+            monkeypatch.setattr(settings, name, value)
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_locations(conn, [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}])
+                inventory.record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_completed_at=self.CHECKED_AT,
+                    last_successful_sync=self.CHECKED_AT,
+                    cache_version=inventory.CACHE_VERSION,
+                )
+                inventory.write_devices(
+                    conn,
+                    [
+                        {**_snapshot_device("lon-ap-01", "loc-lon", "Access Point", "Offline"), "tenant": "Acme Corp"},
+                        {**_snapshot_device("lon-sw-01", "loc-lon", "Access Switch", "Active"), "tenant": "Acme Corp"},
+                        _snapshot_device("lon-core-01", "loc-lon", "Core Router", "Active"),
+                    ],
+                )
+        finally:
+            conn.close()
+        board = alerts.build_alert_board_payload(snapshot_only=True)
+        monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: board)
+        (site,) = client.get(f"/api/status/{link('Acme Corp')}").get_json()["sites"]
+        assert [(d["name"], d["state"]) for d in site["devices"]] == [("lon-ap-01", "down"), ("lon-sw-01", "up")]
+        assert site["devices"][0]["since"]
+        assert "lon-core-01" not in json.dumps(site)
 
 
 class TestAccess:

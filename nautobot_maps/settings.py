@@ -390,6 +390,8 @@ SITE_TIERS = [
 ]
 # Device roles that count for each tenant's status page, per Location.
 TENANT_SCOPE_FIELD = os.getenv("TENANT_SCOPE_FIELD", "").strip()
+# Name the devices whose Nautobot tenant is the customer on their status page (#555).
+STATUS_PAGE_TENANT_DEVICES = _flag("STATUS_PAGE_TENANT_DEVICES", False)
 # The location type whose locations are countries (#386): their name is the
 # country of every location under them.  Case ignored.
 COUNTRY_LOCATION_TYPE = os.getenv("COUNTRY_LOCATION_TYPE", "").strip() or "Country"

@@ -1,14 +1,28 @@
 <!-- One site on the tenant status page (#291, #463): its state, and since or
      until when; under its name, where it is, opening OpenStreetMap in a new
      tab (#493); how many devices it has, and how many are down (#503); and
-     its circuits, folded (#511). -->
+     its circuits, folded (#511); with STATUS_PAGE_TENANT_DEVICES, the
+     tenant's own devices by name, those up folded when many (#555). -->
 <script setup lang="ts">
-import { circuitsLabel, circuitText, hasDown, siteDevices, sitePlace, siteWhen, stateLabel, type StatusSite } from "~/utils/status";
+import {
+  circuitsLabel,
+  circuitText,
+  devicesUpLabel,
+  deviceText,
+  hasDown,
+  siteDevices,
+  sitePlace,
+  siteWhen,
+  splitDevices,
+  stateLabel,
+  type StatusSite,
+} from "~/utils/status";
 
 const props = defineProps<{ site: StatusSite; now: Date; dot: Record<string, string> }>();
 const place = computed(() => sitePlace(props.site));
 const devices = computed(() => siteDevices(props.site));
 const down = computed(() => hasDown(props.site));
+const named = computed(() => splitDevices(props.site.devices ?? []));
 </script>
 
 <template>
@@ -30,6 +44,24 @@ const down = computed(() => hasDown(props.site));
       <span v-if="devices" class="status-devices block text-sm" :class="down ? 'text-toned' : 'text-muted'">{{
         devices
       }}</span>
+      <ul v-if="named.shown.length" class="status-named mt-0.5 space-y-0.5 text-sm">
+        <li v-for="(device, index) in named.shown" :key="`${device.name}-${index}`" class="flex flex-wrap gap-x-2">
+          <span class="break-words text-toned">{{ device.name }}</span>
+          <span :class="device.state === 'down' ? 'font-semibold text-highlighted' : 'text-muted'">{{ deviceText(device, now) }}</span>
+        </li>
+      </ul>
+      <details v-if="named.up.length" class="status-named-up group mt-0.5 text-sm">
+        <summary class="inline-flex cursor-pointer list-none items-center gap-1 text-muted hover:text-highlighted">
+          <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+          {{ devicesUpLabel(named.up.length) }}
+        </summary>
+        <ul class="mt-1 space-y-0.5 pl-4.5">
+          <li v-for="(device, index) in named.up" :key="`${device.name}-${index}`" class="flex flex-wrap gap-x-2">
+            <span class="break-words text-toned">{{ device.name }}</span>
+            <span class="text-muted">{{ deviceText(device, now) }}</span>
+          </li>
+        </ul>
+      </details>
       <!-- Folded: one line per circuit only when opened (#511). -->
       <details v-if="site.circuits.length" class="status-circuits group mt-0.5 text-sm">
         <summary class="inline-flex cursor-pointer list-none items-center gap-1 text-muted hover:text-highlighted">
