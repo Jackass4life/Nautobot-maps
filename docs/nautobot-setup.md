@@ -135,14 +135,16 @@ With nothing set, the share of a site's devices that are down decides: some down
 
 - **Where:** Device → **Role**. Nothing new to add.
 - **What it does:** a down device whose role name contains `core`, `spine`, `distribution`, `router` or `gateway` makes its site **Critical**, and the site's other down devices are marked "Likely caused by" it.
+- **Unless:** the device has its own **criticality** set (above): that always wins, so a core router set to `low` gives Low. An operator can also mark a device "not critical" in the app, which turns this rule off for it.
 - **App setting (to change the words):** `CRITICAL_ROLE_KEYWORDS=core,spine,router`, or different words per location type in `CRITICALITY_RULES_FILE`.
 
-Editing any of these in Nautobot never pages anyone: only a device going down or coming back does.
+**Editing a tier or a criticality field doesn't page anyone**, even when it changes a site's level: only a device going down or coming back does. **Changing a role can page**: renaming a down device's role to one with a core word (for example Access Switch → Core Router) can make its site Critical and send a notification.
 
 ### Access points
 
 - **Where:** Device → **Role** `Access Point` (or your own role names).
-- **What it does:** access points are counted apart ("12 network devices · 40 access points"). With a wireless controller, a site with only access points down is not an alarm: it is shown under **Wireless**, and is never notified.
+- **What it does:** access points are counted apart ("12 network devices · 40 access points"). With a wireless controller, a site with only access points down is not an alarm: it is shown under **Wireless**, and is not notified.
+- **Unless:** an access point has its own **criticality** set in Nautobot, or is marked critical in the app. Then it is an ordinary alarm at that level when down, and can be notified.
 - **App setting:** `ACCESS_POINT_ROLES=Access Point,AP` when your roles are named differently (capitals don't matter).
 - **Matching to a controller:** by **Serial**, else by **Name** (the part before the first dot). Fill in the serial number for the surest match ([wireless controllers](sources.md#wireless-controllers-access-points)).
 - **Which switch an access point is on:** a **Cable** in Nautobot between the access point and the switch is used when the controller doesn't say.
