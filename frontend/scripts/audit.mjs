@@ -5,16 +5,7 @@
 // remove it when a fix lands (Dependabot proposes it).
 import { execFileSync } from "node:child_process";
 
-const ACCEPTED = {
-  // braces <= 3.0.3 (no fix released): stack exhaustion on deeply nested
-  // brace patterns.  Used by the build's file globbing (micromatch,
-  // fast-glob), on patterns from our own config, never from a user.
-  "GHSA-vfj7-8cjw-p6xm": "build-time globbing of our own patterns",
-  // node-forge <= 1.4.0 (no fix released): RSA PKCS#1 v1.5 signature check.
-  // Only listhen uses it, for `nuxt dev --https`'s self-signed certificate:
-  // development only, nothing is verified.
-  "GHSA-86w9-cpqp-85rv": "dev server's self-signed certificate only",
-};
+const ACCEPTED = {};
 
 let report;
 try {
