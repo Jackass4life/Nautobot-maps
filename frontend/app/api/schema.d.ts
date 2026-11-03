@@ -3271,6 +3271,11 @@ export interface components {
              */
             circuits: components["schemas"]["StatusCircuit"][];
             /**
+             * Description
+             * @description The location's description in Nautobot, when it has one (#558).
+             */
+            description: string | null;
+            /**
              * Devices
              * @description With STATUS_PAGE_TENANT_DEVICES, the devices whose Nautobot tenant is this one (#555), down first, then by name; else empty.
              */

@@ -25,6 +25,7 @@ class StatusDevice(common.Answer):
 
 class StatusSite(common.Answer):
     name: str
+    description: str | None = Field(description="The location's description in Nautobot, when it has one (#558).")
     state: Literal["outage", "degraded", "maintenance", "unknown", "operational"]
     since: str | None = Field(description="When an outage or degradation started (ISO 8601, UTC).")
     until: str | None = Field(description="When maintenance ends, as planned.")
