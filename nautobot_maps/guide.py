@@ -23,6 +23,7 @@ IMAGES = ROOT / "docs" / "images"
 PAGES = (
     ("overview", "README.md"),
     ("how-it-works", "docs/how-it-works.md"),
+    ("nautobot-setup", "docs/nautobot-setup.md"),
     ("alert-board", "docs/alert-board.md"),
     ("authentication", "docs/authentication.md"),
     ("configuration", "docs/configuration.md"),
