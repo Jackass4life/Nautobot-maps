@@ -15,7 +15,7 @@ Nautobot Maps can send a message when a site goes into alarm and when it recover
 
 Nothing is sent for:
 - a site going into **planned maintenance** (if it is still in alarm when the maintenance ends, that is sent then);
-- a site where only **access points** are down;
+- a site where only **access points** are down (unless one of them has its own level set in Nautobot, or is marked critical: then it is an ordinary alarm);
 - someone **editing** a tier or a criticality field in Nautobot.
 
 ### During a big outage

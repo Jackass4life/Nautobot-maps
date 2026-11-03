@@ -29,9 +29,9 @@ The keyboard works too: arrows move a day or a week, Page Up/Down a month, Enter
 
 ### What counts as downtime
 
-- **By default:** the time **any** monitored device at the site was down. Devices down at the same time count once.
-- **Or:** only the time the site was **Critical**. Switch with **Downtime** on the page.
-- **Never:** planned maintenance, and access points that a wireless controller watches.
+- **By default:** the time **any** monitored device at the site was down. Devices down at the same time count once. Access points that a wireless controller watches are left out.
+- **Or:** only the time the site was **Critical**. Switch with **Downtime** on the page. This follows the site's level, so an access point marked critical that made the site Critical counts here.
+- **Never:** planned maintenance.
 
 ### Downloading a spreadsheet
 

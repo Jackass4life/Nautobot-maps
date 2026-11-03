@@ -67,7 +67,8 @@ Planned work should not raise an alarm. Put the site, or some of its devices, in
 
 - **For one site:** **Maint.** under the row's **⋯**: the whole site or ticked devices, now for 1–8 hours or planned on a calendar, with a reason.
 - **For many sites, or ahead of time:** **Maintenance** in the ☰ menu → **Plan maintenance**. Add sites by name or customer (**Add all 40 sites of Acme**), pick **Now, for** 1–8 hours or **Planned** dates and times, and give a reason. Up to 200 sites at once.
-- **While it runs:** the site shows a blue **MAINTENANCE** badge with "until 14:00 · reason" instead of its level, and nobody is notified.
+- **While it runs, for the whole site:** the site shows a blue **MAINTENANCE** badge with "until 14:00 · reason" instead of its level, and nobody is notified.
+- **While it runs, for some devices:** only those devices are left out. The site keeps its level from its other devices, which can still raise an alarm and notify.
 - **Ending early:** **End now**, or **Cancel** for one that hasn't started.
 
 Starting, ending and cancelling need the **operator** role. More: [maintenance windows](#maintenance-windows).
