@@ -336,6 +336,9 @@ Up/down status of every LibreNMS device, matched to Nautobot devices by id map, 
 | `status_reason` | string or null |  | status_reason | — |
 | `overwrite_ip` | string or null |  | ip | the address LibreNMS polls: overwrite_ip, else ip; only IP literals |
 | `ip` | string or null |  | ip | — |
+| `disabled` | integer, boolean or string |  | disabled | 1 = "Disable polling and alerting": left off the alert board |
+| `disable_notify` | integer, boolean or string |  | disable_notify | 1 = "Disable alerting": left off the alert board |
+| `ignore` | integer, boolean or string |  | ignore | 1 = "Ignore alert tag": left off the alert board |
 
 ### `devices/<id or hostname>`
 
@@ -352,6 +355,9 @@ One device after an alert push (#284).
 | `status_reason` | string or null |  | status_reason | — |
 | `overwrite_ip` | string or null |  | ip | the address LibreNMS polls: overwrite_ip, else ip; only IP literals |
 | `ip` | string or null |  | ip | — |
+| `disabled` | integer, boolean or string |  | disabled | 1 = "Disable polling and alerting": left off the alert board |
+| `disable_notify` | integer, boolean or string |  | disable_notify | 1 = "Disable alerting": left off the alert board |
+| `ignore` | integer, boolean or string |  | ignore | 1 = "Ignore alert tag": left off the alert board |
 
 ### `POST /api/librenms/alert (inbound)`
 

@@ -813,7 +813,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
 
 def read_stacks(conn) -> dict[str, list[dict]]:
     """``{virtual chassis id: its members by place}`` over every cached device
-    (#402, #405), each ``{"id", "name", "status", "has_ip", "master"}``: a whole stack
+    (#402, #405), each ``{"id", "name", "status", "primary_ip", "has_ip", "master"}``: a whole stack
     wherever its members are, in one query."""
     rows = conn.execute(
         "SELECT vc_id, device_id, name, status, primary_ip, vc_master FROM nautobot_device_cache WHERE vc_id <> '' "
@@ -826,6 +826,7 @@ def read_stacks(conn) -> dict[str, list[dict]]:
                 "id": data.get("device_id") or "",
                 "name": data.get("name") or "",
                 "status": data.get("status") or "",
+                "primary_ip": data.get("primary_ip") or "",
                 "has_ip": bool((data.get("primary_ip") or "").strip()),
                 "master": bool(data.get("vc_master")),
             }
@@ -898,7 +899,8 @@ def read_librenms_devices(conn=None) -> list:
         return []
     try:
         rows = conn.execute(
-            "SELECT device_id, hostname, ip, status FROM librenms_device_status ORDER BY hostname ASC"
+            "SELECT device_id, hostname, ip, status, disabled, disable_notify, ignore "
+            "FROM librenms_device_status ORDER BY hostname ASC"
         ).fetchall()
         return [
             {
@@ -906,6 +908,7 @@ def read_librenms_devices(conn=None) -> list:
                 "hostname": data.get("hostname", ""),
                 "ip": data.get("ip", ""),
                 "status": data.get("status"),
+                **{flag: bool(data.get(flag)) for flag in LIBRENMS_MUTE_FLAGS},
             }
             for data in (db.row_to_dict(row) for row in rows)
         ]
@@ -1384,6 +1387,16 @@ def librenms_polled_ip(device: dict) -> str:
     return ""
 
 
+# LibreNMS's device switches that take a device off the board (#570), in the
+# order the site panel names them.
+LIBRENMS_MUTE_FLAGS = ("disabled", "disable_notify", "ignore")
+
+
+def librenms_flag(value) -> bool:
+    """A LibreNMS 0/1 switch (an integer, a string or a boolean) as a boolean."""
+    return str(value).strip().lower() in ("1", "true")
+
+
 def librenms_observation(conn) -> int:
     """A number for a LibreNMS request, taken before it is sent: a higher one
     is a newer answer (#284)."""
@@ -1403,8 +1416,9 @@ def write_librenms_devices(conn, devices: list, observation: int | None = None) 
         row = conn.execute(
             """
             INSERT INTO librenms_device_status
-                (device_id, hostname, ip, status, status_raw, status_reason, synced_at, observed_seq)
-            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP,
+                (device_id, hostname, ip, status, status_raw, status_reason, disabled, disable_notify, ignore,
+                 synced_at, observed_seq)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP,
                     COALESCE(%s::bigint, nextval('librenms_observation_seq')))
             ON CONFLICT(device_id) DO UPDATE SET
                 hostname = excluded.hostname,
@@ -1412,6 +1426,9 @@ def write_librenms_devices(conn, devices: list, observation: int | None = None) 
                 status = excluded.status,
                 status_raw = excluded.status_raw,
                 status_reason = excluded.status_reason,
+                disabled = excluded.disabled,
+                disable_notify = excluded.disable_notify,
+                ignore = excluded.ignore,
                 synced_at = excluded.synced_at,
                 observed_seq = excluded.observed_seq
             WHERE librenms_device_status.observed_seq IS NULL
@@ -1425,6 +1442,7 @@ def write_librenms_devices(conn, devices: list, observation: int | None = None) 
                 device.get("status"),
                 str(device.get("status", "")),
                 device.get("status_reason", "") or "",
+                *(librenms_flag(device.get(flag)) for flag in LIBRENMS_MUTE_FLAGS),
                 observation,
             ),
         ).fetchone()
@@ -1460,7 +1478,8 @@ def librenms_push_refresh(device: str) -> dict:
         with db.transaction(conn):
             row = conn.execute(
                 "UPDATE librenms_device_status SET hostname = %s, ip = %s, status = %s, status_raw = %s, "
-                "status_reason = %s, synced_at = CURRENT_TIMESTAMP, observed_seq = %s, "
+                "status_reason = %s, disabled = %s, disable_notify = %s, ignore = %s, "
+                "synced_at = CURRENT_TIMESTAMP, observed_seq = %s, "
                 "pushed_at = clock_timestamp(), push_seq = nextval('librenms_push_seq') "
                 "WHERE device_id = %s AND (observed_seq IS NULL OR observed_seq < %s) RETURNING device_id",
                 (
@@ -1469,6 +1488,7 @@ def librenms_push_refresh(device: str) -> dict:
                     found.get("status"),
                     str(found.get("status", "")),
                     found.get("status_reason", "") or "",
+                    *(librenms_flag(found.get(flag)) for flag in LIBRENMS_MUTE_FLAGS),
                     observation,
                     found["device_id"],
                     observation,

@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 
 import requests
@@ -132,14 +133,15 @@ def merge_stacks(devices: list) -> list:
     return [replace.get(id(d), d) for d in devices if id(d) not in dropped]
 
 
-def board_stacks(stacks: dict[str, list[dict]]) -> dict[str, dict]:
+def board_stacks(stacks: dict[str, list[dict]], muted: Collection[str] = ()) -> dict[str, dict]:
     """Each stack's ``members`` for one board build, worked out once (#405):
-    those of an excluded status, such as Decommissioning, left out; and their
+    those of an excluded status, such as Decommissioning, left out, and those
+    whose id is in *muted* (LibreNMS doesn't alert for them, #570); and their
     ``names``.  Only stacks of two or more."""
     excluded = settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES
     result = {}
     for vc_id, all_members in stacks.items():
-        members = [m for m in all_members if not status_is_excluded(m["status"], excluded)]
+        members = [m for m in all_members if not status_is_excluded(m["status"], excluded) and m.get("id") not in muted]
         if len(members) >= 2:
             result[vc_id] = {"members": members, "names": [m["name"] for m in members]}
     return result
@@ -167,7 +169,8 @@ def stack_of(device: dict, stacks: dict[str, dict], counted: bool = True) -> dic
 
 def board_device_rules() -> dict:
     """Which devices count, wherever a level is worked out (#316): those with
-    a primary IP or a wireless controller (#521), not of an excluded status.
+    a primary IP or a wireless controller (#521), not of an excluded status,
+    and not one LibreNMS doesn't alert for (#570).
     The board, the map's marker colours and the site panel all use this."""
     return {
         "require_primary_ip": True,
@@ -190,6 +193,23 @@ def not_monitored_reason(device: dict) -> str:
     status = (device.get("status") or "").strip()
     if status_is_excluded(status, settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES):
         return f"status {status or 'empty'} is excluded"
+    return device.get("librenms_muted") or ""
+
+
+# Why a LibreNMS switch takes a device off the board (#570).
+LIBRENMS_MUTED_REASONS = {
+    "disabled": "polling and alerting disabled in LibreNMS",
+    "disable_notify": "alerting disabled in LibreNMS",
+    "ignore": "alert tag ignored in LibreNMS",
+}
+
+
+def librenms_muted(lnms_record: dict) -> str:
+    """Why LibreNMS says not to alert for this device (#570), or "": "Disable
+    polling and alerting", "Disable alerting" or "Ignore alert tag" is set."""
+    for flag in inventory.LIBRENMS_MUTE_FLAGS:
+        if inventory.librenms_flag(lnms_record.get(flag)):
+            return LIBRENMS_MUTED_REASONS[flag]
     return ""
 
 
@@ -693,6 +713,9 @@ def enrich_with_librenms(
 
     The enrichment is *additive*: Nautobot status is never upgraded (a device
     already offline in Nautobot stays offline regardless of LibreNMS).
+
+    A device LibreNMS doesn't alert for (#570) gets ``librenms_muted``, the
+    reason, and is not marked offline: the board leaves it out.
     """
     if not (settings.LIBRENMS_URL or "").strip() or not (settings.LIBRENMS_API_TOKEN or "").strip():
         return devices
@@ -742,7 +765,9 @@ def enrich_with_librenms(
             device["librenms_hostname"] = lnms_record.get("hostname") or ""
             device["librenms_ip"] = inventory.librenms_polled_ip(lnms_record)
             lnms_status = lnms_record.get("status")
-            if lnms_status == 0:
+            if muted := librenms_muted(lnms_record):
+                device["librenms_muted"] = muted
+            elif lnms_status == 0:
                 # LibreNMS says down – mark as offline if not already a down status
                 current = (device.get("status") or "").lower()
                 if current not in DOWN_STATUSES:
@@ -838,7 +863,8 @@ def get_location_devices_and_alert(
     """Return ``(devices, alert)`` for a location (*tier*: the site's, #377).
 
     Devices whose Nautobot status is in *excluded_device_statuses* are dropped
-    before scoring and before the LibreNMS merge (#151).  *wireless_index*
+    before scoring and before the LibreNMS merge (#151); with
+    *require_primary_ip*, so are those LibreNMS doesn't alert for (#570).  *wireless_index*
     (``wireless.read_index``; None: read now) marks the access points a
     controller watches (#521).
     """
@@ -903,6 +929,8 @@ def get_location_devices_and_alert(
     # After the status filter: a Decommissioning AP stays left out (#521).
     enriched = enrich_with_wireless(enriched)
     if require_primary_ip:
+        # Not one LibreNMS says not to alert for (#570).
+        enriched = [device for device in enriched if not device.get("librenms_muted")]
         # Counted as the board counts: a stack is one device (#405).
         enriched = merge_stacks(enriched)
     return enriched, compute_alert_level(enriched, location_type, override_map=override_map, tier=tier)
@@ -1796,7 +1824,21 @@ def build_alert_board_payload(
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
         try:
             # Every stack's members (#402, #405), wherever they are, once a build.
-            stacks = board_stacks(inventory.read_stacks(read_conn))
+            all_stacks = inventory.read_stacks(read_conn)
+            # Members LibreNMS doesn't alert for aren't in the stack either (#570).
+            members = [member for stack in all_stacks.values() for member in stack]
+            muted = {
+                member["id"]
+                for member in enrich_with_librenms(
+                    members,
+                    lnms_id_map=lnms_id_map or {},
+                    snapshot_only=True,
+                    lnms_index=lnms_index,
+                    new_librenms_maps={},
+                )
+                if member.get("librenms_muted")
+            }
+            stacks = board_stacks(all_stacks, muted)
         except Exception as exc:
             logger.warning("Could not read the stacks; they aren't named this build: %s", exc)
         try:
@@ -2359,7 +2401,8 @@ def build_alert_board_payload(
 def site_monitored_devices(site_id: str, include_non_operational: bool = False) -> list[dict]:
     """The devices the board counts for the row *site_id*, for choosing what
     goes into maintenance (#283): with a primary IP or a wireless controller
-    (#521), not of an excluded status, including devices below the site when rows are rolled up (not
+    (#521), not of an excluded status, not one LibreNMS doesn't alert for
+    (#570), including devices below the site when rows are rolled up (not
     those below an excluded location, unless *include_non_operational*, as
     on the board)."""
     devices = inventory.read_devices()
@@ -2377,14 +2420,19 @@ def site_monitored_devices(site_id: str, include_non_operational: bool = False) 
         devices = devices_by_row.get(site_id, [])
     else:
         devices = [device for device in devices if (device.get("location_id") or "") == site_id]
-    monitored = merge_stacks(
-        [
-            device
-            for device in wireless.attach(devices, wireless.load_index(devices))
-            if is_monitored(device)
-            and not status_is_excluded(device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
-        ]
-    )
+    counted = [
+        device
+        for device in wireless.attach(devices, wireless.load_index(devices))
+        if is_monitored(device)
+        and not status_is_excluded(device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES)
+    ]
+    # Not one LibreNMS says not to alert for (#570); found matches aren't stored here.
+    muted = {
+        device.get("id")
+        for device in enrich_with_librenms(counted, snapshot_only=True, new_librenms_maps={})
+        if device.get("librenms_muted")
+    }
+    monitored = merge_stacks([device for device in counted if device.get("id") not in muted])
     return sorted(
         (
             {
@@ -2758,6 +2806,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
         device["core"] = is_core_device(device, core_keywords, overrides)
         device["level"] = device_level(device, core_keywords, overrides)[0]
         device["not_monitored"] = not_monitored_reason(device)
+        device.pop("librenms_muted", None)  # in not_monitored now (#570)
         # Monitored, but left out of the counts for now: say why (#316).
         window = in_window.get(device.get("id") or "")
         if window is not None and not device["not_monitored"]:

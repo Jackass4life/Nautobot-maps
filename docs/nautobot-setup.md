@@ -173,6 +173,7 @@ Hidden sites and devices don't count and aren't listed on the board. They stay o
 | Sites with a status (e.g. Planned) | Location → **Status** | `ALERT_BOARD_EXCLUDED_LOCATION_STATUSES` |
 | Sites with a tag | Location → **Tags** | `ALERT_BOARD_EXCLUDED_LOCATION_TAGS` |
 | Devices with a status (e.g. Decommissioning) | Device → **Status** | `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES` |
+| One device LibreNMS shouldn't alert for | In LibreNMS, see [below](#a-device-you-dont-want-alarms-for) | none |
 
 In the status settings, `null` means "no status set". Example: `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES=null,decommissioning,planned` ([more](alert-board.md#hiding-sites-and-devices)).
 
@@ -199,6 +200,18 @@ A LibreNMS device is matched to a Nautobot device by:
 2. when the LibreNMS hostname is an IP address: the Nautobot device's **primary IP**.
 
 So the easiest is to give devices the same name in both. A device must still have a primary IP in Nautobot to be monitored.
+
+### A device you don't want alarms for
+
+If you have told LibreNMS not to alert for a device, the alert board leaves it out too: it isn't counted, isn't listed and isn't notified, even when it is down.
+
+- **Where (in LibreNMS):** the device → **⚙ Edit → Device Settings**, any one of:
+  - **Disable polling and alerting**
+  - **Disable alerting**
+  - **Ignore alert tag**
+- **Shows up:** at the app's next LibreNMS read (every 5 minutes by default), or at once with an [alert transport](#down-within-seconds-an-alert-transport) when LibreNMS sends one for the device.
+- **In the app:** the map's site panel still lists the device, with why: "Not monitored: alerting disabled in LibreNMS".
+- **Good to know:** if the device is down when you switch alerting off, its site can leave alarm, and that sends a "recovered" message. Switch it back on and the device counts again.
 
 ### Down within seconds: an alert transport
 
