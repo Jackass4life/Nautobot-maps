@@ -10,9 +10,9 @@ uvicorn==0.54.0
 uvicorn-worker==0.4.0
 # Held at releases at least two weeks old (FastAPI would take the newest).
 starlette==1.10.0
-pydantic==2.14.1
+pydantic==2.14.2
 # Forms, for LibreNMS's alert push (a form or JSON).
-python-multipart==0.0.32
+python-multipart==0.0.33
 redis==6.4.0
 psycopg[binary]==3.3.6
 # The documentation pages, /help (#433).
