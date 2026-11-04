@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 
 import requests
@@ -132,14 +133,15 @@ def merge_stacks(devices: list) -> list:
     return [replace.get(id(d), d) for d in devices if id(d) not in dropped]
 
 
-def board_stacks(stacks: dict[str, list[dict]]) -> dict[str, dict]:
+def board_stacks(stacks: dict[str, list[dict]], muted: Collection[str] = ()) -> dict[str, dict]:
     """Each stack's ``members`` for one board build, worked out once (#405):
-    those of an excluded status, such as Decommissioning, left out; and their
+    those of an excluded status, such as Decommissioning, left out, and those
+    whose id is in *muted* (LibreNMS doesn't alert for them, #570); and their
     ``names``.  Only stacks of two or more."""
     excluded = settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES
     result = {}
     for vc_id, all_members in stacks.items():
-        members = [m for m in all_members if not status_is_excluded(m["status"], excluded)]
+        members = [m for m in all_members if not status_is_excluded(m["status"], excluded) and m.get("id") not in muted]
         if len(members) >= 2:
             result[vc_id] = {"members": members, "names": [m["name"] for m in members]}
     return result
@@ -1822,7 +1824,21 @@ def build_alert_board_payload(
             logger.warning("Could not read device states; no alert delay this build: %s", exc)
         try:
             # Every stack's members (#402, #405), wherever they are, once a build.
-            stacks = board_stacks(inventory.read_stacks(read_conn))
+            all_stacks = inventory.read_stacks(read_conn)
+            # Members LibreNMS doesn't alert for aren't in the stack either (#570).
+            members = [member for stack in all_stacks.values() for member in stack]
+            muted = {
+                member["id"]
+                for member in enrich_with_librenms(
+                    members,
+                    lnms_id_map=lnms_id_map or {},
+                    snapshot_only=True,
+                    lnms_index=lnms_index,
+                    new_librenms_maps={},
+                )
+                if member.get("librenms_muted")
+            }
+            stacks = board_stacks(all_stacks, muted)
         except Exception as exc:
             logger.warning("Could not read the stacks; they aren't named this build: %s", exc)
         try:
@@ -2790,6 +2806,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
         device["core"] = is_core_device(device, core_keywords, overrides)
         device["level"] = device_level(device, core_keywords, overrides)[0]
         device["not_monitored"] = not_monitored_reason(device)
+        device.pop("librenms_muted", None)  # in not_monitored now (#570)
         # Monitored, but left out of the counts for now: say why (#316).
         window = in_window.get(device.get("id") or "")
         if window is not None and not device["not_monitored"]:

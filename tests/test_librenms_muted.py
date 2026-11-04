@@ -6,7 +6,8 @@ alert tag" take a device off the alert board (#570)."""
 
 import pytest
 
-from nautobot_maps import alerts, caching, db, inventory, settings
+from nautobot_maps import alerts, caching, db, inventory, nautobot, settings
+from tests.test_app import _snapshot_device
 from tests.test_librenms_push import board_row, client, lnms, operator_token  # noqa: F401
 
 FLAGS = {
@@ -91,6 +92,41 @@ class TestBoard:
         devices, _ = alerts.get_location_devices_and_alert("loc-1", snapshot_only=True)
         reasons = {d["name"]: alerts.not_monitored_reason(d) for d in devices}
         assert reasons == {"sw0": "", "sw1": FLAGS["disabled"], "sw2": ""}
+
+    def test_the_site_detail_answer_says_why(self, client, lnms, monkeypatch):
+        """Through the endpoint, so the answer is checked against its model."""
+        monkeypatch.setattr(nautobot, "fetch_all_pages", lambda *args, **kwargs: [])
+        monkeypatch.setattr(nautobot, "get", lambda *args, **kwargs: {})
+        store([{**lnms.devices[1001], "status": 0, "disabled": 1}])
+        response = client.get("/api/locations/loc-1/detail")
+        assert response.status_code == 200, response.get_json()
+        devices = {d["name"]: d for d in response.get_json()["devices"]}
+        assert devices["sw1"]["not_monitored"] == FLAGS["disabled"]
+        assert "librenms_muted" not in devices["sw1"]
+
+    def test_a_muted_member_is_not_in_its_stack(self, lnms):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_devices(
+                    conn,
+                    [
+                        {
+                            **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
+                            "name": f"sw{n}",
+                            "vc_id": "vc-1",
+                            "vc_name": "sw-stack",
+                            "vc_position": n + 1,
+                            "vc_master": n == 0,
+                        }
+                        for n in range(3)
+                    ],
+                )
+        finally:
+            conn.close()
+        store([{**lnms.devices[1000], "status": 0}, {**lnms.devices[1002], "disable_notify": 1}])
+        (down,) = board_row()["down_devices"]
+        assert down["stack"]["size"] == 2 and down["stack"]["members"] == ["sw0", "sw1"]
 
     def test_not_offered_for_maintenance(self, lnms):
         store([{**lnms.devices[1002], "disable_notify": 1}])
