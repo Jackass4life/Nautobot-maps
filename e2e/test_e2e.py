@@ -312,6 +312,8 @@ def test_planning_maintenance_for_several_sites(operator_page, request):
     assert page.locator("#maint-chosen .maint-chip").count() == 2
     page.locator('input[name="maint-when"][value="planned"]').check()
     assert page.locator(".when-calendar .cal-day").count() > 27
+    # Next month, all of it ahead: this month may have one day left (#552).
+    page.locator('.when-calendar .cal-nav[data-step="1"]').click()
     page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
     page.locator(".when-calendar .cal-day:not([disabled])").nth(1).click()
     page.locator("#maint-plan-reason").fill(reason)
@@ -386,12 +388,14 @@ def test_the_availability_period_calendar(page):
     assert "to=" in page.url and "month=" not in page.url
     assert page.locator(".availability-note").is_visible(), "a report, not an error"
 
-    # Two clicks in the month shown: the first and the last enabled day.
+    # Two clicks in the month shown: the first and the second enabled day, never
+    # the whole month (shown as the month) even on its last day (#552).
     button = page.locator("#period-button")
     button.click()
     days = page.locator(".cal-day:not([disabled])")
-    first, last = days.first.get_attribute("data-day"), days.last.get_attribute("data-day")
-    days.last.click()
+    end = days.nth(1) if days.count() > 1 else days.first
+    first, last = days.first.get_attribute("data-day"), end.get_attribute("data-day")
+    end.click()
     assert page.locator("#period-popover").is_visible(), "one click starts a range"
     days.first.click()
     page.wait_for_url(f"**from={first}&to={last}*")
