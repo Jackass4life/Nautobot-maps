@@ -169,7 +169,7 @@ Access points get their address by DHCP, so Nautobot seldom has one. With [wirel
 
 Non-operational locations are hidden by default: those whose type is in `ALERT_BOARD_EXCLUDED_LOCATION_TYPES` (default `graveyard,warehouse`), or whose status, tag or name is in the matching `ALERT_BOARD_EXCLUDED_LOCATION_*` setting. **More filters → Show non-operational sites** shows them anyway. Hidden sites stay on the map.
 
-Devices can be ignored by status with `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES`: they are not counted and not listed, so for example a Decommissioning device no longer makes its site Critical. In both status settings, `null` matches a missing or empty status:
+Devices can be ignored by status with `ALERT_BOARD_EXCLUDED_DEVICE_STATUSES`: they are not counted and not listed, so for example a Decommissioning device no longer makes its site Critical. The same goes for a device LibreNMS has **Disable polling and alerting**, **Disable alerting** or **Ignore alert tag** set for, whatever its status in Nautobot or another source; the site panel says which ([in LibreNMS](nautobot-setup.md#a-device-you-dont-want-alarms-for)). In both status settings, `null` matches a missing or empty status:
 
 ```bash
 ALERT_BOARD_EXCLUDED_LOCATION_STATUSES=null,decommissioning,planned

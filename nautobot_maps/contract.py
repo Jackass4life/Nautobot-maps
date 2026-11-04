@@ -94,6 +94,25 @@ LIBRENMS_DEVICE_FIELDS = (
         rule="the address LibreNMS polls: overwrite_ip, else ip; only IP literals",
     ),
     Field("ip", ("string", "null"), becomes="ip"),
+    # LibreNMS's device settings that take a device off the board (#570).
+    Field(
+        "disabled",
+        ("integer", "boolean", "string"),
+        becomes="disabled",
+        rule='1 = "Disable polling and alerting": left off the alert board',
+    ),
+    Field(
+        "disable_notify",
+        ("integer", "boolean", "string"),
+        becomes="disable_notify",
+        rule='1 = "Disable alerting": left off the alert board',
+    ),
+    Field(
+        "ignore",
+        ("integer", "boolean", "string"),
+        becomes="ignore",
+        rule='1 = "Ignore alert tag": left off the alert board',
+    ),
 )
 
 CONTRACT: tuple[Endpoint, ...] = (

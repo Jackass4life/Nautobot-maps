@@ -828,6 +828,15 @@ def add_ap_neighbours(conn) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS nautobot_cable_cache_b ON nautobot_cable_cache (b_device_id)")
 
 
+def add_librenms_muted(conn) -> None:
+    """LibreNMS's "Disable polling and alerting", "Disable alerting" and
+    "Ignore alert tag" (#570): such a device is left off the board."""
+    for column in ("disabled", "disable_notify", "ignore"):
+        conn.execute(
+            f"ALTER TABLE librenms_device_status ADD COLUMN IF NOT EXISTS {column} BOOLEAN NOT NULL DEFAULT FALSE"
+        )
+
+
 # Numbered schema changes, each applied once, in order, and recorded in
 # schema_migrations (#201).  Never edit or reorder a step that may have been
 # applied; append a new one.
@@ -864,6 +873,7 @@ MIGRATIONS = (
     (30, "wireless_ap_status.ip, alert_instances.access_point", add_wireless_ap_ip),
     (31, "wireless_pnp_status", add_wireless_pnp_status),
     (32, "wireless_ap_neighbours, nautobot_cable_cache", add_ap_neighbours),
+    (33, "librenms_device_status disabled, disable_notify, ignore", add_librenms_muted),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_LOCK_KEY = 674864467105151045

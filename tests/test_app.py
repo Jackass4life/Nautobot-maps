@@ -5030,6 +5030,10 @@ class TestHealthz:
 # ---------------------------------------------------------------------------
 # Tests: LibreNMS polled IP is cached and used as a display fallback (#137)
 # ---------------------------------------------------------------------------
+# read_librenms_devices: none of LibreNMS's "don't alert" switches set (#570).
+OFF = {"disabled": False, "disable_notify": False, "ignore": False}
+
+
 class TestLibreNMSPolledIp:
     @pytest.mark.parametrize(
         "record, expected",
@@ -5064,7 +5068,7 @@ class TestLibreNMSPolledIp:
         ):
             inventory.sync_librenms(force=True)
         cached = inventory.read_librenms_devices()
-        assert cached == [{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}]
+        assert cached == [{"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1, **OFF}]
 
     def test_device_added_by_hostname_shows_librenms_ip(self, monkeypatch):
         monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
@@ -5087,7 +5091,9 @@ class TestLibreNMSPolledIp:
             "INSERT INTO librenms_device_status (device_id, hostname, status) VALUES (7, 'router01', 1)"
         )
         db.init_db()
-        assert inventory.read_librenms_devices() == [{"device_id": 7, "hostname": "router01", "ip": "", "status": 1}]
+        assert inventory.read_librenms_devices() == [
+            {"device_id": 7, "hostname": "router01", "ip": "", "status": 1, **OFF}
+        ]
 
     def test_postgres_migration_adds_ip_column(self):
         class _Result:
