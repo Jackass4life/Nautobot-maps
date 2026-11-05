@@ -44,3 +44,9 @@ response status is < 400, otherwise rolls back, and always closes it.
 - **Endpoint:** set an explicit `response_model` and a camelCase `operation_id`
   (it becomes the name in the generated TypeScript), document error responses with
   `ERROR_RESPONSES`, then re-export the spec and run `npm run generate:api` in `web/`.
+
+## Container
+
+`api/Dockerfile` (#577): uv-installed, non-root, migrations on start
+(`MIGRATE_ON_START=false` skips them), healthcheck on `GET /api/healthz`.
+`deploy/next/compose.yml` runs it with PostgreSQL and `web/`.

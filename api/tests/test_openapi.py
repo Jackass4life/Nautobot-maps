@@ -19,3 +19,7 @@ def test_every_operation_has_stable_id_and_response_schema():
 
 def test_exported_spec_is_current():
     assert Path(OUTPUT).read_text() == render(), "run: uv run python -m app.export_openapi"
+
+
+def test_healthz(client):
+    assert client.get("/api/healthz").json() == {"status": "ok"}

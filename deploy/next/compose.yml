@@ -1,0 +1,50 @@
+# The new stack (#577): PostgreSQL + api/ + web/.
+#   cd deploy/next && cp .env.example .env   # set POSTGRES_PASSWORD
+#   docker compose up -d --build --wait
+# web: http://localhost:3000, api: http://localhost:8000 (spec at /api/openapi.json).
+name: nautobot-maps-next
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: ../../api
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD}@postgres:5432/app
+      # The browser calls the API from the web page's origin.
+      CORS_ORIGINS: '["${WEB_PUBLIC_URL:-http://localhost:3000}"]'
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ../../web
+    environment:
+      # What the browser calls; server-side rendering uses the internal address.
+      NUXT_PUBLIC_API_BASE: ${API_PUBLIC_URL:-http://localhost:8000}
+      NUXT_API_BASE_SERVER: http://api:8000
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

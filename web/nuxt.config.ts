@@ -5,6 +5,8 @@ export default defineNuxtConfig({
   srcDir: '.',
   devtools: { enabled: true },
   runtimeConfig: {
+    // Server-side rendering only; empty: use public.apiBase. Override with NUXT_API_BASE_SERVER.
+    apiBaseServer: '',
     public: {
       // Override with NUXT_PUBLIC_API_BASE.
       apiBase: 'http://localhost:8000',

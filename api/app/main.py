@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import v1
+from app import health, v1
 from app.session import DbSessionMiddleware
 from app.utils.config import get_settings
 from app.utils.errors import install_error_handlers
@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     install_error_handlers(app)
+    app.include_router(health.router)
     app.include_router(v1.router)
     return app
 
