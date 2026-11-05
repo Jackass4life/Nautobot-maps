@@ -1,3 +1,6 @@
+from app.repositories.item_repository import ItemRepository
+
+
 def test_create_then_get_and_list(client):
     created = client.post("/api/v1/items", json={"name": "Widget", "description": "A widget"})
     assert created.status_code == 201
@@ -38,3 +41,14 @@ def test_pagination(client):
         client.post("/api/v1/items", json={"name": f"n{n}"})
     page = client.get("/api/v1/items?limit=2&offset=1").json()
     assert [i["name"] for i in page] == ["n1", "n2"]
+
+
+def test_concurrent_duplicate_is_409_not_500(client, monkeypatch):
+    # Another request inserted the name after this one's check: only the unique
+    # constraint catches it.
+    assert client.post("/api/v1/items", json={"name": "Race"}).status_code == 201
+    monkeypatch.setattr(ItemRepository, "get_by_name", lambda self, name: None)
+    response = client.post("/api/v1/items", json={"name": "Race"})
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Item named 'Race' already exists"}
+    assert len(client.get("/api/v1/items").json()) == 1

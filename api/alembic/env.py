@@ -20,9 +20,10 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 target_metadata = Base.metadata
 
-# An explicit URL (tests set it) wins over the app setting.
+# An explicit URL (tests set it) wins over the app setting. The config is a
+# ConfigParser: "%" (percent-encoded credentials) must be written as "%%".
 if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", get_settings().database_url)
+    config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

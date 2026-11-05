@@ -20,7 +20,8 @@ from app.session import engine  # noqa: E402
 @pytest.fixture(scope="session", autouse=True)
 def migrated_db():
     cfg = Config("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
+    # ConfigParser interpolation: escape "%" in percent-encoded credentials.
+    cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL.replace("%", "%%"))
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
     yield

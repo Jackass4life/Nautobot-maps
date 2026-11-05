@@ -1,7 +1,7 @@
 """Item business logic: rules, plus ORM <-> DTO conversion."""
 
 from app.models import Item
-from app.repositories.item_repository import ItemRepository
+from app.repositories.item_repository import DuplicateNameError, ItemRepository
 from app.utils.errors import ConflictError, NotFoundError
 from app.v1.items.dtos import ItemCreateDto, ItemDto
 
@@ -21,8 +21,11 @@ class ItemService:
 
     def create_item(self, data: ItemCreateDto) -> ItemDto:
         if self.repository.get_by_name(data.name) is not None:
-            raise ConflictError(f"Item named {data.name!r} already exists")
-        item = self.repository.add(Item(name=data.name, description=data.description))
+            raise _name_taken(data.name)
+        try:
+            item = self.repository.add(Item(name=data.name, description=data.description))
+        except DuplicateNameError as exc:  # inserted concurrently, after the check above
+            raise _name_taken(data.name) from exc
         return _to_dto(item)
 
     def delete_item(self, item_id: int) -> None:
@@ -30,6 +33,10 @@ class ItemService:
         if item is None:
             raise NotFoundError("Item", item_id)
         self.repository.delete(item)
+
+
+def _name_taken(name: str) -> ConflictError:
+    return ConflictError(f"Item named {name!r} already exists")
 
 
 def _to_dto(item: Item) -> ItemDto:

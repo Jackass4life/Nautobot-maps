@@ -3,14 +3,18 @@ const { items, pending, error, create, remove } = useItems()
 
 const name = ref('')
 const description = ref('')
-const formError = ref<string | null>(null)
+const actionError = ref<string | null>(null)
 
 async function submit() {
-  formError.value = await create({ name: name.value, description: description.value || null })
-  if (!formError.value) {
+  actionError.value = await create({ name: name.value, description: description.value || null })
+  if (!actionError.value) {
     name.value = ''
     description.value = ''
   }
+}
+
+async function removeItem(itemId: number) {
+  actionError.value = await remove(itemId)
 }
 </script>
 
@@ -22,7 +26,7 @@ async function submit() {
       <input v-model="name" placeholder="Name" required maxlength="200">
       <input v-model="description" placeholder="Description (optional)">
       <button type="submit">Add</button>
-      <p v-if="formError" role="alert">{{ formError }}</p>
+      <p v-if="actionError" role="alert">{{ actionError }}</p>
     </form>
 
     <p v-if="pending">Loading…</p>
@@ -32,8 +36,8 @@ async function submit() {
       <li v-for="item in items" :key="item.id">
         <strong>{{ item.name }}</strong>
         <span v-if="item.description"> — {{ item.description }}</span>
-        <small> (#{{ item.id }}, {{ new Date(item.created_at).toLocaleString() }})</small>
-        <button type="button" @click="remove(item.id)">Delete</button>
+        <small> (#{{ item.id }}, {{ formatUtc(item.created_at) }})</small>
+        <button type="button" @click="removeItem(item.id)">Delete</button>
       </li>
     </ul>
   </main>
