@@ -35,3 +35,7 @@ deploy/
 # Nor the app's own files: they hold passwords and client secrets, and are
 # mounted at /config when the container runs (#517).
 config/
+
+# The new api/ and web/ projects (#572) are not part of this image.
+api/
+web/

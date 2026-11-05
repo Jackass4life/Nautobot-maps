@@ -1,0 +1,39 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "Example FastAPI backend"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi>=0.162.0",
+    "openapi-python[httpx]>=0.0.18",
+    "psycopg[binary]>=3.3.8",
+    "pydantic>=2",
+    "pydantic-settings>=2.16.2",
+    "sqlalchemy>=2",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "BLE", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
