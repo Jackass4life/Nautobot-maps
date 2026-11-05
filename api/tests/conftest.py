@@ -15,6 +15,7 @@ from sqlalchemy import text  # noqa: E402
 from alembic import command  # noqa: E402
 from app.main import app  # noqa: E402
 from app.session import engine  # noqa: E402
+from app.utils.config import get_settings  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -38,3 +39,22 @@ def clean_tables():
 def client():
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def fresh_settings():
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def configure(monkeypatch):
+    """Set settings through the environment, e.g. configure(AUTH_MODE="header")."""
+
+    def apply(**env: str) -> None:
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        get_settings.cache_clear()
+
+    return apply

@@ -16,4 +16,6 @@ docker compose up -d --build --wait
 - Both images run as non-root and have healthchecks (`/api/healthz`, web `/healthz`).
 - `API_PUBLIC_URL` is what the browser calls; server-side rendering in web uses
   `http://api:8000` inside the compose network (`NUXT_API_BASE_SERVER`).
-- Not behind a sign-in proxy yet: don't expose it beyond a test network.
+- Sign-in: `AUTH_MODE=disabled` by default (anyone may change anything); see `api/README.md`
+  for header mode. The bundled nginx/oauth2-proxy isn't wired to this stack yet, so don't
+  expose it beyond a test network.

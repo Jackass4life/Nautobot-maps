@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { items, pending, error, create, remove } = useItems()
+const { me, canWrite } = useMe()
 
 const name = ref('')
 const description = ref('')
@@ -22,7 +23,13 @@ async function removeItem(itemId: number) {
   <main>
     <h1>Items</h1>
 
-    <form @submit.prevent="submit">
+    <p v-if="me" class="who">
+      <template v-if="me.auth_mode === 'disabled'">Sign-in is off: everyone may change items.</template>
+      <template v-else-if="me.username">Signed in as <strong>{{ me.username }}</strong> ({{ me.role ?? 'no role' }})</template>
+      <template v-else>Not signed in</template>
+    </p>
+
+    <form v-if="canWrite" @submit.prevent="submit">
       <input v-model="name" placeholder="Name" required maxlength="200">
       <input v-model="description" placeholder="Description (optional)">
       <button type="submit">Add</button>
@@ -37,7 +44,7 @@ async function removeItem(itemId: number) {
         <strong>{{ item.name }}</strong>
         <span v-if="item.description"> — {{ item.description }}</span>
         <small> (#{{ item.id }}, {{ formatUtc(item.created_at) }})</small>
-        <button type="button" @click="removeItem(item.id)">Delete</button>
+        <button v-if="canWrite" type="button" @click="removeItem(item.id)">Delete</button>
       </li>
     </ul>
   </main>

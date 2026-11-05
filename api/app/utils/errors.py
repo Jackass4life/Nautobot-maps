@@ -18,7 +18,17 @@ class ConflictError(Exception):
     pass
 
 
+class UnauthorizedError(Exception):
+    """Not signed in, and the action needs a role."""
+
+
+class ForbiddenError(Exception):
+    """Signed in (or not) without a high enough role, or a refused request."""
+
+
 ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
+    401: {"model": ErrorDto, "description": "Not signed in"},
+    403: {"model": ErrorDto, "description": "Role too low, or a cross-site change"},
     404: {"model": ErrorDto, "description": "Not found"},
     409: {"model": ErrorDto, "description": "Conflict"},
 }
@@ -32,3 +42,11 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ConflictError)
     async def conflict(_: Request, exc: ConflictError) -> JSONResponse:
         return JSONResponse(status_code=409, content=ErrorDto(detail=str(exc)).model_dump())
+
+    @app.exception_handler(UnauthorizedError)
+    async def unauthorized(_: Request, exc: UnauthorizedError) -> JSONResponse:
+        return JSONResponse(status_code=401, content=ErrorDto(detail=str(exc)).model_dump())
+
+    @app.exception_handler(ForbiddenError)
+    async def forbidden(_: Request, exc: ForbiddenError) -> JSONResponse:
+        return JSONResponse(status_code=403, content=ErrorDto(detail=str(exc)).model_dump())
