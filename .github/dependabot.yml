@@ -39,6 +39,17 @@ updates:
       web:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # Nuxt is pinned to 4.2.x on purpose (#572); a newer minor is a
+      # deliberate upgrade, not a weekly bump (#580).
+      - dependency-name: nuxt
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      # openapi-typescript 7 needs TypeScript ^5 (#580).
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      # Nuxt 4.2 uses vue-router ^4 (#580).
+      - dependency-name: vue-router
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
