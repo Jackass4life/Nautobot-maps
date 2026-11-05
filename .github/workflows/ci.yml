@@ -199,7 +199,8 @@ jobs:
       run:
         working-directory: deploy/next
     env:
-      POSTGRES_PASSWORD: ci-only-password
+      # "@", ":" and "%40" on purpose: the password must not be URL-parsed (#577).
+      POSTGRES_PASSWORD: "ci@pa:ss%40word"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
