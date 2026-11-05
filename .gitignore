@@ -29,3 +29,7 @@ frontend/.output/
 frontend/.nuxt/
 frontend/.data/
 frontend/dist
+
+# The new web/ project (#572); web/.gitignore has the rest.
+web/.nuxt/
+web/.output/

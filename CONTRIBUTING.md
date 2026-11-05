@@ -182,6 +182,13 @@ Frontend rules:
   `frontend/tests/fixtures/scope-cases.json` for `?tenant=` / `?q=` (`nautobot_maps/scope.py`
   and `app/utils/scope.ts`).
 
+### The new api/ and web/ projects (#572)
+
+`api/` (FastAPI, managed with uv, Python 3.13) and `web/` (Nuxt 4, typed `$api` client
+generated from `api/openapi.json`) are the start of a new layout. They are separate projects
+with their own dependencies, lint and CI jobs, and nothing from the current app uses them yet.
+See `api/README.md` and `web/README.md`.
+
 ### Code Style
 
 - Python code must pass `ruff check .` (configured in `pyproject.toml`; CI runs it on every PR).

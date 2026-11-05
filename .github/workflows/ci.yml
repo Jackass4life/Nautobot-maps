@@ -43,7 +43,7 @@ jobs:
         # node_modules is git-ignored; a `git add -A` after `npm ci` once
         # committed 941 files of it (#189).
         if: success() || failure()
-        run: test -z "$(git ls-files node_modules frontend/node_modules)"
+        run: test -z "$(git ls-files node_modules frontend/node_modules web/node_modules)"
 
   # -----------------------------------------------------------------------
   # The pages built with Nuxt (#463): lint, types, tests, the static build
@@ -92,6 +92,102 @@ jobs:
         run: |
           npm run api-types
           git diff --exit-code app/api/schema.d.ts
+
+  # -----------------------------------------------------------------------
+  # The new backend, api/ (#572): its own uv project, ruff, migrations, tests
+  # (incl. "api/openapi.json is the app's spec").
+  # -----------------------------------------------------------------------
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: api_test
+          POSTGRES_USER: api
+          POSTGRES_PASSWORD: api
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U api -d api_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: "postgresql+psycopg://api:api@127.0.0.1:5432/api_test"
+      TEST_DATABASE_URL: "postgresql+psycopg://api:api@127.0.0.1:5432/api_test"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          working-directory: api
+          enable-cache: true
+
+      - name: Install
+        # --locked: fails if uv.lock doesn't match pyproject.toml.
+        run: uv sync --locked
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff format
+        if: success() || failure()
+        run: uv run ruff format --check --diff .
+
+      - name: Migrations apply
+        if: success() || failure()
+        run: uv run alembic upgrade head
+
+      - name: Tests
+        if: success() || failure()
+        run: uv run pytest -v
+
+  # -----------------------------------------------------------------------
+  # The new frontend, web/ (#572): API types current, types, build.
+  # -----------------------------------------------------------------------
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        # Install scripts don't run; `nuxt prepare` makes the generated types.
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx nuxt prepare
+
+      - name: The API types match api/openapi.json
+        # The api job checks openapi.json is the API's spec.
+        run: |
+          npm run generate:api
+          git diff --exit-code types/api.d.ts
+
+      - name: Types
+        if: success() || failure()
+        run: npm run typecheck
+
+      - name: Build
+        if: success() || failure()
+        run: npm run build
 
   # -----------------------------------------------------------------------
   # Known vulnerabilities in the locked dependencies (#186)

@@ -4,7 +4,8 @@
 target-version = "py311"
 # Matches how the code is already written (least churn for `ruff format`).
 line-length = 120
-extend-exclude = ["static/vendor"]
+# api/ has its own ruff (version + config) and CI job (#572).
+extend-exclude = ["static/vendor", "api", "web"]
 
 [tool.ruff.lint]
 # E/W: pycodestyle, F: pyflakes (unused/undefined names), B: bugbear (likely
