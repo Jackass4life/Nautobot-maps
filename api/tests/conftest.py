@@ -72,8 +72,11 @@ def migrated_db():
 def clean_tables():
     yield
     # A sync or rebuild a test started must end first: emptying the tables under it is a
-    # deadlock (whatever order pytest tears the fixtures down in).
-    join_background_threads()
+    # deadlock (whatever order pytest tears the fixtures down in). One still running after
+    # the wait fails the test, the tables left as they are (#603 review).
+    running = join_background_threads()
+    if running:
+        pytest.fail(f"background threads still running, tables not emptied: {running}")
     tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
