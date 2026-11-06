@@ -56,6 +56,7 @@ dependencies = [
     { name = "cachelib" },
     { name = "fastapi" },
     { name = "geopy" },
+    { name = "gunicorn" },
     { name = "markdown-it-py" },
     { name = "openapi-python", extra = ["httpx"] },
     { name = "psycopg", extra = ["binary"] },
@@ -67,6 +68,7 @@ dependencies = [
     { name = "requests" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
+    { name = "uvicorn-worker" },
 ]
 
 [package.dev-dependencies]
@@ -84,6 +86,7 @@ requires-dist = [
     { name = "cachelib", specifier = ">=0.17.0" },
     { name = "fastapi", specifier = ">=0.162.0" },
     { name = "geopy", specifier = ">=2.5.0" },
+    { name = "gunicorn", specifier = ">=23.0.0" },
     { name = "markdown-it-py", specifier = ">=4.2.0" },
     { name = "openapi-python", extras = ["httpx"], specifier = ">=0.0.18" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.8" },
@@ -95,6 +98,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.34.2" },
     { name = "sqlalchemy", specifier = ">=2" },
     { name = "uvicorn", specifier = ">=0.54.0" },
+    { name = "uvicorn-worker", specifier = ">=0.4.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -293,6 +297,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/0c/b4e42a0495293f6c94364baba4c657c68bc8d8efec784259cc943f4ba28b/geopy-2.5.0.tar.gz", hash = "sha256:7b6c849f18108dcce4faa3d614e2801107b465f7b05fd3c1db9db12e225ae950", size = 122254, upload-time = "2026-07-12T19:50:06.051Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/66/e5/de8b557b279e31cdfb2070ac83eb45dc7e29bd93cd544128756f658e52c7/geopy-2.5.0-py3-none-any.whl", hash = "sha256:8ad8cc226b505ca4d272ae9a2eeba08b8a2c565fc9a04eaefc33ad49c32b51aa", size = 114619, upload-time = "2026-07-12T19:50:04.839Z" },
+]
+
+[[package]]
+name = "gunicorn"
+version = "26.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/8a/e4ef6ee11701b6cd64702848415ffb69eeff85cb388a3c6c7fe86f22f3f8/gunicorn-26.2.0.tar.gz", hash = "sha256:62b864895d9ebff0b2f9867ba04fe811c93121596540830c9c916d0769668447", size = 787921, upload-time = "2026-08-24T15:05:59.3Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/85/7522a52e5e2f42faf1a129113ab63e548c42e103e9af395b7bfe65e403e2/gunicorn-26.2.0-py3-none-any.whl", hash = "sha256:bd249d0b3f7972f7432f0a6b6ff3b3ee2d129f70cd1ff6c09a9dd9e29a2b88e3", size = 228389, upload-time = "2026-08-24T15:05:57.67Z" },
 ]
 
 [[package]]
@@ -990,4 +1003,17 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cfc589dfff3cb796bd07a3aeb1a3e415ba09dd89d7bb4/uvicorn-0.54.0.tar.gz", hash = "sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620", size = 112283, upload-time = "2026-09-25T06:52:37.601Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl", hash = "sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf", size = 87427, upload-time = "2026-09-25T06:52:35.829Z" },
+]
+
+[[package]]
+name = "uvicorn-worker"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "gunicorn" },
+    { name = "uvicorn" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/80/59/9101b9c0680fd80e9d26c07deb822a5d18a324339fcf9cd017885ee808ad/uvicorn_worker-0.4.0.tar.gz", hash = "sha256:8ee5306070d8f38dce124adce488c3c0b50f20cf0c0222b12c66188da7214493", size = 9361, upload-time = "2025-09-20T10:47:01.218Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/25/09cd7a90c8bb7fb693be0d6704fccd5f9778d5513214b7a01cc4a94ff314/uvicorn_worker-0.4.0-py3-none-any.whl", hash = "sha256:e2ed952cef976f5e9e429d7269640bbcafbd36c80aa80f1003c8c77a6797abde", size = 5364, upload-time = "2025-09-20T10:46:59.776Z" },
 ]

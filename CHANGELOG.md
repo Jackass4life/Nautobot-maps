@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Breaking
+- **The image runs the new stack** (#613): FastAPI in `api/` and the pages from `web/`, the same settings, port 5000 and `/healthz`. On first start it adopts your database (schema version 33) with its data, then upgrades it (Alembic); a database below 33 is refused with what to do. The API is under **`/api/v1/...`**: the old `/api/...` paths answer `308` to the new ones (method and body kept), so webhooks and scripts keep working until you change them. The command line is `docker compose exec nautobot-maps python -m app ...` (was `python -m nautobot_maps`); the bundled proxy's status API rule covers both paths
+
 ### Added
 - **Devices LibreNMS doesn't alert for are left off the board** (#570): with **Disable polling and alerting**, **Disable alerting** or **Ignore alert tag** set on a device in LibreNMS, it isn't counted, listed or notified, even when down (with polling disabled, LibreNMS's last "down" used to stay on the board for good). The map's site panel says why, e.g. "Not monitored: alerting disabled in LibreNMS". Read at the next LibreNMS sync, or at once with an alert push. Schema version 33 (`librenms_device_status.disabled`, `disable_notify`, `ignore`)
 - **What to set in Nautobot and LibreNMS, on one page** (#557): every field the app reads, required first, then optional by feature, each with where to click, what it does and the setting it needs (Documentation → *What to set in Nautobot and LibreNMS*). The README starts with where to read for each kind of reader

@@ -12,7 +12,13 @@ on:
     branches: [main]
     paths:
       - Dockerfile
-      - requirements.txt
+      - .dockerignore
+      - api/pyproject.toml
+      - api/uv.lock
+      - api/docker-entrypoint.sh
+      - api/gunicorn_config.py
+      - web/package.json
+      - web/package-lock.json
       - .github/workflows/release.yml
 
 permissions:

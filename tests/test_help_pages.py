@@ -91,6 +91,21 @@ def test_the_menu_links_to_it(client):
 
 
 def test_the_docs_go_into_the_image():
-    ignore = (guide.ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    assert "*.md" in ignore and {"!README.md", "!CONTRIBUTING.md", "!docs/*.md"} <= set(ignore)
-    assert ignore.index("!docs/*.md") > ignore.index("*.md")
+    """Every file the help pages read is copied into the image (#613: the Dockerfile
+    copies README.md, CONTRIBUTING.md and docs/), and .dockerignore leaves them in."""
+    dockerfile = (guide.ROOT / "Dockerfile").read_text(encoding="utf-8")
+    copies = {
+        source
+        for line in dockerfile.splitlines()
+        if line.startswith("COPY ") and "--from" not in line
+        for source in line.split()[1:-1]
+    }
+    ignore = [
+        line.strip()
+        for line in (guide.ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    for _slug, file in guide.PAGES:
+        assert file in copies or file.split("/")[0] in copies, file
+        assert not any(file == entry or file.startswith(entry.rstrip("/") + "/") for entry in ignore), file
+    assert "docs" in copies  # its images too (/help/images/)

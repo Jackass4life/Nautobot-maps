@@ -543,10 +543,10 @@ jobs:
 
           # Fresh database: the first request starts the sync; poll like the UI.
           deadline = time.monotonic() + 90
-          board = get("/api/alerts")
+          board = get("/api/v1/alerts")
           while (board.get("sync_pending") or not board["alerts"]) and time.monotonic() < deadline:
               time.sleep(2)
-              board = get("/api/alerts")
+              board = get("/api/v1/alerts")
           london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
           print("London HQ:", london["alert_level"], "down:", london["down_device_count"])
           assert london["down_device_count"] == 2, london
@@ -590,12 +590,12 @@ jobs:
         run: |
           # The tenant is known once the first Nautobot sync is done.
           for attempt in $(seq 1 60); do
-            if link=$(docker compose exec -T nautobot-maps python -m nautobot_maps status-link "Acme Corp" 2>/dev/null); then
+            if link=$(docker compose exec -T nautobot-maps python -m app status-link "Acme Corp" 2>/dev/null); then
               break
             fi
             sleep 2
           done
-          token=$(docker compose exec -T nautobot-maps python -m nautobot_maps token create smoke-status --role status --tenant "Acme Corp" 2>/dev/null)
+          token=$(docker compose exec -T nautobot-maps python -m app token create smoke-status --role status --tenant "Acme Corp" 2>/dev/null)
           echo "::add-mask::$token"
           echo "STATUS_LINK=$link" >> "$GITHUB_ENV"
           echo "STATUS_TOKEN=$token" >> "$GITHUB_ENV"

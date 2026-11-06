@@ -314,9 +314,7 @@ def test_a_new_token_is_never_compressed_on_fastapi(flask_client, monkeypatch, p
     assert created.headers["cache-control"] == "no-store, no-transform"
 
 
-# Held back until what they need is ported (#587):
-#   test_successful_health_checks_are_still_left_out: the current app's server and logging setup (step 10)
-#   test_uvicorn_never_takes_the_client_from_a_header: the current app's server and logging setup (step 10)
+# The access log and server tests are in tests/test_server.py (#613).
 
 # Left out: the current app's server details (Flask's bind address, its access-log
 # format, templates/ and /static/, HTML error pages for browsers); the pages and

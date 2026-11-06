@@ -1,41 +1,34 @@
+# Only what the image's Dockerfile copies (#613): api/, web/, docs/, README.md,
+# CONTRIBUTING.md. Everything else stays out.
 .git
 .github
-.gitignore
 .env
 .env.example
-.venv/
-venv/
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-htmlcov/
-.coverage
-*.log
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/node_modules
+api/tests/
+api/.env
+web/.nuxt
+web/.output
+web/.data
+
+# The proxy setup and its certificates never go into the app image (#423), nor the
+# app's own files: they hold passwords and client secrets, and are mounted at
+# /config when the container runs (#517).
+deploy/
+config/
+
+# The current app (removed at the end of #613).
+nautobot_maps/
+frontend/
 tests/
+templates/
+static/
 development/
 demo/
 agents/
-*.md
-# The documentation pages, /help (#433), read these.
-!README.md
-!CONTRIBUTING.md
-!docs/*.md
-LICENSE
-docker-compose.override.yml
-requirements-dev.txt
-.pre-commit-config.yaml
-**/node_modules
-# Built in the image's own frontend stage (#463).
-frontend/.output
-frontend/.nuxt
-
-# The proxy setup and its certificates never go into the app image (#423).
-deploy/
-# Nor the app's own files: they hold passwords and client secrets, and are
-# mounted at /config when the container runs (#517).
-config/
-
-# The new api/ and web/ projects (#572) are not part of this image.
-api/
-web/
+e2e/
+scripts/

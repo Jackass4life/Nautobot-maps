@@ -65,7 +65,7 @@ status, headers, _ = get(f"{HTTPS}/alerts")
 results.append(
     check("not signed in: to the login", status == 302 and "/oauth2/start" in headers.get("Location", ""), status)
 )
-status, _, _ = get(f"{HTTPS}/api/alerts", FORGED)
+status, _, _ = get(f"{HTTPS}/api/v1/alerts", FORGED)
 results.append(check("forged identity headers don't sign in", status == 302, status))
 
 status, headers, body = get(f"{HTTPS}/alerts", SIGNED_IN | FORGED)
@@ -73,23 +73,23 @@ results.append(check("signed in: the page", status == 200, status))
 results.append(check("HSTS", "max-age" in headers.get("Strict-Transport-Security", ""), headers))
 # The top bar (#419) names who signed in, never the forged user: the Nuxt
 # pages read it from /api/page-config (#463).
-status, _, body = get(f"{HTTPS}/api/page-config", SIGNED_IN | FORGED)
+status, _, body = get(f"{HTTPS}/api/v1/page-config", SIGNED_IN | FORGED)
 user = (json.loads(body).get("user") or {}) if status == 200 else {}
 results.append(check("the top bar shows who signed in", user.get("name") == "olga", user or status))
 results.append(check("not the forged user", "mallory" not in body, "mallory"))
 # The alert history needs the operator role: the user and groups reached the
 # app from the proxy it trusts (address and AUTH_PROXY_SECRET).
-status, _, _ = get(f"{HTTPS}/api/alert-history", SIGNED_IN)
+status, _, _ = get(f"{HTTPS}/api/v1/alert-history", SIGNED_IN)
 results.append(check("signed in as an operator (noc-operators)", status == 200, status))
 
-status, _, _ = get(f"{HTTPS}/api/alert-history", {"Cookie": "_nautobot_maps=many"})
+status, _, _ = get(f"{HTTPS}/api/v1/alert-history", {"Cookie": "_nautobot_maps=many"})
 results.append(check("a user in 150 groups (about 5 KB of IDs) gets in", status == 200, status))
 
 # A page elsewhere posting with the signed-in user's cookie (CSRF).
-status, _, body = post(f"{HTTPS}/api/maintenance/1/end", SIGNED_IN | {"Sec-Fetch-Site": "cross-site"})
+status, _, body = post(f"{HTTPS}/api/v1/maintenance/1/end", SIGNED_IN | {"Sec-Fetch-Site": "cross-site"})
 results.append(check("a change from another site is refused", status == 403 and "another site" in body, status))
 
-status, _, body = get(f"{HTTPS}/api/alerts", {"Authorization": "Bearer nmt_not-a-real-token"} | FORGED)
+status, _, body = get(f"{HTTPS}/api/v1/alerts", {"Authorization": "Bearer nmt_not-a-real-token"} | FORGED)
 results.append(
     check("an API token skips the login; the app checks it", status == 401 and "token" in body.lower(), status)
 )
@@ -102,13 +102,13 @@ status, _, _ = get(f"{HTTPS}{script.group(1)}") if script else (0, None, "")
 results.append(check("nor its files (/_nuxt/)", status == 200, status))
 status, _, _ = get(f"{HTTPS}/static/css/other.css")
 results.append(check("other files do", status == 302, status))
-status, _, _ = get(f"{HTTPS}/api/status/Acme%20Corp", FORGED)
+status, _, _ = get(f"{HTTPS}/api/v1/status/Acme%20Corp", FORGED)
 results.append(check("forged headers on the status API are dropped", status in (401, 403), status))
 
 # A tenant's real link and a status token, made by CI (#527).
 link, key = os.environ.get("STATUS_LINK", ""), os.environ.get("STATUS_TOKEN", "")
 results.append(check("CI made a status link and token", link.startswith("/status/") and key.startswith("nmt_")))
-api = f"{HTTPS}/api{link}"
+api = f"{HTTPS}/api/v1{link}"
 status, _, _ = get(api, SIGNED_IN)
 results.append(check("staff signed in open a tenant's status page without a key", status == 200, status))
 status, headers, _ = get(api)
@@ -117,10 +117,18 @@ status, _, _ = get(api, {"Authorization": f"Bearer {key}"})
 results.append(check("a customer's key works", status == 200, status))
 status, _, _ = get(api, {"Authorization": f"Bearer {key}"} | SIGNED_IN)
 results.append(check("a customer's key works signed in too", status == 200, status))
+status, headers, _ = get(f"{HTTPS}/api{link}")
+results.append(
+    check(
+        "the old status API path: the app's 308 to /api/v1, not the login (#613)",
+        status == 308 and {k.lower(): v for k, v in headers.items()}.get("location") == f"/api/v1{link}",
+        status,
+    )
+)
 
 # Sign out (#546): the top bar links nginx's sign-out location, which deletes
 # the session cookie and ends at the identity provider's logout.
-status, _, body = get(f"{HTTPS}/api/page-config", SIGNED_IN)
+status, _, body = get(f"{HTTPS}/api/v1/page-config", SIGNED_IN)
 user = (json.loads(body).get("user") or {}) if status == 200 else {}
 results.append(check("the top bar's Sign out", user.get("sign_out_url") == "/oauth2/sign_out", user or status))
 status, headers, _ = get(f"{HTTPS}/oauth2/sign_out", SIGNED_IN)
