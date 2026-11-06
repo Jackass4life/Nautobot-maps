@@ -61,6 +61,8 @@ DEFAULT_GEOCODER_USER_AGENT = "nautobot-maps (+https://github.com/Jackass4life/N
 # compose passes it with ${NAME-default}, so setting it empty is deliberate
 # (no excluded location types).
 EMPTY_IS_A_VALUE = {"alert_board_excluded_location_types"}
+# Used exactly as given, as the current app does: whitespace is part of a secret.
+VERBATIM = {"database_password", "smtp_password", "nautobot_token"}
 
 
 # --- Parsing, as nautobot_maps/settings.py does it ------------------------------------------
@@ -434,10 +436,11 @@ class Settings(BaseSettings):
     geocoder_user_agent: Text = DEFAULT_GEOCODER_USER_AGENT
 
     # --- Persistence ---------------------------------------------------------------------------
-    # The current app's name first; DATABASE_URL (the new stack's) works too.
-    database_url: Annotated[str, _text(_sqlalchemy_scheme)] = Field(
-        "postgresql+psycopg://postgres:postgres@localhost:5432/app",
-        validation_alias=AliasChoices("nautobot_maps_database_url", "database_url"),
+    # The current app's name; when set (not empty) it wins over DATABASE_URL, the new
+    # stack's. Two fields, not aliases: an empty first one must not hide the second.
+    nautobot_maps_database_url: Annotated[str, _text(_sqlalchemy_scheme)] = ""
+    database_url: Annotated[str, _text(_sqlalchemy_scheme)] = (
+        "postgresql+psycopg://postgres:postgres@localhost:5432/app"
     )
     db_connect_timeout_seconds: Int = 5
     db_statement_timeout_seconds: Int = 60
@@ -550,8 +553,10 @@ class Settings(BaseSettings):
             return {
                 key: value
                 for key, value in data.items()
-                if not (isinstance(value, str) and not value.strip())
+                if not isinstance(value, str)
                 or key.lower() in EMPTY_IS_A_VALUE
+                # Secrets as given: "   " is a password; only "" means none.
+                or (value != "" if key.lower() in VERBATIM else value.strip() != "")
             }
         return data
 
@@ -599,6 +604,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _derived(self) -> "Settings":
+        if self.nautobot_maps_database_url:
+            self.database_url = self.nautobot_maps_database_url
         if self.inventory_sync_interval_seconds is None:
             self.inventory_sync_interval_seconds = self.cache_ttl
         if self.librenms_sync_interval_seconds is None:

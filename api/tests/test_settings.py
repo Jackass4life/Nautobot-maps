@@ -244,7 +244,19 @@ def test_database_url_names(monkeypatch):
         DATABASE_URL="postgresql://u@two/maps",
     )
     assert s.sqlalchemy_url().host == "one"
+    # Empty (compose passes unset variables as ""): DATABASE_URL counts.
+    s = load(monkeypatch, NAUTOBOT_MAPS_DATABASE_URL="", DATABASE_URL="postgresql://u@two/maps")
+    assert s.sqlalchemy_url().host == "two"
     assert load(monkeypatch, NAUTOBOT_MAPS_DB="/data/maps.db").legacy_sqlite_db == "/data/maps.db"
+
+
+def test_secrets_are_kept_as_given(monkeypatch):
+    """Whitespace is part of a password, as in the current app; only "" means none."""
+    s = load(monkeypatch, DATABASE_PASSWORD="   ", SMTP_PASSWORD=" pw ", NAUTOBOT_TOKEN=" t ")
+    assert (s.database_password, s.smtp_password, s.nautobot_token) == ("   ", " pw ", " t ")
+    assert load(monkeypatch, DATABASE_PASSWORD="").database_password is None
+    # Other settings: whitespace is empty, the default.
+    assert load(monkeypatch, CACHE_TTL="  ").cache_ttl == 300
 
 
 def test_cors_origins_json_or_csv(monkeypatch):

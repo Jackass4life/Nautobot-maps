@@ -122,6 +122,10 @@ services:
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
       DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-}
       DB_STATEMENT_TIMEOUT_SECONDS: ${DB_STATEMENT_TIMEOUT_SECONDS:-}
+    volumes:
+      # The app's own files (wireless controllers, criticality rules), read-only, as the
+      # current docker-compose.yml mounts them; config/README.md says what goes there.
+      - ../../config:/config:ro
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
