@@ -24,7 +24,7 @@ async function removeItem(itemId: number) {
     <h1>Items</h1>
 
     <p v-if="me" class="who">
-      <template v-if="me.auth_mode === 'disabled'">Sign-in is off: everyone may change items.</template>
+      <template v-if="me.auth_mode === 'disabled'">Sign-in is off: everyone may change items (not administer).</template>
       <template v-else-if="me.username">Signed in as <strong>{{ me.username }}</strong> ({{ me.role ?? 'no role' }})</template>
       <template v-else>Not signed in</template>
     </p>

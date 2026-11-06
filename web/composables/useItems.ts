@@ -3,10 +3,10 @@ import type { components } from '~/types/api'
 export type Item = components['schemas']['ItemDto']
 export type ItemCreate = components['schemas']['ItemCreateDto']
 
-/** The API's `{detail}` message, else the status. */
+/** The API's `{error}` message (#592), else the status. */
 function errorMessage(error: unknown, status: number): string {
-  if (error && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
-    return error.detail
+  if (error && typeof error === 'object' && 'error' in error && typeof error.error === 'string') {
+    return error.error
   }
   return `Error ${status}`
 }

@@ -82,26 +82,35 @@ Both apps take the same PostgreSQL lock while migrating.
 (`MIGRATE_ON_START=false` skips it), healthcheck on `GET /api/healthz`.
 `deploy/next/compose.yml` runs it with PostgreSQL and `web/`.
 
-## Sign-in and roles (#582)
+## Sign-in and roles (#582, #592)
 
-Same model and setting names as the current app, so the bundled oauth2-proxy + GitLab
-setup fits both.
+The current app's rules (`nautobot_maps/auth.py`) and setting names, so the bundled
+oauth2-proxy + GitLab setup fits both. Code: `app/services/auth_service.py`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `AUTH_MODE` | `disabled` | `disabled`: no sign-in, everyone is admin (development only). `header`: a sign-in proxy sets the user and group headers. |
-| `AUTH_HEADER_USER` / `AUTH_HEADER_GROUPS` | `X-Forwarded-User` / `X-Forwarded-Groups` | Identity headers (groups comma-separated). |
+| `AUTH_MODE` | `disabled` | `disabled`: nobody signs in; reads and the board's own changes are open, administration needs `ALLOW_UNAUTHENTICATED_WRITES`. `header`: a sign-in proxy sets the user and group headers. |
+| `AUTH_HEADER_USER` / `AUTH_HEADER_GROUPS` | `X-Forwarded-User` / `X-Forwarded-Groups` | Identity headers (groups separated by `,` or `;`). |
 | `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | Peers whose identity headers count (CSV of CIDRs). Anyone else is anonymous. |
 | `AUTH_PROXY_SECRET` | empty | When set, the proxy must also send it as `X-Auth-Proxy-Secret`. |
 | `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` | empty | Groups (CSV, case-insensitive) per role; the highest wins. |
 | `AUTH_DEFAULT_ROLE` | empty | Role of a signed-in user in none of the groups. |
-| `AUTH_REQUIRE_VIEWER` | `false` | Reads need the viewer role too (otherwise public). |
+| `AUTH_REQUIRE_VIEWER` | `false` | Header mode: everything but `/healthz`, `/metrics` and the status pages needs the viewer role (otherwise reads are public). |
+| `ALLOW_UNAUTHENTICATED_WRITES` | `false` | Disabled mode: administrative changes too, without signing in. |
 
-- Writes (create/delete) need **operator**: 401 when not signed in, 403 with too low a role.
-- `GET /api/v1/me` (`getCurrentUser`) says who the API sees; always open.
-- Changes sent by a browser from another origin (scheme, host and port) are refused
-  (Sec-Fetch-Site / Origin), except from `CORS_ORIGINS`. Those may send cookies (CORS
-  credentials), unless `CORS_ORIGINS` contains `*`.
+- **API tokens** (`Authorization: Bearer nmt_…`, `/api/v1/tokens`, admin): sign in as
+  `token:<name>` with the token's role, in either mode and from any address; they win over
+  identity headers. A rejected (unknown, revoked, expired) token is a 401 everywhere but the
+  public paths. A `status` token opens only its tenant's status page.
+- Routes need a role through `require_role("operator")` (401 not signed in, 403 too low);
+  `open_when_disabled=True` for the board's own changes.
+- Refusals answer `{"error": "..."}`, with `detail`, `required_role`, `current_role` where
+  they apply, as the current app does.
+- `GET /api/v1/me` (`getCurrentUser`): who the API sees, and `can_write` / `can_administer`
+  by these rules.
+- Changes a browser sends from another site are refused (Sec-Fetch-Site, else the Origin's
+  host), except from `CORS_ORIGINS`, and except with an API token. Those origins may send
+  cookies (CORS credentials), unless `CORS_ORIGINS` contains `*`.
 - uvicorn must run with `--no-proxy-headers` (the container's entrypoint does): otherwise
   `X-Forwarded-For` replaces the proxy's address and `AUTH_TRUSTED_PROXIES` checks the end user.
 - `web/` renders pages server-side and forwards the identity headers it got, so the web

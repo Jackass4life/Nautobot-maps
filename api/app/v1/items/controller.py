@@ -7,11 +7,11 @@ from fastapi import APIRouter, Depends, Query, status
 from app.repositories.item_repository import ItemRepository
 from app.services.item_service import ItemService
 from app.session import DbSession
-from app.utils.auth import require_reader, require_role
+from app.utils.auth import require_role
 from app.utils.errors import ERROR_RESPONSES
 from app.v1.items.dtos import ItemCreateDto, ItemDto
 
-router = APIRouter(prefix="/items", tags=["items"], dependencies=[Depends(require_reader)])
+router = APIRouter(prefix="/items", tags=["items"])
 
 WRITE_RESPONSES = {401: ERROR_RESPONSES[401], 403: ERROR_RESPONSES[403]}
 
@@ -53,7 +53,8 @@ def get_item(item_id: int, service: Service) -> ItemDto:
     response_model=ItemDto,
     status_code=status.HTTP_201_CREATED,
     responses={**WRITE_RESPONSES, 409: ERROR_RESPONSES[409]},
-    dependencies=[Depends(require_role("operator"))],
+    # The example is open with AUTH_MODE=disabled, as the board's own changes are.
+    dependencies=[Depends(require_role("operator", open_when_disabled=True))],
 )
 def create_item(body: ItemCreateDto, service: Service) -> ItemDto:
     return service.create_item(body)
@@ -65,7 +66,8 @@ def create_item(body: ItemCreateDto, service: Service) -> ItemDto:
     response_model=None,
     status_code=status.HTTP_204_NO_CONTENT,
     responses={**WRITE_RESPONSES, 404: ERROR_RESPONSES[404]},
-    dependencies=[Depends(require_role("operator"))],
+    # The example is open with AUTH_MODE=disabled, as the board's own changes are.
+    dependencies=[Depends(require_role("operator", open_when_disabled=True))],
 )
 def delete_item(item_id: int, service: Service) -> None:
     service.delete_item(item_id)
