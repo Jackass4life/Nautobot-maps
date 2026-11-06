@@ -166,3 +166,24 @@ def test_the_current_app_is_still_at_version_33():
         pytest.skip("the current app is gone")
     steps = re.findall(r"^    \((\d+), \"", db_py.read_text("utf-8"), re.MULTILINE)
     assert int(steps[-1]) == migrate.CURRENT_APP_VERSION
+
+
+def test_the_example_stacks_database_is_upgraded_with_its_items(scratch):
+    """A database the example stack (#573) made: only items, at revision 0ddedf85d6f0."""
+    db, url = scratch
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE items (id SERIAL PRIMARY KEY, name VARCHAR(200) NOT NULL UNIQUE, "
+                "description TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+            )
+        )
+        conn.execute(text("INSERT INTO items (name) VALUES ('kept')"))
+        conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
+        conn.execute(text("INSERT INTO alembic_version VALUES ('0ddedf85d6f0')"))
+    assert migrate.migrate(db, url) == "from-example"
+    with db.connect() as conn:
+        assert conn.execute(text("SELECT name FROM items")).scalar() == "kept"
+        assert conn.execute(text("SELECT to_regclass('alert_instances') IS NOT NULL")).scalar()
+    assert head(db) == migrate.ITEMS_REVISION
+    assert migrate.migrate(db, url) == "upgrade"

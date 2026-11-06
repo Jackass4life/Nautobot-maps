@@ -31,6 +31,10 @@ BASELINE = "1423339b6a00"
 CURRENT_APP_VERSION = 33
 # nautobot_maps/db.py MIGRATION_LOCK_KEY: the same lock as the current app's migrations.
 MIGRATION_LOCK_KEY = 674864467105151045
+# The example stack's only revision (#573), before the baseline existed: such a database
+# holds just the items table.
+EXAMPLE_REVISION = "0ddedf85d6f0"
+ITEMS_REVISION = "b5b9fde7cf8b"
 # A table of the current app's schema since its first version.
 CURRENT_APP_TABLE = "alert_instances"
 
@@ -70,6 +74,11 @@ def plan(conn: Connection) -> str:
             "release of the current app? Run that release, or restore a backup."
         )
     if _exists(conn, "alembic_version"):
+        revisions = {
+            row[0] for row in conn.execute(text("SELECT version_num FROM alembic_version"))
+        }
+        if revisions == {EXAMPLE_REVISION}:
+            return "from-example"
         return "upgrade"
     if version is not None:
         if version == CURRENT_APP_VERSION:
@@ -103,6 +112,16 @@ def migrate(engine: Engine, url: str) -> str:
                     BASELINE,
                 )
                 command.stamp(config, BASELINE)
+            if action == "from-example":
+                # The example stack's database (#573, review of #603): its items kept, the
+                # schema built under it, then on as usual.
+                logger.info(
+                    "Upgrading the example stack's database (revision %s)", EXAMPLE_REVISION
+                )
+                lock.execute(text("DELETE FROM alembic_version"))
+                lock.commit()
+                command.upgrade(config, BASELINE)
+                command.stamp(config, ITEMS_REVISION)
             command.upgrade(config, "head")
             return action
         finally:

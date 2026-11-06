@@ -99,6 +99,38 @@ def test_healthz_gives_up_on_a_database_that_never_answers(client, monkeypatch):
     assert elapsed < 4
 
 
+def test_a_stuck_probe_queues_no_more(client, monkeypatch, caplog):
+    """While a probe waits on a stuck database, the next answers at once (#603 review)."""
+    import threading
+
+    from app import health
+
+    release = threading.Event()
+    calls = []
+
+    def stuck():
+        calls.append(1)
+        try:
+            release.wait(10)
+        finally:
+            health._in_flight.release()
+
+    monkeypatch.setattr(health, "_probe", stuck)
+    monkeypatch.setattr(health, "PROBE_SECONDS", 0.2)
+    try:
+        assert client.get("/healthz").status_code == 503  # timed out, still running
+        assert client.get("/healthz").status_code == 503  # not queued: busy
+        assert len(calls) == 1
+        assert "the last probe is still waiting" in caplog.text
+    finally:
+        release.set()
+    for _ in range(50):
+        if health._in_flight.acquire(blocking=False):
+            health._in_flight.release()
+            break
+        threading.Event().wait(0.05)
+
+
 def test_the_engines_keep_the_urls_options():
     from sqlalchemy import make_url
 
