@@ -216,8 +216,11 @@ def test_cors_allows_cookies_from_web(configure):
     assert response.headers["access-control-allow-credentials"] == "true"
 
 
-def test_the_spec_and_docs_follow_the_sign_in_rules(header_mode, configure, via_proxy):
-    """As the current app's /api/openapi.json and /api/docs (#592 review)."""
+def test_the_spec_and_docs_follow_the_sign_in_rules(
+    header_mode, configure, via_proxy, frontend_build
+):
+    """As the current app's /api/openapi.json and /api/docs (#592 review); /api/docs is the
+    web page (frontend_build: CI's api job has no web build)."""
     assert via_proxy.get("/api/openapi.json").status_code == 200
     assert via_proxy.get("/api/docs").status_code == 200
     configure(AUTH_REQUIRE_VIEWER="true")
