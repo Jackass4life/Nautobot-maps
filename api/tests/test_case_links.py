@@ -33,10 +33,10 @@ def test_case_url(monkeypatch):
     ],
 )
 def test_only_http_templates_with_a_placeholder(value, expected):
-    code = "from nautobot_maps import settings; print(settings.CASE_URL_TEMPLATE)"
+    code = "from app.utils.legacy_settings import settings; print(settings.CASE_URL_TEMPLATE)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "api",  # where app/ is
         env={**os.environ, "CASE_URL_TEMPLATE": value},
         capture_output=True,
         text=True,
