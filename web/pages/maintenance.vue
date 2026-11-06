@@ -143,13 +143,21 @@ function everySite() {
   historyChanged();
 }
 
-async function endWindows(ids: number[]) {
+// The batch whose End is running (its key): its button loads until that settles.
+const ending = ref("");
+
+async function endWindows(key: string, ids: number[]) {
+  ending.value = key;
   try {
     await unwrap(useNuxtApp().$api.POST("/api/v1/maintenance/end", { body: { ids } as never }));
   } catch (err) {
     setStatus(`Could not end maintenance: ${errorMessage(err)}`, true);
   }
-  await loadList();
+  try {
+    await loadList();
+  } finally {
+    if (ending.value === key) ending.value = "";
+  }
 }
 
 // --- planning ---------------------------------------------------------------
@@ -546,7 +554,8 @@ function until(ready: () => unknown): Promise<void> {
               :batch="batch"
               :descriptions="descriptions"
               :now="now"
-              @end="endWindows"
+              :ending="ending === batch.key"
+              @end="(ids) => endWindows(batch.key, ids)"
             />
           </ul>
           <p v-if="group.rest" class="border-t border-default px-4 py-2 text-sm text-muted">

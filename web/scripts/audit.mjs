@@ -15,8 +15,15 @@ try {
   report = JSON.parse(error.stdout);
 }
 
+// An error instead of a report (a registry without audits: ENOAUDIT, #610 review)
+// audited nothing: that fails too, never "nothing found".
+if (report.error || typeof report.vulnerabilities !== "object" || report.vulnerabilities === null) {
+  console.log(`npm audit gave no report: ${JSON.stringify(report.error ?? report).slice(0, 500)}`);
+  process.exit(1);
+}
+
 const advisories = new Map();
-for (const finding of Object.values(report.vulnerabilities ?? {})) {
+for (const finding of Object.values(report.vulnerabilities)) {
   for (const via of finding.via) {
     if (typeof via === "object") advisories.set(via.url.split("/").pop(), via);
   }

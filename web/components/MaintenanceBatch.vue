@@ -10,12 +10,13 @@ const props = defineProps<{
   now: Date;
   // The history: read only, and when it ran.
   history?: boolean;
+  // Its End is running: the page clears it when that settles, failed or not (#610 review).
+  ending?: boolean;
 }>();
 const emit = defineEmits<{ end: [ids: number[]] }>();
 
 const expanded = ref(false);
 const confirming = ref(false);
-const busy = ref(false);
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 const actions = computed(() => !props.history && props.batch.group !== "past");
@@ -37,7 +38,6 @@ function end(list: number[], confirm: boolean) {
   }
   clearTimeout(timer);
   confirming.value = false;
-  busy.value = true;
   emit("end", list);
 }
 onBeforeUnmount(() => clearTimeout(timer));
@@ -70,7 +70,7 @@ onBeforeUnmount(() => clearTimeout(timer));
           size="xs"
           :color="confirming ? 'error' : 'neutral'"
           :variant="confirming ? 'solid' : 'outline'"
-          :loading="busy"
+          :loading="ending"
           :data-ids="ids.join(',')"
           @click="end(ids, many)"
         >{{ confirming ? "Sure? " : "" }}{{ endLabel(batch, batch.windows.length) }}</UButton>
