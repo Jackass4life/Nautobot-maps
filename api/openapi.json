@@ -3368,7 +3368,7 @@
         "title": "Neighbour",
         "type": "object"
       },
-      "NewTokenDto": {
+      "NewToken": {
         "additionalProperties": false,
         "properties": {
           "created_at": {
@@ -3493,7 +3493,7 @@
           "state",
           "token"
         ],
-        "title": "NewTokenDto",
+        "title": "NewToken",
         "type": "object"
       },
       "NotificationResults": {
@@ -5238,20 +5238,7 @@
         "title": "Tenants",
         "type": "object"
       },
-      "TokenCreatedDto": {
-        "additionalProperties": false,
-        "properties": {
-          "token": {
-            "$ref": "#/components/schemas/NewTokenDto"
-          }
-        },
-        "required": [
-          "token"
-        ],
-        "title": "TokenCreatedDto",
-        "type": "object"
-      },
-      "TokenDto": {
+      "Token": {
         "additionalProperties": false,
         "description": "An API token; never its secret.",
         "properties": {
@@ -5359,23 +5346,36 @@
           "revoked_by",
           "state"
         ],
-        "title": "TokenDto",
+        "title": "Token",
         "type": "object"
       },
-      "TokenRevokedDto": {
+      "TokenCreated": {
         "additionalProperties": false,
         "properties": {
           "token": {
-            "$ref": "#/components/schemas/TokenDto"
+            "$ref": "#/components/schemas/NewToken"
           }
         },
         "required": [
           "token"
         ],
-        "title": "TokenRevokedDto",
+        "title": "TokenCreated",
         "type": "object"
       },
-      "TokensDto": {
+      "TokenRevoked": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "$ref": "#/components/schemas/Token"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "TokenRevoked",
+        "type": "object"
+      },
+      "Tokens": {
         "additionalProperties": false,
         "properties": {
           "inactive": {
@@ -5386,7 +5386,7 @@
           "tokens": {
             "description": "Newest first; only the active ones unless all=true (#528).",
             "items": {
-              "$ref": "#/components/schemas/TokenDto"
+              "$ref": "#/components/schemas/Token"
             },
             "title": "Tokens",
             "type": "array"
@@ -5396,10 +5396,10 @@
           "tokens",
           "inactive"
         ],
-        "title": "TokensDto",
+        "title": "Tokens",
         "type": "object"
       },
-      "TokensPurgedDto": {
+      "TokensPurged": {
         "additionalProperties": false,
         "properties": {
           "dry_run": {
@@ -5414,7 +5414,7 @@
           "tokens": {
             "description": "The tokens deleted (or, with dry_run, that would be), newest first.",
             "items": {
-              "$ref": "#/components/schemas/TokenDto"
+              "$ref": "#/components/schemas/Token"
             },
             "title": "Tokens",
             "type": "array"
@@ -5425,7 +5425,7 @@
           "purged",
           "dry_run"
         ],
-        "title": "TokensPurgedDto",
+        "title": "TokensPurged",
         "type": "object"
       },
       "WebhookResult": {
@@ -9703,7 +9703,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokensDto"
+                  "$ref": "#/components/schemas/Tokens"
                 }
               }
             },
@@ -9786,7 +9786,7 @@
                   "name",
                   "role"
                 ],
-                "title": "TokenCreateDto",
+                "title": "TokenCreate",
                 "type": "object"
               }
             }
@@ -9798,7 +9798,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenCreatedDto"
+                  "$ref": "#/components/schemas/TokenCreated"
                 }
               }
             },
@@ -9877,7 +9877,7 @@
                     "title": "Older Than Days"
                   }
                 },
-                "title": "TokenPurgeDto",
+                "title": "TokenPurge",
                 "type": "object"
               }
             }
@@ -9889,7 +9889,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokensPurgedDto"
+                  "$ref": "#/components/schemas/TokensPurged"
                 }
               }
             },
@@ -9961,7 +9961,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenRevokedDto"
+                  "$ref": "#/components/schemas/TokenRevoked"
                 }
               }
             },

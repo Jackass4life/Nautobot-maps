@@ -1,23 +1,50 @@
 {
   "name": "web",
   "private": true,
+  "description": "The app's pages on Nuxt (#463, #609); built to static files that api/ serves.",
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
     "generate": "nuxt generate && node scripts/no-inline-scripts.mjs",
-    "postinstall": "nuxt prepare",
     "generate:api": "openapi-typescript ../api/openapi.json -o ./types/api.d.ts",
-    "typecheck": "nuxt typecheck"
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run",
+    "postinstall": "nuxt prepare",
+    "audit": "node scripts/audit.mjs"
   },
   "dependencies": {
+    "@iconify-json/lucide": "1.2.150",
+    "@nuxt/ui": "4.12.0",
+    "leaflet": "1.9.4",
+    "leaflet.markercluster": "1.5.3",
     "nuxt": "4.6.4",
-    "openapi-fetch": "^0.17.0",
-    "vue": "^3.5.25",
-    "vue-router": "^4.6.3"
+    "openapi-fetch": "0.17.0",
+    "swagger-ui-dist": "5.34.1",
+    "tailwindcss": "4.3.4",
+    "vue": "3.5.44",
+    "vue-router": "5.4.0"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.13.0",
-    "typescript": "~5.9.3",
-    "vue-tsc": "^3.3.14"
+    "@nuxt/eslint": "1.17.0",
+    "@types/leaflet": "1.9.22",
+    "@types/leaflet.markercluster": "1.5.6",
+    "eslint": "10.14.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0",
+    "vue-tsc": "3.3.14"
+  },
+  "overrides": {
+    "esbuild": "0.28.2",
+    "archiver-utils": {
+      "glob": "13.0.6"
+    },
+    "openapi-typescript": {
+      "typescript": "$typescript"
+    }
+  },
+  "scarfSettings": {
+    "enabled": false
   }
 }

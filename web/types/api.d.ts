@@ -2661,8 +2661,8 @@ export interface components {
              */
             source: string;
         };
-        /** NewTokenDto */
-        NewTokenDto: {
+        /** NewToken */
+        NewToken: {
             /** Created At */
             created_at: string;
             /** Created By */
@@ -3529,15 +3529,11 @@ export interface components {
              */
             tenants: components["schemas"]["Tenant"][];
         };
-        /** TokenCreatedDto */
-        TokenCreatedDto: {
-            token: components["schemas"]["NewTokenDto"];
-        };
         /**
-         * TokenDto
+         * Token
          * @description An API token; never its secret.
          */
-        TokenDto: {
+        Token: {
             /** Created At */
             created_at: string;
             /** Created By */
@@ -3575,12 +3571,16 @@ export interface components {
              */
             tenant: string | null;
         };
-        /** TokenRevokedDto */
-        TokenRevokedDto: {
-            token: components["schemas"]["TokenDto"];
+        /** TokenCreated */
+        TokenCreated: {
+            token: components["schemas"]["NewToken"];
         };
-        /** TokensDto */
-        TokensDto: {
+        /** TokenRevoked */
+        TokenRevoked: {
+            token: components["schemas"]["Token"];
+        };
+        /** Tokens */
+        Tokens: {
             /**
              * Inactive
              * @description How many of them are revoked or expired, listed or not.
@@ -3590,10 +3590,10 @@ export interface components {
              * Tokens
              * @description Newest first; only the active ones unless all=true (#528).
              */
-            tokens: components["schemas"]["TokenDto"][];
+            tokens: components["schemas"]["Token"][];
         };
-        /** TokensPurgedDto */
-        TokensPurgedDto: {
+        /** TokensPurged */
+        TokensPurged: {
             /** Dry Run */
             dry_run: boolean;
             /**
@@ -3605,7 +3605,7 @@ export interface components {
              * Tokens
              * @description The tokens deleted (or, with dry_run, that would be), newest first.
              */
-            tokens: components["schemas"]["TokenDto"][];
+            tokens: components["schemas"]["Token"][];
         };
         /** WebhookResult */
         WebhookResult: {
@@ -6647,7 +6647,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TokensDto"];
+                    "application/json": components["schemas"]["Tokens"];
                 };
             };
             /** @description Not signed in, or a rejected API token */
@@ -6711,7 +6711,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TokenCreatedDto"];
+                    "application/json": components["schemas"]["TokenCreated"];
                 };
             };
             /** @description Not a valid request */
@@ -6785,7 +6785,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TokensPurgedDto"];
+                    "application/json": components["schemas"]["TokensPurged"];
                 };
             };
             /** @description Not a valid request */
@@ -6849,7 +6849,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TokenRevokedDto"];
+                    "application/json": components["schemas"]["TokenRevoked"];
                 };
             };
             /** @description Not signed in, or a rejected API token */

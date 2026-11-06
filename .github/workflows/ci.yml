@@ -185,6 +185,14 @@ jobs:
         if: success() || failure()
         run: npm run typecheck
 
+      - name: Lint (#609)
+        if: success() || failure()
+        run: npm run lint
+
+      - name: Unit tests (vitest, #609)
+        if: success() || failure()
+        run: npm test
+
       - name: Static build (no inline scripts, #594)
         if: success() || failure()
         run: npm run generate

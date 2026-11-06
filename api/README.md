@@ -132,9 +132,7 @@ root) and serves its pages. `deploy/next/compose.yml` runs it with PostgreSQL.
 - gzip by the current rules (`app/frontend/compression.py`): text of 1 KiB or more, a 200
   answer to GET, not `Cache-Control: no-transform` (new API tokens), not streamed.
   `COMPRESS_RESPONSES=false` turns it off.
-- `/api/docs` (FastAPI's Swagger UI) loads its scripts from a CDN with an inline one, which
-  the CSP blocks in a browser; the current app's API page bundles Swagger UI and moves to
-  `web/` in step 11 of #587. Until then, use `/api/openapi.json`.
+- `/api/docs` is web's API page (Swagger UI bundled, #609), under the CSP.
 - `GET /healthz` (`getHealth`): `{"status", "checks": {"app", "database"}}`, 503 when the
   database doesn't answer within 2 s. `/api/healthz` stays as an alias until the switchover.
 

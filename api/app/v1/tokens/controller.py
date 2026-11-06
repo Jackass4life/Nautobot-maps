@@ -12,12 +12,12 @@ from app.utils.auth import CurrentUserDep, require_role
 from app.utils.body import body_schema, json_body
 from app.utils.errors import ApiError, responses
 from app.v1.tokens.dtos import (
-    TokenCreatedDto,
-    TokenCreateDto,
-    TokenPurgeDto,
-    TokenRevokedDto,
-    TokensDto,
-    TokensPurgedDto,
+    TokenCreate,
+    TokenCreated,
+    TokenPurge,
+    TokenRevoked,
+    Tokens,
+    TokensPurged,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,17 +32,17 @@ def _flag(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes")
 
 
-@router.get("", operation_id="listTokens", response_model=TokensDto, responses=REFUSALS)
+@router.get("", operation_id="listTokens", response_model=Tokens, responses=REFUSALS)
 def list_tokens(
     db: DbSession,
     all: Annotated[str | None, Query(description="Revoked and expired ones too (#528).")] = None,
     tenant: Annotated[str | None, Query(description="Only this tenant's status tokens.")] = None,
-) -> TokensDto:
+) -> Tokens:
     """API tokens: name, first characters, role, expiry, last use, state; never the
     secret. Only the active ones unless ``all=true``; ``inactive`` counts the others."""
     rows = token_service.list_tokens(db, tenant=tenant)
     active = [token for token in rows if token["state"] == "active"]
-    return TokensDto.model_validate(
+    return Tokens.model_validate(
         {"tokens": rows if _flag(all) else active, "inactive": len(rows) - len(active)}
     )
 
@@ -66,9 +66,9 @@ def _status_link(db: DbSession, tenant: str) -> str | None:
     "",
     operation_id="createToken",
     status_code=201,
-    response_model=TokenCreatedDto,
+    response_model=TokenCreated,
     responses={**REFUSALS, **responses(400)},
-    openapi_extra=body_schema(TokenCreateDto),
+    openapi_extra=body_schema(TokenCreate),
 )
 def create_token(body: Body, db: DbSession, user: CurrentUserDep) -> JSONResponse:
     """Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``
@@ -83,7 +83,7 @@ def create_token(body: Body, db: DbSession, user: CurrentUserDep) -> JSONRespons
         raise ApiError({"error": exc.message}, 400) from None
     if token.get("tenant"):
         token["status_link"] = _status_link(db, token["tenant"])
-    created = TokenCreatedDto.model_validate({"token": token})
+    created = TokenCreated.model_validate({"token": token})
     # no-transform: never compressed, the secret beside the name the client chose (#349).
     return JSONResponse(
         created.model_dump(mode="json"),
@@ -95,25 +95,25 @@ def create_token(body: Body, db: DbSession, user: CurrentUserDep) -> JSONRespons
 @router.post(
     "/{token_id}/revoke",
     operation_id="revokeToken",
-    response_model=TokenRevokedDto,
+    response_model=TokenRevoked,
     responses={**REFUSALS, **responses(404)},
 )
-def revoke_token(token_id: int, db: DbSession, user: CurrentUserDep) -> TokenRevokedDto:
+def revoke_token(token_id: int, db: DbSession, user: CurrentUserDep) -> TokenRevoked:
     """Revoke an API token: refused from the next request on."""
     token = token_service.revoke(db, token_id, user.username)
     if token is None:
         raise ApiError({"error": "No such token"}, 404)
-    return TokenRevokedDto.model_validate({"token": token})
+    return TokenRevoked.model_validate({"token": token})
 
 
 @router.post(
     "/purge",
     operation_id="purgeTokens",
-    response_model=TokensPurgedDto,
+    response_model=TokensPurged,
     responses={**REFUSALS, **responses(400)},
-    openapi_extra=body_schema(TokenPurgeDto, required=False),
+    openapi_extra=body_schema(TokenPurge, required=False),
 )
-def purge_tokens(body: Body, db: DbSession, user: CurrentUserDep) -> TokensPurgedDto:
+def purge_tokens(body: Body, db: DbSession, user: CurrentUserDep) -> TokensPurged:
     """Delete revoked and expired API tokens for good (#528), never an active one.
     Optional ``older_than_days`` and ``dry_run``. Their names are free again."""
     if body is None:
@@ -129,6 +129,6 @@ def purge_tokens(body: Body, db: DbSession, user: CurrentUserDep) -> TokensPurge
         )
     except token_service.TokenError as exc:
         raise ApiError({"error": exc.message}, 400) from None
-    return TokensPurgedDto.model_validate(
+    return TokensPurged.model_validate(
         {"tokens": purged, "purged": 0 if dry_run else len(purged), "dry_run": dry_run}
     )
