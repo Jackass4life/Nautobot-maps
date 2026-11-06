@@ -9,10 +9,12 @@ export default defineNuxtPlugin(() => {
   const baseUrl = import.meta.server && config.apiBaseServer ? config.apiBaseServer : config.public.apiBase
   // Server-side rendering calls the API for the user (#582): pass on the sign-in
   // proxy's identity headers, but only from a request that carries its secret.
-  const names = config.authForwardHeaders.split(',').map(h => h.trim().toLowerCase()).filter(Boolean)
-  const headers = import.meta.server
-    ? identityHeaders(useRequestHeaders([...names, 'x-auth-proxy-secret']), names, config.authProxySecret)
-    : {}
+  // Server only: the browser has no private runtime config.
+  let headers: Record<string, string> = {}
+  if (import.meta.server) {
+    const names = config.authForwardHeaders.split(',').map(h => h.trim().toLowerCase()).filter(Boolean)
+    headers = identityHeaders(useRequestHeaders([...names, 'x-auth-proxy-secret']), names, config.authProxySecret)
+  }
   // The browser sends the sign-in proxy's session cookie to the API too, also
   // when the API is on another origin (it allows credentials from CORS_ORIGINS).
   const api = createClient<paths>({ baseUrl, headers, credentials: 'include' })

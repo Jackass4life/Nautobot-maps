@@ -34,6 +34,8 @@ services:
       AUTH_MODE: ${AUTH_MODE:-disabled}
       AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
       AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+      AUTH_HEADER_USER: ${AUTH_HEADER_USER:-X-Forwarded-User}
+      AUTH_HEADER_GROUPS: ${AUTH_HEADER_GROUPS:-X-Forwarded-Groups}
       AUTH_VIEWER_GROUPS: ${AUTH_VIEWER_GROUPS:-}
       AUTH_OPERATOR_GROUPS: ${AUTH_OPERATOR_GROUPS:-}
       AUTH_ADMIN_GROUPS: ${AUTH_ADMIN_GROUPS:-}
@@ -54,6 +56,8 @@ services:
       NUXT_API_BASE_SERVER: http://api:8000
       # Server-side rendering forwards identity headers only with this secret (#582).
       NUXT_AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+      # The API's AUTH_HEADER_USER / AUTH_HEADER_GROUPS, comma-separated.
+      NUXT_AUTH_FORWARD_HEADERS: ${AUTH_FORWARD_HEADERS:-x-forwarded-user,x-forwarded-groups}
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:
