@@ -7,7 +7,7 @@ alert tag" take a device off the alert board (#570)."""
 import pytest
 
 from app import db
-from app.clients import caching
+from app.clients import caching, nautobot
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.utils.legacy_settings import settings
@@ -97,6 +97,17 @@ class TestBoard:
         reasons = {d["name"]: alerts.not_monitored_reason(d) for d in devices}
         assert reasons == {"sw0": "", "sw1": FLAGS["disabled"], "sw2": ""}
 
+    def test_the_site_detail_answer_says_why(self, flask_client, lnms, monkeypatch):
+        """Through the endpoint, so the answer is checked against its model."""
+        monkeypatch.setattr(nautobot, "fetch_all_pages", lambda *args, **kwargs: [])
+        monkeypatch.setattr(nautobot, "get", lambda *args, **kwargs: {})
+        store([{**lnms.devices[1001], "status": 0, "disabled": 1}])
+        response = flask_client.get("/api/v1/locations/loc-1/detail")
+        assert response.status_code == 200, response.get_json()
+        devices = {d["name"]: d for d in response.get_json()["devices"]}
+        assert devices["sw1"]["not_monitored"] == FLAGS["disabled"]
+        assert "librenms_muted" not in devices["sw1"]
+
     def test_a_muted_member_is_not_in_its_stack(self, lnms):
         conn = db.get_conn()
         try:
@@ -125,6 +136,14 @@ class TestBoard:
         store([{**lnms.devices[1002], "disable_notify": 1}])
         assert {d["id"] for d in alerts.site_monitored_devices("loc-1")} == {"dev-0", "dev-1"}
 
+    def test_an_alert_push_reads_the_switches(self, flask_client, lnms):
+        lnms.devices[1001].update(status=0, disable_notify=1)
+        response = flask_client.post(
+            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
+        )
+        assert response.get_json()["updated"] is True
+        assert board_row()["down_device_count"] == 0
+
 
 def test_the_switches_are_stored_and_read_back(lnms):
     store([{**lnms.devices[1000], "disabled": 1, "disable_notify": "1", "ignore": True}])
@@ -132,10 +151,6 @@ def test_the_switches_are_stored_and_read_back(lnms):
     assert {flag: by_id[1000][flag] for flag in FLAGS} == dict.fromkeys(FLAGS, True)
     assert {flag: by_id[1001][flag] for flag in FLAGS} == dict.fromkeys(FLAGS, False)
 
-
-# Held back until what they need is ported (#587):
-#   TestBoard.test_the_site_detail_answer_says_why: HTTP routes (step 7)
-#   TestBoard.test_an_alert_push_reads_the_switches: HTTP routes (step 7)
 
 # The current app's own schema migration test is its own: the schema here is
 # Alembic's, checked against the current one in tests/test_schema.py (#602).

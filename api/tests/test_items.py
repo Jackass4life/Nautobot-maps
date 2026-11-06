@@ -24,9 +24,11 @@ def test_duplicate_name_is_409_and_rolled_back(client):
 
 
 def test_validation(client):
-    assert client.post("/api/v1/items", json={"name": ""}).status_code == 422
-    assert client.post("/api/v1/items", json={"name": "x", "extra": 1}).status_code == 422
-    assert client.get("/api/v1/items?limit=0").status_code == 422
+    # Bad input is a 400 with one plain sentence, as the current app (#604).
+    refused = client.post("/api/v1/items", json={"name": ""})
+    assert refused.status_code == 400 and refused.json()["error"].startswith("name:")
+    assert client.post("/api/v1/items", json={"name": "x", "extra": 1}).status_code == 400
+    assert client.get("/api/v1/items?limit=0").status_code == 400
 
 
 def test_delete(client):

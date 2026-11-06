@@ -121,9 +121,10 @@ class TestGzip:
         response = client.get("/api/v1/me", headers={"Accept-Encoding": "gzip"})
         assert "content-encoding" not in response.headers
 
-    def test_not_for_head(self, client):
+    def test_head_is_the_gets_headers_without_the_body(self, client):
+        """As the current app (#604): HEAD answers as GET, its headers included."""
         response = client.head("/api/openapi.json", headers={"Accept-Encoding": "gzip"})
-        assert "content-encoding" not in response.headers
+        assert response.headers["content-encoding"] == "gzip" and response.content == b""
 
     def test_switched_off(self, client, configure):
         configure(COMPRESS_RESPONSES="false")

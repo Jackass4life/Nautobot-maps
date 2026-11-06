@@ -56,6 +56,116 @@ def test_members_are_named_and_know_their_stack(no_lookups):
     assert by_id["y"]["vc_master"] is False and by_id["y"]["vc_position"] is None
 
 
+def test_stored_and_read_back(flask_client, pg_database, no_lookups):
+    devices = inventory.normalize_devices(
+        [
+            _device("m1", "sw-stack01", 1, location={"id": "loc-1"}),
+            _device("m2", None, 2, display="sw-stack01:2 (uuid)", location={"id": "loc-1"}),
+        ]
+    )
+    conn = inventory.db.get_conn()
+    try:
+        with inventory.db.transaction(conn):
+            inventory.write_devices(conn, devices)
+    finally:
+        conn.close()
+    stored = {d["id"]: d for d in inventory.read_devices("loc-1")}
+    assert stored["m1"]["vc_master"] is True and stored["m1"]["vc_position"] == 1
+    assert stored["m2"]["name"] == "sw-stack01:2" and stored["m2"]["vc_id"] == "vc-1"
+    assert stored["m2"]["vc_master"] is False
+
+
+def test_a_changed_stack_makes_the_next_sync_full(flask_client, pg_database, monkeypatch):
+    """Renaming a stack or moving its master saves the chassis, not its members (#400)."""
+    from app.utils.legacy_settings import settings
+
+    monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+    monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+    monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+    changed = []
+    calls = []
+
+    def fetch(endpoint, params=None, **kwargs):
+        if endpoint == "dcim/locations/":
+            calls.append(dict(params or {}))
+        if endpoint == "dcim/virtual-chassis/":
+            return changed
+        return []
+
+    monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+    inventory.sync_nautobot(force=True)
+    inventory.sync_nautobot()
+    assert "last_updated__gte" in calls[-1]
+    inventory.sync_nautobot()
+    assert "last_updated__gte" in calls[-1], "no stack changed: still incremental"
+    changed.append({"id": "vc-1", "name": "sw-stack01-new"})
+    inventory.sync_nautobot()  # incremental, and sees the change
+    changed.clear()
+    inventory.sync_nautobot()
+    assert "last_updated__gte" not in calls[-1], "so this one is full"
+
+
+def test_the_board_says_which_stack_a_down_device_is_in(board, monkeypatch):
+    """The board and its Copy say a down stack is down with all its members (#402, #405)."""
+    from tests.test_app import _snapshot_device
+    from tests.test_criticality import NOW, build, write
+
+    def member(position, status, ip):
+        return {
+            **_snapshot_device(f"a-stk{position}", "a", "Access Switch", status),
+            "name": "sw-stack01" if position == 1 else f"sw-stack01:{position}",
+            "primary_ip": ip,
+            "vc_id": "vc-1",
+            "vc_name": "sw-stack01",
+            "vc_position": position,
+            "vc_master": position == 1,
+        }
+
+    devices = [
+        member(1, "Active", "10.0.0.1/32"),
+        # An IP on a member is the stack's: not answering, the whole stack is down (#405).
+        member(2, "Offline", "10.0.0.2/32"),
+        member(3, "Offline", ""),  # no IP: its own status means nothing
+        member(4, "Active", ""),
+        _snapshot_device("a-rt", "a", "Edge Router", "Offline"),
+        # A fifth member at another location: the stack's size is the whole stack.
+        {**member(5, "Active", ""), "location_id": "b"},
+        # An excluded status: not one of the members down.
+        {**member(6, "Decommissioning", "")},
+    ]
+    monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"})
+    write({"a": "", "b": ""}, devices)
+    row = build(board, NOW)["a"]
+    # The whole stack wherever its members are (5 at b), without the Decommissioning one.
+    names = ["sw-stack01", "sw-stack01:2", "sw-stack01:3", "sw-stack01:4", "sw-stack01:5"]
+    down = {d["device_id"]: d for d in row["down_devices"]}
+    # One line for the stack, its master's, never one for a member.
+    assert set(down) == {"a-stk1", "a-rt"}, set(down)
+    assert down["a-stk1"]["stack"] == {
+        "name": "sw-stack01",
+        "size": 5,
+        "position": 1,
+        "master": True,
+        "whole": True,
+        "members": names,
+    }
+    assert down["a-stk1"]["status"] == "Offline", "the member's status is the stack's"
+    assert "stack" not in down["a-rt"]
+    # The stack counts once: it and the router.
+    assert (row["device_count"], row["down_device_count"]) == (2, 2), row
+    # The assistant (MCP) gets it too.
+    from app.services import mcp_service as mcp
+
+    by_id = {d["device_id"]: d for d in mcp._site(row)["down_devices"]}
+    assert (
+        by_id["a-stk1"]["stack"]["whole"] is True and by_id["a-stk1"]["stack"]["members"] == names
+    )
+
+    # Every IP answering: the stack is up, whatever a member without one says.
+    write({"a": "", "b": ""}, [member(2, "Active", "10.0.0.2/32")])
+    assert set(d["device_id"] for d in build(board, NOW)["a"]["down_devices"]) == {"a-rt"}
+
+
 def _dev(position, status="Active", master=None, **extra):
     return {
         "id": f"m{position}",
@@ -121,9 +231,3 @@ def test_a_stack_of_one_left_after_exclusions_is_not_a_stack(monkeypatch):
         {"vc-1": [{"name": "s", "status": "Active"}, {"name": "s:2", "status": "Decommissioning"}]}
     )
     assert alerts.stack_of({"id": "m1", "vc_id": "vc-1"}, stacks) == {}
-
-
-# Held back until what they need is ported (#587):
-#   test_stored_and_read_back: HTTP routes (step 7)
-#   test_a_changed_stack_makes_the_next_sync_full: HTTP routes (step 7)
-#   test_the_board_says_which_stack_a_down_device_is_in: MCP (step 9)

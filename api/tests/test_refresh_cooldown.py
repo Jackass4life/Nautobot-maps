@@ -12,8 +12,8 @@ from app.utils.legacy_settings import settings
 
 @pytest.fixture
 def sources(
-    client, pg_database, monkeypatch
-):  # client: the app, so the schema's cache can be cleared
+    flask_client, pg_database, monkeypatch
+):  # flask_client: the app, so the schema's cache can be cleared
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.example.com")

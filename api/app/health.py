@@ -16,10 +16,12 @@ from typing import Literal
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from psycopg.rows import dict_row
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
 from app import session
+from app.services import metrics_service
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +35,16 @@ _lock = threading.Lock()
 _running: tuple[Future, float] | None = None
 
 
-def _probe() -> None:
+def _probe() -> int | None:
+    """``SELECT 1``, then the inventory's sync age, as the current app's /healthz (#604):
+    both on the probe's own connection (#608 review), never the app's pool, so a busy
+    pool can't make a healthy database look down."""
     with session.probe_engine.connect() as conn:
         conn.execute(text("SELECT 1"))
+        # A fresh connection (NullPool), used once: dict rows for the metrics' query.
+        driver = conn.connection.driver_connection
+        driver.row_factory = dict_row
+        return metrics_service.inventory_sync_age_seconds(driver)
 
 
 def _current_probe() -> tuple[Future, float]:
@@ -47,35 +56,38 @@ def _current_probe() -> tuple[Future, float]:
         return _running
 
 
-class HealthChecksDto(BaseModel):
+class HealthChecks(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     app: Literal["ok"]
     database: Literal["ok", "unavailable"]
 
 
-class HealthDto(BaseModel):
+class Health(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["ok", "unavailable"]
-    checks: HealthChecksDto
+    checks: HealthChecks
     inventory_sync_age_seconds: int | None = Field(
-        None, description="Since the Nautobot inventory last synced (step 5 of #587: always null)."
+        None,
+        description="Since the Nautobot inventory last synced; null when it never has.",
     )
 
 
 @router.get(
     "/healthz",
     operation_id="getHealth",
-    response_model=HealthDto,
-    responses={503: {"model": HealthDto, "description": "The database doesn't answer"}},
+    response_model=Health,
+    responses={503: {"model": Health, "description": "The database doesn't answer"}},
 )
 def get_health() -> JSONResponse:
     checks = {"app": "ok", "database": "ok"}
+    # Informational, never a failure: restarting can't fix a sync that fails upstream (#200).
+    sync_age = None
     try:
         # The whole probe, connecting included, within PROBE_SECONDS of its start.
         probe, started = _current_probe()
-        probe.result(timeout=max(0.0, PROBE_SECONDS - (time.monotonic() - started)))
+        sync_age = probe.result(timeout=max(0.0, PROBE_SECONDS - (time.monotonic() - started)))
     except ProbeTimeout:
         logger.warning("Health check: database unavailable: no answer in %ss", PROBE_SECONDS)
         checks["database"] = "unavailable"
@@ -83,8 +95,12 @@ def get_health() -> JSONResponse:
         logger.warning("Health check: database unavailable: %s", type(exc).__name__)
         checks["database"] = "unavailable"
     healthy = all(value == "ok" for value in checks.values())
-    body = HealthDto.model_validate(
-        {"status": "ok" if healthy else "unavailable", "checks": checks}
+    body = Health.model_validate(
+        {
+            "status": "ok" if healthy else "unavailable",
+            "checks": checks,
+            "inventory_sync_age_seconds": sync_age,
+        }
     )
     return JSONResponse(body.model_dump(mode="json"), status_code=200 if healthy else 503)
 

@@ -195,7 +195,7 @@ CIRCUITS = [
 
 class TestSitePanel:
     @pytest.fixture(autouse=True)
-    def _synced(self, client, pg_database, monkeypatch):
+    def _synced(self, flask_client, pg_database, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
@@ -223,22 +223,69 @@ class TestSitePanel:
         inventory.sync_nautobot(force=True)
         caching.cache.clear()
 
-    def panel(self, client, location_id):
-        response = client.get(f"/api/locations/{location_id}/detail")
+    def panel(self, flask_client, location_id):
+        response = flask_client.get(f"/api/v1/locations/{location_id}/detail")
         assert response.status_code == 200
         return response.get_json()["circuits"]
+
+    def test_terminated_first_then_by_address(self, flask_client):
+        circuits = self.panel(flask_client, "loc-ode")
+        assert [(c["cid"], c.get("match", "")) for c in circuits] == [
+            ("TDC-0001", ""),  # terminated: listed once, not again by address
+            ("tdc-0002", "address"),
+        ]
+        by_address = circuits[1]
+        assert by_address["provider"] == "Telia"
+        assert by_address["commit_rate"] == "1 Gbps"
+        assert by_address["description"] == "Roersvej 33, 5000 Odense"
+        # Odense colo has the address too; Odense's own building doesn't count.
+        assert by_address["shared_with"] == 1
+
+    def test_the_other_site_at_the_address_lists_them_too(self, flask_client):
+        circuits = self.panel(flask_client, "loc-ode2")
+        # TDC-0001 and TDC-0006 have a termination (at Odense): not guessed here.
+        assert [(c["cid"], c["match"], c["shared_with"]) for c in circuits] == [
+            ("tdc-0002", "address", 1)
+        ]
+
+    def test_a_child_at_the_same_address_does_not_count_its_parent(self, flask_client):
+        circuits = self.panel(flask_client, "loc-ode-b")
+        assert {c["shared_with"] for c in circuits} == {1}  # Odense colo, not Odense
+
+    def test_only_its_own_address(self, flask_client):
+        assert [c["cid"] for c in self.panel(flask_client, "loc-aar")] == ["TDC-0004"]
+        assert self.panel(flask_client, "loc-none") == []
+        assert self.panel(flask_client, "loc-town") == []  # "Odense" alone is no address
+
+    def test_none_by_address_when_the_terminations_cannot_be_read(self, flask_client, monkeypatch):
+        read = nautobot.fetch_all_pages
+
+        def terminations_fail(endpoint, params=None, **kwargs):
+            if endpoint == "circuits/circuit-terminations/":
+                raise requests.HTTPError(response=MagicMock(status_code=500))
+            return read(endpoint, params, **kwargs)
+
+        monkeypatch.setattr(nautobot, "fetch_all_pages", terminations_fail)
+        detail = flask_client.get("/api/v1/locations/loc-ode/detail").get_json()
+        assert detail["circuits"] == []
+        assert detail["circuits_error"] == "Circuit information unavailable"
+
+    def test_a_failed_read_keeps_the_circuits_and_a_later_one_replaces_them(self, flask_client):
+        self.circuits_error = requests.HTTPError(response=MagicMock(status_code=500))
+        self.sync()
+        assert [c["cid"] for c in self.panel(flask_client, "loc-aar")] == ["TDC-0004"]
+        self.circuits_error = None
+        self.circuits = [_circuit("c-new", "NEW-1", "Banegårdspladsen 1, 8000 Aarhus C")]
+        self.sync()
+        assert [c["cid"] for c in self.panel(flask_client, "loc-aar")] == ["NEW-1"]
+
+    def test_one_read_per_sync_however_many_sites(self, flask_client):
+        assert self.calls.count("circuits/circuits/") == 1
+        before = len(self.calls)
+        self.panel(flask_client, "loc-ode")
+        assert "circuits/circuits/" not in self.calls[before:]  # the panel reads the database
 
 
 def test_without_a_database_none_by_address(monkeypatch):
     monkeypatch.setattr(alerts.db, "dialect", lambda: None)
     assert alerts.address_circuits("loc-ode", set()) == []
-
-
-# Held back until what they need is ported (#587):
-#   TestSitePanel.test_terminated_first_then_by_address: HTTP routes (step 7)
-#   TestSitePanel.test_the_other_site_at_the_address_lists_them_too: HTTP routes (step 7)
-#   TestSitePanel.test_a_child_at_the_same_address_does_not_count_its_parent: HTTP routes (step 7)
-#   TestSitePanel.test_only_its_own_address: HTTP routes (step 7)
-#   TestSitePanel.test_none_by_address_when_the_terminations_cannot_be_read: HTTP routes (step 7)
-#   TestSitePanel.test_a_failed_read_keeps_the_circuits_and_a_later_one_replaces_them: HTTP routes (step 7)
-#   TestSitePanel.test_one_read_per_sync_however_many_sites: HTTP routes (step 7)

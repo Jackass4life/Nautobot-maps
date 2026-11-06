@@ -12,6 +12,8 @@ from app.services import scheduler
 from app.session import DbSessionMiddleware
 from app.utils.config import get_settings
 from app.utils.errors import install_error_handlers
+from app.v1 import deps as v1_deps
+from app.v1 import routes as v1_routes
 
 
 @asynccontextmanager
@@ -51,10 +53,15 @@ def create_app() -> FastAPI:
         )
     # Outermost: the security headers and gzip on every answer, errors included (#594).
     app.add_middleware(FinishMiddleware)
+    # HEAD as GET without the body, as the current app (#604).
+    app.add_middleware(v1_deps.HeadAsGet)
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(docs.router)
     app.include_router(v1.router)
+    # The current app's routes (#604): its API under /api/v1, its pages.
+    v1_routes.install(app)
+    app.openapi = lambda: v1_deps.openapi(app)  # type: ignore[method-assign]
     # web/'s pages and their files (#594).
     app.include_router(frontend.router)
     return app

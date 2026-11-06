@@ -5,9 +5,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app import db
+from app.clients import caching
+from app.services import alerts_service as alerts
 from app.services import availability_service as availability
+from app.services import inventory_service as inventory
 from app.utils import timeutil
 from app.utils.legacy_settings import settings
+from app.v1 import deps
+from app.v1.answers import availability as answers
+from tests import http_client
 
 NOW = "2026-10-21T00:00:00Z"  # 20 days into October
 OCT = datetime(2026, 10, 1, tzinfo=UTC)
@@ -74,8 +80,12 @@ def run(
         )
     finally:
         conn.close()
-    # The current tests also check each report against the API's answer model (#449);
-    # that comes back with the answer models (step 7 of #587).
+    if not with_incidents:
+        # Every report these tests make, as the API would send it, is what the spec shows (#449).
+        # The API adds the status links (#500).
+        answers.Report.model_validate_json(
+            deps.Json({**result, "status_links": {}}).body, strict=True
+        )
     return result
 
 
@@ -541,7 +551,162 @@ REAL_BOARD_SITES = availability.board_sites
 
 
 class TestPages:
-    pass  # its tests are held back (the end of the file says why)
+    @pytest.fixture
+    def flask_client(self, pg_database, clock, monkeypatch):
+        write(lambda conn: incident(conn, "s1", "d1", t(2), t(4), name="=Oslo"))
+        # 10 devices, 2 of them in maintenance; 6 access points (#499).
+        site = {
+            "id": "s1",
+            "name": "=Oslo",
+            "tenants": ["Acme"],
+            "device_count": 8,
+            "maintenance_device_count": 2,
+            "access_point_count": 6,
+            "network_device_count": 4,
+        }
+        monkeypatch.setattr(availability, "board_sites", lambda: [site])
+        caching.cache.clear()
+        with http_client.FlaskStyleClient() as test_client:
+            yield test_client
+
+    def test_every_incident_streams_whole(self, flask_client):
+        """#436: FastAPI streams the incidents CSV as it is read (no Content-Length),
+        and every row arrives."""
+        response = flask_client.get(
+            "/api/v1/availability.csv?month=2026-10&view=incidents&header=1"
+        )
+        assert (
+            response.status_code == 200
+            and response.headers["content-type"] == "text/csv; charset=utf-8"
+        )
+        assert response.is_streamed
+        lines = response.get_data(as_text=True).lstrip("\ufeff").splitlines()
+        assert len(lines) > 3 and lines[-1].count(",") == lines[lines.index("") + 1].count(",")
+
+    def test_page_json_and_csv(self, flask_client):
+        # The page is on Nuxt (#463): frontend/tests/availability.test.ts and e2e.
+        data = flask_client.get("/api/v1/availability?month=2026-10").get_json()
+        assert data["sites"][0]["availability"] == 90.0
+        # Each tenant's status page link (#500): random, kept.
+        assert list(data["status_links"]) == ["Acme"] and len(data["status_links"]["Acme"]) == 24
+        assert (
+            flask_client.get("/api/v1/availability?month=2026-10").get_json()["status_links"]
+            == data["status_links"]
+        )
+        assert (data["sites"][0]["network_devices"], data["sites"][0]["access_points"]) == (4, 6)
+        csv_text = flask_client.get("/api/v1/availability.csv?month=2026-10").get_data(as_text=True)
+        lines = csv_text.lstrip("﻿").splitlines()
+        # The first columns as before; the site's details and outages after them (#354).
+        assert lines[0] == (
+            "month,basis,site,tenants,availability_pct,downtime_min,incidents,period_from,period_to,"
+            "site_path,address,country,tier,monitored_devices,outages,longest_outage_min,"
+            "mean_time_to_restore_min,first_outage_utc,last_outage_utc,maintenance_min,site_id,"
+            "network_devices,access_points"
+        )
+        assert lines[1] == (
+            "2026-10,any_down,'=Oslo,Acme,90.0,2880,1,2026-10-01,2026-10-31,"
+            ",,,,8,1,2880,2880,2026-10-02 00:00,2026-10-02 00:00,0,s1,4,6"
+        ), "formula-safe"
+        tenants = flask_client.get("/api/v1/availability.csv?view=tenants&month=2026-10").get_data(
+            as_text=True
+        )
+        assert "2026-10,any_down,Acme,1,90.0,2880,2026-10-01,2026-10-31" in tenants
+
+    def test_the_target_follows_the_setting(self, flask_client, monkeypatch):
+        # #525: the 90 % site is below the default 99.9 %, not below an 85 % target.
+        monkeypatch.setattr(settings, "AVAILABILITY_TARGET_PCT", 85.0)
+        summary = flask_client.get("/api/v1/availability?month=2026-10").get_json()["summary"]
+        assert summary["target"] == 85.0 and summary["below_target"] == 0
+        assert flask_client.get("/api/v1/page-config").get_json()["availability"]["target"] == 85.0
+        lines = (
+            flask_client.get("/api/v1/availability.csv?month=2026-10&header=1")
+            .get_data(as_text=True)
+            .splitlines()
+        )
+        header = dict(line.split(",", 1) for line in lines[: lines.index("")])
+        assert header["target_pct"] == "85.0" and header["sites_below_target"] == "0"
+
+    def test_a_from_to_period_on_the_page_json_and_csv(self, flask_client):
+        # #341: down the 2nd and 3rd; the 3rd and 4th asked for: half.
+        query = "from=2026-10-03&to=2026-10-04"
+        data = flask_client.get(f"/api/v1/availability?{query}").get_json()
+        assert data["period"]["label"] == "2026-10-03 to 2026-10-04" and data["month"] is None
+        assert data["sites"][0]["availability"] == 50.0 and data["period"]["complete"]
+        # The page's calendar ends today, in UTC (#463: /api/page-config).
+        assert (
+            flask_client.get("/api/v1/page-config").get_json()["availability"]["today"]
+            == "2026-10-21"
+        )
+        resp = flask_client.get(f"/api/v1/availability.csv?{query}")
+        assert (
+            'filename="availability-sites-2026-10-03_2026-10-04.csv"'
+            in resp.headers["Content-Disposition"]
+        )
+        assert (
+            resp.get_data(as_text=True).lstrip("﻿").splitlines()[1]
+            == ",any_down,'=Oslo,Acme,50.0,1440,1,2026-10-03,2026-10-04,,,,,8,1,1440,1440,2026-10-03 00:00,2026-10-03 00:00,0,s1,4,6"
+        )
+        one_day = flask_client.get("/api/v1/availability.csv?from=2026-10-03&to=2026-10-03")
+        one_day.get_data()  # streamed (#354): read it, as a browser does
+        assert (
+            'filename="availability-sites-2026-10-03.csv"' in one_day.headers["Content-Disposition"]
+        )
+        # A month, asked for either way, is that month: its CSV keeps the month column.
+        month = flask_client.get("/api/v1/availability?month=2026-10").get_json()["period"]
+        assert (month["from"], month["to"]) == ("2026-10-01", "2026-10-31")
+        resp = flask_client.get("/api/v1/availability.csv?from=2026-10-01&to=2026-10-31")
+        assert 'filename="availability-sites-2026-10.csv"' in resp.headers["Content-Disposition"]
+        assert (
+            resp.get_data(as_text=True)
+            .lstrip("\ufeff")
+            .splitlines()[1]
+            .startswith("2026-10,any_down,")
+        )
+
+    def test_the_header_and_every_incident(self, flask_client):
+        # #354: a header above the table on request, and every outage on its own.
+        sites = flask_client.get("/api/v1/availability.csv?month=2026-10&header=1").get_data(
+            as_text=True
+        )
+        lines = sites.lstrip("\ufeff").splitlines()
+        blank = lines.index("")
+        header = dict(line.split(",", 1) for line in lines[:blank])
+        assert header["report"] == "Nautobot Maps availability"
+        assert header["period"] == '"2026-10-01 to 2026-10-31 (UTC), so far"'
+        assert header["basis"] == "any_down" and header["target_pct"] == "99.9"
+        assert (
+            header["sites"] == "1"
+            and header["availability_pct"] == "90.0"
+            and header["sites_below_target"] == "1"
+        )
+        assert header["generated_at_utc"] == "2026-10-21 00:00"
+        assert lines[blank + 1].startswith("month,basis,site,")
+        resp = flask_client.get("/api/v1/availability.csv?month=2026-10&view=incidents")
+        assert (
+            'filename="availability-incidents-2026-10.csv"' in resp.headers["Content-Disposition"]
+        )
+        rows = resp.get_data(as_text=True).lstrip("\ufeff").splitlines()
+        assert rows[0] == ",".join(availability.INCIDENT_COLUMNS)
+        assert rows[1] == "'=Oslo,,Acme,d1,2026-10-02 00:00,2026-10-04 00:00,2880,2880,none,,,s1,d1"
+        assert flask_client.get("/api/v1/availability.csv?view=devices").status_code == 400
+
+    def test_an_unreadable_board_is_a_503_not_a_partial_report(self, flask_client, monkeypatch):
+        def broken():
+            raise RuntimeError("board build failed")
+
+        monkeypatch.setattr(availability, "board_sites", broken)
+        resp = flask_client.get("/api/v1/availability")
+        assert resp.status_code == 503 and "would miss sites" in resp.get_json()["error"]
+
+    def test_an_empty_board_before_the_first_sync_is_a_503(self, flask_client, monkeypatch):
+        monkeypatch.setattr(availability, "board_sites", REAL_BOARD_SITES)
+        monkeypatch.setattr(alerts, "cached_alert_board", lambda: {"alerts": []})
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
+        assert flask_client.get("/api/v1/availability").status_code == 503
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        assert flask_client.get("/api/v1/availability").status_code == 200, (
+            "synced, and really no sites"
+        )
 
     def test_the_period_query_can_use_the_index(self, pg_database):
         conn = db.get_conn()
@@ -558,18 +723,18 @@ class TestPages:
             conn.close()
         assert "idx_alert_instances_period" in plan, plan
 
+    def test_bad_input(self, flask_client):
+        assert flask_client.get("/api/v1/availability?month=2026-13").status_code == 400
+        assert flask_client.get("/api/v1/availability?month=2027-01").status_code == 400
+        assert flask_client.get("/api/v1/availability.csv?view=x").status_code == 400
+        resp = flask_client.get("/api/v1/availability?from=2026-02-30&to=2026-03-02")
+        assert resp.status_code == 400 and "real date" in resp.get_json()["error"]
+        assert flask_client.get("/api/v1/availability?from=2026-10-03").status_code == 400
 
-# Held back until what they need is ported (#587):
-#   TestPages.client: HTTP routes (step 7)
-#   TestPages.test_every_incident_streams_whole: HTTP routes (step 7)
-#   TestPages.test_page_json_and_csv: HTTP routes (step 7)
-#   TestPages.test_the_target_follows_the_setting: HTTP routes (step 7)
-#   TestPages.test_a_from_to_period_on_the_page_json_and_csv: HTTP routes (step 7)
-#   TestPages.test_the_header_and_every_incident: HTTP routes (step 7)
-#   TestPages.test_an_unreadable_board_is_a_503_not_a_partial_report: HTTP routes (step 7)
-#   TestPages.test_an_empty_board_before_the_first_sync_is_a_503: HTTP routes (step 7)
-#   TestPages.test_bad_input: HTTP routes (step 7)
-#   TestPages.test_no_database: HTTP routes (step 7)
 
 # The current app's own schema migration test is its own: the schema here is
 # Alembic's, checked against the current one in tests/test_schema.py (#602).
+
+# Left out: it runs with no database configured (db.dialect() ""), which the new
+# stack doesn't have: it always has its database (#602).
+#   test_no_database

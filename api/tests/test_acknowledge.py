@@ -1,8 +1,12 @@
 """Acknowledge an alarm, separate from a case number (#288)."""
 
+import pytest
+
 from app import db
+from app.clients import caching
 from app.services import alerts_service as alerts
-from tests import test_maintenance
+from tests import http_client, test_maintenance
+from tests.test_app import auth_config
 from tests.test_maintenance import build, set_devices
 
 # London HQ: core and acc1 down, acc2 up (#283's fixture).
@@ -83,11 +87,71 @@ class TestAcknowledge:
 
 
 class TestApi:
-    pass  # its tests are held back (the end of the file says why)
+    @pytest.fixture
+    def flask_client(self, site):
+        build()
+        caching.cache.clear()
+        with http_client.FlaskStyleClient() as test_client:
+            yield test_client
 
+    def test_acknowledge_and_remove(self, flask_client):
+        # What the row's one-click Acknowledge sends: device_ids null.
+        resp = flask_client.post(
+            "/api/v1/alert-acks", json={"site_id": "loc-lon", "device_ids": None, "note": "On it"}
+        )
+        assert resp.status_code == 200 and sorted(resp.get_json()["changed"]) == ["acc1", "core"]
+        board = flask_client.get("/api/v1/alerts").get_json()
+        row = next(a for a in board["alerts"] if a["id"] == "loc-lon")
+        assert all(d["acknowledged"]["note"] == "On it" for d in row["down_devices"]), (
+            "the cached board was dropped"
+        )
+        removed = flask_client.post(
+            "/api/v1/alert-acks/remove", json={"site_id": "loc-lon"}
+        ).get_json()["changed"]
+        assert sorted(removed) == ["acc1", "core"]
 
-# Held back until what they need is ported (#587):
-#   TestApi.client: HTTP routes (step 7)
-#   TestApi.test_acknowledge_and_remove: HTTP routes (step 7)
-#   TestApi.test_bad_requests: HTTP routes (step 7)
-#   TestApi.test_operator_role_with_sign_in: HTTP routes (step 7)
+    def test_bad_requests(self, flask_client):
+        assert flask_client.post("/api/v1/alert-acks", data="x").status_code == 400
+        assert flask_client.post("/api/v1/alert-acks", json={}).status_code == 400
+        for bad in ("acc1", "", 0, False, [], ["  "], [1]):
+            resp = flask_client.post(
+                "/api/v1/alert-acks", json={"site_id": "loc-lon", "device_ids": bad}
+            )
+            assert resp.status_code == 400, bad
+        for bad_note in (0, False, [], {}):
+            resp = flask_client.post(
+                "/api/v1/alert-acks", json={"site_id": "loc-lon", "note": bad_note}
+            )
+            assert resp.status_code == 400, bad_note
+        assert events() == [], "bad input never acknowledges everything"
+        resp = flask_client.post(
+            "/api/v1/alert-acks", json={"site_id": "loc-lon", "device_ids": ["acc2"]}
+        )
+        assert resp.status_code == 404 and resp.get_json()["missing_device_ids"] == ["acc2"], (
+            "acc2 is up"
+        )
+
+    def test_operator_role_with_sign_in(self, flask_client):
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            assert (
+                flask_client.post(
+                    "/api/v1/alert-acks", json={"site_id": "loc-lon"}, headers=viewer
+                ).status_code
+                == 403
+            )
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            resp = flask_client.post(
+                "/api/v1/alert-acks", json={"site_id": "loc-lon"}, headers=operator
+            )
+            assert resp.status_code == 200
+        conn = db.get_conn()
+        try:
+            (by,) = {
+                r["acknowledged_by"]
+                for r in conn.execute("SELECT acknowledged_by FROM alert_instances").fetchall()
+                if r["acknowledged_by"]
+            }
+        finally:
+            conn.close()
+        assert by == "olga"

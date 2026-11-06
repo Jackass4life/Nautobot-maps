@@ -100,8 +100,12 @@ def configure(monkeypatch):
     """Set settings through the environment, e.g. configure(AUTH_MODE="header")."""
 
     def apply(**env: str) -> None:
+        from app.utils import config
+
         for key, value in env.items():
             monkeypatch.setenv(key, value)
+            # Set here explicitly: a value a ported test left set in code doesn't win.
+            config.OVERRIDES.pop(key.lower(), None)
         get_settings.cache_clear()
 
     return apply
@@ -192,3 +196,38 @@ def board(pg_database, monkeypatch):
     monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
     monkeypatch.setattr(inventory_service, "ensure_snapshot", lambda *args, **kwargs: False)
     return clock
+
+
+@pytest.fixture
+def flask_client():
+    """The current app's tests' client (tests/http_client.py): Flask's test response names."""
+    from app.clients import caching
+    from tests import http_client
+
+    caching.cache.clear()
+    with http_client.FlaskStyleClient() as c:
+        yield c
+
+
+@pytest.fixture(autouse=True)
+def _answers_match_the_api_spec(monkeypatch):
+    """Every answer checked against the model the spec shows for it (#449)."""
+    from app.v1 import deps
+    from tests import answers
+
+    answers.problems.clear()
+    monkeypatch.setattr(deps, "ANSWER_CHECK", answers.check)
+    yield
+    if answers.problems:
+        pytest.fail("Answers that don't match the API spec:\n" + "\n".join(answers.problems))
+
+
+@pytest.fixture
+def asgi_client():
+    """The whole app as production serves it (the current app's fixture)."""
+    from app.clients import caching
+    from app.main import app as whole_app
+
+    caching.cache.clear()
+    with TestClient(whole_app, base_url="http://localhost") as c:
+        yield c

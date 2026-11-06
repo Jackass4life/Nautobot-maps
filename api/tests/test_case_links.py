@@ -10,6 +10,7 @@ import pytest
 from app.services import itsm_service as itsm
 from app.services import notify_service as notify
 from app.utils.legacy_settings import settings
+from tests import http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATE = "https://itsm.example.com/ticket/{case}"
@@ -45,6 +46,19 @@ def test_only_http_templates_with_a_placeholder(value, expected):
     assert completed.stdout.strip() == expected
     if value and not expected:
         assert "CASE_URL_TEMPLATE ignored" in completed.stderr
+
+
+def test_the_board_page_gets_the_template(monkeypatch):
+    # The board (Nuxt, #463) reads it from /api/page-config; empty when not set.
+    with http_client.FlaskStyleClient() as flask_client:
+        assert (
+            flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"] == ""
+        )
+        monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
+        assert (
+            flask_client.get("/api/v1/page-config").get_json()["board"]["case_url_template"]
+            == TEMPLATE
+        )
 
 
 def test_notifications_add_the_link(monkeypatch):
@@ -107,7 +121,3 @@ def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
     finally:
         conn.close()
     assert lines[1].rstrip().endswith(",https://itsm.example.com/ticket/INC%3B7")
-
-
-# Held back until what they need is ported (#587):
-#   test_the_board_page_gets_the_template: HTTP routes (step 7)
