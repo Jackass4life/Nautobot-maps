@@ -9,7 +9,7 @@ class Answer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class TokenDto(Answer):
+class Token(Answer):
     """An API token; never its secret."""
 
     id: int
@@ -26,7 +26,7 @@ class TokenDto(Answer):
     state: Literal["active", "expired", "revoked"]
 
 
-class NewTokenDto(TokenDto):
+class NewToken(Token):
     token: str = Field(description="The secret: shown this once.")
     status_link: str | None = Field(
         None,
@@ -35,30 +35,30 @@ class NewTokenDto(TokenDto):
     )
 
 
-class TokensDto(Answer):
-    tokens: list[TokenDto] = Field(
+class Tokens(Answer):
+    tokens: list[Token] = Field(
         description="Newest first; only the active ones unless all=true (#528)."
     )
     inactive: int = Field(description="How many of them are revoked or expired, listed or not.")
 
 
-class TokensPurgedDto(Answer):
-    tokens: list[TokenDto] = Field(
+class TokensPurged(Answer):
+    tokens: list[Token] = Field(
         description="The tokens deleted (or, with dry_run, that would be), newest first."
     )
     purged: int = Field(description="How many were deleted; 0 with dry_run.")
     dry_run: bool
 
 
-class TokenCreatedDto(Answer):
-    token: NewTokenDto
+class TokenCreated(Answer):
+    token: NewToken
 
 
-class TokenRevokedDto(Answer):
-    token: TokenDto
+class TokenRevoked(Answer):
+    token: Token
 
 
-class TokenCreateDto(BaseModel):
+class TokenCreate(BaseModel):
     """A new API token (#297)."""
 
     name: str
@@ -67,7 +67,7 @@ class TokenCreateDto(BaseModel):
     expires_in_days: int | None = None
 
 
-class TokenPurgeDto(BaseModel):
+class TokenPurge(BaseModel):
     """Which tokens to delete for good (#528): revoked and expired ones, only those
     that stopped working more than ``older_than_days`` ago when given; ``dry_run``
     deletes nothing."""

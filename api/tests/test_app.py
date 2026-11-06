@@ -5665,6 +5665,18 @@ class TestApiExplorer:
             "case_number",
         ]
 
+    def test_the_page_is_the_nuxt_page(self, flask_client, frontend_build):
+        """#436, #463: Swagger UI from npm, bundled into the Nuxt build (no CDN, no inline
+        script); frontend/ and e2e/ test the page itself."""
+        resp = flask_client.get("/api/docs")
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        package = json.loads(
+            (pathlib.Path(__file__).resolve().parents[2] / "web" / "package.json").read_text()
+        )
+        assert package["dependencies"]["swagger-ui-dist"]
+        # Its install-time analytics (Scarf) stay off: the app works offline.
+        assert package["scarfSettings"] == {"enabled": False}
+
     def test_write_bodies_are_in_the_spec(self, flask_client):
         """Each write's JSON body is described (deps.body_schema), e.g. a case."""
         spec = flask_client.get("/api/openapi.json").get_json()
@@ -6725,6 +6737,3 @@ class TestAlertHistoryCsvCells:
 # Left out: it changes the database URL while running; the engines here are made at
 # startup. tests/test_openapi.py::test_healthz_without_the_database is that 503.
 #   test_unavailable_database_returns_503_without_details
-
-# Held: web/ holds the pages, Swagger UI bundled, from step 8 of #587.
-#   test_the_page_is_the_nuxt_page
