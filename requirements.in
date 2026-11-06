@@ -14,7 +14,7 @@ pydantic==2.14.2
 # Forms, for LibreNMS's alert push (a form or JSON).
 python-multipart==0.0.33
 redis==6.4.0
-psycopg[binary]==3.3.6
+psycopg[binary]==3.3.7
 # The documentation pages, /help (#433).
 markdown-it-py==4.2.0
 # The pages' templates and the cache (#436; they came with Flask before).
