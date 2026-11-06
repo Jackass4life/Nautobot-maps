@@ -409,6 +409,40 @@ class TestCircuits:
             {"cid": "TEL-1", "type": "Internet Transit", "bandwidth": "1 Gbps"}
         ]
 
+    def test_a_request_never_holds_two_connections(self, flask_client, board, monkeypatch):
+        """The board read takes its own (its sync schedule, with an inventory source): the
+        link's is closed first, so busy requests can't use up the pool (#608 review)."""
+        acme = link("Acme Corp")
+        board_data = alerts.get_alert_board_data
+
+        def board_with_its_own_connection():
+            db.get_conn().close()
+            return board_data()
+
+        monkeypatch.setattr(alerts, "get_alert_board_data", board_with_its_own_connection)
+        real, state = db.get_conn, {"open": 0, "most": 0, "taken": 0}
+
+        class Counted:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+            def close(self):
+                state["open"] -= 1
+                self._conn.close()
+
+        def counted(*args, **kwargs):
+            state["open"] += 1
+            state["taken"] += 1
+            state["most"] = max(state["most"], state["open"])
+            return Counted(real(*args, **kwargs))
+
+        monkeypatch.setattr(db, "get_conn", counted)
+        assert flask_client.get(f"/api/v1/status/{acme}").status_code == 200
+        assert state["taken"] >= 3 and state["most"] == 1 and state["open"] == 0
+
     def test_without_circuits_the_page_still_answers(self, flask_client, board, monkeypatch):
         monkeypatch.setattr(inventory, "read_tenant_circuits", lambda conn, tenant: 1 / 0)
         sites = flask_client.get(f"/api/v1/status/{link('Acme Corp')}").get_json()["sites"]
