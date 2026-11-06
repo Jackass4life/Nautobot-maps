@@ -2,15 +2,15 @@
 
 Run the mock at a NOC's scale and the app against an empty database, then this:
 
-    MOCK_SCALE=1200 python demo/mock_nautobot.py &
-    NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=demo-token python app.py &
-    python -m nautobot_maps token create shots --role admin --expires-days 1
-    python scripts/screenshots.py --token nmt_... --seed
+    MOCK_SCALE=1200 uv run --project api python demo/mock_nautobot.py &
+    (cd api && NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=demo-token uv run python -m app.serve) &
+    (cd api && uv run python -m app token create shots --role admin --expires-days 1)
+    uv run --project api --group e2e --with Pillow python scripts/screenshots.py --token nmt_... --seed
 
 Run the app with WIRELESS_CONTROLLERS_FILE=demo/wireless.yml for the access
 points.  An operator token works too, without the Admin page's picture.
 
-Needs Playwright (requirements-e2e.txt) and Pillow (`pip install Pillow`). --seed adds
+Needs Playwright (api/'s e2e group) and Pillow (``--with Pillow``). --seed adds
 cases, acknowledgements and maintenance through the API first: run it once
 per database.
 """
@@ -47,7 +47,7 @@ def wait_for_board(base, token, timeout=300):
     """The board once the first inventory sync has filled it."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        board = api(base, token, "/api/alerts").get("alerts") or []
+        board = api(base, token, "/api/v1/alerts").get("alerts") or []
         if any(s["alert_level"] in ("critical", "medium", "low") for s in board):
             return board
         time.sleep(3)
@@ -67,25 +67,35 @@ def seed(base, token, board):
     for number, site in enumerate(alarms[:7], start=48213):
         ids = [d["device_id"] for d in site["down_devices"]]
         api(
-            base, token, "/api/alert-cases", {"site_id": site["id"], "case_number": f"INC00{number}", "device_ids": ids}
+            base,
+            token,
+            "/api/v1/alert-cases",
+            {"site_id": site["id"], "case_number": f"INC00{number}", "device_ids": ids},
         )
     for site in alarms[7:10]:
         ids = [d["device_id"] for d in site["down_devices"]]
-        api(base, token, "/api/alert-acks", {"site_id": site["id"], "device_ids": ids, "note": "On it, checking power"})
+        api(
+            base,
+            token,
+            "/api/v1/alert-acks",
+            {"site_id": site["id"], "device_ids": ids, "note": "On it, checking power"},
+        )
     # Disjoint slices of the quiet sites: 0-2, 3, 10-49, and one from 60 on.
     ids = [s["id"] for s in quiet]
-    api(base, token, "/api/maintenance", {"site_ids": ids[:3], "reason": "Firmware upgrade", "duration_minutes": 240})
+    api(
+        base, token, "/api/v1/maintenance", {"site_ids": ids[:3], "reason": "Firmware upgrade", "duration_minutes": 240}
+    )
     api(
         base,
         token,
-        "/api/maintenance",
+        "/api/v1/maintenance",
         {"site_id": ids[3], "reason": "Fibre move", "starts_at": "2030-01-01T22:00:00Z", "duration_minutes": 120},
     )
     # The Maintenance page at scale: one change across 40 sites, planned, and one device.
     api(
         base,
         token,
-        "/api/maintenance",
+        "/api/v1/maintenance",
         {
             "site_ids": ids[10:50],
             "reason": "Core router upgrade, wave 2",
@@ -94,12 +104,12 @@ def seed(base, token, board):
         },
     )
     device_site = next(s for s in quiet[60:] if s["device_count"] > 1)
-    devices = api(base, token, f"/api/locations/{device_site['id']}/detail").get("devices") or []
+    devices = api(base, token, f"/api/v1/locations/{device_site['id']}/detail").get("devices") or []
     if devices:
         api(
             base,
             token,
-            "/api/maintenance",
+            "/api/v1/maintenance",
             {
                 "site_id": device_site["id"],
                 "device_ids": [devices[0]["id"]],
@@ -108,7 +118,7 @@ def seed(base, token, board):
             },
         )
     # The Admin page (#530): the tokens a NOC has; an operator token can't make them.
-    if (api(base, token, "/api/page-config") or {}).get("admin") is not None:
+    if (api(base, token, "/api/v1/page-config") or {}).get("admin") is not None:
         for name, role, tenant in (
             ("librenms", "operator", None),
             ("alertmanager", "operator", None),
@@ -116,7 +126,7 @@ def seed(base, token, board):
             ("tidal-ports-status", "status", STATUS_TENANT),
         ):
             body = {"name": name, "role": role, "expires_in_days": 365}
-            api(base, token, "/api/tokens", {**body, "tenant": tenant} if tenant else body)
+            api(base, token, "/api/v1/tokens", {**body, "tenant": tenant} if tenant else body)
 
 
 def with_token(page, base, token):
@@ -179,7 +189,7 @@ def screenshots(browser, base, token, out, burst):
         page.wait_for_selector(loaded, timeout=60000)
         page.wait_for_timeout(1000)  # fonts and the last render
         shoot(page, out, name)
-    if (api(base, token, "/api/page-config") or {}).get("admin") is not None:
+    if (api(base, token, "/api/v1/page-config") or {}).get("admin") is not None:
         page = pages["light"]
         page.goto(base + "/admin")
         page.wait_for_selector("#admin-tokens .token-row", timeout=60000)
@@ -197,7 +207,7 @@ def status_page(browser, base, token, out):
     The answer is the same for any viewer allowed to see it, so the operator
     token shows what the customer sees.  The link comes from Availability, the
     one place staff get it (which makes every tenant's link: a demo database)."""
-    links = api(base, token, "/api/availability").get("status_links") or {}
+    links = api(base, token, "/api/v1/availability").get("status_links") or {}
     if STATUS_TENANT not in links:
         print("no status link for", STATUS_TENANT, "(is it the scale demo?): status page skipped")
         return
@@ -268,7 +278,7 @@ def main():
     board = wait_for_board(base, args.token)
     if args.seed:
         seed(base, args.token, board)
-        board = api(base, args.token, "/api/alerts")["alerts"]
+        board = api(base, args.token, "/api/v1/alerts")["alerts"]
     burst = max(board, key=lambda s: s["down_device_count"])
     with sync_playwright() as p:
         browser = p.chromium.launch()

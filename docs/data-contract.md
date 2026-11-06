@@ -1,8 +1,8 @@
 # Data contract
 
-<!-- Generated from nautobot_maps/contract.py: python -m nautobot_maps contract-docs > docs/data-contract.md -->
+<!-- Generated from api/app/services/contract_service.py: python -m app contract-docs > docs/data-contract.md -->
 
-What Nautobot Maps reads from Nautobot, LibreNMS and the wireless controllers, which fields it uses, their types, and what each becomes in its own tables. Every sync checks the records it fetched against this: a **required** field that is missing, or any field with another type, is logged once per sync ("Data contract: nautobot dcim/devices/ does not match in 340 records: primary_ip4 is string, expected object or null (12)"), counted in `/metrics` (`nautobot_maps_contract_mismatches{source,endpoint,field}`) and shown by `GET /api/contract`. A mismatch is a warning: the sync goes on with what it can use.
+What Nautobot Maps reads from Nautobot, LibreNMS and the wireless controllers, which fields it uses, their types, and what each becomes in its own tables. Every sync checks the records it fetched against this: a **required** field that is missing, or any field with another type, is logged once per sync ("Data contract: nautobot dcim/devices/ does not match in 340 records: primary_ip4 is string, expected object or null (12)"), counted in `/metrics` (`nautobot_maps_contract_mismatches{source,endpoint,field}`) and shown by `GET /api/v1/contract`. A mismatch is a warning: the sync goes on with what it can use.
 
 After a Nautobot or LibreNMS upgrade, look there first. CI checks this contract against a real Nautobot on every change.
 
@@ -359,7 +359,7 @@ One device after an alert push (#284).
 | `disable_notify` | integer, boolean or string |  | disable_notify | 1 = "Disable alerting": left off the alert board |
 | `ignore` | integer, boolean or string |  | ignore | 1 = "Ignore alert tag": left off the alert board |
 
-### `POST /api/librenms/alert (inbound)`
+### `POST /api/v1/librenms/alert (inbound)`
 
 An alert push from LibreNMS's API transport (#284); only says which device to refresh.
 

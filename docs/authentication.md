@@ -49,7 +49,7 @@ AUTH_ADMIN_GROUPS=nautobot-admins
 |---|---|
 | `viewer` | Open the map, the board and the read APIs, when `AUTH_REQUIRE_VIEWER=true` (otherwise they are open to everyone) |
 | `operator` | Also add cases, view alert history, manage maintenance windows and criticality overrides |
-| `admin` | Everything an operator can, send test notifications (`POST /api/notifications/test`), manage API tokens, show and replace tenants' status page links (`/api/status-links/…`) and check the wireless controllers (`POST /api/wireless/check`) |
+| `admin` | Everything an operator can, send test notifications (`POST /api/v1/notifications/test`), manage API tokens, show and replace tenants' status page links (`/api/v1/status-links/…`) and check the wireless controllers (`POST /api/v1/wireless/check`) |
 
 A user's role is the highest one any of their groups maps to, or `AUTH_DEFAULT_ROLE` when none does.
 
@@ -107,7 +107,7 @@ Instead of setting up a proxy yourself, use the one in `deploy/proxy/`: **nginx*
 - **Every request** is checked with oauth2-proxy. Someone not signed in goes to your login page and comes back. The app gets the user (username, else e-mail) and groups as `X-Forwarded-User` / `X-Forwarded-Groups`, with `AUTH_PROXY_SECRET`. The top bar shows "olga · operator".
 - **Without the company login:**
   - Requests with `Authorization: Bearer nmt_…` (API tokens: LibreNMS, Alertmanager, scripts, MCP). Matched on the header, not a path. The app checks the token.
-  - The tenant [status page](status-page.md) and its files, because customers have no company login. The app checks their status token. Staff who are signed in are still recognised on the status page's data (`/api/status/`): oauth2-proxy is asked, but only to pass on who is signed in, never to send anyone to the login. So a tenant's name on Availability opens its page for staff without a key, and a customer's key link works whether or not they are signed in.
+  - The tenant [status page](status-page.md) and its files, because customers have no company login. The app checks their status token. Staff who are signed in are still recognised on the status page's data (`/api/v1/status/`): oauth2-proxy is asked, but only to pass on who is signed in, never to send anyone to the login. So a tenant's name on Availability opens its page for staff without a key, and a customer's key link works whether or not they are signed in.
   - `/healthz`.
   
   On these, nginx overwrites the identity headers (empty unless oauth2-proxy says who is signed in), so nobody can claim a user by sending them.
@@ -202,7 +202,7 @@ Ending the identity provider's session signs you out of it in that browser, as i
 
 ### Changes from another site are refused
 
-Behind any sign-in proxy, the browser's session cookie comes along with every request, so a page on another site could make a signed-in user send a change (a form posting to `/api/maintenance/<id>/end`, say).
+Behind any sign-in proxy, the browser's session cookie comes along with every request, so a page on another site could make a signed-in user send a change (a form posting to `/api/v1/maintenance/<id>/end`, say).
 
 The app refuses any change (POST, PUT, PATCH, DELETE) that the browser marks as coming from another site (`Sec-Fetch-Site`, else `Origin`), with **403**. This works in every mode.
 - The app's own pages are not affected.
@@ -235,10 +235,10 @@ Authorization: Bearer nmt_...
 On the command line (this is how the first admin token is made):
 
 ```sh
-docker compose exec nautobot-maps python -m nautobot_maps token create librenms --role operator --expires-days 365
-docker compose exec nautobot-maps python -m nautobot_maps token list
-docker compose exec nautobot-maps python -m nautobot_maps token revoke 3
-docker compose exec nautobot-maps python -m nautobot_maps token purge --older-than 90 --dry-run
+docker compose exec nautobot-maps python -m app token create librenms --role operator --expires-days 365
+docker compose exec nautobot-maps python -m app token list
+docker compose exec nautobot-maps python -m app token revoke 3
+docker compose exec nautobot-maps python -m app token purge --older-than 90 --dry-run
 ```
 
 On the **Admin** page (☰ → **Admin**, only for admins) the same without a command line: the active tokens newest first (a search past 25), **New token** (name, role, for a status token its tenant picked from Nautobot's, and how long it works) shows the key once with **Copy**, **Revoke** per row (asks once more), and "+N revoked or expired" opens them, with **Purge**. With `AUTH_MODE=disabled` the page is there only with `ALLOW_UNAUTHENTICATED_WRITES=true`, as the routes it uses.
@@ -247,7 +247,7 @@ On the **Admin** page (☰ → **Admin**, only for admins) the same without a co
 
 A revoked or expired token stays in the list with its name, for the audit trail: changes made with it are recorded as `token:<name>`, and a name can't be used twice. `token purge` deletes revoked and expired tokens for good, never an active one; `--older-than DAYS` only those that stopped working more than DAYS ago, so a recent revocation stays visible a while; `--dry-run` lists what would go and deletes nothing. Each purge is logged (`API token 'x' purged by cli`), and the names are free again. Nothing else refers to a token's record: cases and maintenance windows keep their `token:<name>` text, only the token's own record (when it was made and revoked) is gone.
 
-Or through the API (admin role; also on the API page, `/api/docs`): `POST /api/tokens` with `{"name": "librenms", "role": "operator", "expires_in_days": 365}` returns the token once; `GET /api/tokens` lists the active ones (name, first characters, role, expiry, last use, state; never the secret) and `inactive`, how many are revoked or expired, `?all=true` lists those too and `?tenant=Acme%20Corp` only that tenant's; `POST /api/tokens/<id>/revoke` revokes one from the next request on; `POST /api/tokens/purge` with `{"older_than_days": 90, "dry_run": true}` (both optional) answers the tokens it deleted, or would delete.
+Or through the API (admin role; also on the API page, `/api/docs`): `POST /api/v1/tokens` with `{"name": "librenms", "role": "operator", "expires_in_days": 365}` returns the token once; `GET /api/v1/tokens` lists the active ones (name, first characters, role, expiry, last use, state; never the secret) and `inactive`, how many are revoked or expired, `?all=true` lists those too and `?tenant=Acme%20Corp` only that tenant's; `POST /api/v1/tokens/<id>/revoke` revokes one from the next request on; `POST /api/v1/tokens/purge` with `{"older_than_days": 90, "dry_run": true}` (both optional) answers the tokens it deleted, or would delete.
 
 ### Behind a sign-in proxy
 

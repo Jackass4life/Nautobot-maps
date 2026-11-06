@@ -562,7 +562,7 @@ class TestApiLocations:
 # ---------------------------------------------------------------------------
 class TestAlertBoard:
     def test_alert_board_page_renders(self, flask_client, frontend_build):
-        """The board and the wall are built with Nuxt (#463; frontend/tests/ and e2e/
+        """The board and the wall are built with Nuxt (#463; web/tests/ and e2e/
         test the pages themselves)."""
         for path in ("/alerts?tenant=Acme%20Corp", "/alerts?view=wall&q=DNK"):
             resp = flask_client.get(path)
@@ -1490,7 +1490,7 @@ class TestNautobotRuntimeErrors:
 # Tests: index page
 # ---------------------------------------------------------------------------
 class TestIndex:
-    """The map: built with Nuxt (#463); frontend/tests/ and e2e/ test the page itself."""
+    """The map: built with Nuxt (#463); web/tests/ and e2e/ test the page itself."""
 
     def test_index_is_the_nuxt_page(self, flask_client, frontend_build):
         resp = flask_client.get("/?tenant=Acme%20Corp&location_id=loc-1")
@@ -5667,7 +5667,7 @@ class TestApiExplorer:
 
     def test_the_page_is_the_nuxt_page(self, flask_client, frontend_build):
         """#436, #463: Swagger UI from npm, bundled into the Nuxt build (no CDN, no inline
-        script); frontend/ and e2e/ test the page itself."""
+        script); web/ and e2e/ test the page itself."""
         resp = flask_client.get("/api/docs")
         assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
         package = json.loads(

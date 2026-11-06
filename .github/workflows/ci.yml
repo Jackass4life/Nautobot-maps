@@ -374,38 +374,39 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          python-version: "3.12"
+          working-directory: api
+          enable-cache: true
 
-      - name: Install dependencies and Chromium
+      - name: Install the API, Playwright and Chromium
+        working-directory: api
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes -r requirements-e2e.txt
-          python -m playwright install --with-deps chromium
+          uv sync --locked --group e2e
+          uv run python -m playwright install --with-deps chromium
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
-      - name: Build the frontend (#463)
-        working-directory: frontend
+      - name: Build the pages (#609)
+        working-directory: web
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm run generate
 
-      - name: Start the mock Nautobot and the app
+      - name: Start the mock Nautobot and the app (#613)
         run: |
-          python demo/mock_nautobot.py > mock.log 2>&1 &
-          python -m nautobot_maps migrate
-          python app.py > app.log 2>&1 &
+          uv run --project api python demo/mock_nautobot.py > mock.log 2>&1 &
+          (cd api && uv run python -m app migrate)
+          (cd api && uv run python -m app.serve) > app.log 2>&1 &
           # Ready when the first inventory sync has filled the board.
           for attempt in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:5055/api/alerts | grep -q '"name"'; then exit 0; fi
+            if curl -sf http://127.0.0.1:5055/api/v1/alerts | grep -q '"name"'; then exit 0; fi
             sleep 1
           done
           echo "The app did not become ready within 60s" >&2
@@ -414,10 +415,10 @@ jobs:
       - name: Run end-to-end tests
         # Maintenance needs the operator role (#343): a token for the tests that plan some.
         run: |
-          export E2E_OPERATOR_TOKEN="$(python -m nautobot_maps token create e2e --role operator --expires-days 1 | head -n 1)"
+          export E2E_OPERATOR_TOKEN="$(cd api && uv run python -m app token create e2e --role operator --expires-days 1 | head -n 1)"
           # The Admin page and sharing a status page need the admin role (#530).
-          export E2E_ADMIN_TOKEN="$(python -m nautobot_maps token create e2e-admin --role admin --expires-days 1 | head -n 1)"
-          python -m pytest e2e/ -v
+          export E2E_ADMIN_TOKEN="$(cd api && uv run python -m app token create e2e-admin --role admin --expires-days 1 | head -n 1)"
+          uv run --project api python -m pytest e2e/ -v
         env:
           E2E_BASE_URL: "http://127.0.0.1:5055"
 

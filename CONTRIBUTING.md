@@ -16,41 +16,37 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 ### Submitting Changes
 
 1. **Fork** the repository and create a feature branch from `main`.
-2. **Set up** the development environment:
+2. **Set up** the development environment: [uv](https://docs.astral.sh/uv/) for `api/` (Python 3.13) and Node 22 for `web/`:
    ```bash
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements-dev.txt
-   (cd frontend && npm ci && npm run generate)   # Node 22: the pages python app.py serves
-   ```
-   Optionally, run the linter automatically on every commit:
-   ```bash
-   pip install pre-commit && pre-commit install
+   pip install --user uv
+   (cd api && uv sync)                                  # the API's dependencies, dev tools included
+   (cd web && npm ci && npm run generate)               # the pages the API serves
    ```
 3. **Make** your changes in small, focused commits.
 4. **Test** your changes:
    ```bash
-   python -m pytest tests/ -v
-   (cd frontend && npm run lint && npm run typecheck && npm test)
+   (cd api && uv run pytest && uv run ruff check . && uv run ruff format --check .)
+   (cd web && npm run lint && npm run typecheck && npm test)
+   uv run --project api ruff check e2e demo scripts deploy   # the files outside api/ and web/
    ```
    For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
    ```bash
-   pip install -r requirements-e2e.txt && python -m playwright install chromium
-   python demo/mock_nautobot.py &                       # :8080
-   NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=x \
-     NAUTOBOT_MAPS_DATABASE_URL=postgresql://... FLASK_RUN_PORT=5055 python app.py &
+   (cd api && uv sync --group e2e && uv run python -m playwright install chromium)
+   uv run --project api python demo/mock_nautobot.py &         # :8080
+   export NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=x NAUTOBOT_MAPS_DATABASE_URL=postgresql://...
+   (cd api && uv run python -m app migrate && FLASK_RUN_PORT=5055 uv run python -m app.serve) &
    # Planning maintenance needs the operator role: an API token for the tests.
-   export E2E_OPERATOR_TOKEN="$(NAUTOBOT_MAPS_DATABASE_URL=postgresql://... python -m nautobot_maps token create e2e --role operator --expires-days 1 | head -n 1)"
+   export E2E_OPERATOR_TOKEN="$(cd api && uv run python -m app token create e2e --role operator --expires-days 1 | head -n 1)"
    # The Admin page needs the admin role (#530).
-   export E2E_ADMIN_TOKEN="$(NAUTOBOT_MAPS_DATABASE_URL=postgresql://... python -m nautobot_maps token create e2e-admin --role admin --expires-days 1 | head -n 1)"
-   E2E_BASE_URL=http://127.0.0.1:5055 python -m pytest e2e/ -v
+   export E2E_ADMIN_TOKEN="$(cd api && uv run python -m app token create e2e-admin --role admin --expires-days 1 | head -n 1)"
+   E2E_BASE_URL=http://127.0.0.1:5055 uv run --project api python -m pytest e2e/ -v
    ```
 5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.
 6. **Submit** a pull request against `main` with a clear description of the change.
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: `pip install -r requirements-dev.txt`, build the pages (`cd frontend && npm ci && npm run generate`), copy `.env.example` to `.env`, then `python app.py`. For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && npm ci && npm run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python -m app.serve` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `npm run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -58,15 +54,15 @@ The repository ships a [dev container](https://containers.dev/) in `.devcontaine
 folder in VS Code and choose **Reopen in Container** (requires Docker and the Dev Containers
 extension), or start it in GitHub Codespaces. It provides:
 
-- Python 3.11 (the oldest version CI tests) with `requirements-dev.txt` installed, so
-  `pytest` and `ruff check .` work straight away
+- uv with `api/`'s dependencies installed (Python 3.13), so `uv run pytest` and
+  `uv run ruff check .` in `api/` work straight away
 - PostgreSQL 16 on `localhost:5432` (user and password `nautobot_maps`), with a
-  `nautobot_maps` database for the app and a `nautobot_maps_test` database for pytest
-  (`TEST_DATABASE_URL` is preset). Data is kept in a Docker volume across rebuilds.
-- Node, which builds and tests the pages in `frontend/`
+  `nautobot_maps` database for the app; the tests make their own (`fastapi_nuxt_test`,
+  or `API_TEST_DATABASE_URL`). Data is kept in a Docker volume across rebuilds.
+- Node, which builds and tests the pages in `web/`
 - GitHub CLI (`gh`) and Claude Code
 - The Python and Ruff VS Code extensions
-- Port 5000 forwarded for `python app.py`. If 5000 is already taken on your machine, VS Code
+- Port 5000 forwarded for `python -m app.serve`. If 5000 is already taken on your machine, VS Code
   picks another local port; check the **Ports** view.
 
 You still need a `.env` (see [docs/configuration.md](docs/configuration.md)) to point the app at a Nautobot instance; for the
@@ -76,191 +72,143 @@ Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After cha
 
 ### Project layout
 
-`asgi.py` is the app (FastAPI, #436): gunicorn serves `asgi:app` with uvicorn workers, and the
-access log (`nautobot_maps/access_log.py`) wraps it. `app.py` is the startup: logging, the cache,
-the database and the startup log, once per process; `python app.py` runs the app with uvicorn
-for development (`FLASK_DEBUG=true` reloads on changes; the names are kept from the Flask days).
-Every route lives in `nautobot_maps/api/`, one router per area, with `deps.ROUTER_DEPENDENCIES`
-(the sign-in check), `route_class=deps.AppRoute` (security headers, gzip, the docstring in the
-API spec) and `deps.require_role("operator")` for writes. Answer with `deps.Json` (JSON as the
-app always wrote it), raise `deps.ApiError(body, status)` to refuse, read a JSON body with
-`deps.json_body` and give its model to the spec with `openapi_extra=deps.body_schema(...)`;
-query strings are models in `api/models.py`. Describe what a JSON route answers with
-`response_model=` from `api/answers/<area>.py` (fields as sent, `extra="forbid"`); the route
-still returns its `deps.Json`, and every test checks each answer it gets against that model
-(`tests/answers.py`), so `/api/docs` stays true. Code below the routes reads the request through
-`nautobot_maps/requestctx.py`. Keep a route's `name` stable (`"board.api_alerts"`): the frozen
-route table and `/api/endpoints`' examples use it.
-Every test client (`client` and the others; `tests/http_client.py`) is FastAPI's on `asgi.app`
-with the calls the tests were written with (`get_json()`, `environ_base`, …), so the tests
-check what production serves; `tests.http_client.fake_request()` binds a request for code that
-reads one outside a route.
-Everything else lives in modules under `nautobot_maps/` (#165):
+Two projects, each with its own dependencies, lint and CI job; they share only the API spec,
+`api/openapi.json`. [`api/README.md`](api/README.md) and [`web/README.md`](web/README.md) have
+the details.
 
-- `nautobot_maps/settings.py`: every setting read from the environment (`.env`). Add new
-  settings here, pass them in `docker-compose.yml` (a test checks this), document them in
-  `docs/configuration.md` and `.env.example`, and read them as
-  `settings.NAME` at call time; in tests change them with
-  `monkeypatch.setattr(settings, "NAME", value)`.
-- `nautobot_maps/db.py`: PostgreSQL connections (`db.get_conn()`, `db.transaction()`), the
-  schema and its migrations (`db.init_db()`), and small SQL helpers.
-- `nautobot_maps/nautobot.py`: the Nautobot REST client, **read-only** (`nautobot.get()`,
-  `nautobot.fetch_all_pages()`), and the id → name lookup maps. The app never writes to Nautobot:
-  Nautobot is the source of truth, and changes to its data are made there.
-- `nautobot_maps/librenms.py`: the LibreNMS REST client (`librenms.get()`,
-  `librenms.fetch_inventory()`).
-- `nautobot_maps/wireless.py`: access point status from the wireless controllers (#508): each
-  instance's sync, `wireless_ap_status`, the index the board reads, Plug and Play (#534); `catalyst.py` and `arubacentral.py`: the Catalyst Center and New Central clients; `neighbours.py`: which switch port an access point is on (#524), from Catalyst Center's topology or Nautobot's cables.
-- `nautobot_maps/caching.py`: the shared response cache (cachelib: in-process, Redis or none).
-- `nautobot_maps/http.py`: the HTTP session both clients use (one per thread, connections reused), with retries and backoff for transient upstream errors.
-- `nautobot_maps/inventory.py`: the inventory sync — normalising Nautobot data, the cache tables,
-  sync state, and `inventory.ensure_snapshot()` / `inventory.get_locations()`.
-- `nautobot_maps/alerts.py`: the alert logic — severity scoring (`alerts.compute_alert_level()`),
-  the LibreNMS status merge, alert history, the alert board (`alerts.get_alert_board_data()`) and
-  the map's location detail.
-- `nautobot_maps/repositories/board.py`: the alert board's reads and writes in PostgreSQL (#424):
-  alert instances and events, device states, site levels and their changes, the feed, cases and
-  acknowledgements. `alerts.py` keeps the rules and holds no SQL; it calls these as
-  `board_store.function()` (imported under that name, since `alerts.board()` exists). Tests patch
-  them on `nautobot_maps.repositories.board`.
-- `nautobot_maps/scheduler.py`: the background scheduler (`scheduler.start()`, started by
-  gunicorn in each worker).
-- `nautobot_maps/web.py`: the Content-Security-Policy; `api/deps.py` sends it with the other
-  security headers, the error pages and the sign-in check.
-- `nautobot_maps/guide.py`: the documentation pages at `/help` (#433): `README.md`, `docs/*.md` and
-  this file rendered with markdown-it-py (raw HTML off, GitHub's heading anchors, links between the
-  docs rewritten). A new guide goes in `guide.PAGES`; `tests/test_help_pages.py` checks every
-  internal link lands on a heading.
-- `nautobot_maps/api/`: the routes, on FastAPI (#424, #436), one router per area and tag in the
-  API spec: `views` (map, board, `/api/docs`, `/api/openapi.json`, `/help`, static files), `locations`
-  (the map's API and search), `board` (the board's API: feed, history, cases, acks,
-  criticality), `maintenance`, `availability`, `circuits` and `status` (each with its page),
-  `ingest` (LibreNMS, Alertmanager, generic webhook), `admin` (tokens, test notification,
-  contract), `ops` (health, metrics, app status, MCP, endpoint list). `deps` holds what they
-  share, `models` the typed queries and bodies, `answers` what each area's JSON looks like, `pages` and `files` the HTML and file answers.
-  `tests/route_table.json` freezes every URL, method and role: `python -m tests.test_route_table`
-  rewrites it after a deliberate change.
-- `nautobot_maps/auth.py`: optional header-based authentication and roles (routes ask
-  `deps.require_role("operator")`); `tokens.py`: API tokens; `statuslinks.py`: each tenant's
-  random status page link.
-- `nautobot_maps/timeutil.py`: time helpers; tests freeze time with
-  `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`.
+- `api/`: FastAPI, managed with uv. `app/main.py` is the app: middleware (the access log, the
+  security headers and gzip, the old `/api/...` paths' 308), the routers, the pages. The image
+  serves it with gunicorn and uvicorn workers (`gunicorn_config.py`, `app/server.py`);
+  `python -m app.serve` runs it for development, `python -m app ...` is the command line.
+  - `app/v1/routes/`: the routes under `/api/v1`, one router per area (`locations`, `board`,
+    `maintenance`, `availability`, `circuits`, `status`, `ingest`, `admin`, `ops`, `views`),
+    with `deps.ROUTER_DEPENDENCIES` (the sign-in check), `route_class=deps.AppRoute` and
+    `deps.require_role("operator")` for writes. Answer with `deps.Json`, refuse with
+    `raise deps.ApiError(body, status)`, read a JSON body with `deps.json_body` and give its
+    model to the spec with `openapi_extra=deps.body_schema(...)`; query strings are models in
+    `app/v1/models.py`. Every route has a `response_model` from `app/v1/answers/<area>.py`
+    (fields as sent, `extra="forbid"`) and a camelCase `operation_id`: every test checks each
+    answer it gets against that model (`tests/answers.py`), so `/api/docs` stays true.
+  - `app/services/`: one module per job: `inventory_service` (the sync into the snapshot
+    tables), `alerts_service` (the board's rules, no SQL), `maintenance_service`,
+    `availability_service`, `notify_service`, `webhooks_service`, `wireless_service` and
+    `neighbours_service`, `status_service` and `status_link_service`, `token_service` and
+    `legacy_auth` (sign-in and roles), `scheduler` (the background syncs, one thread per
+    worker, a PostgreSQL lock), `mcp_service`, `guide_service` (`/help` from `README.md`,
+    `docs/*.md` and this file; a new guide goes in `guide_service.PAGES`).
+  - `app/clients/`: Nautobot (**read-only**: the app never writes to Nautobot, the source of
+    truth), LibreNMS, Catalyst Center, New Central, the response cache.
+  - `app/repositories/`: SQL; `board_repository` holds the board's reads and writes, called as
+    `board_store.function()`.
+  - `app/models/` and `alembic/`: the schema (SQLAlchemy models, Alembic revisions).
+  - `app/utils/config.py`: every setting, the only module that reads the environment.
+    Code ported from the first app reads them as `settings.NAME` (`app/utils/legacy_settings.py`)
+    at call time; tests change them with `monkeypatch.setattr(settings, "NAME", value)`.
+    Add a new setting there, pass it in `docker-compose.yml` (a test checks this) and document
+    it in `docs/configuration.md` and `.env.example`.
+  - `app/db.py`: psycopg connections from the pool (`db.get_conn()`, `db.transaction()`);
+    `app/utils/timeutil.py`: time helpers (tests freeze time with
+    `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`).
+- `web/`: the pages (Nuxt), below.
+- `e2e/`: Playwright tests against a running app; `demo/`: the mock Nautobot; `deploy/proxy/`:
+  the bundled HTTPS and sign-in proxy; `scripts/screenshots.py`: the README's pictures.
 
-Importing a module must not touch the database: `app.py` calls `db.init_db()` once at startup,
-after logging is configured (a test enforces this).
-
+Importing a module must not touch the database (connections are made when first used).
 Modules call each other as `module.function()`, not `from module import function`, so a test
 can replace a function where it is defined.
 
-### The frontend (#463)
+### The pages (#463, #609)
 
-Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) in `frontend/`. The backend serves the build and the API; the one page it renders itself is the error page (`templates/error.html`, so a 401, 403, 404 or 500 reads well even without a build).
+Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](https://ui.nuxt.com)) in `web/`, to static files the API serves; no Node in production.
 
 ```bash
-cd frontend
+cd web
 npm ci              # Node 22
-npm run generate    # the static build FastAPI serves: frontend/.output/public
-npm run dev         # or: a dev server on :3000 with live reload; /api goes to python app.py on :5055, all but the /api/docs page
+npm run generate    # the static build the API serves: web/.output/public
+npm run dev         # or: a dev server on :3000 with live reload; /api/ goes to the API on :8000
 npm run lint && npm run typecheck && npm test
 ```
 
-- `python app.py` serves the build; without one, every page answers 503 and says to build it (the API and the error page still work).
-- `ssr: false`: a single-page app built to static files, no Node in production (the Docker image builds it in its own stage). A page's route answers `frontend.shell()`; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
+- Without a build, every page answers 503 and says to build it (the API still works).
+- `ssr: false`: a single-page app. A page's route answers the shell; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
+- The API only through the typed client: `useNuxtApp().$api` (openapi-fetch) with `unwrap()` from `utils/api.ts`; no raw `fetch`. After an API change: `uv run python -m app.export_openapi` in `api/`, then `npm run generate:api` in `web/` (CI fails until both are done).
 - CSP stays strict: `npm run generate` moves Nuxt's inline config script into a file and fails on any other inline script; Nuxt UI's colours are a stylesheet made at build time (`modules/static-ui-colors.ts`), not its inline `<style>`; no web fonts or icons are fetched from elsewhere.
-- API types: `app/api/schema.d.ts` is generated from the app's response models. After an API change: `python frontend/scripts/openapi.py && (cd frontend && npm run api-types)`; `tests/test_frontend.py` and CI fail until then.
-- Logic goes in `app/utils/` (plain functions, tested with Vitest in `frontend/tests/`); the pages themselves are tested end to end (`e2e/`).
+- Logic goes in `utils/` (plain functions, tested with Vitest in `web/tests/`); the pages themselves are tested end to end (`e2e/`).
 - Scale: keep big lists (sites, devices) in `shallowRef`, not deep reactivity.
 
-Frontend rules:
+Rules for the pages:
 
 - No inline styles or scripts (#370): the CSP allows only the app's own files, so markup uses
-  classes in `app/assets/css/main.css` (or Nuxt UI's), never `style="…"`; setting
-  `element.style` from script is fine. `tests/test_no_inline_styles.py` checks the pages.
-- Third-party code comes from npm, pinned, into the build (Leaflet and markercluster for the map,
-  `app/utils/leafletmap.ts`; Swagger UI for `/api/docs`, loaded on that page only): no CDN.
+  classes in `assets/css/main.css` (or Nuxt UI's), never `style="…"`; setting
+  `element.style` from script is fine.
+- Third-party code comes from npm, pinned, into the build (Leaflet and markercluster for the map;
+  Swagger UI for `/api/docs`, loaded on that page only): no CDN.
 - A rule the server and the browser share is tested on both sides against one fixture, e.g.
-  `frontend/tests/fixtures/scope-cases.json` for `?tenant=` / `?q=` (`nautobot_maps/scope.py`
-  and `app/utils/scope.ts`).
-
-### The new api/ and web/ projects (#572)
-
-`api/` (FastAPI, managed with uv, Python 3.13) and `web/` (Nuxt 4, typed `$api` client
-generated from `api/openapi.json`) are the start of a new layout. They are separate projects
-with their own dependencies, lint and CI jobs, and nothing from the current app uses them yet.
-See `api/README.md` and `web/README.md`.
+  the scope cases for `?tenant=` / `?q=` (`api/app/services/scope_service.py` and `web/utils/scope.ts`).
+- `package-lock.json`: write it with npm 10 (`npx -y npm@10 install --package-lock-only`), as CI runs npm 10.
 
 ### Code Style
 
-- Python code must pass `ruff check .` (configured in `pyproject.toml`; CI runs it on every PR).
-  Many findings can be fixed automatically with `ruff check --fix .`.
-- Python code must be formatted with `ruff format .` (CI runs `ruff format --check .`).
-  The repo-wide formatting commit is listed in `.git-blame-ignore-revs`; run
-  `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so local `git blame` skips it.
-- The frontend must pass `npm run lint` and `npm run typecheck` in `frontend/` (CI runs both).
+- Python code must pass `uv run ruff check .` and `uv run ruff format --check .` in `api/`
+  (configured in `api/pyproject.toml`; CI runs both). Many findings can be fixed with
+  `uv run ruff check --fix .` and `uv run ruff format .`. The files outside `api/` (e2e, demo,
+  scripts) use the root `pyproject.toml`'s ruff settings.
+- The pages must pass `npm run lint` and `npm run typecheck` in `web/` (CI runs both).
 - Write clear commit messages describing what changed and why.
 
 ### Database schema changes
 
-The schema is versioned (#201). `db.baseline_schema()` is version 1 and **frozen** (a test fails if it changes). To change the schema, append a step to `db.MIGRATIONS`:
+The schema is Alembic's (`api/alembic/`). Its first revision is the first app's schema version 33,
+which a database that app migrated is adopted at (`app/migrate.py`, #590). To change the schema,
+change the models in `api/app/models/`, then:
 
-```python
-def add_foo_column(conn) -> None:
-    conn.execute("ALTER TABLE alert_instances ADD COLUMN foo TEXT NOT NULL DEFAULT ''")
-
-
-MIGRATIONS = (
-    (1, "baseline schema", baseline_schema),
-    (2, "alert_instances.foo", add_foo_column),
-)
+```bash
+cd api
+uv run alembic revision --autogenerate -m "alert_instances.foo"   # review the generated file
+uv run alembic upgrade head
 ```
 
-Each step runs once, in order, inside one transaction with the other pending steps, and is recorded in `schema_migrations`. Never edit or reorder a step that may already have been applied. The container runs `python -m nautobot_maps migrate` before gunicorn starts; `python -m nautobot_maps schema-version` shows where a database is.
+Never edit a revision that may already have been applied. The container runs `python -m app migrate` before gunicorn starts; `python -m app schema-version` shows where a database is.
 
 ### Dependencies
 
-Direct dependencies are listed in `requirements.in` (runtime) and `requirements-dev.in` (tests and linters). `requirements.txt` and `requirements-dev.txt` are **generated lock files**: every package, transitive ones included, pinned with hashes, so the Docker image and CI install exactly what was tested (#186). To add or change a dependency, edit the `.in` file and recompile:
+`api/`: `uv add <package>` (or `uv add --dev`, `--group e2e`), never pip; `uv.lock` pins every package, transitive ones included, with hashes, so the image and CI install exactly what was tested (#186). `web/`: `npm install <package>`, then write the lock file with npm 10 as above.
 
-```bash
-pip install pip-tools
-pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt requirements.in
-pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements-dev.txt requirements-dev.in
-```
-
-CI fails when a lock file doesn't match its `.in` file, or when `pip-audit`, `npm audit` or the Trivy image scan finds a known vulnerability. Dependabot proposes updates weekly.
+CI fails when a lock file doesn't match, or when `pip-audit`, `npm audit` or the Trivy image scan finds a known vulnerability. Dependabot proposes updates weekly.
 
 ### Tests
 
 - Add tests for new functionality.
 - Ensure all existing tests pass before submitting a pull request.
-- Tests that need the database use the `pg_database` fixture (`tests/conftest.py`): each gets
-  its own empty PostgreSQL schema in `TEST_DATABASE_URL`, dropped afterwards. Without
-  `TEST_DATABASE_URL` those tests are skipped locally; in CI they fail instead.
+- `uv run pytest` in `api/` makes its own PostgreSQL database (`fastapi_nuxt_test` on the
+  local server, or `API_TEST_DATABASE_URL`), migrated with Alembic and emptied after each test;
+  without a database server the tests that need one fail.
 - Both unit tests (mocked) and integration tests are welcome.
 
 The suite:
 
-- `tests/test_app.py`: unit tests, mock-based; persistence tests run against PostgreSQL.
-- `tests/test_integration.py`: starts a local mock Nautobot and exercises the full HTTP stack.
-- One file per feature for the rest (`test_wireless.py`, `test_tokens.py`, `test_status_page.py`, …).
-- `tests/answers.py`: every JSON answer a test gets is checked against its route's
-  `response_model`; `tests/test_route_table.py`: every URL, method and role, frozen.
-- `tests/test_config.py`, `tests/test_help_pages.py`: every setting documented, every link in the
+- `api/tests/test_app.py`: the first app's unit tests, mock-based, with the database.
+- One file per feature for the rest (`test_wireless.py`, `test_tokens.py`, `test_status_page.py`, `test_cli.py`, `test_server.py`, …).
+- `api/tests/answers.py`: every JSON answer a test gets is checked against its route's
+  `response_model`; `test_openapi.py`: every route's `response_model` and `operation_id`, the spec up to date.
+- `api/tests/test_schema.py`: Alembic's schema is the first app's version 33, column by column.
+- `api/tests/test_settings.py`, `test_help_pages.py`: every setting passed and documented, every link in the
   guides lands on a heading.
-- `frontend/tests/`: Vitest for the pages' logic in `app/utils/`; `e2e/`: Playwright in Chromium.
-- `tests/test_mcp.py`: the MCP server.
-- `tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
+- `web/tests/`: Vitest for the pages' logic in `utils/`; `e2e/`: Playwright in Chromium.
+- `api/tests/test_mcp.py`: the MCP server.
+- `api/tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
 
 ### Screenshots
 
-The README's pictures (`docs/images/`) come from `scripts/screenshots.py`, run against the
+The README's pictures (`docs/images/`) come from `scripts/screenshots.py` (`uv run --project api --group e2e --with Pillow python scripts/screenshots.py`), run against the
 scale demo (`MOCK_SCALE=1200`, [demo/README.md](demo/README.md)), `WIRELESS_CONTROLLERS_FILE=demo/wireless.yml`
 and an empty database, with an admin token (for the Admin page); its docstring has the steps. Run it again when a page they show changes.
 
 ### How the inventory sync works
 
 Requests never call Nautobot or LibreNMS for the alert board: they read the snapshot in
-PostgreSQL, which `/api/locations`, `/api/locations/<id>/detail` and `/api/alerts` prefer
+PostgreSQL, which `/api/v1/locations`, `/api/v1/locations/<id>/detail` and `/api/v1/alerts` prefer
 as their source. The sync (`inventory.sync_nautobot()`, `inventory.sync_librenms()`) runs
 from the scheduler, or is queued by a request once it is due; `?refresh=1` only queues it.
 
@@ -271,7 +219,7 @@ from the scheduler, or is queued by a request once it is due; `?refresh=1` only 
 - A change in the cached extraction version forces a full reconcile; a daily full reconcile
   removes objects deleted in Nautobot.
 - LibreNMS refreshes on its own interval.
-- On a fresh database the first `/api/alerts` request starts the initial sync in the
+- On a fresh database the first `/api/v1/alerts` request starts the initial sync in the
   background and returns `sync_pending: true`; the board re-polls until it clears.
 
 ## Releasing

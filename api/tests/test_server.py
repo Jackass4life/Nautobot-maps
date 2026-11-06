@@ -197,3 +197,35 @@ class TestGunicornConfig:
         else:
             monkeypatch.setenv("GUNICORN_TIMEOUT", value)
         assert self._reload().timeout == timeout
+
+
+class TestDevelopmentServer:
+    """``python -m app.serve`` (the current app's ``python app.py``)."""
+
+    def test_header_auth_listens_on_loopback_only(self, monkeypatch):
+        from app import serve
+
+        monkeypatch.setattr(settings, "AUTH_MODE", "header")
+        assert serve.host() == "127.0.0.1"
+        monkeypatch.setattr(settings, "AUTH_MODE", "disabled")
+        assert serve.host() == "0.0.0.0"
+
+    @pytest.mark.parametrize(("value", "port"), [("", 5000), ("5055", 5055), ("x", 5000)])
+    def test_its_port(self, monkeypatch, value, port):
+        from app import serve
+
+        monkeypatch.setattr(settings, "FLASK_RUN_PORT", value)
+        assert serve.port() == port
+
+    def test_it_runs_the_app_with_the_image_options(self, monkeypatch):
+        from app import serve
+
+        calls = []
+        monkeypatch.setattr(serve.uvicorn, "run", lambda *a, **k: calls.append((a, k)))
+        # Not the root logger's handlers: pytest's log capture is one of them.
+        monkeypatch.setattr(serve.logs, "configure", lambda: None)
+        monkeypatch.setattr(settings, "FLASK_DEBUG", True)
+        serve.main()
+        ((args, kwargs),) = calls
+        assert args == ("app.main:app",) and kwargs["reload"] is True
+        assert kwargs["proxy_headers"] is False and kwargs["server_header"] is False

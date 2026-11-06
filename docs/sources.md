@@ -100,7 +100,7 @@ Up to four instances are read at once. The board is rebuilt only when an access 
 **Check the setup:**
 
 ```sh
-docker compose exec nautobot-maps python -m nautobot_maps wireless-check
+docker compose exec nautobot-maps python -m app wireless-check
 ```
 
 ```
@@ -112,7 +112,7 @@ Aruba Central eu (https://de1.api.central.arubanetworks.com): 3870 access points
 
 It reads each instance now and exits with status 1 when one fails. Access points that match nothing have a serial or name in the controller that no Nautobot device has. `/metrics` has the same per instance: `nautobot_maps_wireless_access_points{controller,state}` and `nautobot_maps_wireless_access_points_matched{controller}` ([operations](operations.md)).
 
-On the **Admin** page (admins), **Check now** under Wireless controllers does the same and shows a line per controller. The same from the API (admin role): `POST /api/wireless/check` answers one result per controller: `reachable`, `signed_in`, `access_points`, `down`, `matched`, a few `unmatched_examples`, and `error` in plain words when it can't be read; never the credentials. One check runs at a time (429 while one does), so the controllers aren't asked by several at once.
+On the **Admin** page (admins), **Check now** under Wireless controllers does the same and shows a line per controller. The same from the API (admin role): `POST /api/v1/wireless/check` answers one result per controller: `reachable`, `signed_in`, `access_points`, `down`, `matched`, a few `unmatched_examples`, and `error` in plain words when it can't be read; never the credentials. One check runs at a time (429 while one does), so the controllers aren't asked by several at once.
 
 The fields read are in the data contract: [Catalyst Center](data-contract.md#cisco-catalyst-center), [New Central](data-contract.md#hpe-aruba-networking-new-central).
 
@@ -129,7 +129,7 @@ How a device is matched and counted:
 Both endpoints need an **operator** [API token](authentication.md#api-tokens) and the database:
 
 ```sh
-docker compose exec nautobot-maps python -m nautobot_maps token create alertmanager --role operator
+docker compose exec nautobot-maps python -m app token create alertmanager --role operator
 ```
 
 Each answer says what happened:
@@ -174,7 +174,7 @@ How the app treats each alert:
 
 ## Generic webhook
 
-`POST /api/device-status` with a JSON object, or a list of up to 1000:
+`POST /api/v1/device-status` with a JSON object, or a list of up to 1000:
 
 ```json
 {"device": "sw1.example.com", "status": "down", "source": "zabbix", "id": "problem-123", "summary": "ICMP unreachable", "started_at": "2026-10-09T11:58:00Z"}

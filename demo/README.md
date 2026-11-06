@@ -105,7 +105,7 @@ points, with *sto-ap02* unreachable (and one in 200 at scale), plus one,
 `WIRELESS_CONTROLLERS_FILE=demo/wireless.yml` (the file points at the mock on
 `127.0.0.1:8080`), then:
 
-- `python -m nautobot_maps wireless-check` lists 4 access points, 1 down, 3
+- `python -m app wireless-check` lists 4 access points, 1 down, 3
   matching a Nautobot device, and *lab-ap99* as not in Nautobot.
 - On the board, *Stockholm PoP* is under the **Wireless** chip, not Alarms:
   Low, "1 AP down", *sto-ap02* "per Catalyst Center demo" with the address

@@ -197,11 +197,11 @@ class TestCheck:
 
 
 # The same links through the server's matching and the browser's (#368, #369):
-# frontend/tests/scope.test.ts checks app/utils/scope.ts against the same file.
+# web/tests/scope.test.ts checks web/utils/scope.ts against the same file.
 SCOPE_CASES = json.loads(
     (
         pathlib.Path(__file__).resolve().parents[2]
-        / "frontend"
+        / "web"
         / "tests"
         / "fixtures"
         / "scope-cases.json"

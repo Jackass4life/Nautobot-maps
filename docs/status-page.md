@@ -137,23 +137,23 @@ Turning it on names **every** monitored device that already has a tenant. Check 
 - **Staff:** the same people who can see the board. With `AUTH_REQUIRE_VIEWER=true` that is the `viewer` role. Without it the page is as open as the board is. A tenant's name on the Availability page opens its page.
 - **A customer:** a **status token** for their tenant, sent in a link.
 
-Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name. A link by name (`/status/Acme%20Corp`, the form used by older versions) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database; without it, `/api/status/…` answers 503 and says so.
+Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name. A link by name (`/status/Acme%20Corp`, the form used by older versions) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database; without it, `/api/v1/status/…` answers 503 and says so.
 
 **On Availability** (admins): **Share…** next to a tenant's name, then **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. **Replace link…** there replaces a link that leaked (it asks once more). The tenant's name still opens its page.
 
 **On the command line:**
 
 ```sh
-docker compose exec nautobot-maps python -m nautobot_maps token create acme-status --role status --tenant "Acme Corp" --expires-days 365
+docker compose exec nautobot-maps python -m app token create acme-status --role status --tenant "Acme Corp" --expires-days 365
 ```
 
 It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`. The tenant must be one Nautobot has (as of the last sync; capitals don't matter), and the token keeps Nautobot's spelling: a typo such as `"Acme"` for "Acme Corp" is refused with `no tenant 'Acme' in Nautobot (as of the last sync)`, instead of making a link that shows nothing.
 
-The tenant's page link on its own: `python -m nautobot_maps status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
+The tenant's page link on its own: `python -m app status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
 
 **Through the API** (admin role):
-- `POST /api/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`.
-- `GET /api/status-links/Acme%20Corp` answers `{"tenant": "Acme Corp", "status_link": "/status/<id>"}`, and `POST /api/status-links/Acme%20Corp/replace` replaces it. A tenant Nautobot doesn't have answers 404.
+- `POST /api/v1/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`.
+- `GET /api/v1/status-links/Acme%20Corp` answers `{"tenant": "Acme Corp", "status_link": "/status/<id>"}`, and `POST /api/v1/status-links/Acme%20Corp/replace` replaces it. A tenant Nautobot doesn't have answers 404.
 
 Then send this link:
 
@@ -163,27 +163,27 @@ https://maps.example.com/status/<id>#key=nmt_…
 
 How the link and token behave:
 - The key goes after `#`, so the browser never sends it to the server: it isn't in access logs, proxy logs or a `Referer`. The page's script sends it as `Authorization: Bearer`.
-- A status token opens **only** that tenant's `/api/status/…`. Everything else answers 403, including other tenants, the board and the API.
-- To cut a link off, revoke the token (`token revoke <id>`, **Revoke** on the Admin page, or `POST /api/tokens/<id>/revoke`). The page then says the link no longer works.
+- A status token opens **only** that tenant's `/api/v1/status/…`. Everything else answers 403, including other tenants, the board and the API.
+- To cut a link off, revoke the token (`token revoke <id>`, **Revoke** on the Admin page, or `POST /api/v1/tokens/<id>/revoke`). The page then says the link no longer works.
 
 ### Behind an SSO proxy
 
 The page itself carries no data, so a customer's browser must reach these paths without signing in:
 - `/status/`
-- `/api/status/`
+- `/api/v1/status/`
 - `/_nuxt/`: the page's files (it is built with Nuxt). They are the app's code only, no data.
 
 Older versions loaded the page's files from `/static/` (`css/alerts.css`, `js/status/…`, `js/lib/…`); a proxy rule for those alone now leaves the page blank.
 
-Let these past the proxy's sign-in (oauth2-proxy: `--skip-auth-route`). The app then checks access on `/api/status/` itself.
+Let these past the proxy's sign-in (oauth2-proxy: `--skip-auth-route`). The app then checks access on `/api/v1/status/` itself.
 
-So that staff can open a tenant's page from Availability without a key, `/api/status/` should still carry who is signed in, when someone is: ask the proxy *optionally* there, passing on the user and groups when the session is valid and going on as anonymous (never to the login) when not. The [bundled proxy](authentication.md#the-bundled-proxy-https-and-company-sign-in) does this: an internal location asks oauth2-proxy's `/oauth2/auth` and turns its 401 into a 202 with no identity. A customer's key link works either way.
+So that staff can open a tenant's page from Availability without a key, `/api/v1/status/` should still carry who is signed in, when someone is: ask the proxy *optionally* there, passing on the user and groups when the session is valid and going on as anonymous (never to the login) when not. The [bundled proxy](authentication.md#the-bundled-proxy-https-and-company-sign-in) does this: an internal location asks oauth2-proxy's `/oauth2/auth` and turns its 401 into a 202 with no identity. A customer's key link works either way.
 
 As on every unauthenticated route, the proxy must **remove** `X-Forwarded-User` and `X-Forwarded-Groups` from the client (see [authentication](authentication.md#api-tokens)).
 
 ### API
 
-`GET /api/status/<id>` (the tenant's link id; a name answers 404) returns:
+`GET /api/v1/status/<id>` (the tenant's link id; a name answers 404) returns:
 
 ```json
 {

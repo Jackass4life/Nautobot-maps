@@ -86,7 +86,7 @@ def clear_cache():
 # ---------------------------------------------------------------------------
 class TestMapUI:
     def test_index_page_loads(self, integration_client, frontend_build):
-        # Built with Nuxt (#463): the page is the build's; frontend/ and e2e/ test it.
+        # Built with Nuxt (#463): the page is the build's; web/ and e2e/ test it.
         resp = integration_client.get("/")
         assert resp.status_code == 200 and 'id="__nuxt"' in resp.get_data(as_text=True)
 

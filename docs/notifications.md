@@ -81,7 +81,7 @@ Every setting: [configuration](configuration.md#notifications).
 
 On the **Admin** page (☰ → Admin, admins only), **Send test** under Notifications sends a test message on every channel and shows each one's result.
 
-Or through the API: `POST /api/notifications/test` (admin role; with `AUTH_MODE=disabled` only when `ALLOW_UNAUTHENTICATED_WRITES=true`; also on the API page at `/api/docs`) returns `{"results": {"webhook": "ok", "email": "error: ..."}}`.
+Or through the API: `POST /api/v1/notifications/test` (admin role; with `AUTH_MODE=disabled` only when `ALLOW_UNAUTHENTICATED_WRITES=true`; also on the API page at `/api/docs`) returns `{"results": {"webhook": "ok", "email": "error: ..."}}`.
 
 ## Details
 

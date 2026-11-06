@@ -82,13 +82,13 @@ The app is designed for **1,200+ sites and 10,000+ devices**, with 20–30 sites
 
 | Part | What it is | Why |
 |---|---|---|
-| **Python 3.12 + FastAPI** | The web app: pages, the JSON API, webhooks, MCP; typed requests and the OpenAPI spec behind `/api/docs` | Small, well-known, enough for this load |
-| **gunicorn** | The production web server inside the container: 4 worker processes by default (`GUNICORN_WORKERS`) | Several requests at once; a stuck one can't block the rest |
+| **Python 3.13 + FastAPI** | The web app: pages, the JSON API, webhooks, MCP; typed requests and the OpenAPI spec behind `/api/docs` | Small, well-known, enough for this load |
+| **gunicorn** | The production web server inside the container: 4 uvicorn worker processes by default (`GUNICORN_WORKERS`) | Several requests at once; a stuck one can't block the rest |
 | **PostgreSQL 16** | The app's own database: a copy of the inventory, alert history, cases, acks, maintenance windows, notifications queue, API tokens | History survives restarts; one source of truth for every worker |
 | **Redis 7** | Shared cache of Nautobot answers and rate limits between workers | Fewer calls to Nautobot; every worker sees the same cache |
-| **Leaflet** (+ markercluster) | The map in the browser, bundled into the Nuxt build (`frontend/`) | No CDN needed at runtime |
+| **Leaflet** (+ markercluster) | The map in the browser, bundled into the Nuxt build (`web/`) | No CDN needed at runtime |
 | **OpenStreetMap** tiles and **Nominatim** address search | Map background and "search by address" (both replaceable: `MAP_TILE_URL`, `GEOCODER_URL`, or off) | Free defaults; point them at your own servers if needed |
-| **Nuxt (Vue, TypeScript) + Nuxt UI** | Every page: `frontend/`, built to static files the app serves; the API page is Swagger UI inside it | The team's standard; typed from the API's own models; no Node in production; strict Content Security Policy |
+| **Nuxt (Vue, TypeScript) + Nuxt UI** | Every page: `web/`, built to static files the app serves; the API page is Swagger UI inside it | The team's standard; typed from the API's own models; no Node in production; strict Content Security Policy |
 | **Docker / Docker Compose** | Packages the app with PostgreSQL and Redis (`docker-compose.yml`) | One command to start |
 | **nginx + oauth2-proxy** *(optional, bundled in `deploy/proxy/`)* | In front of the app for HTTPS and company sign-in (any OIDC provider), or your own SSO proxy instead | The app has no login screen of its own and doesn't do TLS: your identity provider signs people in |
 
@@ -118,7 +118,7 @@ flowchart LR
 5. **Notify.** When a site reaches the notify level (Critical by default) or recovers, a message goes to Teams, email or a webhook. During a large outage many changes are sent as one summary, not one message per site ([notifications](notifications.md)).
 6. **Show.** The browser pages call the app's JSON API and update themselves. Large answers are gzipped.
 
-The top bar's freshness dot reads what the scheduler records once a minute (`GET /api/app-status`) and never calls Nautobot or LibreNMS itself. "Late" is three sync intervals, at least 15 minutes.
+The top bar's freshness dot reads what the scheduler records once a minute (`GET /api/v1/app-status`) and never calls Nautobot or LibreNMS itself. "Late" is three sync intervals, at least 15 minutes.
 
 ### Addresses
 
@@ -166,7 +166,7 @@ Circuits are read from Nautobot in full with every inventory sync, so a new term
 2. **No site**: the description isn't an address of any site (more text, another form, an address no location has, or none).
 3. **One site**: ready; add the termination at that site.
 
-The groups start folded, with their counts; each shows 100 circuits at a time. The search looks in the circuit, provider, type, status, tenant, description and sites. A circuit links to it in Nautobot, a site to its panel on the map (a site without coordinates through a building of it at the address, else to the site in Nautobot). **Download CSV** (`/api/circuit-mapping.csv`) has every circuit with its group, commit rate, suggested sites and Nautobot id, for bulk work in Nautobot; the JSON is `/api/circuit-mapping`. It reads the stored circuits and locations (two queries, nothing asked of Nautobot), so a circuit leaves the list at the next sync after it gets a termination. Viewers and up, like the board.
+The groups start folded, with their counts; each shows 100 circuits at a time. The search looks in the circuit, provider, type, status, tenant, description and sites. A circuit links to it in Nautobot, a site to its panel on the map (a site without coordinates through a building of it at the address, else to the site in Nautobot). **Download CSV** (`/api/v1/circuit-mapping.csv`) has every circuit with its group, commit rate, suggested sites and Nautobot id, for bulk work in Nautobot; the JSON is `/api/v1/circuit-mapping`. It reads the stored circuits and locations (two queries, nothing asked of Nautobot), so a circuit leaves the list at the next sync after it gets a termination. Viewers and up, like the board.
 
 ### Setup
 
@@ -199,11 +199,11 @@ Then fill in Nautobot: [what to set in Nautobot and LibreNMS](nautobot-setup.md)
 - Set your own `POSTGRES_PASSWORD` **before the first start**, and back up the database ([backup and restore](operations.md#backup-and-restore)).
 - Optional: LibreNMS (`LIBRENMS_URL`, `LIBRENMS_API_TOKEN`), wireless controllers (`config/wireless.yml`, `WIRELESS_CONTROLLERS_FILE`; check with `wireless-check`), customer status pages (a link per tenant, from **Share…** on Availability), notifications (`NOTIFY_*`, `SMTP_*`), case links to your ticket system (`CASE_URL_TEMPLATE`), one row per Site (`ALERT_BOARD_SITE_LOCATION_TYPE`), importance tiers (`SITE_TIER_FIELD`), tenant role scopes on status pages (`TENANT_SCOPE_FIELD`), device and site criticality from Nautobot (`DEVICE_CRITICALITY_FIELD`, `TIER_DEVICE_LEVEL`).
 - Monitor `/healthz` and scrape `/metrics` ([monitoring](operations.md#monitoring)).
-- API tokens for scripts, Alertmanager and MCP: `docker compose exec nautobot-maps python -m nautobot_maps token create <name> --role operator`.
+- API tokens for scripts, Alertmanager and MCP: `docker compose exec nautobot-maps python -m app token create <name> --role operator`.
 
 ### The code, briefly
 
-- `asgi.py`: the app (FastAPI), `app.py`: its startup (logging, cache, database). `nautobot_maps/`: one module per job (`nautobot`/`librenms` clients, `inventory` sync, `alerts` board rules, `maintenance`, `availability`, `notify`, `webhooks`, `auth`/`tokens`, `wireless` with the `catalyst` and `arubacentral` clients, `mcp`, `guide` for these pages…). The routes are in `api/`, one file per area, with their answers' models in `api/answers/`; `api/deps.py` holds the sign-in check and the error pages, `web.py` the security headers. The board's database reads and writes are in `repositories/board.py`.
-- `frontend/`: the pages, on Nuxt, built with `npm run generate`; FastAPI serves the build (`nautobot_maps/api/frontend.py`), its files under `/_nuxt/`. `templates/error.html`: the error page, the one the server renders itself.
-- `tests/` (pytest, about 1,250 tests, and Vitest for the frontend's logic) and `e2e/` (Playwright in Chromium). CI runs lint, tests on Python 3.11 and 3.12, a real Nautobot, a Docker smoke test, the bundled sign-in proxy with real nginx, a dependency audit and CodeQL.
+- `api/`: the app (FastAPI, `app/main.py`; uv). `app/services/`: one module per job (`inventory_service` sync, `alerts_service` board rules, `maintenance_service`, `availability_service`, `notify_service`, `webhooks_service`, `token_service`, `wireless_service`, `mcp_service`, `guide_service` for these pages…), `app/clients/` the Nautobot, LibreNMS, Catalyst Center and New Central clients. The routes are in `app/v1/routes/`, one file per area, under `/api/v1`, with their answers' models in `app/v1/answers/`; `app/v1/deps.py` holds the sign-in check, `app/frontend/` the pages' files and the security headers. The board's database reads and writes are in `app/repositories/board_repository.py`; the schema is Alembic's (`api/alembic/`).
+- `web/`: the pages, on Nuxt, built with `npm run generate`; the API serves the build (`api/app/frontend/`), its files under `/_nuxt/`. They call the API only through the typed client generated from `api/openapi.json`.
+- `api/tests/` (pytest, about 1,350 tests), `web/tests/` (Vitest for the pages' logic) and `e2e/` (Playwright in Chromium). CI runs lint, the tests on Python 3.13, a real Nautobot, a Docker smoke test, the bundled sign-in proxy with real nginx, a dependency audit and CodeQL.
 - Development setup: [CONTRIBUTING.md](../CONTRIBUTING.md).
