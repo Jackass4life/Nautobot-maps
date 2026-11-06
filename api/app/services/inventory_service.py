@@ -1,0 +1,2038 @@
+"""Inventory sync: Nautobot and LibreNMS into the PostgreSQL cache tables (#165, #600):
+the current app's nautobot_maps/inventory.py, ported as it is.
+
+Normalises Nautobot locations and devices, reads and writes the cache tables,
+tracks sync state, and runs the syncs (``inventory.ensure_snapshot()``).
+Called as ``inventory.function()`` so tests can replace it on this module.
+"""
+
+import ipaddress
+import json
+import logging
+import re
+import threading
+from datetime import UTC, datetime
+
+import requests
+
+from app import db
+from app.clients import caching, librenms, nautobot
+from app.services import contract_service as contract
+from app.utils import timeutil
+from app.utils.legacy_settings import settings
+
+logger = logging.getLogger(__name__)
+
+FULL_RECONCILE_INTERVAL_SECONDS = 86400
+# Bumped when cached fields change, forcing one full Nautobot resync
+# (3: locations store parent_id, #158; 4: and country, #309; 5: and tier, #293;
+# 6: devices store criticality, #377; 7: locations their address key, #383;
+# 8: countries from the location hierarchy, not a town, #386; 9: devices
+# their virtual chassis, #400; 10: tenant status role scopes, #410).
+CACHE_VERSION = "10"
+sync_lock = threading.Lock()
+SYNC_THREAD_NAME = "inventory-sync"
+
+
+def json_load_list(value) -> list:
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def _load_tenant_scopes(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+# "5000" or "114 35" on its own: the part after it is the town (#386).
+POSTCODE_ONLY = re.compile(r"\d{3,5}(?: \d{2})?")
+
+
+def address_country(physical_address: str) -> str:
+    """The address's last part as its country (#309), only when it can be one
+    (#386): no digits in it, and not the town after a street and number or a
+    postcode.  ``…, 2300 Copenhagen, Denmark`` and ``Copenhagen, Denmark``
+    give Denmark; ``Roersvej 33, 5000 Odense C``, ``Roersvej 33, Odense`` and
+    ``Roersvej 33, 5000, Odense C`` give "".  A town in an address of other
+    forms can still slip through: a Country location above the site is sure."""
+    parts = [
+        part.strip()
+        for part in (physical_address or "").replace("\n", ",").split(",")
+        if part.strip()
+    ]
+    if len(parts) < 2 or any(char.isdigit() for char in parts[-1]):
+        return ""
+    before = parts[-2]
+    if POSTCODE_ONLY.fullmatch(before):
+        return ""
+    if len(parts) == 2 and any(char.isdigit() for char in before) and not before[0].isdigit():
+        return ""  # "Roersvej 33, Odense": a street and number, then the town
+    return parts[-1]
+
+
+def hierarchy_country(location_id: str, tree: dict[str, dict]) -> str:
+    """The name of the nearest location of type COUNTRY_LOCATION_TYPE at or
+    above *location_id* (#386); *tree* is ``read_location_tree``'s."""
+    country_type = settings.COUNTRY_LOCATION_TYPE.strip().lower()
+    return next(
+        (
+            node["name"]
+            for node in location_chain(location_id, tree)
+            if (node.get("location_type") or "").strip().lower() == country_type
+            and node.get("name")
+        ),
+        "",
+    )
+
+
+def location_type_name(loc: dict, lt_map: dict) -> str:
+    lt_obj = loc.get("location_type") or {}
+    lt_id = lt_obj.get("id", "") if isinstance(lt_obj, dict) else ""
+    return nautobot.nested_str(lt_obj, "name", "display") or lt_map.get(lt_id, "")
+
+
+def location_parent_id(loc: dict) -> str:
+    parent_obj = loc.get("parent") or {}
+    return parent_obj.get("id", "") if isinstance(parent_obj, dict) else ""
+
+
+def normalize_locations(
+    raw: list,
+    include_without_coordinates: bool = False,
+    existing_location_name_map: dict | None = None,
+    existing_location_tree: dict | None = None,
+) -> list:
+    """*existing_location_tree* (``read_location_tree``): the stored locations,
+    so an incremental sync finds a location's country above it (#386)."""
+    tenant_map = nautobot.id_name_map("tenancy/tenants/")
+    status_map = nautobot.id_name_map("extras/statuses/")
+    lt_map = nautobot.id_name_map("dcim/location-types/")
+    tag_map = nautobot.id_name_map("extras/tags/")
+    tenant_group_map = nautobot.tenant_group_map()
+
+    loc_name_map = dict(existing_location_name_map or {})
+    tree = dict(existing_location_tree or {})
+    for loc in raw:
+        uid = loc.get("id")
+        if uid:
+            name = nautobot.nested_str(loc, "name", "display")
+            if name:
+                loc_name_map[uid] = name
+            tree[uid] = {
+                "name": name or "",
+                "location_type": location_type_name(loc, lt_map),
+                "parent_id": location_parent_id(loc),
+            }
+
+    if raw:
+        logger.debug(
+            "Nautobot location sample – tenant=%r  status=%r",
+            raw[0].get("tenant"),
+            raw[0].get("status"),
+        )
+
+    def _extract_location_country(location: dict, physical_address: str) -> str:
+        country_obj = location.get("country")
+        if isinstance(country_obj, dict):
+            country_name = nautobot.nested_str(country_obj, "name", "display", "label")
+            if country_name:
+                return country_name
+        elif isinstance(country_obj, str) and country_obj.strip():
+            return country_obj.strip()
+
+        raw_country = location.get("country_name")
+        if isinstance(raw_country, str) and raw_country.strip():
+            return raw_country.strip()
+
+        # Then a Country location above it, then the address only when its
+        # last part can be a country, never a town (#386).
+        return hierarchy_country(location.get("id") or "", tree) or address_country(
+            physical_address
+        )
+
+    locations = []
+    invalid_tenant_scopes = 0
+    for loc in raw:
+        lat = None
+        lon = None
+        raw_lat = loc.get("latitude")
+        raw_lon = loc.get("longitude")
+        has_coordinates = raw_lat is not None and raw_lon is not None
+        if has_coordinates:
+            try:
+                lat = float(raw_lat)
+                lon = float(raw_lon)
+            except (TypeError, ValueError):
+                has_coordinates = False
+                lat = None
+                lon = None
+        if not has_coordinates and not include_without_coordinates:
+            continue
+
+        tenant_obj = loc.get("tenant") or {}
+        tenant_id = tenant_obj.get("id", "") if isinstance(tenant_obj, dict) else ""
+        tenant_name = nautobot.nested_str(tenant_obj, "name", "display") or tenant_map.get(
+            tenant_id, ""
+        )
+
+        status_obj = loc.get("status") or {}
+        status_id = status_obj.get("id", "") if isinstance(status_obj, dict) else ""
+        status_name = nautobot.nested_str(status_obj, "label", "name", "display") or status_map.get(
+            status_id, ""
+        )
+
+        type_name = location_type_name(loc, lt_map)
+        parent_obj = loc.get("parent") or {}
+        parent_id = location_parent_id(loc)
+        parent_name = nautobot.nested_str(parent_obj, "name", "display") or loc_name_map.get(
+            parent_id, ""
+        )
+
+        tenant_group_name = tenant_group_map.get(tenant_id, "")
+        raw_tags = loc.get("tags") or []
+        tag_names = []
+        for t in raw_tags:
+            if isinstance(t, dict):
+                tag_id = t.get("id", "")
+                tag_name = nautobot.nested_str(t, "name", "display") or tag_map.get(tag_id, "")
+            else:
+                tag_name = ""
+            if tag_name:
+                tag_names.append(tag_name)
+
+        physical_address = (loc.get("physical_address") or "").strip()
+        country = _extract_location_country(loc, physical_address)
+        tenant_scopes, invalid_scope = location_tenant_scopes(loc)
+        invalid_tenant_scopes += invalid_scope
+
+        locations.append(
+            {
+                "id": loc.get("id", ""),
+                "name": loc.get("name", "Unknown"),
+                "slug": loc.get("slug", ""),
+                "status": status_name,
+                "location_type": type_name,
+                "parent": parent_name,
+                "parent_id": parent_id,
+                "latitude": lat,
+                "longitude": lon,
+                "description": loc.get("description", ""),
+                "physical_address": physical_address,
+                "country": country,
+                "facility": loc.get("facility", ""),
+                "tenant": tenant_name,
+                "tenant_id": tenant_id,
+                "tenant_group": tenant_group_name,
+                "asn": loc.get("asn"),
+                "time_zone": loc.get("time_zone", ""),
+                "tags": tag_names,
+                "url": loc.get("url", ""),
+                "last_updated": loc.get("last_updated") or "",
+                # Importance (#293): the custom field SITE_TIER_FIELD, as given.
+                "tier": location_tier(loc),
+                "tenant_scopes": tenant_scopes,
+            }
+        )
+    if invalid_tenant_scopes:
+        logger.warning(
+            "Invalid %s custom field on %d locations; tenant status will use all monitored devices there",
+            settings.TENANT_SCOPE_FIELD,
+            invalid_tenant_scopes,
+        )
+    return locations
+
+
+def custom_field_value(obj: dict, field: str) -> str:
+    """A Nautobot object's custom field *field*, lowercased, or "" (#293, #377)."""
+    if not field:
+        return ""
+    fields = obj.get("custom_fields")
+    value = fields.get(field) if isinstance(fields, dict) else None
+    if isinstance(value, dict):  # a select field can come as {"value": ..., "label": ...}
+        value = value.get("value") or value.get("label")
+    return (
+        str(value).strip().lower() if isinstance(value, (str, int)) and str(value).strip() else ""
+    )
+
+
+def location_tenant_scopes(location: dict) -> tuple[dict, bool]:
+    """A Location's tenant -> roles mapping, case-folded; malformed values disable the scope."""
+    if not settings.TENANT_SCOPE_FIELD:
+        return {}, False
+    fields = location.get("custom_fields")
+    raw = fields.get(settings.TENANT_SCOPE_FIELD) if isinstance(fields, dict) else None
+    if raw is None or raw == "":
+        return {}, False
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}, True
+    if not isinstance(raw, dict):
+        return {}, True
+    scopes = {}
+    for tenant, roles in raw.items():
+        if not isinstance(tenant, str) or not tenant.strip() or not isinstance(roles, list):
+            return {}, True
+        if any(not isinstance(role, str) or not role.strip() for role in roles):
+            return {}, True
+        key = tenant.strip().casefold()
+        scopes.setdefault(key, [])
+        scopes[key].extend(role.strip().casefold() for role in roles)
+        scopes[key] = list(dict.fromkeys(scopes[key]))
+    return scopes, False
+
+
+def location_tier(location: dict) -> str:
+    """The location's value of the SITE_TIER_FIELD custom field, lowercased, or "" (#293)."""
+    return custom_field_value(location, settings.SITE_TIER_FIELD)
+
+
+def device_criticality(device: dict) -> str:
+    """The device's DEVICE_CRITICALITY_FIELD: critical, medium or low; "" when unset or unknown (#377)."""
+    value = custom_field_value(device, settings.DEVICE_CRITICALITY_FIELD)
+    return value if value in settings.DEVICE_LEVELS else ""
+
+
+LOCATION_TYPE = "dcim.location"
+TENANT_TYPE = "tenancy.tenant"
+
+
+def fetch_location_tenant_links() -> list[dict] | None:
+    """Tenants linked to locations by Nautobot Relationships (#238).
+
+    Returns ``[{location_id, tenant_id, tenant, relationship}]`` for every
+    Location <-> Tenant relationship (or only those named in
+    ``SITE_TENANT_RELATIONSHIPS``), or ``None`` when Nautobot could not be
+    read, so the caller keeps what it has.  Associations are read in full on
+    every sync: adding one does not change the location's ``last_updated``.
+    """
+    try:
+        relationships = nautobot.fetch_all_pages("extras/relationships/", use_cache=False)
+        contract.check_and_record(contract.NAUTOBOT, "extras/relationships/", relationships)
+        selected = []
+        for rel in relationships:
+            if {rel.get("source_type"), rel.get("destination_type")} != {
+                LOCATION_TYPE,
+                TENANT_TYPE,
+            }:
+                continue
+            key = str(rel.get("key") or rel.get("slug") or "").strip()
+            label = nautobot.nested_str(rel, "label", "name", "display") or key
+            wanted = settings.SITE_TENANT_RELATIONSHIPS
+            if wanted and key.lower() not in wanted and label.lower() not in wanted:
+                continue
+            selected.append((rel, label))
+        if not selected:
+            return []
+        tenant_names = nautobot.id_name_map("tenancy/tenants/")
+        links = {}
+        all_associations = []
+        for rel, label in selected:
+            associations = nautobot.fetch_all_pages(
+                "extras/relationship-associations/",
+                {"relationship": rel.get("id")},
+                use_cache=False,
+            )
+            all_associations += associations
+            location_side = "source" if rel.get("source_type") == LOCATION_TYPE else "destination"
+            tenant_side = "destination" if location_side == "source" else "source"
+            for assoc in associations:
+                location_id = str(assoc.get(f"{location_side}_id") or "")
+                tenant_id = str(assoc.get(f"{tenant_side}_id") or "")
+                if not location_id or not tenant_id:
+                    continue
+                links[(location_id, tenant_id, label)] = {
+                    "location_id": location_id,
+                    "tenant_id": tenant_id,
+                    "tenant": tenant_names.get(tenant_id, ""),
+                    "relationship": label,
+                }
+        contract.check_and_record(
+            contract.NAUTOBOT, "extras/relationship-associations/", all_associations
+        )
+        return list(links.values())
+    except Exception as exc:
+        logger.warning("Could not read location tenant relationships from Nautobot: %s", exc)
+        return None
+
+
+def fetch_tenants() -> list[dict] | None:
+    """Every Nautobot tenant with its description (#263).
+
+    Read in full on every sync (tenant lists are short), or ``None`` when
+    Nautobot could not be read, so the caller keeps what it has.
+    """
+    try:
+        tenants = nautobot.fetch_all_pages("tenancy/tenants/", use_cache=False)
+    except Exception as exc:
+        logger.warning("Could not read tenants from Nautobot: %s", exc)
+        return None
+    contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", tenants)
+    return [
+        {
+            "tenant_id": str(tenant.get("id") or ""),
+            "name": str(tenant.get("name") or tenant.get("display") or ""),
+            "description": str(tenant.get("description") or "").strip(),
+        }
+        for tenant in tenants
+        if tenant.get("id")
+    ]
+
+
+# "Roersvej 33" / "33A" / "33 A", maybe a floor and door ("33 st tv", "33 1 th"), and
+# a postcode starting a later part: "5000 Odense C", "114 35 Stockholm" (#383).
+STREET_NUMBER = re.compile(
+    r"^(\D+?) ?(\d+)(?: ?([^\W\d_]))?(?: (?:st|kl|\d{1,2})(?: (?:tv|th|mf|\d{1,3}))?)?$"
+)
+POSTCODE = re.compile(r"^(\d{3} \d{2}|\d{4,5})(?: |$)")
+
+
+def address_key(text: str) -> str:
+    """A key for matching addresses written slightly differently (#383).
+
+    ``Roersvej 33, 5000 Odense C`` and ``Roersvej 33 st. tv, 5000 Odense``
+    both give ``roersvej 33|5000``: street, number and postcode; the town, a
+    floor or a country don't count.  A full address in another form (four
+    words or more, with a number) gives its words, so it only matches the same
+    text; anything shorter ("Odense", "Roersvej 33") gives "": never matched.
+    """
+    parts = [
+        " ".join(part.replace(".", " ").split())
+        for part in re.split(r"[,\n]", (text or "").lower())
+    ]
+    parts = [part for part in parts if part]
+    if not parts:
+        return ""
+    street = STREET_NUMBER.match(parts[0])
+    if street:
+        for part in parts[1:]:
+            postcode = POSTCODE.match(part)
+            if postcode:
+                number = street.group(2) + (street.group(3) or "")
+                return f"{street.group(1).strip()} {number}|{postcode.group(1).replace(' ', '')}"
+    words = " ".join(parts)
+    return "text:" + words if len(words.split()) >= 4 and any(c.isdigit() for c in words) else ""
+
+
+def termination_locations(circuit: dict) -> list[str]:
+    """The locations a circuit's A and Z terminations are at (none, one or two)."""
+    return [
+        str(term["location"]["id"])
+        for term in (circuit.get("circuit_termination_a"), circuit.get("circuit_termination_z"))
+        if isinstance(term, dict)
+        and isinstance(term.get("location"), dict)
+        and term["location"].get("id")
+    ]
+
+
+def cable_end(cable: dict, side: str) -> tuple[str, str]:
+    """``(device id, port)`` of one end of a Nautobot cable (depth=1): the
+    termination's device, and its name; ``("", "")`` when it isn't a device's
+    (a circuit termination, a power port without a device)."""
+    termination = cable.get(f"termination_{side}")
+    if not isinstance(termination, dict):
+        return "", ""
+    device = termination.get("device")
+    device_id = device.get("id") if isinstance(device, dict) else device
+    port = termination.get("name") or termination.get("display") or ""
+    return str(device_id or ""), str(port)
+
+
+def fetch_cables(params: dict | None) -> list[dict] | None:
+    """Nautobot's cables between devices (#524): which switch port each
+    access point is on.  Incremental like the devices (*params*: the sync's
+    ``last_updated__gte``); ``None`` when they could not be read, so the
+    caller keeps what it has."""
+    try:
+        cables = nautobot.fetch_all_pages(
+            "dcim/cables/", {**(params or {}), "depth": 1}, use_cache=False
+        )
+    except Exception as exc:
+        logger.warning("Could not read cables from Nautobot: %s", exc)
+        return None
+    contract.check_and_record(contract.NAUTOBOT, "dcim/cables/", cables, bool(params))
+    result = []
+    for cable in cables:
+        a_device, a_port = cable_end(cable, "a")
+        b_device, b_port = cable_end(cable, "b")
+        if cable.get("id") and a_device and b_device:
+            result.append(
+                {
+                    "cable_id": str(cable["id"]),
+                    "a_device_id": a_device,
+                    "a_port": a_port,
+                    "b_device_id": b_device,
+                    "b_port": b_port,
+                }
+            )
+    return result
+
+
+def write_cables(conn, cables: list[dict], full: bool) -> None:
+    """Store the cables (#524): a full sync replaces them all (a cable removed
+    in Nautobot goes), an incremental one adds and updates."""
+    if full:
+        conn.execute("DELETE FROM nautobot_cable_cache")
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """
+            INSERT INTO nautobot_cable_cache (cable_id, a_device_id, a_port, b_device_id, b_port)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (cable_id) DO UPDATE SET a_device_id = EXCLUDED.a_device_id, a_port = EXCLUDED.a_port,
+                b_device_id = EXCLUDED.b_device_id, b_port = EXCLUDED.b_port
+            """,
+            [
+                (c["cable_id"], c["a_device_id"], c["a_port"], c["b_device_id"], c["b_port"])
+                for c in cables
+            ],
+        )
+
+
+def fetch_circuits() -> list[dict] | None:
+    """Every Nautobot circuit, with the address key of its description (#383).
+
+    Read in full on every sync (hundreds of circuits are one page), so a new
+    termination counts at the next sync.  ``terminated``: it has a termination
+    at a location, so it is never matched by address.  ``[]``
+    when Nautobot has no circuits app (404); ``None`` when it could not be
+    read, so the caller keeps what it has.
+    """
+    try:
+        circuits = nautobot.fetch_all_pages("circuits/circuits/", {"depth": 1}, use_cache=False)
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return []
+        logger.warning("Could not read circuits from Nautobot: %s", exc)
+        return None
+    except Exception as exc:
+        logger.warning("Could not read circuits from Nautobot: %s", exc)
+        return None
+    contract.check_and_record(contract.NAUTOBOT, "circuits/circuits/", circuits)
+    result = []
+    for circuit in circuits:
+        if not circuit.get("id"):
+            continue
+        description = str(circuit.get("description") or "").strip()
+        commit_rate = circuit.get("commit_rate")
+        result.append(
+            {
+                "circuit_id": str(circuit["id"]),
+                "cid": str(circuit.get("cid") or circuit.get("display") or ""),
+                "provider": nautobot.nested_str(circuit.get("provider"), "name", "display"),
+                "circuit_type": nautobot.nested_str(circuit.get("circuit_type"), "name", "display"),
+                "status": nautobot.nested_str(circuit.get("status"), "name", "label", "display"),
+                "tenant": (tenant := nautobot.nested_str(circuit.get("tenant"), "name", "display")),
+                "tenant_key": tenant_key(tenant),
+                "commit_rate": commit_rate
+                if isinstance(commit_rate, int) and not isinstance(commit_rate, bool)
+                else None,
+                "description": description,
+                "address_key": address_key(description),
+                "terminated": bool(locations := termination_locations(circuit)),
+                # Where it ends (#511): the status page lists it at those sites.
+                "location_ids": locations,
+            }
+        )
+    return result
+
+
+def extract_primary_ip(device: dict) -> str:
+    for key in ("primary_ip4", "primary_ip6", "primary_ip"):
+        value = device.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        extracted = nautobot.nested_str(value, "host", "address", "display", "name")
+        if extracted:
+            return extracted
+    return ""
+
+
+def librenms_host_key(value: str) -> str:
+    return (value or "").strip().lower().split(".", 1)[0]
+
+
+def librenms_ip_key(value: str) -> str:
+    candidate = (value or "").strip().split("/", 1)[0]
+    if not candidate:
+        return ""
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return candidate
+
+
+def is_ip_literal(value: str) -> bool:
+    candidate = librenms_ip_key(value)
+    if not candidate:
+        return False
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    return True
+
+
+def virtual_chassis_fields(device: dict) -> dict:
+    """A stack member's chassis (#400): ``vc_id``, ``vc_name``, ``vc_position``
+    and ``vc_master`` (this device is the chassis' master); empty when the
+    device isn't in one.  The depth=1 answer has the chassis' name and master."""
+    chassis = device.get("virtual_chassis")
+    if not isinstance(chassis, dict) or not chassis.get("id"):
+        return {"vc_id": "", "vc_name": "", "vc_position": None, "vc_master": False}
+    master = chassis.get("master")
+    position = device.get("vc_position")
+    return {
+        "vc_id": str(chassis["id"]),
+        "vc_name": nautobot.nested_str(chassis, "name", "display"),
+        "vc_position": position
+        if isinstance(position, int) and not isinstance(position, bool)
+        else None,
+        "vc_master": isinstance(master, dict)
+        and bool(device.get("id"))
+        and master.get("id") == device.get("id"),
+    }
+
+
+def device_name(device: dict, chassis: dict) -> str:
+    """The device's name; a nameless stack member (#400) by its chassis and
+    place, "sw-stack01:2" (Nautobot's display adds the device's UUID), else that
+    display; else "Unknown"."""
+    if device.get("name"):
+        return device["name"]
+    if chassis["vc_id"]:
+        if chassis["vc_name"] and chassis["vc_position"] is not None:
+            return f"{chassis['vc_name']}:{chassis['vc_position']}"
+        display = (device.get("display") or "").strip()
+        if display:
+            return display
+        if chassis["vc_name"]:
+            return f"{chassis['vc_name']} member"
+    return "Unknown"
+
+
+def virtual_chassis_changed(since: str) -> bool:
+    """Whether a stack was renamed or given another master since *since* (#400).
+    That saves the chassis, not its members, so an incremental sync of devices
+    misses it.  A failed read is no change: the daily full sync catches it."""
+    try:
+        return bool(
+            nautobot.fetch_all_pages(
+                "dcim/virtual-chassis/", {"last_updated__gte": since}, use_cache=False
+            )
+        )
+    except Exception as exc:
+        logger.debug("Could not read changed virtual chassis: %s", exc)
+        return False
+
+
+def normalize_devices(devices_data: list, lookup_maps: dict | None = None) -> list:
+    if lookup_maps is None:
+        lookup_maps = nautobot.device_lookup_maps()
+    dt_mfr_map = lookup_maps.get("dt_mfr_map", {})
+    dt_model_map = lookup_maps.get("dt_model_map", {})
+    mfr_map = lookup_maps.get("mfr_map", {})
+    role_map = lookup_maps.get("role_map", {})
+    tenant_map = lookup_maps.get("tenant_map", {})
+    status_map = lookup_maps.get("status_map", {})
+
+    devices = []
+    for d in devices_data:
+        dt = d.get("device_type") or {}
+        dt_id = dt.get("id", "") if isinstance(dt, dict) else ""
+        mfr_obj = dt.get("manufacturer") if isinstance(dt, dict) else None
+        mfr_id = mfr_obj.get("id", "") if isinstance(mfr_obj, dict) else ""
+        mfr_name = (
+            nautobot.nested_str(mfr_obj, "name", "display")
+            or mfr_map.get(mfr_id, "")
+            or dt_mfr_map.get(dt_id, "")
+        )
+
+        ten_obj = d.get("tenant") or {}
+        ten_id = ten_obj.get("id", "") if isinstance(ten_obj, dict) else ""
+        ten_name = nautobot.nested_str(ten_obj, "name", "display") or tenant_map.get(ten_id, "")
+
+        st_obj = d.get("status") or {}
+        st_id = st_obj.get("id", "") if isinstance(st_obj, dict) else ""
+        st_name = nautobot.nested_str(st_obj, "label", "name", "display") or status_map.get(
+            st_id, ""
+        )
+
+        chassis = virtual_chassis_fields(d)
+        devices.append(
+            {
+                "id": d.get("id") or "",
+                "name": device_name(d, chassis),
+                **chassis,
+                "device_type": (
+                    nautobot.nested_str(d.get("device_type"), "model", "display")
+                    or dt_model_map.get(dt_id, "")
+                ),
+                "manufacturer": mfr_name,
+                "role": (
+                    nautobot.nested_str(d.get("role"), "name", "display")
+                    or role_map.get(
+                        d.get("role", {}).get("id", "") if isinstance(d.get("role"), dict) else "",
+                        "",
+                    )
+                ),
+                "status": st_name,
+                "primary_ip": extract_primary_ip(d),
+                "platform": nautobot.nested_str(d.get("platform"), "name", "display"),
+                "serial": d.get("serial") or "",
+                "tenant": ten_name,
+                "last_updated": d.get("last_updated") or "",
+                "location_id": (
+                    d.get("location", {}).get("id", "")
+                    if isinstance(d.get("location"), dict)
+                    else ""
+                ),
+                "criticality": device_criticality(d),
+            }
+        )
+    return devices
+
+
+def tree_change(stored_tree: dict[str, dict], locations: list[dict]) -> bool:
+    """Whether a synced location that others are under has a new name, type or parent (#386)."""
+    parents = {node["parent_id"] for node in stored_tree.values() if node["parent_id"]}
+    return any(
+        loc["id"] in parents
+        and stored_tree[loc["id"]]
+        != {
+            "parent_id": loc.get("parent_id") or "",
+            "location_type": loc.get("location_type") or "",
+            "name": loc.get("name") or "",
+        }
+        for loc in locations
+    )
+
+
+def read_location_tree(conn=None) -> dict[str, dict]:
+    """The stored locations' ``{location_id: {"parent_id", "location_type", "name"}}`` (#386)."""
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT location_id, parent_id, location_type, name FROM nautobot_location_cache"
+        ).fetchall()
+        return {
+            data["location_id"]: {
+                "parent_id": data.get("parent_id") or "",
+                "location_type": data.get("location_type") or "",
+                "name": data.get("name") or "",
+            }
+            for data in map(db.row_to_dict, rows)
+            if data.get("location_id")
+        }
+    except Exception as exc:
+        logger.debug("Could not read cached locations: %s", exc)
+        return {}
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def read_location_name_map(conn=None) -> dict:
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        rows = conn.execute("SELECT location_id, name FROM nautobot_location_cache").fetchall()
+        return {
+            db.row_to_dict(row).get("location_id", ""): db.row_to_dict(row).get("name", "")
+            for row in rows
+            if db.row_to_dict(row).get("location_id")
+        }
+    except Exception as exc:
+        logger.debug("Could not read cached location names: %s", exc)
+        return {}
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+# Location paths (#178), for the board and the map (#367).
+PATH_SEPARATOR = " › "
+
+
+def location_chain(location_id: str, by_id: dict[str, dict]) -> list[dict]:
+    """*location_id* and its ancestors, nearest first (stops at unknown ids and cycles)."""
+    chain, seen = [], set()
+    while location_id and location_id in by_id and location_id not in seen:
+        seen.add(location_id)
+        chain.append(by_id[location_id])
+        location_id = by_id[location_id].get("parent_id") or ""
+    return chain
+
+
+def ancestor_path(loc: dict, by_id: dict[str, dict]) -> str:
+    """The Nautobot location path above *loc*, e.g. ``"EMEA › DNK"``."""
+    ancestors = location_chain(loc.get("parent_id") or "", by_id)
+    return PATH_SEPARATOR.join(a.get("name", "") for a in reversed(ancestors))
+
+
+def with_ancestor_paths(locations: list[dict], all_locations: list[dict]) -> list[dict]:
+    """*locations*, each with its ``ancestor_path`` (#178)."""
+    by_id = {loc.get("id"): loc for loc in all_locations if loc.get("id")}
+    # read_locations has worked them out already (#367).
+    return [
+        loc if "ancestor_path" in loc else {**loc, "ancestor_path": ancestor_path(loc, by_id)}
+        for loc in locations
+    ]
+
+
+def read_locations(include_without_coordinates: bool = False, conn=None) -> list:
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            """
+            SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
+                   description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
+                   time_zone, tags_json, url, country, tier, tenant_scope_json
+            FROM nautobot_location_cache
+            ORDER BY name ASC
+            """
+        ).fetchall()
+        related_tenants = read_location_tenant_links(conn)
+        tenant_descriptions = read_tenant_descriptions(conn)
+        rows = [db.row_to_dict(row) for row in rows]
+        # Every location, with coordinates or not, for the paths above them (#367).
+        by_id = {data["location_id"]: data for data in rows if data.get("location_id")}
+        locations = []
+        for data in rows:
+            lat = data.get("latitude")
+            lon = data.get("longitude")
+            has_coordinates = lat is not None and lon is not None
+            if not has_coordinates and not include_without_coordinates:
+                continue
+            tenants = site_tenants(
+                data.get("tenant", ""), related_tenants.get(data.get("location_id"), [])
+            )
+            locations.append(
+                {
+                    "id": data.get("location_id", ""),
+                    "name": data.get("name", ""),
+                    "slug": data.get("slug", ""),
+                    "status": data.get("status", ""),
+                    "location_type": data.get("location_type", ""),
+                    "parent": data.get("parent", ""),
+                    "parent_id": data.get("parent_id", ""),
+                    # "EMEA › DNK", as on the board, so a link's ?q= finds the same sites (#367).
+                    "ancestor_path": ancestor_path(data, by_id),
+                    "latitude": lat,
+                    "longitude": lon,
+                    "description": data.get("description", ""),
+                    "physical_address": data.get("physical_address", ""),
+                    "country": data.get("country", ""),
+                    "tier": data.get("tier", ""),
+                    "tenant_scopes": _load_tenant_scopes(data.get("tenant_scope_json")),
+                    "facility": data.get("facility", ""),
+                    "tenant": data.get("tenant", ""),
+                    "tenant_id": data.get("tenant_id", ""),
+                    "tenant_group": data.get("tenant_group", ""),
+                    "asn": data.get("asn"),
+                    "time_zone": data.get("time_zone", ""),
+                    "tags": json_load_list(data.get("tags_json")),
+                    "url": data.get("url", ""),
+                    "tenants": tenants,
+                    # The (i) next to each tenant that has a description (#263).
+                    "tenant_descriptions": {
+                        name: tenant_descriptions[name]
+                        for name in tenants
+                        if name in tenant_descriptions
+                    },
+                }
+            )
+        return locations
+    except Exception as exc:
+        logger.debug("Could not read cached locations: %s", exc)
+        return []
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def read_stacks(conn) -> dict[str, list[dict]]:
+    """``{virtual chassis id: its members by place}`` over every cached device
+    (#402, #405), each ``{"id", "name", "status", "primary_ip", "has_ip", "master"}``: a whole stack
+    wherever its members are, in one query."""
+    rows = conn.execute(
+        "SELECT vc_id, device_id, name, status, primary_ip, vc_master FROM nautobot_device_cache WHERE vc_id <> '' "
+        "ORDER BY vc_id, vc_position NULLS LAST, name"
+    ).fetchall()
+    stacks: dict[str, list[dict]] = {}
+    for data in map(db.row_to_dict, rows):
+        stacks.setdefault(data["vc_id"], []).append(
+            {
+                "id": data.get("device_id") or "",
+                "name": data.get("name") or "",
+                "status": data.get("status") or "",
+                "primary_ip": data.get("primary_ip") or "",
+                "has_ip": bool((data.get("primary_ip") or "").strip()),
+                "master": bool(data.get("vc_master")),
+            }
+        )
+    return stacks
+
+
+def read_devices(location_id: str | None = None, conn=None) -> list:
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return []
+    try:
+        params = ()
+        if location_id:
+            marker = db.placeholders(1)
+            query = (
+                "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
+                "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
+                "FROM nautobot_device_cache "
+                f"WHERE location_id = {marker} ORDER BY name ASC"
+            )
+            params = (location_id,)
+        else:
+            query = (
+                "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
+                "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
+                "FROM nautobot_device_cache "
+                "ORDER BY location_id, name ASC"
+            )
+        rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "id": data.get("device_id", ""),
+                "location_id": data.get("location_id", ""),
+                "name": data.get("name", ""),
+                "device_type": data.get("device_type", ""),
+                "manufacturer": data.get("manufacturer", ""),
+                "role": data.get("role", ""),
+                "status": data.get("status", ""),
+                "primary_ip": data.get("primary_ip", ""),
+                "platform": data.get("platform", ""),
+                "serial": data.get("serial", ""),
+                "tenant": data.get("tenant", ""),
+                # When Nautobot last changed the device, e.g. its status (#166).
+                "last_updated": data.get("last_updated") or "",
+                "criticality": data.get("criticality") or "",
+                # Its stack (#400).
+                "vc_id": data.get("vc_id") or "",
+                "vc_name": data.get("vc_name") or "",
+                "vc_position": data.get("vc_position"),
+                "vc_master": bool(data.get("vc_master")),
+            }
+            for data in (db.row_to_dict(row) for row in rows)
+        ]
+    except Exception as exc:
+        logger.debug("Could not read cached devices: %s", exc)
+        return []
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def read_librenms_devices(conn=None) -> list:
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT device_id, hostname, ip, status, disabled, disable_notify, ignore "
+            "FROM librenms_device_status ORDER BY hostname ASC"
+        ).fetchall()
+        return [
+            {
+                "device_id": data.get("device_id"),
+                "hostname": data.get("hostname", ""),
+                "ip": data.get("ip", ""),
+                "status": data.get("status"),
+                **{flag: bool(data.get(flag)) for flag in LIBRENMS_MUTE_FLAGS},
+            }
+            for data in (db.row_to_dict(row) for row in rows)
+        ]
+    except Exception as exc:
+        logger.debug("Could not read cached LibreNMS inventory: %s", exc)
+        return []
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def record_sync_state(
+    conn,
+    source: str,
+    *,
+    last_started_at: str | None = None,
+    last_completed_at: str | None = None,
+    last_successful_sync: str | None = None,
+    cache_version: str = "",
+    status: str = "idle",
+    error_message: str = "",
+) -> None:
+    p0, p1, p2, p3, p4, p5, p6, p7 = db.placeholders(8).split(",")
+    # A sync that finished without error ("idle" with a completion time) is
+    # also recorded as the last success, which a later failure keeps (#200).
+    last_succeeded_at = last_completed_at if status == "idle" else None
+    conn.execute(
+        f"""
+        INSERT INTO inventory_sync_state
+            (source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message,
+             last_succeeded_at)
+        VALUES ({p0}, {p1}, {p2}, {p3}, {p4}, {p5}, {p6}, {p7})
+        ON CONFLICT(source) DO UPDATE SET
+            last_started_at = excluded.last_started_at,
+            last_completed_at = excluded.last_completed_at,
+            last_successful_sync = excluded.last_successful_sync,
+            cache_version = excluded.cache_version,
+            status = excluded.status,
+            error_message = excluded.error_message,
+            last_succeeded_at = COALESCE(excluded.last_succeeded_at, inventory_sync_state.last_succeeded_at)
+        """,
+        (
+            source,
+            last_started_at,
+            last_completed_at,
+            last_successful_sync,
+            cache_version,
+            status,
+            error_message,
+            last_succeeded_at,
+        ),
+    )
+
+
+def get_sync_state(source: str, conn=None) -> dict:
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        marker = db.placeholders(1)
+        row = conn.execute(
+            f"""
+            SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message
+            FROM inventory_sync_state
+            WHERE source = {marker}
+            """,
+            (source,),
+        ).fetchone()
+        return db.row_to_dict(row)
+    except Exception as exc:
+        logger.debug("Could not read sync state for %s: %s", source, exc)
+        return {}
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def sync_due(source: str, interval_seconds: int, conn=None) -> bool:
+    return state_due(get_sync_state(source, conn=conn), interval_seconds)
+
+
+def state_due(state: dict | None, interval_seconds: int) -> bool:
+    """Whether a source with this sync *state* is due after *interval_seconds*."""
+    if not state:
+        return True
+    if state.get("status") == "running":
+        started_at = timeutil.parse_iso_datetime(state.get("last_started_at"))
+        if started_at is None:
+            return True
+        stale_after = max(900, interval_seconds * 2)
+        return (datetime.now(UTC) - started_at).total_seconds() >= stale_after
+    completed_at = timeutil.parse_iso_datetime(state.get("last_completed_at"))
+    if completed_at is None:
+        return True
+    return (datetime.now(UTC) - completed_at).total_seconds() >= max(0, interval_seconds)
+
+
+def cache_version() -> str:
+    """CACHE_VERSION, and the custom fields read at sync time: setting or
+    changing one forces a full resync, not a wait for the daily one (#377)."""
+    fields = [
+        settings.SITE_TIER_FIELD,
+        settings.DEVICE_CRITICALITY_FIELD,
+        settings.TENANT_SCOPE_FIELD,
+    ]
+    if settings.COUNTRY_LOCATION_TYPE.strip().lower() != "country":  # not the default (#386)
+        fields.append(settings.COUNTRY_LOCATION_TYPE)
+    return f"{CACHE_VERSION}+{','.join(fields)}" if any(fields) else CACHE_VERSION
+
+
+def cache_version_mismatch(state: dict | None) -> bool:
+    return (state or {}).get("cache_version") != cache_version()
+
+
+# The syncs whose data the alert board is built from (#523).
+BOARD_SOURCES = ("nautobot_inventory", "librenms_inventory")
+
+
+def board_snapshot(conn=None) -> dict:
+    """What the alert board would be built from now (#523), in one read.
+
+    ``version``: each source's last success, which changes in the same
+    transaction as its data (None without a database, or when it can't be
+    read); ``initialized``: ``snapshot_initialized()``; ``nautobot``: the
+    Nautobot sync's state (``get_sync_state``), for ``sync_pending``.
+    """
+    owns_conn = conn is None
+    if owns_conn and not db.dialect():
+        return {"version": None, "initialized": False, "nautobot": {}}
+    try:
+        if owns_conn:
+            conn = db.get_conn()
+        if conn is None:
+            return {"version": None, "initialized": False, "nautobot": {}}
+        rows = conn.execute(
+            "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, "
+            "error_message, last_succeeded_at FROM inventory_sync_state WHERE source = ANY(%s) ORDER BY source",
+            (list(BOARD_SOURCES),),
+        ).fetchall()
+    except Exception as exc:
+        logger.debug("Could not read the board's snapshot: %s", exc)
+        return {"version": None, "initialized": False, "nautobot": {}}
+    finally:
+        if owns_conn and conn is not None:
+            conn.close()
+    states = {state["source"]: state for state in map(db.row_to_dict, rows)}
+    nautobot_state = states.get("nautobot_inventory", {})
+    return {
+        "version": "|".join(
+            f"{source}={state['last_succeeded_at'] or ''}" for source, state in states.items()
+        ),
+        "initialized": bool(
+            nautobot_state.get("status") == "idle" and nautobot_state.get("last_completed_at")
+        ),
+        "nautobot": {
+            key: value for key, value in nautobot_state.items() if key != "last_succeeded_at"
+        },
+    }
+
+
+def snapshot_initialized(conn=None) -> bool:
+    """Return whether Nautobot inventory snapshot has completed at least once."""
+    state = get_sync_state("nautobot_inventory", conn=conn)
+    if not state:
+        return False
+    return bool(state.get("status") == "idle" and state.get("last_completed_at"))
+
+
+def coalesce_text(value):
+    return "" if value is None else value
+
+
+def write_locations(conn, locations: list) -> None:
+    placeholders = db.placeholders(24).split(",")
+    for loc in locations:
+        conn.execute(
+            f"""
+            INSERT INTO nautobot_location_cache
+                (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
+                 description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
+                 time_zone, tags_json, url, last_updated, country, tier, address_key, tenant_scope_json, synced_at)
+            VALUES ({", ".join(placeholders)}, {db.sql_now()})
+            ON CONFLICT(location_id) DO UPDATE SET
+                name = excluded.name,
+                slug = excluded.slug,
+                status = excluded.status,
+                location_type = excluded.location_type,
+                parent = excluded.parent,
+                parent_id = excluded.parent_id,
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
+                description = excluded.description,
+                physical_address = excluded.physical_address,
+                facility = excluded.facility,
+                tenant = excluded.tenant,
+                tenant_id = excluded.tenant_id,
+                tenant_group = excluded.tenant_group,
+                asn = excluded.asn,
+                time_zone = excluded.time_zone,
+                tags_json = excluded.tags_json,
+                url = excluded.url,
+                last_updated = excluded.last_updated,
+                country = excluded.country,
+                tier = excluded.tier,
+                address_key = excluded.address_key,
+                tenant_scope_json = excluded.tenant_scope_json,
+                synced_at = excluded.synced_at
+            """,
+            (
+                coalesce_text(loc.get("id", "")),
+                coalesce_text(loc.get("name", "")),
+                coalesce_text(loc.get("slug", "")),
+                coalesce_text(loc.get("status", "")),
+                coalesce_text(loc.get("location_type", "")),
+                coalesce_text(loc.get("parent", "")),
+                coalesce_text(loc.get("parent_id", "")),
+                loc.get("latitude"),
+                loc.get("longitude"),
+                coalesce_text(loc.get("description", "")),
+                coalesce_text(loc.get("physical_address", "")),
+                coalesce_text(loc.get("facility", "")),
+                coalesce_text(loc.get("tenant", "")),
+                coalesce_text(loc.get("tenant_id", "")),
+                coalesce_text(loc.get("tenant_group", "")),
+                loc.get("asn"),
+                loc.get("time_zone"),
+                json.dumps(loc.get("tags", []), separators=(",", ":"), sort_keys=True),
+                coalesce_text(loc.get("url", "")),
+                loc.get("last_updated") or None,
+                coalesce_text(loc.get("country", "")),
+                coalesce_text(loc.get("tier", "")),
+                address_key(loc.get("physical_address") or ""),
+                json.dumps(loc.get("tenant_scopes") or {}, separators=(",", ":"), sort_keys=True),
+            ),
+        )
+
+
+def write_location_tenant_links(conn, links: list[dict]) -> None:
+    """Replace the cached location <-> tenant relationship links (#238)."""
+    conn.execute("DELETE FROM nautobot_location_tenant_cache")
+    for link in links:
+        conn.execute(
+            f"INSERT INTO nautobot_location_tenant_cache (location_id, tenant_id, tenant, relationship) "
+            f"VALUES ({db.placeholders(4)}) ON CONFLICT DO NOTHING",
+            (
+                link["location_id"],
+                link["tenant_id"],
+                link.get("tenant") or "",
+                link.get("relationship") or "",
+            ),
+        )
+
+
+def write_tenants(conn, tenants: list[dict]) -> None:
+    """Replace the cached tenants and their descriptions (#263)."""
+    conn.execute("DELETE FROM nautobot_tenant_cache")
+    for tenant in tenants:
+        conn.execute(
+            f"INSERT INTO nautobot_tenant_cache (tenant_id, name, description) "
+            f"VALUES ({db.placeholders(3)}) ON CONFLICT DO NOTHING",
+            (tenant["tenant_id"], tenant.get("name") or "", tenant.get("description") or ""),
+        )
+
+
+CIRCUIT_COLUMNS = (
+    "circuit_id",
+    "cid",
+    "provider",
+    "circuit_type",
+    "status",
+    "tenant",
+    "commit_rate",
+    "description",
+    "address_key",
+    "terminated",
+    "location_ids",
+    "tenant_key",
+)
+
+
+def tenant_key(name) -> str:
+    """A tenant's name as the status page matches it (#511): as the board does."""
+    return str(name or "").strip().casefold()
+
+
+def write_circuits(conn, circuits: list[dict]) -> None:
+    """Replace the cached circuits (#383), in one batch."""
+    conn.execute("DELETE FROM nautobot_circuit_cache")
+
+    def row(circuit: dict) -> tuple:
+        derived = {
+            "location_ids": circuit.get("location_ids") or [],
+            "tenant_key": tenant_key(circuit.get("tenant")),
+        }
+        return tuple(
+            derived[column] if column in derived else circuit.get(column)
+            for column in CIRCUIT_COLUMNS
+        )
+
+    conn.cursor().executemany(
+        f"INSERT INTO nautobot_circuit_cache ({', '.join(CIRCUIT_COLUMNS)}) "
+        f"VALUES ({db.placeholders(len(CIRCUIT_COLUMNS))}) ON CONFLICT DO NOTHING",
+        [row(circuit) for circuit in circuits],
+    )
+
+
+def circuit_speed(kbps) -> str:
+    """Nautobot circuit speeds are in Kbps; show them as ``10 Gbps`` / ``500 Mbps``."""
+    try:
+        value = int(kbps)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    for unit, size in (("Tbps", 1_000_000_000), ("Gbps", 1_000_000), ("Mbps", 1_000)):
+        if value >= size:
+            amount = value / size
+            return f"{amount:g} {unit}" if amount == int(amount) else f"{amount:.1f} {unit}"
+    return f"{value} Kbps"
+
+
+def circuit_cid(circuit: dict) -> str:
+    """How a circuit is named: its cid, else this."""
+    return circuit.get("cid") or "Unnamed circuit"
+
+
+def read_location_parents(conn, location_ids) -> dict[str, str]:
+    """``{location_id: parent_id}`` for *location_ids* and every location above
+    them, in one query (#511): to find the site a circuit's building is in."""
+    ids = sorted({str(location_id) for location_id in location_ids if location_id})
+    if not ids:
+        return {}
+    rows = conn.execute(
+        """
+        WITH RECURSIVE up(location_id, parent_id, depth) AS (
+            SELECT location_id, parent_id, 0 FROM nautobot_location_cache WHERE location_id = ANY(%s)
+            UNION ALL
+            SELECT l.location_id, l.parent_id, up.depth + 1
+            FROM nautobot_location_cache l JOIN up ON l.location_id = up.parent_id
+            WHERE up.depth < 32
+        )
+        SELECT DISTINCT location_id, parent_id FROM up
+        """,
+        (ids,),
+    ).fetchall()
+    return {row["location_id"]: row["parent_id"] or "" for row in rows}
+
+
+def read_tenant_circuits(conn, tenant: str) -> list[dict]:
+    """A tenant's active circuits (#511), for its status page: one query,
+    whatever its number of sites."""
+    rows = conn.execute(
+        f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
+        "WHERE tenant_key = %s AND lower(trim(status)) = 'active' ORDER BY lower(cid), circuit_id",
+        (tenant_key(tenant),),
+    ).fetchall()
+    return [db.row_to_dict(row) for row in rows]
+
+
+def read_circuits_at_address(conn, key: str) -> list[dict]:
+    """The cached circuits without a termination whose description has this address key (#383)."""
+    if not key:
+        return []
+    rows = conn.execute(
+        f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
+        f"WHERE address_key = {db.placeholders(1)} AND NOT terminated ORDER BY lower(cid), circuit_id",
+        (key,),
+    ).fetchall()
+    return [db.row_to_dict(row) for row in rows]
+
+
+def address_site(location_id: str, parents: dict[str, str]) -> str:
+    """The site *location_id* is part of at its address (#383): the highest
+    location above it in *parents* ({location_id: parent_id} of the locations
+    at one address), so a site and its buildings there are one."""
+    seen = {location_id}
+    while parents.get(location_id) in parents and parents[location_id] not in seen:
+        location_id = parents[location_id]
+        seen.add(location_id)
+    return location_id
+
+
+def read_locations_at_address(conn, location_id: str) -> tuple[str, dict[str, str]]:
+    """``(key, {location_id: parent_id})``: *location_id*'s address key and
+    every location with the same one, itself included (#383)."""
+    marker = db.placeholders(1)
+    rows = conn.execute(
+        "SELECT location_id, parent_id, address_key FROM nautobot_location_cache WHERE address_key <> '' "
+        f"AND address_key = (SELECT address_key FROM nautobot_location_cache WHERE location_id = {marker})",
+        (location_id,),
+    ).fetchall()
+    found = [db.row_to_dict(row) for row in rows]
+    key = found[0]["address_key"] if found else ""
+    return key, {loc["location_id"]: loc.get("parent_id") or "" for loc in found}
+
+
+def read_tenant_descriptions(conn=None) -> dict[str, str]:
+    """``{tenant name: description}`` for the tenants that have one (#263)."""
+    owns_conn = conn is None
+    if owns_conn:
+        conn = db.get_conn()
+    if conn is None:
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT name, description FROM nautobot_tenant_cache WHERE description <> ''"
+        ).fetchall()
+        return {
+            data["name"]: data["description"]
+            for data in map(db.row_to_dict, rows)
+            if data.get("name")
+        }
+    except Exception as exc:
+        logger.debug("Could not read tenant descriptions: %s", exc)
+        return {}
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def site_tenants(tenant: str, related: list[str]) -> list[str]:
+    """Every tenant of a site: its own tenant first, then the related ones (#238)."""
+    names = [tenant] if tenant else []
+    names.extend(name for name in related if name and name not in names)
+    return names
+
+
+def read_location_tenant_links(conn) -> dict[str, list[str]]:
+    """``{location_id: [tenant name, ...]}`` from the relationship links, sorted by name (#238)."""
+    rows = conn.execute("SELECT location_id, tenant FROM nautobot_location_tenant_cache").fetchall()
+    tenants: dict[str, set[str]] = {}
+    for row in rows:
+        data = db.row_to_dict(row)
+        if data.get("tenant"):
+            tenants.setdefault(data["location_id"], set()).add(data["tenant"])
+    return {location_id: sorted(names, key=str.lower) for location_id, names in tenants.items()}
+
+
+def write_devices(conn, devices: list) -> None:
+    placeholders = db.placeholders(17).split(",")
+    for device in devices:
+        conn.execute(
+            f"""
+            INSERT INTO nautobot_device_cache
+                (device_id, location_id, name, device_type, manufacturer, role, status,
+                 primary_ip, platform, serial, tenant, last_updated, criticality,
+                 vc_id, vc_name, vc_position, vc_master, synced_at)
+            VALUES ({", ".join(placeholders)}, {db.sql_now()})
+            ON CONFLICT(device_id) DO UPDATE SET
+                location_id = excluded.location_id,
+                name = excluded.name,
+                device_type = excluded.device_type,
+                manufacturer = excluded.manufacturer,
+                role = excluded.role,
+                status = excluded.status,
+                primary_ip = excluded.primary_ip,
+                platform = excluded.platform,
+                serial = excluded.serial,
+                tenant = excluded.tenant,
+                last_updated = excluded.last_updated,
+                criticality = excluded.criticality,
+                vc_id = excluded.vc_id,
+                vc_name = excluded.vc_name,
+                vc_position = excluded.vc_position,
+                vc_master = excluded.vc_master,
+                synced_at = excluded.synced_at
+            """,
+            (
+                coalesce_text(device.get("id", "")),
+                coalesce_text(device.get("location_id", "")),
+                coalesce_text(device.get("name", "")),
+                coalesce_text(device.get("device_type", "")),
+                coalesce_text(device.get("manufacturer", "")),
+                coalesce_text(device.get("role", "")),
+                coalesce_text(device.get("status", "")),
+                coalesce_text(device.get("primary_ip", "")),
+                coalesce_text(device.get("platform", "")),
+                coalesce_text(device.get("serial", "")),
+                coalesce_text(device.get("tenant", "")),
+                device.get("last_updated") or None,
+                coalesce_text(device.get("criticality", "")),
+                coalesce_text(device.get("vc_id", "")),
+                coalesce_text(device.get("vc_name", "")),
+                device.get("vc_position"),
+                bool(device.get("vc_master")),
+            ),
+        )
+
+
+def librenms_polled_ip(device: dict) -> str:
+    """Return the address LibreNMS polls *device* on, or ``""``.
+
+    LibreNMS ``list_devices`` returns ``overwrite_ip`` (an operator-set
+    polling address) and ``ip`` (the device's resolved IP); the override wins.
+    Only valid IP literals are returned.
+    """
+    for key in ("overwrite_ip", "ip"):
+        value = device.get(key)
+        if isinstance(value, str) and is_ip_literal(value):
+            return librenms_ip_key(value)
+    return ""
+
+
+# LibreNMS's device switches that take a device off the board (#570), in the
+# order the site panel names them.
+LIBRENMS_MUTE_FLAGS = ("disabled", "disable_notify", "ignore")
+
+
+def librenms_flag(value) -> bool:
+    """A LibreNMS 0/1 switch (an integer, a string or a boolean) as a boolean."""
+    return str(value).strip().lower() in ("1", "true")
+
+
+def librenms_observation(conn) -> int:
+    """A number for a LibreNMS request, taken before it is sent: a higher one
+    is a newer answer (#284)."""
+    return db.row_to_dict(
+        conn.execute("SELECT nextval('librenms_observation_seq') AS n").fetchone()
+    )["n"]
+
+
+def write_librenms_devices(conn, devices: list, observation: int | None = None) -> set:
+    """Store LibreNMS device statuses; returns the device ids written.
+
+    *observation* is from ``librenms_observation``, taken before the
+    LibreNMS request (default: a new one now).  A row is only replaced by a
+    newer answer, so a slow sync or push can't overwrite a status from a
+    later request (#284).
+    """
+    written = set()
+    for device in devices:
+        row = conn.execute(
+            """
+            INSERT INTO librenms_device_status
+                (device_id, hostname, ip, status, status_raw, status_reason, disabled, disable_notify, ignore,
+                 synced_at, observed_seq)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP,
+                    COALESCE(%s::bigint, nextval('librenms_observation_seq')))
+            ON CONFLICT(device_id) DO UPDATE SET
+                hostname = excluded.hostname,
+                ip = excluded.ip,
+                status = excluded.status,
+                status_raw = excluded.status_raw,
+                status_reason = excluded.status_reason,
+                disabled = excluded.disabled,
+                disable_notify = excluded.disable_notify,
+                ignore = excluded.ignore,
+                synced_at = excluded.synced_at,
+                observed_seq = excluded.observed_seq
+            WHERE librenms_device_status.observed_seq IS NULL
+               OR librenms_device_status.observed_seq < excluded.observed_seq
+            RETURNING device_id
+            """,
+            (
+                device.get("device_id"),
+                device.get("hostname", ""),
+                librenms_polled_ip(device),
+                device.get("status"),
+                str(device.get("status", "")),
+                device.get("status_reason", "") or "",
+                *(librenms_flag(device.get(flag)) for flag in LIBRENMS_MUTE_FLAGS),
+                observation,
+            ),
+        ).fetchone()
+        if row is not None:
+            written.add(db.row_to_dict(row)["device_id"])
+    return written
+
+
+def librenms_push_refresh(device: str) -> dict:
+    """Refresh one device's LibreNMS status after an alert push (#284).
+
+    The push only says which device to look at; its status comes from the
+    LibreNMS API, so a duplicate, late or non-device-down push can't set a
+    wrong one.  The answer is stored only for a device already in the cache
+    and only if no newer one is (see ``write_librenms_devices``), and then
+    gets a ``push_seq`` for the board rebuild to acknowledge.  Returns
+    ``{"updated": bool, "device": {...} | None}``: not updated when LibreNMS
+    doesn't know the device, it isn't cached yet, or a newer answer was
+    already stored.  Raises when LibreNMS can't be asked.
+    """
+    conn = db.get_conn()
+    if conn is None:
+        raise RuntimeError("Persistence DB not configured")
+    try:
+        observation = librenms_observation(conn)
+        found = librenms.fetch_device(device)
+        if found is not None:
+            contract.check_and_record(contract.LIBRENMS, "devices/<id or hostname>", [found])
+        if found is None or found.get("device_id") is None:
+            return {"updated": False, "device": None}
+        # Only devices already cached: an insert could bring back a device a
+        # newer sync removed.  A device new in LibreNMS comes with the next sync.
+        with db.transaction(conn):
+            row = conn.execute(
+                "UPDATE librenms_device_status SET hostname = %s, ip = %s, status = %s, status_raw = %s, "
+                "status_reason = %s, disabled = %s, disable_notify = %s, ignore = %s, "
+                "synced_at = CURRENT_TIMESTAMP, observed_seq = %s, "
+                "pushed_at = clock_timestamp(), push_seq = nextval('librenms_push_seq') "
+                "WHERE device_id = %s AND (observed_seq IS NULL OR observed_seq < %s) RETURNING device_id",
+                (
+                    found.get("hostname", ""),
+                    librenms_polled_ip(found),
+                    found.get("status"),
+                    str(found.get("status", "")),
+                    found.get("status_reason", "") or "",
+                    *(librenms_flag(found.get(flag)) for flag in LIBRENMS_MUTE_FLAGS),
+                    observation,
+                    found["device_id"],
+                    observation,
+                ),
+            ).fetchone()
+        return {"updated": row is not None, "device": _pushed_device(found)}
+    finally:
+        conn.close()
+
+
+def _pushed_device(device: dict) -> dict:
+    status = device.get("status")
+    up = str(status).strip().lower() in ("1", "true")
+    return {
+        "device_id": device.get("device_id"),
+        "hostname": device.get("hostname") or "",
+        "status": "up" if up else "down",
+    }
+
+
+def pending_librenms_pushes(conn) -> list[int]:
+    """The ``push_seq`` of refreshes the board hasn't been rebuilt for yet."""
+    rows = conn.execute(
+        "SELECT push_seq FROM librenms_device_status WHERE push_seq IS NOT NULL"
+    ).fetchall()
+    return [db.row_to_dict(row)["push_seq"] for row in rows]
+
+
+def ack_librenms_pushes(conn, seqs: list[int]) -> None:
+    """After a successful rebuild: clear exactly the refreshes it was built
+    from.  A device pushed again meanwhile has a new ``push_seq`` and stays."""
+    if not seqs:
+        return
+    with db.transaction(conn):
+        conn.execute(
+            "UPDATE librenms_device_status SET push_seq = NULL WHERE push_seq = ANY(%s)",
+            (list(seqs),),
+        )
+
+
+LOOKUP_ENDPOINTS = (
+    "extras/statuses/",
+    "extras/roles/",
+    "dcim/location-types/",
+    "extras/tags/",
+    "dcim/manufacturers/",
+    "tenancy/tenant-groups/",
+    "dcim/device-types/",
+)
+
+
+def check_lookup_endpoints() -> None:
+    """Check the name-lookup endpoints against the data contract (#309): the
+    pages the sync just read, from the response cache."""
+    for path in LOOKUP_ENDPOINTS:
+        try:
+            records = nautobot.fetch_all_pages(path)
+        except Exception as exc:
+            logger.debug("Contract check: could not read %s: %s", path, exc)
+            continue
+        contract.check_and_record(contract.NAUTOBOT, path, records)
+
+
+def sync_nautobot(force: bool = False) -> None:
+    conn = db.get_conn()
+    if conn is None or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
+        if conn is not None:
+            conn.close()
+        return
+    source = "nautobot_inventory"
+    reconcile_source = "nautobot_inventory_reconcile"
+    started_at = timeutil.iso_utc_now()
+    last_successful_sync = None
+    source_state = {}
+    try:
+        source_state = {} if force else get_sync_state(source, conn=conn)
+        last_successful_sync = None if force else source_state.get("last_successful_sync")
+        version_mismatch = cache_version_mismatch(source_state)
+        full_reconcile = (
+            force
+            or version_mismatch
+            or not last_successful_sync
+            or sync_due(
+                reconcile_source,
+                FULL_RECONCILE_INTERVAL_SECONDS,
+                conn=conn,
+            )
+        )
+        with db.transaction(conn):
+            record_sync_state(
+                conn,
+                source,
+                last_started_at=started_at,
+                last_completed_at=None,
+                last_successful_sync=last_successful_sync,
+                cache_version=source_state.get("cache_version", ""),
+                status="running",
+                error_message="",
+            )
+
+        params = {}
+        if last_successful_sync and not full_reconcile:
+            params["last_updated__gte"] = last_successful_sync
+        # Straight from Nautobot, never the response cache (#185).
+        raw_locations = nautobot.fetch_all_pages("dcim/locations/", params or None, use_cache=False)
+        device_params = dict(params)
+        device_params["depth"] = 1
+        raw_devices = nautobot.fetch_all_pages(
+            "dcim/devices/", device_params or None, use_cache=False
+        )
+        incremental = bool(params)
+        contract.check_and_record(contract.NAUTOBOT, "dcim/locations/", raw_locations, incremental)
+        contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", raw_devices, incremental)
+        if full_reconcile:
+            existing_counts = conn.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM nautobot_location_cache) AS location_count,
+                    (SELECT COUNT(*) FROM nautobot_device_cache) AS device_count
+                """
+            ).fetchone()
+            existing_counts = db.row_to_dict(existing_counts)
+            if (
+                (
+                    int(existing_counts.get("location_count") or 0) > 0
+                    or int(existing_counts.get("device_count") or 0) > 0
+                )
+                and not raw_locations
+                and not raw_devices
+            ):
+                raise RuntimeError(
+                    "Full inventory reconcile returned an empty dataset; keeping the existing cached snapshot"
+                )
+        stored_tree = read_location_tree(conn)
+        locations = normalize_locations(
+            raw_locations,
+            include_without_coordinates=True,
+            existing_location_name_map={
+                uid: node["name"] for uid, node in stored_tree.items() if node["name"]
+            },
+            existing_location_tree=stored_tree,
+        )
+        # A location with others under it renamed, retyped or moved changes their
+        # country (and path), but an incremental sync brings only it: the next
+        # sync is a full one (#386).
+        tree_changed = not full_reconcile and tree_change(stored_tree, locations)
+        # A stack renamed or given another master changes its members, which an
+        # incremental sync doesn't bring: the next sync is a full one too (#400).
+        stack_changed = bool(params) and virtual_chassis_changed(params["last_updated__gte"])
+        devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
+        check_lookup_endpoints()
+        tenant_links = fetch_location_tenant_links()
+        tenants = fetch_tenants()
+        circuits = fetch_circuits()
+        cables = fetch_cables(params or None)
+        completed_at = timeutil.iso_utc_now()
+        watermark = last_successful_sync
+        observed_last_updated = timeutil.max_last_updated(raw_locations + raw_devices)
+        observed_dt = timeutil.parse_iso_datetime(observed_last_updated)
+        current_dt = timeutil.parse_iso_datetime(watermark)
+        if observed_dt and (current_dt is None or observed_dt > current_dt):
+            watermark = timeutil.next_watermark(observed_last_updated)
+        if full_reconcile:
+            watermark = timeutil.max_iso_datetime_value(watermark, started_at) or started_at
+        with db.transaction(conn):
+            if full_reconcile:
+                conn.execute("DELETE FROM nautobot_device_cache")
+                conn.execute("DELETE FROM nautobot_location_cache")
+            write_locations(conn, locations)
+            write_devices(conn, devices)
+            if tenant_links is not None:
+                write_location_tenant_links(conn, tenant_links)
+            if tenants is not None:
+                write_tenants(conn, tenants)
+            if circuits is not None:
+                write_circuits(conn, circuits)
+            # A full sync whose cables couldn't be read keeps the old ones.
+            if cables is not None:
+                write_cables(conn, cables, full=full_reconcile)
+            record_sync_state(
+                conn,
+                source,
+                last_started_at=started_at,
+                last_completed_at=completed_at,
+                last_successful_sync=watermark,
+                cache_version=cache_version(),
+                status="idle",
+                error_message="",
+            )
+            if tree_changed or stack_changed:
+                what = "A location with others under it" if tree_changed else "A virtual chassis"
+                logger.info("%s changed: the next Nautobot sync is a full one", what)
+                record_sync_state(conn, reconcile_source, cache_version=cache_version())
+            if full_reconcile:
+                record_sync_state(
+                    conn,
+                    reconcile_source,
+                    last_started_at=started_at,
+                    last_completed_at=completed_at,
+                    last_successful_sync=watermark,
+                    cache_version=cache_version(),
+                    status="idle",
+                    error_message="",
+                )
+        caching.invalidate_alert_board()
+    except Exception as exc:
+        logger.warning(
+            "Could not sync Nautobot inventory into persistence DB: %s", exc, exc_info=True
+        )
+        with db.transaction(conn):
+            record_sync_state(
+                conn,
+                source,
+                last_started_at=started_at,
+                last_completed_at=timeutil.iso_utc_now(),
+                last_successful_sync=last_successful_sync,
+                cache_version=source_state.get("cache_version", ""),
+                status="error",
+                error_message=str(exc),
+            )
+    finally:
+        conn.close()
+
+
+def sync_librenms(force: bool = False) -> None:
+    conn = db.get_conn()
+    if (
+        conn is None
+        or not (settings.LIBRENMS_URL or "").strip()
+        or not (settings.LIBRENMS_API_TOKEN or "").strip()
+    ):
+        if conn is not None:
+            conn.close()
+        return
+    source = "librenms_inventory"
+    started_at = timeutil.iso_utc_now()
+    last_successful_sync = None
+    try:
+        last_successful_sync = (
+            None if force else get_sync_state(source, conn=conn).get("last_successful_sync")
+        )
+        with db.transaction(conn):
+            record_sync_state(
+                conn,
+                source,
+                last_started_at=started_at,
+                last_completed_at=None,
+                last_successful_sync=last_successful_sync,
+                status="running",
+                error_message="",
+            )
+        observation = librenms_observation(conn)
+        devices = librenms.fetch_inventory()
+        contract.check_and_record(contract.LIBRENMS, "devices?type=all", devices)
+        existing_count = conn.execute(
+            "SELECT COUNT(*) AS device_count FROM librenms_device_status"
+        ).fetchone()
+        existing_count = int(db.row_to_dict(existing_count).get("device_count") or 0)
+        if existing_count > 0 and not devices:
+            raise RuntimeError(
+                "LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot"
+            )
+        with db.transaction(conn):
+            completed_at = timeutil.iso_utc_now()
+            # Not "delete everything": a push stored after this fetch is
+            # newer, and keeps its status and pending rebuild (#284).
+            write_librenms_devices(conn, devices, observation)
+            conn.execute(
+                "DELETE FROM librenms_device_status "
+                "WHERE (observed_seq IS NULL OR observed_seq < %s) AND NOT (device_id = ANY(%s))",
+                (
+                    observation,
+                    [d.get("device_id") for d in devices if d.get("device_id") is not None],
+                ),
+            )
+            record_sync_state(
+                conn,
+                source,
+                last_started_at=started_at,
+                last_completed_at=completed_at,
+                last_successful_sync=completed_at,
+                status="idle",
+                error_message="",
+            )
+        caching.invalidate_alert_board()
+    except Exception as exc:
+        logger.warning(
+            "Could not sync LibreNMS inventory into persistence DB: %s", exc, exc_info=True
+        )
+        with db.transaction(conn):
+            record_sync_state(
+                conn,
+                source,
+                last_started_at=started_at,
+                last_completed_at=timeutil.iso_utc_now(),
+                last_successful_sync=None if force else last_successful_sync,
+                status="error",
+                error_message=str(exc),
+            )
+    finally:
+        conn.close()
+
+
+# A forced sync (the board's ?refresh=1) of a source that finished less than
+# this long ago is skipped (#382): a script polling with it can't make
+# LibreNMS or Nautobot build their whole lists every few seconds.
+FORCED_SYNC_COOLDOWN_SECONDS = 60
+
+
+def synced_within(state: dict | None, seconds: int) -> bool:
+    """A sync finished successfully less than *seconds* ago (#382).  A failed
+    one doesn't count, so ↻ retries at once after an outage."""
+    if seconds <= 0 or not state or state.get("status") != "idle":
+        return False
+    completed = timeutil.parse_iso_datetime(state.get("last_completed_at"))
+    return completed is not None and (datetime.now(UTC) - completed).total_seconds() < seconds
+
+
+def sources_to_sync(conn, force: bool = False, cooldown_seconds: int = 0) -> tuple[bool, bool]:
+    """``(Nautobot, LibreNMS)``: which configured sources to sync now: due,
+    Nautobot's cache from an older version, or *force*d, but not one that
+    synced successfully less than *cooldown_seconds* ago.  One state read per source."""
+    nautobot_on = bool(settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN)
+    librenms_on = bool(
+        (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip()
+    )
+    needs_nautobot = needs_librenms = False
+    if nautobot_on:
+        state = get_sync_state("nautobot_inventory", conn=conn)
+        needs_nautobot = (
+            (force and not synced_within(state, cooldown_seconds))
+            or cache_version_mismatch(state)
+            or state_due(state, settings.INVENTORY_SYNC_INTERVAL_SECONDS)
+        )
+    if librenms_on:
+        state = get_sync_state("librenms_inventory", conn=conn)
+        needs_librenms = (force and not synced_within(state, cooldown_seconds)) or state_due(
+            state, settings.LIBRENMS_SYNC_INTERVAL_SECONDS
+        )
+    return needs_nautobot, needs_librenms
+
+
+def ensure_snapshot(
+    force: bool = False, wait: bool = False, full: bool | None = None, cooldown_seconds: int = 0
+) -> bool:
+    """Run the inventory syncs that are due, in the background unless *wait*.
+
+    ``force`` runs them now even if their interval has not passed, but not a
+    source whose last sync finished less than *cooldown_seconds* ago.  ``full``
+    makes the Nautobot sync a full reconcile (re-fetch everything, ignoring
+    the watermark); it defaults to ``force``.  Pass ``force=True, full=False``
+    for a cheap "sync now" that only pulls changes since the last sync.
+    Returns whether a sync was started (or, with *wait*, performed).
+    """
+    if full is None:
+        full = force
+    # With a cooldown, decide before starting anything: a forced call with every
+    # source just synced starts no thread and says so, so the board doesn't
+    # show "Updating…" for nothing (#382).
+    if force and cooldown_seconds > 0:
+        conn = db.get_conn()
+        if conn is not None:
+            try:
+                if not any(sources_to_sync(conn, force, cooldown_seconds)):
+                    return False
+            finally:
+                conn.close()
+
+    def _run_with_lock() -> bool:
+        conn = None
+        release_db_lock = None
+        try:
+            release_db_lock = db.try_advisory_lock("inventory_snapshot_sync")
+            if release_db_lock is False:
+                return False
+            conn = db.get_conn()
+            if conn is None:
+                return False
+            needs_nautobot, needs_librenms = sources_to_sync(conn, force, cooldown_seconds)
+            if not needs_nautobot and not needs_librenms:
+                return False
+            if needs_nautobot:
+                sync_nautobot(force=full)
+            if needs_librenms:
+                sync_librenms(force=full)
+            return True
+        finally:
+            if conn is not None:
+                conn.close()
+            if callable(release_db_lock):
+                release_db_lock()
+            sync_lock.release()
+
+    if wait:
+        sync_lock.acquire()
+        return _run_with_lock()
+    if not sync_lock.acquire(blocking=False):
+        return False
+    # Named, so tests can wait for it before dropping their schema (#299).
+    threading.Thread(target=_run_with_lock, name=SYNC_THREAD_NAME, daemon=True).start()
+    return True
+
+
+def get_locations(include_without_coordinates: bool = False, snapshot_only: bool = False) -> list:
+    """Fetch locations from Nautobot.
+
+    By default, only locations with valid GPS coordinates are returned.
+    Set ``include_without_coordinates=True`` to include all locations and
+    keep missing/invalid coordinates as ``None``.
+    """
+    cached = read_locations(include_without_coordinates=include_without_coordinates)
+    if cached:
+        if not snapshot_only:
+            ensure_snapshot()
+        return cached
+    if snapshot_only:
+        return []
+    ensure_snapshot(force=True, wait=True)
+    cached = read_locations(include_without_coordinates=include_without_coordinates)
+    if cached:
+        return cached
+    raw = nautobot.fetch_all_pages("dcim/locations/")
+    # Every location, for the paths above them (#367) as read_locations has;
+    # then only those with coordinates unless asked for all.
+    everywhere = normalize_locations(raw, include_without_coordinates=True)
+    locations = [
+        loc
+        for loc in with_ancestor_paths(everywhere, everywhere)
+        if include_without_coordinates
+        or (loc.get("latitude") is not None and loc.get("longitude") is not None)
+    ]
+    # Without the database (a map-only setup) the tenant (i) still works (#263).
+    descriptions = live_tenant_descriptions()
+    for loc in locations:
+        tenant = loc.get("tenant") or ""
+        loc["tenant_descriptions"] = (
+            {tenant: descriptions[tenant]} if tenant in descriptions else {}
+        )
+    return locations
+
+
+def live_tenant_descriptions() -> dict[str, str]:
+    """``{tenant name: description}`` straight from Nautobot, for setups without the database."""
+    try:
+        tenants = nautobot.fetch_all_pages("tenancy/tenants/")
+    except Exception as exc:
+        logger.warning("Could not read tenant descriptions from Nautobot: %s", exc)
+        return {}
+    result = {}
+    for tenant in tenants:
+        name = str(tenant.get("name") or tenant.get("display") or "")
+        description = str(tenant.get("description") or "").strip()
+        if name and description:
+            result[name] = description
+    return result

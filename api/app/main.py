@@ -8,6 +8,7 @@ from app import docs, health, v1
 from app.clients import caching, nautobot
 from app.frontend import controller as frontend
 from app.frontend.middleware import FinishMiddleware
+from app.services import scheduler
 from app.session import DbSessionMiddleware
 from app.utils.config import get_settings
 from app.utils.errors import install_error_handlers
@@ -15,10 +16,14 @@ from app.utils.errors import install_error_handlers
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Startup (#596): the response cache from the settings, Nautobot's SSL warnings."""
+    """Startup (#596, #600): the response cache from the settings, Nautobot's SSL
+    warnings, this process's background scheduler (off with BACKGROUND_SYNC_ENABLED=false
+    or without Nautobot)."""
     caching.init()
     nautobot.configure_ssl_warnings()
+    scheduler.start()
     yield
+    scheduler.stop()
 
 
 def create_app() -> FastAPI:
