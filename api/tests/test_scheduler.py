@@ -15,6 +15,7 @@ from app.utils.legacy_settings import settings
 def nautobot_set(monkeypatch):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+    monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
     monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
@@ -80,6 +81,9 @@ def test_start_is_idempotent_and_respects_the_setting(monkeypatch):
     monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
     assert scheduler.start() is False
     monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
+    monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://shared/maps")
+    assert scheduler.start() is False
+    monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
     assert scheduler.start() is True
     assert scheduler.start() is True
     assert len(started) == 1

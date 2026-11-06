@@ -59,8 +59,10 @@ def loop(stop_event: threading.Event | None = None) -> None:
 def start() -> bool:
     """Start this process's scheduler thread once. Returns whether it runs."""
     global _started, _stop
-    if not settings.BACKGROUND_SYNC_ENABLED or not (
-        settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN
+    if (
+        not settings.BACKGROUND_SYNC_ENABLED
+        or settings.NAUTOBOT_MAPS_DATABASE_URL
+        or not (settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN)
     ):
         return False
     with _start_lock:
