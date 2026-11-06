@@ -3,7 +3,8 @@
 # (e.g. when a separate job runs `alembic upgrade head`).
 set -e
 if [ "${MIGRATE_ON_START:-true}" != "false" ]; then
-    alembic upgrade head
+    # Adopts a database the current app migrated (#590), then upgrades it.
+    python -m app.migrate
 fi
 # --no-proxy-headers: X-Forwarded-For must not replace the peer address, or
 # the AUTH_TRUSTED_PROXIES check (#582) would see the end user, not the proxy.

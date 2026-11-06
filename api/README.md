@@ -59,10 +59,27 @@ the default. Only the new stack's own:
 | `CORS_ORIGINS` | `http://localhost:3000` | Browser origins that may call the API (JSON list or comma-separated). |
 | `SQL_ECHO` | `false` | Log every SQL statement (development). |
 
+## Database (#590)
+
+The schema is the current app's (version 33 of `nautobot_maps/db.py`): `app/models/` has
+its 27 tables as they are, and the first Alembic revision creates exactly that
+(`tests/schema_v33.json` is the reference; `tests/test_schema.py` compares column by column).
+
+`python -m app.migrate` (the container runs it at start) brings any database to the newest schema:
+
+- **The current app's database** (`schema_migrations` at version 33): stamped at the baseline
+  revision, its data kept, then upgraded. The current app can still start on it until the
+  schema changes.
+- **Empty, or Alembic's already:** upgraded.
+- **Refused, with what to do:** the current app's schema below or above 33, or its tables
+  without a migration record. Start the current app once on it first (below 33).
+
+Both apps take the same PostgreSQL lock while migrating.
+
 ## Container
 
-`api/Dockerfile` (#577): uv-installed, non-root, migrations on start
-(`MIGRATE_ON_START=false` skips them), healthcheck on `GET /api/healthz`.
+`api/Dockerfile` (#577): uv-installed, non-root, `python -m app.migrate` on start
+(`MIGRATE_ON_START=false` skips it), healthcheck on `GET /api/healthz`.
 `deploy/next/compose.yml` runs it with PostgreSQL and `web/`.
 
 ## Sign-in and roles (#582)
