@@ -77,6 +77,23 @@ its 27 tables as they are, and the first Alembic revision creates exactly that
 
 Both apps take the same PostgreSQL lock while migrating.
 
+## Command line (#611)
+
+The current app's commands, as `python -m app …` (in the container: `docker compose exec
+app python -m app …`); same options, output and exit status:
+
+| Command | What it does |
+|---|---|
+| `python -m app migrate` | `python -m app.migrate`: adopt the current app's database, upgrade to head. |
+| `python -m app schema-version` | The database's Alembic revision and this release's head; the current app's schema version when it has one. |
+| `python -m app contract-docs` | `docs/data-contract.md` from the data contract. |
+| `python -m app token create NAME --role ROLE [--tenant T] [--expires-days N]` | A token, printed once (the first admin token is made so). |
+| `python -m app token list [--all] [--tenant T]` | The active tokens (`--all`: revoked and expired too), never the secrets. |
+| `python -m app token revoke ID` | Revoke one. |
+| `python -m app token purge [--older-than DAYS] [--dry-run]` | Delete revoked and expired ones for good. |
+| `python -m app status-link TENANT [--new]` | The tenant's status page link; `--new` replaces it. |
+| `python -m app wireless-check` | Read each wireless controller now; exit status 1 if one fails. |
+
 ## Ported code (#600)
 
 The current app's modules move here area by area (#587). Where their behaviour is pinned
