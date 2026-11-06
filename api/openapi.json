@@ -1,6 +1,173 @@
 {
   "components": {
     "schemas": {
+      "ContractCheckDto": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "mismatches": {
+            "items": {
+              "$ref": "#/components/schemas/MismatchDto"
+            },
+            "title": "Mismatches",
+            "type": "array"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "endpoint",
+          "records",
+          "mismatches"
+        ],
+        "title": "ContractCheckDto",
+        "type": "object"
+      },
+      "ContractDto": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "description": "The last sync's check of each.",
+            "items": {
+              "$ref": "#/components/schemas/ContractCheckDto"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "contract": {
+            "description": "Per upstream endpoint, the fields read.",
+            "items": {
+              "$ref": "#/components/schemas/ContractEndpointDto"
+            },
+            "title": "Contract",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contract",
+          "checks"
+        ],
+        "title": "ContractDto",
+        "type": "object"
+      },
+      "ContractEndpointDto": {
+        "additionalProperties": false,
+        "properties": {
+          "checked": {
+            "description": "Checked at every sync.",
+            "title": "Checked",
+            "type": "boolean"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ContractFieldDto"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "request": {
+            "title": "Request",
+            "type": "string"
+          },
+          "source": {
+            "examples": [
+              "nautobot"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "stored_in": {
+            "title": "Stored In",
+            "type": "string"
+          },
+          "used_for": {
+            "title": "Used For",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "endpoint",
+          "used_for",
+          "request",
+          "stored_in",
+          "checked",
+          "notes",
+          "fields"
+        ],
+        "title": "ContractEndpointDto",
+        "type": "object"
+      },
+      "ContractFieldDto": {
+        "additionalProperties": false,
+        "properties": {
+          "becomes": {
+            "description": "What the app makes of it.",
+            "title": "Becomes",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "path",
+          "types",
+          "required",
+          "becomes",
+          "rule"
+        ],
+        "title": "ContractFieldDto",
+        "type": "object"
+      },
       "ErrorDto": {
         "additionalProperties": false,
         "description": "A refusal or error: one plain sentence, and for a role refusal the role it needs.",
@@ -247,6 +414,30 @@
           "can_administer"
         ],
         "title": "MeDto",
+        "type": "object"
+      },
+      "MismatchDto": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "problem": {
+            "title": "Problem",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "problem",
+          "count"
+        ],
+        "title": "MismatchDto",
         "type": "object"
       },
       "NewTokenDto": {
@@ -615,6 +806,28 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/contract": {
+      "get": {
+        "description": "The data contract and the last check: per upstream endpoint, the fields read,\ntheir types and what each becomes; per endpoint, when the last sync checked it,\nhow many records, and the fields that didn't match.",
+        "operationId": "getContract",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Contract",
+        "tags": [
+          "contract"
+        ]
+      }
+    },
     "/api/v1/items": {
       "get": {
         "operationId": "listItems",
