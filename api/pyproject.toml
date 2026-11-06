@@ -41,5 +41,10 @@ extend-exclude = ["alembic/versions"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "BLE", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# The current app's contract declarations, copied unchanged (#598): docs/data-contract.md
+# is rendered from their text, so they keep its line lengths and tuple style.
+"app/services/contract_service.py" = ["E501", "RUF005"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
