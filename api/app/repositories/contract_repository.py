@@ -7,6 +7,15 @@ from app.utils import timeutil
 from app.utils.locks import advisory_lock_key
 
 
+def _run(conn, sql: str, params: tuple = ()):  # type: ignore[no-untyped-def]
+    """The statement on a SQLAlchemy connection, or on app/db.py's psycopg one (the ported
+    modules, e.g. metrics, read the checks on theirs, #602): rows as dicts either way."""
+    if hasattr(conn, "exec_driver_sql"):
+        return [dict(row) for row in conn.exec_driver_sql(sql, params).mappings()]
+    cursor = conn.execute(sql, params)
+    return list(cursor.fetchall()) if cursor.description else []
+
+
 def replace(conn: Connection, source: str, path: str, result: dict) -> int:
     """Store *result* as the endpoint's check; returns how many mismatches it had before.
     One writer per endpoint at a time (e.g. LibreNMS pushes at once)."""
@@ -44,8 +53,9 @@ def replace(conn: Connection, source: str, path: str, result: dict) -> int:
 
 
 def latest(conn: Connection) -> list[dict]:
-    rows = conn.exec_driver_sql(
+    rows = _run(
+        conn,
         "SELECT source, endpoint, field, problem, mismatched, records, checked_at "
-        "FROM contract_checks ORDER BY source, endpoint, field, problem"
-    ).mappings()
+        "FROM contract_checks ORDER BY source, endpoint, field, problem",
+    )
     return [timeutil.row(row) for row in rows]

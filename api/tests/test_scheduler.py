@@ -19,17 +19,22 @@ def nautobot_set(monkeypatch):
     monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
 
-def test_a_tick_runs_the_due_syncs(pg_database):
-    with patch.object(inventory, "ensure_snapshot", return_value=True) as ensure:
+def test_a_tick_runs_the_due_syncs_and_rebuilds_the_board(pg_database):
+    """The full tick (#602): after a sync the board is rebuilt here (alert history,
+    notifications), so no rebuild request is left for the current app."""
+    with (
+        patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
+        patch.object(scheduler, "rebuild_board") as rebuild,
+    ):
         assert scheduler.tick() is True
     ensure.assert_called_once_with(wait=True)
-    # A rebuild asked for, which the current app's scheduler takes in (shared database).
-    requested = inventory.get_sync_state(scheduler.CHANGE_REQUESTED_STATE)
-    assert requested.get("last_completed_at")
-    with patch.object(inventory, "ensure_snapshot", return_value=False):
+    rebuild.assert_called_once()
+    with (
+        patch.object(inventory, "ensure_snapshot", return_value=False),
+        patch.object(scheduler, "rebuild_board") as rebuild,
+    ):
         assert scheduler.tick() is False
-    again = inventory.get_sync_state(scheduler.CHANGE_REQUESTED_STATE)
-    assert again["last_completed_at"] == requested["last_completed_at"], "only after a sync"
+    rebuild.assert_not_called()
 
 
 def test_only_one_process_ticks_at_a_time():

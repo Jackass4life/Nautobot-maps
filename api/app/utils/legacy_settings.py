@@ -23,16 +23,20 @@ class _Settings:
         if field not in config.Settings.model_fields:
             raise AttributeError(f"no setting {name}")
         current = config.get_settings()
-        # pytest's monkeypatch undoes with delattr (it reads attributes statically):
-        # keep what was there to put back.
-        originals = self.__dict__.setdefault("_originals", {})
-        originals.setdefault(field, (current, getattr(current, field)))
+        # pytest's monkeypatch undoes with delattr (it reads attributes statically), and so
+        # does mock.patch: one value saved per assignment, the last put back first, so a
+        # nested override undone restores the outer one (#603 review).
+        saved = self.__dict__.setdefault("_saved", {}).setdefault(field, [])
+        saved.append((current, getattr(current, field)))
         setattr(current, field, value)
 
     def __delattr__(self, name: str) -> None:
         field = name.lower()
-        current, value = self.__dict__.get("_originals", {}).pop(field, (None, None))
-        if current is not None and current is config.get_settings():
+        saved = self.__dict__.get("_saved", {}).get(field)
+        if not saved:
+            return
+        current, value = saved.pop()
+        if current is config.get_settings():
             setattr(current, field, value)
 
 

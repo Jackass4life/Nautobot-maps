@@ -5,8 +5,10 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from app.clients import nautobot
+from app.clients import caching, nautobot
+from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
+from app.utils.legacy_settings import settings
 
 
 @pytest.mark.parametrize(
@@ -189,3 +191,54 @@ CIRCUITS = [
     _circuit("c-aar", "TDC-0004", "Banegårdspladsen 1, 8000 Aarhus"),
     _circuit("c-text", "TDC-0005", f"Fibre 1G – {ODENSE}"),
 ]
+
+
+class TestSitePanel:
+    @pytest.fixture(autouse=True)
+    def _synced(self, client, pg_database, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
+        self.circuits = list(CIRCUITS)
+        self.circuits_error = None
+        self.calls = []
+
+        def fetch(endpoint, params=None, **kwargs):
+            self.calls.append(endpoint)
+            if endpoint == "dcim/locations/":
+                return LOCATIONS
+            if endpoint == "circuits/circuits/":
+                if self.circuits_error:
+                    raise self.circuits_error
+                return self.circuits
+            if endpoint == "circuits/circuit-terminations/" and params.get("location") == "loc-ode":
+                return [{"circuit": {"id": "c-term", "cid": "TDC-0001"}, "term_side": "A"}]
+            return []
+
+        monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
+        self.sync()
+
+    def sync(self):
+        inventory.sync_nautobot(force=True)
+        caching.cache.clear()
+
+    def panel(self, client, location_id):
+        response = client.get(f"/api/locations/{location_id}/detail")
+        assert response.status_code == 200
+        return response.get_json()["circuits"]
+
+
+def test_without_a_database_none_by_address(monkeypatch):
+    monkeypatch.setattr(alerts.db, "dialect", lambda: None)
+    assert alerts.address_circuits("loc-ode", set()) == []
+
+
+# Held back until what they need is ported (#587):
+#   TestSitePanel.test_terminated_first_then_by_address: HTTP routes (step 7)
+#   TestSitePanel.test_the_other_site_at_the_address_lists_them_too: HTTP routes (step 7)
+#   TestSitePanel.test_a_child_at_the_same_address_does_not_count_its_parent: HTTP routes (step 7)
+#   TestSitePanel.test_only_its_own_address: HTTP routes (step 7)
+#   TestSitePanel.test_none_by_address_when_the_terminations_cannot_be_read: HTTP routes (step 7)
+#   TestSitePanel.test_a_failed_read_keeps_the_circuits_and_a_later_one_replaces_them: HTTP routes (step 7)
+#   TestSitePanel.test_one_read_per_sync_however_many_sites: HTTP routes (step 7)
