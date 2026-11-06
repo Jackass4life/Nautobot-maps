@@ -46,18 +46,19 @@ def tick() -> bool:
         release()
 
 
-def loop() -> None:
-    while not _stop.is_set():
+def loop(stop_event: threading.Event | None = None) -> None:
+    stop_event = stop_event or _stop
+    while not stop_event.is_set():
         try:
             tick()
         except Exception as exc:
             logger.warning("Background scheduler tick failed: %s", exc, exc_info=True)
-        _stop.wait(tick_seconds())
+        stop_event.wait(tick_seconds())
 
 
 def start() -> bool:
     """Start this process's scheduler thread once. Returns whether it runs."""
-    global _started
+    global _started, _stop
     if not settings.BACKGROUND_SYNC_ENABLED or not (
         settings.NAUTOBOT_URL and settings.NAUTOBOT_TOKEN
     ):
@@ -66,8 +67,10 @@ def start() -> bool:
         if _started:
             return True
         _started = True
-        _stop.clear()
-        threading.Thread(target=loop, name="background-scheduler", daemon=True).start()
+        _stop = threading.Event()
+        threading.Thread(
+            target=loop, args=(_stop,), name="background-scheduler", daemon=True
+        ).start()
     logger.info("Background scheduler started (tick every %ss)", tick_seconds())
     return True
 
@@ -75,5 +78,6 @@ def start() -> bool:
 def stop() -> None:
     """At shutdown: the thread ends after its tick."""
     global _started
-    _stop.set()
-    _started = False
+    with _start_lock:
+        _stop.set()
+        _started = False

@@ -86,6 +86,27 @@ def test_start_is_idempotent_and_respects_the_setting(monkeypatch):
     assert started[0]["daemon"] is True and started[0]["name"] == "background-scheduler"
 
 
+def test_restart_does_not_clear_the_previous_workers_stop_event(monkeypatch):
+    started = []
+    monkeypatch.setattr(scheduler, "_started", False)
+    monkeypatch.setattr(scheduler, "_stop", scheduler.threading.Event())
+    monkeypatch.setattr(
+        scheduler.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock()
+    )
+    monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
+
+    assert scheduler.start() is True
+    previous_stop = started[0]["args"][0]
+    scheduler.stop()
+    assert previous_stop.is_set()
+
+    assert scheduler.start() is True
+    current_stop = started[1]["args"][0]
+    assert current_stop is not previous_stop
+    assert not current_stop.is_set()
+    started[0]["target"](*started[0]["args"])
+
+
 def test_not_started_without_nautobot(monkeypatch):
     monkeypatch.setattr(scheduler, "_started", False)
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
