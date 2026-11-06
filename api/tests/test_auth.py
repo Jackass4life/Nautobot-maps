@@ -208,3 +208,15 @@ def test_cors_allows_cookies_from_web(client):
     )
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
     assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_the_spec_and_docs_follow_the_sign_in_rules(header_mode, configure, via_proxy):
+    """As the current app's /api/openapi.json and /api/docs (#592 review)."""
+    assert via_proxy.get("/api/openapi.json").status_code == 200
+    assert via_proxy.get("/api/docs").status_code == 200
+    configure(AUTH_REQUIRE_VIEWER="true")
+    for path in ("/api/openapi.json", "/api/docs"):
+        assert via_proxy.get(path).status_code == 401, path
+        assert via_proxy.get(path, headers=as_user("v", "staff")).status_code == 200, path
+        rejected = via_proxy.get(path, headers={"Authorization": "Bearer nmt_unknown"})
+        assert rejected.status_code == 401, path

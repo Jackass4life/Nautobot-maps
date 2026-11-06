@@ -51,7 +51,10 @@ def _status_link(db: DbSession, tenant: str) -> str | None:
     """The page to send a status token with (#500). None when it can't be read: the
     token is made already, and its secret must still be shown."""
     try:
-        return f"/status/{status_link_service.ensure(db, [tenant])[tenant]}"
+        # A savepoint: a database error here mustn't abort the token's own insert.
+        with db.begin_nested():
+            link_id = status_link_service.ensure(db, [tenant])[tenant]
+        return f"/status/{link_id}"
     except Exception as exc:  # noqa: BLE001 - the token stands; say why in the log
         logger.warning(
             "Status token made, but its status link could not be read: %s", type(exc).__name__

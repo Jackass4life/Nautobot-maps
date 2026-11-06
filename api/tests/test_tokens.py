@@ -331,6 +331,28 @@ class TestApi:
         assert [t["name"] for t in tenant_only] == ["acme"]
 
 
+class TestStatusLinkFailure:
+    def test_a_failing_link_keeps_the_token(self, client, clock, monkeypatch, caplog):
+        """A database error making the link (#592 review): a savepoint, so the token's
+        insert stands and its secret is shown, without the link."""
+        from app.services import status_link_service
+
+        def broken(session, tenants):
+            session.execute(text("INSERT INTO status_links (tenant_key) VALUES (NULL)"))
+
+        acme_in_nautobot()
+        admin = make("bootstrap", "admin")["token"]
+        monkeypatch.setattr(status_link_service, "ensure", broken)
+        body = {"name": "acme", "role": "status", "tenant": "Acme"}
+        response = client.post("/api/v1/tokens", json=body, headers=bearer(admin))
+        assert response.status_code == 201
+        created = response.json()["token"]
+        assert created["status_link"] is None and created["token"].startswith("nmt_")
+        assert "status link could not be read: IntegrityError" in caplog.text
+        assert [row["name"] for row in raw_rows()] == ["bootstrap", "acme"]
+        assert verify(created["token"])["tenant"] == "Acme"
+
+
 class TestListAndPurge:
     """#528: the list shows the tokens that work; purge deletes the rest for good."""
 
