@@ -62,9 +62,9 @@ def test_retention_defaults_to_two_years(value, days):
         [
             sys.executable,
             "-c",
-            "from nautobot_maps import settings; print(settings.ALERT_HISTORY_RETENTION_DAYS)",
+            "from app.utils.legacy_settings import settings; print(settings.ALERT_HISTORY_RETENTION_DAYS)",
         ],
-        cwd=pathlib.Path(__file__).resolve().parents[2],
+        cwd=pathlib.Path(__file__).resolve().parents[1],
         env={**os.environ, "ALERT_HISTORY_RETENTION_DAYS": value},
         capture_output=True,
         text=True,
