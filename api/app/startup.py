@@ -5,6 +5,7 @@ out and the settings that would quietly break something, once per server
 import logging
 import os
 
+from app.utils import config
 from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
@@ -39,9 +40,12 @@ def log_alert_board_exclusions() -> None:
             "the app can change criticality overrides"
         )
     if settings.AUTH_MODE == "header":
-        proxies = ", ".join(str(network) for network in settings.AUTH_TRUSTED_PROXIES)
+        # Read from the settings model, not through settings.NAME (one __getattr__ for
+        # every setting, the secret's too): only the networks reach the log (#613).
+        current = config.get_settings()
+        proxies = ", ".join(str(network) for network in current.auth_trusted_proxies)
         # Two calls, so nothing derived from the secret reaches the log.
-        if settings.AUTH_PROXY_SECRET:
+        if current.auth_proxy_secret:
             logger.info(
                 "Header auth: identity headers trusted from %s with the proxy secret", proxies
             )

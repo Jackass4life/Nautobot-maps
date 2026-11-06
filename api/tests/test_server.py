@@ -119,6 +119,20 @@ class TestStartupLog:
             startup.log_alert_board_exclusions()
         assert "LIBRENMS_VERIFY_SSL='/nonexistent/ca.pem'" in caplog.text
 
+    @pytest.mark.parametrize(
+        ("secret", "says"),
+        [("s3cr3t-value", "with the proxy secret"), ("", "no AUTH_PROXY_SECRET")],
+    )
+    def test_header_auth_names_the_proxies_never_the_secret(
+        self, monkeypatch, caplog, secret, says
+    ):
+        monkeypatch.setattr(settings, "AUTH_MODE", "header")
+        monkeypatch.setattr(settings, "AUTH_PROXY_SECRET", secret)
+        with caplog.at_level("INFO", logger="app"):
+            startup.log_alert_board_exclusions()
+        assert "identity headers trusted from 127.0.0.1/32" in caplog.text and says in caplog.text
+        assert "s3cr3t" not in caplog.text
+
     def test_a_leftover_sqlite_setting(self, monkeypatch, caplog):
         monkeypatch.setattr(settings, "LEGACY_SQLITE_DB", "/app/data/nautobot_maps.db")
         with caplog.at_level("ERROR", logger="app"):

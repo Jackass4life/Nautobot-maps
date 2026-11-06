@@ -33,6 +33,10 @@ RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
+# uv installs everything; the base image's pip is never used, and its vendored
+# packages (urllib3, msgpack, pkg_resources) only show up in the Trivy scan (#613).
+RUN python -m pip uninstall -y pip
+
 COPY --from=uv /uv /usr/local/bin/uv
 
 # The repository's layout: api/ next to docs/ and README.md (the help pages).
