@@ -74,14 +74,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tokens
+         * @description API tokens: name, first characters, role, expiry, last use, state; never the
+         *     secret. Only the active ones unless ``all=true``; ``inactive`` counts the others.
+         */
+        get: operations["listTokens"];
+        put?: never;
+        /**
+         * Create Token
+         * @description Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``
+         *     (viewer, operator, admin, or status with a ``tenant``), optional
+         *     ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A
+         *     status token also answers ``status_link``, its tenant's page.
+         */
+        post: operations["createToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge Tokens
+         * @description Delete revoked and expired API tokens for good (#528), never an active one.
+         *     Optional ``older_than_days`` and ``dry_run``. Their names are free again.
+         */
+        post: operations["purgeTokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/{token_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Token
+         * @description Revoke an API token: refused from the next request on.
+         */
+        post: operations["revokeToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** ErrorDto */
+        /**
+         * ErrorDto
+         * @description A refusal or error: one plain sentence, and for a role refusal the role it needs.
+         */
         ErrorDto: {
-            /** Detail */
-            detail: string;
+            /** Current Role */
+            current_role?: string | null;
+            /**
+             * Detail
+             * @description How to allow it, when the setup refuses it.
+             */
+            detail?: string | null;
+            /** Error */
+            error: string;
+            /** Required Role */
+            required_role?: ("viewer" | "operator" | "admin") | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -124,12 +205,143 @@ export interface components {
              * @enum {string}
              */
             auth_mode: "disabled" | "header";
+            /** Can Administer */
+            can_administer: boolean;
+            /** Can Write */
+            can_write: boolean;
             /** Groups */
             groups: string[];
             /** Role */
-            role: ("viewer" | "operator" | "admin") | null;
+            role: string | null;
             /** Username */
             username: string | null;
+        };
+        /** NewTokenDto */
+        NewTokenDto: {
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: number;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Prefix
+             * @description Its first characters, to recognise it.
+             */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Revoked By */
+            revoked_by: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "viewer" | "operator" | "admin" | "status";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "revoked";
+            /**
+             * Status Link
+             * @description A status token: its tenant's page, /status/<id> (#500); send it as /status/<id>#key=<token>.
+             */
+            status_link?: string | null;
+            /**
+             * Tenant
+             * @description The tenant a status token opens.
+             */
+            tenant: string | null;
+            /**
+             * Token
+             * @description The secret: shown this once.
+             */
+            token: string;
+        };
+        /** TokenCreatedDto */
+        TokenCreatedDto: {
+            token: components["schemas"]["NewTokenDto"];
+        };
+        /**
+         * TokenDto
+         * @description An API token; never its secret.
+         */
+        TokenDto: {
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: number;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Prefix
+             * @description Its first characters, to recognise it.
+             */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Revoked By */
+            revoked_by: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "viewer" | "operator" | "admin" | "status";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "revoked";
+            /**
+             * Tenant
+             * @description The tenant a status token opens.
+             */
+            tenant: string | null;
+        };
+        /** TokenRevokedDto */
+        TokenRevokedDto: {
+            token: components["schemas"]["TokenDto"];
+        };
+        /** TokensDto */
+        TokensDto: {
+            /**
+             * Inactive
+             * @description How many of them are revoked or expired, listed or not.
+             */
+            inactive: number;
+            /**
+             * Tokens
+             * @description Newest first; only the active ones unless all=true (#528).
+             */
+            tokens: components["schemas"]["TokenDto"][];
+        };
+        /** TokensPurgedDto */
+        TokensPurgedDto: {
+            /** Dry Run */
+            dry_run: boolean;
+            /**
+             * Purged
+             * @description How many were deleted; 0 with dry_run.
+             */
+            purged: number;
+            /**
+             * Tokens
+             * @description The tokens deleted (or, with dry_run, that would be), newest first.
+             */
+            tokens: components["schemas"]["TokenDto"][];
         };
         /** ValidationError */
         ValidationError: {
@@ -194,7 +406,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemDto"][];
                 };
             };
-            /** @description Not signed in */
+            /** @description Not signed in, or a rejected API token */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -245,7 +457,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemDto"];
                 };
             };
-            /** @description Not signed in */
+            /** @description Not signed in, or a rejected API token */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -303,7 +515,7 @@ export interface operations {
                     "application/json": components["schemas"]["ItemDto"];
                 };
             };
-            /** @description Not signed in */
+            /** @description Not signed in, or a rejected API token */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -359,7 +571,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Not signed in */
+            /** @description Not signed in, or a rejected API token */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -413,6 +625,238 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeDto"];
+                };
+            };
+        };
+    };
+    listTokens: {
+        parameters: {
+            query?: {
+                /** @description Revoked and expired ones too (#528). */
+                all?: string | null;
+                /** @description Only this tenant's status tokens. */
+                tenant?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensDto"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Expires In Days */
+                    expires_in_days?: number | null;
+                    /** Name */
+                    name: string;
+                    /**
+                     * Role
+                     * @description viewer, operator, admin, or status with a tenant
+                     */
+                    role: string;
+                    /** Tenant */
+                    tenant?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenCreatedDto"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+        };
+    };
+    purgeTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Dry Run
+                     * @default false
+                     */
+                    dry_run?: boolean;
+                    /** Older Than Days */
+                    older_than_days?: number | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensPurgedDto"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+        };
+    };
+    revokeToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenRevokedDto"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

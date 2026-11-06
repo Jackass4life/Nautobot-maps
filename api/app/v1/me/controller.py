@@ -12,4 +12,14 @@ router = APIRouter(prefix="/me", tags=["auth"])
 
 @router.get("", operation_id="getCurrentUser", response_model=MeDto)
 def get_current_user(user: CurrentUserDep) -> MeDto:
-    return auth_service.to_me_dto(user, get_settings())
+    settings = get_settings()
+    return MeDto(
+        username=user.username or None,
+        # Not signed in, no role (role_from_groups gives the default role to anyone).
+        role=(user.role or None) if user.is_authenticated else None,
+        groups=user.groups,
+        auth_mode=settings.auth_mode,
+        # Writes as the board's own changes are (open with AUTH_MODE=disabled).
+        can_write=auth_service.role_problem(user, settings, "operator", "POST", True) is None,
+        can_administer=auth_service.may_administer(user, settings),
+    )

@@ -14,7 +14,7 @@ def test_create_then_get_and_list(client):
 def test_unknown_item_is_404(client):
     response = client.get("/api/v1/items/999")
     assert response.status_code == 404
-    assert response.json() == {"detail": "Item 999 not found"}
+    assert response.json() == {"error": "Item 999 not found"}
 
 
 def test_duplicate_name_is_409_and_rolled_back(client):
@@ -50,5 +50,5 @@ def test_concurrent_duplicate_is_409_not_500(client, monkeypatch):
     monkeypatch.setattr(ItemRepository, "get_by_name", lambda self, name: None)
     response = client.post("/api/v1/items", json={"name": "Race"})
     assert response.status_code == 409
-    assert response.json() == {"detail": "Item named 'Race' already exists"}
+    assert response.json() == {"error": "Item named 'Race' already exists"}
     assert len(client.get("/api/v1/items").json()) == 1

@@ -2,14 +2,55 @@
   "components": {
     "schemas": {
       "ErrorDto": {
+        "additionalProperties": false,
+        "description": "A refusal or error: one plain sentence, and for a role refusal the role it needs.",
         "properties": {
+          "current_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Role"
+          },
           "detail": {
-            "title": "Detail",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How to allow it, when the setup refuses it.",
+            "title": "Detail"
+          },
+          "error": {
+            "title": "Error",
             "type": "string"
+          },
+          "required_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "viewer",
+                  "operator",
+                  "admin"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Role"
           }
         },
         "required": [
-          "detail"
+          "error"
         ],
         "title": "ErrorDto",
         "type": "object"
@@ -114,6 +155,14 @@
             "title": "Auth Mode",
             "type": "string"
           },
+          "can_administer": {
+            "title": "Can Administer",
+            "type": "boolean"
+          },
+          "can_write": {
+            "title": "Can Write",
+            "type": "boolean"
+          },
           "groups": {
             "items": {
               "type": "string"
@@ -124,11 +173,6 @@
           "role": {
             "anyOf": [
               {
-                "enum": [
-                  "viewer",
-                  "operator",
-                  "admin"
-                ],
                 "type": "string"
               },
               {
@@ -153,9 +197,329 @@
           "username",
           "role",
           "groups",
-          "auth_mode"
+          "auth_mode",
+          "can_write",
+          "can_administer"
         ],
         "title": "MeDto",
+        "type": "object"
+      },
+      "NewTokenDto": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prefix": {
+            "description": "Its first characters, to recognise it.",
+            "title": "Prefix",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "revoked_by": {
+            "title": "Revoked By",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "viewer",
+              "operator",
+              "admin",
+              "status"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "expired",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A status token: its tenant's page, /status/<id> (#500); send it as /status/<id>#key=<token>.",
+            "title": "Status Link"
+          },
+          "tenant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tenant a status token opens.",
+            "title": "Tenant"
+          },
+          "token": {
+            "description": "The secret: shown this once.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "role",
+          "tenant",
+          "created_by",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at",
+          "revoked_by",
+          "state",
+          "token"
+        ],
+        "title": "NewTokenDto",
+        "type": "object"
+      },
+      "TokenCreatedDto": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "$ref": "#/components/schemas/NewTokenDto"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "TokenCreatedDto",
+        "type": "object"
+      },
+      "TokenDto": {
+        "additionalProperties": false,
+        "description": "An API token; never its secret.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prefix": {
+            "description": "Its first characters, to recognise it.",
+            "title": "Prefix",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "revoked_by": {
+            "title": "Revoked By",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "viewer",
+              "operator",
+              "admin",
+              "status"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "expired",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "tenant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tenant a status token opens.",
+            "title": "Tenant"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "role",
+          "tenant",
+          "created_by",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at",
+          "revoked_by",
+          "state"
+        ],
+        "title": "TokenDto",
+        "type": "object"
+      },
+      "TokenRevokedDto": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "$ref": "#/components/schemas/TokenDto"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "TokenRevokedDto",
+        "type": "object"
+      },
+      "TokensDto": {
+        "additionalProperties": false,
+        "properties": {
+          "inactive": {
+            "description": "How many of them are revoked or expired, listed or not.",
+            "title": "Inactive",
+            "type": "integer"
+          },
+          "tokens": {
+            "description": "Newest first; only the active ones unless all=true (#528).",
+            "items": {
+              "$ref": "#/components/schemas/TokenDto"
+            },
+            "title": "Tokens",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens",
+          "inactive"
+        ],
+        "title": "TokensDto",
+        "type": "object"
+      },
+      "TokensPurgedDto": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "purged": {
+            "description": "How many were deleted; 0 with dry_run.",
+            "title": "Purged",
+            "type": "integer"
+          },
+          "tokens": {
+            "description": "The tokens deleted (or, with dry_run, that would be), newest first.",
+            "items": {
+              "$ref": "#/components/schemas/TokenDto"
+            },
+            "title": "Tokens",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens",
+          "purged",
+          "dry_run"
+        ],
+        "title": "TokensPurgedDto",
         "type": "object"
       },
       "ValidationError": {
@@ -278,7 +642,7 @@
                 }
               }
             },
-            "description": "Not signed in"
+            "description": "Not signed in, or a rejected API token"
           },
           "403": {
             "content": {
@@ -337,7 +701,7 @@
                 }
               }
             },
-            "description": "Not signed in"
+            "description": "Not signed in, or a rejected API token"
           },
           "403": {
             "content": {
@@ -402,7 +766,7 @@
                 }
               }
             },
-            "description": "Not signed in"
+            "description": "Not signed in, or a rejected API token"
           },
           "403": {
             "content": {
@@ -472,7 +836,7 @@
                 }
               }
             },
-            "description": "Not signed in"
+            "description": "Not signed in, or a rejected API token"
           },
           "403": {
             "content": {
@@ -529,6 +893,350 @@
         "summary": "Get Current User",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "description": "API tokens: name, first characters, role, expiry, last use, state; never the\nsecret. Only the active ones unless ``all=true``; ``inactive`` counts the others.",
+        "operationId": "listTokens",
+        "parameters": [
+          {
+            "description": "Revoked and expired ones too (#528).",
+            "in": "query",
+            "name": "all",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Revoked and expired ones too (#528).",
+              "title": "All"
+            }
+          },
+          {
+            "description": "Only this tenant's status tokens.",
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this tenant's status tokens.",
+              "title": "Tenant"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokensDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Tokens",
+        "tags": [
+          "tokens"
+        ]
+      },
+      "post": {
+        "description": "Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``\n(viewer, operator, admin, or status with a ``tenant``), optional\n``expires_in_days``. The answer's ``token`` is the secret, shown this once. A\nstatus token also answers ``status_link``, its tenant's page.",
+        "operationId": "createToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A new API token (#297).",
+                "properties": {
+                  "expires_in_days": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Expires In Days"
+                  },
+                  "name": {
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "viewer, operator, admin, or status with a tenant",
+                    "title": "Role",
+                    "type": "string"
+                  },
+                  "tenant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Tenant"
+                  }
+                },
+                "required": [
+                  "name",
+                  "role"
+                ],
+                "title": "TokenCreateDto",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreatedDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          }
+        },
+        "summary": "Create Token",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/api/v1/tokens/purge": {
+      "post": {
+        "description": "Delete revoked and expired API tokens for good (#528), never an active one.\nOptional ``older_than_days`` and ``dry_run``. Their names are free again.",
+        "operationId": "purgeTokens",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Which tokens to delete for good (#528): revoked and expired ones, only those\nthat stopped working more than ``older_than_days`` ago when given; ``dry_run``\ndeletes nothing.",
+                "properties": {
+                  "dry_run": {
+                    "default": false,
+                    "title": "Dry Run",
+                    "type": "boolean"
+                  },
+                  "older_than_days": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Older Than Days"
+                  }
+                },
+                "title": "TokenPurgeDto",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokensPurgedDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Not a valid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          }
+        },
+        "summary": "Purge Tokens",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/api/v1/tokens/{token_id}/revoke": {
+      "post": {
+        "description": "Revoke an API token: refused from the next request on.",
+        "operationId": "revokeToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "title": "Token Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRevokedDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Not signed in, or a rejected API token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Role too low, or a cross-site change"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDto"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Token",
+        "tags": [
+          "tokens"
         ]
       }
     }

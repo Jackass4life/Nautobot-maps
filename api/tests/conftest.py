@@ -45,6 +45,7 @@ from sqlalchemy import text  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models import Base  # noqa: E402
 from app.session import engine  # noqa: E402
 from app.utils.config import get_settings  # noqa: E402
 
@@ -62,8 +63,9 @@ def migrated_db():
 @pytest.fixture(autouse=True)
 def clean_tables():
     yield
+    tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE items RESTART IDENTITY"))
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture
