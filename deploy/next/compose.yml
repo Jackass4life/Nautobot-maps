@@ -28,6 +28,19 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       # The browser calls the API from the web page's origin.
       CORS_ORIGINS: '["${WEB_PUBLIC_URL:-http://localhost:3000}"]'
+      # Sign-in (#582), see api/README.md. header mode: AUTH_TRUSTED_PROXIES must
+      # cover the sign-in proxy and the web container (it forwards the headers), and
+      # AUTH_PROXY_SECRET must be set (web forwards only requests carrying it).
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+      AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
+      AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+      AUTH_HEADER_USER: ${AUTH_HEADER_USER:-X-Forwarded-User}
+      AUTH_HEADER_GROUPS: ${AUTH_HEADER_GROUPS:-X-Forwarded-Groups}
+      AUTH_VIEWER_GROUPS: ${AUTH_VIEWER_GROUPS:-}
+      AUTH_OPERATOR_GROUPS: ${AUTH_OPERATOR_GROUPS:-}
+      AUTH_ADMIN_GROUPS: ${AUTH_ADMIN_GROUPS:-}
+      AUTH_DEFAULT_ROLE: ${AUTH_DEFAULT_ROLE:-}
+      AUTH_REQUIRE_VIEWER: ${AUTH_REQUIRE_VIEWER:-false}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -41,6 +54,10 @@ services:
       # What the browser calls; server-side rendering uses the internal address.
       NUXT_PUBLIC_API_BASE: ${API_PUBLIC_URL:-http://localhost:8000}
       NUXT_API_BASE_SERVER: http://api:8000
+      # Server-side rendering forwards identity headers only with this secret (#582).
+      NUXT_AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+      # The API's AUTH_HEADER_USER / AUTH_HEADER_GROUPS, comma-separated.
+      NUXT_AUTH_FORWARD_HEADERS: ${AUTH_FORWARD_HEADERS:-x-forwarded-user,x-forwarded-groups}
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:

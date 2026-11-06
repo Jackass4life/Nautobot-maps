@@ -39,3 +39,16 @@ sit in `web/`, not in Nuxt 4's default `app/`.
   `http://api:8000` inside compose); empty means the public address. It is never sent to the browser.
 - `web/Dockerfile` (#577) builds the Nuxt server (non-root, healthcheck on `/healthz`);
   `deploy/next/compose.yml` runs it with `api/` and PostgreSQL.
+
+## Sign-in (#582)
+
+- `useMe()` (`GET /api/v1/me`) gives the user and role; the page hides add/delete below
+  operator (the API refuses them anyway).
+- Server-side rendering forwards the sign-in proxy's identity headers to the API:
+  `NUXT_AUTH_FORWARD_HEADERS` (default `x-forwarded-user,x-forwarded-groups`; match the API's
+  `AUTH_HEADER_*`). Only when the page request carries `X-Auth-Proxy-Secret` equal to
+  `NUXT_AUTH_PROXY_SECRET` (set it to the API's `AUTH_PROXY_SECRET`): otherwise anyone reaching
+  web's port directly could make web vouch for a forged user. Unset: nothing is forwarded and
+  pages render as not signed in.
+- Browser calls send cookies (`credentials: 'include'`), so a cookie-based sign-in proxy in
+  front of an API on another origin works; the API allows credentials from `CORS_ORIGINS`.
