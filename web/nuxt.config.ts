@@ -1,23 +1,27 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+// Built to static files (`npm run generate`, #594) that api/ serves from the same
+// origin, as the current app serves frontend/: no Node process in production.
 export default defineNuxtConfig({
   compatibilityDate: '2025-11-01',
   // Flat layout (plugins/, pages/, types/ at the project root) instead of Nuxt 4's app/.
   srcDir: '.',
-  devtools: { enabled: true },
+  // A single-page app: the API does the work.
+  ssr: false,
+  app: { buildAssetsDir: '/_nuxt/' },
+  // No inline import map in the page (CSP: script-src 'self'); the entry is loaded
+  // by its own file name instead.
+  experimental: { entryImportMap: false },
   runtimeConfig: {
-    // Server-side rendering only; empty: use public.apiBase. Override with NUXT_API_BASE_SERVER.
-    apiBaseServer: '',
-    // Request headers server-side rendering passes on to the API (#582): the sign-in
-    // proxy's identity headers. Match the API's AUTH_HEADER_USER / AUTH_HEADER_GROUPS.
-    // Override with NUXT_AUTH_FORWARD_HEADERS (CSV).
-    authForwardHeaders: 'x-forwarded-user,x-forwarded-groups',
-    // The API's AUTH_PROXY_SECRET; headers are only forwarded from a request that
-    // carries it (X-Auth-Proxy-Secret). Empty: none are. NUXT_AUTH_PROXY_SECRET.
-    authProxySecret: '',
     public: {
-      // Override with NUXT_PUBLIC_API_BASE.
-      apiBase: 'http://localhost:8000',
+      // The API is this origin; override with NUXT_PUBLIC_API_BASE at build time.
+      apiBase: '',
     },
   },
+  vite: {
+    // `npm run dev`: the API from `uv run uvicorn app.main:app` on :8000.
+    server: { proxy: { '/api/': { target: 'http://127.0.0.1:8000', changeOrigin: true } } },
+  },
+  devtools: { enabled: false },
+  telemetry: false,
   typescript: { strict: true, typeCheck: false },
 })

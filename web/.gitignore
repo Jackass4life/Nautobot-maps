@@ -3,3 +3,6 @@ node_modules/
 .output/
 .data/
 .env
+
+# `nuxt generate` links it to .output/public
+dist

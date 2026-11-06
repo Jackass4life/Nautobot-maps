@@ -68,15 +68,60 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
-      "HealthDto": {
+      "HealthChecksDto": {
+        "additionalProperties": false,
         "properties": {
+          "app": {
+            "const": "ok",
+            "title": "App",
+            "type": "string"
+          },
+          "database": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Database",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "database"
+        ],
+        "title": "HealthChecksDto",
+        "type": "object"
+      },
+      "HealthDto": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/HealthChecksDto"
+          },
+          "inventory_sync_age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Since the Nautobot inventory last synced (step 5 of #587: always null).",
+            "title": "Inventory Sync Age Seconds"
+          },
           "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
-          "status"
+          "status",
+          "checks"
         ],
         "title": "HealthDto",
         "type": "object"
@@ -570,27 +615,6 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/healthz": {
-      "get": {
-        "operationId": "getHealth",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthDto"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Health",
-        "tags": [
-          "health"
-        ]
-      }
-    },
     "/api/v1/items": {
       "get": {
         "operationId": "listItems",
@@ -1237,6 +1261,37 @@
         "summary": "Revoke Token",
         "tags": [
           "tokens"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthDto"
+                }
+              }
+            },
+            "description": "The database doesn't answer"
+          }
+        },
+        "summary": "Get Health",
+        "tags": [
+          "health"
         ]
       }
     }

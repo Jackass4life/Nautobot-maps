@@ -8,9 +8,9 @@ project from the current frontend (`frontend/`).
 ```bash
 npm install
 npm run generate:api   # ../api/openapi.json -> types/api.d.ts (generated, never edit by hand)
-npm run dev            # http://localhost:3000; API base: NUXT_PUBLIC_API_BASE (default http://localhost:8000)
+npm run dev            # http://localhost:3000; /api/ proxied to the API on :8000
 npm run typecheck
-npm run build
+npm run generate       # static files in .output/public, which api/ serves
 ```
 
 ## Calling the API
@@ -32,23 +32,20 @@ See `composables/useItems.ts` and `pages/index.vue` for the example resource.
 The layout is flat (`srcDir: '.'`): `pages/`, `plugins/`, `composables/`, `types/`
 sit in `web/`, not in Nuxt 4's default `app/`.
 
-## API address and container
+## Built and served (#594)
 
-- `NUXT_PUBLIC_API_BASE`: where the browser calls the API (default `http://localhost:8000`).
-- `NUXT_API_BASE_SERVER`: where server-side rendering calls it, when that differs (e.g.
-  `http://api:8000` inside compose); empty means the public address. It is never sent to the browser.
-- `web/Dockerfile` (#577) builds the Nuxt server (non-root, healthcheck on `/healthz`);
-  `deploy/next/compose.yml` runs it with `api/` and PostgreSQL.
+- A single-page app (`ssr: false`) built with `nuxt generate` to `.output/public`. `api/`
+  serves it from the same origin, as the current app serves `frontend/`: page routes answer
+  `200.html`, `/_nuxt/` the content-named files (cached a year). The api image builds it
+  (`api/Dockerfile`); no Node process in production.
+- The CSP allows no inline scripts: `scripts/no-inline-scripts.mjs` (run by `generate`)
+  moves Nuxt's `window.__NUXT__` config into a file under `/_nuxt/` and fails the build on
+  any other inline script.
+- The API is the page's own origin (`NUXT_PUBLIC_API_BASE` empty), so the sign-in
+  proxy's cookie comes along and no CORS is needed.
+- A new page: add its path to `PAGES` in `api/app/frontend/controller.py`.
 
-## Sign-in (#582)
+## Sign-in (#582, #592)
 
-- `useMe()` (`GET /api/v1/me`) gives the user and role; the page hides add/delete below
-  operator (the API refuses them anyway).
-- Server-side rendering forwards the sign-in proxy's identity headers to the API:
-  `NUXT_AUTH_FORWARD_HEADERS` (default `x-forwarded-user,x-forwarded-groups`; match the API's
-  `AUTH_HEADER_*`). Only when the page request carries `X-Auth-Proxy-Secret` equal to
-  `NUXT_AUTH_PROXY_SECRET` (set it to the API's `AUTH_PROXY_SECRET`): otherwise anyone reaching
-  web's port directly could make web vouch for a forged user. Unset: nothing is forwarded and
-  pages render as not signed in.
-- Browser calls send cookies (`credentials: 'include'`), so a cookie-based sign-in proxy in
-  front of an API on another origin works; the API allows credentials from `CORS_ORIGINS`.
+`useMe()` (`GET /api/v1/me`) gives the user, and `can_write` by the API's own rules; the
+page hides add/delete without it (the API refuses them anyway).

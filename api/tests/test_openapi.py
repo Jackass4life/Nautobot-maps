@@ -22,4 +22,27 @@ def test_exported_spec_is_current():
 
 
 def test_healthz(client):
-    assert client.get("/api/healthz").json() == {"status": "ok"}
+    expected = {
+        "status": "ok",
+        "checks": {"app": "ok", "database": "ok"},
+        "inventory_sync_age_seconds": None,
+    }
+    assert client.get("/healthz").json() == expected
+    # The path before #594, until the switchover.
+    assert client.get("/api/healthz").json() == expected
+
+
+def test_healthz_without_the_database(client, monkeypatch, caplog):
+    from sqlalchemy import create_engine
+
+    from app import session
+
+    unreachable = create_engine(
+        "postgresql+psycopg://nobody:secret@127.0.0.1:1/none", connect_args={"connect_timeout": 1}
+    )
+    monkeypatch.setattr(session, "probe_engine", unreachable)
+    response = client.get("/healthz")
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["checks"]["database"] == "unavailable"
+    assert "secret" not in response.text and "secret" not in caplog.text

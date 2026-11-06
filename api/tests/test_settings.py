@@ -27,6 +27,8 @@ NOT_PASSED_BY_COMPOSE = {
     "FLASK_DEBUG",
     "FLASK_RUN_PORT",
     "SQL_ECHO",
+    # Set by the image (api/Dockerfile), where it put web/'s built pages.
+    "WEB_BUILD_DIR",
     # compose sets DATABASE_URL (+ DATABASE_PASSWORD) to its own PostgreSQL.
     "NAUTOBOT_MAPS_DATABASE_URL",
     *LEGACY_SETTINGS,
