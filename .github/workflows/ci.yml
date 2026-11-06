@@ -190,6 +190,47 @@ jobs:
         run: npm run build
 
   # -----------------------------------------------------------------------
+  # The new stack's images and compose file (#577): build, start, use it
+  # through the API and the server-rendered page.
+  # -----------------------------------------------------------------------
+  next-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/next
+    env:
+      # "@", ":" and "%40" on purpose: the password must not be URL-parsed (#577).
+      POSTGRES_PASSWORD: "ci@pa:ss%40word"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and start
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Non-root containers
+        run: |
+          for service in api web; do
+            uid=$(docker compose exec -T "$service" id -u)
+            echo "$service runs as uid $uid"
+            test "$uid" != "0"
+          done
+
+      - name: API, then the page renders the item server-side
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/healthz
+          curl -fsS http://127.0.0.1:3000/healthz
+          curl -fsS -X POST http://127.0.0.1:8000/api/v1/items \
+            -H 'Content-Type: application/json' -d '{"name": "smoke-item"}'
+          curl -fsS http://127.0.0.1:8000/api/v1/items | grep -q smoke-item
+          # Fetched by web's server (NUXT_API_BASE_SERVER), not the browser.
+          curl -fsS http://127.0.0.1:3000/ | grep -q smoke-item
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs
+
+  # -----------------------------------------------------------------------
   # Known vulnerabilities in the locked dependencies (#186)
   # -----------------------------------------------------------------------
   audit:

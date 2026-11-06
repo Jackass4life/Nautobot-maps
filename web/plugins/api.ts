@@ -3,6 +3,9 @@ import type { paths } from '~/types/api'
 
 export default defineNuxtPlugin(() => {
   const config = useRuntimeConfig()
-  const api = createClient<paths>({ baseUrl: config.public.apiBase })
+  // Server-side rendering may reach the API at an internal address (e.g.
+  // http://api:8000 in compose) that the browser can't (#577).
+  const baseUrl = import.meta.server && config.apiBaseServer ? config.apiBaseServer : config.public.apiBase
+  const api = createClient<paths>({ baseUrl })
   return { provide: { api } }
 })

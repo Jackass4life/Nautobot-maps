@@ -40,6 +40,26 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
 
+  # The new projects' images and compose file (#577)
+  - package-ecosystem: docker
+    directories: [/api, /web]
+    schedule:
+      interval: weekly
+    ignore:
+      # Python / Node versions are a deliberate change, as for the current image.
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: docker-compose
+    directory: /deploy/next
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

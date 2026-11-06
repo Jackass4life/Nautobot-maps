@@ -31,3 +31,11 @@ See `composables/useItems.ts` and `pages/index.vue` for the example resource.
 
 The layout is flat (`srcDir: '.'`): `pages/`, `plugins/`, `composables/`, `types/`
 sit in `web/`, not in Nuxt 4's default `app/`.
+
+## API address and container
+
+- `NUXT_PUBLIC_API_BASE`: where the browser calls the API (default `http://localhost:8000`).
+- `NUXT_API_BASE_SERVER`: where server-side rendering calls it, when that differs (e.g.
+  `http://api:8000` inside compose); empty means the public address. It is never sent to the browser.
+- `web/Dockerfile` (#577) builds the Nuxt server (non-root, healthcheck on `/healthz`);
+  `deploy/next/compose.yml` runs it with `api/` and PostgreSQL.

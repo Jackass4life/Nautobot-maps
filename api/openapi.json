@@ -27,6 +27,19 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HealthDto": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthDto",
+        "type": "object"
+      },
       "ItemCreateDto": {
         "additionalProperties": false,
         "properties": {
@@ -138,6 +151,27 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/healthz": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
     "/api/v1/items": {
       "get": {
         "operationId": "listItems",

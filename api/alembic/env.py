@@ -23,7 +23,8 @@ target_metadata = Base.metadata
 # An explicit URL (tests set it) wins over the app setting. The config is a
 # ConfigParser: "%" (percent-encoded credentials) must be written as "%%".
 if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+    url = get_settings().sqlalchemy_url().render_as_string(hide_password=False)
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
