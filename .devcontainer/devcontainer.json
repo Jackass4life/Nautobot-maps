@@ -1,19 +1,19 @@
 {
   "name": "Nautobot Maps",
-  // Python 3.11 (the oldest version CI tests; the Docker image uses 3.12) plus
-  // PostgreSQL, defined in docker-compose.yml next to this file.
+  // Python, with uv for api/ (Python 3.13, #613), plus PostgreSQL, defined in
+  // docker-compose.yml next to this file.
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "features": {
-    // Node runs the JavaScript runtime checks in the test suite.
+    // Node builds and tests the pages in web/.
     "ghcr.io/devcontainers/features/node:1": {},
     // GitHub CLI for issues, PRs and CI status.
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
   },
-  // Runtime + dev tools (pytest, ruff), same pins as CI.
-  "postCreateCommand": "pip install -r requirements-dev.txt && npm ci --no-audit --no-fund",
+  // api/'s dependencies and dev tools (pytest, ruff) from uv.lock, and web/'s, as CI.
+  "postCreateCommand": "pip install --user uv && cd api && ~/.local/bin/uv sync --locked --group e2e && cd ../web && npm ci --no-audit --no-fund",
   // The app's default port. If 5000 is already taken on your machine, VS Code
   // forwards it to a free local port instead; see the Ports view.
   "forwardPorts": [5000],

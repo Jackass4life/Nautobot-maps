@@ -24,16 +24,16 @@ Always run the full suite first:
 
 ```bash
 # Install dependencies (first time only)
-pip install -r requirements.txt
+cd api && uv sync
 
 # All tests – unit + integration
-python -m pytest tests/ -v
+uv run pytest -v
 
 # Integration tests only (requires no external network)
-python -m pytest tests/test_integration.py -v
+uv run pytest tests/test_integration.py -v
 
 # Unit tests only
-python -m pytest tests/test_app.py -v
+uv run pytest tests/test_app.py -v
 ```
 
 Expected result: **all tests green, 0 failures**.  

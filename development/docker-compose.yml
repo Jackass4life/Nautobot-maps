@@ -85,18 +85,34 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    command: python app.py
     ports:
       - "5000:5000"
     environment:
       NAUTOBOT_URL: http://nautobot:8080
       NAUTOBOT_TOKEN: aaaa-bbbb-cccc-dddd-eeee
-      FLASK_DEBUG: "true"
       CACHE_TTL: "60"
       NAUTOBOT_VERIFY_SSL: "false"
+      # Its own database (#613: the app needs one), beside Nautobot's.
+      NAUTOBOT_MAPS_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@maps-postgres:5432/nautobot_maps
     depends_on:
       nautobot:
         condition: service_healthy
+      maps-postgres:
+        condition: service_healthy
+    profiles:
+      - full
+
+  maps-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nautobot_maps
+      POSTGRES_USER: nautobot_maps
+      POSTGRES_PASSWORD: nautobot_maps
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nautobot_maps -d nautobot_maps"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     profiles:
       - full
 

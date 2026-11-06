@@ -24,12 +24,6 @@ config/*
 # JavaScript dev tools (npm ci)
 node_modules/
 
-# The Nuxt frontend's build and generated files (#463)
-frontend/.output/
-frontend/.nuxt/
-frontend/.data/
-frontend/dist
-
-# The new web/ project (#572); web/.gitignore has the rest.
+# web/'s build (#463, #609); web/.gitignore has the rest.
 web/.nuxt/
 web/.output/
