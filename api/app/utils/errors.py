@@ -9,7 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.utils.config import Role
+from app.frontend import security
+from app.utils.config import Role, get_settings
 
 
 class ErrorDto(BaseModel):
@@ -60,3 +61,13 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def api_error(_: Request, exc: ApiError) -> JSONResponse:
         return JSONResponse(status_code=exc.status, content=exc.body, headers=exc.headers)
+
+    @app.exception_handler(Exception)
+    async def unexpected(_: Request, exc: Exception) -> JSONResponse:
+        """An unhandled error (#594 review): Starlette answers it outside the app's own
+        middleware, so this answer carries the security headers itself."""
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal server error"},
+            headers=dict(security.security_headers(get_settings())),
+        )

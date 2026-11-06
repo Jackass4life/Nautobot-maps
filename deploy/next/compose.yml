@@ -1,7 +1,7 @@
-# The new stack (#577): PostgreSQL + api/ + web/.
+# The new stack (#577): PostgreSQL + api/, which serves web/'s built pages (#594).
 #   cd deploy/next && cp .env.example .env   # set POSTGRES_PASSWORD
 #   docker compose up -d --build --wait
-# web: http://localhost:3000, api: http://localhost:8000 (spec at /api/openapi.json).
+# http://localhost:8000: the pages, the API under /api/v1 (spec at /api/openapi.json).
 name: nautobot-maps-next
 
 services:
@@ -21,16 +21,19 @@ services:
     restart: unless-stopped
 
   api:
-    build: ../../api
+    build:
+      context: ../../api
+      # web/'s pages are built into the image and served by the API (#594).
+      additional_contexts:
+        web: ../../web
     environment:
       # The password goes separately: no URL encoding needed for "@", "%", ...
       DATABASE_URL: postgresql+psycopg://app@postgres:5432/app
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      # The browser calls the API from the web page's origin.
-      CORS_ORIGINS: '["${WEB_PUBLIC_URL:-http://localhost:3000}"]'
-      # Sign-in (#582), see api/README.md. header mode: AUTH_TRUSTED_PROXIES must
-      # cover the sign-in proxy and the web container (it forwards the headers), and
-      # AUTH_PROXY_SECRET must be set (web forwards only requests carrying it).
+      # The pages and the API share an origin; only another site's pages need this.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Sign-in (#582, #592), see api/README.md. header mode: AUTH_TRUSTED_PROXIES
+      # must cover the sign-in proxy.
       AUTH_MODE: ${AUTH_MODE:-disabled}
       AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
       AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
@@ -53,9 +56,6 @@ services:
       CACHE_TTL: ${CACHE_TTL:-300}
       CACHE_TYPE: ${CACHE_TYPE:-SimpleCache}
       CACHE_REDIS_URL: ${CACHE_REDIS_URL:-}
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-}
-      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-}
-      GUNICORN_BIND: ${GUNICORN_BIND:-}
       BACKGROUND_SYNC_ENABLED: ${BACKGROUND_SYNC_ENABLED:-}
       INVENTORY_SYNC_INTERVAL_SECONDS: ${INVENTORY_SYNC_INTERVAL_SECONDS:-}
       LIBRENMS_SYNC_INTERVAL_SECONDS: ${LIBRENMS_SYNC_INTERVAL_SECONDS:-}
@@ -133,22 +133,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  web:
-    build: ../../web
-    environment:
-      # What the browser calls; server-side rendering uses the internal address.
-      NUXT_PUBLIC_API_BASE: ${API_PUBLIC_URL:-http://localhost:8000}
-      NUXT_API_BASE_SERVER: http://api:8000
-      # Server-side rendering forwards identity headers only with this secret (#582).
-      NUXT_AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
-      # The API's AUTH_HEADER_USER / AUTH_HEADER_GROUPS, comma-separated.
-      NUXT_AUTH_FORWARD_HEADERS: ${AUTH_FORWARD_HEADERS:-x-forwarded-user,x-forwarded-groups}
-    ports:
-      - "${WEB_PORT:-3000}:3000"
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   postgres-data:

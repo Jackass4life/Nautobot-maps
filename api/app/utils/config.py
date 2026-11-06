@@ -15,6 +15,7 @@ import json
 import logging
 import math
 import os
+import pathlib
 import re
 from functools import lru_cache
 from typing import Annotated, Any, Literal
@@ -360,8 +361,13 @@ class Settings(BaseSettings):
     # Optional: the password on its own, as is (no URL encoding). It replaces the one in
     # the database URL, so a password with "@", ":" or "%" needs no escaping (#577).
     database_password: str | None = None
-    # Browser origins allowed to call the API: a JSON list or comma-separated.
-    cors_origins: Annotated[list[str], NoDecode, _text(_origins)] = ["http://localhost:3000"]
+    # Other sites' pages allowed to call the API (a JSON list or comma-separated); the
+    # app's own pages share its origin (#594), so none by default.
+    cors_origins: Annotated[list[str], NoDecode, _text(_origins)] = []
+    # web/'s built pages (`npm run generate`, #594); the image sets it.
+    web_build_dir: Text = str(
+        pathlib.Path(__file__).resolve().parents[3] / "web" / ".output" / "public"
+    )
     sql_echo: bool = False
 
     # --- Development server (the names are Flask's, kept for existing .env files) ----------

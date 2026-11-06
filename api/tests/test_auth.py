@@ -181,7 +181,8 @@ def test_reads_public_unless_require_viewer(header_mode, configure, via_proxy):
         ({}, 201),  # scripts send neither
     ],
 )
-def test_cross_site_writes(client, headers, status):
+def test_cross_site_writes(client, configure, headers, status):
+    configure(CORS_ORIGINS="http://localhost:3000")
     response = client.post("/api/v1/items", json={"name": f"x{uuid.uuid4().hex}"}, headers=headers)
     assert response.status_code == status
     if status == 403:
@@ -200,12 +201,17 @@ def test_settings_are_validated(configure):
         get_settings()
 
 
-def test_cors_allows_cookies_from_web(client):
-    # A cookie-based sign-in proxy in front of an API on another origin (#582).
-    response = client.options(
-        "/api/v1/items",
-        headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "POST"},
-    )
+def test_cors_allows_cookies_from_web(configure):
+    # A cookie-based sign-in proxy in front of an API on another origin (#582). CORS is
+    # installed only with CORS_ORIGINS (#594): the app's own pages share its origin.
+    from app.main import create_app
+
+    configure(CORS_ORIGINS="http://localhost:3000")
+    with TestClient(create_app()) as client:
+        response = client.options(
+            "/api/v1/items",
+            headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "POST"},
+        )
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
     assert response.headers["access-control-allow-credentials"] == "true"
 
@@ -220,3 +226,9 @@ def test_the_spec_and_docs_follow_the_sign_in_rules(header_mode, configure, via_
         assert via_proxy.get(path, headers=as_user("v", "staff")).status_code == 200, path
         rejected = via_proxy.get(path, headers={"Authorization": "Bearer nmt_unknown"})
         assert rejected.status_code == 401, path
+
+
+def test_no_cors_without_origins(client):
+    response = client.get("/api/v1/me", headers={"Origin": "http://localhost:3000"})
+    assert "access-control-allow-origin" not in response.headers
+    assert "Origin" not in response.headers.get("vary", "")

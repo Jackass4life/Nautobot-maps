@@ -56,7 +56,8 @@ the default. Only the new stack's own:
 |---|---|---|
 | `NAUTOBOT_MAPS_DATABASE_URL` / `DATABASE_URL` | local `app` database | PostgreSQL URL; the first wins. `postgresql://` URLs get the psycopg driver. |
 | `DATABASE_PASSWORD` | — | The password on its own, no URL encoding; replaces the URL's. |
-| `CORS_ORIGINS` | `http://localhost:3000` | Browser origins that may call the API (JSON list or comma-separated). |
+| `CORS_ORIGINS` | — | Other sites' pages that may call the API (JSON list or comma-separated); the app's own pages share its origin. |
+| `WEB_BUILD_DIR` | `../web/.output/public` | `web/`'s built pages; the image sets it. |
 | `SQL_ECHO` | `false` | Log every SQL statement (development). |
 
 ## Database (#590)
@@ -79,8 +80,27 @@ Both apps take the same PostgreSQL lock while migrating.
 ## Container
 
 `api/Dockerfile` (#577): uv-installed, non-root, `python -m app.migrate` on start
-(`MIGRATE_ON_START=false` skips it), healthcheck on `GET /api/healthz`.
-`deploy/next/compose.yml` runs it with PostgreSQL and `web/`.
+(`MIGRATE_ON_START=false` skips it), healthcheck on `GET /healthz`. It builds `web/` (named
+build context `web`: `docker build --build-context web=web -t api api/` from the repository
+root) and serves its pages. `deploy/next/compose.yml` runs it with PostgreSQL.
+
+## Pages, headers, gzip (#594)
+
+- `app/frontend/`: `web/`'s pages as the current app serves `frontend/`: each path in
+  `PAGES` answers the shell (`200.html`, `no-cache`; 503 "not built" without one),
+  `/_nuxt/<file>` the content-named files (a year's cache, ETag/304, gzip for text, never
+  outside the folder). `/_nuxt/` is public; each data route checks sign-in itself.
+- Every answer (errors and 404s too): `Content-Security-Policy` (only this origin, images
+  also from `MAP_TILE_URL`'s host, no inline scripts or styles), `nosniff`, `DENY`,
+  `strict-origin-when-cross-origin` (`app/frontend/security.py`).
+- gzip by the current rules (`app/frontend/compression.py`): text of 1 KiB or more, a 200
+  answer to GET, not `Cache-Control: no-transform` (new API tokens), not streamed.
+  `COMPRESS_RESPONSES=false` turns it off.
+- `/api/docs` (FastAPI's Swagger UI) loads its scripts from a CDN with an inline one, which
+  the CSP blocks in a browser; the current app's API page bundles Swagger UI and moves to
+  `web/` in step 11 of #587. Until then, use `/api/openapi.json`.
+- `GET /healthz` (`getHealth`): `{"status", "checks": {"app", "database"}}`, 503 when the
+  database doesn't answer within 2 s. `/api/healthz` stays as an alias until the switchover.
 
 ## Sign-in and roles (#582, #592)
 
@@ -113,7 +133,4 @@ oauth2-proxy + GitLab setup fits both. Code: `app/services/auth_service.py`.
   cookies (CORS credentials), unless `CORS_ORIGINS` contains `*`.
 - uvicorn must run with `--no-proxy-headers` (the container's entrypoint does): otherwise
   `X-Forwarded-For` replaces the proxy's address and `AUTH_TRUSTED_PROXIES` checks the end user.
-- `web/` renders pages server-side and forwards the identity headers it got, so the web
-  container's address belongs in `AUTH_TRUSTED_PROXIES` too, and `AUTH_PROXY_SECRET` must be
-  set (web forwards only requests carrying it, `NUXT_AUTH_PROXY_SECRET`). Browsers should reach the API
-  through the same sign-in proxy (ideally the same origin, `/api` routed to `api/`).
+- The pages and the API share one origin, behind the one sign-in proxy (#594).

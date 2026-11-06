@@ -9,13 +9,16 @@ cp .env.example .env          # set POSTGRES_PASSWORD
 docker compose up -d --build --wait
 ```
 
-- web: http://localhost:3000, api: http://localhost:8000 (`/api/docs`, `/api/openapi.json`).
-- The api container applies migrations on start (`MIGRATE_ON_START=false` skips that).
+- http://localhost:8000: the pages, and the API under `/api/v1` (`/api/docs`,
+  `/api/openapi.json`). One container: the api image builds `web/` and serves its pages
+  from the same origin, as the current app does (#594).
+- The api container brings the database to the newest schema on start, adopting one the
+  current app migrated (`python -m app.migrate`; `MIGRATE_ON_START=false` skips it).
 - `POSTGRES_PASSWORD` may contain any character: the api gets it as `DATABASE_PASSWORD`,
   not inside `DATABASE_URL`.
-- Both images run as non-root and have healthchecks (`/api/healthz`, web `/healthz`).
-- `API_PUBLIC_URL` is what the browser calls; server-side rendering in web uses
-  `http://api:8000` inside the compose network (`NUXT_API_BASE_SERVER`).
-- Sign-in: `AUTH_MODE=disabled` by default (anyone may change anything); see `api/README.md`
-  for header mode. The bundled nginx/oauth2-proxy isn't wired to this stack yet, so don't
+- Non-root, with a healthcheck on `/healthz` (the database must answer).
+- Every setting of the current app is passed through, with its defaults
+  ([docs/configuration.md](../../docs/configuration.md)).
+- Sign-in: `AUTH_MODE=disabled` by default (reads and the board's own changes open, see
+  `api/README.md`). The bundled nginx/oauth2-proxy isn't wired to this stack yet, so don't
   expose it beyond a test network.

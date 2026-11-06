@@ -4,8 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
-    "build": "nuxt build",
-    "preview": "nuxt preview",
+    "generate": "nuxt generate && node scripts/no-inline-scripts.mjs",
     "postinstall": "nuxt prepare",
     "generate:api": "openapi-typescript ../api/openapi.json -o ./types/api.d.ts",
     "typecheck": "nuxt typecheck"

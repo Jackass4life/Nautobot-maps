@@ -51,9 +51,9 @@ updates:
       - dependency-name: vue-router
         update-types: [version-update:semver-major]
 
-  # The new projects' images and compose file (#577)
+  # The new stack's image (it builds web/ too, #594) and compose file (#577)
   - package-ecosystem: docker
-    directories: [/api, /web]
+    directory: /api
     schedule:
       interval: weekly
     ignore:

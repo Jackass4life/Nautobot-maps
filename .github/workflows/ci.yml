@@ -185,13 +185,13 @@ jobs:
         if: success() || failure()
         run: npm run typecheck
 
-      - name: Build
+      - name: Static build (no inline scripts, #594)
         if: success() || failure()
-        run: npm run build
+        run: npm run generate
 
   # -----------------------------------------------------------------------
-  # The new stack's images and compose file (#577): build, start, use it
-  # through the API and the server-rendered page.
+  # The new stack's image and compose file (#577): build, start, use it
+  # through the API and the pages it serves (#594).
   # -----------------------------------------------------------------------
   next-smoke:
     runs-on: ubuntu-latest
@@ -208,23 +208,25 @@ jobs:
       - name: Build and start
         run: docker compose up -d --build --wait --wait-timeout 300
 
-      - name: Non-root containers
+      - name: Non-root container
         run: |
-          for service in api web; do
-            uid=$(docker compose exec -T "$service" id -u)
-            echo "$service runs as uid $uid"
-            test "$uid" != "0"
-          done
+          uid=$(docker compose exec -T api id -u)
+          echo "api runs as uid $uid"
+          test "$uid" != "0"
 
-      - name: API, then the page renders the item server-side
+      - name: The API, and the pages it serves
         run: |
-          curl -fsS http://127.0.0.1:8000/api/healthz
-          curl -fsS http://127.0.0.1:3000/healthz
+          curl -fsS http://127.0.0.1:8000/healthz | grep -q '"database":"ok"'
           curl -fsS -X POST http://127.0.0.1:8000/api/v1/items \
             -H 'Content-Type: application/json' -d '{"name": "smoke-item"}'
           curl -fsS http://127.0.0.1:8000/api/v1/items | grep -q smoke-item
-          # Fetched by web's server (NUXT_API_BASE_SERVER), not the browser.
-          curl -fsS http://127.0.0.1:3000/ | grep -q smoke-item
+          # The page: web/'s shell, built into the image, with the strict CSP.
+          curl -fsS -D headers.txt -o page.html http://127.0.0.1:8000/
+          grep -qi "^content-security-policy: default-src 'self'; script-src 'self'" headers.txt
+          script=$(grep -o 'src="/_nuxt/[^"]*\.js"' page.html | head -1 | cut -d'"' -f2)
+          test -n "$script"
+          curl -fsS -D asset.txt -o /dev/null "http://127.0.0.1:8000$script"
+          grep -qi '^cache-control: public, max-age=31536000' asset.txt
 
       - name: Logs
         if: failure()

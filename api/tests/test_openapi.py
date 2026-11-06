@@ -22,4 +22,92 @@ def test_exported_spec_is_current():
 
 
 def test_healthz(client):
-    assert client.get("/api/healthz").json() == {"status": "ok"}
+    expected = {
+        "status": "ok",
+        "checks": {"app": "ok", "database": "ok"},
+        "inventory_sync_age_seconds": None,
+    }
+    assert client.get("/healthz").json() == expected
+    # The path before #594, until the switchover.
+    assert client.get("/api/healthz").json() == expected
+
+
+def test_healthz_without_the_database(client, monkeypatch, caplog):
+    from sqlalchemy import create_engine
+
+    from app import session
+
+    unreachable = create_engine(
+        "postgresql+psycopg://nobody:secret@127.0.0.1:1/none", connect_args={"connect_timeout": 1}
+    )
+    monkeypatch.setattr(session, "probe_engine", unreachable)
+    response = client.get("/healthz")
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["checks"]["database"] == "unavailable"
+    assert "secret" not in response.text and "secret" not in caplog.text
+
+
+def test_healthz_gives_up_on_a_database_that_never_answers(client, monkeypatch):
+    """Accepts the connection, then says nothing (#594 review): the whole probe is
+    bounded, connecting included."""
+    import socket
+    import threading
+    import time
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import NullPool
+
+    from app import session
+
+    silent = socket.socket()
+    silent.bind(("127.0.0.1", 0))
+    silent.listen(8)
+    held = []
+    stop = threading.Event()
+
+    def accept_and_ignore():
+        silent.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                held.append(silent.accept()[0])
+            except OSError:
+                continue
+
+    threading.Thread(target=accept_and_ignore, daemon=True).start()
+    port = silent.getsockname()[1]
+    monkeypatch.setattr(
+        session,
+        "probe_engine",
+        create_engine(
+            f"postgresql+psycopg://x:y@127.0.0.1:{port}/none",
+            poolclass=NullPool,
+            connect_args={"connect_timeout": 30},  # the probe's own bound must win
+        ),
+    )
+    try:
+        started = time.monotonic()
+        response = client.get("/healthz")
+        elapsed = time.monotonic() - started
+    finally:
+        stop.set()
+        for conn in held:
+            conn.close()
+        silent.close()
+    assert response.status_code == 503
+    assert response.json()["checks"]["database"] == "unavailable"
+    assert elapsed < 4
+
+
+def test_the_engines_keep_the_urls_options():
+    from sqlalchemy import make_url
+
+    from app.session import connect_args
+
+    url = make_url("postgresql+psycopg://u@db/app?options=-c%20search_path%3Dmaps")
+    args = connect_args(url, 5, 60)
+    assert args["options"] == "-c search_path=maps -c statement_timeout=60000"
+    assert args["connect_timeout"] == 5
+    assert connect_args(make_url("postgresql+psycopg://u@db/app"), 5, 1)["options"] == (
+        "-c statement_timeout=1000"
+    )
