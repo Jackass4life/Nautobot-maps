@@ -30,11 +30,12 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project --python /usr/local/bin/python3
 
-COPY alembic.ini docker-entrypoint.sh ./
+COPY alembic.ini docker-entrypoint.sh gunicorn_config.py ./
 COPY alembic ./alembic
 COPY app ./app
 COPY --from=pages /src/.output/public ./web
-ENV WEB_BUILD_DIR=/app/web
+ENV WEB_BUILD_DIR=/app/web \
+    GUNICORN_BIND=0.0.0.0:8000
 
 RUN groupadd --gid 10001 app && useradd --create-home --uid 10001 --gid 10001 app
 USER app
