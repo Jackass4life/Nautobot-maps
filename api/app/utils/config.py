@@ -647,6 +647,14 @@ SETTING_NAMES = tuple(
 )
 
 
+# Values set in code through app/utils/legacy_settings.py (the current app's
+# ``settings.NAME = value``): kept across fresh settings, as its module globals were.
+OVERRIDES: dict[str, object] = {}
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    for field, value in OVERRIDES.items():
+        setattr(settings, field, value)
+    return settings

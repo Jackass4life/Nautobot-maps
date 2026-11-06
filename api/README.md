@@ -97,6 +97,22 @@ the due syncs every tick; `BACKGROUND_SYNC_ENABLED=false` turns it off). Their t
 ported from the current app's `tests/`, and `tests/test_nautobot_live.py` runs the sync
 against CI's real Nautobot 3.x.
 
+## The current app's routes (#604)
+
+`app/v1/routes/` holds `nautobot_maps/api/`'s routers, ported with their logic as it is. Their
+API is under `/api/v1` (the pages, `/healthz`, `/metrics` and `/mcp` keep their paths), with
+the current answer models (`app/v1/answers/`) as each route's `response_model`, and a stable
+camelCase `operation_id` (the verb and the function's name: `getLocations`, `postAlertCases`).
+They stand on:
+
+- `app/v1/deps.py`: `Json` (answers as the current app writes them), `AppRoute`, the router
+  dependencies, `require_role`;
+- `app/services/legacy_auth.py`: the current `auth` functions over #592's rules (one sign-in);
+- `app/utils/requestctx.py`: the request being answered, for code below the routes (MCP).
+
+Errors answer `{"error": ...}`: 404 and 405 after the sign-in check, 400 for bad input
+(not FastAPI's 422), 500 with the security headers. HEAD answers as GET without the body.
+
 ## Container
 
 `api/Dockerfile` (#577): uv-installed, non-root, `python -m app.migrate` on start

@@ -4,6 +4,316 @@
  */
 
 export interface paths {
+    "/api/v1/alert-acks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge a site's alarm: someone is on it, without a case number.
+         * @description JSON body: ``site_id``, optional ``device_ids`` (default: every device
+         *     with an open alert at the site) and ``note``.  Shown on the board and the
+         *     wall until the alarm ends; recorded in the history.
+         */
+        post: operations["postAcknowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-acks/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove an acknowledgement: ``site_id``, optional ``device_ids``.
+         * @description Remove an acknowledgement (#288): ``site_id``, optional ``device_ids``.
+         */
+        post: operations["postUnacknowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach a case number to the open alert of one or more devices at a site.
+         * @description JSON body: ``site_id``, ``case_number`` and either ``device_ids`` (list)
+         *     or the single ``device_id``.  All-or-nothing: if any device has no open
+         *     alert, nothing is written and the response is 404 with
+         *     ``missing_device_ids``, so a case is never applied to only part of the
+         *     selection.
+         */
+        post: operations["postAddAlertCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What changed on the alert board, newest first.
+         * @description Devices going down and back up, and site severity changes.  Query
+         *     parameters: ``limit`` (default 100, at most 500), ``since`` (ISO-8601;
+         *     only newer entries) and ``kinds`` (comma-separated ``down``, ``up``,
+         *     ``severity``; default all).  ``tenant=`` / ``q=`` (as the board's link,
+         *     #369): only those sites' entries, and ``matching_sites``, how many sites
+         *     match.
+         */
+        get: operations["getAlertFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return historical alert instances with events and case numbers.
+         * @description Newest down first (by when the device went down), at most 500.  Query parameters filter them: ``site_id``,
+         *     ``device_id``, and ``start_at`` / ``end_at``: only incidents created at
+         *     or after / at or before this ISO-8601 time.
+         */
+        get: operations["getAlertHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-history.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A site's alert history as a CSV download.
+         * @description Query parameters: ``site_id`` (required), ``days`` (``7``, ``30``
+         *     (default), ``90`` or ``all``) and ``view``: ``incidents`` (default, one row
+         *     per time a device went down) or ``devices`` (one row per device: times
+         *     down, total and longest downtime, last down, down now).  Includes every
+         *     incident that was down at any point in the period.  Times are UTC.
+         */
+        get: operations["getAlertHistoryCsvCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alertmanager": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prometheus Alertmanager webhook: firing alerts mark devices down.
+         * @description The device is the first of ``ALERTMANAGER_DEVICE_LABELS`` (default
+         *     ``instance,hostname,host,device``) an alert has, matched to a Nautobot
+         *     device by name, then primary IP.  Resolved alerts end it.  Use an
+         *     operator API token (``http_config.authorization``).
+         */
+        post: operations["postAlertmanager"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return alert-board summaries for all Nautobot locations.
+         * @description Read from the persisted inventory snapshot; never calls Nautobot or
+         *     LibreNMS inline.  Query parameters: ``refresh=1`` (the board's ↻) queues an
+         *     incremental sync now, except of a source synced less than a minute ago;
+         *     ``include_non_operational=1`` includes the excluded locations.
+         *     A normal request also queues a sync when one is due.
+         *
+         *     Response: ``alerts`` (one entry per site: ``alert_level``,
+         *     ``alert_reason``, ``down_devices``, ``current_downtime_seconds``,
+         *     ``historical_downtime_seconds``, ``active_cases``, ``latest_down_at``, ...),
+         *     ``summary`` (a count per level plus ``total``, and ``non_ok`` = critical +
+         *     medium + low), ``sync_pending`` (a sync is running; poll again),
+         *     ``next_update_in_seconds`` (until the next sync is due; 0 = now, null =
+         *     unknown or running) and ``persistence_configured`` (false: no database,
+         *     so the board is always empty).
+         */
+        get: operations["getAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/app-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How fresh the app's data is, for the top bar on every page.
+         * @description Read from the sync state the scheduler records: never calls Nautobot or
+         *     LibreNMS, so every open tab polling once a minute adds nothing upstream.
+         *     Response: ``state`` (``ok``, ``stale`` or ``down``), ``updated_at`` (the
+         *     oldest source's last good sync) and ``sources`` (``name``, ``state``,
+         *     ``message``, ``last_success``).
+         */
+        get: operations["getAppStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Availability per site and tenant for a period.
+         * @description Query parameters: ``month`` (``2026-10``; default the current month, up
+         *     to now), or ``from`` and ``to`` (``2026-10-03``, both days included, at
+         *     most 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site
+         *     down) or ``critical`` (the site at Critical); default
+         *     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
+         *     ``status_links``: each tenant's status page link id, ``/status/<id>``.
+         */
+        get: operations["getAvailability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/availability.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The availability report as CSV: ``view=sites`` (default; with each site's details and outages, #354), ``tenants`` or ``incidents`` (every outage in the period, to check the figures); same ``month``, ``from``/``to`` and ``basis``. ``header=1``: the report's period, basis, target, totals, and who made it when, above the table.
+         * @description The availability report as CSV (#287): ``view=sites`` (default; with each
+         *     site's details and outages, #354), ``tenants`` or ``incidents`` (every
+         *     outage in the period, to check the figures); same ``month``,
+         *     ``from``/``to`` and ``basis``.  ``header=1``: the report's period, basis,
+         *     target, totals, and who made it when, above the table.
+         */
+        get: operations["getAvailabilityCsvCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/circuit-mapping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Circuits without a termination at a location, Decommissioned ones left out, with the sites their description's address points to: ``summary`` (``total``, ``several``, ``none``, ``one``) and ``circuits`` (``id``, ``cid``, ``provider``, ``circuit_type``, ``status``, ``tenant``, ``commit_rate``, ``description``, ``group``, ``sites``), several sites first, then none, then one.
+         * @description Circuits without a termination at a location, Decommissioned ones left out (#385), with the sites their
+         *     description's address points to: ``summary`` (``total``, ``several``,
+         *     ``none``, ``one``) and ``circuits`` (``id``, ``cid``, ``provider``,
+         *     ``circuit_type``, ``status``, ``tenant``, ``commit_rate``, ``description``,
+         *     ``group``, ``sites``), several sites first, then none, then one.
+         */
+        get: operations["getCircuitMapping"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/circuit-mapping.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The circuit mapping as CSV: one row per circuit, sites joined with "; ".
+         * @description The circuit mapping as CSV (#385): one row per circuit, sites joined with "; ".
+         */
+        get: operations["getCircuitMappingCsvCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/contract": {
         parameters: {
             query?: never;
@@ -18,6 +328,123 @@ export interface paths {
          *     how many records, and the fields that didn't match.
          */
         get: operations["getContract"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/criticality-overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return all per-device criticality overrides stored in the DB.
+         * @description Returns 503 when the persistence DB is not configured.
+         */
+        get: operations["getListCriticalityOverrides"];
+        put?: never;
+        /**
+         * Create or update a per-device criticality override.
+         * @description Expected JSON body::
+         *
+         *         {
+         *             "nautobot_device_id": "<uuid>",
+         *             "is_critical": true | false,
+         *             "reason": "optional explanation",
+         *             "updated_by": "operator-name"
+         *         }
+         *
+         *     Returns 503 when the DB is not configured.
+         */
+        post: operations["postSetCriticalityOverride"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/criticality-overrides/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a per-device criticality override.
+         * @description Returns 404 if no override exists for the given device ID.
+         *     Returns 503 when the DB is not configured.
+         */
+        delete: operations["deleteDeleteCriticalityOverride"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/device-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generic webhook: ``{"device", "status": "down"|"up", "source"?, "id"?, "summary"?, "started_at"?}``, or a list of them.
+         * @description ``device`` is a hostname or IP, matched to a Nautobot device by name,
+         *     then primary IP.  A ``down`` lasts until the same source and ``id``
+         *     (default: the device) sends ``up``, or WEBHOOK_ALERT_TTL_HOURS without
+         *     a repeat.
+         */
+        post: operations["postDeviceStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every page and API endpoint as JSON: methods, parameters, body and role.
+         * @description Every page and API endpoint as JSON: methods, parameters, body and role (#230).
+         */
+        get: operations["getEndpoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/help/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One documentation page: its title and HTML, and the list of guides.
+         * @description One documentation page (#433): its title and HTML, and the list of guides.
+         */
+        get: operations["getHelp"];
         put?: never;
         post?: never;
         delete?: never;
@@ -62,6 +489,307 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/librenms/alert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A LibreNMS alert push: refresh one device's status now.
+         * @description For LibreNMS's API alert transport, with an operator API token.  The
+         *     device is ``device_id`` (LibreNMS id) or ``hostname``, in a JSON body,
+         *     a form or the query string.  Its status is read from the LibreNMS API
+         *     (the push only says which device), and the board is rebuilt within
+         *     seconds.  A device LibreNMS doesn't know is ``{"updated": false}``, not
+         *     an error, so LibreNMS doesn't keep retrying.
+         */
+        post: operations["postLibrenmsAlert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Alert level (critical, medium, low, ok, maintenance) of every map location with monitored devices, for the marker colours; a location missing has no data.
+         * @description Alert level (critical, medium, low, ok, maintenance) of every map location with
+         *     monitored devices, for the marker colours (#234, #311); a location missing has no data.
+         */
+        get: operations["getLocationAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return all Nautobot locations that have GPS coordinates.
+         * @description Return all Nautobot locations that have GPS coordinates.
+         */
+        get: operations["getLocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/locations/coordinate-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The alert board's sites with missing or wrong coordinates, worst first: impossible, at 0,0, latitude and longitude swapped, none, then far from the rest of their region (a hint, #416). JSON with counts, or CSV (one row per site).
+         * @description The alert board's sites with missing or wrong coordinates (#368), worst
+         *     first: impossible, at 0,0, latitude and longitude swapped, none, then far
+         *     from the rest of their region (a hint, #416).  JSON with counts, or CSV
+         *     (one row per site).
+         */
+        get: operations["getCoordinateCheck"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/locations/coordinate-check.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The alert board's sites with missing or wrong coordinates, worst first: impossible, at 0,0, latitude and longitude swapped, none, then far from the rest of their region (a hint, #416). JSON with counts, or CSV (one row per site).
+         * @description The alert board's sites with missing or wrong coordinates (#368), worst
+         *     first: impossible, at 0,0, latitude and longitude swapped, none, then far
+         *     from the rest of their region (a hint, #416).  JSON with counts, or CSV
+         *     (one row per site).
+         */
+        get: operations["getCoordinateCheckCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/locations/{location_id}/detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return devices and ASNs for a specific location.
+         * @description Optional query parameter:
+         *       location_type – the location type name (e.g. "Data Center", "Office").
+         *         When provided, the criticality keyword set is resolved from the
+         *         location-type-scoped rules configured via ``CRITICALITY_RULES_FILE``.
+         */
+        get: operations["getLocationDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Maintenance windows: active and upcoming, soonest first.
+         * @description Query parameters: ``site_id`` (one site), ``all=1`` (also ended and
+         *     cancelled ones) and ``recent_days`` (also those that ended in the last
+         *     that many days, at most 90; #343).  Each has a ``state``: active,
+         *     upcoming, ended or cancelled; ``device_id`` is empty for a whole site.
+         *     Each also has ``site_name``, ``site_path``, ``tenants`` and
+         *     ``device_name``; ``tenant_descriptions`` has the tenants' descriptions.
+         */
+        get: operations["getMaintenanceList"];
+        put?: never;
+        /**
+         * Put a site, or some of its devices, in maintenance.
+         * @description JSON body: ``site_id`` (or ``site_ids``, up to 200 sites at once, #343),
+         *     ``reason``, optional ``device_ids`` (one site only; leave it out
+         *     for the whole site), optional ``starts_at`` (ISO-8601 with a time zone;
+         *     default now), and ``ends_at`` or ``duration_minutes``.  At most 14 days.
+         */
+        post: operations["postMaintenanceCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/maintenance/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The devices that can be put in maintenance at a site.
+         * @description Query parameters: ``site_id`` (a row of the alert board) and
+         *     ``include_non_operational=1`` (as on the board).  The devices the board
+         *     counts there: with a primary IP or a wireless controller, not of an excluded status, and those
+         *     below the site when rows are rolled up to a location type.
+         */
+        get: operations["getMaintenanceDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/maintenance/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End or cancel several windows at once: JSON ``{"ids": [1, 2, ...]}``, at most ``maintenance.MAX_END_IDS``; ``not_found`` lists the unknown ones.
+         * @description End or cancel several windows at once (#343): JSON ``{"ids": [1, 2, ...]}``,
+         *     at most ``maintenance.MAX_END_IDS``; ``not_found`` lists the unknown ones.
+         */
+        post: operations["postMaintenanceEndMany"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/maintenance/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every maintenance window that ran in a period, or was planned for it and cancelled, newest first: ``from`` and ``to`` (``2026-10-01``, both days included; default the last 30 days; at most 366), optional ``tz`` (whose days; default UTC), ``site_id`` and ``tenant``. Names and tenants as ``/api/maintenance``; ``truncated`` past 5,000 windows.
+         * @description Every maintenance window that ran in a period, or was planned for it and
+         *     cancelled (#353), newest first: ``from`` and ``to`` (``2026-10-01``, both
+         *     days included; default the last 30 days; at most 366), optional ``tz``
+         *     (whose days; default UTC), ``site_id`` and ``tenant``.  Names and tenants
+         *     as ``/api/maintenance``; ``truncated`` past 5,000 windows.
+         */
+        get: operations["getMaintenanceHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/maintenance/history.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The history as CSV: the same ``from``, ``to``, ``tz``, ``site_id`` and ``tenant``; one row per window, times in UTC, streamed. Every window, or a 400 past 100,000: never a silently shorter file.
+         * @description The history as CSV (#353): the same ``from``, ``to``, ``tz``, ``site_id``
+         *     and ``tenant``; one row per window, times in UTC, streamed.  Every window,
+         *     or a 400 past 100,000: never a silently shorter file.
+         */
+        get: operations["getMaintenanceHistoryCsvCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/maintenance/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sites maintenance can be planned for, for the page's site picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored) and ``maintenance`` (in a window now); ``tenant_descriptions``, so the picker finds a tenant by its description too. From the stored board; no query per site.
+         * @description The sites maintenance can be planned for (#343), for the page's site
+         *     picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)
+         *     and ``maintenance`` (in a window now); ``tenant_descriptions``, so the
+         *     picker finds a tenant by its description too (#497).  From the stored
+         *     board; no query per site.
+         */
+        get: operations["getMaintenanceSites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/maintenance/{window_id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a maintenance window now, or cancel an upcoming one.
+         * @description End a maintenance window now, or cancel an upcoming one (#283).
+         */
+        post: operations["postMaintenanceEnd"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -71,6 +799,159 @@ export interface paths {
         };
         /** Get Current User */
         get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test message on every configured notification channel now.
+         * @description Returns ``{"results": {"webhook": "ok", "email": "error: ..."}}``; errors
+         *     never include a URL or password.  400 when no channel is configured.
+         */
+        post: operations["postNotificationsTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/page-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.
+         * @description What the pages built with Nuxt read to draw themselves (#463): who is
+         *     signed in (the top bar), Nautobot's address (links to its pages), the
+         *     menu, the same as the server-rendered pages show, the Maintenance page's
+         *     and Availability's limits, the map's tiles and first view, and the
+         *     board's case links and level definitions.
+         */
+        get: operations["getPageConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Geocode an address or parse GPS coordinates and return all Nautobot locations within 5 km, sorted by distance.
+         * @description Query parameters:
+         *       q  – address string  OR  "lat,lon" coordinate pair
+         */
+        get: operations["getSearch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/status-links/{tenant}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A tenant's status page link, as ``status-link TENANT`` prints it: ``/status/<id>``, made the first time it is asked for. 404 for a tenant Nautobot doesn't have (as of the last sync).
+         * @description A tenant's status page link (#529), as ``status-link TENANT`` prints it:
+         *     ``/status/<id>``, made the first time it is asked for.  404 for a tenant
+         *     Nautobot doesn't have (as of the last sync).
+         */
+        get: operations["getStatusLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/status-links/{tenant}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a tenant's status page link that leaked, as ``status-link TENANT --new``: the old link stops working at once; the tenant's status tokens keep working with the new one.
+         * @description Replace a tenant's status page link that leaked (#529), as
+         *     ``status-link TENANT --new``: the old link stops working at once; the
+         *     tenant's status tokens keep working with the new one.
+         */
+        post: operations["postStatusLinkReplace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/status/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A tenant's sites and their state, for the tenant's random link id (#500; a name answers 404): ``operational``, ``degraded``, ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``; and the tenant's description from Nautobot, which the page shows.
+         * @description Where each site is (address, coordinates; #493), but no devices, IPs,
+         *     cases or other tenants.  Open as the board is, or
+         *     with a status token for this tenant (``Authorization: Bearer``).
+         */
+        get: operations["getStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Nautobot's tenants as of the last sync, with their descriptions, by name: what a status token can be made for.
+         * @description Nautobot's tenants as of the last sync (#530), with their
+         *     descriptions, by name: what a status token can be made for.
+         */
+        get: operations["getTenants"];
         put?: never;
         post?: never;
         delete?: never;
@@ -148,6 +1029,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/wireless/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read every wireless controller now, as ``wireless-check``: per instance whether it answers, takes the account, how many access points it lists and how many match a Nautobot device. Never the credentials. One check at a time: 429 while one runs.
+         * @description Read every wireless controller now (#529), as ``wireless-check``: per
+         *     instance whether it answers, takes the account, how many access points it
+         *     lists and how many match a Nautobot device.  Never the credentials.  One
+         *     check at a time: 429 while one runs.
+         */
+        post: operations["postWirelessCheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Availability per site and tenant: ``?month=2026-10`` or ``?from=2026-10-03&to=2026-10-09``, and ``&basis=any_down``.
+         * @description Built with Nuxt; the page reads ``/api/availability``.
+         */
+        get: operations["getAvailabilityPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/circuits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Circuit mapping: circuits without a termination and their likely site.
+         * @description Built with Nuxt; the page reads ``/api/circuit-mapping``.
+         */
+        get: operations["getCircuitsPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -165,10 +1109,527 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current and planned maintenance, and planning more, or its history (``?view=history``, #353).
+         * @description Built with Nuxt; the page reads ``/api/maintenance`` and its
+         *     limits from ``/api/page-config``.
+         */
+        get: operations["getMaintenancePage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * MCP server for AI assistants: the alert board as tools.
+         * @description Off unless MCP_ENABLED=true.  Streamable HTTP, stateless, protocol
+         *     2026-07-28 and the older initialize-based versions.  Tools run the
+         *     matching API routes with the caller's sign-in and roles.
+         */
+        post: operations["postMcpEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prometheus metrics: sync health, open alerts, sites by level.
+         * @description Prometheus metrics: sync health, open alerts, sites by level (#200).
+         */
+        get: operations["getPrometheusMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/status/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A tenant's status page: its sites and their state, for a customer.
+         * @description ``<link_id>`` is the tenant's random link id, not its name.  Built
+         *     with Nuxt; the page reads ``/api/status/<link_id>``, with the key
+         *     from a share link's ``#key=`` (never sent to the server in the URL).
+         */
+        get: operations["getStatusPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AckChanged */
+        AckChanged: {
+            /**
+             * Changed
+             * @description The devices whose acknowledgement changed.
+             */
+            changed: string[];
+            /** Site Id */
+            site_id: string;
+        };
+        /** Acknowledged */
+        Acknowledged: {
+            /** At */
+            at: string;
+            /** By */
+            by: string;
+            /** Note */
+            note: string;
+        };
+        /** AdminSettings */
+        AdminSettings: {
+            /**
+             * Notification Channels
+             * @description The notification channels set up (webhook, teams, email): the test notification's.
+             */
+            notification_channels: string[];
+            /**
+             * Wireless Controllers
+             * @description How many wireless controllers WIRELESS_CONTROLLERS_FILE lists.
+             */
+            wireless_controllers: number;
+        };
+        /** AlertHistory */
+        AlertHistory: {
+            /**
+             * Instances
+             * @description Newest down first, at most 500.
+             */
+            instances: components["schemas"]["Incident"][];
+        };
+        /** AppStatus */
+        AppStatus: {
+            /** Sources */
+            sources: components["schemas"]["Source"][];
+            /**
+             * State
+             * @description The worst of the sources.
+             * @enum {string}
+             */
+            state: "ok" | "stale" | "down";
+            /**
+             * Updated At
+             * @description The oldest source's last good sync (ISO 8601, UTC).
+             */
+            updated_at: string | null;
+        };
+        /** Asn */
+        Asn: {
+            /** Asn */
+            asn: number | null;
+            /** Description */
+            description: string;
+            /** Tenant */
+            tenant: string;
+        };
+        /** AvailabilityLimits */
+        AvailabilityLimits: {
+            /**
+             * Basis
+             * @description AVAILABILITY_BASIS: what counts as down by default.
+             * @example any_down
+             */
+            basis: string;
+            /**
+             * Oldest Day
+             * @description The oldest day the history still has; empty when nothing is deleted.
+             */
+            oldest_day: string;
+            /**
+             * Target
+             * @description The availability target, in percent.
+             * @example 99.9
+             */
+            target: number;
+            /**
+             * Today
+             * @description Today in UTC, the report's days (2026-10-23).
+             * @example 2026-10-23
+             */
+            today: string;
+        };
+        /** AvailabilitySummary */
+        AvailabilitySummary: {
+            /**
+             * Availability
+             * @description Percent, every site counting the same.
+             */
+            availability: number;
+            /** Below Target */
+            below_target: number;
+            /** Downtime Seconds */
+            downtime_seconds: number;
+            /** Incidents */
+            incidents: number;
+            /** No Downtime */
+            no_downtime: number;
+            /** Sites */
+            sites: number;
+            /**
+             * Target
+             * @description The target, in percent.
+             */
+            target: number;
+            /** @description Null when no tenant had downtime. */
+            worst_tenant: components["schemas"]["TenantRow"] | null;
+        };
+        /** BarUser */
+        BarUser: {
+            /**
+             * Name
+             * @description The signed-in user, or an API token's name.
+             */
+            name: string;
+            /**
+             * Role
+             * @description viewer, operator or admin; empty when unknown.
+             */
+            role: string;
+            /**
+             * Sign Out Url
+             * @description Where the top bar's Sign out goes (AUTH_SIGN_OUT_URL, #546); empty for an API token or without it.
+             */
+            sign_out_url: string;
+        };
+        /** Behind */
+        Behind: {
+            /**
+             * Device
+             * @description The switch most of the site's down access points are on.
+             */
+            device: string;
+            /**
+             * Down
+             * @description How many access points on it are down (at least 2).
+             */
+            down: number;
+            /**
+             * Total
+             * @description How many access points are on it.
+             */
+            total: number;
+        };
+        /** Board */
+        Board: {
+            /** Age Seconds */
+            age_seconds: number;
+            /**
+             * Alerts
+             * @description Worst first, then the more important tier, then most down.
+             */
+            alerts: components["schemas"]["BoardSite"][];
+            /**
+             * Checked At
+             * @description When the board was built (ISO 8601, UTC).
+             */
+            checked_at: string;
+            /**
+             * Next Maintenance Change
+             * @description When a window next starts or ends.
+             */
+            next_maintenance_change: string | null;
+            /**
+             * Next Update In Seconds
+             * @description Until the next sync is due; 0 = now, null = unknown.
+             */
+            next_update_in_seconds: number | null;
+            /**
+             * Persistence Configured
+             * @description False: no database, so the board is always empty.
+             */
+            persistence_configured: boolean;
+            /** Stale */
+            stale: boolean;
+            /** Stale After Seconds */
+            stale_after_seconds: number;
+            summary: components["schemas"]["BoardSummary"];
+            /**
+             * Sync Pending
+             * @description A sync is running; poll again.
+             */
+            sync_pending: boolean;
+        };
+        /** BoardSettings */
+        BoardSettings: {
+            /**
+             * Case Url Template
+             * @description CASE_URL_TEMPLATE: a case's ticket, {case} for its number; empty when not set.
+             */
+            case_url_template: string;
+            /**
+             * Levels
+             * @description What each level and summary chip means, from the configured thresholds (#293): alarms, critical, medium, low, no_data, ok, total, maintenance.
+             */
+            levels: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * BoardSite
+         * @description A site (one row of the board): the location as stored, and its alarm.
+         */
+        BoardSite: {
+            /**
+             * Access Point Count
+             * @description Monitored devices with a role in ACCESS_POINT_ROLES or listed by a wireless controller, in maintenance too.
+             * @default 0
+             */
+            access_point_count: number;
+            /** Active Alert Instance Count */
+            active_alert_instance_count: number;
+            /** Active Cases */
+            active_cases: string[];
+            /**
+             * Alert Level
+             * @enum {string}
+             */
+            alert_level: "critical" | "medium" | "low" | "ok" | "maintenance" | "no_data";
+            /** Alert Reason */
+            alert_reason: string;
+            /** Ancestor Path */
+            ancestor_path: string;
+            /** Asn */
+            asn: number | null;
+            /** @description "12 of 16 behind sw02" (#524): two or more of its down access points are on one switch. */
+            behind?: components["schemas"]["Behind"] | null;
+            /** Country */
+            country: string;
+            /**
+             * Current Downtime Seconds
+             * @description Its longest current outage.
+             */
+            current_downtime_seconds: number;
+            /** Description */
+            description: string;
+            /**
+             * Device Count
+             * @description Monitored devices, not those in maintenance.
+             */
+            device_count: number;
+            /**
+             * Down Access Point Count
+             * @description Of the access points, down now; not those in maintenance (#503).
+             * @default 0
+             */
+            down_access_point_count: number;
+            /** Down Device Count */
+            down_device_count: number;
+            /**
+             * Down Devices
+             * @description The likely cause first.
+             */
+            down_devices: components["schemas"]["DownDevice"][];
+            /**
+             * Down Network Device Count
+             * @description Of the others, down now; not those in maintenance (#503).
+             * @default 0
+             */
+            down_network_device_count: number;
+            /** Facility */
+            facility: string;
+            /** Historical Downtime Seconds */
+            historical_downtime_seconds: number;
+            /** Id */
+            id: string;
+            /**
+             * Last Updated
+             * @description Read live from Nautobot only.
+             */
+            last_updated?: string | null;
+            /**
+             * Latest Down At
+             * @description When its newest open alert started.
+             */
+            latest_down_at: string | null;
+            /** Latitude */
+            latitude: number | null;
+            /** Location Type */
+            location_type: string;
+            /** Longitude */
+            longitude: number | null;
+            /** @description The whole site is in a maintenance window. */
+            maintenance?: components["schemas"]["SiteMaintenance"] | null;
+            /** Maintenance Device Count */
+            maintenance_device_count: number;
+            /** Name */
+            name: string;
+            /**
+             * Network Device Count
+             * @description The other monitored devices, in maintenance too.
+             * @default 0
+             */
+            network_device_count: number;
+            /** Parent */
+            parent: string;
+            /** Parent Id */
+            parent_id: string;
+            /** Physical Address */
+            physical_address: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+            /** Tags */
+            tags: string[];
+            /** Tenant */
+            tenant: string;
+            /**
+             * Tenant Alerts
+             * @description TENANT_SCOPE_FIELD: the level for each tenant with its own device roles (lower-case name).
+             */
+            tenant_alerts: {
+                [key: string]: components["schemas"]["TenantAlert"];
+            };
+            /** Tenant Descriptions */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
+            /**
+             * Tenant Devices
+             * @description STATUS_PAGE_TENANT_DEVICES (#555): the devices whose Nautobot tenant is each of the site's tenants (lower-case name), for their status page; absent without the setting.
+             */
+            tenant_devices?: {
+                [key: string]: components["schemas"]["TenantDevice"][];
+            };
+            /** Tenant Group */
+            tenant_group: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /**
+             * Tenants
+             * @description Its own tenant first, then those linked to it.
+             */
+            tenants: string[];
+            /**
+             * Tier
+             * @description A tier in SITE_TIERS; empty otherwise.
+             */
+            tier: string;
+            /**
+             * Tier Rank
+             * @description 0 for the most important tier; 99 without one.
+             */
+            tier_rank: number;
+            /** Time Zone */
+            time_zone: string;
+            /** Url */
+            url: string;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller, at WIRELESS_AP_LEVEL (#521): the Wireless chip, not an alarm, never notified.
+             * @default false
+             */
+            wireless_only: boolean;
+        };
+        /** BoardSummary */
+        BoardSummary: {
+            /** Critical */
+            critical: number;
+            /** Low */
+            low: number;
+            /** Maintenance */
+            maintenance: number;
+            /** Medium */
+            medium: number;
+            /** No Data */
+            no_data: number;
+            /**
+             * Non Ok
+             * @description critical + medium + low.
+             */
+            non_ok: number;
+            /** Ok */
+            ok: number;
+            /** Total */
+            total: number;
+            /**
+             * Wireless
+             * @description Sites with only access points down (#521); not in the levels or non_ok.
+             * @default 0
+             */
+            wireless: number;
+        };
+        /** CaseAdded */
+        CaseAdded: {
+            /**
+             * Alert Instance Id
+             * @description For one device only.
+             */
+            alert_instance_id?: number | null;
+            /** Case Number */
+            case_number: string;
+            /**
+             * Device Id
+             * @description For one device only, as the API first answered.
+             */
+            device_id?: string | null;
+            /** Linked */
+            linked: components["schemas"]["CaseLink"][];
+            /** Site Id */
+            site_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "ok";
+        };
+        /** CaseLink */
+        CaseLink: {
+            /** Alert Instance Id */
+            alert_instance_id: number;
+            /** Device Id */
+            device_id: string;
+        };
+        /** CircuitMapping */
+        CircuitMapping: {
+            /**
+             * Circuits
+             * @description Several sites first, then none, then one; by circuit ID.
+             */
+            circuits: components["schemas"]["MappedCircuit"][];
+            summary: components["schemas"]["MappingSummary"];
+        };
         /** ContractCheckDto */
         ContractCheckDto: {
             /** Checked At */
@@ -236,11 +1697,265 @@ export interface components {
             /** Types */
             types: string[];
         };
+        /** CoordinateCheck */
+        CoordinateCheck: {
+            counts: components["schemas"]["CoordinateCounts"];
+            /**
+             * Sites
+             * @description Worst first: invalid, zero, swapped, missing, far.
+             */
+            sites: components["schemas"]["CoordinateProblem"][];
+        };
+        /** CoordinateCounts */
+        CoordinateCounts: {
+            /** Far */
+            far: number;
+            /** Invalid */
+            invalid: number;
+            /** Missing */
+            missing: number;
+            /** Swapped */
+            swapped: number;
+            /** Zero */
+            zero: number;
+        };
+        /** CoordinateProblem */
+        CoordinateProblem: {
+            /** Ancestor Path */
+            ancestor_path: string;
+            /**
+             * Compared With
+             * @description The region it was compared with.
+             */
+            compared_with: string;
+            /**
+             * Km Away
+             * @description How far from the rest of its region, for far and swapped.
+             */
+            km_away: number | null;
+            /** Latitude */
+            latitude: number | null;
+            /** Longitude */
+            longitude: number | null;
+            /** Name */
+            name: string;
+            /**
+             * Problem
+             * @enum {string}
+             */
+            problem: "invalid" | "zero" | "swapped" | "missing" | "far";
+            /** Reason */
+            reason: string;
+            /** Site Id */
+            site_id: string;
+            /** Status */
+            status: string;
+            /** Tenants */
+            tenants: string[];
+            /** Type */
+            type: string;
+        };
+        /** Created */
+        Created: {
+            /**
+             * Windows
+             * @description One per site, or per device.
+             */
+            windows: components["schemas"]["Window"][];
+        };
         /**
-         * ErrorDto
-         * @description A refusal or error: one plain sentence, and for a role refusal the role it needs.
+         * DescribedWindow
+         * @description A window with the names the page shows; left out of one site's list
+         *     (``site_id``), whose panel knows them.
          */
-        ErrorDto: {
+        DescribedWindow: {
+            /**
+             * Batch Id
+             * @description The same for windows planned together.
+             */
+            batch_id: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /**
+             * Device Id
+             * @description Empty for the whole site.
+             */
+            device_id: string;
+            /**
+             * Device Name
+             * @description Empty for the whole site.
+             */
+            device_name?: string | null;
+            /**
+             * Ended At
+             * @description When it was ended early or cancelled; null otherwise.
+             */
+            ended_at: string | null;
+            /** Ended By */
+            ended_by: string;
+            /**
+             * Ends At
+             * @description As planned.
+             */
+            ends_at: string;
+            /** Id */
+            id: number;
+            /** Reason */
+            reason: string;
+            /** Site Id */
+            site_id: string;
+            /**
+             * Site Name
+             * @description Empty when the site isn't on the board.
+             */
+            site_name?: string | null;
+            /** Site Path */
+            site_path?: string | null;
+            /** Starts At */
+            starts_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "upcoming" | "ended" | "cancelled";
+            /** Tenants */
+            tenants?: string[] | null;
+        };
+        /** Devices */
+        Devices: {
+            /**
+             * Devices
+             * @description By name.
+             */
+            devices: components["schemas"]["MaintenanceDevice"][];
+        };
+        /**
+         * DownDevice
+         * @description A device with an open alert (also one in maintenance, marked so).
+         */
+        DownDevice: {
+            /**
+             * Access Point
+             * @description An access point a wireless controller watches (#521).
+             */
+            access_point?: boolean | null;
+            /** @description Someone is on it. */
+            acknowledged?: components["schemas"]["Acknowledged"] | null;
+            /** Case Numbers */
+            case_numbers: string[];
+            /**
+             * Core
+             * @description The likely cause of the others; listed first.
+             */
+            core?: boolean | null;
+            /** Device Id */
+            device_id: string;
+            /** Device Ip */
+            device_ip: string;
+            /** Device Name */
+            device_name: string;
+            /**
+             * Down Reason
+             * @description Who says it is down, and why, when not Nautobot.
+             */
+            down_reason?: string | null;
+            /**
+             * Down Started At
+             * @description When it went down; from the alert history.
+             */
+            down_started_at?: string | null;
+            /** Flap Changes */
+            flap_changes?: number | null;
+            /** Flapping */
+            flapping?: boolean | null;
+            /**
+             * Location Path
+             * @description Where below the site, when rows are rolled up.
+             */
+            location_path?: string | null;
+            /** Maintenance Reason */
+            maintenance_reason?: string | null;
+            /** Maintenance Until */
+            maintenance_until?: string | null;
+            /** @description The switch and port this access point is on (#524). */
+            neighbour?: components["schemas"]["Neighbour"] | null;
+            /**
+             * Probable Cause
+             * @description The core device(s) it is likely down because of.
+             */
+            probable_cause?: string | null;
+            /** Role */
+            role: string;
+            /**
+             * Set Level
+             * @description A level set on the device in Nautobot.
+             */
+            set_level?: string | null;
+            stack?: components["schemas"]["Stack"] | null;
+            /** Status */
+            status: string;
+        };
+        /** Ended */
+        Ended: {
+            /** Not Found */
+            not_found: number[];
+            /**
+             * Windows
+             * @description Ones already over are returned as they were.
+             */
+            windows: components["schemas"]["Window"][];
+        };
+        /** EndedOne */
+        EndedOne: {
+            window: components["schemas"]["Window"];
+        };
+        /** Endpoint */
+        Endpoint: {
+            /** Description */
+            description: string;
+            /** Example Body */
+            example_body: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Example Body Text
+             * @description example_body, formatted; {} when there is none.
+             */
+            example_body_text: string;
+            /**
+             * Group
+             * @enum {string}
+             */
+            group: "Pages" | "API" | "Monitoring";
+            /** Methods */
+            methods: string[];
+            /**
+             * Path
+             * @example /api/alerts
+             */
+            path: string;
+            /** Path Params */
+            path_params: string[];
+            /** Query Params */
+            query_params: string[];
+            /** Required Role */
+            required_role: ("viewer" | "operator" | "admin") | null;
+            /** Summary */
+            summary: string;
+        };
+        /** Endpoints */
+        Endpoints: {
+            /** Endpoints */
+            endpoints: components["schemas"]["Endpoint"][];
+        };
+        /**
+         * Error
+         * @description Every refusal and error: one plain sentence, and for a role refusal the role it
+         *     needs. The one error model of the whole API, the current app's (#604).
+         */
+        Error: {
             /** Current Role */
             current_role?: string | null;
             /**
@@ -250,16 +1965,101 @@ export interface components {
             detail?: string | null;
             /** Error */
             error: string;
+            /**
+             * Missing Device Ids
+             * @description Devices with no open alert: nothing was changed.
+             */
+            missing_device_ids?: string[] | null;
             /** Required Role */
             required_role?: ("viewer" | "operator" | "admin") | null;
         };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
+        /** Feed */
+        Feed: {
+            /**
+             * Events
+             * @description Newest first.
+             */
+            events: components["schemas"]["FeedEvent"][];
+            /**
+             * Matching Sites
+             * @description With tenant= or q=: how many sites match.
+             */
+            matching_sites?: number | null;
+            /** Persistence Configured */
+            persistence_configured: boolean;
         };
-        /** HealthChecksDto */
-        HealthChecksDto: {
+        /** FeedEvent */
+        FeedEvent: {
+            /** At */
+            at: string;
+            /**
+             * Device Id
+             * @description Empty for a severity change.
+             */
+            device_id: string;
+            /** Device Name */
+            device_name: string;
+            /**
+             * Down Since
+             * @description For down: when it went down.
+             */
+            down_since?: string | null;
+            /**
+             * From Level
+             * @description For severity.
+             */
+            from_level?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "down" | "up" | "severity";
+            /** Level */
+            level: string;
+            /** Site Id */
+            site_id: string;
+            /** Site Name */
+            site_name: string;
+            /**
+             * To Level
+             * @description For severity.
+             */
+            to_level?: string | null;
+        };
+        /** Guide */
+        Guide: {
+            /**
+             * Href
+             * @example /help/authentication
+             */
+            href: string;
+            /**
+             * Slug
+             * @example authentication
+             */
+            slug: string;
+            /**
+             * Title
+             * @example Sign-in and roles
+             */
+            title: string;
+        };
+        /** Health */
+        Health: {
+            checks: components["schemas"]["HealthChecks"];
+            /**
+             * Inventory Sync Age Seconds
+             * @description Since the Nautobot inventory last synced; null when it never has.
+             */
+            inventory_sync_age_seconds?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "unavailable";
+        };
+        /** HealthChecks */
+        HealthChecks: {
             /**
              * App
              * @constant
@@ -271,19 +2071,114 @@ export interface components {
              */
             database: "ok" | "unavailable";
         };
-        /** HealthDto */
-        HealthDto: {
-            checks: components["schemas"]["HealthChecksDto"];
+        /** HelpPage */
+        HelpPage: {
             /**
-             * Inventory Sync Age Seconds
-             * @description Since the Nautobot inventory last synced (step 5 of #587: always null).
+             * Contents
+             * @description Every guide, in the menu's order.
              */
-            inventory_sync_age_seconds?: number | null;
+            contents: components["schemas"]["Guide"][];
+            /**
+             * Html
+             * @description The guide as HTML, from the repository's Markdown (no raw HTML in it).
+             */
+            html: string;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
+        };
+        /** HistoryCase */
+        HistoryCase: {
+            /** Case Number */
+            case_number: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+        };
+        /** HistoryEvent */
+        HistoryEvent: {
+            /** Alert Level */
+            alert_level: string;
+            /** Alert Reason */
+            alert_reason: string;
+            /** Event At */
+            event_at: string;
+            /** Event Type */
+            event_type: string;
+            /**
+             * Snapshot
+             * @description The device and site as they were.
+             */
+            snapshot: {
+                [key: string]: unknown;
+            };
+        };
+        /** HistoryPeriod */
+        HistoryPeriod: {
+            /**
+             * From
+             * @example 2026-10-01
+             */
+            from: string;
+            /** Label */
+            label: string;
+            /**
+             * To
+             * @example 2026-10-30
+             */
+            to: string;
+            /**
+             * Tz
+             * @example Europe/Copenhagen
+             */
+            tz: string;
+        };
+        /** Incident */
+        Incident: {
+            /** Alert Key */
+            alert_key: string;
+            /** Alert Level */
+            alert_level: string;
+            /** Alert Reason */
+            alert_reason: string;
+            /**
+             * Cases
+             * @description Newest first.
+             */
+            cases: components["schemas"]["HistoryCase"][];
+            /** Created At */
+            created_at: string;
+            /** Device Id */
+            device_id: string;
+            /** Device Name */
+            device_name: string;
+            /** Down Started At */
+            down_started_at: string;
+            /** Events */
+            events: components["schemas"]["HistoryEvent"][];
+            /** Id */
+            id: number;
+            /** Last Seen Down At */
+            last_seen_down_at: string;
+            /** Probable Cause */
+            probable_cause: string;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Site Id */
+            site_id: string;
+            /** Site Name */
+            site_name: string;
             /**
              * Status
              * @enum {string}
              */
-            status: "ok" | "unavailable";
+            status: "open" | "resolved";
+            /** Total Downtime Seconds */
+            total_downtime_seconds: number;
+            /** Updated At */
+            updated_at: string;
         };
         /** ItemCreateDto */
         ItemCreateDto: {
@@ -306,6 +2201,314 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** LibreNmsPush */
+        LibreNmsPush: {
+            device: components["schemas"]["PushedDevice"] | null;
+            /**
+             * Updated
+             * @description False for a device LibreNMS doesn't know: not an error, so it isn't retried.
+             */
+            updated: boolean;
+        };
+        /**
+         * Location
+         * @description A Nautobot location, as stored at the last sync (or read live without
+         *     a database); empty text where Nautobot has nothing.
+         */
+        Location: {
+            /**
+             * Ancestor Path
+             * @example EMEA › DNK
+             */
+            ancestor_path: string;
+            /** Asn */
+            asn: number | null;
+            /** Country */
+            country: string;
+            /** Description */
+            description: string;
+            /** Facility */
+            facility: string;
+            /** Id */
+            id: string;
+            /**
+             * Last Updated
+             * @description Read live from Nautobot only.
+             */
+            last_updated?: string | null;
+            /** Latitude */
+            latitude: number;
+            /** Location Type */
+            location_type: string;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+            /** Parent */
+            parent: string;
+            /** Parent Id */
+            parent_id: string;
+            /** Physical Address */
+            physical_address: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+            /** Tags */
+            tags: string[];
+            /** Tenant */
+            tenant: string;
+            /**
+             * Tenant Descriptions
+             * @description Tenant name to its description, when it has one.
+             */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
+            /** Tenant Group */
+            tenant_group: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /**
+             * Tenant Scopes
+             * @description TENANT_SCOPE_FIELD: tenant to the device roles that count.
+             */
+            tenant_scopes: {
+                [key: string]: unknown;
+            };
+            /**
+             * Tenants
+             * @description Its tenant and the ones linked to it; with a database.
+             */
+            tenants?: string[] | null;
+            /** Tier */
+            tier: string;
+            /** Time Zone */
+            time_zone: string;
+            /** Url */
+            url: string;
+        };
+        /** LocationAlerts */
+        LocationAlerts: {
+            /** Checked At */
+            checked_at: string;
+            /**
+             * Levels
+             * @description Location ID to its level; a location left out has no monitored devices.
+             */
+            levels: {
+                [key: string]: components["schemas"]["LocationLevel"];
+            };
+            /**
+             * Next Maintenance Change
+             * @description When a window next starts or ends.
+             */
+            next_maintenance_change: string | null;
+        };
+        /** LocationDetail */
+        LocationDetail: {
+            /** @description The level the board and the map show. */
+            alert: components["schemas"]["SiteAlert"];
+            /** Asns */
+            asns: components["schemas"]["Asn"][];
+            /**
+             * Cases
+             * @description Its devices' open cases, newest first (#512).
+             */
+            cases?: string[];
+            /**
+             * Cases Read
+             * @description Whether they could be read: without, no case means nothing.
+             * @default false
+             */
+            cases_read: boolean;
+            /** Circuits */
+            circuits: components["schemas"]["SiteCircuit"][];
+            /**
+             * Circuits Error
+             * @description Why circuits couldn't be read; empty when they were.
+             */
+            circuits_error: string;
+            counts: components["schemas"]["SiteCounts"];
+            /** Devices */
+            devices: components["schemas"]["SiteDevice"][];
+        };
+        /** LocationLevel */
+        LocationLevel: {
+            /** Down */
+            down: number;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "critical" | "medium" | "low" | "ok" | "maintenance" | "no_data";
+            /** Monitored */
+            monitored: number;
+            /** Reason */
+            reason: string;
+            /**
+             * Since
+             * @description When its newest open alert started.
+             */
+            since?: string | null;
+            /**
+             * Until
+             * @description When its maintenance ends.
+             */
+            until?: string | null;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller (#521).
+             * @default false
+             */
+            wireless_only: boolean;
+        };
+        /** Locations */
+        Locations: {
+            /**
+             * Locations
+             * @description Those with coordinates, by name.
+             */
+            locations: components["schemas"]["Location"][];
+        };
+        /** MaintenanceDevice */
+        MaintenanceDevice: {
+            /** Id */
+            id: string;
+            /** Location Path */
+            location_path: string;
+            /** Name */
+            name: string;
+            /** Role */
+            role: string;
+            /** Status */
+            status: string;
+        };
+        /** MaintenanceHistory */
+        MaintenanceHistory: {
+            period: components["schemas"]["HistoryPeriod"];
+            /** Site Id */
+            site_id: string;
+            /** Tenant Descriptions */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
+            /**
+             * Truncated
+             * @description More than 5,000 windows: choose a shorter period, a site or a tenant.
+             */
+            truncated: boolean;
+            /**
+             * Windows
+             * @description Newest first.
+             */
+            windows: components["schemas"]["DescribedWindow"][];
+        };
+        /** MaintenanceLimits */
+        MaintenanceLimits: {
+            /**
+             * History Days
+             * @description The history's period by default, in days up to today.
+             */
+            history_days: number;
+            /**
+             * Max Sites
+             * @description The most sites one request may plan for.
+             */
+            max_sites: number;
+            /**
+             * Recent Days
+             * @description How far back the Maintenance page's Ended group reaches.
+             */
+            recent_days: number;
+        };
+        /** MapSettings */
+        MapSettings: {
+            /**
+             * Tile Attribution
+             * @description MAP_TILE_ATTRIBUTION, as HTML.
+             */
+            tile_attribution: string;
+            /**
+             * Tile Url
+             * @description MAP_TILE_URL: the tile server, Leaflet's {s}/{z}/{x}/{y} form.
+             */
+            tile_url: string;
+            /** @description MAP_DEFAULT_VIEW; null: the map frames the sites. */
+            view: components["schemas"]["MapView"] | null;
+        };
+        /** MapView */
+        MapView: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Zoom */
+            zoom: number;
+        };
+        /** MappedCircuit */
+        MappedCircuit: {
+            /**
+             * Cid
+             * @description "Unnamed circuit" when it has no circuit ID.
+             */
+            cid: string;
+            /** Circuit Type */
+            circuit_type: string;
+            /**
+             * Commit Rate
+             * @description Empty when Nautobot has no speed.
+             * @example 10 Gbps
+             */
+            commit_rate: string;
+            /** Description */
+            description: string;
+            /**
+             * Group
+             * @description How many sites its address points to.
+             * @enum {string}
+             */
+            group: "several" | "none" | "one";
+            /** Id */
+            id: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Sites
+             * @description By name.
+             */
+            sites: components["schemas"]["MappedSite"][];
+            /** Status */
+            status: string;
+            /** Tenant */
+            tenant: string;
+        };
+        /** MappedSite */
+        MappedSite: {
+            /**
+             * Id
+             * @description The location to open: the site, or its building on the map.
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * On Map
+             * @description False when no location of it there has coordinates.
+             */
+            on_map: boolean;
+        };
+        /** MappingSummary */
+        MappingSummary: {
+            /** None */
+            none: number;
+            /** One */
+            one: number;
+            /** Several */
+            several: number;
+            /** Total */
+            total: number;
+        };
         /**
          * MeDto
          * @description Who the API sees: `username` is null when not signed in, `role` null without one.
@@ -327,6 +2530,26 @@ export interface components {
             /** Username */
             username: string | null;
         };
+        /** MenuPage */
+        MenuPage: {
+            /**
+             * Href
+             * @example /circuits
+             */
+            href: string;
+            /**
+             * Key
+             * @example circuits
+             */
+            key: string;
+            /**
+             * Label
+             * @example Circuits
+             */
+            label: string;
+            /** Title */
+            title: string;
+        };
         /** MismatchDto */
         MismatchDto: {
             /** Count */
@@ -335,6 +2558,108 @@ export interface components {
             field: string;
             /** Problem */
             problem: string;
+        };
+        /** NearbyLocation */
+        NearbyLocation: {
+            /**
+             * Ancestor Path
+             * @example EMEA › DNK
+             */
+            ancestor_path: string;
+            /** Asn */
+            asn: number | null;
+            /** Country */
+            country: string;
+            /** Description */
+            description: string;
+            /** Distance Km */
+            distance_km: number;
+            /** Facility */
+            facility: string;
+            /** Id */
+            id: string;
+            /**
+             * Last Updated
+             * @description Read live from Nautobot only.
+             */
+            last_updated?: string | null;
+            /** Latitude */
+            latitude: number;
+            /** Location Type */
+            location_type: string;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+            /** Parent */
+            parent: string;
+            /** Parent Id */
+            parent_id: string;
+            /** Physical Address */
+            physical_address: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+            /** Tags */
+            tags: string[];
+            /** Tenant */
+            tenant: string;
+            /**
+             * Tenant Descriptions
+             * @description Tenant name to its description, when it has one.
+             */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
+            /** Tenant Group */
+            tenant_group: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /**
+             * Tenant Scopes
+             * @description TENANT_SCOPE_FIELD: tenant to the device roles that count.
+             */
+            tenant_scopes: {
+                [key: string]: unknown;
+            };
+            /**
+             * Tenants
+             * @description Its tenant and the ones linked to it; with a database.
+             */
+            tenants?: string[] | null;
+            /** Tier */
+            tier: string;
+            /** Time Zone */
+            time_zone: string;
+            /** Url */
+            url: string;
+        };
+        /**
+         * Neighbour
+         * @description The switch and port an access point is on (#524).
+         */
+        Neighbour: {
+            /**
+             * Device
+             * @description The switch, e.g. "hel0008-acc-sw02".
+             */
+            device: string;
+            /**
+             * Device Id
+             * @description The switch's Nautobot id, when a Nautobot cable says so.
+             */
+            device_id?: string | null;
+            /**
+             * Port
+             * @description Its port, e.g. "Gi1/0/14"; may be empty.
+             */
+            port: string;
+            /**
+             * Source
+             * @description Who says so: a Catalyst Center ("Catalyst Center dk", CDP/LLDP) or "Nautobot" (a cable).
+             */
+            source: string;
         };
         /** NewTokenDto */
         NewTokenDto: {
@@ -384,6 +2709,825 @@ export interface components {
              * @description The secret: shown this once.
              */
             token: string;
+        };
+        /** NotificationResults */
+        NotificationResults: {
+            /**
+             * Results
+             * @description Per configured channel (webhook, teams, email): "ok" or the error, never a URL or password.
+             */
+            results: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * Onboarding
+         * @description Where Plug and Play is with a device no inventory lists yet (#534).
+         */
+        Onboarding: {
+            /**
+             * Controller
+             * @description The instance, e.g. "Catalyst Center dk".
+             */
+            controller: string;
+            /**
+             * Error
+             * @description Why it failed; empty when it didn't.
+             */
+            error: string;
+            /**
+             * Onb State
+             * @description Its onboarding step, as Catalyst Center says it; may be empty.
+             */
+            onb_state: string;
+            /**
+             * Stale
+             * @description The controller hasn't answered lately: this is its last known answer.
+             */
+            stale: boolean;
+            /**
+             * State
+             * @description Unclaimed, Planned, Onboarding, Provisioned or Error, as Catalyst Center says it.
+             */
+            state: string;
+        };
+        /** Override */
+        Override: {
+            /**
+             * Is Critical
+             * @description 1: critical; 0: not.
+             */
+            is_critical: number;
+            /** Nautobot Device Id */
+            nautobot_device_id: string;
+            /** Reason */
+            reason: string;
+            /** Updated At */
+            updated_at: string;
+            /** Updated By */
+            updated_by: string;
+        };
+        /** OverrideDeleted */
+        OverrideDeleted: {
+            /** Nautobot Device Id */
+            nautobot_device_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "deleted";
+        };
+        /** OverrideSet */
+        OverrideSet: {
+            /** Is Critical */
+            is_critical: boolean;
+            /** Nautobot Device Id */
+            nautobot_device_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "ok";
+        };
+        /** Overrides */
+        Overrides: {
+            /**
+             * Overrides
+             * @description Newest first.
+             */
+            overrides: components["schemas"]["Override"][];
+        };
+        /** PageConfig */
+        PageConfig: {
+            /** @description Only for those who may administer (#530): what the Admin page shows; null for everyone else. */
+            admin: components["schemas"]["AdminSettings"] | null;
+            availability: components["schemas"]["AvailabilityLimits"];
+            board: components["schemas"]["BoardSettings"];
+            maintenance: components["schemas"]["MaintenanceLimits"];
+            map: components["schemas"]["MapSettings"];
+            /**
+             * Nautobot Url
+             * @description Nautobot's address, for links to its pages; empty when not set.
+             */
+            nautobot_url: string;
+            /**
+             * Pages
+             * @description The top bar's menu, in order.
+             */
+            pages: components["schemas"]["MenuPage"][];
+            /** @description Who is signed in; null with AUTH_MODE=disabled or no sign-in. */
+            user: components["schemas"]["BarUser"] | null;
+        };
+        /** Period */
+        Period: {
+            /**
+             * Complete
+             * @description False while the period is still going on.
+             */
+            complete: boolean;
+            /**
+             * End
+             * @description ISO 8601, UTC; now, for a period still going on.
+             */
+            end: string;
+            /**
+             * From
+             * @example 2026-10-01
+             */
+            from: string;
+            /**
+             * Label
+             * @example 2026-10
+             */
+            label: string;
+            /** Seconds */
+            seconds: number;
+            /**
+             * Start
+             * @description ISO 8601, UTC.
+             */
+            start: string;
+            /**
+             * To
+             * @example 2026-10-31
+             */
+            to: string;
+        };
+        /** PlannableSite */
+        PlannableSite: {
+            /**
+             * Devices
+             * @description Monitored devices.
+             */
+            devices: number;
+            /** Id */
+            id: string;
+            /**
+             * Maintenance
+             * @description In a window now.
+             */
+            maintenance: boolean;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Tenants */
+            tenants: string[];
+        };
+        /** PlannableSites */
+        PlannableSites: {
+            /** Sites */
+            sites: components["schemas"]["PlannableSite"][];
+            /**
+             * Tenant Descriptions
+             * @description Tenant name to its description, when it has one.
+             */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
+        };
+        /** PushedDevice */
+        PushedDevice: {
+            /**
+             * Device Id
+             * @description LibreNMS's ID.
+             */
+            device_id: number | null;
+            /** Hostname */
+            hostname: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "up" | "down";
+        };
+        /** Report */
+        Report: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "any_down" | "critical";
+            /**
+             * Month
+             * @description The month, when the period is one whole month.
+             */
+            month: string | null;
+            period: components["schemas"]["Period"];
+            /**
+             * Sites
+             * @description Lowest availability first.
+             */
+            sites: components["schemas"]["SiteRow"][];
+            /**
+             * Status Links
+             * @description Tenant name to its status page link id: /status/<id> (#500).
+             */
+            status_links: {
+                [key: string]: string;
+            };
+            summary: components["schemas"]["AvailabilitySummary"];
+            /**
+             * Tenant Descriptions
+             * @description Tenant name to its description, when it has one.
+             */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
+            /**
+             * Tenants
+             * @description Lowest availability first.
+             */
+            tenants: components["schemas"]["TenantRow"][];
+        };
+        /** Search */
+        Search: {
+            /** Count */
+            count: number;
+            /**
+             * Locations
+             * @description Within radius_km, nearest first.
+             */
+            locations: components["schemas"]["NearbyLocation"][];
+            /** Radius Km */
+            radius_km: number;
+            /** Search Lat */
+            search_lat: number;
+            /** Search Lon */
+            search_lon: number;
+        };
+        /** SiteAlert */
+        SiteAlert: {
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "critical" | "medium" | "low" | "ok" | "maintenance" | "no_data";
+            /** Reason */
+            reason: string;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller (#521).
+             * @default false
+             */
+            wireless_only: boolean;
+        };
+        /**
+         * SiteCircuit
+         * @description A circuit at the site: terminated there, or (``match``) at its address.
+         */
+        SiteCircuit: {
+            /**
+             * Cid
+             * @description "Unnamed circuit" when it has no circuit ID.
+             */
+            cid: string;
+            /** Circuit Type */
+            circuit_type: string;
+            /**
+             * Commit Rate
+             * @description Empty when Nautobot has no speed.
+             * @example 10 Gbps
+             */
+            commit_rate: string;
+            /** Description */
+            description: string;
+            /** Id */
+            id: string;
+            /**
+             * Match
+             * @description Found by the address, not a termination.
+             */
+            match?: "address" | null;
+            /** Port Speed */
+            port_speed?: string | null;
+            /** Pp Info */
+            pp_info?: string | null;
+            /** Provider */
+            provider: string;
+            /**
+             * Shared With
+             * @description Other sites at that address.
+             */
+            shared_with?: number | null;
+            /** Status */
+            status: string;
+            /** Tenant */
+            tenant: string;
+            /** Term Side */
+            term_side?: string | null;
+            /** Upstream Speed */
+            upstream_speed?: string | null;
+            /** Xconnect Id */
+            xconnect_id?: string | null;
+        };
+        /** SiteCounts */
+        SiteCounts: {
+            /** Down */
+            down?: number | null;
+            /** Monitored */
+            monitored?: number | null;
+        };
+        /**
+         * SiteDevice
+         * @description A device at the site, as the panel shows it.
+         */
+        SiteDevice: {
+            /**
+             * Acknowledged By
+             * @description Who acknowledged its open alert; empty when nobody did.
+             */
+            acknowledged_by?: string | null;
+            /**
+             * Alert Pending
+             * @description Down, within the alert delay.
+             */
+            alert_pending?: boolean | null;
+            /**
+             * Case Numbers
+             * @description Its open alert's cases, newest first (#512).
+             */
+            case_numbers?: string[] | null;
+            /**
+             * Core
+             * @description Core device: likely the cause when the site is down.
+             */
+            core: boolean;
+            /** Criticality */
+            criticality: string;
+            /** Device Type */
+            device_type: string;
+            /**
+             * Down Source
+             * @description Who says it is down, when Nautobot doesn't.
+             */
+            down_source?: string | null;
+            /** Id */
+            id: string;
+            /** Last Updated */
+            last_updated: string;
+            /**
+             * Level
+             * @description Its weight when it is down: critical, medium or low.
+             */
+            level: string;
+            /** Librenms Hostname */
+            librenms_hostname?: string | null;
+            /** Librenms Ip */
+            librenms_ip?: string | null;
+            /**
+             * Location Id
+             * @description Read live from Nautobot only.
+             */
+            location_id?: string | null;
+            /**
+             * Location Path
+             * @description Where below the site it is, when rows are rolled up.
+             */
+            location_path?: string | null;
+            /**
+             * Maintenance Until
+             * @description In a maintenance window until then.
+             */
+            maintenance_until?: string | null;
+            /** Manufacturer */
+            manufacturer: string;
+            /** Name */
+            name: string;
+            /** @description The switch and port this access point is on (#524). */
+            neighbour?: components["schemas"]["Neighbour"] | null;
+            /**
+             * Not Monitored
+             * @description Why it isn't counted; empty when it is.
+             */
+            not_monitored: string;
+            /** @description Not in a controller's inventory yet, but in its Plug and Play (#534): not monitored, not down. */
+            onboarding?: components["schemas"]["Onboarding"] | null;
+            /** Platform */
+            platform: string;
+            /** Primary Ip */
+            primary_ip: string;
+            /** Role */
+            role: string;
+            /** Serial */
+            serial: string;
+            /**
+             * Status
+             * @description "offline" when LibreNMS or a webhook says it is down.
+             */
+            status: string;
+            /** Tenant */
+            tenant: string;
+            /**
+             * Vc Id
+             * @description Its stack (virtual chassis); empty when none.
+             */
+            vc_id: string;
+            /** Vc Master */
+            vc_master: boolean;
+            /** Vc Name */
+            vc_name: string;
+            /** Vc Position */
+            vc_position: number | null;
+            /** Webhook Since */
+            webhook_since?: string | null;
+            /** Webhook Summary */
+            webhook_summary?: string | null;
+            /** @description Listed by a wireless controller: monitored without a primary IP (#521). */
+            wireless?: components["schemas"]["WirelessAp"] | null;
+        };
+        /** SiteMaintenance */
+        SiteMaintenance: {
+            /** By */
+            by: string;
+            /** Reason */
+            reason: string;
+            /** Until */
+            until: string;
+        };
+        /** SiteRow */
+        SiteRow: {
+            /**
+             * Access Points
+             * @description Monitored devices with a role in ACCESS_POINT_ROLES, in maintenance too.
+             */
+            access_points: number;
+            /** Address */
+            address: string;
+            /**
+             * Availability
+             * @description Percent.
+             * @example 99.9
+             */
+            availability: number;
+            /** Country */
+            country: string;
+            /**
+             * Downtime Seconds
+             * @description Down time outside maintenance; devices down together count once.
+             */
+            downtime_seconds: number;
+            /** First Outage */
+            first_outage: string | null;
+            /** Incidents */
+            incidents: number;
+            /** Last Outage */
+            last_outage: string | null;
+            /** Longest Outage Seconds */
+            longest_outage_seconds: number;
+            /**
+             * Maintenance Seconds
+             * @description Time in a whole-site maintenance window.
+             */
+            maintenance_seconds: number;
+            /**
+             * Mean Outage Seconds
+             * @description Restored outages only; null when none was restored.
+             */
+            mean_outage_seconds: number | null;
+            /** Monitored Devices */
+            monitored_devices: number;
+            /** Name */
+            name: string;
+            /**
+             * Network Devices
+             * @description Monitored devices that are not access points, in maintenance too.
+             */
+            network_devices: number;
+            /** Outages */
+            outages: number;
+            /**
+             * Path
+             * @description Its place in the location tree.
+             */
+            path: string;
+            /** Site Id */
+            site_id: string;
+            /** Tenants */
+            tenants: string[];
+            /** Tier */
+            tier: string;
+        };
+        /** Source */
+        Source: {
+            /**
+             * Last Success
+             * @description ISO 8601, UTC; null before the first good sync.
+             */
+            last_success?: string | null;
+            /**
+             * Message
+             * @example Nautobot is up to date
+             */
+            message: string;
+            /**
+             * Name
+             * @example Nautobot
+             */
+            name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ok" | "stale" | "down";
+        };
+        /**
+         * Stack
+         * @description The stack (virtual chassis) the device is part of.
+         */
+        Stack: {
+            /** Master */
+            master: boolean;
+            /**
+             * Members
+             * @description The members' names, when the whole stack is down.
+             */
+            members?: string[] | null;
+            /** Name */
+            name: string;
+            /** Position */
+            position: number | null;
+            /** Size */
+            size: number;
+            /**
+             * Whole
+             * @description Every counted member is down.
+             */
+            whole: boolean;
+        };
+        /**
+         * StatusCircuit
+         * @description One of the tenant's active circuits at a site (#511): not its provider.
+         */
+        StatusCircuit: {
+            /**
+             * Bandwidth
+             * @description Its commit rate, e.g. 1 Gbps; empty without one.
+             */
+            bandwidth: string;
+            /**
+             * Cid
+             * @description The circuit ID.
+             */
+            cid: string;
+            /**
+             * Type
+             * @description Its circuit type, e.g. Internet Transit; empty without one.
+             */
+            type: string;
+        };
+        /**
+         * StatusDevice
+         * @description One of the tenant's own devices at a site, by name (#555): nothing else of it.
+         */
+        StatusDevice: {
+            /**
+             * Name
+             * @description Its name in Nautobot; a stack's name for a stack.
+             */
+            name: string;
+            /**
+             * Since
+             * @description When it went down (ISO 8601, UTC); null unless down.
+             */
+            since: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "down" | "maintenance" | "up";
+        };
+        /** StatusLink */
+        StatusLink: {
+            /**
+             * Status Link
+             * @description Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>.
+             */
+            status_link: string;
+            /**
+             * Tenant
+             * @description The tenant, as Nautobot spells it.
+             */
+            tenant: string;
+        };
+        /** StatusLinkReplaced */
+        StatusLinkReplaced: {
+            /**
+             * Message
+             * @description What changed: the old link stopped working; the tenant's tokens still work.
+             */
+            message: string;
+            /**
+             * Status Link
+             * @description Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>.
+             */
+            status_link: string;
+            /**
+             * Tenant
+             * @description The tenant, as Nautobot spells it.
+             */
+            tenant: string;
+        };
+        /** StatusSite */
+        StatusSite: {
+            /**
+             * Access Points
+             * @description Its monitored devices with a role in ACCESS_POINT_ROLES (#503).
+             */
+            access_points: number;
+            /**
+             * Access Points Down
+             * @description Of ``access_points``, down now; not those in maintenance.
+             */
+            access_points_down: number;
+            /**
+             * Address
+             * @description The site's physical address in Nautobot, when it has one (#493).
+             */
+            address: string | null;
+            /**
+             * Circuits
+             * @description The tenant's active circuits that end at the site or whose description is its address (#511).
+             */
+            circuits: components["schemas"]["StatusCircuit"][];
+            /**
+             * Description
+             * @description The location's description in Nautobot, when it has one (#558).
+             */
+            description: string | null;
+            /**
+             * Devices
+             * @description With STATUS_PAGE_TENANT_DEVICES, the devices whose Nautobot tenant is this one (#555), down first, then by name; else empty.
+             */
+            devices: components["schemas"]["StatusDevice"][];
+            /**
+             * Latitude
+             * @description Where the site is, when Nautobot has its coordinates (#493).
+             */
+            latitude: number | null;
+            /**
+             * Longitude
+             * @description With ``latitude``, or both are null.
+             */
+            longitude: number | null;
+            /** Name */
+            name: string;
+            /**
+             * Network Devices
+             * @description Its monitored devices that aren't access points (#503).
+             */
+            network_devices: number;
+            /**
+             * Network Devices Down
+             * @description Of ``network_devices``, down now; not those in maintenance.
+             */
+            network_devices_down: number;
+            /**
+             * Since
+             * @description When an outage or degradation started (ISO 8601, UTC).
+             */
+            since: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "outage" | "degraded" | "maintenance" | "unknown" | "operational";
+            /**
+             * Until
+             * @description When maintenance ends, as planned.
+             */
+            until: string | null;
+        };
+        /** StatusSummary */
+        StatusSummary: {
+            /**
+             * Affected
+             * @description Sites in outage or degraded.
+             */
+            affected: number;
+            /**
+             * Devices Down
+             * @description Devices down now, but not at sites in maintenance or without data (#503, #508).
+             */
+            devices_down: number;
+            /** Sites */
+            sites: number;
+        };
+        /** Tenant */
+        Tenant: {
+            /**
+             * Description
+             * @description Its Nautobot description; empty when it has none.
+             */
+            description: string;
+            /** Name */
+            name: string;
+        };
+        /** TenantAlert */
+        TenantAlert: {
+            /**
+             * Access Point Count
+             * @default 0
+             */
+            access_point_count: number;
+            /**
+             * Alert Level
+             * @enum {string}
+             */
+            alert_level: "critical" | "medium" | "low" | "ok" | "maintenance" | "no_data";
+            /** Current Downtime Seconds */
+            current_downtime_seconds: number;
+            /** Device Count */
+            device_count: number;
+            /**
+             * Down Access Point Count
+             * @default 0
+             */
+            down_access_point_count: number;
+            /**
+             * Down Network Device Count
+             * @default 0
+             */
+            down_network_device_count: number;
+            /**
+             * Network Device Count
+             * @default 0
+             */
+            network_device_count: number;
+            /**
+             * Wireless Only
+             * @description Only access points down, per a wireless controller (#521).
+             * @default false
+             */
+            wireless_only: boolean;
+        };
+        /**
+         * TenantDevice
+         * @description One of a tenant's own devices, as its status page names it (#555).
+         */
+        TenantDevice: {
+            /**
+             * Name
+             * @description The device's name; a stack's name for a stack.
+             */
+            name: string;
+            /**
+             * Since
+             * @description When it went down (ISO 8601, UTC); null unless down.
+             */
+            since: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "up" | "down" | "maintenance";
+        };
+        /** TenantRow */
+        TenantRow: {
+            /**
+             * Availability
+             * @description Percent, the mean of its sites'.
+             * @example 99.875
+             */
+            availability: number;
+            /** Downtime Seconds */
+            downtime_seconds: number;
+            /** Sites */
+            sites: number;
+            /** Tenant */
+            tenant: string;
+        };
+        /** TenantStatus */
+        TenantStatus: {
+            /**
+             * Checked At
+             * @description When the board was last built (ISO 8601, UTC).
+             */
+            checked_at: string;
+            /**
+             * Description
+             * @description The tenant's description in Nautobot, when it has one (#482).
+             */
+            description: string | null;
+            /**
+             * Sites
+             * @description Worst first, then by name.
+             */
+            sites: components["schemas"]["StatusSite"][];
+            summary: components["schemas"]["StatusSummary"];
+            /**
+             * Tenant
+             * @description The tenant's name as Nautobot spells it.
+             */
+            tenant: string;
+        };
+        /** Tenants */
+        Tenants: {
+            /**
+             * Tenants
+             * @description Nautobot's tenants as of the last sync, by name.
+             */
+            tenants: components["schemas"]["Tenant"][];
         };
         /** TokenCreatedDto */
         TokenCreatedDto: {
@@ -463,18 +3607,177 @@ export interface components {
              */
             tokens: components["schemas"]["TokenDto"][];
         };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
+        /** WebhookResult */
+        WebhookResult: {
+            /** Firing */
+            firing: number;
+            /**
+             * Matched
+             * @description Firing alerts that name a Nautobot device; 0 hints at the wrong label.
+             */
+            matched: number;
+            /** Resolved */
+            resolved: number;
+            /**
+             * Skipped
+             * @description Alerts left out: no device label, no status, or not in ALERTMANAGER_ALERTNAMES.
+             */
+            skipped: number;
+        };
+        /**
+         * Window
+         * @description A maintenance window; times are ISO 8601, UTC.
+         */
+        Window: {
+            /**
+             * Batch Id
+             * @description The same for windows planned together.
+             */
+            batch_id: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /**
+             * Device Id
+             * @description Empty for the whole site.
+             */
+            device_id: string;
+            /**
+             * Ended At
+             * @description When it was ended early or cancelled; null otherwise.
+             */
+            ended_at: string | null;
+            /** Ended By */
+            ended_by: string;
+            /**
+             * Ends At
+             * @description As planned.
+             */
+            ends_at: string;
+            /** Id */
+            id: number;
+            /** Reason */
+            reason: string;
+            /** Site Id */
+            site_id: string;
+            /** Starts At */
+            starts_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "upcoming" | "ended" | "cancelled";
+        };
+        /** WindowList */
+        WindowList: {
+            /**
+             * Tenant Descriptions
+             * @description Tenant name to its description, when it has one.
+             */
+            tenant_descriptions: {
+                [key: string]: string;
+            };
+            /**
+             * Truncated
+             * @description More windows than the list holds.
+             */
+            truncated: boolean;
+            /**
+             * Windows
+             * @description Soonest first.
+             */
+            windows: components["schemas"]["DescribedWindow"][];
+        };
+        /**
+         * WirelessAp
+         * @description What a wireless controller says of the device (#521).
+         */
+        WirelessAp: {
+            /**
+             * Controller
+             * @description The instance, e.g. "Catalyst Center dk".
+             */
+            controller: string;
+            /**
+             * Ip
+             * @description Its address as the controller reports it; never written to Nautobot.
+             */
+            ip: string;
+            /**
+             * Stale
+             * @description The controller hasn't answered lately: this is its last known answer.
+             */
+            stale: boolean;
+            /** Up */
+            up: boolean;
+        };
+        /** WirelessCheck */
+        WirelessCheck: {
+            /**
+             * Controllers
+             * @description One per instance in WIRELESS_CONTROLLERS_FILE.
+             */
+            controllers: components["schemas"]["WirelessControllerCheck"][];
+            /** Duplicate Count */
+            duplicate_count: number;
+            /**
+             * Duplicates
+             * @description Up to 20 serials more than one controller lists, and which (the newest answer wins).
+             */
+            duplicates: {
+                [key: string]: string[];
+            };
+        };
+        /** WirelessControllerCheck */
+        WirelessControllerCheck: {
+            /**
+             * Access Points
+             * @description How many access points it lists.
+             */
+            access_points?: number | null;
+            /**
+             * Controller
+             * @description Its name as the top bar says it, e.g. "Catalyst Center dk".
+             */
+            controller: string;
+            /**
+             * Down
+             * @description How many of them it reports down.
+             */
+            down?: number | null;
+            /**
+             * Error
+             * @description Why it couldn't be read, in plain words; never a credential.
+             */
+            error?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "catalyst_center" | "aruba_central";
+            /**
+             * Matched
+             * @description How many match a Nautobot device (serial, else name).
+             */
+            matched?: number | null;
+            /**
+             * Reachable
+             * @description Whether it answered at all.
+             */
+            reachable: boolean;
+            /**
+             * Signed In
+             * @description Whether it took the account; null when that is unknown.
+             */
+            signed_in: boolean | null;
+            /**
+             * Unmatched Examples
+             * @description Up to 10 it lists that Nautobot doesn't have.
+             */
+            unmatched_examples?: string[] | null;
+            /** Url */
+            url: string;
         };
     };
     responses: never;
@@ -485,6 +3788,840 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    postAcknowledge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Device Ids
+                     * @description Default: every device with an open alert
+                     */
+                    device_ids?: string[] | null;
+                    /** Note */
+                    note?: string | null;
+                    /** Site Id */
+                    site_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AckChanged"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Some devices have no open alert; nothing was changed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Some devices have no open alert; nothing was changed"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postUnacknowledge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Device Ids
+                     * @description Default: every device with an open alert
+                     */
+                    device_ids?: string[] | null;
+                    /** Note */
+                    note?: string | null;
+                    /** Site Id */
+                    site_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AckChanged"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Some devices have no open alert; nothing was changed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Some devices have no open alert; nothing was changed"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postAddAlertCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Case Number */
+                    case_number: string;
+                    /** Device Id */
+                    device_id?: string | null;
+                    /** Device Ids */
+                    device_ids?: string[] | null;
+                    /** Site Id */
+                    site_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaseAdded"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Some devices have no open alert; nothing was changed */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Some devices have no open alert; nothing was changed"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAlertFeed: {
+        parameters: {
+            query?: {
+                limit?: string | null;
+                since?: string | null;
+                kinds?: string | null;
+                tenant?: string[];
+                q?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Feed"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description With tenant= or q=: the sites aren't stored yet */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "With tenant= or q=: the sites aren't stored yet"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAlertHistory: {
+        parameters: {
+            query?: {
+                site_id?: string | null;
+                device_id?: string | null;
+                start_at?: string | null;
+                end_at?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertHistory"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAlertHistoryCsvCsv: {
+        parameters: {
+            query?: {
+                site_id?: string | null;
+                days?: string | null;
+                view?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postAlertmanager: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Alerts */
+                    alerts: {
+                        [key: string]: unknown;
+                    }[];
+                    /** Version */
+                    version?: string | null;
+                } & {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookResult"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAlerts: {
+        parameters: {
+            query?: {
+                refresh?: string | null;
+                include_non_operational?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Nautobot answered with an error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Nautobot answered with an error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Nautobot is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Nautobot is not configured"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAppStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppStatus"];
+                };
+            };
+        };
+    };
+    getAvailability: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                from?: string | null;
+                to?: string | null;
+                basis?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database, or the board can't be read */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database, or the board can't be read"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAvailabilityCsvCsv: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                from?: string | null;
+                to?: string | null;
+                basis?: string | null;
+                view?: string | null;
+                header?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getCircuitMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CircuitMapping"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getCircuitMappingCsvCsv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     getContract: {
         parameters: {
             query?: never;
@@ -501,6 +4638,418 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContractDto"];
+                };
+            };
+        };
+    };
+    getListCriticalityOverrides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Overrides"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postSetCriticalityOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Is Critical
+                     * @default true
+                     */
+                    is_critical?: boolean;
+                    /** Nautobot Device Id */
+                    nautobot_device_id: string;
+                    /** Reason */
+                    reason?: string | null;
+                    /** Updated By */
+                    updated_by?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverrideSet"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDeleteCriticalityOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverrideDeleted"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No override for this device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No override for this device"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postDeviceStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Device */
+                    device: string;
+                    /** Id */
+                    id?: string | null;
+                    /** Source */
+                    source?: string | null;
+                    /** Started At */
+                    started_at?: string | null;
+                    /**
+                     * Status
+                     * @description "down" or "up"
+                     */
+                    status: string;
+                    /** Summary */
+                    summary?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookResult"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getEndpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Endpoints"];
+                };
+            };
+        };
+    };
+    getHelp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpPage"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such guide */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such guide"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -532,7 +5081,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -541,16 +5095,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -583,7 +5133,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -592,7 +5147,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Conflict */
@@ -601,16 +5161,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    /**
+                     * @example {
+                     *       "error": "Conflict"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -641,7 +5197,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -650,7 +5211,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Not found */
@@ -659,16 +5225,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -697,7 +5259,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -706,7 +5273,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Not found */
@@ -715,16 +5287,815 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+        };
+    };
+    postLibrenmsAlert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Device Id */
+                    device_id?: number | string | null;
+                    /** Hostname */
+                    hostname?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["LibreNmsPush"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description LibreNMS is not configured */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "LibreNMS is not configured"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description LibreNMS couldn't be asked */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "LibreNMS couldn't be asked"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getLocationAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationAlerts"];
+                };
+            };
+        };
+    };
+    getLocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Locations"];
+                };
+            };
+            /** @description Nautobot answered with an error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Nautobot answered with an error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Nautobot can't be reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Nautobot can't be reached"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getCoordinateCheck: {
+        parameters: {
+            query?: {
+                tenant?: string[];
+                q?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinateCheck"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getCoordinateCheckCsv: {
+        parameters: {
+            query?: {
+                tenant?: string[];
+                q?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getLocationDetail: {
+        parameters: {
+            query?: {
+                location_type?: string | null;
+            };
+            header?: never;
+            path: {
+                location_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationDetail"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Nautobot answered with an error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Nautobot answered with an error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Nautobot can't be reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Nautobot can't be reached"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMaintenanceList: {
+        parameters: {
+            query?: {
+                site_id?: string | null;
+                all?: string | null;
+                recent_days?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WindowList"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postMaintenanceCreate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Device Ids
+                     * @description One site only; leave out for the whole site
+                     */
+                    device_ids?: string[] | null;
+                    /** Duration Minutes */
+                    duration_minutes?: number | null;
+                    /** Ends At */
+                    ends_at?: string | null;
+                    /** Reason */
+                    reason: string;
+                    /** Site Id */
+                    site_id?: string | null;
+                    /**
+                     * Site Ids
+                     * @description Up to 200 sites at once
+                     */
+                    site_ids?: string[] | null;
+                    /**
+                     * Starts At
+                     * @description ISO-8601 with a time zone; default now
+                     */
+                    starts_at?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Created"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMaintenanceDevices: {
+        parameters: {
+            query?: {
+                site_id?: string | null;
+                include_non_operational?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Devices"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postMaintenanceEndMany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Ids */
+                    ids: number[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ended"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMaintenanceHistory: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                tz?: string | null;
+                site_id?: string | null;
+                tenant?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceHistory"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMaintenanceHistoryCsvCsv: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                tz?: string | null;
+                site_id?: string | null;
+                tenant?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMaintenanceSites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannableSites"];
+                };
+            };
+        };
+    };
+    postMaintenanceEnd: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                window_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndedOne"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such window */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such window"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -745,6 +6116,513 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeDto"];
+                };
+            };
+        };
+    };
+    postNotificationsTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationResults"];
+                };
+            };
+            /** @description No channel configured */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No channel configured"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A channel failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationResults"];
+                };
+            };
+        };
+    };
+    getPageConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageConfig"];
+                };
+            };
+        };
+    };
+    getSearch: {
+        parameters: {
+            query?: {
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Search"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Address not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Address not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Address search is busy; try again in a second */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Address search is busy; try again in a second"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The geocoder or Nautobot can't be reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The geocoder or Nautobot can't be reached"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getStatusLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusLink"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such tenant"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postStatusLinkReplace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusLinkReplaced"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such tenant"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantStatus"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in, or a token that no longer works */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a token that no longer works"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A status token for another tenant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "A status token for another tenant"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No sites for this tenant, or no such link */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No sites for this tenant, or no such link"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No board yet, it can't be read, or no database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No board yet, it can't be read, or no database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getTenants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tenants"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -778,7 +6656,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -787,16 +6670,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -841,7 +6720,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Not signed in, or a rejected API token */
@@ -850,7 +6734,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -859,7 +6748,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -900,7 +6794,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Not signed in, or a rejected API token */
@@ -909,7 +6808,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -918,7 +6822,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -949,7 +6858,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Role too low, or a cross-site change */
@@ -958,7 +6872,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Not found */
@@ -967,16 +6886,114 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDto"];
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+        };
+    };
+    postWirelessCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["WirelessCheck"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A check is running already */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "A check is running already"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAvailabilityPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    getCircuitsPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -996,7 +7013,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HealthDto"];
+                    "application/json": components["schemas"]["Health"];
                 };
             };
             /** @description The database doesn't answer */
@@ -1005,7 +7022,89 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HealthDto"];
+                    "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    getMaintenancePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    postMcpEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    getPrometheusMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    getStatusPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

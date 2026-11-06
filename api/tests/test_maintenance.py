@@ -13,7 +13,8 @@ from app.services import maintenance_service as maintenance
 from app.services import notify_service as notify
 from app.utils import timeutil
 from app.utils.legacy_settings import settings
-from tests.test_app import _snapshot_device, _snapshot_location
+from tests import http_client
+from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 
 NOW = "2026-10-09T12:00:00Z"
 
@@ -528,6 +529,37 @@ class TestSiteDevices:
         devices = {d["id"]: d for d in alerts.site_monitored_devices("loc-lon")}
         assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
 
+    def test_not_below_an_excluded_location_unless_shown_on_the_board(self, site, monkeypatch):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                closed = {
+                    **_snapshot_location("bld-old", "Old Building", "Building"),
+                    "parent_id": "loc-lon",
+                }
+                inventory.write_locations(
+                    conn, [_snapshot_location("loc-lon", "London HQ", "Site"), closed]
+                )
+                inventory.write_devices(
+                    conn, [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")]
+                )
+        finally:
+            conn.close()
+        monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
+        monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", {"old building"})
+        assert "old-sw" not in {d["id"] for d in alerts.site_monitored_devices("loc-lon")}
+        with http_client.FlaskStyleClient() as flask_client:
+            body = flask_client.get(
+                "/api/v1/maintenance/devices?site_id=loc-lon&include_non_operational=1"
+            ).get_json()
+        assert "old-sw" in {d["id"] for d in body["devices"]}
+
+    def test_endpoint(self, site):
+        with http_client.FlaskStyleClient() as flask_client:
+            assert flask_client.get("/api/v1/maintenance/devices").status_code == 400
+            body = flask_client.get("/api/v1/maintenance/devices?site_id=loc-lon").get_json()
+        assert [d["id"] for d in body["devices"]] == ["acc1", "acc2", "core"]
+
 
 @pytest.mark.usefixtures("pg_database")
 class TestBatches:
@@ -764,15 +796,276 @@ class TestHistory:
 
 
 class TestApi:
-    pass  # its tests are held back (the end of the file says why)
+    @pytest.fixture
+    def flask_client(self, site):
+        caching.cache.clear()
+        with http_client.FlaskStyleClient() as test_client:
+            yield test_client
 
+    def test_operator_creates_lists_and_ends(self, flask_client):
+        body = {"site_id": "loc-lon", "reason": "Core upgrade", "duration_minutes": 90}
+        assert (
+            flask_client.post("/api/v1/maintenance", json=body).status_code == 403
+        )  # AUTH_MODE=disabled
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            assert (
+                flask_client.post("/api/v1/maintenance", json=body, headers=viewer).status_code
+                == 403
+            )
+            assert (
+                flask_client.get("/api/v1/alerts", headers=viewer).get_json()["alerts"][0][
+                    "alert_level"
+                ]
+                == "critical"
+            )
+            created = flask_client.post("/api/v1/maintenance", json=body, headers=operator)
+            assert created.status_code == 201
+            (window_row,) = created.get_json()["windows"]
+            assert window_row["created_by"] == "olga" and window_row["state"] == "active"
+            # The cached board was dropped: maintenance shows at once.
+            assert (
+                flask_client.get("/api/v1/alerts", headers=viewer).get_json()["alerts"][0][
+                    "alert_level"
+                ]
+                == "maintenance"
+            )
+            listed = flask_client.get(
+                "/api/v1/maintenance?site_id=loc-lon", headers=viewer
+            ).get_json()["windows"]
+            assert [w["id"] for w in listed] == [window_row["id"]]
+            ended = flask_client.post(
+                f"/api/v1/maintenance/{window_row['id']}/end", headers=operator
+            )
+            assert ended.status_code == 200 and ended.get_json()["window"]["state"] == "ended"
+            assert (
+                flask_client.get("/api/v1/maintenance", headers=viewer).get_json()["windows"] == []
+            )
+            assert (
+                len(
+                    flask_client.get("/api/v1/maintenance?all=1", headers=viewer).get_json()[
+                        "windows"
+                    ]
+                )
+                == 1
+            )
+            assert (
+                flask_client.post("/api/v1/maintenance/999/end", headers=operator).status_code
+                == 404
+            )
 
-# Held back until what they need is ported (#587):
-#   TestSiteDevices.test_not_below_an_excluded_location_unless_shown_on_the_board: HTTP routes (step 7)
-#   TestSiteDevices.test_endpoint: HTTP routes (step 7)
-#   TestApi.client: HTTP routes (step 7)
-#   TestApi.test_operator_creates_lists_and_ends: HTTP routes (step 7)
-#   TestApi.test_sites_carry_the_tenants_descriptions: HTTP routes (step 7)
-#   TestApi.test_sites_batches_and_ending_many: HTTP routes (step 7)
-#   TestApi.test_history_and_its_export: HTTP routes (step 7)
-#   TestApi.test_bad_requests: HTTP routes (step 7)
+    def test_sites_carry_the_tenants_descriptions(self, flask_client, monkeypatch):
+        # The picker finds a tenant by its description too (#497): one map
+        # for every site, only for sites listed and tenants with one.
+        from app.v1.routes import maintenance as api_maintenance
+
+        rows = [
+            {
+                "id": "a",
+                "name": "A",
+                "device_count": 2,
+                "tenants": ["NNIT"],
+                "tenant_descriptions": {"NNIT": "Novo Nordisk IT"},
+            },
+            {
+                "id": "b",
+                "name": "B",
+                "device_count": 1,
+                "tenants": ["NNIT", "Acme"],
+                "tenant_descriptions": {"NNIT": "Novo Nordisk IT", "Acme": ""},
+            },
+            {
+                "id": "c",
+                "name": "C",
+                "device_count": 0,
+                "tenants": ["Hidden"],
+                "tenant_descriptions": {"Hidden": "Not plannable"},
+            },
+        ]
+        monkeypatch.setattr(api_maintenance, "_board_sites", lambda: rows)
+        answer = flask_client.get("/api/v1/maintenance/sites").get_json()
+        assert [site["id"] for site in answer["sites"]] == ["a", "b"]
+        assert answer["tenant_descriptions"] == {"NNIT": "Novo Nordisk IT"}
+
+    def test_sites_batches_and_ending_many(self, flask_client):
+        sites = flask_client.get("/api/v1/maintenance/sites").get_json()["sites"]
+        assert [(s["id"], s["name"], s["devices"], s["maintenance"]) for s in sites] == [
+            ("loc-lon", "London HQ", 3, False)
+        ]
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            body = {
+                "site_ids": ["loc-lon", "loc-x"],
+                "reason": "Core upgrade",
+                "duration_minutes": 60,
+            }
+            windows = flask_client.post(
+                "/api/v1/maintenance", json=body, headers=operator
+            ).get_json()["windows"]
+            listed = flask_client.get("/api/v1/maintenance", headers=viewer).get_json()
+            assert {w["site_id"]: w["site_name"] for w in listed["windows"]} == {
+                "loc-lon": "London HQ",
+                "loc-x": "",
+            }
+            assert listed["truncated"] is False
+            # One site (the board's panel): no names, so no board read.
+            one = flask_client.get("/api/v1/maintenance?site_id=loc-lon", headers=viewer).get_json()
+            assert "site_name" not in one["windows"][0]
+            ids = [w["id"] for w in windows]
+            assert (
+                flask_client.post(
+                    "/api/v1/maintenance/end", json={"ids": ids}, headers=viewer
+                ).status_code
+                == 403
+            )
+            bad_bodies = (
+                {"ids": []},
+                {"ids": ["1"]},
+                {"ids": [True]},
+                {"ids": list(range(501))},
+                [1],
+                {"ids": [10**30]},
+                {"ids": [0]},
+            )
+            for bad in bad_bodies:
+                assert (
+                    flask_client.post(
+                        "/api/v1/maintenance/end", json=bad, headers=operator
+                    ).status_code
+                    == 400
+                ), bad
+            resp = flask_client.post(
+                "/api/v1/maintenance/end", json={"ids": [*ids, 999]}, headers=operator
+            ).get_json()
+            assert {w["state"] for w in resp["windows"]} == {"ended"} and resp["not_found"] == [999]
+            # Already over: nothing changes, so the cached board is kept.
+            built = []
+            original = alerts.build_alert_board_payload
+            alerts.build_alert_board_payload = lambda *a, **k: built.append(1) or original(*a, **k)
+            try:
+                flask_client.get("/api/v1/alerts", headers=viewer)
+                built.clear()
+                flask_client.post("/api/v1/maintenance/end", json={"ids": ids}, headers=operator)
+                flask_client.get("/api/v1/alerts", headers=viewer)
+            finally:
+                alerts.build_alert_board_payload = original
+            assert built == [], "a no-op end must not drop the board"
+            assert (
+                flask_client.get("/api/v1/maintenance", headers=viewer).get_json()["windows"] == []
+            )
+            assert (
+                len(
+                    flask_client.get(
+                        "/api/v1/maintenance?recent_days=7", headers=viewer
+                    ).get_json()["windows"]
+                )
+                == 2
+            )
+            assert (
+                flask_client.get("/api/v1/maintenance?recent_days=x", headers=viewer).status_code
+                == 400
+            )
+
+    def test_history_and_its_export(self, flask_client, monkeypatch):
+        body = {"site_ids": ["loc-lon", "loc-x"], "reason": "Core", "duration_minutes": 60}
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            flask_client.post("/api/v1/maintenance", json=body, headers=operator)
+            # Default: the last 30 days, today included, in UTC unless the browser says.
+            data = flask_client.get("/api/v1/maintenance/history", headers=viewer).get_json()
+            assert data["period"] == {
+                "from": "2026-09-10",
+                "to": "2026-10-09",
+                "label": "2026-09-10 to 2026-10-09",
+                "tz": "UTC",
+            }
+            # The browser's days (review on #353): at 12:00 UTC it is already the 10th in Auckland,
+            # and the 9th there ends at 11:00 UTC, before the window started.
+            nz = flask_client.get(
+                "/api/v1/maintenance/history?tz=Pacific/Auckland", headers=viewer
+            ).get_json()
+            assert nz["period"]["to"] == "2026-10-10" and len(nz["windows"]) == 2
+            nz9 = flask_client.get(
+                "/api/v1/maintenance/history?tz=Pacific/Auckland&from=2026-10-09&to=2026-10-09",
+                headers=viewer,
+            )
+            assert nz9.get_json()["windows"] == []
+            assert (
+                flask_client.get(
+                    "/api/v1/maintenance/history?tz=Mars/Base", headers=viewer
+                ).status_code
+                == 400
+            )
+            assert {w["site_id"]: w["site_name"] for w in data["windows"]} == {
+                "loc-lon": "London HQ",
+                "loc-x": "",
+            }
+            assert data["truncated"] is False
+            one = flask_client.get(
+                "/api/v1/maintenance/history?site_id=loc-lon&from=2026-10-09&to=2026-10-09",
+                headers=viewer,
+            )
+            assert [w["site_id"] for w in one.get_json()["windows"]] == ["loc-lon"]
+            resp = flask_client.get(
+                "/api/v1/maintenance/history.csv?site_id=loc-lon&from=2026-10-01&to=2026-10-09",
+                headers=viewer,
+            )
+            assert resp.status_code == 200 and resp.mimetype == "text/csv"
+            assert (
+                'filename="maintenance-2026-10-01_2026-10-09-loc-lon.csv"'
+                in resp.headers["Content-Disposition"]
+            )
+            assert "London HQ" in resp.get_data(as_text=True)
+            # A tenant picks its sites before the limit, so its windows are never cut off for others'.
+            monkeypatch.setattr(
+                alerts,
+                "cached_alert_board",
+                lambda: {
+                    "alerts": [
+                        {"id": "loc-lon", "name": "London HQ", "tenants": ["Acme"]},
+                        {"id": "loc-x", "name": "X", "tenants": ["Other"]},
+                    ]
+                },
+            )
+            monkeypatch.setattr(maintenance, "HISTORY_LIMIT", 1)
+            only = flask_client.get(
+                "/api/v1/maintenance/history?tenant=Acme", headers=viewer
+            ).get_json()
+            assert [w["site_id"] for w in only["windows"]] == ["loc-lon"] and only[
+                "truncated"
+            ] is False
+            # An export is complete or refused, never silently short.
+            monkeypatch.setattr(maintenance, "HISTORY_EXPORT_LIMIT", 1)
+            refused = flask_client.get("/api/v1/maintenance/history.csv", headers=viewer)
+            assert refused.status_code == 400 and "shorter period" in refused.get_json()["error"]
+            for bad in (
+                "from=2026-10-09",
+                "from=2026-02-30&to=2026-03-01",
+                "from=2025-01-01&to=2026-10-01",
+            ):
+                assert (
+                    flask_client.get(
+                        f"/api/v1/maintenance/history?{bad}", headers=viewer
+                    ).status_code
+                    == 400
+                ), bad
+            # The viewer role when the board needs it (AUTH_REQUIRE_VIEWER).
+            monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+            assert flask_client.get("/api/v1/maintenance/history").status_code == 401
+            assert flask_client.get("/api/v1/maintenance/history.csv").status_code == 401
+
+    def test_bad_requests(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+        resp = flask_client.post(
+            "/api/v1/maintenance", json={"site_id": "loc-lon", "duration_minutes": 60}
+        )
+        assert resp.status_code == 400 and resp.get_json()["error"] == "reason is required"
+        assert (
+            flask_client.post(
+                "/api/v1/maintenance", data="[1]", content_type="application/json"
+            ).status_code
+            == 400
+        )

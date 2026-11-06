@@ -298,7 +298,7 @@ EU = {
     "url": "https://de1.api.central.arubanetworks.com",
     "token_url": "https://sso.common.cloud.hpe.com/as/token.oauth2",
     "client_id": "maps-ro",
-    "client_secret": "s3cret-client",
+    "client_secret": "s3cret-flask_client",
     "verify_ssl": True,
 }
 
@@ -351,6 +351,31 @@ def fake_central(monkeypatch):
 
 
 class TestArubaCentral:
+    def test_pages_by_cursor_one_sign_in(self, fake_central):
+        items = arubacentral.fetch_aps(EU)
+        assert len(items) == 2500
+        pages = [kwargs["params"] for method, url, kwargs in fake_central.calls if method == "GET"]
+        assert pages == [
+            {"limit": 1000},
+            {"limit": 1000, "next": "2"},
+            {"limit": 1000, "next": "3"},
+        ]
+        sign_in = fake_central.calls[0]
+        assert sign_in[1] == EU["token_url"]
+        assert sign_in[2]["data"] == {
+            "grant_type": "client_credentials",
+            "client_id": "maps-ro",
+            "client_secret": "s3cret-flask_client",
+        }
+        get = fake_central.calls[1]
+        assert get[1] == "https://de1.api.central.arubanetworks.com/network-monitoring/v1/aps"
+        assert get[2]["headers"]["Authorization"] == "Bearer tok-1"
+        # Kept until shortly before it expires; per API flask_client.
+        arubacentral.fetch_aps(EU)
+        assert fake_central.tokens == 1
+        arubacentral.fetch_aps({**EU, "name": "us", "client_id": "other"})
+        assert fake_central.tokens == 2
+
     def test_a_refused_token_asks_again_once(self, fake_central):
         fake_central.total, fake_central.expired_once = 3, True
         arubacentral._tokens[(EU["token_url"], EU["client_id"])] = ("old", 10**12)
@@ -1320,5 +1345,4 @@ class TestPlugAndPlay:
 
 
 # Held back until what they need is ported (#587):
-#   TestArubaCentral.test_pages_by_cursor_one_sign_in: HTTP routes (step 7)
 #   TestCheck.test_the_command: the CLI (step 9)

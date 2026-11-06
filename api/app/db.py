@@ -69,9 +69,37 @@ def dialect() -> str:
     return "postgres"
 
 
+class _Direct(Connection):
+    """A connection of its own, outside the pool; ``close()`` closes it."""
+
+    def __init__(self, conn) -> None:  # type: ignore[no-untyped-def]
+        self._pooled = None
+        self._conn = conn
+
+    def close(self) -> None:
+        self._conn.close()
+
+
 def get_conn(connect_timeout: int | None = None) -> Connection:
-    """A connection from the pool (*connect_timeout* is the pool's, from the settings)."""
-    return Connection(engine.raw_connection())
+    """A connection from the pool; with *connect_timeout*, one of its own that gives up
+    connecting after that many seconds (#608 review: the app status's 2 s), never
+    waiting for a pool slot."""
+    if connect_timeout is None:
+        return Connection(engine.raw_connection())
+    import psycopg
+
+    url = _settings.sqlalchemy_url().set(drivername="postgresql")
+    args = session.connect_args(
+        _settings.sqlalchemy_url(), connect_timeout, _settings.db_statement_timeout_seconds
+    )
+    conn = psycopg.connect(
+        url.render_as_string(hide_password=False),
+        autocommit=True,
+        row_factory=dict_row,
+        connect_timeout=args["connect_timeout"],
+        options=args["options"],
+    )
+    return _Direct(conn)
 
 
 @contextmanager

@@ -17,27 +17,29 @@ class _Settings:
         return getattr(config, name)
 
     def __setattr__(self, name: str, value: object) -> None:
-        """Tests' ``monkeypatch.setattr(settings, "NAME", value)``: on the settings every
-        module reads (``get_settings()``), until the next test's fresh settings."""
+        """``settings.NAME = value`` (and tests' ``monkeypatch.setattr``): for every module,
+        and kept across fresh settings until undone, as the current app's globals were."""
         field = name.lower()
         if field not in config.Settings.model_fields:
             raise AttributeError(f"no setting {name}")
-        current = config.get_settings()
         # pytest's monkeypatch undoes with delattr (it reads attributes statically), and so
-        # does mock.patch: one value saved per assignment, the last put back first, so a
-        # nested override undone restores the outer one (#603 review).
+        # does mock.patch: what each assignment replaced is saved, the last put back first,
+        # so a nested override undone restores the outer one (#603 review).
         saved = self.__dict__.setdefault("_saved", {}).setdefault(field, [])
-        saved.append((current, getattr(current, field)))
-        setattr(current, field, value)
+        saved.append((field in config.OVERRIDES, config.OVERRIDES.get(field)))
+        config.OVERRIDES[field] = value
+        setattr(config.get_settings(), field, value)
 
     def __delattr__(self, name: str) -> None:
+        """The assignment undone: the value before it, the settings read again."""
         field = name.lower()
         saved = self.__dict__.get("_saved", {}).get(field)
-        if not saved:
-            return
-        current, value = saved.pop()
-        if current is config.get_settings():
-            setattr(current, field, value)
+        was_set, value = saved.pop() if saved else (False, None)
+        if was_set:
+            config.OVERRIDES[field] = value
+        else:
+            config.OVERRIDES.pop(field, None)
+        config.get_settings.cache_clear()
 
 
 settings = _Settings()

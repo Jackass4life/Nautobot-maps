@@ -10,8 +10,10 @@ from app.clients import caching, librenms
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import scheduler
+from app.services import token_service as tokens
 from app.utils.legacy_settings import settings
-from tests.test_app import _snapshot_device, _snapshot_location
+from tests import http_client
+from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 
 REAL_REBUILD_AFTER_PUSH = scheduler.rebuild_after_push
 
@@ -81,13 +83,17 @@ def lnms(pg_database, monkeypatch):
     return fake
 
 
+@pytest.fixture
+def flask_client(lnms):
+    with http_client.FlaskStyleClient() as test_client:
+        yield test_client
+
+
 def operator_token() -> dict:
-    from app.services import token_service
     from app.session import SessionLocal
 
     with SessionLocal() as session:
-        body = {"name": "librenms", "role": "operator"}
-        secret = token_service.create(session, body, "admin")["token"]
+        secret = tokens.create(session, {"name": "librenms", "role": "operator"}, "admin")["token"]
         session.commit()
     return {"Authorization": f"Bearer {secret}"}
 
@@ -110,7 +116,48 @@ def pending() -> bool:
 
 
 class TestPush:
-    pass  # its tests are held back (the end of the file says why)
+    def test_down_then_up_shows_on_the_board_at_once(self, flask_client, lnms):
+        auth_headers = operator_token()
+        assert board_row()["down_device_count"] == 0
+        lnms.devices[1001]["status"] = 0
+        response = flask_client.post(
+            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.get_json() == {
+            "updated": True,
+            "device": {"device_id": 1001, "hostname": "sw1.corp.example", "status": "down"},
+        }
+        assert lnms.rebuilds == [True] and pending()
+        row = board_row()
+        assert row["down_device_count"] == 1 and row["down_devices"][0]["device_name"] == "sw1"
+
+        # A recovery right after the outage is not swallowed as a duplicate.
+        lnms.devices[1001]["status"] = 1
+        recovered = flask_client.post(
+            "/api/v1/librenms/alert", data={"hostname": "sw1.corp.example"}, headers=auth_headers
+        )
+        assert recovered.get_json()["device"]["status"] == "up"
+        assert board_row()["down_device_count"] == 0
+
+    def test_the_push_names_the_device_its_status_comes_from_librenms(self, flask_client, lnms):
+        # A "recovered" push for a device LibreNMS still has down changes nothing wrong.
+        lnms.devices[1002]["status"] = 0
+        response = flask_client.post(
+            "/api/v1/librenms/alert?device_id=1002&state=0", headers=operator_token()
+        )
+        assert response.get_json()["device"]["status"] == "down"
+
+    def test_repeated_pushes_refresh_again(self, flask_client, lnms):
+        auth_headers = operator_token()
+        for _ in range(2):
+            assert (
+                flask_client.post(
+                    "/api/v1/librenms/alert", json={"device_id": 1000}, headers=auth_headers
+                ).status_code
+                == 200
+            )
+        assert lnms.calls == ["devices/1000", "devices/1000"]
 
     def test_an_older_answer_never_overwrites_a_newer_one(self, lnms, monkeypatch):
         """The first push's LibreNMS answer (down) is slow; meanwhile the device
@@ -206,9 +253,115 @@ class TestPush:
             conn.close()
         assert "lower(hostname)" in db.row_to_dict(row)["indexdef"]
 
+    def test_unknown_device_is_not_an_error(self, flask_client, lnms):
+        response = flask_client.post(
+            "/api/v1/librenms/alert", json={"hostname": "nope.example"}, headers=operator_token()
+        )
+        assert response.status_code == 200
+        assert response.get_json() == {"updated": False, "device": None}
+        assert lnms.rebuilds == [] and not pending()
+
+    @pytest.mark.parametrize(
+        "body",
+        [{}, {"device_id": ""}, {"device_id": True}, {"hostname": ["x"]}, {"hostname": "x" * 256}],
+    )
+    def test_missing_device(self, flask_client, body):
+        response = flask_client.post("/api/v1/librenms/alert", json=body, headers=operator_token())
+        assert (
+            response.status_code == 400
+            and response.get_json()["error"] == "device_id or hostname is required"
+        )
+
+    def test_librenms_failure_is_a_502_without_secrets(self, flask_client, lnms, caplog):
+        lnms.fail = requests.ConnectionError(
+            "https://librenms.test/api/v0/devices/1000 lnms-secret refused"
+        )
+        response = flask_client.post(
+            "/api/v1/librenms/alert", json={"device_id": 1000}, headers=operator_token()
+        )
+        assert response.status_code == 502
+        text = response.get_data(as_text=True) + caplog.text
+        assert (
+            "librenms.test" not in text
+            and "lnms-secret" not in text
+            and "ConnectionError" in caplog.text
+        )
+
+    def test_not_configured(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "LIBRENMS_URL", "")
+        response = flask_client.post(
+            "/api/v1/librenms/alert", json={"device_id": 1000}, headers=operator_token()
+        )
+        assert response.status_code == 409
+
+    def test_needs_an_operator(self, flask_client, lnms):
+        assert (
+            flask_client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code == 403
+        )  # disabled mode
+        conn = db.get_conn()
+        try:
+            viewer = tokens.create(conn, {"name": "reader", "role": "viewer"}, "admin")["token"]
+        finally:
+            conn.close()
+        refused = flask_client.post(
+            "/api/v1/librenms/alert",
+            json={"device_id": 1000},
+            headers={"Authorization": f"Bearer {viewer}"},
+        )
+        assert refused.status_code == 403
+        with auth_config(mode="header", operator_groups={"ops"}):
+            assert (
+                flask_client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code
+                == 401
+            )
+        assert lnms.calls == []
+
 
 class TestRebuild:
-    pass  # its tests are held back (the end of the file says why)
+    def test_the_next_tick_rebuilds_for_a_pending_push(self, flask_client, lnms, monkeypatch):
+        lnms.devices[1001]["status"] = 0
+        flask_client.post(
+            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
+        )
+        built = []
+        monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
+        monkeypatch.setattr(scheduler, "rebuild_board", lambda: built.append(True))
+        assert scheduler.tick() is True and built == [True]
+        assert not pending()
+        assert scheduler.tick() is False and built == [True], "nothing pending: no rebuild"
+
+    def test_a_failed_rebuild_keeps_the_push_for_the_next_tick(
+        self, flask_client, lnms, monkeypatch
+    ):
+        flask_client.post(
+            "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
+        )
+
+        def broken():
+            raise RuntimeError("board build failed")
+
+        monkeypatch.setattr(scheduler, "rebuild_board", broken)
+        with pytest.raises(RuntimeError):
+            scheduler.tick()
+        assert pending()
+
+    def test_a_push_during_the_rebuild_stays_pending(self, flask_client, lnms, monkeypatch):
+        auth_headers = operator_token()
+        flask_client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=auth_headers)
+
+        def rebuild_while_another_push_comes():
+            inventory.librenms_push_refresh("1002")
+
+        monkeypatch.setattr(scheduler, "rebuild_board", rebuild_while_another_push_comes)
+        assert scheduler.tick() is True
+        conn = db.get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT device_id FROM librenms_device_status WHERE push_seq IS NOT NULL"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [db.row_to_dict(row)["device_id"] for row in rows] == [1002]
 
     def test_rebuild_after_push_builds_and_stores_the_board(self, lnms, monkeypatch):
         monkeypatch.setattr(scheduler, "rebuild_after_push", REAL_REBUILD_AFTER_PUSH)
@@ -254,20 +407,6 @@ class TestRebuild:
         scheduler.rebuild_after_push()
         assert ran == []
 
-
-# Held back until what they need is ported (#587):
-#   client: HTTP routes (step 7)
-#   TestPush.test_down_then_up_shows_on_the_board_at_once: HTTP routes (step 7)
-#   TestPush.test_the_push_names_the_device_its_status_comes_from_librenms: HTTP routes (step 7)
-#   TestPush.test_repeated_pushes_refresh_again: HTTP routes (step 7)
-#   TestPush.test_unknown_device_is_not_an_error: HTTP routes (step 7)
-#   TestPush.test_missing_device: HTTP routes (step 7)
-#   TestPush.test_librenms_failure_is_a_502_without_secrets: HTTP routes (step 7)
-#   TestPush.test_not_configured: HTTP routes (step 7)
-#   TestPush.test_needs_an_operator: HTTP routes (step 7)
-#   TestRebuild.test_the_next_tick_rebuilds_for_a_pending_push: HTTP routes (step 7)
-#   TestRebuild.test_a_failed_rebuild_keeps_the_push_for_the_next_tick: HTTP routes (step 7)
-#   TestRebuild.test_a_push_during_the_rebuild_stays_pending: HTTP routes (step 7)
 
 # The current app's own schema migration test is its own: the schema here is
 # Alembic's, checked against the current one in tests/test_schema.py (#602).

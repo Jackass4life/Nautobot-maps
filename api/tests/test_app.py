@@ -4,9 +4,10 @@ elsewhere (test_clients.py, test_settings.py, test_schema.py) are left out."""
 import importlib
 import json
 import pathlib
+import re
 import threading
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
@@ -19,9 +20,15 @@ from app.services import alerts_service as alerts
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.services import maintenance_service as maintenance
+from app.services import navigation_service as navigation
 from app.services import scheduler
 from app.utils import timeutil
 from app.utils.legacy_settings import settings
+from app.v1.answers import board as board_answers
+from app.v1.answers import locations as location_answers
+from app.v1.routes import board as api_board
+from app.v1.routes import locations as api_locations
+from tests import answers, http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -29,9 +36,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 def _full_locations(locations: list[dict]) -> list[dict]:
     """Stand-in locations with a stored location's other fields, empty (#449:
     the board made from them is checked against /api/docs)."""
-    # The current tests complete them from the API's answer model (#449), which comes
-    # with the routes (step 7 of #587); as they are until then.
-    return [dict(location) for location in locations]
+    return [answers.complete(location_answers.Location, location) for location in locations]
 
 
 @contextmanager
@@ -71,6 +76,14 @@ def auth_config(
         settings.AUTH_OPERATOR_GROUPS = saved["AUTH_OPERATOR_GROUPS"]
         settings.AUTH_ADMIN_GROUPS = saved["AUTH_ADMIN_GROUPS"]
         settings.AUTH_DEFAULT_ROLE = saved["AUTH_DEFAULT_ROLE"]
+
+
+@pytest.fixture
+def flask_client():
+    # Clear cache before each test
+    caching.cache.clear()
+    with http_client.FlaskStyleClient() as c:
+        yield c
 
 
 @pytest.fixture
@@ -260,13 +273,302 @@ class TestPrimaryIpExtraction:
 # Tests: /api/locations
 # ---------------------------------------------------------------------------
 class TestApiLocations:
-    pass  # its tests are held back (the end of the file says why)
+    def test_returns_locations_with_coordinates(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "locations" in data
+        # loc-3 (no GPS) must be excluded
+        assert len(data["locations"]) == 2
+
+    def test_location_fields(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["name"] == "Copenhagen DC"
+        assert loc["latitude"] == 55.6761
+        assert loc["longitude"] == 12.5683
+        assert loc["tenant"] == "Acme Corp"
+        assert loc["asn"] == 65001
+        assert loc["status"] == "Active"
+
+    def test_location_type_field_populated(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["location_type"] == "Data Center"
+
+    def test_country_field_populated(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["country"] == "Denmark"
+
+    def test_country_field_falls_back_to_physical_address(self, flask_client):
+        fallback_locations = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-fallback-country",
+                    "name": "Fallback Site",
+                    "slug": "fallback-site",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Office"},
+                    "parent": None,
+                    "latitude": "55.0",
+                    "longitude": "12.0",
+                    "description": "",
+                    "physical_address": "Examplevej 10, 2100 Copenhagen, Denmark",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "facility": "",
+                    "tags": [],
+                    "url": "",
+                },
+            ],
+        }
+
+        def mock_get(endpoint, params=None, **kwargs):
+            if "dcim/locations" in endpoint:
+                return fallback_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(nautobot, "get", side_effect=mock_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["country"] == "Denmark"
+
+    def test_parent_field_populated(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["parent"] == "Denmark"
+
+    def test_tenant_group_field_populated(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["tenant_group"] == "Corporate"
+
+    def test_tenant_group_empty_when_no_tenant(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        # loc-2 (Aarhus PoP) has no tenant
+        loc = resp.get_json()["locations"][1]
+        assert loc["tenant_group"] == ""
+
+    def test_facility_field_populated(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["facility"] == "CPH-1"
+
+    def test_facility_empty_when_not_set(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][1]
+        assert loc["facility"] == ""
+
+    def test_tags_field_populated(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["tags"] == ["critical", "production"]
+
+    def test_tags_empty_when_none(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][1]
+        assert loc["tags"] == []
+
+    def test_tags_fallback_with_brief_nested_object(self, flask_client):
+        """When tags are brief (id+url only), the fallback map resolves names."""
+        brief_locations = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-tags",
+                    "name": "Tagged Location",
+                    "slug": "tagged-loc",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Data Center"},
+                    "parent": None,
+                    "latitude": "55.0",
+                    "longitude": "12.0",
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "facility": "",
+                    "tags": [
+                        {"id": "tag-1", "url": "http://nautobot/api/extras/tags/tag-1/"},
+                        {"id": "tag-2", "url": "http://nautobot/api/extras/tags/tag-2/"},
+                    ],
+                    "url": "",
+                },
+            ],
+        }
+        tags_page = {
+            "count": 2,
+            "next": None,
+            "results": [
+                {"id": "tag-1", "name": "critical"},
+                {"id": "tag-2", "name": "production"},
+            ],
+        }
+
+        def mock_get(endpoint, params=None, **kwargs):
+            if "extras/tags" in endpoint:
+                return tags_page
+            if "dcim/locations" in endpoint:
+                return brief_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(nautobot, "get", side_effect=mock_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["tags"] == ["critical", "production"]
+
+    def test_location_type_fallback_with_brief_nested_object(self, flask_client):
+        """When location_type is brief (id+url only), the fallback map resolves the name."""
+        brief_locations = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-brief",
+                    "name": "Brief Location",
+                    "slug": "brief-loc",
+                    "status": {"label": "Active"},
+                    "location_type": {
+                        "id": "lt-dc",
+                        "url": "http://nautobot/api/dcim/location-types/lt-dc/",
+                    },
+                    "parent": None,
+                    "latitude": "55.0",
+                    "longitude": "12.0",
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "url": "",
+                },
+            ],
+        }
+        lt_page = {
+            "count": 1,
+            "next": None,
+            "results": [{"id": "lt-dc", "name": "Data Center"}],
+        }
+
+        def mock_get(endpoint, params=None, **kwargs):
+            if "dcim/location-types" in endpoint:
+                return lt_page
+            if "dcim/locations" in endpoint:
+                return brief_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(nautobot, "get", side_effect=mock_get):
+            resp = flask_client.get("/api/v1/locations")
+        loc = resp.get_json()["locations"][0]
+        assert loc["location_type"] == "Data Center"
+
+    def test_parent_fallback_with_brief_nested_object(self, flask_client):
+        """When parent is brief (id+url only), the fallback map resolves the name."""
+        brief_locations = {
+            "count": 2,
+            "next": None,
+            "results": [
+                {
+                    "id": "loc-parent",
+                    "name": "Denmark",
+                    "slug": "denmark",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Region"},
+                    "parent": None,
+                    "latitude": None,
+                    "longitude": None,
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "url": "",
+                },
+                {
+                    "id": "loc-child",
+                    "name": "Copenhagen DC",
+                    "slug": "cph-dc",
+                    "status": {"label": "Active"},
+                    "location_type": {"name": "Data Center"},
+                    "parent": {
+                        "id": "loc-parent",
+                        "url": "http://nautobot/api/dcim/locations/loc-parent/",
+                    },
+                    "latitude": "55.6761",
+                    "longitude": "12.5683",
+                    "description": "",
+                    "physical_address": "",
+                    "tenant": None,
+                    "asn": None,
+                    "time_zone": "",
+                    "url": "",
+                },
+            ],
+        }
+
+        def mock_get(endpoint, params=None, **kwargs):
+            if "dcim/locations" in endpoint:
+                return brief_locations
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(nautobot, "get", side_effect=mock_get):
+            resp = flask_client.get("/api/v1/locations")
+        # loc-parent has no GPS (lat/lon=None) so only loc-child is returned
+        locs = resp.get_json()["locations"]
+        assert len(locs) == 1
+        assert locs[0]["parent"] == "Denmark"
+
+    def test_missing_env_vars_returns_503(self, flask_client):
+        original_url = settings.NAUTOBOT_URL
+        original_token = settings.NAUTOBOT_TOKEN
+        settings.NAUTOBOT_URL = ""
+        settings.NAUTOBOT_TOKEN = ""
+        try:
+            resp = flask_client.get("/api/v1/locations")
+            assert resp.status_code == 503
+            assert resp.get_json()["error"] == "Nautobot service unavailable"
+        finally:
+            settings.NAUTOBOT_URL = original_url
+            settings.NAUTOBOT_TOKEN = original_token
+
+    def test_nautobot_http_error_returns_502(self, flask_client):
+        import requests as req_lib
+
+        http_err = req_lib.HTTPError(response=MagicMock(status_code=500))
+        with patch.object(nautobot, "get", side_effect=http_err):
+            resp = flask_client.get("/api/v1/locations")
+        assert resp.status_code == 502
 
 
 # ---------------------------------------------------------------------------
 # Tests: alert board
 # ---------------------------------------------------------------------------
 class TestAlertBoard:
+    def test_alert_board_page_renders(self, flask_client, frontend_build):
+        """The board and the wall are built with Nuxt (#463; frontend/tests/ and e2e/
+        test the pages themselves)."""
+        for path in ("/alerts?tenant=Acme%20Corp", "/alerts?view=wall&q=DNK"):
+            resp = flask_client.get(path)
+            assert resp.status_code == 200 and b'id="__nuxt"' in resp.data, path
+            assert resp.headers["Cache-Control"] == "no-cache"
+
     def test_get_alert_board_data_aggregates_and_sorts(self):
         caching.cache.clear()
         sample_locations = [
@@ -373,6 +675,155 @@ class TestAlertBoard:
         assert data["alerts"][0]["down_device_count"] == 1
         assert data["alerts"][1]["alert_level"] == "medium"
         assert data["stale"] is False
+
+    def test_api_alerts_returns_board_data(self, flask_client):
+        caching.cache.clear()
+        with (
+            patch.object(
+                inventory,
+                "get_locations",
+                return_value=_full_locations(
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Copenhagen DC",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "Denmark",
+                            "latitude": 55.6761,
+                            "longitude": 12.5683,
+                            "description": "",
+                            "physical_address": "Vermlandsgade 51, 2300 Copenhagen",
+                            "country": "Denmark",
+                            "facility": "CPH-1",
+                            "tenant": "Acme Corp",
+                            "tenant_id": "ten-1",
+                            "tenant_group": "Corporate",
+                            "asn": 65001,
+                            "time_zone": "Europe/Copenhagen",
+                            "tags": ["critical"],
+                            "url": "",
+                        }
+                    ]
+                ),
+            ),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
+            patch.object(
+                alerts,
+                "get_location_devices_and_alert",
+                return_value=(
+                    [
+                        {
+                            "id": "dev-1",
+                            "name": "router01",
+                            "role": "Core Router",
+                            "status": "offline",
+                            "primary_ip": "10.0.0.1/32",
+                        }
+                    ],
+                    {"level": "critical", "reason": "Core device(s) offline: router01"},
+                ),
+            ),
+        ):
+            resp = flask_client.get("/api/v1/alerts")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["summary"]["critical"] == 1
+        assert data["alerts"][0]["name"] == "Copenhagen DC"
+        assert data["alerts"][0]["alert_level"] == "critical"
+        assert data["alerts"][0]["physical_address"] == "Vermlandsgade 51, 2300 Copenhagen"
+        assert data["alerts"][0]["country"] == "Denmark"
+        assert data["alerts"][0]["down_devices"] == [
+            {
+                "device_id": "dev-1",
+                "device_name": "router01",
+                "device_ip": "10.0.0.1",
+                "status": "offline",
+                "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
+                "case_numbers": [],
+            }
+        ]
+
+    def test_api_alerts_hides_non_operational_locations_unless_requested(self, flask_client):
+        caching.cache.clear()
+        sample_locations = [
+            {
+                "id": "loc-1",
+                "name": "Production Site",
+                "status": "Active",
+                "location_type": "Data Center",
+                "parent": "",
+                "latitude": 1.0,
+                "longitude": 2.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+            {
+                "id": "loc-2",
+                "name": "Spare Kit",
+                "status": "Active",
+                "location_type": "Warehouse",
+                "parent": "",
+                "latitude": 3.0,
+                "longitude": 4.0,
+                "description": "",
+                "physical_address": "",
+                "facility": "",
+                "tenant": "",
+                "tenant_id": "",
+                "tenant_group": "",
+                "asn": None,
+                "time_zone": "",
+                "tags": [],
+                "url": "",
+            },
+        ]
+
+        with (
+            patch.object(
+                inventory, "get_locations", return_value=_full_locations(sample_locations)
+            ),
+            patch.object(
+                alerts,
+                "get_location_devices_and_alert",
+                return_value=(
+                    [
+                        {
+                            "id": "dev-1",
+                            "name": "router01",
+                            "role": "Core Router",
+                            "status": "active",
+                            "primary_ip": "192.0.2.1/32",
+                        }
+                    ],
+                    {"level": "ok", "reason": ""},
+                ),
+            ) as get_alert,
+        ):
+            resp = flask_client.get("/api/v1/alerts")
+            assert resp.status_code == 200
+            assert resp.get_json()["summary"]["total"] == 1
+            assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1"]
+            assert get_alert.call_count == 1
+
+            caching.cache.clear()
+            get_alert.reset_mock()
+            resp = flask_client.get("/api/v1/alerts?include_non_operational=1")
+
+        assert resp.status_code == 200
+        assert resp.get_json()["summary"]["total"] == 2
+        assert [item["id"] for item in resp.get_json()["alerts"]] == ["loc-1", "loc-2"]
+        assert get_alert.call_count == 2
 
     def test_location_exclusion_supports_object_tags(self):
         with patch.object(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TAGS", {"non-operational"}):
@@ -787,9 +1238,112 @@ class TestAlertBoard:
 # Tests: /api/locations/<id>/detail
 # ---------------------------------------------------------------------------
 class TestApiLocationDetail:
-    pass  # its tests are held back (the end of the file says why)
+    def test_returns_devices_and_asns(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["devices"]) == 1
+        assert data["devices"][0]["name"] == "router01"
+        assert len(data["asns"]) == 1
+        assert data["asns"][0]["asn"] == 65001
 
-    def _get_detail_with_asn_endpoint_missing(self, client, cached_locations, location_get):
+    def test_device_fields(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+        dev = resp.get_json()["devices"][0]
+        assert dev["manufacturer"] == "Cisco"
+        assert dev["device_type"] == "ASR1001-X"
+        assert dev["role"] == "Core Router"
+        assert dev["tenant"] == "Acme Corp"
+        assert dev["platform"] == "IOS-XE"
+        assert dev["serial"] == "SN123"
+        assert dev["status"] == "Active"
+
+    def test_device_with_null_fields(self, flask_client):
+        """Devices with null nested fields must return strings, never None."""
+        sparse_devices = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "dev-sparse",
+                    "name": None,
+                    "device_type": None,
+                    "role": None,
+                    "status": None,
+                    "platform": None,
+                    "serial": None,
+                    "tenant": None,
+                }
+            ],
+        }
+
+        def mock_get(endpoint, params=None, **kwargs):
+            if "dcim/devices" in endpoint:
+                return sparse_devices
+            if "dcim/device-types" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "dcim/manufacturers" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "extras/roles" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "tenancy/tenants" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "extras/statuses" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            if "ipam/asns" in endpoint:
+                return {"count": 0, "next": None, "results": []}
+            return {"count": 0, "next": None, "results": []}
+
+        with patch.object(nautobot, "get", side_effect=mock_get):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+        assert resp.status_code == 200
+        dev = resp.get_json()["devices"][0]
+        # Every field must be a string (not None/null) so the JS escHtml()
+        # function never receives null.
+        for field in (
+            "id",
+            "name",
+            "device_type",
+            "manufacturer",
+            "role",
+            "status",
+            "platform",
+            "serial",
+            "tenant",
+        ):
+            assert dev[field] is not None, f"device field '{field}' is None"
+            assert isinstance(dev[field], str), f"device field '{field}' is not a string"
+
+    def test_device_lookup_failure_returns_503(self, flask_client):
+        with patch.object(
+            alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")
+        ):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+
+        assert resp.status_code == 503
+        assert resp.get_json()["error"] == "Nautobot service unavailable"
+
+    def test_asn_lookup_http_error_returns_502(self, flask_client):
+        http_err = requests.HTTPError(
+            "upstream failed",
+            response=MagicMock(status_code=502),
+        )
+        with (
+            patch.object(
+                alerts,
+                "get_location_devices_and_alert",
+                return_value=([], {"level": "ok", "reason": ""}),
+            ),
+            patch.object(nautobot, "fetch_all_pages", side_effect=http_err),
+        ):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+
+        assert resp.status_code == 502
+        assert resp.get_json()["error"] == "Failed to communicate with Nautobot API"
+
+    def _get_detail_with_asn_endpoint_missing(self, flask_client, cached_locations, location_get):
         """Request a detail while ``ipam/asns/`` returns 404 (Nautobot 3.x core)."""
         not_found = requests.HTTPError(
             "404 Client Error: Not Found",
@@ -805,19 +1359,131 @@ class TestApiLocationDetail:
             patch.object(inventory, "read_locations", return_value=cached_locations),
             patch.object(nautobot, "get", side_effect=location_get) as mock_get,
         ):
-            resp = client.get("/api/locations/loc-1/detail")
+            resp = flask_client.get("/api/v1/locations/loc-1/detail")
         return resp, mock_get
+
+    def test_missing_asn_endpoint_falls_back_to_location_asn(self, flask_client):
+        resp, mock_get = self._get_detail_with_asn_endpoint_missing(
+            flask_client, [], lambda endpoint, params=None: {"id": "loc-1", "asn": 65001}
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
+        mock_get.assert_called_once_with("dcim/locations/loc-1/")
+
+    def test_missing_asn_endpoint_prefers_cached_location_asn(self, flask_client):
+        resp, mock_get = self._get_detail_with_asn_endpoint_missing(
+            flask_client,
+            [{"id": "loc-2", "asn": 65002}, {"id": "loc-1", "asn": 65001}],
+            AssertionError("should use the cached inventory"),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["asns"] == [{"asn": 65001, "description": "", "tenant": ""}]
+        mock_get.assert_not_called()
+
+    def test_missing_asn_endpoint_and_no_location_asn_returns_empty(self, flask_client):
+        resp, _ = self._get_detail_with_asn_endpoint_missing(
+            flask_client,
+            [{"id": "loc-1", "asn": None}],
+            AssertionError("should use the cached inventory"),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["asns"] == []
+
+    def test_missing_asn_endpoint_still_fails_when_location_lookup_fails(self, flask_client):
+        upstream_err = requests.HTTPError(
+            "500 Server Error",
+            response=MagicMock(status_code=500),
+        )
+        resp, _ = self._get_detail_with_asn_endpoint_missing(flask_client, [], upstream_err)
+        assert resp.status_code == 502
 
 
 # ---------------------------------------------------------------------------
 # Tests: /api/search
 # ---------------------------------------------------------------------------
 class TestApiSearch:
-    pass  # its tests are held back (the end of the file says why)
+    def test_missing_query_returns_400(self, flask_client):
+        resp = flask_client.get("/api/v1/search")
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
+    def test_gps_coordinates_search(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            # Copenhagen coordinates – loc-1 is exactly at 55.6761,12.5683 (distance 0)
+            resp = flask_client.get("/api/v1/search?q=55.6761,12.5683")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["search_lat"] == pytest.approx(55.6761)
+        assert data["search_lon"] == pytest.approx(12.5683)
+        assert data["radius_km"] == 5
+        # loc-1 is at the exact point
+        names = [loc["name"] for loc in data["locations"]]
+        assert "Copenhagen DC" in names
+
+    def test_gps_no_results_far_away(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            # Tokyo – far from all test locations
+            resp = flask_client.get("/api/v1/search?q=35.6895,139.6917")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["count"] == 0
+        assert data["locations"] == []
+
+    def test_search_results_sorted_by_distance(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            # Point very close to loc-1 (within 5 km)
+            resp = flask_client.get("/api/v1/search?q=55.678,12.571")
+        data = resp.get_json()
+        distances = [loc["distance_km"] for loc in data["locations"]]
+        assert distances == sorted(distances)
+
+    def test_address_geocoding(self, flask_client):
+        mock_geo_result = MagicMock()
+        mock_geo_result.latitude = 55.6761
+        mock_geo_result.longitude = 12.5683
+        mock_geolocator = MagicMock()
+        mock_geolocator.geocode.return_value = mock_geo_result
+
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            with patch("app.v1.routes.locations.Nominatim", return_value=mock_geolocator):
+                resp = flask_client.get("/api/v1/search?q=Copenhagen")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["search_lat"] == pytest.approx(55.6761)
+
+    def test_address_not_found_returns_404(self, flask_client):
+        mock_geolocator = MagicMock()
+        mock_geolocator.geocode.return_value = None
+
+        with patch("app.v1.routes.locations.Nominatim", return_value=mock_geolocator):
+            resp = flask_client.get("/api/v1/search?q=ThisPlaceDoesNotExist12345")
+        assert resp.status_code == 404
+        assert "error" in resp.get_json()
+
+    def test_distance_km_field_present(self, flask_client):
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/search?q=55.6761,12.5683")
+        data = resp.get_json()
+        for loc in data["locations"]:
+            assert "distance_km" in loc
 
 
 class TestNautobotRuntimeErrors:
-    pass  # its tests are held back (the end of the file says why)
+    def test_runtime_errors_do_not_leak_internal_messages(self, flask_client):
+        secret = "NAUTOBOT_URL and NAUTOBOT_TOKEN must be set"
+        cases = [
+            ("get", "/api/v1/locations", (inventory, "get_locations"), {}),
+            ("get", "/api/v1/locations/loc-1/detail", (alerts, "get_location_detail"), {}),
+            ("get", "/api/v1/search?q=55.6761,12.5683", (inventory, "get_locations"), {}),
+        ]
+
+        for method, url, (module, name), kwargs in cases:
+            with patch.object(module, name, side_effect=RuntimeError(secret)):
+                resp = getattr(flask_client, method)(url, **kwargs)
+
+            assert resp.status_code == 503
+            assert resp.get_json()["error"] == "Nautobot service unavailable"
+            assert secret not in resp.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------
@@ -825,6 +1491,33 @@ class TestNautobotRuntimeErrors:
 # ---------------------------------------------------------------------------
 class TestIndex:
     """The map: built with Nuxt (#463); frontend/tests/ and e2e/ test the page itself."""
+
+    def test_index_is_the_nuxt_page(self, flask_client, frontend_build):
+        resp = flask_client.get("/?tenant=Acme%20Corp&location_id=loc-1")
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        # Asked again each time: a new build shows at once.
+        assert resp.headers["Cache-Control"] == "no-cache"
+        # No inline script: the CSP needs no 'unsafe-inline' (#197, #198).
+        assert not re.search(rb"<script>(?!\s*</script>)", resp.data)
+
+    def test_what_the_map_reads(self, flask_client, monkeypatch):
+        """Nautobot's address, the tile server and the first view (#197, #362), from /api/page-config."""
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "https://tiles.internal/{z}/{x}/{y}.png")
+        monkeypatch.setattr(settings, "MAP_TILE_ATTRIBUTION", '<a href="https://x">"Ours" & co</a>')
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", None)
+        config = flask_client.get("/api/v1/page-config").get_json()
+        assert config["nautobot_url"] == "https://nautobot.example.com"
+        assert config["map"] == {
+            "tile_url": "https://tiles.internal/{z}/{x}/{y}.png",
+            "tile_attribution": '<a href="https://x">"Ours" & co</a>',
+            "view": None,
+        }
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
+        monkeypatch.setattr(settings, "MAP_DEFAULT_VIEW", (55.7, 12.6, 6))
+        config = flask_client.get("/api/v1/page-config").get_json()
+        assert config["nautobot_url"] == ""
+        assert config["map"]["view"] == {"latitude": 55.7, "longitude": 12.6, "zoom": 6}
 
     def test_live_locations_have_their_path(self, monkeypatch):
         """Without the cache (a map-only setup), /api/locations' paths still come along (#367)."""
@@ -895,7 +1588,43 @@ class TestIndex:
 # Tests: Custom error handlers
 # ---------------------------------------------------------------------------
 class TestErrorHandlers:
-    pass  # its tests are held back (the end of the file says why)
+    def test_404_json_for_api_path(self, flask_client):
+        resp = flask_client.get("/api/v1/nonexistent")
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert data["error"] == "Not found"
+
+    def test_404_json_when_accept_json(self, flask_client):
+        resp = flask_client.get("/nonexistent-page", headers={"Accept": "application/json"})
+        assert resp.status_code == 404
+        data = resp.get_json()
+        assert data["error"] == "Not found"
+
+    def test_405_json_for_api_path(self, flask_client):
+        resp = flask_client.post("/api/v1/locations")
+        assert resp.status_code == 405
+        data = resp.get_json()
+        assert data["error"] == "Method not allowed"
+
+    def test_http_exception_returns_json_for_api_path(self):
+        from fastapi import APIRouter, FastAPI, HTTPException
+
+        from app.v1 import deps
+
+        router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
+
+        @router.get("/api/v1/slow")
+        def slow():
+            raise HTTPException(
+                status_code=504, detail="The connection to an upstream server timed out."
+            )
+
+        app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+        deps.install_error_handlers(app)
+        app.include_router(router)
+        resp = http_client.FlaskStyleClient(app).get("/api/v1/slow")
+        assert resp.status_code == 504
+        assert resp.get_json()["error"] == "The connection to an upstream server timed out."
 
 
 # ---------------------------------------------------------------------------
@@ -1007,7 +1736,55 @@ class TestConfigurableCriticalKeywords:
 # Tests: location_type passed through detail endpoint
 # ---------------------------------------------------------------------------
 class TestLocationDetailWithLocationType:
-    pass  # its tests are held back (the end of the file says why)
+    def test_location_type_param_accepted(self, flask_client):
+        """The ?location_type query param is accepted without error."""
+        with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail?location_type=Data+Center")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "devices" in data
+        assert "alert" in data
+
+    def test_location_type_influences_alert(self, flask_client):
+        """When location_type maps to rules, compute_alert_level uses correct keywords."""
+
+        orig_rules = dict(alerts.CRITICALITY_RULES)
+        orig_env = alerts.ENV_CORE_ROLE_KEYWORDS
+        alerts.CRITICALITY_RULES = {"datacenter": ["firewall"]}
+        alerts.ENV_CORE_ROLE_KEYWORDS = ()
+
+        firewall_devices_page = {
+            "count": 1,
+            "next": None,
+            "results": [
+                {
+                    "id": "dev-fw",
+                    "name": "fw01",
+                    "device_type": {"model": "PA-220", "manufacturer": {"name": "Palo Alto"}},
+                    "role": {"name": "Firewall"},
+                    "status": {"label": "offline"},
+                    # Monitored: only devices with a primary IP count (#316).
+                    "primary_ip4": {"address": "10.0.0.1/24"},
+                    "platform": None,
+                    "serial": "",
+                    "tenant": None,
+                }
+            ],
+        }
+
+        def mock_get(endpoint, params=None, **kwargs):
+            if "dcim/devices" in endpoint:
+                return firewall_devices_page
+            return {"count": 0, "next": None, "results": []}
+
+        try:
+            with patch.object(nautobot, "get", side_effect=mock_get):
+                resp = flask_client.get("/api/v1/locations/loc-1/detail?location_type=datacenter")
+            data = resp.get_json()
+            assert data["alert"]["level"] == "critical"
+        finally:
+            alerts.CRITICALITY_RULES = orig_rules
+            alerts.ENV_CORE_ROLE_KEYWORDS = orig_env
 
 
 # ---------------------------------------------------------------------------
@@ -1020,6 +1797,85 @@ class TestCriticalityOverrideEndpoints:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database):
         self.db = pg_database
+
+    def test_list_empty(self, flask_client):
+        resp = flask_client.get("/api/v1/criticality-overrides")
+        assert resp.status_code == 200
+        assert resp.get_json()["overrides"] == []
+
+    def test_create_override(self, flask_client):
+        resp = flask_client.post(
+            "/api/v1/criticality-overrides",
+            json={
+                "nautobot_device_id": "dev-abc",
+                "is_critical": False,
+                "reason": "Local firewall",
+                "updated_by": "admin",
+            },
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["nautobot_device_id"] == "dev-abc"
+        assert data["is_critical"] is False
+
+    def test_list_after_create(self, flask_client):
+        flask_client.post(
+            "/api/v1/criticality-overrides",
+            json={
+                "nautobot_device_id": "dev-abc",
+                "is_critical": True,
+                "reason": "Core router",
+                "updated_by": "admin",
+            },
+            content_type="application/json",
+        )
+        resp = flask_client.get("/api/v1/criticality-overrides")
+        overrides = resp.get_json()["overrides"]
+        assert len(overrides) == 1
+        assert overrides[0]["nautobot_device_id"] == "dev-abc"
+
+    def test_update_override(self, flask_client):
+        """Posting the same device_id a second time updates in-place."""
+        flask_client.post(
+            "/api/v1/criticality-overrides",
+            json={"nautobot_device_id": "dev-x", "is_critical": True},
+            content_type="application/json",
+        )
+        flask_client.post(
+            "/api/v1/criticality-overrides",
+            json={"nautobot_device_id": "dev-x", "is_critical": False, "reason": "Changed"},
+            content_type="application/json",
+        )
+        resp = flask_client.get("/api/v1/criticality-overrides")
+        overrides = resp.get_json()["overrides"]
+        assert len(overrides) == 1
+        assert overrides[0]["is_critical"] == 0  # stored as int
+
+    def test_delete_override(self, flask_client):
+        flask_client.post(
+            "/api/v1/criticality-overrides",
+            json={"nautobot_device_id": "dev-del", "is_critical": True},
+            content_type="application/json",
+        )
+        resp = flask_client.delete("/api/v1/criticality-overrides/dev-del")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "deleted"
+        # Should be gone now
+        resp2 = flask_client.get("/api/v1/criticality-overrides")
+        assert resp2.get_json()["overrides"] == []
+
+    def test_delete_nonexistent_returns_404(self, flask_client):
+        resp = flask_client.delete("/api/v1/criticality-overrides/does-not-exist")
+        assert resp.status_code == 404
+
+    def test_create_missing_device_id_returns_400(self, flask_client):
+        resp = flask_client.post(
+            "/api/v1/criticality-overrides",
+            json={"is_critical": True},
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
 
     def test_override_affects_compute_alert_level(self):
         """A device marked is_critical=False must not trigger a critical alert."""
@@ -1040,6 +1896,43 @@ class TestCriticalityOverrideEndpoints:
         result = alerts.compute_alert_level(devices)
         assert result["level"] != "critical"
 
+    def test_requires_operator_role_when_auth_enabled(self, flask_client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = flask_client.post(
+                "/api/v1/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-viewers"},
+            )
+        assert resp.status_code == 403
+        assert resp.get_json()["required_role"] == "operator"
+
+    def test_accepts_operator_group_when_auth_enabled(self, flask_client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = flask_client.post(
+                "/api/v1/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+        assert resp.status_code == 200
+
+    def test_uses_authenticated_username_as_updated_by(self, flask_client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = flask_client.post(
+                "/api/v1/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+            assert resp.status_code == 200
+            listed = flask_client.get(
+                "/api/v1/criticality-overrides",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+        assert listed.status_code == 200
+        assert listed.get_json()["overrides"][0]["updated_by"] == "alice"
+
 
 # ---------------------------------------------------------------------------
 # Tests: alert lifecycle history and cases
@@ -1048,6 +1941,104 @@ class TestAlertLifecycleTracking:
     @pytest.fixture(autouse=True)
     def _database(self, pg_database):
         self.db = pg_database
+
+    def test_api_alerts_contains_lifecycle_fields(self, flask_client):
+        with (
+            patch.object(
+                inventory,
+                "get_locations",
+                return_value=_full_locations(
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Site One",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                        }
+                    ]
+                ),
+            ),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
+            patch.object(
+                alerts,
+                "get_location_devices_and_alert",
+                return_value=(
+                    [
+                        {
+                            "id": "dev-1",
+                            "name": "router01",
+                            "role": "Core Router",
+                            "status": "offline",
+                        }
+                    ],
+                    {"level": "critical", "reason": "Core device(s) offline: router01"},
+                ),
+            ),
+        ):
+            resp = flask_client.get("/api/v1/alerts")
+        assert resp.status_code == 200
+        entry = resp.get_json()["alerts"][0]
+        assert "current_downtime_seconds" in entry
+        assert "historical_downtime_seconds" in entry
+        assert "active_cases" in entry
+        assert entry["active_alert_instance_count"] == 1
+        assert entry["down_devices"] == [
+            {
+                "device_id": "dev-1",
+                "device_name": "router01",
+                "device_ip": "",
+                "status": "offline",
+                "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
+                "case_numbers": [],
+            }
+        ]
+
+    def test_alert_history_tracks_open_and_resolve(self, flask_client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+        t1 = datetime(2026, 1, 1, 0, 5, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+        alerts.upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        alerts.upsert_alert_lifecycle_for_site(
+            site,
+            [{"id": "dev-1", "name": "router01", "status": "active"}],
+            {"level": "ok", "reason": ""},
+            t1,
+        )
+        resp = flask_client.get("/api/v1/alert-history?site_id=loc-1")
+        assert resp.status_code == 200
+        instances = resp.get_json()["instances"]
+        assert len(instances) == 1
+        assert instances[0]["status"] == "resolved"
+        assert instances[0]["total_downtime_seconds"] == 300
+        event_types = [event["event_type"] for event in instances[0]["events"]]
+        assert "opened" in event_types
+        assert "resolved" in event_types
+        resolved_event = next(
+            event for event in instances[0]["events"] if event["event_type"] == "resolved"
+        )
+        assert resolved_event["snapshot"]["site_id"] == "loc-1"
+        assert resolved_event["snapshot"]["device_id"] == "dev-1"
+        assert resolved_event["snapshot"]["status"] == "resolved"
 
     def test_severity_change_keeps_the_alert_and_its_downtime(self):
         """Medium → Critical must not restart the device's downtime (#163)."""
@@ -1088,6 +2079,161 @@ class TestAlertLifecycleTracking:
         ]
         context = alerts.get_alert_context_for_site("loc-1", t1)
         assert context["current_downtime_seconds"] == 3600
+
+    def test_add_case_number_to_active_alert(self, flask_client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+        alerts.upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        created = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
+            content_type="application/json",
+        )
+        assert created.status_code == 200
+        history = flask_client.get("/api/v1/alert-history?site_id=loc-1&device_id=dev-1")
+        assert history.status_code == 200
+        instances = history.get_json()["instances"]
+        assert instances[0]["cases"][0]["case_number"] == "INC-1001"
+
+    def test_api_alerts_preserves_case_numbers_on_current_down_devices(self, flask_client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+        alerts.upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        created = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-1001"},
+            content_type="application/json",
+        )
+        assert created.status_code == 200
+        conn = db.get_conn()
+        try:
+            with conn:
+                inventory.record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version=inventory.CACHE_VERSION,
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        with (
+            patch.object(
+                inventory,
+                "get_locations",
+                return_value=_full_locations(
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Site One",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                        }
+                    ]
+                ),
+            ),
+            patch.object(nautobot, "fetch_all_pages", return_value=[]),
+            patch.object(
+                alerts,
+                "get_location_devices_and_alert",
+                return_value=(
+                    [
+                        {
+                            "id": "dev-1",
+                            "name": "router01",
+                            "role": "Core Router",
+                            "status": "offline",
+                        }
+                    ],
+                    {"level": "critical", "reason": "Core device(s) offline: router01"},
+                ),
+            ),
+        ):
+            resp = flask_client.get("/api/v1/alerts")
+
+        assert resp.status_code == 200
+        entry = resp.get_json()["alerts"][0]
+        assert entry["active_cases"] == ["INC-1001"]
+        assert entry["down_devices"] == [
+            {
+                "device_id": "dev-1",
+                "device_name": "router01",
+                "device_ip": "",
+                "status": "offline",
+                "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
+                "case_numbers": ["INC-1001"],
+                "down_started_at": "2026-01-01T00:00:00Z",
+            }
+        ]
+
+    def test_add_case_uses_authenticated_user_for_created_by(self, flask_client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+        alerts.upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            t0,
+        )
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            created = flask_client.post(
+                "/api/v1/alert-cases",
+                json={
+                    "site_id": "loc-1",
+                    "device_id": "dev-1",
+                    "case_number": "INC-1002",
+                    "created_by": "mallory",
+                },
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+            assert created.status_code == 200
+            history = flask_client.get(
+                "/api/v1/alert-history?site_id=loc-1&device_id=dev-1",
+                headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc-operators"},
+            )
+        assert history.status_code == 200
+        instances = history.get_json()["instances"]
+        assert instances[0]["cases"][0]["created_by"] == "alice"
+
+    def test_alert_history_rejects_invalid_timestamp_filters(self, flask_client):
+        resp = flask_client.get("/api/v1/alert-history?start_at=not-a-timestamp")
+        assert resp.status_code == 400
+        assert "start_at" in resp.get_json()["error"]
+        resp = flask_client.get("/api/v1/alert-history?end_at=still-not-a-timestamp")
+        assert resp.status_code == 400
+        assert "end_at" in resp.get_json()["error"]
 
     def test_failed_alert_observation_does_not_resolve_open_incident(self):
         site = {"id": "loc-1", "name": "Site One"}
@@ -2129,6 +3275,107 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["device_count"] == 0
         assert data["alerts"][0]["down_device_count"] == 0
 
+    def test_api_alerts_filters_cached_devices_without_primary_ip(self, flask_client):
+        conn = db.get_conn()
+        try:
+            with conn:
+                inventory.write_locations(
+                    conn,
+                    [
+                        {
+                            "id": "loc-1",
+                            "name": "Filtered Site",
+                            "slug": "filtered-site",
+                            "status": "Active",
+                            "location_type": "Data Center",
+                            "parent": "",
+                            "latitude": 1.0,
+                            "longitude": 2.0,
+                            "description": "",
+                            "physical_address": "",
+                            "facility": "",
+                            "tenant": "",
+                            "tenant_id": "",
+                            "tenant_group": "",
+                            "asn": None,
+                            "time_zone": "",
+                            "tags": [],
+                            "url": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                )
+                inventory.write_devices(
+                    conn,
+                    [
+                        {
+                            "id": "dev-1",
+                            "location_id": "loc-1",
+                            "name": "ap01",
+                            "device_type": "AP",
+                            "manufacturer": "Cisco",
+                            "role": "Access Point",
+                            "status": "offline",
+                            "primary_ip": "",
+                            "platform": "",
+                            "serial": "",
+                            "tenant": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        },
+                        {
+                            "id": "dev-2",
+                            "location_id": "loc-1",
+                            "name": "router01",
+                            "device_type": "ASR1001-X",
+                            "manufacturer": "Cisco",
+                            "role": "Core Router",
+                            "status": "offline",
+                            "primary_ip": "192.0.2.1/32",
+                            "platform": "IOS-XE",
+                            "serial": "SN123",
+                            "tenant": "",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                        },
+                    ],
+                )
+                inventory.record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_started_at="2026-01-01T00:00:00Z",
+                    last_completed_at="2026-01-01T00:05:00Z",
+                    last_successful_sync="2026-01-01T00:05:00Z",
+                    cache_version=inventory.CACHE_VERSION,
+                    status="idle",
+                    error_message="",
+                )
+        finally:
+            conn.close()
+
+        caching.cache.clear()
+        with patch.object(
+            nautobot,
+            "fetch_all_pages",
+            side_effect=AssertionError("should not fetch live inventory"),
+        ):
+            resp = flask_client.get("/api/v1/alerts")
+
+        assert resp.status_code == 200
+        entry = resp.get_json()["alerts"][0]
+        assert entry["device_count"] == 1
+        assert entry["down_device_count"] == 1
+        assert entry["down_devices"] == [
+            {
+                "device_id": "dev-2",
+                "device_name": "router01",
+                "device_ip": "192.0.2.1",
+                "status": "offline",
+                "role": "Core Router",
+                "core": True,  # the likely cause of the site's other down devices (#285)
+                "case_numbers": [],
+                "down_started_at": "2026-01-01T00:00:00Z",
+            }
+        ]
+
     def test_sync_librenms_inventory_keeps_postgres_connection_open_between_transactions(self):
         class _FakeResult:
             def __init__(self, rows=None, rowcount=0):
@@ -2557,15 +3804,115 @@ class TestAuthConfiguration:
         with pytest.raises(RuntimeError, match="AUTH_TRUSTED_PROXIES"):
             settings._networks("AUTH_TRUSTED_PROXIES", "10.0.0.0/33")
 
+    def test_auth_disabled_refuses_admin_writes_by_default(self, flask_client, monkeypatch):
+        """Anyone who can reach the app must not change Nautobot with its token (#188)."""
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
+        writes = [
+            (
+                "post",
+                "/api/v1/criticality-overrides",
+                {"nautobot_device_id": "dev-abc", "is_critical": False},
+            ),
+            ("delete", "/api/v1/criticality-overrides/dev-abc", None),
+        ]
+        with auth_config(mode="disabled"):
+            for method, url, body in writes:
+                resp = (
+                    getattr(flask_client, method)(url, json=body)
+                    if body
+                    else getattr(flask_client, method)(url)
+                )
+                assert resp.status_code == 403, (method, url)
+                assert "ALLOW_UNAUTHENTICATED_WRITES" in resp.get_json()["detail"]
+
+    def test_auth_disabled_keeps_reads_and_cases_open(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
+        with auth_config(mode="disabled"):
+            assert flask_client.get("/api/v1/criticality-overrides").status_code != 403
+            # Adding a case is what the board does; it reaches the handler
+            # (400: nothing to add), not the auth check.
+            assert flask_client.post("/api/v1/alert-cases", json={}).status_code != 403
+
+    @pytest.mark.parametrize(
+        "method, url",
+        [
+            ("get", "/api/v1/roles"),
+            ("post", "/api/v1/roles"),
+            ("delete", "/api/v1/roles/role-1"),
+            ("get", "/api/v1/location-types"),
+            ("post", "/api/v1/location-types"),
+            ("delete", "/api/v1/location-types/lt-1"),
+        ],
+    )
+    def test_nautobot_proxy_endpoints_are_gone(self, flask_client, method, url, monkeypatch):
+        """Changes to Nautobot data are made in Nautobot, not through this app (#188)."""
+        monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
+        assert getattr(flask_client, method)(url).status_code in (404, 405)
+
     def test_the_nautobot_client_cannot_write(self):
         assert not hasattr(nautobot, "post") and not hasattr(nautobot, "delete")
+
+    def test_require_viewer_protects_every_page_but_probes(
+        self, flask_client, monkeypatch, frontend_build
+    ):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert flask_client.get("/").status_code == 401
+            assert flask_client.get("/api/v1/alerts").status_code == 401
+            assert (
+                flask_client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
+            )
+            ok = flask_client.get(
+                "/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"}
+            )
+            assert ok.status_code == 200
+            assert flask_client.get("/healthz").status_code in (200, 503)
+            assert flask_client.get("/metrics").status_code == 200
+
+    def test_require_viewer_is_off_by_default(self, flask_client, monkeypatch, frontend_build):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", False)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert flask_client.get("/").status_code == 200
+
+    def test_missing_identity_header_returns_401(self, flask_client):
+        with auth_config(mode="header", operator_groups={"noc-operators"}):
+            resp = flask_client.post(
+                "/api/v1/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+            )
+        assert resp.status_code == 401
+
+    def test_default_role_allows_authenticated_viewer_only_access(self, flask_client):
+        with auth_config(mode="header", default_role="viewer"):
+            resp = flask_client.post(
+                "/api/v1/criticality-overrides",
+                json={"nautobot_device_id": "dev-abc", "is_critical": False},
+                content_type="application/json",
+                headers={"X-Forwarded-User": "alice"},
+            )
+        assert resp.status_code == 403
+        assert resp.get_json()["current_role"] == "viewer"
 
 
 # ---------------------------------------------------------------------------
 # Tests: alert-board tier definitions and per-device IP (#117)
 # ---------------------------------------------------------------------------
 class TestAlertBoardTierDefinitions:
-    pass  # its tests are held back (the end of the file says why)
+    def test_the_board_explains_the_levels_and_chips(self, flask_client):
+        """The (i) by the summary line explains the levels, and each chip what it shows (#311),
+        from the configured thresholds (#293): the board reads them from /api/page-config (#463)."""
+        levels = flask_client.get("/api/v1/page-config").get_json()["board"]["levels"]
+        assert levels == alerts.alert_level_definitions()
+        assert set(levels) >= {
+            "critical",
+            "medium",
+            "low",
+            "alarms",
+            "total",
+            "no_data",
+            "maintenance",
+        }
 
 
 class TestDeviceDisplayIp:
@@ -2639,9 +3986,105 @@ class TestAlertBoardSyncProgress:
             "summary": {"total": len(alerts or [])},
             "alerts": alerts or [],
         }
-        # The current tests complete it from the API's answer model (#449), which comes with
-        # the routes (step 7 of #587); as it is until then.
-        return board
+        # A real board's other fields, empty (#449: the answer is checked against /api/docs).
+        return answers.complete(board_answers.Board, board)
+
+    def test_refresh_1_enqueues_forced_background_sync(self, flask_client):
+        now = timeutil.iso_utc_now()
+        self._set_nautobot_sync_state("idle", now, now)
+        with (
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
+            patch.object(
+                alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+            ),
+        ):
+            resp = flask_client.get("/api/v1/alerts?refresh=1")
+        assert resp.status_code == 200
+        ensure.assert_called_once_with(
+            force=True,
+            full=False,
+            wait=False,
+            cooldown_seconds=inventory.FORCED_SYNC_COOLDOWN_SECONDS,
+        )
+        assert resp.get_json()["sync_pending"] is True
+
+    def test_timestamp_refresh_value_does_not_trigger_sync(self, flask_client):
+        """The old UI sent refresh=<Date.now()>; the server contract is 1/true/yes/refresh."""
+        now = timeutil.iso_utc_now()
+        self._set_nautobot_sync_state("idle", now, now)
+        with (
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
+            patch.object(
+                alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+            ),
+        ):
+            resp = flask_client.get("/api/v1/alerts?refresh=1727000000000")
+        ensure.assert_not_called()
+        assert resp.get_json()["sync_pending"] is False
+
+    def test_cold_start_enqueues_first_sync_without_waiting(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        with (
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
+            patch.object(alerts, "build_alert_board_payload", return_value=self._board()),
+        ):
+            resp = flask_client.get("/api/v1/alerts")
+        assert resp.status_code == 200
+        ensure.assert_called_once_with(wait=False)
+        data = resp.get_json()
+        assert data["alerts"] == []
+        assert data["sync_pending"] is True
+        # The empty cold-start board must not be cached, or the synced data
+        # would stay hidden until the cache expires.
+        assert caching.cache.get("alert-board-data:v3") is None
+
+    def test_initialized_snapshot_does_not_start_sync_and_is_not_pending(self, flask_client):
+        now = timeutil.iso_utc_now()
+        self._set_nautobot_sync_state("idle", now, now)
+        with (
+            patch.object(inventory, "ensure_snapshot") as ensure,
+            patch.object(
+                alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+            ),
+        ):
+            resp = flask_client.get("/api/v1/alerts")
+        ensure.assert_not_called()
+        assert resp.get_json()["sync_pending"] is False
+
+    def test_due_sync_is_started_by_a_normal_board_load(self, flask_client, monkeypatch):
+        """An open board keeps itself up to date: a normal load starts a sync once one is due (#152)."""
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        old = (datetime.now(UTC) - timedelta(seconds=301)).isoformat()
+        self._set_nautobot_sync_state("idle", old, old)
+        with (
+            patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
+            patch.object(
+                alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+            ),
+        ):
+            data = flask_client.get("/api/v1/alerts").get_json()
+        ensure.assert_called_once_with(wait=False)
+        assert data["sync_pending"] is True
+        assert data["next_update_in_seconds"] == 0
+
+    def test_next_update_counts_down_from_last_completed_sync(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
+        monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
+        monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)
+        completed = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
+        self._set_nautobot_sync_state("idle", completed, completed)
+        with (
+            patch.object(inventory, "ensure_snapshot") as ensure,
+            patch.object(
+                alerts, "build_alert_board_payload", return_value=self._board([{"id": "loc-1"}])
+            ),
+        ):
+            data = flask_client.get("/api/v1/alerts").get_json()
+        ensure.assert_not_called()
+        assert 195 <= data["next_update_in_seconds"] <= 200
 
     def test_next_update_uses_the_sooner_source(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
@@ -2676,6 +4119,10 @@ class TestAlertBoardSyncProgress:
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         assert alerts.inventory_update_schedule() == (False, None)
 
+    def test_running_sync_is_reported_as_pending(self, flask_client):
+        self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
+        assert alerts.nautobot_sync_in_progress() is True
+
     def test_abandoned_running_sync_is_not_pending(self):
         started = datetime(2020, 1, 1, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         self._set_nautobot_sync_state("running", started)
@@ -2684,6 +4131,23 @@ class TestAlertBoardSyncProgress:
     def test_no_sync_pending_without_persistence(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
         assert alerts.nautobot_sync_in_progress() is False
+
+    def test_adding_case_invalidates_cached_board(self, flask_client):
+        site = {"id": "loc-1", "name": "Site One"}
+        devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
+        alerts.upsert_alert_lifecycle_for_site(
+            site,
+            devices_down,
+            {"level": "critical", "reason": "Core device(s) offline: router01"},
+            timeutil.iso_utc_now(),
+        )
+        caching.cache.set("alert-board-data:v3", self._board([{"id": "loc-1"}]))
+        resp = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-1", "case_number": "INC-2001"},
+        )
+        assert resp.status_code == 200
+        assert caching.cache.get("alert-board-data:v3") is None
 
 
 # ---------------------------------------------------------------------------
@@ -2705,15 +4169,82 @@ class TestMultiDeviceCases:
         yield
         caching.cache.clear()
 
-    def _cases_for(self, client, device_id):
-        history = client.get(f"/api/alert-history?site_id=loc-1&device_id={device_id}").get_json()
+    def _cases_for(self, flask_client, device_id):
+        history = flask_client.get(
+            f"/api/v1/alert-history?site_id=loc-1&device_id={device_id}"
+        ).get_json()
         return [case["case_number"] for case in history["instances"][0]["cases"]]
+
+    def test_links_one_case_to_every_selected_device(self, flask_client):
+        resp = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_ids": ["dev-1", "dev-2"], "case_number": "INC-42"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert [item["device_id"] for item in data["linked"]] == ["dev-1", "dev-2"]
+        assert "device_id" not in data  # single-device fields only for one device
+        assert self._cases_for(flask_client, "dev-1") == ["INC-42"]
+        assert self._cases_for(flask_client, "dev-2") == ["INC-42"]
+        assert self._cases_for(flask_client, "dev-3") == []
+
+    def test_is_all_or_nothing_when_a_device_has_no_open_alert(self, flask_client):
+        resp = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_ids": ["dev-1", "dev-9"], "case_number": "INC-43"},
+        )
+        assert resp.status_code == 404
+        assert resp.get_json()["missing_device_ids"] == ["dev-9"]
+        assert self._cases_for(flask_client, "dev-1") == []
+
+    def test_duplicate_ids_are_linked_once(self, flask_client):
+        resp = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_ids": ["dev-1", " dev-1 "], "case_number": "INC-44"},
+        )
+        assert resp.status_code == 200
+        assert len(resp.get_json()["linked"]) == 1
+        assert self._cases_for(flask_client, "dev-1") == ["INC-44"]
+
+    def test_single_device_id_keeps_original_response_fields(self, flask_client):
+        resp = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_id": "dev-3", "case_number": "INC-45"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["device_id"] == "dev-3"
+        assert isinstance(data["alert_instance_id"], int)
+        assert self._cases_for(flask_client, "dev-3") == ["INC-45"]
+
+    @pytest.mark.parametrize(
+        "device_ids",
+        ["dev-1", [], ["dev-1", 7], [f"dev-{i}" for i in range(api_board.MAX_CASE_DEVICES + 1)]],
+        ids=["string-not-list", "empty", "non-string-id", "too-many"],
+    )
+    def test_rejects_invalid_device_ids(self, flask_client, device_ids):
+        resp = flask_client.post(
+            "/api/v1/alert-cases",
+            json={"site_id": "loc-1", "device_ids": device_ids, "case_number": "INC-46"},
+        )
+        assert resp.status_code == 400
+        assert self._cases_for(flask_client, "dev-1") == []
 
 
 # Tests: /healthz (#131)
 # ---------------------------------------------------------------------------
 class TestHealthz:
-    pass  # its tests are held back (the end of the file says why)
+    def test_ok_with_reachable_database(self, flask_client, monkeypatch, pg_database):
+        resp = flask_client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.get_json()["checks"] == {"app": "ok", "database": "ok"}
+
+    def test_makes_no_upstream_calls(self, flask_client, monkeypatch):
+        """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        with patch.object(requests.Session, "get", side_effect=AssertionError("no upstream calls")):
+            resp = flask_client.get("/healthz")
+        assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -2787,7 +4318,22 @@ class TestLibreNMSPolledIp:
 # Tests: alert board explains a missing persistence database (#136)
 # ---------------------------------------------------------------------------
 class TestAlertBoardWithoutPersistence:
-    pass  # its tests are held back (the end of the file says why)
+    def test_payload_reports_configured_database(self, flask_client, monkeypatch, pg_database):
+        pass  # the schema: Alembic's (tests/test_schema.py)
+        caching.cache.clear()
+        with (
+            patch.object(inventory, "ensure_snapshot", return_value=False),
+            patch.object(
+                alerts,
+                "build_alert_board_payload",
+                return_value=answers.complete(
+                    board_answers.Board,
+                    {"checked_at": timeutil.iso_utc_now(), "summary": {}, "alerts": []},
+                ),
+            ),
+        ):
+            data = flask_client.get("/api/v1/alerts").get_json()
+        assert data["persistence_configured"] is True
 
 
 # Tests: Refresh runs an incremental "sync now", not a full reconcile (#135)
@@ -3553,8 +5099,8 @@ class TestAlertFeed:
 
         return build, set_status
 
-    def _feed(self, client, query=""):
-        resp = client.get(f"/api/alert-feed{query}")
+    def _feed(self, flask_client, query=""):
+        resp = flask_client.get(f"/api/v1/alert-feed{query}")
         assert resp.status_code == 200, resp.get_json()
         return resp.get_json()
 
@@ -3581,6 +5127,110 @@ class TestAlertFeed:
             {"site_id": "s1", "alert_level": "low"},
             {"site_id": "s2", "alert_level": "critical"},
         ]
+
+    def test_board_builds_fill_the_feed(self, board, flask_client):
+        build, set_status = board
+        assert build("2026-09-28T12:00:00+00:00")["loc-1"]["alert_level"] == "ok"
+        assert self._feed(flask_client)["events"] == []  # first sighting: nothing changed
+
+        set_status("d-1", "Offline")
+        down_level = build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"]
+        assert down_level != "ok"
+        set_status("d-1", "Active")
+        build("2026-09-28T12:10:00+00:00")
+
+        feed = self._feed(flask_client)
+        assert feed["persistence_configured"] is True
+        assert [(e["kind"], e["at"]) for e in feed["events"]] == [
+            ("severity", "2026-09-28T12:10:00Z"),
+            ("up", "2026-09-28T12:10:00Z"),
+            ("severity", "2026-09-28T12:05:00Z"),
+            ("down", "2026-09-28T12:05:00Z"),
+        ]
+        back_to_ok, up, went_down, down = feed["events"]
+        assert down["site_name"] == "Site One" and down["device_name"] == "sw01"
+        assert down["down_since"] == "2026-09-28T12:05:00Z" and "from_level" not in down
+        assert up["device_id"] == "d-1" and up["level"] == "ok" and "down_since" not in up
+        assert (went_down["from_level"], went_down["to_level"]) == ("ok", down_level)
+        assert (back_to_ok["from_level"], back_to_ok["to_level"]) == (down_level, "ok")
+        assert back_to_ok["device_id"] == ""
+
+        # Filters.
+        assert [e["kind"] for e in self._feed(flask_client, "?kinds=severity")["events"]] == [
+            "severity",
+            "severity",
+        ]
+        assert [e["kind"] for e in self._feed(flask_client, "?kinds=down,up")["events"]] == [
+            "up",
+            "down",
+        ]
+        assert [e["kind"] for e in self._feed(flask_client, "?limit=1")["events"]] == ["severity"]
+        since = self._feed(flask_client, "?since=2026-09-28T12:05:00Z")["events"]
+        assert [e["kind"] for e in since] == ["severity", "up"]
+
+    def test_a_board_for_some_sites_reads_their_feed(self, board, flask_client, pg_database):
+        """?tenant= / ?q= (#369): only those sites' entries, and the limit counts them."""
+        build, set_status = board
+        pg_database.execute(
+            "UPDATE nautobot_location_cache SET tenant = 'Acme Corp' WHERE location_id = 'loc-1'"
+        )
+        pg_database.execute(
+            "INSERT INTO nautobot_location_cache (location_id, name, location_type, status, tenant) "
+            "VALUES ('loc-2', 'Site Two', 'Office', 'Active', 'Nordic Net')"
+        )
+        pg_database.execute(
+            "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
+            "VALUES ('d-3', 'loc-2', 'sw03', 'access', 'Active', '10.0.0.3/32')"
+        )
+        build("2026-09-28T12:00:00+00:00")
+        set_status("d-1", "Offline")
+        build("2026-09-28T12:05:00+00:00")
+        set_status("d-3", "Offline")  # newer: Site Two's events come first in the whole feed
+        build("2026-09-28T12:10:00+00:00")
+
+        every = self._feed(flask_client)["events"]
+        assert {e["site_name"] for e in every} == {"Site One", "Site Two"}
+        acme = self._feed(flask_client, "?tenant=acme%20corp")["events"]
+        assert acme and {e["site_name"] for e in acme} == {"Site One"}
+        assert {e["site_name"] for e in self._feed(flask_client, "?q=two")["events"]} == {
+            "Site Two"
+        }
+        # The limit counts the matching entries, not the whole feed's newest.
+        one = self._feed(flask_client, "?tenant=Acme%20Corp&limit=1")["events"]
+        assert len(one) == 1 and one[0]["site_name"] == "Site One"
+        # since and the scope together.
+        later = self._feed(flask_client, "?q=two&since=2026-09-28T12:05:00Z")["events"]
+        assert later and {(e["site_name"], e["at"]) for e in later} == {
+            ("Site Two", "2026-09-28T12:10:00Z")
+        }
+        assert (
+            self._feed(flask_client, "?tenant=Acme%20Corp&since=2026-09-28T12:05:00Z")["events"]
+            == []
+        )
+        assert self._feed(flask_client, "?tenant=nobody") == {
+            "events": [],
+            "persistence_configured": True,
+            "matching_sites": 0,
+        }
+        assert self._feed(flask_client, "?q=site")["matching_sites"] == 2
+        assert "matching_sites" not in self._feed(flask_client)
+
+    def test_a_scoped_feed_without_stored_sites_says_so(self, pg_database, flask_client):
+        """No stored locations (not synced yet, or the read failed): an error,
+        not an empty feed that looks like an all-clear (#369)."""
+        resp = flask_client.get("/api/v1/alert-feed?tenant=Acme")
+        assert resp.status_code == 503
+        assert "not stored yet" in resp.get_json()["error"]
+        assert self._feed(flask_client)["events"] == []  # the whole network's feed still answers
+
+    def test_bad_parameters_are_rejected(self, pg_database, flask_client):
+        assert flask_client.get("/api/v1/alert-feed?limit=many").status_code == 400
+        assert flask_client.get("/api/v1/alert-feed?since=yesterday").status_code == 400
+        resp = flask_client.get("/api/v1/alert-feed?kinds=down,cases")
+        assert resp.status_code == 400 and "cases" in resp.get_json()["error"]
+        # Out-of-range limits are clamped, not rejected.
+        assert flask_client.get("/api/v1/alert-feed?limit=0").status_code == 200
+        assert flask_client.get("/api/v1/alert-feed?limit=100000").status_code == 200
 
     def test_failed_observation_is_not_a_level_change(self, board, monkeypatch, pg_database):
         build, _ = board
@@ -3610,12 +5260,99 @@ class TestGeocoder:
         geolocator.geocode.return_value = MagicMock(latitude=lat, longitude=lon)
         return geolocator
 
+    def test_disabled_geocoder_only_accepts_coordinates(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "GEOCODER_ENABLED", False)
+        with patch(
+            "app.v1.routes.locations.Nominatim", side_effect=AssertionError("must not geocode")
+        ):
+            resp = flask_client.get("/api/v1/search?q=Copenhagen")
+            assert resp.status_code == 400 and "coordinates" in resp.get_json()["error"]
+            assert flask_client.get("/api/v1/search?q=55.68,12.57").status_code == 200
+
+    def test_uses_the_configured_service(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "GEOCODER_URL", "http://nominatim.internal:8080/nominatim")
+        monkeypatch.setattr(settings, "GEOCODER_USER_AGENT", "noc-maps/2")
+        with patch(
+            "app.v1.routes.locations.Nominatim", return_value=self._geolocator()
+        ) as nominatim:
+            assert flask_client.get("/api/v1/search?q=Copenhagen").status_code == 200
+        nominatim.assert_called_once_with(
+            user_agent="noc-maps/2", domain="nominatim.internal:8080/nominatim", scheme="http"
+        )
+
+    def test_results_are_cached(self, flask_client):
+        geolocator = self._geolocator()
+        with patch("app.v1.routes.locations.Nominatim", return_value=geolocator):
+            first = flask_client.get("/api/v1/search?q=Copenhagen").get_json()
+            caching.cache.delete("geocode-rate-limit")
+            second = flask_client.get("/api/v1/search?q=copenhagen ").get_json()
+        assert geolocator.geocode.call_count == 1
+        assert first["search_lat"] == second["search_lat"] == pytest.approx(55.68)
+
+    def test_at_most_one_request_per_second(self, flask_client, monkeypatch):
+        # A minute, not a second: a slow CI runner took over a second between
+        # the two requests, and the second one was let through (#332).
+        monkeypatch.setattr(api_locations, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
+        with patch("app.v1.routes.locations.Nominatim", return_value=self._geolocator()):
+            assert flask_client.get("/api/v1/search?q=Copenhagen").status_code == 200
+            busy = flask_client.get("/api/v1/search?q=Aarhus")
+            assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
+            # Once the interval is over (its key expired), the next search is asked.
+            caching.cache.delete("geocode-rate-limit")
+            assert flask_client.get("/api/v1/search?q=Aarhus").status_code == 200
+
+    def test_the_interval_is_one_second(self):
+        assert api_locations.GEOCODE_MIN_INTERVAL_SECONDS == 1
+
+    def test_geocoder_error_is_not_passed_to_the_client(self, flask_client):
+        geolocator = MagicMock()
+        geolocator.geocode.side_effect = OSError("connect to 10.0.0.5 refused")
+        with patch("app.v1.routes.locations.Nominatim", return_value=geolocator):
+            resp = flask_client.get("/api/v1/search?q=Copenhagen")
+        assert resp.status_code == 503
+        assert resp.get_json() == {"error": "Geocoding service unavailable"}
+
+    def test_not_found_is_cached_too(self, flask_client):
+        geolocator = MagicMock()
+        geolocator.geocode.return_value = None
+        with patch("app.v1.routes.locations.Nominatim", return_value=geolocator):
+            assert flask_client.get("/api/v1/search?q=Nowhere").status_code == 404
+            caching.cache.delete("geocode-rate-limit")
+            assert flask_client.get("/api/v1/search?q=Nowhere").status_code == 404
+        assert geolocator.geocode.call_count == 1
+
 
 # ---------------------------------------------------------------------------
 # Tests: browser security headers (#198)
 # ---------------------------------------------------------------------------
 class TestSecurityHeaders:
-    pass  # its tests are held back (the end of the file says why)
+    @pytest.mark.parametrize("path", ["/", "/alerts", "/healthz", "/api/v1/does-not-exist"])
+    def test_headers_on_every_response(self, flask_client, path, monkeypatch):
+        monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
+        resp = flask_client.get(path)
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+        csp = resp.headers["Content-Security-Policy"]
+        assert "script-src 'self';" in csp and "frame-ancestors 'none'" in csp
+        # No inline script or style anywhere (#370): an injection can't restyle the page.
+        assert "style-src 'self';" in csp and "unsafe-inline" not in csp
+
+    def test_images_allowed_from_the_tile_server(self, flask_client, monkeypatch):
+        monkeypatch.setattr(
+            settings, "MAP_TILE_URL", "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        )
+        assert (
+            "img-src 'self' data: https://*.tile.openstreetmap.org;"
+            in flask_client.get("/").headers["Content-Security-Policy"]
+        )
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "http://tiles.internal:8080/{z}/{x}/{y}.png")
+        assert (
+            "img-src 'self' data: http://tiles.internal:8080;"
+            in flask_client.get("/").headers["Content-Security-Policy"]
+        )
+        monkeypatch.setattr(settings, "MAP_TILE_URL", "/tiles/{z}/{x}/{y}.png")
+        assert "img-src 'self' data:;" in flask_client.get("/").headers["Content-Security-Policy"]
 
 
 # ---------------------------------------------------------------------------
@@ -3728,12 +5465,59 @@ class TestMetrics:
         line = next(line for line in body.splitlines() if line.startswith(sample + " "))
         return float(line.rsplit(" ", 1)[1])
 
+    def test_last_success_survives_a_failure(self, pg_database, flask_client):
+        self._record("idle", "2026-09-29T10:00:00+00:00", "2026-09-29T10:00:30+00:00")
+        self._record("running", "2026-09-29T10:05:00+00:00", None)
+        self._record("error", "2026-09-29T10:05:00+00:00", "2026-09-29T10:05:10+00:00")
+        body = flask_client.get("/metrics").get_data(as_text=True)
+        src = '{source="nautobot_inventory"}'
+        success = datetime(2026, 9, 29, 10, 0, 30, tzinfo=UTC).timestamp()
+        assert (
+            self._value(body, "nautobot_maps_sync_last_success_timestamp_seconds" + src) == success
+        )
+        assert self._value(body, "nautobot_maps_sync_failing" + src) == 1
+        assert self._value(body, "nautobot_maps_sync_last_duration_seconds" + src) == 10
+
+    def test_alert_and_site_counts(self, pg_database, flask_client):
+        alerts.upsert_alert_lifecycle_for_site(
+            {"id": "loc-1", "name": "Site One"},
+            [
+                {"id": "d1", "name": "sw1", "status": "offline"},
+                {"id": "d2", "name": "sw2", "status": "offline"},
+            ],
+            {"level": "critical", "reason": "all down"},
+            timeutil.iso_utc_now(),
+        )
+        alerts.record_site_level_changes(
+            {"s1": ("One", "ok"), "s2": ("Two", "ok"), "s3": ("Three", "low")}, "now"
+        )
+        resp = flask_client.get("/metrics")
+        assert resp.headers["Content-Type"].startswith("text/plain; version=0.0.4")
+        body = resp.get_data(as_text=True)
+        assert self._value(body, 'nautobot_maps_open_alerts{level="critical"}') == 2
+        assert self._value(body, 'nautobot_maps_sites{level="ok"}') == 2
+        assert self._value(body, "nautobot_maps_database_up") == 1
+        assert "# TYPE nautobot_maps_sites gauge" in body
+
+    def test_can_be_turned_off(self, flask_client, monkeypatch):
+        monkeypatch.setattr(settings, "METRICS_ENABLED", False)
+        assert flask_client.get("/metrics").status_code == 404
+
     def test_label_values_are_escaped(self):
         from app.services import metrics_service as metrics
 
         out = metrics.Exposition()
         out.gauge("m", "h", [({"level": 'a"b\\c\nd'}, 1)])
         assert 'm{level="a\\"b\\\\c\\nd"} 1' in out.render()
+
+    def test_healthz_reports_sync_age_without_failing(self, pg_database, flask_client):
+        assert (
+            flask_client.get("/healthz").get_json()["inventory_sync_age_seconds"] is None
+        )  # never synced
+        self._record("idle", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:10+00:00")
+        resp = flask_client.get("/healthz")
+        assert resp.status_code == 200  # an old sync is not a liveness failure
+        assert resp.get_json()["inventory_sync_age_seconds"] > 365 * 24 * 3600
 
     def test_timestamps_keep_full_precision(self):
         from app.services import metrics_service as metrics
@@ -3779,6 +5563,158 @@ def _retry_kwargs(policy) -> dict:
 # ---------------------------------------------------------------------------
 # Tests: API explorer (#230)
 # ---------------------------------------------------------------------------
+class TestApiExplorer:
+    def _routes(self):
+        """Every route (#436), in Flask's notation."""
+        from fastapi.routing import APIRoute
+
+        from app.main import app as whole_app
+        from app.services import apidocs_service as apidocs
+
+        full = {
+            op["operationId"]: path
+            for path, ops in whole_app.openapi()["paths"].items()
+            for op in ops.values()
+        }
+
+        def every(routes):
+            for route in routes:
+                if getattr(route, "original_router", None) is not None:
+                    yield from every(route.original_router.routes)
+                elif isinstance(route, APIRoute):
+                    yield route
+
+        return {
+            (
+                apidocs._flask_style(
+                    full.get(route.operation_id or "", route.path), route.endpoint
+                ),
+                method,
+            )
+            for route in every(whole_app.routes)
+            if route.name not in apidocs.HIDDEN_ENDPOINTS
+            for method in route.methods - {"HEAD", "OPTIONS"}
+        }
+
+    def test_every_route_is_listed(self, flask_client):
+        listed = flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
+        assert {
+            (item["path"], method) for item in listed for method in item["methods"]
+        } == self._routes()
+        # Swagger UI on /api/docs draws /api/openapi.json (#436, #483): every API
+        # route in it, with its method. Pages and files aren't API, nor are the
+        # two routes under /api that describe it: the reference and the spec.
+        # Listed by hand, so an API route left out of the spec by mistake fails.
+        spec = flask_client.get("/api/openapi.json").get_json()
+        documented = {
+            (re.sub(r"\{(\w+)(?::\w+)?\}", r"<\1>", path), method.upper())
+            for path, operations in spec["paths"].items()
+            for method in operations
+        }
+        api_routes = {
+            (re.sub(r"<(?:\w+:)?(\w+)>", r"<\1>", path), method) for path, method in self._routes()
+        }
+        pages = {navigation.API_DOCS_PATH, navigation.API_SPEC_PATH}
+        assert {
+            item
+            for item in api_routes
+            if item[0].startswith(("/api/v1/", "/mcp")) and item[0] not in pages
+        } <= documented
+
+    def test_every_write_has_an_example_body(self):
+        from app.services import apidocs_service as apidocs
+
+        for route in apidocs.routes():
+            if set(route["methods"]) & {"POST", "PUT", "PATCH"}:
+                endpoint = route["endpoint"]
+                assert endpoint in apidocs.EXAMPLE_BODIES, (
+                    f"add an example body for {endpoint} to apidocs"
+                )
+
+    def test_what_each_endpoint_takes(self, flask_client):
+        listed = flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
+        by_key = {(item["path"], item["methods"][0]): item for item in listed}
+        detail = by_key[("/api/v1/locations/<location_id>/detail", "GET")]
+        assert detail["path_params"] == ["location_id"] and detail["query_params"] == [
+            "location_type"
+        ]
+        assert detail["group"] == "API" and detail["required_role"] is None
+        assert by_key[("/api/v1/alert-feed", "GET")]["query_params"] == [
+            "limit",
+            "since",
+            "kinds",
+            "tenant",
+            "q",
+        ]
+        assert by_key[("/api/v1/locations/coordinate-check", "GET")]["query_params"] == [
+            "tenant",
+            "q",
+        ]
+        assert by_key[("/api/v1/alert-history", "GET")]["required_role"] == "operator"
+        assert by_key[("/metrics", "GET")]["group"] == "Monitoring"
+        assert by_key[("/alerts", "GET")]["group"] == "Pages"
+        feed = by_key[("/api/v1/alert-feed", "GET")]
+        assert feed["summary"] == "What changed on the alert board, newest first."  # no "(#180)"
+        assert "Query" in feed["description"]
+        case = by_key[("/api/v1/alert-cases", "POST")]
+        assert json.loads(case["example_body_text"]) == case["example_body"]
+        # The page keeps the example's own order (the JSON response sorts keys).
+        assert list(json.loads(case["example_body_text"])) == [
+            "site_id",
+            "device_ids",
+            "case_number",
+        ]
+
+    def test_write_bodies_are_in_the_spec(self, flask_client):
+        """Each write's JSON body is described (deps.body_schema), e.g. a case."""
+        spec = flask_client.get("/api/openapi.json").get_json()
+        case = spec["paths"]["/api/v1/alert-cases"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        assert {"site_id", "case_number"} <= set(case["required"]) and "device_ids" in case[
+            "properties"
+        ]
+        window = spec["paths"]["/api/v1/maintenance"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        assert "reason" in window["required"]
+        # Query models are spelled as sent: "from", not "from_".
+        names = {
+            param["name"] for param in spec["paths"]["/api/v1/availability"]["get"]["parameters"]
+        }
+        assert {"month", "from", "to", "basis"} <= names
+
+    def test_the_menu_links_to_the_explorer(self, flask_client):
+        # The pages read the menu from /api/page-config (#463).
+        pages = flask_client.get("/api/v1/page-config").get_json()["pages"]
+        assert {"key": "docs", "href": "/api/docs"}.items() <= next(
+            p for p in pages if p["key"] == "docs"
+        ).items()
+
+    def test_the_old_paths_move_for_good(self, flask_client):
+        """#483: the reference and the spec live under /api; bookmarks and
+        tools reading the old paths are sent on (301, which they remember)."""
+        for old, new in (("/docs", "/api/docs"), ("/openapi.json", "/api/openapi.json")):
+            resp = flask_client.get(old)
+            assert resp.status_code == 301 and resp.headers["Location"] == new
+            # With its query: a 301 is remembered.
+            assert (
+                flask_client.get(f"{old}?v=2&x=a%20b").headers["Location"] == f"{new}?v=2&x=a%20b"
+            )
+        listed = {
+            item["path"] for item in flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
+        }
+        assert "/docs" not in listed and "/openapi.json" not in listed
+
+    def test_needs_the_viewer_role_like_every_page(self, flask_client, monkeypatch, frontend_build):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert flask_client.get("/api/docs").status_code == 401
+            assert flask_client.get("/api/v1/endpoints").status_code == 401
+            ok = flask_client.get(
+                "/api/docs", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"}
+            )
+            assert ok.status_code == 200
 
 
 def _snapshot_location(location_id: str, name: str, location_type: str = "Data Center") -> dict:
@@ -3823,7 +5759,7 @@ def _snapshot_device(device_id: str, location_id: str, role: str, status: str) -
 
 
 class TestLocationAlertLevels:
-    """/api/location-alerts colours the map markers without a click (#234)."""
+    """/api/v1/location-alerts colours the map markers without a click (#234)."""
 
     @pytest.fixture(autouse=True)
     def _database(self, pg_database, monkeypatch):
@@ -3868,6 +5804,107 @@ class TestLocationAlertLevels:
         finally:
             conn.close()
         caching.cache.clear()
+
+    def test_returns_every_location_with_monitored_devices(self, flask_client):
+        """OK too, so the map tells OK (green) from no data (grey) (#311)."""
+        with patch.object(
+            nautobot, "fetch_all_pages", side_effect=AssertionError("no upstream calls")
+        ):
+            resp = flask_client.get("/api/v1/location-alerts")
+        assert resp.status_code == 200
+        levels = resp.get_json()["levels"]
+        # With the counts the board shows, "N down · M monitored" (#316).
+        assert levels == {
+            "loc-core": {
+                "level": "critical",
+                "reason": "Core device(s) offline: core-1",
+                "down": 1,
+                "monitored": 2,
+            },
+            "loc-few": {
+                "level": "low",
+                "reason": "1/5 devices offline (20%)",
+                "down": 1,
+                "monitored": 5,
+            },
+            "loc-ok": {"level": "ok", "reason": "", "down": 0, "monitored": 1},
+            # Grey, as on the board: copied too, so the panel doesn't score it itself.
+            "loc-empty": {
+                "level": "no_data",
+                "reason": "No monitored devices",
+                "down": 0,
+                "monitored": 0,
+            },
+        }
+
+    def test_matches_the_site_panel(self, flask_client):
+        levels = flask_client.get("/api/v1/location-alerts").get_json()["levels"]
+        with patch.object(nautobot, "fetch_all_pages", return_value=[]):
+            for location_id in ("loc-core", "loc-few", "loc-ok"):
+                detail = alerts.get_location_detail(location_id, location_type="Data Center")
+                expected = levels.get(location_id, {}).get("level", "ok")
+                assert detail["alert"]["level"] == expected
+
+    def test_the_site_panel_marks_core_devices(self, flask_client):
+        """Core devices first in the panel's down list (#394): by role, or an override."""
+        with patch.object(nautobot, "fetch_all_pages", return_value=[]):
+            detail = alerts.get_location_detail("loc-core", location_type="Data Center")
+        assert {d["name"]: d["core"] for d in detail["devices"]} == {"core-1": True, "acc-1": False}
+        # And the level each gives the site, as the board weighs it (#377).
+        assert {d["name"]: d["level"] for d in detail["devices"]} == {
+            "core-1": "critical",
+            "acc-1": "",
+        }
+        conn = db.get_conn()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
+                    " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
+                )
+        finally:
+            conn.close()
+        with patch.object(nautobot, "fetch_all_pages", return_value=[]):
+            detail = alerts.get_location_detail("loc-few", location_type="Data Center")
+        assert [d["id"] for d in detail["devices"] if d["core"]] == ["few-1"]
+
+    def test_criticality_override_is_applied(self, flask_client):
+        conn = db.get_conn()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO device_criticality_override (nautobot_device_id, is_critical, updated_by, updated_at)"
+                    " VALUES ('few-1', 1, 'test', '2026-01-01T00:00:00Z')"
+                )
+        finally:
+            conn.close()
+        assert (
+            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-few"]["level"]
+            == "critical"
+        )
+
+    def test_cached_until_a_sync_invalidates_it(self, flask_client):
+        assert (
+            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-ok"]["level"]
+            == "ok"
+        )
+        conn = db.get_conn()
+        try:
+            with conn:
+                conn.execute(
+                    "UPDATE nautobot_device_cache SET status = 'Offline' WHERE device_id = 'ok-1'"
+                )
+        finally:
+            conn.close()
+        assert (
+            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-ok"]["level"]
+            == "ok"
+        ), "cached"
+        caching.invalidate_alert_board()
+        assert (
+            flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-ok"]["level"]
+            == "critical"
+        )
 
 
 SAMPLE_CIRCUIT_TERMINATIONS = [
@@ -3924,6 +5961,47 @@ class TestLocationCircuits:
             return [page for page in mock_nautobot_get(endpoint, params)["results"]]
 
         return patch.object(nautobot, "fetch_all_pages", side_effect=fetch)
+
+    def test_every_circuit_is_listed(self, flask_client):
+        with self._mock(SAMPLE_CIRCUIT_TERMINATIONS):
+            data = flask_client.get("/api/v1/locations/loc-1/detail").get_json()
+        assert data["circuits_error"] == ""
+        assert [c["cid"] for c in data["circuits"]] == ["GTT-7781", "TEL-0001"]
+        assert data["circuits"][1] == {
+            "id": "cir-1",
+            "cid": "TEL-0001",
+            "provider": "Telia",
+            "circuit_type": "Transit",
+            "status": "Active",
+            "tenant": "Acme Corp",
+            "commit_rate": "",
+            "term_side": "A",
+            "port_speed": "10 Gbps",
+            "upstream_speed": "",
+            "xconnect_id": "XC-1",
+            "pp_info": "PP-02 port 7",
+            "description": "Primary transit",
+        }
+        assert data["circuits"][0]["status"] == "Offline"
+        assert data["circuits"][0]["upstream_speed"] == "500 Mbps"
+        assert data["devices"] and data["asns"]
+
+    def test_no_circuits_app_is_not_an_error(self, flask_client):
+        response = MagicMock(status_code=404)
+        with self._mock(error=requests.HTTPError(response=response)):
+            data = flask_client.get("/api/v1/locations/loc-1/detail").get_json()
+        assert data["circuits"] == []
+        assert data["circuits_error"] == ""
+
+    def test_a_failed_call_keeps_the_rest_of_the_panel(self, flask_client):
+        with self._mock(error=requests.ConnectionError("boom")):
+            resp = flask_client.get("/api/v1/locations/loc-1/detail")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["circuits"] == []
+        assert data["circuits_error"] == "Circuit information unavailable"
+        assert "boom" not in resp.get_data(as_text=True)
+        assert data["devices"]
 
     @pytest.mark.parametrize(
         ("kbps", "expected"),
@@ -4096,6 +6174,26 @@ class TestLocationTenantSync:
         inventory.sync_nautobot(force=True)
         caching.cache.clear()
 
+    def test_sync_fills_the_board_and_the_map(self, flask_client, monkeypatch):
+        self._sync(monkeypatch)
+        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        assert site["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
+        (location,) = flask_client.get("/api/v1/locations").get_json()["locations"]
+        assert location["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
+
+    def test_a_failed_read_keeps_the_links_a_removed_one_goes(self, flask_client, monkeypatch):
+        self._sync(monkeypatch)
+        self._sync(monkeypatch, error_on="extras/relationships/")
+        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        assert site["tenants"] == ["Acme Corp", "EuroIX", "Nordic Net"]
+
+        monkeypatch.setitem(
+            RELATIONSHIP_ASSOCIATIONS, "rel-1", [{"source_id": "loc-1", "destination_id": "ten-2"}]
+        )
+        self._sync(monkeypatch)
+        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        assert site["tenants"] == ["Acme Corp", "Nordic Net"]
+
 
 class TestTenantDescriptions:
     """The tenant (i) shows the Nautobot description (#263)."""
@@ -4120,6 +6218,25 @@ class TestTenantDescriptions:
         fetch, _ = _relationship_fetch(error_on="tenancy/tenants/")
         monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
         assert inventory.fetch_tenants() is None
+
+    def test_board_and_map_get_the_descriptions_of_their_tenants(self, flask_client, monkeypatch):
+        self._sync(monkeypatch)
+        (site,) = flask_client.get("/api/v1/alerts").get_json()["alerts"]
+        # Its own tenant and a related one; EuroIX has no description, so no entry.
+        assert site["tenant_descriptions"] == {
+            "Acme Corp": "Bank, 24/7 SLA",
+            "Nordic Net": "Shared rack",
+        }
+        (location,) = flask_client.get("/api/v1/locations").get_json()["locations"]
+        assert location["tenant_descriptions"] == site["tenant_descriptions"]
+
+    def test_an_edited_description_replaces_the_old_one(self, flask_client, monkeypatch):
+        self._sync(monkeypatch)
+        monkeypatch.setitem(TENANT_DESCRIPTIONS, "ten-1", "Bank, business hours")
+        monkeypatch.delitem(TENANT_DESCRIPTIONS, "ten-2")
+        self._sync(monkeypatch)
+        (location,) = flask_client.get("/api/v1/locations").get_json()["locations"]
+        assert location["tenant_descriptions"] == {"Acme Corp": "Bank, business hours"}
 
     def test_map_without_a_database_reads_them_from_nautobot(self, monkeypatch):
         """Map-only setups (no PostgreSQL) get the (i) too (Copilot review on #264)."""
@@ -4394,6 +6511,129 @@ class TestAlertHistoryCsv:
         assert text.startswith("﻿"), "BOM for Excel"
         return list(csv_module.DictReader(text[1:].splitlines()))
 
+    def test_incidents_in_the_last_30_days(self, flask_client):
+        resp = flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon")
+        assert resp.status_code == 200 and resp.mimetype == "text/csv"
+        assert (
+            resp.headers["Content-Disposition"]
+            == 'attachment; filename="london-hq-incidents-30d-2026-10-07.csv"'
+        )
+        rows = self._rows(resp)
+        # Newest first; #3 started before the period but was still down in it; #4 is older.
+        assert [row["device"] for row in rows] == [
+            "lon-sw01",
+            "'=HYPERLINK(1)",
+            "lon-sw01",
+            "lon-core",
+        ]
+        open_row, gone, resolved, long_one = rows
+        assert (
+            open_row["up_at_utc"] == ""
+            and open_row["status"] == "open"
+            and open_row["duration_min"] == "30"
+        )
+        assert (
+            open_row["cases"] == "INC-900"
+            and open_row["ip"] == "10.0.8.4"
+            and open_row["role"] == "Access Switch"
+        )
+        assert resolved == {
+            "site": "London HQ",
+            "device": "lon-sw01",
+            "role": "Access Switch",
+            "ip": "10.0.8.4",
+            "down_at_utc": "2026-10-01 08:12",
+            "up_at_utc": "2026-10-01 08:40",
+            "duration_min": "28",
+            "status": "resolved",
+            "level": "low",
+            "reason": "x",
+            "cases": "INC-1;INC-881",
+            "probable_cause": "",  # no core device was down (#285)
+            "case_urls": "",  # no CASE_URL_TEMPLATE (#289)
+        }
+        assert long_one["ip"] == "10.9.9.9" and long_one["duration_min"] == "54720"
+        # A deleted device exports no role and no IP, even with a lingering LibreNMS mapping.
+        assert gone["role"] == "" and gone["ip"] == ""
+
+    def test_incidents_are_streamed_in_batches(self, flask_client, monkeypatch):
+        """A site's whole history is never held in memory (Copilot on #278)."""
+        from app.services import export_service as export
+
+        monkeypatch.setattr(export, "STREAM_BATCH", 2)
+        resp = flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
+        assert resp.is_streamed
+        assert len(self._rows(resp)) == 5
+
+    def test_all_and_seven_days(self, flask_client):
+        everything = self._rows(
+            flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=all")
+        )
+        assert len(everything) == 5
+        week = self._rows(flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=7"))
+        assert [row["down_at_utc"] for row in week] == [
+            "2026-10-07 11:30",
+            "2026-10-05 09:00",
+            "2026-10-01 08:12",
+        ]
+
+    def test_per_device(self, flask_client):
+        resp = flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=devices&days=all")
+        assert (
+            'filename="london-hq-devices-all-2026-10-07.csv"' in resp.headers["Content-Disposition"]
+        )
+        rows = {row["device"]: row for row in self._rows(resp)}
+        assert rows["lon-sw01"] == {
+            "site": "London HQ",
+            "device": "lon-sw01",
+            "role": "Access Switch",
+            "ip": "10.0.8.4",
+            "times_down": "2",
+            "total_down_min": "58",
+            "longest_min": "30",
+            "last_down_at_utc": "2026-10-07 11:30",
+            "down_now": "yes",
+        }
+        assert rows["lon-core"]["times_down"] == "2" and rows["lon-core"]["down_now"] == "no"
+        assert rows["lon-core"]["longest_min"] == "54720"
+
+    def test_history_panel_is_newest_down_first(self, flask_client):
+        """By when the device went down, not by internal id (#279); like the CSV."""
+        instances = flask_client.get("/api/v1/alert-history?site_id=loc-lon").get_json()[
+            "instances"
+        ]
+        # Inserted as ids 1-5 in a different order than their start times.
+        assert [row["id"] for row in instances] == [2, 5, 1, 3, 4]
+
+    def test_bad_requests(self, flask_client):
+        assert flask_client.get("/api/v1/alert-history.csv").status_code == 400
+        assert (
+            flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&days=14").status_code == 400
+        )
+        assert (
+            flask_client.get("/api/v1/alert-history.csv?site_id=loc-lon&view=json").status_code
+            == 400
+        )
+        empty = self._rows(flask_client.get("/api/v1/alert-history.csv?site_id=nowhere"))
+        assert empty == []
+
+    def test_needs_the_operator_role(self, flask_client):
+        with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
+            viewer = {"X-Forwarded-User": "vera", "X-Forwarded-Groups": "noc"}
+            assert (
+                flask_client.get(
+                    "/api/v1/alert-history.csv?site_id=loc-lon", headers=viewer
+                ).status_code
+                == 403
+            )
+            operator = {"X-Forwarded-User": "olga", "X-Forwarded-Groups": "ops"}
+            assert (
+                flask_client.get(
+                    "/api/v1/alert-history.csv?site_id=loc-lon", headers=operator
+                ).status_code
+                == 200
+            )
+
 
 class TestAlertHistoryCsvCells:
     def test_formula_guard(self):
@@ -4423,157 +6663,14 @@ class TestAlertHistoryCsvCells:
 
 
 # Held back until what they need is ported (#587):
-#   client: HTTP routes (step 7)
-#   TestApiLocations.test_returns_locations_with_coordinates: HTTP routes (step 7)
-#   TestApiLocations.test_location_fields: HTTP routes (step 7)
-#   TestApiLocations.test_location_type_field_populated: HTTP routes (step 7)
-#   TestApiLocations.test_country_field_populated: HTTP routes (step 7)
-#   TestApiLocations.test_country_field_falls_back_to_physical_address: HTTP routes (step 7)
-#   TestApiLocations.test_parent_field_populated: HTTP routes (step 7)
-#   TestApiLocations.test_tenant_group_field_populated: HTTP routes (step 7)
-#   TestApiLocations.test_tenant_group_empty_when_no_tenant: HTTP routes (step 7)
-#   TestApiLocations.test_facility_field_populated: HTTP routes (step 7)
-#   TestApiLocations.test_facility_empty_when_not_set: HTTP routes (step 7)
-#   TestApiLocations.test_tags_field_populated: HTTP routes (step 7)
-#   TestApiLocations.test_tags_empty_when_none: HTTP routes (step 7)
-#   TestApiLocations.test_tags_fallback_with_brief_nested_object: HTTP routes (step 7)
-#   TestApiLocations.test_location_type_fallback_with_brief_nested_object: HTTP routes (step 7)
-#   TestApiLocations.test_parent_fallback_with_brief_nested_object: HTTP routes (step 7)
-#   TestApiLocations.test_missing_env_vars_returns_503: HTTP routes (step 7)
-#   TestApiLocations.test_nautobot_http_error_returns_502: HTTP routes (step 7)
-#   TestAlertBoard.test_alert_board_page_renders: HTTP routes (step 7)
-#   TestAlertBoard.test_api_alerts_returns_board_data: HTTP routes (step 7)
-#   TestAlertBoard.test_api_alerts_hides_non_operational_locations_unless_requested: HTTP routes (step 7)
-#   TestAlertBoard.test_log_alert_board_exclusions_reports_resolved_sets: the current app's app.py startup (step 7)
-#   TestApiLocationDetail.test_returns_devices_and_asns: HTTP routes (step 7)
-#   TestApiLocationDetail.test_device_fields: HTTP routes (step 7)
-#   TestApiLocationDetail.test_device_with_null_fields: HTTP routes (step 7)
-#   TestApiLocationDetail.test_device_lookup_failure_returns_503: HTTP routes (step 7)
-#   TestApiLocationDetail.test_asn_lookup_http_error_returns_502: HTTP routes (step 7)
-#   TestApiLocationDetail.test_missing_asn_endpoint_falls_back_to_location_asn: HTTP routes (step 7)
-#   TestApiLocationDetail.test_missing_asn_endpoint_prefers_cached_location_asn: HTTP routes (step 7)
-#   TestApiLocationDetail.test_missing_asn_endpoint_and_no_location_asn_returns_empty: HTTP routes (step 7)
-#   TestApiLocationDetail.test_missing_asn_endpoint_still_fails_when_location_lookup_fails: HTTP routes (step 7)
-#   TestApiSearch.test_missing_query_returns_400: HTTP routes (step 7)
-#   TestApiSearch.test_gps_coordinates_search: HTTP routes (step 7)
-#   TestApiSearch.test_gps_no_results_far_away: HTTP routes (step 7)
-#   TestApiSearch.test_search_results_sorted_by_distance: HTTP routes (step 7)
-#   TestApiSearch.test_address_geocoding: HTTP routes (step 7)
-#   TestApiSearch.test_address_not_found_returns_404: HTTP routes (step 7)
-#   TestApiSearch.test_distance_km_field_present: HTTP routes (step 7)
-#   TestNautobotRuntimeErrors.test_runtime_errors_do_not_leak_internal_messages: HTTP routes (step 7)
-#   TestIndex.test_index_is_the_nuxt_page: HTTP routes (step 7)
-#   TestIndex.test_what_the_map_reads: HTTP routes (step 7)
-#   TestSSLVerification.test_missing_ca_bundle_is_logged_at_startup: the current app's app.py startup (step 7)
-#   TestErrorHandlers.test_404_html_for_browser: HTTP routes (step 7)
-#   TestErrorHandlers.test_404_json_for_api_path: HTTP routes (step 7)
-#   TestErrorHandlers.test_404_json_when_accept_json: HTTP routes (step 7)
-#   TestErrorHandlers.test_405_html_for_browser: HTTP routes (step 7)
-#   TestErrorHandlers.test_405_json_for_api_path: HTTP routes (step 7)
-#   TestErrorHandlers.test_http_exception_returns_json_for_api_path: HTTP routes (step 7)
-#   TestLocationDetailWithLocationType.test_location_type_param_accepted: HTTP routes (step 7)
-#   TestLocationDetailWithLocationType.test_location_type_influences_alert: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_list_empty: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_create_override: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_list_after_create: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_update_override: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_delete_override: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_delete_nonexistent_returns_404: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_create_missing_device_id_returns_400: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_no_db_returns_503: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_requires_operator_role_when_auth_enabled: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_accepts_operator_group_when_auth_enabled: HTTP routes (step 7)
-#   TestCriticalityOverrideEndpoints.test_uses_authenticated_username_as_updated_by: HTTP routes (step 7)
-#   TestAlertLifecycleTracking.test_api_alerts_contains_lifecycle_fields: HTTP routes (step 7)
-#   TestAlertLifecycleTracking.test_alert_history_tracks_open_and_resolve: HTTP routes (step 7)
-#   TestAlertLifecycleTracking.test_add_case_number_to_active_alert: HTTP routes (step 7)
-#   TestAlertLifecycleTracking.test_api_alerts_preserves_case_numbers_on_current_down_devices: HTTP routes (step 7)
-#   TestAlertLifecycleTracking.test_add_case_uses_authenticated_user_for_created_by: HTTP routes (step 7)
-#   TestAlertLifecycleTracking.test_alert_history_rejects_invalid_timestamp_filters: HTTP routes (step 7)
-#   TestInventoryCacheSync.test_api_alerts_filters_cached_devices_without_primary_ip: HTTP routes (step 7)
-#   TestAuthConfiguration.test_header_auth_binds_flask_to_loopback: the current app's statuslinks/tokens/auth modules (step 7)
-#   TestAuthConfiguration.test_non_header_auth_keeps_public_flask_bind: the current app's statuslinks/tokens/auth modules (step 7)
-#   TestAuthConfiguration.test_identity_headers_only_count_from_trusted_proxies: HTTP routes (step 7)
-#   TestAuthConfiguration.test_proxy_secret_is_required_when_set: HTTP routes (step 7)
-#   TestAuthConfiguration.test_auth_disabled_refuses_admin_writes_by_default: HTTP routes (step 7)
-#   TestAuthConfiguration.test_auth_disabled_keeps_reads_and_cases_open: HTTP routes (step 7)
-#   TestAuthConfiguration.test_nautobot_proxy_endpoints_are_gone: HTTP routes (step 7)
-#   TestAuthConfiguration.test_allow_unauthenticated_writes_restores_the_old_behaviour: HTTP routes (step 7)
-#   TestAuthConfiguration.test_require_viewer_protects_every_page_but_probes: HTTP routes (step 7)
-#   TestAuthConfiguration.test_require_viewer_is_off_by_default: HTTP routes (step 7)
-#   TestAuthConfiguration.test_missing_identity_header_returns_401: HTTP routes (step 7)
-#   TestAuthConfiguration.test_default_role_allows_authenticated_viewer_only_access: HTTP routes (step 7)
-#   TestAlertBoardTierDefinitions.test_the_board_explains_the_levels_and_chips: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_refresh_1_enqueues_forced_background_sync: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_timestamp_refresh_value_does_not_trigger_sync: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_cold_start_enqueues_first_sync_without_waiting: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_initialized_snapshot_does_not_start_sync_and_is_not_pending: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_due_sync_is_started_by_a_normal_board_load: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_next_update_counts_down_from_last_completed_sync: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_running_sync_is_reported_as_pending: HTTP routes (step 7)
-#   TestAlertBoardSyncProgress.test_adding_case_invalidates_cached_board: HTTP routes (step 7)
-#   TestMultiDeviceCases.test_links_one_case_to_every_selected_device: HTTP routes (step 7)
-#   TestMultiDeviceCases.test_is_all_or_nothing_when_a_device_has_no_open_alert: HTTP routes (step 7)
-#   TestMultiDeviceCases.test_duplicate_ids_are_linked_once: HTTP routes (step 7)
-#   TestMultiDeviceCases.test_single_device_id_keeps_original_response_fields: HTTP routes (step 7)
-#   TestMultiDeviceCases.test_rejects_invalid_device_ids: HTTP routes (step 7)
-#   TestHealthz.test_ok_without_persistence: HTTP routes (step 7)
-#   TestHealthz.test_ok_with_reachable_database: HTTP routes (step 7)
-#   TestHealthz.test_unavailable_database_returns_503_without_details: HTTP routes (step 7)
-#   TestHealthz.test_makes_no_upstream_calls: HTTP routes (step 7)
-#   TestAlertBoardWithoutPersistence.test_payload_reports_missing_database: HTTP routes (step 7)
-#   TestAlertBoardWithoutPersistence.test_payload_reports_configured_database: HTTP routes (step 7)
-#   TestAlertBoardWithoutPersistence.test_startup_log_warns_without_database: the current app's app.py startup (step 7)
-#   TestAlertBoardWithoutPersistence.test_startup_log_errors_on_leftover_sqlite_setting: the current app's app.py startup (step 7)
-#   TestAlertBoardWithoutPersistence.test_startup_log_quiet_with_database: the current app's app.py startup (step 7)
-#   TestAlertFeed.test_board_builds_fill_the_feed: HTTP routes (step 7)
-#   TestAlertFeed.test_a_board_for_some_sites_reads_their_feed: HTTP routes (step 7)
-#   TestAlertFeed.test_a_scoped_feed_without_stored_sites_says_so: HTTP routes (step 7)
-#   TestAlertFeed.test_bad_parameters_are_rejected: HTTP routes (step 7)
-#   TestAlertFeed.test_without_persistence_the_feed_is_empty: HTTP routes (step 7)
-#   TestGeocoder.test_disabled_geocoder_only_accepts_coordinates: HTTP routes (step 7)
-#   TestGeocoder.test_uses_the_configured_service: HTTP routes (step 7)
-#   TestGeocoder.test_results_are_cached: HTTP routes (step 7)
-#   TestGeocoder.test_at_most_one_request_per_second: HTTP routes (step 7)
-#   TestGeocoder.test_the_interval_is_one_second: the routes' answer models (step 7)
-#   TestGeocoder.test_geocoder_error_is_not_passed_to_the_client: HTTP routes (step 7)
-#   TestGeocoder.test_not_found_is_cached_too: HTTP routes (step 7)
-#   TestSecurityHeaders.test_headers_on_every_response: HTTP routes (step 7)
-#   TestSecurityHeaders.test_images_allowed_from_the_tile_server: HTTP routes (step 7)
-#   TestLogging.test_unexpected_error_is_logged_with_its_stack_trace: HTTP routes (step 7)
-#   TestMetrics.test_last_success_survives_a_failure: HTTP routes (step 7)
-#   TestMetrics.test_alert_and_site_counts: HTTP routes (step 7)
-#   TestMetrics.test_without_database: HTTP routes (step 7)
-#   TestMetrics.test_can_be_turned_off: HTTP routes (step 7)
-#   TestMetrics.test_healthz_reports_sync_age_without_failing: HTTP routes (step 7)
-#   TestDatabaseTimeouts.test_healthz_uses_a_short_connect_timeout: HTTP routes (step 7)
-#   TestApiExplorer.test_every_route_is_listed: HTTP routes (step 7)
-#   TestApiExplorer.test_what_each_endpoint_takes: HTTP routes (step 7)
-#   TestApiExplorer.test_the_page_is_the_nuxt_page: HTTP routes (step 7)
-#   TestApiExplorer.test_write_bodies_are_in_the_spec: HTTP routes (step 7)
-#   TestApiExplorer.test_the_menu_links_to_the_explorer: HTTP routes (step 7)
-#   TestApiExplorer.test_the_old_paths_move_for_good: HTTP routes (step 7)
-#   TestApiExplorer.test_the_reference_is_a_page_not_json: HTTP routes (step 7)
-#   TestApiExplorer.test_needs_the_viewer_role_like_every_page: HTTP routes (step 7)
-#   TestLocationAlertLevels.test_returns_every_location_with_monitored_devices: HTTP routes (step 7)
-#   TestLocationAlertLevels.test_matches_the_site_panel: HTTP routes (step 7)
-#   TestLocationAlertLevels.test_the_site_panel_marks_core_devices: HTTP routes (step 7)
-#   TestLocationAlertLevels.test_criticality_override_is_applied: HTTP routes (step 7)
-#   TestLocationAlertLevels.test_cached_until_a_sync_invalidates_it: HTTP routes (step 7)
-#   TestLocationCircuits.test_every_circuit_is_listed: HTTP routes (step 7)
-#   TestLocationCircuits.test_no_circuits_app_is_not_an_error: HTTP routes (step 7)
-#   TestLocationCircuits.test_a_failed_call_keeps_the_rest_of_the_panel: HTTP routes (step 7)
-#   TestLocationTenantSync.test_sync_fills_the_board_and_the_map: HTTP routes (step 7)
-#   TestLocationTenantSync.test_a_failed_read_keeps_the_links_a_removed_one_goes: HTTP routes (step 7)
-#   TestTenantDescriptions.test_board_and_map_get_the_descriptions_of_their_tenants: HTTP routes (step 7)
-#   TestTenantDescriptions.test_an_edited_description_replaces_the_old_one: HTTP routes (step 7)
-#   TestAlertHistoryCsv.test_incidents_in_the_last_30_days: HTTP routes (step 7)
-#   TestAlertHistoryCsv.test_incidents_are_streamed_in_batches: HTTP routes (step 7)
-#   TestAlertHistoryCsv.test_all_and_seven_days: HTTP routes (step 7)
-#   TestAlertHistoryCsv.test_per_device: HTTP routes (step 7)
-#   TestAlertHistoryCsv.test_history_panel_is_newest_down_first: HTTP routes (step 7)
-#   TestAlertHistoryCsv.test_bad_requests: HTTP routes (step 7)
-#   TestAlertHistoryCsv.test_needs_the_operator_role: HTTP routes (step 7)
+#   TestAlertBoard.test_log_alert_board_exclusions_reports_resolved_sets: the current app's app.py startup (step 10)
+#   TestSSLVerification.test_missing_ca_bundle_is_logged_at_startup: the current app's app.py startup (step 10)
+#   TestAlertBoardWithoutPersistence.test_startup_log_warns_without_database: the current app's app.py startup (step 10)
+#   TestAlertBoardWithoutPersistence.test_startup_log_errors_on_leftover_sqlite_setting: the current app's app.py startup (step 10)
+#   TestAlertBoardWithoutPersistence.test_startup_log_quiet_with_database: the current app's app.py startup (step 10)
+#   TestLogging.test_json_lines_include_the_stack_trace: the current app's server and logging setup (step 10)
+#   TestLogging.test_successful_health_checks_are_not_access_logged: the current app's server and logging setup (step 10)
+#   TestLogging.test_gunicorn_config_logs_access_and_keeps_a_root_logger: the current app's server and logging setup (step 10)
 
 # The current app's own schema migration and gunicorn tests are its own: the schema
 # here is Alembic's (tests/test_schema.py), the server uvicorn:
@@ -4596,11 +6693,38 @@ class TestAlertHistoryCsvCells:
 #   TestBackgroundScheduler.test_gunicorn_starts_the_scheduler_in_each_worker
 #   TestMetrics.test_migration_backfills_last_success
 
-# Left out, with why:
-#   TestAlertBoard.test_get_alert_board_data_replaces_write_connection_after_failure: counts connections with no database configured; the new stack always has its database
-#   TestAlertBoard.test_get_alert_board_data_disables_persistence_after_connect_failure: no database configured (db.dialect() ""); the new stack always has its database
-#   TestAlertLifecycleTracking.test_get_db_conn_postgres_enables_autocommit: the current app's psycopg.connect; app/db.py's connections: tests/test_db.py
-#   TestAlertBoardSyncProgress.test_empty_sync_interval_env_uses_default: a subprocess of the current app's settings; empty-means-default is tests/test_settings.py
-#   TestBackgroundScheduler.test_not_started_without_database: no database configured; the new stack always has its database
-#   TestApiExplorer.test_every_write_has_an_example_body: the API explorer (apidocs), step 9 of #587
-#   TestApiExplorer (the whole class): the API explorer (apidocs), step 9 of #587
+# Left out: it runs with no database configured (db.dialect() ""), which the new
+# stack doesn't have: it always has its database (#602).
+#   test_get_alert_board_data_replaces_write_connection_after_failure
+#   test_get_alert_board_data_disables_persistence_after_connect_failure
+#   test_no_db_returns_503
+#   test_get_db_conn_postgres_enables_autocommit
+#   test_empty_sync_interval_env_uses_default
+#   test_ok_without_persistence
+#   test_payload_reports_missing_database
+#   test_without_persistence_the_feed_is_empty
+#   test_without_database
+#   test_not_started_without_database
+
+# Left out: it runs with no database configured (db.dialect() ""), which the new
+# stack doesn't have: it always has its database (#602).
+# Their sign-in rules: tests/test_auth.py.
+#   test_identity_headers_only_count_from_trusted_proxies
+#   test_proxy_secret_is_required_when_set
+#   test_allow_unauthenticated_writes_restores_the_old_behaviour
+
+# Left out: the current app's server details (Flask's bind address, its access-log
+# format, templates/ and /static/, HTML error pages for browsers); the pages and
+# their error page come in step 8 of #587, access logging at the switchover.
+#   test_404_html_for_browser
+#   test_405_html_for_browser
+#   test_the_reference_is_a_page_not_json
+#   test_header_auth_binds_flask_to_loopback
+#   test_non_header_auth_keeps_public_flask_bind
+
+# Left out: it changes the database URL while running; the engines here are made at
+# startup. tests/test_openapi.py::test_healthz_without_the_database is that 503.
+#   test_unavailable_database_returns_503_without_details
+
+# Held: web/ holds the pages, Swagger UI bundled, from step 8 of #587.
+#   test_the_page_is_the_nuxt_page

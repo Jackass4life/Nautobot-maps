@@ -40,7 +40,7 @@ PUBLIC_PATHS = {"/healthz", "/metrics", "/api/healthz"}
 STATUS_PAGE_PREFIX = "/status/"
 STATUS_API_PREFIX = "/api/v1/status/"
 FRONTEND_ASSETS_PREFIX = "/_nuxt/"
-MCP_PATH = "/api/v1/mcp"
+MCP_PATH = "/mcp"
 
 Refusal = tuple[dict, int]
 
@@ -176,6 +176,9 @@ def role_problem(
             "detail": "Set AUTH_MODE=header behind an authenticating proxy, "
             "or ALLOW_UNAUTHENTICATED_WRITES=true to allow it without authentication.",
         }, 403
+    if settings.auth_mode not in ("disabled", "header"):
+        # Startup refuses another value; one set in code answers as the current app.
+        return {"error": "Unsupported AUTH_MODE configuration"}, 503
     if not user.is_authenticated:
         return {"error": "Authentication required"}, 401
     if role_level(user.role) < role_level(required_role):

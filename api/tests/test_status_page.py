@@ -8,9 +8,12 @@ from app import db
 from app.clients import nautobot
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
+from app.services import status_link_service as statuslinks
 from app.services import status_service as status
 from app.utils.legacy_settings import settings
 from tests import test_tokens
+from tests.test_app import auth_config
+from tests.test_tokens import bearer, make
 
 clock = test_tokens.clock
 
@@ -80,11 +83,10 @@ BOARD = {
 
 def link(tenant: str) -> str:
     """*tenant*'s status page link id (#500)."""
-    from app.services import status_link_service
     from app.session import SessionLocal
 
     with SessionLocal() as session:
-        link_id = status_link_service.ensure(session, [tenant])[tenant]
+        link_id = statuslinks.ensure(session, [tenant])[tenant]
         session.commit()
     return link_id
 
@@ -394,6 +396,57 @@ class TestCircuits:
             ]
         finally:
             conn.close()
+
+    def test_on_the_page(self, flask_client, board):
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_circuits(conn, [self.circuit("TEL-1", location_ids=["loc-par"])])
+        finally:
+            conn.close()
+        sites = flask_client.get(f"/api/v1/status/{link('Acme Corp')}").get_json()["sites"]
+        assert next(s for s in sites if s["name"] == "Paris PoP")["circuits"] == [
+            {"cid": "TEL-1", "type": "Internet Transit", "bandwidth": "1 Gbps"}
+        ]
+
+    def test_a_request_never_holds_two_connections(self, flask_client, board, monkeypatch):
+        """The board read takes its own (its sync schedule, with an inventory source): the
+        link's is closed first, so busy requests can't use up the pool (#608 review)."""
+        acme = link("Acme Corp")
+        board_data = alerts.get_alert_board_data
+
+        def board_with_its_own_connection():
+            db.get_conn().close()
+            return board_data()
+
+        monkeypatch.setattr(alerts, "get_alert_board_data", board_with_its_own_connection)
+        real, state = db.get_conn, {"open": 0, "most": 0, "taken": 0}
+
+        class Counted:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+            def close(self):
+                state["open"] -= 1
+                self._conn.close()
+
+        def counted(*args, **kwargs):
+            state["open"] += 1
+            state["taken"] += 1
+            state["most"] = max(state["most"], state["open"])
+            return Counted(real(*args, **kwargs))
+
+        monkeypatch.setattr(db, "get_conn", counted)
+        assert flask_client.get(f"/api/v1/status/{acme}").status_code == 200
+        assert state["taken"] >= 3 and state["most"] == 1 and state["open"] == 0
+
+    def test_without_circuits_the_page_still_answers(self, flask_client, board, monkeypatch):
+        monkeypatch.setattr(inventory, "read_tenant_circuits", lambda conn, tenant: 1 / 0)
+        sites = flask_client.get(f"/api/v1/status/{link('Acme Corp')}").get_json()["sites"]
+        assert all(site["circuits"] == [] for site in sites)
 
 
 class TestTenantScopes:
@@ -757,38 +810,263 @@ class TestTenantDevices:
         devices = status.tenant_status(board, "ACME CORP")["sites"][0]["devices"]
         assert [d["name"] for d in devices] == ["z-down", "m", "A-up", "b-up"]
 
+    def test_from_the_board_build_to_the_page(self, flask_client, pg_database, monkeypatch):
+        """Nautobot's device tenant, through the board, to /api/status (and its answer model)."""
+        from tests.test_app import _snapshot_device, _snapshot_location
+
+        for name, value in (("NAUTOBOT_URL", ""), ("NAUTOBOT_TOKEN", ""), ("LIBRENMS_URL", "")):
+            monkeypatch.setattr(settings, name, value)
+        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        conn = db.get_conn()
+        try:
+            with db.transaction(conn):
+                inventory.write_locations(
+                    conn, [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}]
+                )
+                inventory.record_sync_state(
+                    conn,
+                    "nautobot_inventory",
+                    last_completed_at=self.CHECKED_AT,
+                    last_successful_sync=self.CHECKED_AT,
+                    cache_version=inventory.CACHE_VERSION,
+                )
+                inventory.write_devices(
+                    conn,
+                    [
+                        {
+                            **_snapshot_device("lon-ap-01", "loc-lon", "Access Point", "Offline"),
+                            "tenant": "Acme Corp",
+                        },
+                        {
+                            **_snapshot_device("lon-sw-01", "loc-lon", "Access Switch", "Active"),
+                            "tenant": "Acme Corp",
+                        },
+                        _snapshot_device("lon-core-01", "loc-lon", "Core Router", "Active"),
+                    ],
+                )
+        finally:
+            conn.close()
+        board = alerts.build_alert_board_payload(snapshot_only=True)
+        monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: board)
+        (site,) = flask_client.get(f"/api/v1/status/{link('Acme Corp')}").get_json()["sites"]
+        assert [(d["name"], d["state"]) for d in site["devices"]] == [
+            ("lon-ap-01", "down"),
+            ("lon-sw-01", "up"),
+        ]
+        assert site["devices"][0]["since"]
+        assert "lon-core-01" not in json.dumps(site)
+
 
 class TestAccess:
-    pass  # its tests are held back (the end of the file says why)
+    def test_a_status_token_opens_only_its_tenant(self, known_tenants, flask_client, board):
+        token = make("acme-status", "status", tenant="Acme Corp")["token"]
+        acme, other = link("Acme Corp"), link("Other Co")
+        assert flask_client.get(f"/api/v1/status/{acme}", headers=bearer(token)).status_code == 200
+        assert flask_client.get(f"/api/v1/status/{other}", headers=bearer(token)).status_code == 403
+        # A link that opens nothing looks the same as another tenant's (#500).
+        assert (
+            flask_client.get(f"/api/v1/status/{'x' * 24}", headers=bearer(token)).status_code == 403
+        )
+        for path in (
+            "/api/v1/alerts",
+            "/alerts",
+            "/api/v1/maintenance",
+            "/api/v1/status-other",
+            "/static/css/other.css",
+        ):
+            assert flask_client.get(path, headers=bearer(token)).status_code == 403, path
+        response = flask_client.post("/api/v1/alert-cases", json={}, headers=bearer(token))
+        assert response.status_code == 403
+
+    def test_a_revoked_status_token_gets_401(self, known_tenants, flask_client, board):
+        from app.services import token_service as tokens
+
+        created = make("acme-status", "status", tenant="Acme Corp")
+        conn = db.get_conn()
+        try:
+            tokens.revoke(conn, created["id"], "admin")
+        finally:
+            conn.close()
+        assert (
+            flask_client.get(
+                f"/api/v1/status/{link('Acme Corp')}", headers=bearer(created["token"])
+            ).status_code
+            == 401
+        )
+
+    def test_with_require_viewer_the_page_loads_but_the_data_needs_access(
+        self, known_tenants, flask_client, board, monkeypatch, frontend_build
+    ):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        token = make("acme-status", "status", tenant="Acme Corp")["token"]
+        viewer = make("staff", "viewer")["token"]
+        anonymous = {"REMOTE_ADDR": "203.0.113.9"}
+        acme = link("Acme Corp")
+        with auth_config(mode="header"):
+            page = flask_client.get(f"/status/{acme}", environ_base=anonymous)
+            assert page.status_code == 200 and b'id="__nuxt"' in page.data
+            assert page.headers["Referrer-Policy"] == "no-referrer"
+            # The Nuxt build's files (#463): code only, no data.
+            assert (
+                flask_client.get("/_nuxt/entry.abc123.js", environ_base=anonymous).status_code
+                == 200
+            )
+            assert (
+                flask_client.get("/static/css/other.css", environ_base=anonymous).status_code == 401
+            )
+            assert (
+                flask_client.get(f"/api/v1/status/{acme}", environ_base=anonymous).status_code
+                == 401
+            )
+            # No sign-in, no clue whether a link exists (#500).
+            assert (
+                flask_client.get(f"/api/v1/status/{'x' * 24}", environ_base=anonymous).status_code
+                == 401
+            )
+            assert (
+                flask_client.get(f"/api/v1/status/{acme}", headers=bearer(token)).status_code == 200
+            )
+            assert (
+                flask_client.get(
+                    f"/api/v1/status/{link('Other Co')}", headers=bearer(viewer)
+                ).status_code
+                == 200
+            )
+
+    def test_open_like_the_board_without_require_viewer(self, flask_client, board, monkeypatch):
+        response = flask_client.get(f"/api/v1/status/{link('Acme Corp')}")
+        assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        assert flask_client.get(f"/api/v1/status/{link('Nobody')}").status_code == 404
+
+    def test_before_the_first_sync_it_is_a_503_not_no_sites(self, flask_client, monkeypatch):
+        monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: {"alerts": []})
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
+        assert flask_client.get(f"/api/v1/status/{link('Acme Corp')}").status_code == 503
+
+    def test_the_page_never_holds_the_link(self, flask_client, board, frontend_build):
+        # The page is the Nuxt build's (#463): the link comes from the URL in
+        # the browser, never written into the page, so it can't inject markup.
+        page = flask_client.get("/status/%3Cscript%3Ex")
+        assert (
+            page.status_code == 200
+            and b"script%3Ex" not in page.data
+            and b"<script>x" not in page.data
+        )
+
+    def test_board_errors_are_a_503(self, flask_client, monkeypatch):
+        def broken(*args, **kwargs):
+            raise RuntimeError("db at postgresql://secret")
+
+        monkeypatch.setattr(alerts, "get_alert_board_data", broken)
+        response = flask_client.get(f"/api/v1/status/{link('Acme Corp')}")
+        assert response.status_code == 503 and b"secret" not in response.data
 
 
 class TestLinks:
     """A random link per tenant, not its name (#500)."""
 
+    def test_a_name_no_longer_opens_a_page(self, flask_client, board, monkeypatch):
+        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        acme = link("Acme Corp")
+        assert statuslinks.ID_PATTERN.match(acme) and "acme" not in acme.lower()
+        assert flask_client.get(f"/api/v1/status/{acme}").get_json()["tenant"] == "Acme Corp"
+        # The old links, by name: the same answer as a tenant without sites.
+        for old in (
+            "Acme%20Corp",
+            "acme%20corp",
+            "Other%20Co",
+            acme.upper() if acme.upper() != acme else acme[:-1],
+        ):
+            response = flask_client.get(f"/api/v1/status/{old}")
+            assert response.status_code == 404 and response.get_json() == {
+                "error": "No sites for this tenant"
+            }, old
+
+    def test_one_link_per_tenant_capitals_aside_and_kept(self, flask_client):
+        conn = db.get_conn()
+        try:
+            first = statuslinks.ensure(conn, ["Acme Corp", "ACME CORP", "Other Co", "", "  "])
+            assert set(first) == {"Acme Corp", "ACME CORP", "Other Co"}
+            assert first["Acme Corp"] == first["ACME CORP"] != first["Other Co"]
+            assert statuslinks.ensure(conn, ["acme corp"]) == {"acme corp": first["Acme Corp"]}
+            assert statuslinks.tenant_for(conn, first["Other Co"]) == "other co"
+            assert statuslinks.tenant_for(conn, "Other Co") is None
+            # 300 tenants at once: two queries, every one its own link.
+            many = statuslinks.ensure(conn, [f"Tenant {i}" for i in range(300)])
+            assert len(set(many.values())) == 300
+        finally:
+            conn.close()
+
+    def test_without_the_database_it_says_so_and_still_asks_who_you_are(
+        self, flask_client, board, monkeypatch
+    ):
+        acme = link("Acme Corp")
+        monkeypatch.setattr(db, "get_conn", lambda *a, **k: None)
+        response = flask_client.get(f"/api/v1/status/{acme}")
+        assert response.status_code == 503 and "PostgreSQL" in response.get_json()["error"]
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header"):
+            # Database trouble is no clue to one who may not look (#500).
+            assert (
+                flask_client.get(
+                    f"/api/v1/status/{acme}", environ_base={"REMOTE_ADDR": "203.0.113.9"}
+                ).status_code
+                == 401
+            )
+
+    def test_links_are_read_not_written_once_made(self, flask_client):
+        conn = db.get_conn()
+        try:
+            first = statuslinks.ensure(conn, [f"Tenant {i}" for i in range(300)])
+            writes = []
+            real = conn.execute
+
+            class Watched:
+                def execute(self, query, *args):
+                    writes.extend(["insert"] if "INSERT" in query else [])
+                    return real(query, *args)
+
+            assert statuslinks.ensure(Watched(), list(first)) == first and writes == []
+        finally:
+            conn.close()
+
+    def test_a_status_token_is_shown_even_when_its_link_fails(
+        self, known_tenants, flask_client, monkeypatch
+    ):
+        admin = make("admin", "admin")["token"]
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("statement timeout")
+
+        monkeypatch.setattr(statuslinks, "ensure", broken)
+        body = {"name": "acme-api", "role": "status", "tenant": "Acme Corp"}
+        response = flask_client.post("/api/v1/tokens", json=body, headers=bearer(admin))
+        assert response.status_code == 201
+        created = response.get_json()["token"]
+        assert created["token"].startswith("nmt_") and created["status_link"] is None
+
 
 class TestStatusTokens:
-    pass  # its tests are held back (the end of the file says why)
+    @pytest.mark.parametrize(
+        ("body", "message"),
+        [
+            ({"role": "status"}, "tenant is required"),
+            ({"role": "status", "tenant": "  "}, "tenant is required"),
+            ({"role": "status", "tenant": "x" * 201}, "tenant is required"),
+            ({"role": "viewer", "tenant": "Acme Corp"}, "only for role status"),
+        ],
+    )
+    def test_validation(self, pg_database, clock, body, message):
+        from app.services import token_service as tokens
+
+        with pytest.raises(tokens.TokenError, match=message):
+            make("t", **body)
 
 
 # Held back until what they need is ported (#587):
-#   TestCircuits.test_on_the_page: HTTP routes (step 7)
-#   TestCircuits.test_without_circuits_the_page_still_answers: HTTP routes (step 7)
-#   TestTenantDevices.test_from_the_board_build_to_the_page: HTTP routes (step 7)
-#   TestAccess.test_a_status_token_opens_only_its_tenant: HTTP routes (step 7)
-#   TestAccess.test_a_revoked_status_token_gets_401: HTTP routes (step 7)
-#   TestAccess.test_with_require_viewer_the_page_loads_but_the_data_needs_access: HTTP routes (step 7)
-#   TestAccess.test_open_like_the_board_without_require_viewer: HTTP routes (step 7)
-#   TestAccess.test_before_the_first_sync_it_is_a_503_not_no_sites: HTTP routes (step 7)
-#   TestAccess.test_the_page_never_holds_the_link: HTTP routes (step 7)
-#   TestAccess.test_board_errors_are_a_503: HTTP routes (step 7)
-#   TestLinks.test_a_name_no_longer_opens_a_page: HTTP routes (step 7)
-#   TestLinks.test_one_link_per_tenant_capitals_aside_and_kept: HTTP routes (step 7)
-#   TestLinks.test_a_leaked_link_is_replaced: HTTP routes (step 7)
-#   TestLinks.test_without_the_database_it_says_so_and_still_asks_who_you_are: HTTP routes (step 7)
-#   TestLinks.test_a_typo_makes_no_link: HTTP routes (step 7)
-#   TestLinks.test_links_are_read_not_written_once_made: HTTP routes (step 7)
-#   TestLinks.test_a_status_token_is_shown_even_when_its_link_fails: HTTP routes (step 7)
-#   TestLinks.test_a_status_token_comes_with_its_link: HTTP routes (step 7)
-#   TestStatusTokens.test_validation: the current app's statuslinks/tokens/auth modules (step 7)
-#   TestStatusTokens.test_a_tenant_nautobot_does_not_have_is_refused: HTTP routes (step 7)
+#   TestLinks.test_a_leaked_link_is_replaced: the CLI (step 9)
+#   TestLinks.test_a_typo_makes_no_link: the CLI (step 9)
+#   TestLinks.test_a_status_token_comes_with_its_link: the CLI (step 9)
+#   TestStatusTokens.test_a_tenant_nautobot_does_not_have_is_refused: the CLI (step 9)
 #   TestStatusTokens.test_verify_and_cli: the CLI (step 9)
