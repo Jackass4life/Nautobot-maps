@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from app import __main__ as cli
 from app import db
 from app.clients import nautobot
 from app.services import alerts_service as alerts
@@ -13,7 +14,7 @@ from app.services import status_service as status
 from app.utils.legacy_settings import settings
 from tests import test_tokens
 from tests.test_app import auth_config
-from tests.test_tokens import bearer, make
+from tests.test_tokens import bearer, make, verify
 
 clock = test_tokens.clock
 
@@ -83,12 +84,11 @@ BOARD = {
 
 def link(tenant: str) -> str:
     """*tenant*'s status page link id (#500)."""
-    from app.session import SessionLocal
-
-    with SessionLocal() as session:
-        link_id = statuslinks.ensure(session, [tenant])[tenant]
-        session.commit()
-    return link_id
+    conn = db.get_conn()
+    try:
+        return statuslinks.ensure(conn, [tenant])[tenant]
+    finally:
+        conn.close()
 
 
 @pytest.fixture
@@ -998,6 +998,16 @@ class TestLinks:
         finally:
             conn.close()
 
+    def test_a_leaked_link_is_replaced(self, flask_client, board, capsys):
+        old = link("Acme Corp")
+        assert cli.main(["status-link", "Acme Corp"]) == 0
+        assert capsys.readouterr().out.strip() == f"/status/{old}"
+        assert cli.main(["status-link", "acme corp", "--new"]) == 0
+        new = capsys.readouterr().out.strip().removeprefix("/status/")
+        assert new != old and flask_client.get(f"/api/v1/status/{new}").status_code == 200
+        assert flask_client.get(f"/api/v1/status/{old}").status_code == 404
+        assert cli.main(["status-link", " "]) == 1
+
     def test_without_the_database_it_says_so_and_still_asks_who_you_are(
         self, flask_client, board, monkeypatch
     ):
@@ -1014,6 +1024,22 @@ class TestLinks:
                 ).status_code
                 == 401
             )
+
+    def test_a_typo_makes_no_link(self, flask_client, capsys):
+        conn = db.get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO nautobot_tenant_cache (tenant_id, name, description) VALUES ('t1', 'Acme Corp', '')"
+            )
+        finally:
+            conn.close()
+        assert cli.main(["status-link", "Acme Crop", "--new"]) == 1
+        assert "no tenant 'Acme Crop'" in capsys.readouterr().err
+        assert cli.main(["status-link", "ACME CORP"]) == 0
+        assert capsys.readouterr().out.startswith("/status/")
+        # Known by its link too: a tenant gone from Nautobot can still be rotated.
+        link("Gone Co")
+        assert cli.main(["status-link", "Gone Co", "--new"]) == 0
 
     def test_links_are_read_not_written_once_made(self, flask_client):
         conn = db.get_conn()
@@ -1046,6 +1072,25 @@ class TestLinks:
         created = response.get_json()["token"]
         assert created["token"].startswith("nmt_") and created["status_link"] is None
 
+    def test_a_status_token_comes_with_its_link(self, known_tenants, flask_client, capsys):
+        assert (
+            cli.main(["token", "create", "acme-cli", "--role", "status", "--tenant", "Acme Corp"])
+            == 0
+        )
+        out, err = capsys.readouterr()
+        assert f"Share: /status/{link('Acme Corp')}#key={out.strip()}" in err
+        admin = make("admin", "admin")["token"]
+        body = {"name": "acme-api", "role": "status", "tenant": "Acme Corp"}
+        created = flask_client.post("/api/v1/tokens", json=body, headers=bearer(admin)).get_json()[
+            "token"
+        ]
+        assert created["status_link"] == f"/status/{link('Acme Corp')}"
+        viewer = flask_client.post(
+            "/api/v1/tokens", json={"name": "v", "role": "viewer"}, headers=bearer(admin)
+        ).get_json()
+        # The new stack answers it as null (#592).
+        assert viewer["token"]["status_link"] is None
+
 
 class TestStatusTokens:
     @pytest.mark.parametrize(
@@ -1063,10 +1108,46 @@ class TestStatusTokens:
         with pytest.raises(tokens.TokenError, match=message):
             make("t", **body)
 
+    def test_a_tenant_nautobot_does_not_have_is_refused(self, flask_client, known_tenants, capsys):
+        """#528: a typo makes no token and no link, on the command line and the API."""
 
-# Held back until what they need is ported (#587):
-#   TestLinks.test_a_leaked_link_is_replaced: the CLI (step 9)
-#   TestLinks.test_a_typo_makes_no_link: the CLI (step 9)
-#   TestLinks.test_a_status_token_comes_with_its_link: the CLI (step 9)
-#   TestStatusTokens.test_a_tenant_nautobot_does_not_have_is_refused: the CLI (step 9)
-#   TestStatusTokens.test_verify_and_cli: the CLI (step 9)
+        assert cli.main(["token", "create", "acme", "--role", "status", "--tenant", "Acme"]) == 1
+        assert "no tenant 'Acme' in Nautobot (as of the last sync)" in capsys.readouterr().err
+        admin = make("admin", "admin")["token"]
+        refused = flask_client.post(
+            "/api/v1/tokens",
+            json={"name": "acme", "role": "status", "tenant": "Acme"},
+            headers=bearer(admin),
+        )
+        assert refused.status_code == 400
+        assert refused.get_json() == {"error": "no tenant 'Acme' in Nautobot (as of the last sync)"}
+        conn = db.get_conn()
+        try:
+            assert conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"] == 0
+            assert not statuslinks.known(conn, "Acme")
+        finally:
+            conn.close()
+        # Capitals don't matter; the token keeps Nautobot's spelling.
+        created = make("acme", "status", tenant="ACME corp")
+        assert (
+            created["tenant"] == "Acme Corp" and verify(created["token"])["tenant"] == "Acme Corp"
+        )
+        assert cli.main(["token", "list", "--tenant", "acme corp"]) == 0
+        out = capsys.readouterr().out
+        assert "(tenant Acme Corp)" in out and "admin" not in out
+        listed = flask_client.get(
+            "/api/v1/tokens?tenant=Other%20Co", headers=bearer(admin)
+        ).get_json()
+        assert listed == {"tokens": [], "inactive": 0}
+
+    def test_verify_and_cli(self, known_tenants, pg_database, clock, capsys):
+        from app import __main__ as cli
+
+        assert (
+            cli.main(["token", "create", "acme", "--role", "status", "--tenant", " Acme Corp "])
+            == 0
+        )
+        secret = capsys.readouterr().out.strip()
+        assert verify(secret) == {"name": "acme", "role": "status", "tenant": "Acme Corp"}
+        assert cli.main(["token", "list"]) == 0
+        assert "(tenant Acme Corp)" in capsys.readouterr().out

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pytest
 import requests
 
+from app import __main__ as cli
 from app import db
 from app.clients import arubacentral, caching, catalyst
 from app.repositories import board_repository as board_store
@@ -1162,6 +1163,24 @@ class TestCheck:
         assert se["matched"] == 1
         assert duplicates["duplicates"] == {"FGL7": ["Catalyst Center dk", "Catalyst Center se"]}
 
+    def test_the_command(self, controllers, monkeypatch, capsys):
+        monkeypatch.setattr(inventory, "read_devices", lambda: [])
+        controllers["dk"] = [ap("dk-ap1", True, "FGL1")]
+        controllers["se"] = requests.ConnectionError("refused")
+        assert cli.main(["wireless-check"]) == 1
+        out = capsys.readouterr().out
+        assert (
+            "Catalyst Center dk (https://dnac-dk.example.com): 1 access points, 0 down, 0 match"
+            in out
+        )
+        assert (
+            "Catalyst Center se (https://dnac-se.example.com): can't read it: can't connect ("
+            in out
+        )
+        assert "s3cret" not in out
+        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", ())
+        assert cli.main(["wireless-check"]) == 0
+
 
 def pnp(serial: str, state: str = "Unclaimed", error: str = "") -> dict:
     return {
@@ -1342,7 +1361,3 @@ class TestPlugAndPlay:
             }
         )
         assert text == "onboarding (PnP: Planned), last known per Catalyst Center dk"
-
-
-# Held back until what they need is ported (#587):
-#   TestCheck.test_the_command: the CLI (step 9)
