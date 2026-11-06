@@ -8,7 +8,9 @@ board can't be served without it. Error details are logged, never returned.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as ProbeTimeout
 from typing import Literal
 
@@ -24,12 +26,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 PROBE_SECONDS = 2
 # Probes run here, so one stuck on a dead database can't hold a request thread.
-_probes = ThreadPoolExecutor(max_workers=2, thread_name_prefix="health-probe")
+_probes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="health-probe")
+# One probe at a time (#603, #601 reviews): a request while one runs shares it, within
+# that probe's deadline; one stuck past it answers "unavailable" at once. Nothing queues.
+_lock = threading.Lock()
+_running: tuple[Future, float] | None = None
 
 
 def _probe() -> None:
     with session.probe_engine.connect() as conn:
         conn.execute(text("SELECT 1"))
+
+
+def _current_probe() -> tuple[Future, float]:
+    """The probe running now (shared), or a new one; with when it started."""
+    global _running
+    with _lock:
+        if _running is None or _running[0].done():
+            _running = (_probes.submit(_probe), time.monotonic())
+        return _running
 
 
 class HealthChecksDto(BaseModel):
@@ -58,8 +73,9 @@ class HealthDto(BaseModel):
 def get_health() -> JSONResponse:
     checks = {"app": "ok", "database": "ok"}
     try:
-        # The whole probe, connecting included, within PROBE_SECONDS.
-        _probes.submit(_probe).result(timeout=PROBE_SECONDS)
+        # The whole probe, connecting included, within PROBE_SECONDS of its start.
+        probe, started = _current_probe()
+        probe.result(timeout=max(0.0, PROBE_SECONDS - (time.monotonic() - started)))
     except ProbeTimeout:
         logger.warning("Health check: database unavailable: no answer in %ss", PROBE_SECONDS)
         checks["database"] = "unavailable"

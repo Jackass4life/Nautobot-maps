@@ -99,6 +99,59 @@ def test_healthz_gives_up_on_a_database_that_never_answers(client, monkeypatch):
     assert elapsed < 4
 
 
+def test_a_stuck_probe_queues_no_more(client, monkeypatch, caplog):
+    """While a probe waits on a stuck database past its deadline, the next request answers
+    at once and starts nothing (#603 review)."""
+    import threading
+
+    from app import health
+
+    release = threading.Event()
+    calls = []
+
+    def stuck():
+        calls.append(1)
+        release.wait(10)
+
+    monkeypatch.setattr(health, "_probe", stuck)
+    monkeypatch.setattr(health, "PROBE_SECONDS", 0.2)
+    monkeypatch.setattr(health, "_running", None)
+    try:
+        assert client.get("/healthz").status_code == 503  # timed out, still running
+        assert client.get("/healthz").status_code == 503  # past its deadline: at once
+        assert len(calls) == 1
+    finally:
+        release.set()
+
+
+def test_overlapping_checks_share_a_healthy_probe(client, monkeypatch):
+    """Two checks at once, the probe still within its deadline: both healthy, one probe
+    (#601 review)."""
+    import threading
+    import time
+
+    from app import health
+
+    calls = []
+
+    def slow():
+        calls.append(1)
+        time.sleep(0.3)
+
+    monkeypatch.setattr(health, "_probe", slow)
+    monkeypatch.setattr(health, "_running", None)
+    statuses = []
+    threads = [
+        threading.Thread(target=lambda: statuses.append(client.get("/healthz").status_code))
+        for _ in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+    assert statuses == [200, 200] and len(calls) == 1
+
+
 def test_the_engines_keep_the_urls_options():
     from sqlalchemy import make_url
 

@@ -77,6 +77,26 @@ its 27 tables as they are, and the first Alembic revision creates exactly that
 
 Both apps take the same PostgreSQL lock while migrating.
 
+## Ported code (#600)
+
+The current app's modules move here area by area (#587). Where their behaviour is pinned
+by many tests, they are ported close to verbatim, on two thin layers:
+
+- `app/db.py`: the current app's connection helpers (`db.get_conn()`, `db.transaction()`,
+  `db.row_to_dict()`, `db.try_advisory_lock()`, ...). A psycopg connection in autocommit
+  with dict rows from a SQLAlchemy engine's pool, with the connect and statement timeouts,
+  so the current SQL runs unchanged. The same advisory lock keys: the two apps exclude each
+  other during the switchover.
+- `app/utils/legacy_settings.py`: `settings.NAUTOBOT_URL` reads `get_settings().nautobot_url`
+  at call time; a test's `monkeypatch.setattr(settings, "NAME", value)` changes it for every
+  module.
+
+So far: `app/services/inventory_service.py` (the inventory sync into the snapshot tables, its
+reads), `app/services/scheduler.py` (one thread per process, the `background_scheduler` lock,
+the due syncs every tick; `BACKGROUND_SYNC_ENABLED=false` turns it off). Their tests are
+ported from the current app's `tests/`, and `tests/test_nautobot_live.py` runs the sync
+against CI's real Nautobot 3.x.
+
 ## Container
 
 `api/Dockerfile` (#577): uv-installed, non-root, `python -m app.migrate` on start

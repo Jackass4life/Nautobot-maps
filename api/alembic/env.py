@@ -64,6 +64,15 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # A caller's own connection (app/migrate.py, #601 review): its steps share one
+    # transaction with whatever else the caller does there.
+    given = config.attributes.get("connection")
+    if given is not None:
+        context.configure(connection=given, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

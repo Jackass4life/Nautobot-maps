@@ -45,6 +45,14 @@ select = ["E", "F", "I", "B", "UP", "BLE", "RUF"]
 # The current app's contract declarations, copied unchanged (#598): docs/data-contract.md
 # is rendered from their text, so they keep its line lengths and tuple style.
 "app/services/contract_service.py" = ["E501", "RUF005"]
+# Ported from nautobot_maps/ as they are (#600): its broad excepts around upstream
+# calls are deliberate (a sync logs and goes on), its texts use "›" and long lines.
+"app/services/inventory_service.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003"]
+# Tests ported from the current app's tests/ as they are (#600): its data has long lines
+# and real-world text (en dashes in addresses).
+"tests/test_inventory.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003"]
+"tests/test_location_country.py" = ["E501", "RUF001", "RUF002", "RUF003"]
+"tests/test_circuits_by_address.py" = ["E501", "RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

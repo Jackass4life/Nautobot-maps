@@ -91,3 +91,10 @@ def configure(monkeypatch):
         get_settings.cache_clear()
 
     return apply
+
+
+@pytest.fixture
+def pg_database():
+    """The current app's per-test database, for tests ported from it (#600): here the test
+    database, emptied after each test (``clean_tables``)."""
+    return None

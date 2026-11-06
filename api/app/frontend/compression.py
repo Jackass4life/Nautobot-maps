@@ -28,12 +28,16 @@ def compressible(mimetype: str) -> bool:
 
 
 def accepts_gzip(accept_encoding: str) -> bool:
+    """Whether the client takes gzip: its own entry decides; ``*`` only when gzip isn't
+    named (#601 review: ``*;q=1, gzip;q=0`` refuses it)."""
+    qualities: dict[str, bool] = {}
     for part in accept_encoding.split(","):
         name, _, params = part.strip().partition(";")
-        if name.strip().lower() in ("gzip", "*"):
+        name = name.strip().lower()
+        if name in ("gzip", "*") and name not in qualities:
             quality = params.strip().removeprefix("q=").strip()
             try:
-                return float(quality) > 0 if quality else True
+                qualities[name] = float(quality) > 0 if quality else True
             except ValueError:
-                return True
-    return False
+                qualities[name] = True
+    return qualities.get("gzip", qualities.get("*", False))
