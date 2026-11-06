@@ -191,3 +191,26 @@ class TestGzip:
         assert b"content-encoding" not in dict(sent[0]["headers"])
         assert b"".join(m.get("body", b"") for m in sent[1:]) == b"a" * 2000 + b"b" * 2000
         assert gzip  # imported for the readers of these rules
+
+
+def test_an_unhandled_error_has_the_security_headers_too():
+    """Starlette answers it outside the app's middleware (#594 review)."""
+    from fastapi import APIRouter
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    app = create_app()
+    broken = APIRouter()
+
+    @broken.get("/api/v1/boom")
+    def boom():
+        raise RuntimeError("database read failed")
+
+    app.include_router(broken)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/boom")
+    assert response.status_code == 500 and response.json() == {"error": "Internal server error"}
+    assert response.headers["content-security-policy"].startswith("default-src 'self'")
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "database read failed" not in response.text

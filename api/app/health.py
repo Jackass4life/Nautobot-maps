@@ -8,6 +8,8 @@ board can't be served without it. Error details are logged, never returned.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as ProbeTimeout
 from typing import Literal
 
 from fastapi import APIRouter
@@ -20,6 +22,14 @@ from app import session
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
+PROBE_SECONDS = 2
+# Probes run here, so one stuck on a dead database can't hold a request thread.
+_probes = ThreadPoolExecutor(max_workers=2, thread_name_prefix="health-probe")
+
+
+def _probe() -> None:
+    with session.probe_engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
 
 
 class HealthChecksDto(BaseModel):
@@ -48,8 +58,11 @@ class HealthDto(BaseModel):
 def get_health() -> JSONResponse:
     checks = {"app": "ok", "database": "ok"}
     try:
-        with session.probe_engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        # The whole probe, connecting included, within PROBE_SECONDS.
+        _probes.submit(_probe).result(timeout=PROBE_SECONDS)
+    except ProbeTimeout:
+        logger.warning("Health check: database unavailable: no answer in %ss", PROBE_SECONDS)
+        checks["database"] = "unavailable"
     except Exception as exc:  # noqa: BLE001 - any failure is "unavailable"; logged, not returned
         logger.warning("Health check: database unavailable: %s", type(exc).__name__)
         checks["database"] = "unavailable"
