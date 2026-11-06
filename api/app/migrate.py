@@ -50,25 +50,34 @@ def _exists(conn: Connection, table: str) -> bool:
     return bool(conn.execute(text("SELECT to_regclass(:t) IS NOT NULL"), {"t": table}).scalar())
 
 
+def _current_app_version(conn: Connection) -> int | None:
+    """The current app's schema version (its ``schema_migrations``), None without one."""
+    if not _exists(conn, "schema_migrations"):
+        return None
+    version = conn.execute(text("SELECT COALESCE(max(version), 0) FROM schema_migrations"))
+    return int(version.scalar() or 0)
+
+
 def plan(conn: Connection) -> str:
     """What to do with this database: "upgrade" or "adopt"; refuses the rest."""
-    if _exists(conn, "alembic_version"):
-        return "upgrade"
-    if _exists(conn, "schema_migrations"):
-        version = conn.execute(text("SELECT COALESCE(max(version), 0) FROM schema_migrations"))
-        version = int(version.scalar() or 0)
-        if version == CURRENT_APP_VERSION:
-            return "adopt"
-        if version < CURRENT_APP_VERSION:
-            raise MigrationRefused(
-                f"The database is at the current app's schema version {version}; this release "
-                f"takes over version {CURRENT_APP_VERSION}. Start the current app (nautobot_maps) "
-                "once on it to migrate it, then start this one."
-            )
+    version = _current_app_version(conn)
+    # Also after adoption: the current app can still start on the database, and a newer
+    # release of it may have migrated it since (#590 review).
+    if version is not None and version > CURRENT_APP_VERSION:
         raise MigrationRefused(
             f"The database is at the current app's schema version {version}, newer than "
             f"{CURRENT_APP_VERSION}, which this release takes over. Was it migrated by a newer "
             "release of the current app? Run that release, or restore a backup."
+        )
+    if _exists(conn, "alembic_version"):
+        return "upgrade"
+    if version is not None:
+        if version == CURRENT_APP_VERSION:
+            return "adopt"
+        raise MigrationRefused(
+            f"The database is at the current app's schema version {version}; this release "
+            f"takes over version {CURRENT_APP_VERSION}. Start the current app (nautobot_maps) "
+            "once on it to migrate it, then start this one."
         )
     if _exists(conn, CURRENT_APP_TABLE):
         raise MigrationRefused(

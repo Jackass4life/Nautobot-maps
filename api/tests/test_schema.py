@@ -121,14 +121,41 @@ def test_tables_without_a_migration_record_are_refused(scratch):
         migrate.migrate(db, url)
 
 
+def migration_locks(conn) -> int:
+    """Holders of the migration lock on this database (pg_locks lists every database's;
+    a bigint key is its high and low 32 bits, objsubid 1)."""
+    key = migrate.MIGRATION_LOCK_KEY & 0xFFFFFFFFFFFFFFFF
+    return conn.execute(
+        text(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 1 "
+            "AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) "
+            "AND classid = :high AND objid = :low"
+        ),
+        {"high": key >> 32, "low": key & 0xFFFFFFFF},
+    ).scalar()
+
+
 def test_the_lock_is_released(scratch):
     db, url = scratch
+    with db.connect() as holder:
+        holder.execute(text("SELECT pg_advisory_lock(:k)"), {"k": migrate.MIGRATION_LOCK_KEY})
+        with db.connect() as conn:
+            assert migration_locks(conn) == 1, "the query sees the lock while it is held"
+        holder.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": migrate.MIGRATION_LOCK_KEY})
     migrate.migrate(db, url)
     with db.connect() as conn:
-        held = conn.execute(
-            text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'")
-        ).scalar()
-        assert held == 0
+        assert migration_locks(conn) == 0
+
+
+def test_an_adopted_database_a_newer_current_app_migrated_is_refused(scratch):
+    """Adopted, then migrated to 34 by a newer release of the current app."""
+    db, url = scratch
+    current_app_database(db, url)
+    migrate.migrate(db, url)
+    with db.begin() as conn:
+        conn.execute(text("INSERT INTO schema_migrations (version, name) VALUES (34, 'newer')"))
+    with pytest.raises(migrate.MigrationRefused, match="newer than 33"):
+        migrate.migrate(db, url)
 
 
 def test_the_current_app_is_still_at_version_33():
