@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from psycopg.rows import dict_row
 from sqlalchemy import create_engine, event
 
+from app import session
 from app.utils.config import get_settings
 
 _settings = get_settings()
@@ -23,10 +24,12 @@ _settings = get_settings()
 engine = create_engine(
     _settings.sqlalchemy_url(),
     pool_pre_ping=True,
-    connect_args={
-        "connect_timeout": _settings.db_connect_timeout_seconds,
-        "options": f"-c statement_timeout={_settings.db_statement_timeout_seconds * 1000}",
-    },
+    # The timeouts added to the URL's own options, as the current app (#594 review).
+    connect_args=session.connect_args(
+        _settings.sqlalchemy_url(),
+        _settings.db_connect_timeout_seconds,
+        _settings.db_statement_timeout_seconds,
+    ),
 )
 
 
