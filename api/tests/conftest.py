@@ -1,11 +1,13 @@
 import os
 
+# Its own variable: TEST_DATABASE_URL is the current app's test database (#588).
 TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
+    "API_TEST_DATABASE_URL",
     "postgresql+psycopg://nautobot_maps:nautobot_maps@localhost:5432/fastapi_nuxt_test",
 )
 # Must be set before `app` is imported: the engine is built from settings at import.
-os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+# Both names: NAUTOBOT_MAPS_DATABASE_URL wins over DATABASE_URL.
+os.environ["NAUTOBOT_MAPS_DATABASE_URL"] = os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 import pytest  # noqa: E402
 from alembic.config import Config  # noqa: E402

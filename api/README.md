@@ -13,7 +13,7 @@ uv sync
 uv run alembic upgrade head           # apply migrations
 uv run uvicorn app.main:app --reload --no-proxy-headers  # http://127.0.0.1:8000, docs at /api/docs
 uv run python -m app.export_openapi   # write openapi.json (a test fails if stale)
-uv run pytest                         # TEST_DATABASE_URL: a separate DB, reset by the tests
+uv run pytest                         # API_TEST_DATABASE_URL (default fastapi_nuxt_test): a separate DB, reset by the tests
 uv run ruff check . && uv run ruff format --check .
 ```
 
@@ -44,6 +44,20 @@ response status is < 400, otherwise rolls back, and always closes it.
 - **Endpoint:** set an explicit `response_model` and a camelCase `operation_id`
   (it becomes the name in the generated TypeScript), document error responses with
   `ERROR_RESPONSES`, then re-export the spec and run `npm run generate:api` in `web/`.
+
+## Settings (#588)
+
+Every setting of the current app, same names and meaning: see
+[docs/configuration.md](../docs/configuration.md). Read with `get_settings().name`
+(`app/utils/config.py`, the only module that reads the environment); an empty value means
+the default. Only the new stack's own:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `NAUTOBOT_MAPS_DATABASE_URL` / `DATABASE_URL` | local `app` database | PostgreSQL URL; the first wins. `postgresql://` URLs get the psycopg driver. |
+| `DATABASE_PASSWORD` | — | The password on its own, no URL encoding; replaces the URL's. |
+| `CORS_ORIGINS` | `http://localhost:3000` | Browser origins that may call the API (JSON list or comma-separated). |
+| `SQL_ECHO` | `false` | Log every SQL statement (development). |
 
 ## Container
 
