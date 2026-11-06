@@ -1,5 +1,5 @@
 # The api/ service (#577). Build from api/: docker build -t api api/
-FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
 
 FROM python:3.13-slim
 
