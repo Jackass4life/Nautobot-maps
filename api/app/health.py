@@ -9,7 +9,8 @@ board can't be served without it. Error details are logged, never returned.
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as ProbeTimeout
 from typing import Literal
 
@@ -26,31 +27,24 @@ router = APIRouter(tags=["health"])
 PROBE_SECONDS = 2
 # Probes run here, so one stuck on a dead database can't hold a request thread.
 _probes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="health-probe")
-# One probe at a time (#603 review): while one still waits on a stuck database, the next
-# answers "unavailable" at once instead of queueing more work behind it.
-_in_flight = threading.BoundedSemaphore(1)
-
-
-class ProbeBusy(Exception):
-    """The previous probe hasn't finished."""
+# One probe at a time (#603, #601 reviews): a request while one runs shares it, within
+# that probe's deadline; one stuck past it answers "unavailable" at once. Nothing queues.
+_lock = threading.Lock()
+_running: tuple[Future, float] | None = None
 
 
 def _probe() -> None:
-    try:
-        with session.probe_engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-    finally:
-        _in_flight.release()
+    with session.probe_engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
 
 
-def _start_probe():  # type: ignore[no-untyped-def]
-    if not _in_flight.acquire(blocking=False):
-        raise ProbeBusy
-    try:
-        return _probes.submit(_probe)
-    except BaseException:
-        _in_flight.release()
-        raise
+def _current_probe() -> tuple[Future, float]:
+    """The probe running now (shared), or a new one; with when it started."""
+    global _running
+    with _lock:
+        if _running is None or _running[0].done():
+            _running = (_probes.submit(_probe), time.monotonic())
+        return _running
 
 
 class HealthChecksDto(BaseModel):
@@ -79,11 +73,9 @@ class HealthDto(BaseModel):
 def get_health() -> JSONResponse:
     checks = {"app": "ok", "database": "ok"}
     try:
-        # The whole probe, connecting included, within PROBE_SECONDS.
-        _start_probe().result(timeout=PROBE_SECONDS)
-    except ProbeBusy:
-        logger.warning("Health check: database unavailable: the last probe is still waiting")
-        checks["database"] = "unavailable"
+        # The whole probe, connecting included, within PROBE_SECONDS of its start.
+        probe, started = _current_probe()
+        probe.result(timeout=max(0.0, PROBE_SECONDS - (time.monotonic() - started)))
     except ProbeTimeout:
         logger.warning("Health check: database unavailable: no answer in %ss", PROBE_SECONDS)
         checks["database"] = "unavailable"

@@ -214,3 +214,14 @@ def test_an_unhandled_error_has_the_security_headers_too():
     assert response.headers["content-security-policy"].startswith("default-src 'self'")
     assert response.headers["x-frame-options"] == "DENY"
     assert "database read failed" not in response.text
+
+
+def test_gzip_refused_by_name_wins_over_the_wildcard():
+    """#601 review: an explicit gzip;q=0 refuses it, whatever * says."""
+    from app.frontend.compression import accepts_gzip
+
+    assert accepts_gzip("*;q=1, gzip;q=0") is False
+    assert accepts_gzip("gzip;q=0, *;q=1") is False
+    assert accepts_gzip("br, *") is True
+    assert accepts_gzip("gzip") is True
+    assert accepts_gzip("identity") is False

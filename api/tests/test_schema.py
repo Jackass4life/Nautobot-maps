@@ -187,3 +187,34 @@ def test_the_example_stacks_database_is_upgraded_with_its_items(scratch):
         assert conn.execute(text("SELECT to_regclass('alert_instances') IS NOT NULL")).scalar()
     assert head(db) == migrate.ITEMS_REVISION
     assert migrate.migrate(db, url) == "upgrade"
+
+
+def test_a_failed_example_upgrade_leaves_it_as_it_was(scratch, monkeypatch):
+    """Atomic (#601 review): a failure halfway leaves the example database as it was, so
+    the next start upgrades it again."""
+    db, url = scratch
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE items (id SERIAL PRIMARY KEY, name VARCHAR(200) NOT NULL UNIQUE, "
+                "description TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+            )
+        )
+        conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
+        conn.execute(text("INSERT INTO alembic_version VALUES ('0ddedf85d6f0')"))
+    real_stamp = command.stamp
+
+    def failing_stamp(config, revision, *args, **kwargs):
+        if revision == migrate.ITEMS_REVISION:
+            raise RuntimeError("interrupted")
+        return real_stamp(config, revision, *args, **kwargs)
+
+    monkeypatch.setattr(migrate.command, "stamp", failing_stamp)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        migrate.migrate(db, url)
+    assert head(db) == "0ddedf85d6f0"
+    with db.connect() as conn:
+        assert not conn.execute(text("SELECT to_regclass('alert_instances') IS NOT NULL")).scalar()
+    monkeypatch.setattr(migrate.command, "stamp", real_stamp)
+    assert migrate.migrate(db, url) == "from-example"
+    assert head(db) == migrate.ITEMS_REVISION

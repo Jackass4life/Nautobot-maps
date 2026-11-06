@@ -113,15 +113,17 @@ def migrate(engine: Engine, url: str) -> str:
                 )
                 command.stamp(config, BASELINE)
             if action == "from-example":
-                # The example stack's database (#573, review of #603): its items kept, the
-                # schema built under it, then on as usual.
-                logger.info(
-                    "Upgrading the example stack's database (revision %s)", EXAMPLE_REVISION
-                )
-                lock.execute(text("DELETE FROM alembic_version"))
-                lock.commit()
-                command.upgrade(config, BASELINE)
-                command.stamp(config, ITEMS_REVISION)
+                # The example stack's database (#573): its items kept, the schema built
+                # under it. One transaction (#601 review): the revision's removal, the
+                # baseline and the stamp all happen, or none does, so a failed start can
+                # simply be retried.
+                logger.info("Upgrading the example stack's database (%s)", EXAMPLE_REVISION)
+                with engine.begin() as conn:
+                    config.attributes["connection"] = conn
+                    conn.execute(text("DELETE FROM alembic_version"))
+                    command.upgrade(config, BASELINE)
+                    command.stamp(config, ITEMS_REVISION)
+                config.attributes.pop("connection", None)
             command.upgrade(config, "head")
             return action
         finally:
