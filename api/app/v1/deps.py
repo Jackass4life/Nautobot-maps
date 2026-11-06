@@ -290,3 +290,49 @@ def install_error_handlers(app) -> None:  # type: ignore[no-untyped-def]
     from app.utils.errors import install_error_handlers as install
 
     install(app)
+
+
+# Page or JSON by the Accept header, as the current app chose its error answers (#604).
+def _best_match(accept: str, offers: tuple[str, ...]) -> str | None:
+    """The offer the Accept header prefers, as werkzeug's ``best_match``: each
+    offer's quality from its most specific match, the first on a tie; None
+    when the header is empty or accepts none of them."""
+    entries = []
+    for part in accept.split(","):
+        media, _, params = part.strip().partition(";")
+        media = media.strip().lower()
+        if not media:
+            continue
+        quality = 1.0
+        for param in params.split(";"):
+            name, _, value = param.strip().partition("=")
+            if name.strip() == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0.0
+        entries.append((media, quality))
+    best, best_quality = None, 0.0
+    for offer in offers:
+        kind = offer.split("/")[0]
+        matches = [(3, q) for m, q in entries if m == offer]
+        matches += [(2, q) for m, q in entries if m == f"{kind}/*"]
+        matches += [(1, q) for m, q in entries if m == "*/*"]
+        if not matches:
+            continue
+        quality = max(matches)[1]
+        if quality > best_quality:
+            best, best_quality = offer, quality
+    return best
+
+
+def wants_json(request: Request) -> bool:
+    """JSON for the API and for clients that prefer it; a page for browsers."""
+    from app.services import navigation_service as navigation
+
+    if request.url.path.startswith("/api/") and request.url.path not in navigation.PAGES_UNDER_API:
+        return True
+    return (
+        _best_match(request.headers.get("accept", ""), ("application/json", "text/html"))
+        == "application/json"
+    )

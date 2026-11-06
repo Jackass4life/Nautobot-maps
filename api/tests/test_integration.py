@@ -85,7 +85,10 @@ def clear_cache():
 # 1. Map UI
 # ---------------------------------------------------------------------------
 class TestMapUI:
-    pass  # its tests are held back (the end of the file says why)
+    def test_index_page_loads(self, integration_client, frontend_build):
+        # Built with Nuxt (#463): the page is the build's; frontend/ and e2e/ test it.
+        resp = integration_client.get("/")
+        assert resp.status_code == 200 and 'id="__nuxt"' in resp.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +344,39 @@ class TestSearchEndpoint:
 # 5. End-to-end scenario: open map → click location → see devices
 # ---------------------------------------------------------------------------
 class TestEndToEndScenario:
-    pass  # its tests are held back (the end of the file says why)
+    def test_scenario_full_flow(self, integration_client, frontend_build):
+        """
+        Simulates a user:
+        1. Opening the map
+        2. Loading all locations
+        3. Clicking Copenhagen DC to load its details
+        4. Searching for nearby locations
+        """
+        # Step 1: Load the map page
+        page_resp = integration_client.get("/")
+        assert page_resp.status_code == 200
+
+        # Step 2: Load all locations (the JS would do this via fetch)
+        locs_resp = integration_client.get("/api/v1/locations")
+        assert locs_resp.status_code == 200
+        locations = locs_resp.get_json()["locations"]
+        cph = next(loc for loc in locations if loc["name"] == "Copenhagen DC")
+
+        # Step 3: Click the Copenhagen DC marker → fetch details
+        detail_resp = integration_client.get(f"/api/v1/locations/{cph['id']}/detail")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.get_json()
+        assert detail["devices"]
+        assert detail["asns"]
+
+        # Step 4: Search near Copenhagen
+        search_resp = integration_client.get(
+            f"/api/v1/search?q={cph['latitude']},{cph['longitude']}"
+        )
+        assert search_resp.status_code == 200
+        nearby = search_resp.get_json()
+        assert nearby["count"] >= 1
+        assert any(loc["name"] == "Copenhagen DC" for loc in nearby["locations"])
 
 
 # ---------------------------------------------------------------------------
@@ -537,8 +572,3 @@ class TestMultiDeviceCaseFlow:
         london = next(site for site in board["alerts"] if site["id"] == "loc-lon")
         assert london["active_cases"] == ["INC-7001"]
         assert all(device["case_numbers"] == ["INC-7001"] for device in london["down_devices"])
-
-
-# Held back until what they need is ported (#587):
-#   TestMapUI.test_index_page_loads: the pages (step 8)
-#   TestEndToEndScenario.test_scenario_full_flow: the pages (step 8)

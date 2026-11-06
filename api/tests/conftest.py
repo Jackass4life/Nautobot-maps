@@ -231,3 +231,20 @@ def asgi_client():
     caching.cache.clear()
     with TestClient(whole_app, base_url="http://localhost") as c:
         yield c
+
+
+@pytest.fixture
+def frontend_build(tmp_path, monkeypatch):
+    """A stand-in for web/'s build (``npm run generate``): its page and one asset, so the
+    routes serving it are tested without Node (the current app's fixture, #604)."""
+    from app.utils.legacy_settings import settings
+
+    build = tmp_path / "public"
+    (build / "_nuxt").mkdir(parents=True)
+    (build / "200.html").write_text(
+        '<!DOCTYPE html><html><head><script type="module" src="/_nuxt/entry.abc123.js">'
+        '</script></head><body><div id="__nuxt"></div></body></html>'
+    )
+    (build / "_nuxt" / "entry.abc123.js").write_text("console.log('nuxt');\n" * 200)
+    monkeypatch.setattr(settings, "WEB_BUILD_DIR", str(build))
+    return build

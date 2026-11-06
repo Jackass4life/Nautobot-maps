@@ -5,6 +5,17 @@ import re
 from app.services import guide_service as guide
 
 
+def test_every_guide_renders_with_a_title(flask_client, frontend_build):
+    # The page is on Nuxt (#463): it reads /api/help/<slug>.
+    assert [item["slug"] for item in guide.contents()] == [slug for slug, _ in guide.PAGES]
+    for item in guide.contents():
+        assert flask_client.get(item["href"]).status_code == 200, item
+        answer = flask_client.get(f"/api/v1/help/{item['slug']}").get_json()
+        assert answer["title"] == item["title"] and answer["html"].startswith("<h1")
+        assert answer["contents"] == guide.contents()
+    assert flask_client.get("/api/v1/help/nope").status_code == 404
+
+
 def test_links_between_the_docs_open_their_page():
     html = guide.page("overview")["html"]
     assert 'href="/help/how-it-works#circuit-mapping"' in html
@@ -67,6 +78,14 @@ def test_no_markup_or_inline_style_gets_through(monkeypatch, tmp_path):
         assert not re.search(r"<[^>]+\sstyle=", guide.page(slug)["html"]), slug
 
 
+def test_images_and_unknown_pages(flask_client, frontend_build):
+    image = flask_client.get("/help/images/map.png")
+    assert image.status_code == 200 and image.mimetype == "image/png"
+    assert flask_client.get("/help/images/../../app.py").status_code == 404
+    assert flask_client.get("/help/images/..%2F..%2Fapp.py").status_code == 404
+    assert flask_client.get("/help/nope").status_code == 404
+
+
 def test_the_menu_links_to_it(flask_client):
     pages = flask_client.get("/api/v1/page-config").get_json()["pages"]
     assert {"key": "help", "href": "/help", "label": "Documentation"}.items() <= next(
@@ -78,8 +97,3 @@ def test_the_docs_go_into_the_image():
     ignore = (guide.ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "*.md" in ignore and {"!README.md", "!CONTRIBUTING.md", "!docs/*.md"} <= set(ignore)
     assert ignore.index("!docs/*.md") > ignore.index("*.md")
-
-
-# Held back until what they need is ported (#587):
-#   test_every_guide_renders_with_a_title: the pages (step 8)
-#   test_images_and_unknown_pages: the pages (step 8)

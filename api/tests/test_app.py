@@ -561,6 +561,14 @@ class TestApiLocations:
 # Tests: alert board
 # ---------------------------------------------------------------------------
 class TestAlertBoard:
+    def test_alert_board_page_renders(self, flask_client, frontend_build):
+        """The board and the wall are built with Nuxt (#463; frontend/tests/ and e2e/
+        test the pages themselves)."""
+        for path in ("/alerts?tenant=Acme%20Corp", "/alerts?view=wall&q=DNK"):
+            resp = flask_client.get(path)
+            assert resp.status_code == 200 and b'id="__nuxt"' in resp.data, path
+            assert resp.headers["Cache-Control"] == "no-cache"
+
     def test_get_alert_board_data_aggregates_and_sorts(self):
         caching.cache.clear()
         sample_locations = [
@@ -1483,6 +1491,14 @@ class TestNautobotRuntimeErrors:
 # ---------------------------------------------------------------------------
 class TestIndex:
     """The map: built with Nuxt (#463); frontend/tests/ and e2e/ test the page itself."""
+
+    def test_index_is_the_nuxt_page(self, flask_client, frontend_build):
+        resp = flask_client.get("/?tenant=Acme%20Corp&location_id=loc-1")
+        assert resp.status_code == 200 and b'id="__nuxt"' in resp.data
+        # Asked again each time: a new build shows at once.
+        assert resp.headers["Cache-Control"] == "no-cache"
+        # No inline script: the CSP needs no 'unsafe-inline' (#197, #198).
+        assert not re.search(rb"<script>(?!\s*</script>)", resp.data)
 
     def test_what_the_map_reads(self, flask_client, monkeypatch):
         """Nautobot's address, the tile server and the first view (#197, #362), from /api/page-config."""
@@ -3836,6 +3852,28 @@ class TestAuthConfiguration:
     def test_the_nautobot_client_cannot_write(self):
         assert not hasattr(nautobot, "post") and not hasattr(nautobot, "delete")
 
+    def test_require_viewer_protects_every_page_but_probes(
+        self, flask_client, monkeypatch, frontend_build
+    ):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert flask_client.get("/").status_code == 401
+            assert flask_client.get("/api/v1/alerts").status_code == 401
+            assert (
+                flask_client.get("/alerts", headers={"X-Forwarded-User": "bob"}).status_code == 403
+            )
+            ok = flask_client.get(
+                "/", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"}
+            )
+            assert ok.status_code == 200
+            assert flask_client.get("/healthz").status_code in (200, 503)
+            assert flask_client.get("/metrics").status_code == 200
+
+    def test_require_viewer_is_off_by_default(self, flask_client, monkeypatch, frontend_build):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", False)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert flask_client.get("/").status_code == 200
+
     def test_missing_identity_header_returns_401(self, flask_client):
         with auth_config(mode="header", operator_groups={"noc-operators"}):
             resp = flask_client.post(
@@ -5528,13 +5566,32 @@ def _retry_kwargs(policy) -> dict:
 class TestApiExplorer:
     def _routes(self):
         """Every route (#436), in Flask's notation."""
-        import app.v1.routes
+        from fastapi.routing import APIRoute
+
+        from app.main import app as whole_app
         from app.services import apidocs_service as apidocs
 
+        full = {
+            op["operationId"]: path
+            for path, ops in whole_app.openapi()["paths"].items()
+            for op in ops.values()
+        }
+
+        def every(routes):
+            for route in routes:
+                if getattr(route, "original_router", None) is not None:
+                    yield from every(route.original_router.routes)
+                elif isinstance(route, APIRoute):
+                    yield route
+
         return {
-            (apidocs._flask_style(route.path, route.endpoint), method)
-            for router in app.v1.routes.ROUTERS
-            for route in router.routes
+            (
+                apidocs._flask_style(
+                    full.get(route.operation_id or "", route.path), route.endpoint
+                ),
+                method,
+            )
+            for route in every(whole_app.routes)
             if route.name not in apidocs.HIDDEN_ENDPOINTS
             for method in route.methods - {"HEAD", "OPTIONS"}
         }
@@ -5648,6 +5705,16 @@ class TestApiExplorer:
             item["path"] for item in flask_client.get("/api/v1/endpoints").get_json()["endpoints"]
         }
         assert "/docs" not in listed and "/openapi.json" not in listed
+
+    def test_needs_the_viewer_role_like_every_page(self, flask_client, monkeypatch, frontend_build):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        with auth_config(mode="header", viewer_groups={"noc"}):
+            assert flask_client.get("/api/docs").status_code == 401
+            assert flask_client.get("/api/v1/endpoints").status_code == 401
+            ok = flask_client.get(
+                "/api/docs", headers={"X-Forwarded-User": "alice", "X-Forwarded-Groups": "noc"}
+            )
+            assert ok.status_code == 200
 
 
 def _snapshot_location(location_id: str, name: str, location_type: str = "Data Center") -> dict:
@@ -6596,21 +6663,14 @@ class TestAlertHistoryCsvCells:
 
 
 # Held back until what they need is ported (#587):
-#   TestAlertBoard.test_alert_board_page_renders: the pages (step 8)
 #   TestAlertBoard.test_log_alert_board_exclusions_reports_resolved_sets: the current app's app.py startup (step 10)
-#   TestIndex.test_index_is_the_nuxt_page: the pages (step 8)
 #   TestSSLVerification.test_missing_ca_bundle_is_logged_at_startup: the current app's app.py startup (step 10)
-#   TestAuthConfiguration.test_require_viewer_protects_every_page_but_probes: the pages (step 8)
-#   TestAuthConfiguration.test_require_viewer_is_off_by_default: the pages (step 8)
 #   TestAlertBoardWithoutPersistence.test_startup_log_warns_without_database: the current app's app.py startup (step 10)
 #   TestAlertBoardWithoutPersistence.test_startup_log_errors_on_leftover_sqlite_setting: the current app's app.py startup (step 10)
 #   TestAlertBoardWithoutPersistence.test_startup_log_quiet_with_database: the current app's app.py startup (step 10)
 #   TestLogging.test_json_lines_include_the_stack_trace: the current app's server and logging setup (step 10)
 #   TestLogging.test_successful_health_checks_are_not_access_logged: the current app's server and logging setup (step 10)
 #   TestLogging.test_gunicorn_config_logs_access_and_keeps_a_root_logger: the current app's server and logging setup (step 10)
-#   TestApiExplorer.test_the_page_is_the_nuxt_page: the pages (step 8)
-#   TestApiExplorer.test_the_reference_is_a_page_not_json: the pages (step 8)
-#   TestApiExplorer.test_needs_the_viewer_role_like_every_page: the pages (step 8)
 
 # The current app's own schema migration and gunicorn tests are its own: the schema
 # here is Alembic's (tests/test_schema.py), the server uvicorn:
@@ -6658,9 +6718,13 @@ class TestAlertHistoryCsvCells:
 # their error page come in step 8 of #587, access logging at the switchover.
 #   test_404_html_for_browser
 #   test_405_html_for_browser
+#   test_the_reference_is_a_page_not_json
 #   test_header_auth_binds_flask_to_loopback
 #   test_non_header_auth_keeps_public_flask_bind
 
 # Left out: it changes the database URL while running; the engines here are made at
 # startup. tests/test_openapi.py::test_healthz_without_the_database is that 503.
 #   test_unavailable_database_returns_503_without_details
+
+# Held: web/ holds the pages, Swagger UI bundled, from step 8 of #587.
+#   test_the_page_is_the_nuxt_page

@@ -194,6 +194,15 @@ def test_the_shared_pieces_refuse_like_flask(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_the_status_page_is_fastapis_with_its_own_referrer_policy(flask_client, frontend_build):
+    page = flask_client.get("/status/Acme%20Corp")
+    assert page.status_code == 200 and page.headers["content-type"] == "text/html; charset=utf-8"
+    assert page.headers.get_list("referrer-policy") == ["no-referrer"]
+    assert len(page.headers.get_list("content-security-policy")) == 1
+    # Its files: the Nuxt build's (#463).
+    assert flask_client.get("/_nuxt/entry.abc123.js").status_code == 200
+
+
 # ---------------------------------------------------------------------------
 # Phase 5 (#436): writes on FastAPI read bodies and paths as Flask did
 # ---------------------------------------------------------------------------
@@ -308,7 +317,6 @@ def test_a_new_token_is_never_compressed_on_fastapi(flask_client, monkeypatch, p
 # Held back until what they need is ported (#587):
 #   test_successful_health_checks_are_still_left_out: the current app's server and logging setup (step 10)
 #   test_uvicorn_never_takes_the_client_from_a_header: the current app's server and logging setup (step 10)
-#   test_the_status_page_is_fastapis_with_its_own_referrer_policy: the pages (step 8)
 
 # Left out: the current app's server details (Flask's bind address, its access-log
 # format, templates/ and /static/, HTML error pages for browsers); the pages and

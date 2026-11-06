@@ -62,6 +62,11 @@ EXAMPLE_BODIES = {
     "admin.api_tokens_create": {"name": "librenms", "role": "operator", "expires_in_days": 365},
     "admin.api_tokens_revoke": {},
     "admin.api_tokens_purge": {"older_than_days": 90, "dry_run": True},
+    # The new stack's own routes (#592, #608 review), by their route names.
+    "create_token": {"name": "librenms", "role": "operator", "expires_in_days": 365},
+    "revoke_token": {},
+    "purge_tokens": {"older_than_days": 90, "dry_run": True},
+    "create_item": {"name": "Rack 12", "description": "The example resource (#572)"},
     "admin.api_status_link_replace": {},
     "admin.api_wireless_check": {},
     "board.api_acknowledge": {"site_id": "<site id>", "note": "On my way"},
@@ -75,7 +80,15 @@ EXAMPLE_BODIES = {
 
 GROUPS = ("Pages", "API", "Monitoring")
 MONITORING_PATHS = {"/healthz", "/metrics"}
-HIDDEN_ENDPOINTS = {"static", "frontend.asset", "pages.api_docs_moved", "ops.openapi_moved"}
+HIDDEN_ENDPOINTS = {
+    "static",
+    "frontend.asset",
+    "pages.api_docs_moved",
+    "ops.openapi_moved",
+    # /healthz's old path, until the switchover (#594); and web's files.
+    "healthz_alias",
+    "asset",
+}
 IGNORED_METHODS = {"HEAD", "OPTIONS"}
 # " (#180)" / " (#227, #228)": issue references, for developers, not readers.
 _ISSUE_REFS = re.compile(r"\s*\(#\d+(?:,\s*#\d+)*\)")
@@ -86,7 +99,7 @@ def _group(path: str) -> str:
         return "Monitoring"
     if path in navigation.PAGES_UNDER_API:
         return "Pages"
-    return "API" if path.startswith("/api/v1/") or path == "/mcp" else "Pages"
+    return "API" if path.startswith("/api/") or path == "/mcp" else "Pages"
 
 
 def _flask_style(path: str, endpoint) -> str:
@@ -127,16 +140,33 @@ def routes(app=None) -> list[dict]:
     found = []
     from fastapi.routing import APIRoute
 
-    from app.v1 import deps, routes
+    from app.main import app as whole_app
+    from app.v1 import deps
 
-    # From our routers (no prefixes), not the app's route list: FastAPI keeps
-    # an included router there as one private object.
-    for route in (route for router in routes.ROUTERS for route in router.routes):
-        if not isinstance(route, APIRoute) or route.name in HIDDEN_ENDPOINTS:
+    # Every route the app has (#608 review: also the new stack's own, tokens, contract,
+    # /me), its full path from the app's spec by operation id: FastAPI keeps included
+    # routers as private objects, prefixes apart.
+    full_paths = {
+        operation["operationId"]: path
+        for path, operations in whole_app.openapi()["paths"].items()
+        for operation in operations.values()
+    }
+
+    def every(routes_):  # type: ignore[no-untyped-def]
+        for route in routes_:
+            original = getattr(route, "original_router", None)
+            if original is not None:
+                yield from every(original.routes)
+            elif isinstance(route, APIRoute):
+                yield route
+
+    for route in every(whole_app.routes):
+        if route.name in HIDDEN_ENDPOINTS:
             continue
+        path = full_paths.get(route.operation_id or "", route.path)
         found.append(
             {
-                "path": _flask_style(route.path, route.endpoint),
+                "path": _flask_style(path, route.endpoint),
                 "methods": sorted(set(route.methods) - IGNORED_METHODS),
                 "endpoint": route.name,
                 "view": route.endpoint,

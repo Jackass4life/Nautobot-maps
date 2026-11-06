@@ -131,9 +131,14 @@ class TestRealRequests:
             as_text=True
         )
 
+    def test_a_page(self, flask_client, frontend_build):
+        # A page is the Nuxt build's shell (#463), about 1.5 KB like the real one.
+        shell = frontend_build / "200.html"
+        shell.write_text(shell.read_text().replace("</head>", "<!--" + "x" * 1500 + "--></head>"))
+        resp = flask_client.get("/api/docs", headers=GZIP)
+        assert resp.headers["Content-Encoding"] == "gzip"
+        assert b"<!DOCTYPE html>" in gzip.decompress(resp.get_data())
 
-# Held back until what they need is ported (#587):
-#   TestRealRequests.test_a_page: the pages (step 8)
 
 # Left out: the current app's server details (Flask's bind address, its access-log
 # format, templates/ and /static/, HTML error pages for browsers); the pages and

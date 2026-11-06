@@ -35,13 +35,16 @@ def build_dir() -> pathlib.Path:
     return pathlib.Path(get_settings().web_build_dir)
 
 
-def shell() -> Response:
-    """Nuxt's page for any of its routes; always asked again (``no-cache``), so a
-    new build shows at once."""
+def shell(headers: dict | None = None) -> Response:
+    """Nuxt's page for any of its routes; always asked again (``no-cache``), so a new
+    build shows at once. *headers*: more of them (the status page's no-referrer)."""
     page = build_dir() / "200.html"
     if not page.is_file():
         return HTMLResponse(NOT_BUILT, status_code=503)
-    return HTMLResponse(page.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
+    return HTMLResponse(
+        page.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-cache", **(headers or {})},
+    )
 
 
 @router.get(ASSETS_PREFIX + "{path:path}")

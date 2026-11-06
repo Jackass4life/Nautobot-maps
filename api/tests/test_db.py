@@ -65,3 +65,17 @@ def test_rows_as_the_current_app_answers_them():
     assert db.row_to_dict(None) == {}
     assert db.placeholders(3) == "%s,%s,%s"
     assert len(db.build_alert_key("site", "dev")) == 64
+
+
+def test_a_connection_with_its_own_timeout_is_outside_the_pool():
+    """``get_conn(connect_timeout=2)`` (the app status, #608 review): connects on its own,
+    so an exhausted pool can't hold it; closing it closes it."""
+    before = db.engine.pool.checkedout()
+    conn = db.get_conn(connect_timeout=2)
+    try:
+        assert db.engine.pool.checkedout() == before
+        assert conn.execute("SELECT 1 AS one").fetchone() == {"one": 1}
+        assert conn.autocommit is True
+    finally:
+        conn.close()
+    assert conn.closed

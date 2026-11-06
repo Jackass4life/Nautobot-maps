@@ -226,3 +226,18 @@ def test_gzip_refused_by_name_wins_over_the_wildcard():
     assert accepts_gzip("br, *") is True
     assert accepts_gzip("gzip") is True
     assert accepts_gzip("identity") is False
+
+
+def test_a_page_can_add_headers(built):
+    """The status page sends no referrer (its link is a secret, #500, #608 review)."""
+    from app.frontend import controller
+
+    response = controller.shell(headers={"Referrer-Policy": "no-referrer"})
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_the_status_page_is_the_shell_without_a_referrer(flask_client, built):
+    response = flask_client.get("/status/abcdefghijklmnopqrstuvwx")
+    assert response.status_code == 200 and "__nuxt" in response.get_data(as_text=True)
+    assert response.headers["referrer-policy"] == "no-referrer"

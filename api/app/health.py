@@ -106,4 +106,6 @@ def get_health() -> JSONResponse:
 
 
 # The path before #594; until the switchover, for probes still pointing at it.
-router.add_api_route("/api/healthz", get_health, methods=["GET"], include_in_schema=False)
+router.add_api_route(
+    "/api/healthz", get_health, methods=["GET"], include_in_schema=False, name="healthz_alias"
+)

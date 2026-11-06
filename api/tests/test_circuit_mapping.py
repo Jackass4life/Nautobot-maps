@@ -130,6 +130,17 @@ def test_a_site_off_the_map_links_through_its_building(flask_client, monkeypatch
     ]
 
 
+def test_page_and_nav(flask_client, synced, frontend_build):
+    # The page is built with Nuxt (#463): Nautobot's address and the menu come from /api/page-config.
+    page = flask_client.get("/circuits")
+    assert page.status_code == 200 and 'id="__nuxt"' in page.get_data(as_text=True)
+    config = flask_client.get("/api/v1/page-config").get_json()
+    assert config["nautobot_url"] == "https://nautobot.example.com"
+    assert {"key": "circuits", "href": "/circuits"}.items() <= next(
+        p for p in config["pages"] if p["key"] == "circuits"
+    ).items()
+
+
 def test_without_a_database(flask_client, monkeypatch):
     monkeypatch.setattr(inventory.db, "get_conn", lambda *args, **kwargs: None)
     assert flask_client.get("/api/v1/circuit-mapping").status_code == 503
@@ -141,7 +152,3 @@ def test_viewers_only_when_required(flask_client, monkeypatch):
     with auth_config(mode="header", viewer_groups={"noc"}):
         for path in ("/circuits", "/api/v1/circuit-mapping", "/api/v1/circuit-mapping.csv"):
             assert flask_client.get(path).status_code == 401, path
-
-
-# Held back until what they need is ported (#587):
-#   test_page_and_nav: the pages (step 8)

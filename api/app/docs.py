@@ -4,9 +4,9 @@ sign-in rules as every other route (``check_request``), as the current app serve
 viewer role, and a rejected or status-only token is refused."""
 
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse, Response
 
+from app.frontend import controller as frontend
 from app.utils.auth import check_request
 
 OPENAPI_URL = "/api/openapi.json"
@@ -22,6 +22,7 @@ def openapi(request: Request) -> JSONResponse:
 
 
 @router.get(DOCS_URL)
-def docs(request: Request) -> HTMLResponse:
-    app: FastAPI = request.app
-    return get_swagger_ui_html(openapi_url=OPENAPI_URL, title=f"{app.title} - API")
+def docs() -> Response:
+    """The API page: web's page with Swagger UI bundled (the current app's, #483), under
+    the strict CSP. FastAPI's own loads scripts from a CDN, which the CSP blocks."""
+    return frontend.shell()

@@ -860,6 +860,45 @@ class TestAccess:
             == 401
         )
 
+    def test_with_require_viewer_the_page_loads_but_the_data_needs_access(
+        self, known_tenants, flask_client, board, monkeypatch, frontend_build
+    ):
+        monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
+        token = make("acme-status", "status", tenant="Acme Corp")["token"]
+        viewer = make("staff", "viewer")["token"]
+        anonymous = {"REMOTE_ADDR": "203.0.113.9"}
+        acme = link("Acme Corp")
+        with auth_config(mode="header"):
+            page = flask_client.get(f"/status/{acme}", environ_base=anonymous)
+            assert page.status_code == 200 and b'id="__nuxt"' in page.data
+            assert page.headers["Referrer-Policy"] == "no-referrer"
+            # The Nuxt build's files (#463): code only, no data.
+            assert (
+                flask_client.get("/_nuxt/entry.abc123.js", environ_base=anonymous).status_code
+                == 200
+            )
+            assert (
+                flask_client.get("/static/css/other.css", environ_base=anonymous).status_code == 401
+            )
+            assert (
+                flask_client.get(f"/api/v1/status/{acme}", environ_base=anonymous).status_code
+                == 401
+            )
+            # No sign-in, no clue whether a link exists (#500).
+            assert (
+                flask_client.get(f"/api/v1/status/{'x' * 24}", environ_base=anonymous).status_code
+                == 401
+            )
+            assert (
+                flask_client.get(f"/api/v1/status/{acme}", headers=bearer(token)).status_code == 200
+            )
+            assert (
+                flask_client.get(
+                    f"/api/v1/status/{link('Other Co')}", headers=bearer(viewer)
+                ).status_code
+                == 200
+            )
+
     def test_open_like_the_board_without_require_viewer(self, flask_client, board, monkeypatch):
         response = flask_client.get(f"/api/v1/status/{link('Acme Corp')}")
         assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
@@ -870,6 +909,16 @@ class TestAccess:
         monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: {"alerts": []})
         monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
         assert flask_client.get(f"/api/v1/status/{link('Acme Corp')}").status_code == 503
+
+    def test_the_page_never_holds_the_link(self, flask_client, board, frontend_build):
+        # The page is the Nuxt build's (#463): the link comes from the URL in
+        # the browser, never written into the page, so it can't inject markup.
+        page = flask_client.get("/status/%3Cscript%3Ex")
+        assert (
+            page.status_code == 200
+            and b"script%3Ex" not in page.data
+            and b"<script>x" not in page.data
+        )
 
     def test_board_errors_are_a_503(self, flask_client, monkeypatch):
         def broken(*args, **kwargs):
@@ -982,8 +1031,6 @@ class TestStatusTokens:
 
 
 # Held back until what they need is ported (#587):
-#   TestAccess.test_with_require_viewer_the_page_loads_but_the_data_needs_access: the pages (step 8)
-#   TestAccess.test_the_page_never_holds_the_link: the pages (step 8)
 #   TestLinks.test_a_leaked_link_is_replaced: the CLI (step 9)
 #   TestLinks.test_a_typo_makes_no_link: the CLI (step 9)
 #   TestLinks.test_a_status_token_comes_with_its_link: the CLI (step 9)
