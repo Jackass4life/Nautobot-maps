@@ -1,11 +1,42 @@
 import os
 
+# Its own variable: TEST_DATABASE_URL is the current app's test database (#588).
 TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
+    "API_TEST_DATABASE_URL",
     "postgresql+psycopg://nautobot_maps:nautobot_maps@localhost:5432/fastapi_nuxt_test",
 )
+
+
+def _provision(url: str) -> None:
+    """Create the test database when it doesn't exist yet (an existing devcontainer
+    volume has only the current app's): one connection to the server's postgres DB."""
+    import psycopg
+    from sqlalchemy import make_url
+
+    target = make_url(url)
+    try:
+        with psycopg.connect(
+            host=target.host,
+            port=target.port or 5432,
+            user=target.username,
+            password=target.password,
+            dbname="postgres",
+            autocommit=True,
+            connect_timeout=5,
+        ) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s", (target.database,)
+            ).fetchone()
+            if not exists:
+                conn.execute(f'CREATE DATABASE "{target.database}"')
+    except psycopg.Error:
+        pass  # no server, or no rights: the migration fixture says what is wrong
+
+
+_provision(TEST_DATABASE_URL)
 # Must be set before `app` is imported: the engine is built from settings at import.
-os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+# Both names: NAUTOBOT_MAPS_DATABASE_URL wins over DATABASE_URL.
+os.environ["NAUTOBOT_MAPS_DATABASE_URL"] = os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 import pytest  # noqa: E402
 from alembic.config import Config  # noqa: E402
