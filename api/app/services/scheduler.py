@@ -17,6 +17,7 @@ import threading
 
 from app import db
 from app.services import inventory_service as inventory
+from app.utils import timeutil
 from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
@@ -35,13 +36,40 @@ def tick_seconds() -> int:
     return max(1, min(MAX_TICK_SECONDS, *intervals))
 
 
+# The current app's markers (nautobot_maps/scheduler.py): a rebuild requested and the
+# last one done; its scheduler rebuilds the board when the request is newer.
+CHANGE_REQUESTED_STATE = "board_change_requested"
+
+
+def request_change_rebuild() -> None:
+    """Ask for a board rebuild, as the current app's ``request_change_rebuild``."""
+    conn = db.get_conn()
+    try:
+        with db.transaction(conn):
+            inventory.record_sync_state(
+                conn, CHANGE_REQUESTED_STATE, last_completed_at=timeutil.iso_utc_now()
+            )
+    except Exception as exc:
+        logger.warning("Recording a board rebuild request failed: %s", exc, exc_info=True)
+    finally:
+        conn.close()
+
+
 def tick() -> bool:
-    """Run the due syncs. Returns whether one ran."""
+    """Run the due syncs. Returns whether one ran.
+
+    The board isn't rebuilt here yet (it comes with the board, #602). A sync that ran
+    asks for a rebuild instead (#601 review): with the database shared with the current
+    app, its scheduler then rebuilds the board (alert history, notifications), which it
+    would otherwise skip, finding no sync due."""
     release = db.try_advisory_lock("background_scheduler")
     if not callable(release):
         return False  # another process holds the tick
     try:
-        return bool(inventory.ensure_snapshot(wait=True))
+        worked = bool(inventory.ensure_snapshot(wait=True))
+        if worked:
+            request_change_rebuild()
+        return worked
     finally:
         release()
 

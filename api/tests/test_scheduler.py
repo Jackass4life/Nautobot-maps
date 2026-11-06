@@ -19,12 +19,17 @@ def nautobot_set(monkeypatch):
     monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
 
-def test_a_tick_runs_the_due_syncs():
+def test_a_tick_runs_the_due_syncs(pg_database):
     with patch.object(inventory, "ensure_snapshot", return_value=True) as ensure:
         assert scheduler.tick() is True
     ensure.assert_called_once_with(wait=True)
+    # A rebuild asked for, which the current app's scheduler takes in (shared database).
+    requested = inventory.get_sync_state(scheduler.CHANGE_REQUESTED_STATE)
+    assert requested.get("last_completed_at")
     with patch.object(inventory, "ensure_snapshot", return_value=False):
         assert scheduler.tick() is False
+    again = inventory.get_sync_state(scheduler.CHANGE_REQUESTED_STATE)
+    assert again["last_completed_at"] == requested["last_completed_at"], "only after a sync"
 
 
 def test_only_one_process_ticks_at_a_time():
