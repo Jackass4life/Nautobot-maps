@@ -29,7 +29,8 @@ services:
       # The browser calls the API from the web page's origin.
       CORS_ORIGINS: '["${WEB_PUBLIC_URL:-http://localhost:3000}"]'
       # Sign-in (#582), see api/README.md. header mode: AUTH_TRUSTED_PROXIES must
-      # cover the sign-in proxy and the web container (it forwards the headers).
+      # cover the sign-in proxy and the web container (it forwards the headers), and
+      # AUTH_PROXY_SECRET must be set (web forwards only requests carrying it).
       AUTH_MODE: ${AUTH_MODE:-disabled}
       AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
       AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
@@ -51,6 +52,8 @@ services:
       # What the browser calls; server-side rendering uses the internal address.
       NUXT_PUBLIC_API_BASE: ${API_PUBLIC_URL:-http://localhost:8000}
       NUXT_API_BASE_SERVER: http://api:8000
+      # Server-side rendering forwards identity headers only with this secret (#582).
+      NUXT_AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:

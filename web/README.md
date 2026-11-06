@@ -45,5 +45,10 @@ sit in `web/`, not in Nuxt 4's default `app/`.
 - `useMe()` (`GET /api/v1/me`) gives the user and role; the page hides add/delete below
   operator (the API refuses them anyway).
 - Server-side rendering forwards the sign-in proxy's identity headers to the API:
-  `NUXT_AUTH_FORWARD_HEADERS` (default `x-forwarded-user,x-forwarded-groups,x-auth-proxy-secret`;
-  match the API's `AUTH_HEADER_*`). The API only believes them from `AUTH_TRUSTED_PROXIES`.
+  `NUXT_AUTH_FORWARD_HEADERS` (default `x-forwarded-user,x-forwarded-groups`; match the API's
+  `AUTH_HEADER_*`). Only when the page request carries `X-Auth-Proxy-Secret` equal to
+  `NUXT_AUTH_PROXY_SECRET` (set it to the API's `AUTH_PROXY_SECRET`): otherwise anyone reaching
+  web's port directly could make web vouch for a forged user. Unset: nothing is forwarded and
+  pages render as not signed in.
+- Browser calls send cookies (`credentials: 'include'`), so a cookie-based sign-in proxy in
+  front of an API on another origin works; the API allows credentials from `CORS_ORIGINS`.

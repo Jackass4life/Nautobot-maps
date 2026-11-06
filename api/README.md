@@ -68,10 +68,12 @@ setup fits both.
 
 - Writes (create/delete) need **operator**: 401 when not signed in, 403 with too low a role.
 - `GET /api/v1/me` (`getCurrentUser`) says who the API sees; always open.
-- Changes sent by a browser from another site are refused (Sec-Fetch-Site / Origin), except
-  from `CORS_ORIGINS`.
+- Changes sent by a browser from another origin (scheme, host and port) are refused
+  (Sec-Fetch-Site / Origin), except from `CORS_ORIGINS`. Those may send cookies (CORS
+  credentials), unless `CORS_ORIGINS` contains `*`.
 - uvicorn must run with `--no-proxy-headers` (the container's entrypoint does): otherwise
   `X-Forwarded-For` replaces the proxy's address and `AUTH_TRUSTED_PROXIES` checks the end user.
 - `web/` renders pages server-side and forwards the identity headers it got, so the web
-  container's address belongs in `AUTH_TRUSTED_PROXIES` too. Browsers should reach the API
+  container's address belongs in `AUTH_TRUSTED_PROXIES` too, and `AUTH_PROXY_SECRET` must be
+  set (web forwards only requests carrying it, `NUXT_AUTH_PROXY_SECRET`). Browsers should reach the API
   through the same sign-in proxy (ideally the same origin, `/api` routed to `api/`).

@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -136,6 +138,11 @@ def test_reads_public_unless_require_viewer(header_mode, configure, via_proxy):
         ({"Sec-Fetch-Site": "same-site", "Origin": "http://localhost:4000"}, 403),
         ({"Origin": "https://evil.example"}, 403),
         ({"Origin": "null"}, 403),
+        # same host, other port or scheme: another origin
+        ({"Origin": "http://testserver:4000"}, 403),
+        ({"Origin": "https://testserver"}, 403),
+        ({"Origin": "http://testserver"}, 201),
+        ({"Origin": "http://testserver:80"}, 201),
         # web/'s origin (CORS_ORIGINS), other origin than the API but allowed
         ({"Sec-Fetch-Site": "same-site", "Origin": "http://localhost:3000"}, 201),
         ({"Sec-Fetch-Site": "same-origin"}, 201),
@@ -143,9 +150,7 @@ def test_reads_public_unless_require_viewer(header_mode, configure, via_proxy):
     ],
 )
 def test_cross_site_writes(client, headers, status):
-    response = client.post(
-        "/api/v1/items", json={"name": f"x{status}{len(headers)}"}, headers=headers
-    )
+    response = client.post("/api/v1/items", json={"name": f"x{uuid.uuid4().hex}"}, headers=headers)
     assert response.status_code == status
     if status == 403:
         assert response.json() == {"detail": "Changes from another site are refused"}
@@ -161,3 +166,13 @@ def test_settings_are_validated(configure):
     configure(AUTH_MODE="sometimes")
     with pytest.raises(ValueError):
         get_settings()
+
+
+def test_cors_allows_cookies_from_web(client):
+    # A cookie-based sign-in proxy in front of an API on another origin (#582).
+    response = client.options(
+        "/api/v1/items",
+        headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "POST"},
+    )
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert response.headers["access-control-allow-credentials"] == "true"

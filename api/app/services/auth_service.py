@@ -70,7 +70,18 @@ def is_cross_site_write(request: Request, settings: Settings) -> bool:
         return fetch_site not in {"same-origin", "none"}
     if not origin:
         return False
-    return origin == "null" or urlsplit(origin).hostname != request.url.hostname
+    return origin == "null" or _origin_of(origin) != _origin_of(str(request.base_url))
+
+
+def _origin_of(url: str) -> tuple[str, str, int | None]:
+    """Scheme, host and port (default filled in): what makes two origins the same."""
+    parts = urlsplit(url.lower())
+    try:
+        port = parts.port
+    except ValueError:
+        return ("invalid", url, None)
+    default_port = {"http": 80, "https": 443}.get(parts.scheme)
+    return (parts.scheme, parts.hostname or "", port or default_port)
 
 
 def to_me_dto(user: CurrentUser, settings: Settings) -> MeDto:
