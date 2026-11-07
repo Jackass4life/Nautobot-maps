@@ -584,7 +584,7 @@ class TestPages:
         assert len(lines) > 3 and lines[-1].count(",") == lines[lines.index("") + 1].count(",")
 
     def test_page_json_and_csv(self, flask_client):
-        # The page is on Nuxt (#463): frontend/tests/availability.test.ts and e2e.
+        # The page is on Nuxt (#463): web/tests/availability.test.ts and e2e.
         data = flask_client.get("/api/v1/availability?month=2026-10").get_json()
         assert data["sites"][0]["availability"] == 90.0
         # Each tenant's status page link (#500): random, kept.

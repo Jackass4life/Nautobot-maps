@@ -4,7 +4,7 @@ What the app reads from each upstream API, which fields it uses, their
 types, and what each becomes in the app's own tables.  Every sync checks
 the records it fetched against this (``check``): a field that is missing or
 has another type is logged once per sync, stored in ``contract_checks``,
-counted in ``/metrics`` and shown by ``GET /api/contract``.  A mismatch is a
+counted in ``/metrics`` and shown by ``GET /api/v1/contract``.  A mismatch is a
 warning, not an error: the sync goes on with what it can use.
 
 ``docs/data-contract.md`` is generated from this module
@@ -466,7 +466,7 @@ CONTRACT: tuple[Endpoint, ...] = (
     ),
     Endpoint(
         LIBRENMS,
-        "POST /api/librenms/alert (inbound)",
+        "POST /api/v1/librenms/alert (inbound)",
         "An alert push from LibreNMS's API transport (#284); only says which device to refresh",
         (
             Field("device_id", ("integer", "string"), rule="LibreNMS device id; JSON, form or query string"),
@@ -691,7 +691,7 @@ def check(spec: Endpoint, records: list) -> dict:
 
 def check_and_record(source: str, path: str, records: list, incremental: bool = False) -> dict:
     """Check *records* fetched from *path*, log what doesn't match (once per
-    call), and store the result for /metrics and /api/contract.  Never raises.
+    call), and store the result for /metrics and /api/v1/contract.  Never raises.
 
     An *incremental* fetch with no records (nothing changed) proves nothing:
     the previous result stays.  A full fetch is the whole truth, also empty.
@@ -811,14 +811,14 @@ def render_markdown() -> str:
     lines = [
         "# Data contract",
         "",
-        "<!-- Generated from nautobot_maps/contract.py: python -m nautobot_maps contract-docs > docs/data-contract.md -->",
+        "<!-- Generated from api/app/services/contract_service.py: python -m app contract-docs > docs/data-contract.md -->",
         "",
         "What Nautobot Maps reads from Nautobot, LibreNMS and the wireless controllers, which fields it uses, their types, and what each "
         "becomes in its own tables. Every sync checks the records it fetched against this: a **required** field "
         "that is missing, or any field with another type, is logged once per sync "
         '("Data contract: nautobot dcim/devices/ does not match in 340 records: primary_ip4 is string, '
         'expected object or null (12)"), counted in `/metrics` '
-        "(`nautobot_maps_contract_mismatches{source,endpoint,field}`) and shown by `GET /api/contract`. "
+        "(`nautobot_maps_contract_mismatches{source,endpoint,field}`) and shown by `GET /api/v1/contract`. "
         "A mismatch is a warning: the sync goes on with what it can use.",
         "",
         "After a Nautobot or LibreNMS upgrade, look there first. CI checks this contract against a real Nautobot "

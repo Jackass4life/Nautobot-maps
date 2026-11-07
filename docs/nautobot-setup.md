@@ -218,10 +218,10 @@ If you have told LibreNMS not to alert for a device, the alert board leaves it o
 Without it, a device going down shows after LibreNMS has polled it **and** the app's next LibreNMS read (every 5 minutes by default). With it, LibreNMS tells the app right away.
 
 1. Make an API token in the app with the `operator` role:
-   `docker compose exec nautobot-maps python -m nautobot_maps token create librenms --role operator`
+   `docker compose exec nautobot-maps python -m app token create librenms --role operator`
 2. In LibreNMS: **Alerts → Alert Transports → Create**, type **API**:
    - API Method: `POST`
-   - API URL: `https://<nautobot-maps>/api/librenms/alert`
+   - API URL: `https://<nautobot-maps>/api/v1/librenms/alert`
    - Headers: `Authorization=Bearer nmt_...` (the token)
    - Body: `{"device_id": "{{ $device_id }}"}`
 3. Attach the transport to your device-down rules (e.g. "Devices up/down"), with **recovery** alerts on.

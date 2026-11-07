@@ -145,18 +145,7 @@ def _commands(parser) -> list[str]:
     return found
 
 
-def test_every_command_is_documented():
-    """Each ``python -m nautobot_maps`` command, as typed, is in the README or a guide (#519)."""
-    from nautobot_maps import __main__ as cli
-
-    docs = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").glob("*.md"))]
-    )
-    commands = _commands(cli.build_parser())
-    assert "token create" in commands
-    missing = sorted(command for command in commands if f"nautobot_maps {command}" not in docs)
-    assert not missing, f"document these commands (python -m nautobot_maps ...): {missing}"
+# The commands are documented as python -m app (#613): api/tests/test_cli.py checks them.
 
 
 @pytest.mark.parametrize("value", ["0", "100", "-1", "abc", "99,5"])

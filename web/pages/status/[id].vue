@@ -2,7 +2,7 @@
      /status/<id> (#500): its sites and their state, for a customer.  Public:
      the data comes from /api/status/, with the key from a share link's "#key=". -->
 <script setup lang="ts">
-import { FetchError } from "ofetch";
+import { ApiRequestError } from "~/utils/api";
 import { formatFeedTime } from "~/utils/format";
 import { errorText, headline, splitSites, statusKey, type TenantStatus } from "~/utils/status";
 
@@ -49,7 +49,8 @@ async function refresh(mine: number): Promise<boolean | undefined> {
     return true;
   } catch (err) {
     if (mine !== generation) return undefined;
-    const code = err instanceof FetchError ? (err.statusCode ?? 0) : 0;
+    // unwrap() throws ApiRequestError with the answer's status (#613: not ofetch's FetchError).
+    const code = err instanceof ApiRequestError ? err.statusCode : 0;
     error.value = errorText(code);
     data.value = null;
     return code === 0 || code >= 500;

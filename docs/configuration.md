@@ -81,10 +81,10 @@ For a LibreNMS signed by an internal CA, put the CA certificate in `config/certs
 Without pushes, a device going down shows on the board after LibreNMS has polled it **and** the next LibreNMS sync here (`LIBRENMS_SYNC_INTERVAL_SECONDS`, default 300 s). With an alert transport, LibreNMS tells the app right away, and the board shows it within seconds. The periodic sync keeps running as the safety net.
 
 1. Create an [API token](authentication.md#api-tokens) with the `operator` role:
-   `docker compose exec nautobot-maps python -m nautobot_maps token create librenms --role operator`
+   `docker compose exec nautobot-maps python -m app token create librenms --role operator`
 2. In LibreNMS: **Alerts → Alert Transports → Create**, type **API**:
    - API Method: `POST`
-   - API URL: `https://<nautobot-maps>/api/librenms/alert`
+   - API URL: `https://<nautobot-maps>/api/v1/librenms/alert`
    - Headers: `Authorization=Bearer nmt_...` (the token)
    - Body: `{"device_id": "{{ $device_id }}"}`
 3. Attach the transport to your device-down rules (e.g. "Devices up/down"), with **recovery** alerts on, so a device coming back is pushed too.
@@ -94,7 +94,7 @@ What a push does: the app asks the LibreNMS API for that one device and stores i
 
 ## Wireless controllers (optional)
 
-Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each. Access points get their address by DHCP, so a controller watches them: one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, not notified, and operational on the status page with them counted (an access point with its own level set is an ordinary alarm) ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#files-the-app-reads-the-config-folder). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m nautobot_maps wireless-check`.
+Access point status from **Cisco Catalyst Center** and **HPE Aruba Networking New Central**, any number of instances of each. Access points get their address by DHCP, so a controller watches them: one it lists is monitored without a primary IP in Nautobot, shown with the address the controller reports (never written to Nautobot), and down on the board when the controller says so. A site with only access points down is at `WIRELESS_AP_LEVEL` under the board's **Wireless** chip: not an alarm, not notified, and operational on the status page with them counted (an access point with its own level set is an ordinary alarm) ([alert board](alert-board.md#access-points)). The instances, with their read-only accounts (Catalyst Center) and API clients (New Central), are listed in one YAML file in the [config folder](#files-the-app-reads-the-config-folder). Every key, the setup and how they are read: [other sources](sources.md#wireless-controllers-access-points). Check them with `python -m app wireless-check`.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -233,5 +233,5 @@ By default viewers' browsers load tiles from `tile.openstreetmap.org`, and the a
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
 | `LOG_FORMAT` | `text` | `text`, or `json` (one object per line, for Loki, ELK, Splunk) |
 | `METRICS_ENABLED` | `true` | Prometheus metrics at `/metrics`; `false`: 404 |
-| `FLASK_DEBUG` | `false` | Reload on code changes (development server, `python app.py`, only; the name is from the Flask days) |
+| `FLASK_DEBUG` | `false` | Reload on code changes (development server, `python -m app.serve`, only; the name is from the Flask days) |
 | `FLASK_RUN_PORT` | `5000` | Port of the development server (e.g. when macOS AirPlay Receiver has 5000) |

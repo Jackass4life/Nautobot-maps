@@ -30,7 +30,7 @@ it is `640`, not `600` (a copy of a `600` file stays `600`). If the app can't
 read the wireless controllers file it stops at startup and says what to run;
 an unreadable criticality rules file or CA certificate is logged as an error
 at startup (the app then uses `CRITICAL_ROLE_KEYWORDS`, or its TLS
-connections fail). Without Docker (`python app.py`) the app runs as you:
+connections fail). Without Docker (`python -m app.serve`) the app runs as you:
 nothing to do.
 
 After changing a file, restart the app: `docker compose up -d --force-recreate nautobot-maps`.

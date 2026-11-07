@@ -30,7 +30,7 @@ services:
 docker compose pull nautobot-maps && docker compose up -d
 ```
 
-To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`. After upgrading Nautobot or LibreNMS, check the log for "Data contract" warnings or `GET /api/contract`: they name any field that no longer looks as the app expects ([data contract](data-contract.md)).
+To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`. After upgrading Nautobot or LibreNMS, check the log for "Data contract" warnings or `GET /api/v1/contract`: they name any field that no longer looks as the app expects ([data contract](data-contract.md)).
 
 ## The config folder
 
@@ -67,7 +67,7 @@ services:
 - **Unprivileged user:** the image runs as `app` (uid 10001).
 - **Health check:** a Docker `HEALTHCHECK` probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. It never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
 - **Shared cache:** the bundled `docker-compose.yml` runs a `redis` service and sets `CACHE_TYPE=RedisCache`, so the 4 Gunicorn workers share one cache (the board, map levels, geocoding) and the MCP rate limit. Redis holds nothing that isn't rebuilt: it needs no volume or backup. With your own Redis, set `CACHE_REDIS_URL`. `CACHE_TYPE=SimpleCache` gives each worker its own cache again: it works, but each worker rebuilds and limits on its own.
-- **Migrations:** before starting the app the container runs `python -m nautobot_maps migrate` (see [database migrations](#database-migrations)).
+- **Migrations:** before starting the app the container runs `python -m app migrate` (see [database migrations](#database-migrations)).
 
 ## Backup and restore
 
@@ -123,17 +123,25 @@ Watch it in `/metrics`:
 
 ## Database migrations
 
-Each schema change is applied once and recorded in `schema_migrations`, so the app's workers start without migrating. `python -m nautobot_maps schema-version` shows the database's version and the one the release expects:
+The schema is versioned with Alembic: each change is applied once, before the app's workers start, so they never migrate. `python -m app schema-version` shows the database's revision and the one the release expects:
 
 ```bash
-docker compose exec nautobot-maps python -m nautobot_maps schema-version
+docker compose exec nautobot-maps python -m app schema-version
 ```
 
-Rolling back to an older release after its database was migrated is refused at startup ("The database schema is version N, newer than this release…"): run the release the database was migrated with, or restore a backup taken before the upgrade.
+Rolling back to an older release after a newer one migrated the database stops at startup (it doesn't know the newer revision): run the release the database was migrated with, or restore a backup taken before the upgrade. The release before the new stack (#613) can still start on a database this one took over, until a later release changes the schema.
+
+### Upgrading from a release before the new stack (#613)
+
+The first start of this release takes over the database as it is (schema version 33, every table and its data), then upgrades it; nothing to do beforehand but a [backup](#backup-and-restore). A database below version 33 is refused with what to do: start the previous release once on it, then this one. Then:
+
+- **The API is under `/api/v1/...`.** The old paths (`/api/alerts`, `/api/librenms/alert`, `/api/alertmanager`, …) answer `308` with the new one, method and body kept: LibreNMS transports, Alertmanager and scripts keep working, but change their URLs to `/api/v1/...` when you can. `/api/docs` lists every route.
+- **The command line** is `python -m app ...` (was `python -m nautobot_maps ...`), with the same commands and options.
+- With the bundled proxy, update `deploy/proxy` with the rest of the repository: its status page rule covers `/api/v1/status/`.
 
 ## Monitoring
 
-`/healthz` is the liveness probe: 200 while the app answers and, when a database is configured, the database too; 503 when a configured database doesn't answer. Without `NAUTOBOT_MAPS_DATABASE_URL` (a map-only setup) it checks only the app. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if never) without failing on it, since restarting the app can't fix a sync that fails upstream. For people, the top bar on every page says the same in plain words, from `GET /api/app-status` (`state`: ok, stale or down, and why per source).
+`/healthz` is the liveness probe: 200 while the app answers and, when a database is configured, the database too; 503 when a configured database doesn't answer. Without `NAUTOBOT_MAPS_DATABASE_URL` (a map-only setup) it checks only the app. It also reports `inventory_sync_age_seconds` (seconds since the Nautobot sync last succeeded, `null` if never) without failing on it, since restarting the app can't fix a sync that fails upstream. For people, the top bar on every page says the same in plain words, from `GET /api/v1/app-status` (`state`: ok, stale or down, and why per source).
 
 `/metrics` serves Prometheus metrics, read from the database when scraped (so every worker gives the same answer):
 
@@ -191,5 +199,5 @@ A site without coordinates is missing from the map, and one with wrong coordinat
 
 `far` is only a hint: the line counts the sites that are missing or wrong, and the far ones come last in the list under their own heading ("2 sites are far from the others" only when nothing else is wrong).
 
-Only the board's sites are checked, and one without coordinates (or at 0,0) only when it has devices, in maintenance or down ones included: regions and buildings above the sites have none by design. The middle is a median per axis, so a region across the 180° meridian gets wrong results: read `far` there with care (and set `MAP_DEFAULT_VIEW`). It reads the stored board, so it costs no Nautobot call; the map checks again every 15 minutes. API: `GET /api/locations/coordinate-check` (JSON, with counts) and `/api/locations/coordinate-check.csv`, both taking `tenant=` and `q=` like the map: on a map for some sites only, the line, the list and the CSV cover those sites. The metric is left out until a board is stored (a scrape never builds one).
+Only the board's sites are checked, and one without coordinates (or at 0,0) only when it has devices, in maintenance or down ones included: regions and buildings above the sites have none by design. The middle is a median per axis, so a region across the 180° meridian gets wrong results: read `far` there with care (and set `MAP_DEFAULT_VIEW`). It reads the stored board, so it costs no Nautobot call; the map checks again every 15 minutes. API: `GET /api/v1/locations/coordinate-check` (JSON, with counts) and `/api/v1/locations/coordinate-check.csv`, both taking `tenant=` and `q=` like the map: on a map for some sites only, the line, the list and the CSV cover those sites. The metric is left out until a board is stored (a scrape never builds one).
 

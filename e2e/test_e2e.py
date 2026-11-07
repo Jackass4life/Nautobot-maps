@@ -62,7 +62,7 @@ def site_row(page, name: str):
 def test_the_board_lists_the_alarms(page):
     page.goto(f"{BASE_URL}/alerts")
     page.wait_for_selector(".site-row")
-    board = api("/api/alerts")
+    board = api("/api/v1/alerts")
     alarms = [row["name"] for row in board["alerts"] if row["alert_level"] in ("critical", "medium", "low")]
     assert alarms, "the mock has sites in alarm"
     for name in alarms:
@@ -82,7 +82,7 @@ def test_adding_a_case_shows_it_on_the_row(page, request):
     page.fill("#case-input", case)
     page.click(".case-save-btn")
     page.locator(".site-row", has_text=site_name).locator(f"text={case}").first.wait_for(timeout=15000)
-    cases = [c for row in api("/api/alerts")["alerts"] for d in row["down_devices"] for c in d["case_numbers"]]
+    cases = [c for row in api("/api/v1/alerts")["alerts"] for d in row["down_devices"] for c in d["case_numbers"]]
     assert case in cases
 
 
@@ -167,7 +167,7 @@ def test_the_map_lists_sites_with_missing_coordinates(page):
     page.locator("#coordinate-toggle").click()
     names = page.locator(".coordinate-site").all_inner_texts()
     assert any("Etage 2" in name for name in names), names
-    assert page.locator(".coordinate-csv").get_attribute("href") == "/api/locations/coordinate-check.csv"
+    assert page.locator(".coordinate-csv").get_attribute("href") == "/api/v1/locations/coordinate-check.csv"
 
 
 def test_the_map_shows_markers(page):
@@ -220,7 +220,7 @@ def test_the_availability_page_answers_first(page):
 def test_each_sites_devices_on_availability(page):
     """How much is at each site, not what (#499): the mock's Stockholm PoP has
     a router and three access points, "1 network · 3 APs"."""
-    report = api("/api/availability")
+    report = api("/api/v1/availability")
     stockholm = next(row for row in report["sites"] if row["name"] == "Stockholm PoP")
     assert (stockholm["network_devices"], stockholm["access_points"]) == (1, 3)
     page.goto(f"{BASE_URL}/availability")
@@ -274,7 +274,7 @@ def test_the_availability_tenants_search(page):
         route.fulfill(json=report)
 
     # The report only, not the CSV: a predicate, not a glob whose "?" differs by version.
-    page.route(lambda url: urllib.parse.urlparse(url).path == "/api/availability", many_tenants)
+    page.route(lambda url: urllib.parse.urlparse(url).path == "/api/v1/availability", many_tenants)
     page.reload()
     tenants = page.locator('[data-avail-table="tenants"]')
     tenants.locator(".avail-search input").wait_for()
@@ -302,7 +302,7 @@ def test_planning_maintenance_for_several_sites(operator_page, request):
     """Plan for two sites from the Maintenance page, see one batch, cancel it (#343)."""
     page = operator_page
     reason = f"e2e batch {request.node.callspec.id} {int(time.time())}"  # new on every run
-    sites = api("/api/maintenance/sites")["sites"]
+    sites = api("/api/v1/maintenance/sites")["sites"]
     assert len(sites) >= 2
     page.goto(f"{BASE_URL}/maintenance")
     page.locator("#maint-plan-open").click()
@@ -335,7 +335,7 @@ def test_the_planner_finds_a_tenant_by_its_description(operator_page):
     """Typing part of a tenant's description offers all its sites (#497):
     the mock's Acme Corp is a "Retail bank", a word no other tenant has."""
     page = operator_page
-    answer = api("/api/maintenance/sites")
+    answer = api("/api/v1/maintenance/sites")
     description = answer["tenant_descriptions"]["Acme Corp"]
     assert description.startswith("Retail bank")
     count = sum("Acme Corp" in site["tenants"] for site in answer["sites"])
@@ -421,16 +421,16 @@ def test_the_availability_period_calendar(page):
     page.wait_for_url("**from=*-01&to=*")
     assert " " in page.locator("#period-button").inner_text() and "–" not in page.locator("#period-button").inner_text()
     href = page.locator(".availability-note a").first.get_attribute("href")
-    assert api(href.replace("/api/availability.csv", "/api/availability"))["month"], href
+    assert api(href.replace("/api/v1/availability.csv", "/api/v1/availability"))["month"], href
 
 
 def status_link(tenant: str) -> str:
     """*tenant*'s status page, by its random link (#500), as Availability links it."""
-    return f"{BASE_URL}/status/{api('/api/availability')['status_links'][tenant]}"
+    return f"{BASE_URL}/status/{api('/api/v1/availability')['status_links'][tenant]}"
 
 
 def test_a_tenant_status_page(page):
-    tenant = next(t for row in api("/api/alerts")["alerts"] for t in row.get("tenants") or [])
+    tenant = next(t for row in api("/api/v1/alerts")["alerts"] for t in row.get("tenants") or [])
     page.goto(status_link(tenant))
     headline = page.locator("#status-headline")
     for _ in range(100):
@@ -449,12 +449,12 @@ def test_a_tenant_status_page(page):
 def test_a_new_key_pasted_into_the_open_status_page_is_used(page):
     """#527: pasting /status/<id>#key=… into the open tab changes only the
     fragment, so the browser doesn't reload; the page loads again with it."""
-    tenant = next(t for row in api("/api/alerts")["alerts"] for t in row.get("tenants") or [])
+    tenant = next(t for row in api("/api/v1/alerts")["alerts"] for t in row.get("tenants") or [])
     page.goto(status_link(tenant))
     page.locator(".status-site").first.wait_for()
     with page.expect_request(
         lambda request: (
-            "/api/status/" in request.url and request.headers.get("authorization") == "Bearer nmt_pasted-later"
+            "/api/v1/status/" in request.url and request.headers.get("authorization") == "Bearer nmt_pasted-later"
         )
     ):
         page.evaluate("window.location.hash = '#key=nmt_pasted-later'")
@@ -482,7 +482,7 @@ def test_the_status_page_shows_where_each_site_is(page):
         answer["summary"]["sites"] = 4
         route.fulfill(json=answer)
 
-    page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/status/"), three_places)
+    page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/v1/status/"), three_places)
     page.goto(status_link("Acme Corp"))
     page.locator(".status-site", has_text="Neither").wait_for()
     places = page.locator(".status-place")
@@ -525,7 +525,7 @@ def test_the_status_page_counts_the_devices(page):
         answer["summary"] = {"sites": 2, "affected": 1, "devices_down": 4}
         route.fulfill(json=answer)
 
-    page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/status/"), two_sites)
+    page.route(lambda url: urllib.parse.urlparse(url).path.startswith("/api/v1/status/"), two_sites)
     page.goto(status_link("Acme Corp"))
     hit = page.locator(".status-site", has_text="Hit").locator(".status-devices")
     hit.wait_for()
@@ -578,10 +578,10 @@ def test_the_map_at_scale(page):
         }
     for n in range(3):
         levels[f"s{n * 40 + 7}"] = {"level": "maintenance", "down": 0, "monitored": 8}
-    page.route("**/api/locations", lambda route: route.fulfill(json={"locations": sites}))
-    page.route("**/api/location-alerts", lambda route: route.fulfill(json={"levels": levels}))
+    page.route("**/api/v1/locations", lambda route: route.fulfill(json={"locations": sites}))
+    page.route("**/api/v1/location-alerts", lambda route: route.fulfill(json={"levels": levels}))
     page.route(
-        "**/api/locations/*/detail*", lambda route: route.fulfill(json={"devices": [], "asns": [], "circuits": []})
+        "**/api/v1/locations/*/detail*", lambda route: route.fulfill(json={"devices": [], "asns": [], "circuits": []})
     )
     page.route("https://*.tile.openstreetmap.org/**", lambda route: route.abort())
 
@@ -623,9 +623,9 @@ def test_the_map_at_scale(page):
     # During a search a row for a site outside it goes back to the whole map and opens it (#337).
     nearby = [{**sites[1], "distance_km": 0.0}]
     searches = []
-    page.on("request", lambda request: searches.append(request.url) if "/api/search?" in request.url else None)
+    page.on("request", lambda request: searches.append(request.url) if "/api/v1/search?" in request.url else None)
     page.route(
-        "**/api/search*",
+        "**/api/v1/search*",
         lambda route: route.fulfill(json={"search_lat": 40, "search_lon": -5, "count": 1, "locations": nearby}),
     )
     page.fill("#search-input", "40,-5")
@@ -646,7 +646,7 @@ def test_the_map_at_scale(page):
         page.keyboard.press("ArrowDown")
         assert buttons.nth(1).evaluate("el => el === document.activeElement")
         page.focus("#search-input")
-        with page.expect_response("**/api/search?*"):
+        with page.expect_response("**/api/v1/search?*"):
             page.press("#search-input", "Enter")
         assert len(searches) == count
         page.locator("#search-results-header", has_text="1 location within 5 km").wait_for()
@@ -788,7 +788,7 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
 @pytest.mark.parametrize("path", ["/", "/alerts"])
 def test_find_and_pick_two_tenants(page, path):
     """The real control searches locally, keeps both picks, and scopes staff links."""
-    endpoint = "/api/locations" if path == "/" else "/api/alerts"
+    endpoint = "/api/v1/locations" if path == "/" else "/api/v1/alerts"
     requests = []
     page.on("request", lambda request: requests.append(request.url))
     page.goto(f"{BASE_URL}{path}")
@@ -1050,7 +1050,7 @@ def test_the_api_reference(page):
     page.goto(f"{BASE_URL}/docs")
     assert urllib.parse.urlparse(page.url).path == "/api/docs"
     page.locator(".opblock").first.wait_for(timeout=20000)
-    assert page.locator(".opblock-summary-path", has_text="/api/alerts").count() >= 1
+    assert page.locator(".opblock-summary-path", has_text="/api/v1/alerts").count() >= 1
 
 
 @pytest.fixture
@@ -1123,7 +1123,7 @@ def test_share_a_tenants_status_page_from_availability(admin_page, browser):
 
 def test_no_administration_without_the_role(page):
     """Viewers (here: no sign-in, no ALLOW_UNAUTHENTICATED_WRITES) see nothing new (#530)."""
-    if api("/api/page-config")["admin"] is not None:
+    if api("/api/v1/page-config")["admin"] is not None:
         pytest.skip("the app lets anyone administer (ALLOW_UNAUTHENTICATED_WRITES)")
     page.goto(f"{BASE_URL}/admin")
     page.locator("#admin-refused").wait_for()
