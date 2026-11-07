@@ -63,6 +63,7 @@ The alert board needs PostgreSQL; the map works without it. The bundled `docker-
 | `CACHE_TYPE` | `SimpleCache` (`RedisCache` in `docker-compose.yml`) | Cache backend (cachelib). `SimpleCache` is per worker; `RedisCache` shares the cache and rate limits between workers |
 | `CACHE_REDIS_URL` | — (`redis://redis:6379/0` in `docker-compose.yml`) | Redis URL; required with `CACHE_TYPE=RedisCache` |
 | `COMPRESS_RESPONSES` | `true` | gzip text answers over 1 KB (pages, JSON, CSS, JS, CSV) for browsers that accept it: at 1,200 sites the board's data goes from about 1.3 MB to a tenth. `false` where the proxy in front compresses instead (see [operations](operations.md#what-the-container-does)) |
+| `CORS_ORIGINS` | — | Other sites' pages that may call the API from the browser, e.g. `https://portal.example.com` (comma-separated, or a JSON list). The app's own pages share its origin and need nothing; a sign-in proxy's cookie may come along (never with `*`) |
 
 ## LibreNMS (optional)
 

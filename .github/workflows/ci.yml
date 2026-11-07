@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   # -----------------------------------------------------------------------
-  # Lint: ruff (config in pyproject.toml, version pinned in requirements-dev.txt);
-  # the frontend's ESLint is in the frontend job
+  # Lint: ruff for the files outside api/ and web/ (e2e, demo, scripts, the
+  # proxy's CI), with the root pyproject.toml's settings and api/'s ruff
   # -----------------------------------------------------------------------
   lint:
     runs-on: ubuntu-latest
@@ -20,78 +20,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          python-version: "3.12"
-
-      - name: Install ruff
-        # requirements-dev.txt is a hashed lock file; take just ruff's pin.
-        run: pip install "$(grep -o '^ruff==[0-9.]*' requirements-dev.txt)"
+          working-directory: api
+          enable-cache: true
 
       - name: Ruff lint
         # github format turns findings into annotations on the PR diff.
-        run: ruff check --output-format=github .
+        run: uv run --project api --locked ruff check --output-format=github .
 
       - name: Ruff format
         # Also runs when lint fails, so one CI run reports both.
         if: success() || failure()
-        # Fails if any file is not formatted; run `ruff format .` locally to fix.
-        run: ruff format --check --diff .
+        run: uv run --project api --locked ruff format --check --diff .
 
       - name: No committed dependencies
         # node_modules is git-ignored; a `git add -A` after `npm ci` once
         # committed 941 files of it (#189).
         if: success() || failure()
-        run: test -z "$(git ls-files node_modules frontend/node_modules web/node_modules)"
-
-  # -----------------------------------------------------------------------
-  # The pages built with Nuxt (#463): lint, types, tests, the static build
-  # (no inline script: the CSP), and the API types current.
-  # -----------------------------------------------------------------------
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install
-        # Install scripts don't run; `nuxt prepare` makes the generated types.
-        run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          npx nuxt prepare
-
-      - name: ESLint
-        run: npm run lint
-
-      - name: Types
-        if: success() || failure()
-        run: npm run typecheck
-
-      - name: Tests (Vitest)
-        if: success() || failure()
-        run: npm test
-
-      - name: Build (no inline script left)
-        if: success() || failure()
-        run: npm run generate
-
-      - name: The API types match openapi.json
-        # tests/test_frontend.py checks openapi.json is the app's spec.
-        if: success() || failure()
-        run: |
-          npm run api-types
-          git diff --exit-code app/api/schema.d.ts
+        run: test -z "$(git ls-files node_modules web/node_modules)"
 
   # -----------------------------------------------------------------------
   # The new backend, api/ (#572): its own uv project, ruff, migrations, tests
@@ -198,49 +146,6 @@ jobs:
         run: npm run generate
 
   # -----------------------------------------------------------------------
-  # The new stack's image and compose file (#577): build, start, use it
-  # through the API and the pages it serves (#594).
-  # -----------------------------------------------------------------------
-  next-smoke:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: deploy/next
-    env:
-      # "@", ":" and "%40" on purpose: the password must not be URL-parsed (#577).
-      POSTGRES_PASSWORD: "ci@pa:ss%40word"
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Build and start
-        run: docker compose up -d --build --wait --wait-timeout 300
-
-      - name: Non-root container
-        run: |
-          uid=$(docker compose exec -T api id -u)
-          echo "api runs as uid $uid"
-          test "$uid" != "0"
-
-      - name: The API, and the pages it serves
-        run: |
-          curl -fsS http://127.0.0.1:8000/healthz | grep -q '"database":"ok"'
-          curl -fsS -X POST http://127.0.0.1:8000/api/v1/items \
-            -H 'Content-Type: application/json' -d '{"name": "smoke-item"}'
-          curl -fsS http://127.0.0.1:8000/api/v1/items | grep -q smoke-item
-          # The page: web/'s shell, built into the image, with the strict CSP.
-          curl -fsS -D headers.txt -o page.html http://127.0.0.1:8000/
-          grep -qi "^content-security-policy: default-src 'self'; script-src 'self'" headers.txt
-          script=$(grep -o 'src="/_nuxt/[^"]*\.js"' page.html | head -1 | cut -d'"' -f2)
-          test -n "$script"
-          curl -fsS -D asset.txt -o /dev/null "http://127.0.0.1:8000$script"
-          grep -qi '^cache-control: public, max-age=31536000' asset.txt
-
-      - name: Logs
-        if: failure()
-        run: docker compose logs
-
-  # -----------------------------------------------------------------------
   # Known vulnerabilities in the locked dependencies (#186)
   # -----------------------------------------------------------------------
   audit:
@@ -249,98 +154,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          python-version: "3.12"
+          working-directory: api
+          enable-cache: true
 
-      - name: Python dependencies (pip-audit)
+      - name: Python dependencies (pip-audit, api/uv.lock)
+        working-directory: api
+        # Every group: the image's packages, the dev tools and Playwright.
         run: |
-          pip install pip-audit
-          pip-audit --strict -r requirements.txt
-          pip-audit --strict -r requirements-dev.txt
-          pip-audit --strict -r requirements-e2e.txt
+          uv export --locked --all-groups --no-emit-project --format requirements-txt > requirements.audit.txt
+          uv tool run pip-audit --strict --require-hashes --disable-pip -r requirements.audit.txt
 
-      - name: Lock files match the .in files
-        # Fails if someone edited requirements*.in without recompiling.
-        if: success() || failure()
-        run: |
-          pip install pip-tools
-          pins() { grep -oE '^[A-Za-z0-9._-]+==[^ ]+' "$1" | sort; }
-          for name in requirements requirements-dev requirements-e2e; do
-            # Start from the committed lock, so only a change the .in file
-            # requires shows up (not newer releases of transitive packages).
-            cp "$name.txt" "$name.check.txt"
-            pip-compile --quiet --generate-hashes --strip-extras --allow-unsafe -o "$name.check.txt" "$name.in"
-            diff <(pins "$name.txt") <(pins "$name.check.txt")
-          done
-
-      - name: The frontend (npm audit, #463)
+      - name: The pages (npm audit, #463)
         # High or critical fails, except the advisories scripts/audit.mjs
         # accepts, each with no fix released and out of production's reach.
         if: success() || failure()
-        working-directory: frontend
+        working-directory: web
         run: node scripts/audit.mjs
-
-  # -----------------------------------------------------------------------
-  # Unit + mock-integration tests (fast, Python matrix)
-  # -----------------------------------------------------------------------
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
-
-    # The persistence tests need PostgreSQL (same major version as
-    # docker-compose.yml). In CI they fail instead of skipping without it.
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: nautobot_maps_test
-          POSTGRES_USER: nautobot_maps
-          POSTGRES_PASSWORD: nautobot_maps
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U nautobot_maps -d nautobot_maps_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes -r requirements-dev.txt
-
-      - name: Start mock Nautobot server
-        run: |
-          python demo/mock_nautobot.py &
-          # Wait until it answers instead of sleeping a fixed time.
-          for attempt in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8080/api/ > /dev/null; then exit 0; fi
-            sleep 1
-          done
-          echo "Mock Nautobot did not become ready within 30s" >&2
-          exit 1
-        env:
-          FLASK_RUN_PORT: "8080"
-
-      - name: Run tests
-        run: python -m pytest tests/ -v
-        env:
-          NAUTOBOT_URL: "http://127.0.0.1:8080"
-          NAUTOBOT_TOKEN: "test-token"
-          TEST_DATABASE_URL: "postgresql://nautobot_maps:nautobot_maps@127.0.0.1:5432/nautobot_maps_test"
-          NAUTOBOT_VERIFY_SSL: "true"
 
   # -----------------------------------------------------------------------
   # End-to-end in Chromium (#294): the app with the mock Nautobot and
@@ -455,38 +287,19 @@ jobs:
         working-directory: development
         run: docker compose up -d --wait --wait-timeout 300
 
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes -r requirements-dev.txt
-
-      - name: Seed Nautobot with test data
-        run: python development/seed_nautobot.py
-        env:
-          NAUTOBOT_URL: "http://localhost:8080"
-          NAUTOBOT_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
-
-      - name: Run live integration tests
-        run: python -m pytest tests/test_nautobot_live.py -v
-        env:
-          NAUTOBOT_LIVE_URL: "http://localhost:8080"
-          NAUTOBOT_LIVE_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
-          NAUTOBOT_URL: "http://localhost:8080"
-          NAUTOBOT_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
-          NAUTOBOT_VERIFY_SSL: "false"
-
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           working-directory: api
           enable-cache: true
 
-      - name: The new stack's sync against the real Nautobot (#600)
+      - name: Seed Nautobot with test data
+        run: uv run --project api --locked python development/seed_nautobot.py
+        env:
+          NAUTOBOT_URL: "http://localhost:8080"
+          NAUTOBOT_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
+
+      - name: The sync and the clients against the real Nautobot (#600)
         working-directory: api
         run: |
           uv sync --locked

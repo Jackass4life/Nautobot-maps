@@ -653,7 +653,7 @@ def test_the_map_at_scale(page):
         assert page.locator("#search-results").is_visible()
         assert page.locator(".result-distance").inner_text() == "0 km"
         assert page.locator(".search-point-marker").count() == 1
-        # The 5 km circle, drawn on the canvas (SEARCH_RADIUS_M in frontend/app/utils/leafletmap.ts).
+        # The 5 km circle, drawn on the canvas (SEARCH_RADIUS_M in web/utils/leafletmap.ts).
         assert page.locator(".leaflet-overlay-pane canvas").is_visible()
         assert page.locator("#location-inspector").is_hidden()
     page.locator(".alarm-item").first.click()

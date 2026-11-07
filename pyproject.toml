@@ -1,11 +1,12 @@
-# Developer-tool configuration only; the app itself is not packaged.
+# ruff for the files outside api/ and web/ (e2e, demo, scripts, development,
+# deploy/proxy/ci): `uv run --project api ruff check .` from the repository root.
 
 [tool.ruff]
 target-version = "py311"
 # Matches how the code is already written (least churn for `ruff format`).
 line-length = 120
-# api/ has its own ruff (version + config) and CI job (#572).
-extend-exclude = ["static/vendor", "api", "web"]
+# api/ has its own ruff config and CI job (#572).
+extend-exclude = ["api", "web"]
 
 [tool.ruff.lint]
 # E/W: pycodestyle, F: pyflakes (unused/undefined names), B: bugbear (likely
@@ -16,6 +17,5 @@ select = ["E", "W", "F", "B", "I", "UP"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
-# A background thread that outlives its test fails in the next one (#299):
-# conftest waits for them; this keeps it that way.
-filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
+# e2e/ (Playwright against a running app): `uv run --project api python -m pytest e2e/`.
+testpaths = ["e2e"]

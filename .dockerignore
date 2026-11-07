@@ -21,12 +21,7 @@ web/.data
 deploy/
 config/
 
-# The current app (removed at the end of #613).
-nautobot_maps/
-frontend/
-tests/
-templates/
-static/
+# Development and test files.
 development/
 demo/
 agents/

@@ -25,7 +25,7 @@ Your sole responsibility on this repository is to **review every code change** a
 | **Error handling** | All external calls (Nautobot API, geocoder) wrapped with specific exception types; meaningful HTTP status codes returned to the client |
 | **Testing** | New features accompanied by unit **and** integration tests; mocks limited to the network boundary |
 | **Documentation** | Public functions have docstrings; README / CHANGELOG updated when behaviour changes |
-| **Dependencies** | No new dependencies without a security scan and justification; pinned versions in `requirements.txt` |
+| **Dependencies** | No new dependencies without a security scan and justification; pinned versions in `api/uv.lock` (`uv add`) |
 | **Docker / Ops** | `Dockerfile` follows multi-stage best practices; secrets not hard-coded; `.env.example` kept in sync |
 
 ---
@@ -49,16 +49,16 @@ Your sole responsibility on this repository is to **review every code change** a
 ## Key Files to Always Review
 
 ```
-nautobot_maps/              # The backend: one module per job; routes in api/, answers' models in api/answers/
-nautobot_maps/api/deps.py   # Sign-in check, roles, errors
-frontend/app/               # The pages (Nuxt, #463): pages/, components/, utils/ (the logic)
-frontend/app/assets/css/main.css  # The app's own styles: no inline styles (CSP)
+api/app/services/           # The backend: one module per job; routes in api/app/v1/routes/, answers' models in api/app/v1/answers/
+api/app/v1/deps.py          # Sign-in check, roles, errors
+web/                        # The pages (Nuxt, #463): pages/, components/, utils/ (the logic)
+web/assets/css/main.css     # The app's own styles: no inline styles (CSP)
 demo/mock_nautobot.py       # Mock server – must stay in sync with real Nautobot API shape
-tests/                      # pytest – coverage, assertion quality
-frontend/tests/             # Vitest – the frontend's logic
+api/tests/                  # pytest – coverage, assertion quality
+web/tests/                  # Vitest – the pages' logic
 e2e/test_e2e.py             # Playwright in Chromium, light and dark
-requirements.txt            # Dependency versions and security (hashed lock file)
-frontend/package.json       # Frontend dependencies, pinned
+api/uv.lock                 # Dependency versions and security (hashed lock file)
+web/package-lock.json       # The pages' dependencies, pinned
 Dockerfile                  # Image size, layer caching, non-root user
 docker-compose.yml          # Port exposure, env var handling, healthchecks
 .env.example                # Completeness – every variable documented
@@ -72,13 +72,14 @@ Before approving, confirm the following commands succeed locally or in CI:
 
 ```bash
 # Lint and format (Python)
-ruff check . && ruff format --check .
+(cd api && uv run ruff check . && uv run ruff format --check .)
+uv run --project api ruff check .   # e2e, demo, scripts
 
-# The frontend
-(cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run generate)
+# The pages
+(cd web && npm ci && npm run lint && npm run typecheck && npm test && npm run generate)
 
 # Full test suite
-python -m pytest tests/ -q
+(cd api && uv run pytest -q)
 
 # Docker build
 docker build -t nautobot-maps:review .

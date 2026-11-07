@@ -21,19 +21,19 @@ and that new features are fully documented for operators and contributors.
 | Area | What to maintain |
 |---|---|
 | **README.md** | Feature list, quick-start guide, environment variables table, screenshot / demo GIF |
-| **`.env.example`** | Every setting in `nautobot_maps/settings.py` must have a corresponding entry with a description |
-| **Inline docstrings** | Every public Python function in `nautobot_maps/` has a PEP 257 docstring explaining purpose, args, and return value |
+| **`.env.example`** | Every setting in `api/app/utils/config.py` must have a corresponding entry with a description |
+| **Inline docstrings** | Every public Python function in `api/app/` has a PEP 257 docstring explaining purpose, args, and return value |
 | **Agent guides** | `agents/*.md` files stay current with actual project structure and commands |
 | **`demo/README.md`** | Instructions for running the demo stack remain accurate |
 | **`CHANGELOG.md`** | Every PR adds an entry under the correct semver section (`Added`, `Changed`, `Fixed`, `Removed`) |
-| **UI labels** | User-visible labels in `frontend/app/` (pages and components) are clear and consistent |
-| **API contracts** | Route docstrings and response models (`nautobot_maps/api/answers/`) document query params, answers and error codes; `/api/docs` shows them |
+| **UI labels** | User-visible labels in `web/` (pages and components) are clear and consistent |
+| **API contracts** | Route docstrings and response models (`api/app/v1/answers/`) document query params, answers and error codes; `/api/docs` shows them |
 
 ---
 
 ## Documentation Standards
 
-### Python (nautobot_maps/)
+### Python (api/app/)
 
 Follow [PEP 257](https://peps.python.org/pep-0257/) conventions:
 
@@ -136,8 +136,8 @@ Before approving any PR, verify:
 ```
 README.md               # Project overview, setup instructions, env vars
 .env.example            # Must list every configurable variable
-nautobot_maps/          # Docstrings on all public functions and routes
-frontend/app/           # User-visible labels, aria attributes, comments on non-obvious logic
+api/app/                # Docstrings on all public functions and routes
+web/                    # User-visible labels, aria attributes, comments on non-obvious logic
 agents/*.md             # Agent definitions stay current
 demo/mock_nautobot.py   # Seed data comments
 CHANGELOG.md            # Unreleased section updated

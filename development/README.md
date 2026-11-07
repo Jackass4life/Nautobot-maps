@@ -19,15 +19,15 @@ and CI integration testing, replacing the lightweight mock used in `demo/`.
 docker compose -f development/docker-compose.yml up -d --wait
 
 # 2. Seed test data (locations, devices, ASNs, …)
-python development/seed_nautobot.py
+uv run --project api python development/seed_nautobot.py
 
 # 3. (Optional) Start nautobot-maps alongside Nautobot
 docker compose -f development/docker-compose.yml --profile full up -d
 
 # 4. Run integration tests against the real Nautobot
-NAUTOBOT_LIVE_URL=http://localhost:8080 \
+cd api && NAUTOBOT_LIVE_URL=http://localhost:8080 \
 NAUTOBOT_LIVE_TOKEN=aaaa-bbbb-cccc-dddd-eeee \
-python -m pytest tests/test_nautobot_live.py -v
+uv run pytest tests/test_nautobot_live.py -v
 ```
 
 ## Default Credentials
@@ -69,7 +69,7 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) includes an
 
 1. Starts the real Nautobot stack
 2. Seeds it with test data
-3. Runs the live integration tests (`tests/test_nautobot_live.py`)
+3. Runs the live integration tests (`api/tests/test_nautobot_live.py`)
 
-This runs on every push / PR to `main`, in parallel with the existing
-mock-based test matrix.
+This runs on every push / PR to `main`, in parallel with the mock-based
+tests (the `api` job).
