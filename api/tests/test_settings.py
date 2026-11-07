@@ -24,13 +24,15 @@ REPO_ROOT = API_ROOT.parent
 LEGACY_SETTINGS = {"NAUTOBOT_MAPS_DB"}
 # Only for the development server.
 NOT_PASSED_BY_COMPOSE = {
+    # The development server's (python -m app.serve), and development's SQL log.
     "FLASK_DEBUG",
     "FLASK_RUN_PORT",
     "SQL_ECHO",
-    # Set by the image (api/Dockerfile), where it put web/'s built pages.
+    # Set by the image (Dockerfile), where it put web/'s built pages.
     "WEB_BUILD_DIR",
-    # compose sets DATABASE_URL (+ DATABASE_PASSWORD) to its own PostgreSQL.
-    "NAUTOBOT_MAPS_DATABASE_URL",
+    # compose sets NAUTOBOT_MAPS_DATABASE_URL to its own PostgreSQL, which wins.
+    "DATABASE_URL",
+    "DATABASE_PASSWORD",
     *LEGACY_SETTINGS,
 }
 
@@ -48,19 +50,12 @@ def load(monkeypatch, **env: str) -> Settings:
 # --- Plumbing ------------------------------------------------------------------------------
 
 
-def test_every_setting_of_the_current_app_is_here():
-    source = (REPO_ROOT / "nautobot_maps" / "settings.py").read_text(encoding="utf-8")
-    current = set(re.findall(r'(?:os\.getenv|_flag)\(\s*"([A-Z][A-Z0-9_]+)"', source))
-    assert current, "the current app's settings module moved"
-    missing = sorted(current - set(SETTING_NAMES))
-    assert not missing, f"add to app/utils/config.py: {missing}"
-
-
 def test_compose_passes_every_setting():
-    compose = yaml.safe_load((REPO_ROOT / "deploy" / "next" / "compose.yml").read_text("utf-8"))
-    passed = set(compose["services"]["api"]["environment"])
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
+    environment = compose["services"]["nautobot-maps"]["environment"]
+    passed = {entry.split("=", 1)[0] for entry in environment}
     missing = sorted(set(SETTING_NAMES) - passed - NOT_PASSED_BY_COMPOSE)
-    assert not missing, f"add to deploy/next/compose.yml (api environment): {missing}"
+    assert not missing, f"add to docker-compose.yml (nautobot-maps environment): {missing}"
 
 
 def test_every_setting_is_documented():

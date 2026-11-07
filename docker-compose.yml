@@ -160,6 +160,8 @@ services:
       - DB_CONNECT_TIMEOUT_SECONDS=${DB_CONNECT_TIMEOUT_SECONDS:-}
       - DB_STATEMENT_TIMEOUT_SECONDS=${DB_STATEMENT_TIMEOUT_SECONDS:-}
       # PostgreSQL persistence: the bundled postgres service unless overridden.
+      # Other sites' pages that may call the API (#594); the app's own share its origin.
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
       - NAUTOBOT_MAPS_DATABASE_URL=${NAUTOBOT_MAPS_DATABASE_URL-postgresql://${POSTGRES_USER:-nautobot_maps}:${POSTGRES_PASSWORD:-nautobot_maps}@postgres:5432/${POSTGRES_DB:-nautobot_maps}}
     depends_on:
       redis:
