@@ -10,9 +10,11 @@ from app.frontend import controller as frontend
 from app.frontend.middleware import FinishMiddleware
 from app.services import scheduler
 from app.session import DbSessionMiddleware
+from app.utils import access_log
 from app.utils.config import get_settings
 from app.utils.errors import install_error_handlers
 from app.v1 import deps as v1_deps
+from app.v1 import legacy_paths
 from app.v1 import routes as v1_routes
 
 
@@ -51,10 +53,14 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
-    # Outermost: the security headers and gzip on every answer, errors included (#594).
+    # The current app's /api/<path>: 308 to /api/v1/<path> (#613).
+    app.add_middleware(legacy_paths.LegacyApiRedirect, routes=lambda: app.routes)
+    # The security headers and gzip on every answer, errors included (#594).
     app.add_middleware(FinishMiddleware)
     # HEAD as GET without the body, as the current app (#604).
     app.add_middleware(v1_deps.HeadAsGet)
+    # Outermost: one access log line per request, whatever answered it (#613).
+    app.add_middleware(access_log.AccessLog)
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(docs.router)

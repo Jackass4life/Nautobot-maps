@@ -129,7 +129,7 @@ class TestStatusLinks:
             and "tokens still work" in replaced["message"]
         )
         assert replaced["status_link"] == f"/status/{link_of('Acme Corp')}"
-        assert flask_client.get(f"/api{old}", headers=bearer(admin_token)).status_code == 404
+        assert flask_client.get(f"/api/v1{old}", headers=bearer(admin_token)).status_code == 404
 
     def test_a_removed_tenants_leaked_link_can_still_be_replaced(self, flask_client):
         admin_token = make("admin", "admin")["token"]

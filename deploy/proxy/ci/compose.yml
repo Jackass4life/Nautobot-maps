@@ -11,7 +11,8 @@ services:
 
   mock-nautobot:
     build: .
-    command: python demo/mock_nautobot.py
+    # The image starts the app; the mock is its own program (FastAPI, in the image).
+    entrypoint: ["python", "/app/demo/mock_nautobot.py"]
     # demo/ is not in the image (.dockerignore), as in demo/docker-compose.yml.
     volumes:
       - ./demo/mock_nautobot.py:/app/demo/mock_nautobot.py:ro

@@ -6674,18 +6674,8 @@ class TestAlertHistoryCsvCells:
         assert export.file_name("", "incidents", "all", now) == "site-incidents-all-2026-10-07.csv"
 
 
-# Held back until what they need is ported (#587):
-#   TestAlertBoard.test_log_alert_board_exclusions_reports_resolved_sets: the current app's app.py startup (step 10)
-#   TestSSLVerification.test_missing_ca_bundle_is_logged_at_startup: the current app's app.py startup (step 10)
-#   TestAlertBoardWithoutPersistence.test_startup_log_warns_without_database: the current app's app.py startup (step 10)
-#   TestAlertBoardWithoutPersistence.test_startup_log_errors_on_leftover_sqlite_setting: the current app's app.py startup (step 10)
-#   TestAlertBoardWithoutPersistence.test_startup_log_quiet_with_database: the current app's app.py startup (step 10)
-#   TestLogging.test_json_lines_include_the_stack_trace: the current app's server and logging setup (step 10)
-#   TestLogging.test_successful_health_checks_are_not_access_logged: the current app's server and logging setup (step 10)
-#   TestLogging.test_gunicorn_config_logs_access_and_keeps_a_root_logger: the current app's server and logging setup (step 10)
-
-# The current app's own schema migration and gunicorn tests are its own: the schema
-# here is Alembic's (tests/test_schema.py), the server uvicorn:
+# The current app's own schema migration tests are its own: the schema here is
+# Alembic's (tests/test_schema.py); its gunicorn tests are in tests/test_server.py:
 #   TestAlertLifecycleTracking.test_init_db_rekeys_open_alerts_without_severity
 #   TestAlertLifecycleTracking.test_app_starts_with_open_alerts_to_migrate
 #   TestAlertLifecycleTracking.test_init_db_postgres_uses_advisory_lock_before_ddl
@@ -6693,12 +6683,6 @@ class TestAlertHistoryCsvCells:
 #   TestAlertLifecycleTracking.test_init_db_postgres_migrates_legacy_sync_state_cache_version
 #   TestAlertLifecycleTracking.test_init_db_migrates_legacy_time_zone_not_null
 #   TestAlertLifecycleTracking.test_init_db_marks_primary_ip_migration_pending
-#   TestAuthConfiguration.test_header_auth_binds_gunicorn_to_all_interfaces
-#   TestAuthConfiguration.test_non_header_auth_keeps_public_gunicorn_bind
-#   TestAuthConfiguration.test_gunicorn_when_ready_logs_alert_board_exclusions
-#   TestAuthConfiguration.test_default_gunicorn_timeout_is_120_seconds
-#   TestAuthConfiguration.test_gunicorn_timeout_has_a_120_second_floor
-#   TestAuthConfiguration.test_gunicorn_timeout_allows_values_above_floor
 #   TestLibreNMSPolledIp.test_migration_adds_ip_column_to_existing_table
 #   TestLibreNMSPolledIp.test_postgres_migration_adds_ip_column
 #   TestSiteRollup.test_migration_adds_parent_id_column
@@ -6737,3 +6721,7 @@ class TestAlertHistoryCsvCells:
 # Left out: it changes the database URL while running; the engines here are made at
 # startup. tests/test_openapi.py::test_healthz_without_the_database is that 503.
 #   test_unavailable_database_returns_503_without_details
+# The startup log and logging tests are in tests/test_server.py (#613); without a
+# database setting there is nothing to warn about (the new stack always has one):
+#   TestAlertBoardWithoutPersistence.test_startup_log_warns_without_database
+#   TestAlertBoardWithoutPersistence.test_startup_log_quiet_with_database
