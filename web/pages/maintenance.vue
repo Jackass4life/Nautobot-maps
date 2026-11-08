@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { addDays, formatRange } from "~/utils/calendar";
 import { errorMessage, searchWords } from "~/utils/format";
+import { latestOnly } from "~/utils/latest";
 import {
   batchesOf,
   batchMatches,
@@ -101,13 +102,17 @@ function setStatus(text: string, isError = false) {
   statusError.value = isError;
 }
 
+// A slow, older list must not replace a newer one (#605).
+const nextLoad = latestOnly();
 async function loadList() {
+  const isNewest = nextLoad();
   try {
     const { $api } = useNuxtApp();
     const request = historyView
       ? $api.GET("/api/v1/maintenance/history", { params: { query: queryOf(historyQuery()) as never } })
       : $api.GET("/api/v1/maintenance", { params: { query: { recent_days: String(limits.value.recent_days) } as never } });
     const payload = (await unwrap(request)) as { windows: MaintenanceWindow[]; tenant_descriptions: Record<string, string>; truncated: boolean };
+    if (!isNewest()) return;
     const windows = payload.windows || [];
     descriptions.value = { ...descriptions.value, ...payload.tenant_descriptions };
     batches.value = batchesOf(windows, { keepOrder: historyView, descriptions: descriptions.value });
@@ -122,6 +127,7 @@ async function loadList() {
     const time = now.value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setStatus(`${count("active")} active · ${count("upcoming")} planned · updated ${time}${cut}`);
   } catch (err) {
+    if (!isNewest()) return;
     setStatus(`Could not load maintenance: ${errorMessage(err)}`, true);
   }
 }

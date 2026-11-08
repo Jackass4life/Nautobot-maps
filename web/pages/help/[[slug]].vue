@@ -3,6 +3,7 @@
      the server's, made from the repository's Markdown (no raw HTML in it). -->
 <script setup lang="ts">
 import type { components } from "~/types/api";
+import { latestOnly } from "~/utils/latest";
 
 type HelpPage = components["schemas"]["HelpPage"];
 
@@ -32,11 +33,20 @@ async function fetchGuide(name: string): Promise<HelpPage> {
   return found;
 }
 
+// Quick clicks between guides: only the last one's text, error and scroll
+// (#605).  Each guide mounts its own page, so leaving also drops the pending
+// load: a late answer must not scroll the next guide.
+const nextLoad = latestOnly();
+onBeforeUnmount(() => nextLoad());
 async function load() {
+  const isNewest = nextLoad();
   try {
-    page.value = await fetchGuide(slug.value);
+    const found = await fetchGuide(slug.value);
+    if (!isNewest()) return;
+    page.value = found;
     error.value = "";
   } catch {
+    if (!isNewest()) return;
     page.value = null;
     error.value = "This guide could not be loaded; try again shortly.";
   }
