@@ -10,9 +10,10 @@ export const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 export function parseDay(day: string | null | undefined): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || "");
   if (!match) return null;
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  // 2026-02-30 rolls over to March: not a day.
-  return date.getUTCDate() === Number(match[3]) ? date : null;
+  const [year, month, dayOfMonth] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, dayOfMonth));
+  // 2026-02-30 rolls over to March and 2026-13-01 to next January (#607): not days.
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === dayOfMonth ? date : null;
 }
 
 export function formatDay(date: Date): string {
