@@ -35,7 +35,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         lifespan=lifespan,
         title="Nautobot Maps",
-        version="0.1.0",
+        version="0.3.0",
         # Our own routes (app/docs.py), behind the sign-in rules like every other one.
         openapi_url=None,
         docs_url=None,
