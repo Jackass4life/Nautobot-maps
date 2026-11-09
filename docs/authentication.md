@@ -27,7 +27,7 @@ Who can open the app, and who can change things in it. The app has no login scre
 With `AUTH_MODE=disabled`:
 
 - the map, the alert board and the read-only APIs are open to anyone who can reach the app;
-- adding a case number to an alert works (the board needs it);
+- **cases and acknowledgements work for anyone who can reach the app**: adding a case number, acknowledging and **Remove ack** (the board needs them; `POST /api/v1/alert-cases`, `/api/v1/alert-acks` and `/api/v1/alert-acks/remove`). The board and its history then show no name for who did it (a script with an [API token](#api-tokens) shows as `token:<name>`);
 - **changing criticality overrides, managing maintenance windows, sending test notifications and everything on the Admin page are refused** (403): they change what alarms for everyone, or send real messages to your channels. Set `ALLOW_UNAUTHENTICATED_WRITES=true` only if the app is reachable by trusted users alone; for scripts, an operator [API token](#api-tokens) is the safer way.
 
 ## With a sign-in proxy
