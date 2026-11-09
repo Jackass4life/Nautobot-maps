@@ -1097,6 +1097,29 @@ def test_api_tokens_from_the_admin_page(admin_page, request):
     page.locator(f'.token-row[data-name="{name}"]').wait_for(state="detached")
 
 
+def test_admin_sections_say_what_to_set_when_nothing_is(admin_page):
+    """Notifications and Wireless always show (#627): with nothing set up, what to
+    set; Send test answers what is missing."""
+    page = admin_page
+    page.goto(f"{BASE_URL}/admin")
+    page.locator("#admin-notifications").wait_for()
+    page.locator("#admin-wireless").wait_for()
+    admin = page.evaluate("fetch('/api/v1/page-config').then((r) => r.json())")["admin"]
+    if admin["notification_channels"]:
+        assert page.locator("#notify-none").count() == 0
+    else:
+        assert page.locator("#notify-none").inner_text() == "No channel set up"
+        assert "NOTIFY_WEBHOOK_URL" in page.locator("#admin-notifications").inner_text()
+        page.locator("#notify-test").click()
+        page.locator("#admin-notifications [role=alert]", has_text="No notification channel configured").wait_for()
+    if admin["wireless_controllers"]:
+        assert page.locator("#wireless-check").count() == 1
+    else:
+        assert page.locator("#wireless-none").inner_text() == "No controllers set up"
+        assert page.locator("#wireless-check").count() == 0
+        assert "WIRELESS_CONTROLLERS_FILE" in page.locator("#admin-wireless").inner_text()
+
+
 def test_share_a_tenants_status_page_from_availability(admin_page, browser):
     """An admin makes a customer link next to a tenant; the customer opens it (#530)."""
     page = admin_page

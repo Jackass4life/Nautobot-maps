@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+- **The Admin page always shows Notifications and Wireless controllers** (#627): with no channel or no controller set up, the section used to be left out, so **Send test** seemed missing. Now it says "No channel set up" (or "No controllers set up") and which settings make one, with a link to the guide; **Send test** answers what is missing, e.g. `NOTIFY_EMAIL_TO` without `SMTP_HOST`
+
 ### Changed
 - **The API page is grouped by the app's pages** (#623): on `/api/docs`, Map, Alert Board, Availability, Maintenance, Circuits, Status page, Administration and Documentation, in the menu's order, then Auth, Incoming alerts, Shared, Monitoring and Examples, each with a line on what it is for (it was Pages, Monitoring and a few lowercase groups). `GET /api/v1/endpoints` answers each endpoint's `section` and lists them in that order; `group` stays. Links to a group on the API page (`/api/docs#/Alert%20board/...`) follow the new names
 
