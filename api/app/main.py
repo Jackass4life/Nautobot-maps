@@ -16,6 +16,7 @@ from app.utils.errors import install_error_handlers
 from app.v1 import deps as v1_deps
 from app.v1 import legacy_paths
 from app.v1 import routes as v1_routes
+from app.v1 import sections as v1_sections
 
 
 @asynccontextmanager
@@ -36,6 +37,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         title="Nautobot Maps",
         version="0.3.0",
+        # One tag per page section, in the menu's order, with what each is for (#623).
+        openapi_tags=v1_sections.openapi_tags(),
         # Our own routes (app/docs.py), behind the sign-in rules like every other one.
         openapi_url=None,
         docs_url=None,

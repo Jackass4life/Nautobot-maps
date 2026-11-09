@@ -22,10 +22,11 @@ from sqlalchemy import text
 
 from app import session
 from app.services import metrics_service
+from app.v1 import sections
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=sections.tag("monitoring"))
 PROBE_SECONDS = 2
 # Probes run here, so one stuck on a dead database can't hold a request thread.
 _probes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="health-probe")

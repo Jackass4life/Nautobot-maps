@@ -136,7 +136,7 @@ def _fastapi_query_params(dependant) -> list[str]:
 def routes(app=None) -> list[dict]:
     """Every route the app serves (#436; *app* is ignored, kept for callers):
     ``path`` (Flask's notation), ``methods``, ``endpoint``, ``view``,
-    ``path_params``, ``query_params``, ``required_role``."""
+    ``path_params``, ``query_params``, ``required_role``, ``tags``."""
     found = []
     from fastapi.routing import APIRoute
 
@@ -173,13 +173,18 @@ def routes(app=None) -> list[dict]:
                 "path_params": sorted(route.param_convertors),
                 "query_params": _fastapi_query_params(route.dependant),
                 "required_role": deps.required_role(route),
+                "tags": list(route.tags),
             }
         )
     return found
 
 
 def endpoints(app=None) -> list[dict]:
-    """Every route except static files, grouped Pages / API / Monitoring."""
+    """Every route except static files, by section (#623), the menu's order:
+    ``section`` is the route's one tag; ``group`` (Pages / API / Monitoring) is
+    kept for callers that read it."""
+    from app.v1 import sections
+
     result = []
     for route in routes(app):
         summary, _, description = (inspect.getdoc(route["view"]) or "").partition("\n\n")
@@ -188,6 +193,7 @@ def endpoints(app=None) -> list[dict]:
             {
                 "path": route["path"],
                 "methods": route["methods"],
+                "section": route["tags"][0] if route["tags"] else "",
                 "group": _group(route["path"]),
                 "summary": _ISSUE_REFS.sub("", " ".join(summary.split())),
                 "description": description.strip(),
@@ -203,7 +209,10 @@ def endpoints(app=None) -> list[dict]:
                 "example_body_text": json.dumps(example_body, indent=2) if example_body else "{}",
             }
         )
-    result.sort(key=lambda item: (GROUPS.index(item["group"]), item["path"], item["methods"]))
+    order = {name: index for index, name in enumerate(sections.NAMES)}
+    result.sort(
+        key=lambda item: (order.get(item["section"], len(order)), item["path"], item["methods"])
+    )
     return result
 
 

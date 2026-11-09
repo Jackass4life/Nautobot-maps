@@ -1926,6 +1926,7 @@ export interface components {
             example_body_text: string;
             /**
              * Group
+             * @description The older grouping, kept for callers: sort by section instead.
              * @enum {string}
              */
             group: "Pages" | "API" | "Monitoring";
@@ -1942,6 +1943,12 @@ export interface components {
             query_params: string[];
             /** Required Role */
             required_role: ("viewer" | "operator" | "admin") | null;
+            /**
+             * Section
+             * @description The API's section: the page it belongs to, or Auth, Incoming alerts, Shared, Monitoring, Examples.
+             * @enum {string}
+             */
+            section: "Map" | "Alert Board" | "Availability" | "Maintenance" | "Circuits" | "Status page" | "Administration" | "Documentation" | "Auth" | "Incoming alerts" | "Shared" | "Monitoring" | "Examples";
             /** Summary */
             summary: string;
         };

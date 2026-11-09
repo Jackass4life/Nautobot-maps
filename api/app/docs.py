@@ -8,11 +8,16 @@ from fastapi.responses import JSONResponse, Response
 
 from app.frontend import controller as frontend
 from app.utils.auth import check_request
+from app.v1 import sections
 
 OPENAPI_URL = "/api/openapi.json"
 DOCS_URL = "/api/docs"
 
-router = APIRouter(dependencies=[Depends(check_request)], include_in_schema=False)
+router = APIRouter(
+    dependencies=[Depends(check_request)],
+    include_in_schema=False,
+    tags=sections.tag("documentation"),
+)
 
 
 @router.get(OPENAPI_URL)

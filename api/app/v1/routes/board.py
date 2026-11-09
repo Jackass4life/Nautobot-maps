@@ -19,14 +19,16 @@ from app.services import legacy_auth as auth
 from app.services import scheduler
 from app.services import scope_service as scope
 from app.utils import timeutil
-from app.v1 import deps, models
+from app.v1 import deps, models, sections
 from app.v1.answers import board as answers
 from app.v1.answers import common
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Alert board"]
+    route_class=deps.AppRoute,
+    dependencies=deps.ROUTER_DEPENDENCIES,
+    tags=sections.tag("alert_board"),
 )
 
 Body = Annotated[object, Depends(deps.json_body)]

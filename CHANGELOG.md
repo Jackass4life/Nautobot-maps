@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+- **The API page is grouped by the app's pages** (#623): on `/api/docs`, Map, Alert Board, Availability, Maintenance, Circuits, Status page, Administration and Documentation, in the menu's order, then Auth, Incoming alerts, Shared, Monitoring and Examples, each with a line on what it is for (it was Pages, Monitoring and a few lowercase groups). `GET /api/v1/endpoints` answers each endpoint's `section` and lists them in that order; `group` stays. Links to a group on the API page (`/api/docs#/Alert%20board/...`) follow the new names
+
 ## [0.3.0] - 2026-11-09
 
 ### Breaking

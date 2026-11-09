@@ -127,6 +127,13 @@ They stand on:
 - `app/services/legacy_auth.py`: the current `auth` functions over #592's rules (one sign-in);
 - `app/utils/requestctx.py`: the request being answered, for code below the routes (MCP).
 
+**Sections (#623).** The API is grouped by the app's pages: `app/v1/sections.py` lists them in
+the menu's order (Map, Alert Board, … Documentation), then Auth, Incoming alerts, Shared,
+Monitoring and Examples. Every route has exactly one section as its tag
+(`tags=sections.tag("map")`, on the router or, where a module serves several, on the route);
+`/api/docs` and `/api/v1/endpoints` show them in that order, and `tests/test_sections.py` fails
+on a route without one. A new route takes its page's section.
+
 Errors answer `{"error": ...}`: 404 and 405 after the sign-in check, 400 for bad input
 (not FastAPI's 422), 500 with the security headers. HEAD answers as GET without the body.
 

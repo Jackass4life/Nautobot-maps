@@ -17,17 +17,16 @@ from app.services import mcp_service as mcp
 from app.services import metrics_service as metrics
 from app.services import wireless_service as wireless
 from app.utils.legacy_settings import settings
-from app.v1 import deps
+from app.v1 import deps, sections
 from app.v1.answers import ops as answers
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Monitoring"]
-)
+# No router tag (#623): metrics and MCP are Monitoring, the rest belongs to other sections.
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
 
 
-@router.get("/metrics", name="ops.prometheus_metrics")
+@router.get("/metrics", name="ops.prometheus_metrics", tags=sections.tag("monitoring"))
 def prometheus_metrics():
     """Prometheus metrics: sync health, open alerts, sites by level (#200)."""
     if not settings.METRICS_ENABLED:
@@ -56,7 +55,12 @@ def prometheus_metrics():
     return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
-@router.get("/api/v1/app-status", name="ops.api_app_status", response_model=answers.AppStatus)
+@router.get(
+    "/api/v1/app-status",
+    name="ops.api_app_status",
+    response_model=answers.AppStatus,
+    tags=sections.tag("shared"),
+)
 def api_app_status():
     """How fresh the app's data is, for the top bar on every page (#419).
 
@@ -94,7 +98,7 @@ def api_app_status():
     return deps.Json(body, headers={"Cache-Control": "no-store"})
 
 
-@router.post("/mcp", name="ops.mcp_endpoint")
+@router.post("/mcp", name="ops.mcp_endpoint", tags=sections.tag("monitoring"))
 def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUEST_BYTES))]):
     """MCP server for AI assistants (#250): the alert board as tools.
 
@@ -111,7 +115,12 @@ def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUES
     return deps.Json(answer, status_code=status)
 
 
-@router.get("/api/v1/endpoints", name="ops.api_endpoints", response_model=answers.Endpoints)
+@router.get(
+    "/api/v1/endpoints",
+    name="ops.api_endpoints",
+    response_model=answers.Endpoints,
+    tags=sections.tag("documentation"),
+)
 def api_endpoints():
     """Every page and API endpoint as JSON: methods, parameters, body and role (#230)."""
     return deps.Json({"endpoints": apidocs.endpoints()})

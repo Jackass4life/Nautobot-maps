@@ -4,9 +4,10 @@ from fastapi import APIRouter
 
 from app.services import contract_service
 from app.session import DbSession
+from app.v1 import sections
 from app.v1.contract.dtos import ContractDto
 
-router = APIRouter(prefix="/contract", tags=["contract"])
+router = APIRouter(prefix="/contract", tags=sections.tag("administration"))
 
 
 @router.get("", operation_id="getContract", response_model=ContractDto)

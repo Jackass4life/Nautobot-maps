@@ -8,14 +8,14 @@ from fastapi.responses import StreamingResponse
 from app import db
 from app.frontend import controller as frontend
 from app.services import circuits_service as circuits
-from app.v1 import deps
+from app.v1 import deps, sections
 from app.v1.answers import circuits as answers
 from app.v1.answers import common
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Circuits"]
+    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=sections.tag("circuits")
 )
 
 

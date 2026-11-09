@@ -5,9 +5,10 @@ from fastapi import APIRouter
 from app.services import auth_service
 from app.utils.auth import CurrentUserDep
 from app.utils.config import get_settings
+from app.v1 import sections
 from app.v1.me.dtos import MeDto
 
-router = APIRouter(prefix="/me", tags=["auth"])
+router = APIRouter(prefix="/me", tags=sections.tag("auth"))
 
 
 @router.get("", operation_id="getCurrentUser", response_model=MeDto)

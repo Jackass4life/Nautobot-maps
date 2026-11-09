@@ -1671,6 +1671,7 @@
             "type": "string"
           },
           "group": {
+            "description": "The older grouping, kept for callers: sort by section instead.",
             "enum": [
               "Pages",
               "API",
@@ -1723,6 +1724,26 @@
             ],
             "title": "Required Role"
           },
+          "section": {
+            "description": "The API's section: the page it belongs to, or Auth, Incoming alerts, Shared, Monitoring, Examples.",
+            "enum": [
+              "Map",
+              "Alert Board",
+              "Availability",
+              "Maintenance",
+              "Circuits",
+              "Status page",
+              "Administration",
+              "Documentation",
+              "Auth",
+              "Incoming alerts",
+              "Shared",
+              "Monitoring",
+              "Examples"
+            ],
+            "title": "Section",
+            "type": "string"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -1731,6 +1752,7 @@
         "required": [
           "path",
           "methods",
+          "section",
           "group",
           "summary",
           "description",
@@ -5896,7 +5918,7 @@
         },
         "summary": "Acknowledge a site's alarm: someone is on it, without a case number.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -6030,7 +6052,7 @@
         },
         "summary": "Remove an acknowledgement: ``site_id``, optional ``device_ids``.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -6168,7 +6190,7 @@
         },
         "summary": "Attach a case number to the open alert of one or more devices at a site.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -6292,7 +6314,7 @@
         },
         "summary": "What changed on the alert board, newest first.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -6432,7 +6454,7 @@
         },
         "summary": "Return historical alert instances with events and case numbers.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -6541,7 +6563,7 @@
         },
         "summary": "A site's alert history as a CSV download.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -6747,7 +6769,7 @@
         },
         "summary": "Return alert-board summaries for all Nautobot locations.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -6769,7 +6791,7 @@
         },
         "summary": "How fresh the app's data is, for the top bar on every page.",
         "tags": [
-          "Monitoring"
+          "Shared"
         ]
       }
     },
@@ -7091,7 +7113,7 @@
         },
         "summary": "Get Contract",
         "tags": [
-          "contract"
+          "Administration"
         ]
       }
     },
@@ -7152,7 +7174,7 @@
         },
         "summary": "Return all per-device criticality overrides stored in the DB.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       },
       "post": {
@@ -7271,7 +7293,7 @@
         },
         "summary": "Create or update a per-device criticality override.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -7369,7 +7391,7 @@
         },
         "summary": "Delete a per-device criticality override.",
         "tags": [
-          "Alert board"
+          "Alert Board"
         ]
       }
     },
@@ -7536,7 +7558,7 @@
         },
         "summary": "Every page and API endpoint as JSON: methods, parameters, body and role.",
         "tags": [
-          "Monitoring"
+          "Documentation"
         ]
       }
     },
@@ -7595,7 +7617,7 @@
         },
         "summary": "One documentation page: its title and HTML, and the list of guides.",
         "tags": [
-          "Pages"
+          "Documentation"
         ]
       }
     },
@@ -7671,7 +7693,7 @@
         },
         "summary": "List Items",
         "tags": [
-          "items"
+          "Examples"
         ]
       },
       "post": {
@@ -7739,7 +7761,7 @@
         },
         "summary": "Create Item",
         "tags": [
-          "items"
+          "Examples"
         ]
       }
     },
@@ -7803,7 +7825,7 @@
         },
         "summary": "Delete Item",
         "tags": [
-          "items"
+          "Examples"
         ]
       },
       "get": {
@@ -7872,7 +7894,7 @@
         },
         "summary": "Get Item",
         "tags": [
-          "items"
+          "Examples"
         ]
       }
     },
@@ -9112,7 +9134,7 @@
         },
         "summary": "Get Current User",
         "tags": [
-          "auth"
+          "Auth"
         ]
       }
     },
@@ -9205,7 +9227,7 @@
         },
         "summary": "What the pages built with Nuxt read to draw themselves: who is signed in (the top bar), Nautobot's address (links to its pages), the menu, the same as the server-rendered pages show, the Maintenance page's and Availability's limits, the map's tiles and first view, and the board's case links and level definitions.",
         "tags": [
-          "Pages"
+          "Shared"
         ]
       }
     },
@@ -9738,7 +9760,7 @@
         },
         "summary": "List Tokens",
         "tags": [
-          "tokens"
+          "Administration"
         ]
       },
       "post": {
@@ -9846,7 +9868,7 @@
         },
         "summary": "Create Token",
         "tags": [
-          "tokens"
+          "Administration"
         ]
       }
     },
@@ -9937,7 +9959,7 @@
         },
         "summary": "Purge Tokens",
         "tags": [
-          "tokens"
+          "Administration"
         ]
       }
     },
@@ -10009,7 +10031,7 @@
         },
         "summary": "Revoke Token",
         "tags": [
-          "tokens"
+          "Administration"
         ]
       }
     },
@@ -10141,7 +10163,7 @@
         },
         "summary": "Get Health",
         "tags": [
-          "health"
+          "Monitoring"
         ]
       }
     },
@@ -10236,5 +10258,59 @@
         ]
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "description": "Sites, a site's detail, alert levels, search, coordinates.",
+      "name": "Map"
+    },
+    {
+      "description": "Sites in alarm, cases, acks, history, overrides.",
+      "name": "Alert Board"
+    },
+    {
+      "description": "Per site and tenant, by month; CSV.",
+      "name": "Availability"
+    },
+    {
+      "description": "Current, planned and past windows; planning.",
+      "name": "Maintenance"
+    },
+    {
+      "description": "Circuits without a termination, their likely site.",
+      "name": "Circuits"
+    },
+    {
+      "description": "A tenant's status page, on its private link.",
+      "name": "Status page"
+    },
+    {
+      "description": "Tokens, status links, wireless check, contract.",
+      "name": "Administration"
+    },
+    {
+      "description": "The guides, this page, its spec, the endpoint list.",
+      "name": "Documentation"
+    },
+    {
+      "description": "Who is signed in, and their role.",
+      "name": "Auth"
+    },
+    {
+      "description": "Pushed in: LibreNMS, Alertmanager, webhooks.",
+      "name": "Incoming alerts"
+    },
+    {
+      "description": "What every page reads: settings, the data's freshness.",
+      "name": "Shared"
+    },
+    {
+      "description": "For machines: health, Prometheus metrics, MCP.",
+      "name": "Monitoring"
+    },
+    {
+      "description": "The example resource for new code (items).",
+      "name": "Examples"
+    }
+  ]
 }
