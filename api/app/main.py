@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import docs, health, v1
+from app import v1
 from app.clients import caching, nautobot
 from app.frontend import controller as frontend
 from app.frontend.middleware import FinishMiddleware
@@ -15,7 +15,6 @@ from app.utils.config import get_settings
 from app.utils.errors import install_error_handlers
 from app.v1 import deps as v1_deps
 from app.v1 import legacy_paths
-from app.v1 import routes as v1_routes
 from app.v1 import sections as v1_sections
 
 
@@ -39,7 +38,7 @@ def create_app() -> FastAPI:
         version="0.3.0",
         # One tag per page section, in the menu's order, with what each is for (#623).
         openapi_tags=v1_sections.openapi_tags(),
-        # Our own routes (app/docs.py), behind the sign-in rules like every other one.
+        # Our own routes (app/v1/documentation/), behind the sign-in rules like every other one.
         openapi_url=None,
         docs_url=None,
         redoc_url=None,
@@ -65,11 +64,8 @@ def create_app() -> FastAPI:
     # Outermost: one access log line per request, whatever answered it (#613).
     app.add_middleware(access_log.AccessLog)
     install_error_handlers(app)
-    app.include_router(health.router)
-    app.include_router(docs.router)
-    app.include_router(v1.router)
-    # The current app's routes (#604): its API under /api/v1, its pages.
-    v1_routes.install(app)
+    # Every section's routes (#624): the API under /api/v1, the pages, /healthz.
+    v1.install(app)
     app.openapi = lambda: v1_deps.openapi(app)  # type: ignore[method-assign]
     # web/'s pages and their files (#594).
     app.include_router(frontend.router)

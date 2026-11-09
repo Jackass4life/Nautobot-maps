@@ -19,8 +19,8 @@ from app.utils.config import get_settings
 ASSETS_PREFIX = "/_nuxt/"
 # Content-named files never change: a browser keeps them a year.
 ASSET_MAX_AGE = 365 * 24 * 3600
-# Pages this router answers itself; the current app's page routes (app/v1/routes/, #604)
-# answer the shell through ``shell()``.
+# Pages this router answers itself; each section's page routes
+# (app/v1/<section>/controller.py, #604, #624) answer the shell through ``shell()``.
 PAGES: list[str] = []
 
 NOT_BUILT = (

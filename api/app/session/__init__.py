@@ -46,7 +46,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 # The health check's own (#594): a new connection per probe (no stale pooled one, no
 # waiting for a pool slot), 2 s to connect, 2 s for the statement, and a dead peer
-# noticed within 2 s (tcp_user_timeout); app/health.py bounds the whole probe too.
+# noticed within 2 s (tcp_user_timeout); app/services/health_service.py bounds the whole probe too.
 probe_engine = create_engine(
     _settings.sqlalchemy_url(),
     poolclass=NullPool,

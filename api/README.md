@@ -23,8 +23,8 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | Path | What |
 |---|---|
 | `main.py` | App, middleware, routers under `/api/v1`, spec at `/api/openapi.json` |
-| `v1/<resource>/controller.py` | `APIRouter`: HTTP only; DTOs in, DTOs out |
-| `v1/<resource>/dtos.py` | Pydantic request/response models |
+| `v1/<section>/controller.py` | One folder per section of `v1/sections.py` (`map/`, `alert_board/`, …): its `APIRouter`s, HTTP only; DTOs in, DTOs out |
+| `v1/<section>/dtos.py` | Its Pydantic request/response models; shared ones in `v1/common/dtos.py` |
 | `services/<resource>_service.py` | Business rules; ORM ↔ DTO conversion |
 | `repositories/<resource>_repository.py` | All queries; takes a session, returns ORM objects |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
@@ -116,23 +116,26 @@ against CI's real Nautobot 3.x.
 
 ## The first app's routes (#604)
 
-`app/v1/routes/` holds `nautobot_maps/api/`'s routers, ported with their logic as it is. Their
-API is under `/api/v1` (the pages, `/healthz`, `/metrics` and `/mcp` keep their paths), with
-the current answer models (`app/v1/answers/`) as each route's `response_model`, and a stable
-camelCase `operation_id` (the verb and the function's name: `getLocations`, `postAlertCases`).
-They stand on:
+`nautobot_maps/api/`'s routers are ported with their logic as it is, now in their sections'
+`controller.py` (#624). Their API is under `/api/v1` (the pages, `/healthz`, `/metrics` and
+`/mcp` keep their paths), with the current answer models (the section's `dtos.py`) as each
+route's `response_model`, and a stable camelCase `operation_id` (the verb and the function's
+name: `getLocations`, `postAlertCases`). They stand on:
 
 - `app/v1/deps.py`: `Json` (answers as the first app writes them), `AppRoute`, the router
   dependencies, `require_role`;
 - `app/services/legacy_auth.py`: the current `auth` functions over #592's rules (one sign-in);
 - `app/utils/requestctx.py`: the request being answered, for code below the routes (MCP).
 
-**Sections (#623).** The API is grouped by the app's pages: `app/v1/sections.py` lists them in
-the menu's order (Map, Alert Board, … Documentation), then Auth, Incoming alerts, Shared,
-Monitoring and Examples. Every route has exactly one section as its tag
-(`tags=sections.tag("map")`, on the router or, where a module serves several, on the route);
-`/api/docs` and `/api/v1/endpoints` show them in that order, and `tests/test_sections.py` fails
-on a route without one. A new route takes its page's section.
+**Sections (#623, #624).** The API is grouped by the app's pages: `app/v1/sections.py` lists
+them in the menu's order (Map, Alert Board, … Documentation), then Auth, Incoming alerts,
+Shared, Monitoring and Examples. Each is a folder, `app/v1/<key>/`, with its routes in
+`controller.py` (each router tagged `tags=sections.tag("<key>")`) and its models in `dtos.py`,
+which imports only `app/v1/common/dtos.py`. `app/v1/__init__.py` includes them in that order;
+`legacy/` holds the old redirects and `/static/`. `/api/docs` and `/api/v1/endpoints` show the
+sections in order, and `tests/test_sections.py` keeps the layout: a route without its section,
+a router outside a section folder or a `dtos.py` importing another section's fails. **A new
+route goes in its page's folder.**
 
 Errors answer `{"error": ...}`: 404 and 405 after the sign-in check, 400 for bad input
 (not FastAPI's 422), 500 with the security headers. HEAD answers as GET without the body.

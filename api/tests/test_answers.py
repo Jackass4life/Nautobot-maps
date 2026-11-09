@@ -5,9 +5,8 @@ import types
 
 from fastapi.responses import JSONResponse
 
-from app.v1 import deps
-from app.v1.answers import common
-from app.v1.routes import ROUTERS
+from app.v1 import ROUTERS, deps
+from app.v1.common import dtos as common
 from tests import answers as answer_check
 
 # No model, on purpose: MCP describes its own tools; CSV and Prometheus text
