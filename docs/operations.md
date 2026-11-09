@@ -22,7 +22,7 @@ For the person who keeps the app running: upgrades, backups, monitoring and the 
 # docker-compose.override.yml
 services:
   nautobot-maps:
-    image: ghcr.io/jackass4life/nautobot-maps:0.2.0   # the version to run
+    image: ghcr.io/jackass4life/nautobot-maps:0.3.0   # the version to run
     build: !reset null
 ```
 
