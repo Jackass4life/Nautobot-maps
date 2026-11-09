@@ -8,6 +8,14 @@ describe("days", () => {
     expect(parseDay("2026-02-28")).not.toBeNull();
     expect(parseDay("2026-02-30")).toBeNull();
     expect(parseDay("26-1-1")).toBeNull();
+    expect(parseDay("2024-02-29")).not.toBeNull();
+    expect(parseDay("2026-02-29")).toBeNull();
+  });
+
+  it("refuses a month that doesn't exist (#607)", () => {
+    expect(parseDay("2026-00-15")).toBeNull();
+    expect(parseDay("2026-13-01")).toBeNull();
+    expect(parseDay("2026-12-31")).not.toBeNull();
   });
 
   it("adds days and months, a month's end", () => {
