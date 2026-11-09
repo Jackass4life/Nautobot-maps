@@ -3,7 +3,7 @@
 from app.models import Item
 from app.repositories.item_repository import DuplicateNameError, ItemRepository
 from app.utils.errors import ConflictError, NotFoundError
-from app.v1.items.dtos import ItemCreateDto, ItemDto
+from app.v1.examples.dtos import ItemCreateDto, ItemDto
 
 
 class ItemService:

@@ -858,7 +858,7 @@ class TestApi:
     def test_sites_carry_the_tenants_descriptions(self, flask_client, monkeypatch):
         # The picker finds a tenant by its description too (#497): one map
         # for every site, only for sites listed and tenants with one.
-        from app.v1.routes import maintenance as api_maintenance
+        from app.v1.maintenance import controller as api_maintenance
 
         rows = [
             {

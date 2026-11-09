@@ -11,7 +11,7 @@ from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
 from app.utils.legacy_settings import settings
-from app.v1.routes import admin
+from app.v1.administration import controller as admin
 from tests import http_client
 from tests.test_cli import _commands
 from tests.test_tokens import bearer, clock, make  # noqa: F401 (clock: a fixture)

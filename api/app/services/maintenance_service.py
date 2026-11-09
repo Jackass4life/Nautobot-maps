@@ -23,6 +23,10 @@ MAX_REASON_LENGTH = 200
 MAX_DEVICES = 200
 # Sites in one request (#343): a core change across a region, in one transaction.
 MAX_SITES = 200
+# The Maintenance page's "Ended" group (#343), and the history's default period
+# (#353): the last 30 days, today included. Read by the page-config (#624).
+PAGE_RECENT_DAYS = 7
+HISTORY_DEFAULT_DAYS = 30
 # How far back the page's "Ended" group reaches (#343).
 MAX_RECENT_DAYS = 90
 # The page's list: the most it reads; open windows (active, planned) come first.

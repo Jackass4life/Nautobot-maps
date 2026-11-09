@@ -80,15 +80,18 @@ the details.
   security headers and gzip, the old `/api/...` paths' 308), the routers, the pages. The image
   serves it with gunicorn and uvicorn workers (`gunicorn_config.py`, `app/server.py`);
   `python -m app.serve` runs it for development, `python -m app ...` is the command line.
-  - `app/v1/routes/`: the routes under `/api/v1`, one router per area (`locations`, `board`,
-    `maintenance`, `availability`, `circuits`, `status`, `ingest`, `admin`, `ops`, `views`),
-    with `deps.ROUTER_DEPENDENCIES` (the sign-in check), `route_class=deps.AppRoute` and
-    `deps.require_role("operator")` for writes. Answer with `deps.Json`, refuse with
-    `raise deps.ApiError(body, status)`, read a JSON body with `deps.json_body` and give its
-    model to the spec with `openapi_extra=deps.body_schema(...)`; query strings are models in
-    `app/v1/models.py`. Every route has a `response_model` from `app/v1/answers/<area>.py`
-    (fields as sent, `extra="forbid"`) and a camelCase `operation_id`: every test checks each
-    answer it gets against that model (`tests/answers.py`), so `/api/docs` stays true.
+  - `app/v1/<section>/`: one folder per section of the API, as `/api/docs` shows them
+    (`app/v1/sections.py`: the pages in the menu's order, `map/`, `alert_board/`, …
+    `documentation/`, then `auth/`, `incoming_alerts/`, `shared/`, `monitoring/`,
+    `examples/`). A new route goes in its page's folder. `controller.py` holds the routes,
+    with `deps.ROUTER_DEPENDENCIES` (the sign-in check), `route_class=deps.AppRoute`, the
+    section's tag and `deps.require_role("operator")` for writes. Answer with `deps.Json`,
+    refuse with `raise deps.ApiError(body, status)`, read a JSON body with `deps.json_body`
+    and give its model to the spec with `openapi_extra=deps.body_schema(...)`. `dtos.py`
+    holds the section's query and body models and each route's `response_model` (fields as
+    sent, `extra="forbid"`); shared ones are in `app/v1/common/dtos.py`. Every route has a
+    camelCase `operation_id`: every test checks each answer it gets against its model
+    (`tests/answers.py`), so `/api/docs` stays true.
   - `app/services/`: one module per job: `inventory_service` (the sync into the snapshot
     tables), `alerts_service` (the board's rules, no SQL), `maintenance_service`,
     `availability_service`, `notify_service`, `webhooks_service`, `wireless_service` and

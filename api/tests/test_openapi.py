@@ -104,7 +104,7 @@ def test_a_stuck_probe_queues_no_more(client, monkeypatch, caplog):
     at once and starts nothing (#603 review)."""
     import threading
 
-    from app import health
+    from app.services import health_service as health
 
     release = threading.Event()
     calls = []
@@ -130,7 +130,7 @@ def test_overlapping_checks_share_a_healthy_probe(client, monkeypatch):
     import threading
     import time
 
-    from app import health
+    from app.services import health_service as health
 
     calls = []
 

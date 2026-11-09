@@ -12,7 +12,7 @@ from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import mcp_service as mcp
 from app.utils.legacy_settings import settings
-from app.v1.answers import board as board_answers
+from app.v1.alert_board import dtos as board_answers
 from tests import answers, http_client
 from tests.test_app import auth_config
 

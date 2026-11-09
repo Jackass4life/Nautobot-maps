@@ -12,7 +12,7 @@ from app.services import inventory_service as inventory
 from app.utils import timeutil
 from app.utils.legacy_settings import settings
 from app.v1 import deps
-from app.v1.answers import availability as answers
+from app.v1.availability import dtos as answers
 from tests import http_client
 
 NOW = "2026-10-21T00:00:00Z"  # 20 days into October

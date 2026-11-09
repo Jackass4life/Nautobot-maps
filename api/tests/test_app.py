@@ -24,10 +24,10 @@ from app.services import navigation_service as navigation
 from app.services import scheduler
 from app.utils import timeutil
 from app.utils.legacy_settings import settings
-from app.v1.answers import board as board_answers
-from app.v1.answers import locations as location_answers
-from app.v1.routes import board as api_board
-from app.v1.routes import locations as api_locations
+from app.v1.alert_board import controller as api_board
+from app.v1.alert_board import dtos as board_answers
+from app.v1.map import controller as api_locations
+from app.v1.map import dtos as location_answers
 from tests import answers, http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1445,7 +1445,7 @@ class TestApiSearch:
         mock_geolocator.geocode.return_value = mock_geo_result
 
         with patch.object(nautobot, "get", side_effect=mock_nautobot_get):
-            with patch("app.v1.routes.locations.Nominatim", return_value=mock_geolocator):
+            with patch("app.v1.map.controller.Nominatim", return_value=mock_geolocator):
                 resp = flask_client.get("/api/v1/search?q=Copenhagen")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -1455,7 +1455,7 @@ class TestApiSearch:
         mock_geolocator = MagicMock()
         mock_geolocator.geocode.return_value = None
 
-        with patch("app.v1.routes.locations.Nominatim", return_value=mock_geolocator):
+        with patch("app.v1.map.controller.Nominatim", return_value=mock_geolocator):
             resp = flask_client.get("/api/v1/search?q=ThisPlaceDoesNotExist12345")
         assert resp.status_code == 404
         assert "error" in resp.get_json()
@@ -5263,7 +5263,7 @@ class TestGeocoder:
     def test_disabled_geocoder_only_accepts_coordinates(self, flask_client, monkeypatch):
         monkeypatch.setattr(settings, "GEOCODER_ENABLED", False)
         with patch(
-            "app.v1.routes.locations.Nominatim", side_effect=AssertionError("must not geocode")
+            "app.v1.map.controller.Nominatim", side_effect=AssertionError("must not geocode")
         ):
             resp = flask_client.get("/api/v1/search?q=Copenhagen")
             assert resp.status_code == 400 and "coordinates" in resp.get_json()["error"]
@@ -5272,9 +5272,7 @@ class TestGeocoder:
     def test_uses_the_configured_service(self, flask_client, monkeypatch):
         monkeypatch.setattr(settings, "GEOCODER_URL", "http://nominatim.internal:8080/nominatim")
         monkeypatch.setattr(settings, "GEOCODER_USER_AGENT", "noc-maps/2")
-        with patch(
-            "app.v1.routes.locations.Nominatim", return_value=self._geolocator()
-        ) as nominatim:
+        with patch("app.v1.map.controller.Nominatim", return_value=self._geolocator()) as nominatim:
             assert flask_client.get("/api/v1/search?q=Copenhagen").status_code == 200
         nominatim.assert_called_once_with(
             user_agent="noc-maps/2", domain="nominatim.internal:8080/nominatim", scheme="http"
@@ -5282,7 +5280,7 @@ class TestGeocoder:
 
     def test_results_are_cached(self, flask_client):
         geolocator = self._geolocator()
-        with patch("app.v1.routes.locations.Nominatim", return_value=geolocator):
+        with patch("app.v1.map.controller.Nominatim", return_value=geolocator):
             first = flask_client.get("/api/v1/search?q=Copenhagen").get_json()
             caching.cache.delete("geocode-rate-limit")
             second = flask_client.get("/api/v1/search?q=copenhagen ").get_json()
@@ -5293,7 +5291,7 @@ class TestGeocoder:
         # A minute, not a second: a slow CI runner took over a second between
         # the two requests, and the second one was let through (#332).
         monkeypatch.setattr(api_locations, "GEOCODE_MIN_INTERVAL_SECONDS", 60)
-        with patch("app.v1.routes.locations.Nominatim", return_value=self._geolocator()):
+        with patch("app.v1.map.controller.Nominatim", return_value=self._geolocator()):
             assert flask_client.get("/api/v1/search?q=Copenhagen").status_code == 200
             busy = flask_client.get("/api/v1/search?q=Aarhus")
             assert busy.status_code == 429 and "try again" in busy.get_json()["error"]
@@ -5307,7 +5305,7 @@ class TestGeocoder:
     def test_geocoder_error_is_not_passed_to_the_client(self, flask_client):
         geolocator = MagicMock()
         geolocator.geocode.side_effect = OSError("connect to 10.0.0.5 refused")
-        with patch("app.v1.routes.locations.Nominatim", return_value=geolocator):
+        with patch("app.v1.map.controller.Nominatim", return_value=geolocator):
             resp = flask_client.get("/api/v1/search?q=Copenhagen")
         assert resp.status_code == 503
         assert resp.get_json() == {"error": "Geocoding service unavailable"}
@@ -5315,7 +5313,7 @@ class TestGeocoder:
     def test_not_found_is_cached_too(self, flask_client):
         geolocator = MagicMock()
         geolocator.geocode.return_value = None
-        with patch("app.v1.routes.locations.Nominatim", return_value=geolocator):
+        with patch("app.v1.map.controller.Nominatim", return_value=geolocator):
             assert flask_client.get("/api/v1/search?q=Nowhere").status_code == 404
             caching.cache.delete("geocode-rate-limit")
             assert flask_client.get("/api/v1/search?q=Nowhere").status_code == 404
