@@ -35,7 +35,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         lifespan=lifespan,
         title="Nautobot Maps",
-        version="0.3.0",
+        version="0.3.1",
         # One tag per page section, in the menu's order, with what each is for (#623).
         openapi_tags=v1_sections.openapi_tags(),
         # Our own routes (app/v1/documentation/), behind the sign-in rules like every other one.

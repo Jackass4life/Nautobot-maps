@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-09
+
 ### Fixed
 - **The Admin page always shows Notifications and Wireless controllers** (#627): with no channel or no controller set up, the section used to be left out, so **Send test** seemed missing. Now it says "No channel set up" (or "No controllers set up") and which settings make one, with a link to the guide; **Send test** answers what is missing, e.g. `NOTIFY_EMAIL_TO` without `SMTP_HOST`
 
