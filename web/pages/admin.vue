@@ -61,10 +61,13 @@ async function checkWireless() {
       <template v-else>
         <AdminTokens />
 
-        <section v-if="admin.notification_channels.length" id="admin-notifications" class="space-y-3 rounded-lg border border-default px-4 py-3">
+        <!-- Always shown (#627): without a channel it says what to set, and Send test
+             answers what is missing (NOTIFY_EMAIL_TO without SMTP_HOST, too). -->
+        <section id="admin-notifications" class="space-y-3 rounded-lg border border-default px-4 py-3">
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="font-semibold text-highlighted">Notifications</h2>
-            <p class="text-sm text-muted">{{ admin.notification_channels.map((c) => channelLine(c, "ok").channel).join(", ") }}</p>
+            <p v-if="admin.notification_channels.length" class="text-sm text-muted">{{ admin.notification_channels.map((c) => channelLine(c, "ok").channel).join(", ") }}</p>
+            <p v-else id="notify-none" class="text-sm text-muted">No channel set up</p>
             <UButton id="notify-test" class="ml-auto" size="sm" color="neutral" variant="outline" icon="i-lucide-send" :loading="sending" :disabled="sending" @click="sendTest">
               Send test
             </UButton>
@@ -75,14 +78,20 @@ async function checkWireless() {
               <span><span class="font-medium">{{ line.channel }}:</span> {{ line.text }}</span>
             </li>
           </ul>
+          <p v-if="!admin.notification_channels.length && !sendError" class="text-sm text-muted">
+            Set <code>NOTIFY_WEBHOOK_URL</code>, <code>NOTIFY_TEAMS_WEBHOOK_URL</code>, or <code>NOTIFY_EMAIL_TO</code> with <code>SMTP_HOST</code>, then restart the app.
+            <NuxtLink to="/help/notifications" class="text-primary hover:underline">Notifications guide</NuxtLink>
+          </p>
           <p v-if="sendError" class="text-sm text-error" role="alert">{{ sendError }}</p>
         </section>
 
-        <section v-if="admin.wireless_controllers" id="admin-wireless" class="space-y-3 rounded-lg border border-default px-4 py-3">
+        <!-- Always shown (#627); without controllers there is nothing to check. -->
+        <section id="admin-wireless" class="space-y-3 rounded-lg border border-default px-4 py-3">
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="font-semibold text-highlighted">Wireless controllers</h2>
-            <p class="text-sm text-muted">{{ admin.wireless_controllers }} in the controllers file</p>
-            <UButton id="wireless-check" class="ml-auto" size="sm" color="neutral" variant="outline" icon="i-lucide-radio-tower" :loading="checking" :disabled="checking" @click="checkWireless">
+            <p v-if="admin.wireless_controllers" class="text-sm text-muted">{{ admin.wireless_controllers }} in the controllers file</p>
+            <p v-else id="wireless-none" class="text-sm text-muted">No controllers set up</p>
+            <UButton v-if="admin.wireless_controllers" id="wireless-check" class="ml-auto" size="sm" color="neutral" variant="outline" icon="i-lucide-radio-tower" :loading="checking" :disabled="checking" @click="checkWireless">
               Check now
             </UButton>
           </div>
@@ -100,6 +109,10 @@ async function checkWireless() {
               {{ checked.duplicate_count.toLocaleString("en") }} access point(s) listed by more than one controller (the newest answer wins).
             </li>
           </ul>
+          <p v-if="!admin.wireless_controllers" class="text-sm text-muted">
+            Access points from Cisco Catalyst Center or Aruba New Central: list the controllers in a file and set <code>WIRELESS_CONTROLLERS_FILE</code>, then restart the app.
+            <NuxtLink to="/help/sources#wireless-controllers-access-points" class="text-primary hover:underline">Wireless controllers guide</NuxtLink>
+          </p>
           <p v-if="checkError" class="text-sm text-error" role="alert">{{ checkError }}</p>
         </section>
       </template>

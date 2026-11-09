@@ -79,7 +79,7 @@ Every setting: [configuration](configuration.md#notifications).
 
 ### Test
 
-On the **Admin** page (☰ → Admin, admins only), **Send test** under Notifications sends a test message on every channel and shows each one's result.
+On the **Admin** page (☰ → Admin, admins only), **Send test** under Notifications sends a test message on every channel and shows each one's result. With no channel set up, the section says "No channel set up" and which settings make one; **Send test** then says what is missing (for example `NOTIFY_EMAIL_TO` without `SMTP_HOST`).
 
 Or through the API: `POST /api/v1/notifications/test` (admin role; with `AUTH_MODE=disabled` only when `ALLOW_UNAUTHENTICATED_WRITES=true`; also on the API page at `/api/docs`) returns `{"results": {"webhook": "ok", "email": "error: ..."}}`.
 
