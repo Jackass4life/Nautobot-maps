@@ -11,6 +11,7 @@ from app.session import DbSession
 from app.utils.auth import CurrentUserDep, require_role
 from app.utils.body import body_schema, json_body
 from app.utils.errors import ApiError, responses
+from app.v1 import sections
 from app.v1.tokens.dtos import (
     TokenCreate,
     TokenCreated,
@@ -22,7 +23,11 @@ from app.v1.tokens.dtos import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/tokens", tags=["tokens"], dependencies=[Depends(require_role("admin"))])
+router = APIRouter(
+    prefix="/tokens",
+    tags=sections.tag("administration"),
+    dependencies=[Depends(require_role("admin"))],
+)
 REFUSALS = responses(401, 403)
 Body = Annotated[object, Depends(json_body)]
 

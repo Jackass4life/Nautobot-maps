@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
+from app.v1 import sections
 from app.v1.answers import common
 
 
@@ -42,7 +43,12 @@ class AppStatus(common.Answer):
 class Endpoint(common.Answer):
     path: str = Field(examples=["/api/alerts"])
     methods: list[str]
-    group: Literal["Pages", "API", "Monitoring"]
+    section: Literal[*sections.NAMES] = Field(  # type: ignore[valid-type]
+        description="The API's section: the page it belongs to, or Auth, Incoming alerts, Shared, Monitoring, Examples."
+    )
+    group: Literal["Pages", "API", "Monitoring"] = Field(
+        description="The older grouping, kept for callers: sort by section instead."
+    )
     summary: str
     description: str
     path_params: list[str]

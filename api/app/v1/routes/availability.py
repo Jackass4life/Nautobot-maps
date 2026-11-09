@@ -11,14 +11,16 @@ from app.frontend import controller as frontend
 from app.services import availability_service as availability
 from app.services import legacy_auth as auth
 from app.services import status_link_service as statuslinks
-from app.v1 import deps, models
+from app.v1 import deps, models, sections
 from app.v1.answers import availability as answers
 from app.v1.answers import common
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Availability"]
+    route_class=deps.AppRoute,
+    dependencies=deps.ROUTER_DEPENDENCIES,
+    tags=sections.tag("availability"),
 )
 
 PeriodQuery = Annotated[models.Period, Query()]

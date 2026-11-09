@@ -13,14 +13,16 @@ from app.services import notify_service as notify
 from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
 from app.utils.legacy_settings import settings
-from app.v1 import deps
+from app.v1 import deps, sections
 from app.v1.answers import admin as answers
 from app.v1.answers import common
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Administration"]
+    route_class=deps.AppRoute,
+    dependencies=deps.ROUTER_DEPENDENCIES,
+    tags=sections.tag("administration"),
 )
 
 NO_DATABASE = {"error": "Persistence DB not configured"}

@@ -11,14 +11,16 @@ from app.services import inventory_service as inventory
 from app.services import legacy_auth as auth
 from app.services import status_link_service as statuslinks
 from app.services import status_service as status
-from app.v1 import deps
+from app.v1 import deps, sections
 from app.v1.answers import common
 from app.v1.answers import status as answers
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Status page"]
+    route_class=deps.AppRoute,
+    dependencies=deps.ROUTER_DEPENDENCIES,
+    tags=sections.tag("status_page"),
 )
 
 UNAVAILABLE = {"error": "Status unavailable, try again shortly"}

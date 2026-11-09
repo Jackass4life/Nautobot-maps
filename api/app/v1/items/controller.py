@@ -9,9 +9,10 @@ from app.services.item_service import ItemService
 from app.session import DbSession
 from app.utils.auth import require_role
 from app.utils.errors import ERROR_RESPONSES
+from app.v1 import sections
 from app.v1.items.dtos import ItemCreateDto, ItemDto
 
-router = APIRouter(prefix="/items", tags=["items"])
+router = APIRouter(prefix="/items", tags=sections.tag("examples"))
 
 WRITE_RESPONSES = {401: ERROR_RESPONSES[401], 403: ERROR_RESPONSES[403]}
 

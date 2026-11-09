@@ -18,14 +18,16 @@ from app.services import legacy_auth as auth
 from app.services import maintenance_service as maintenance
 from app.services import scheduler
 from app.services import status_service as status
-from app.v1 import deps, models
+from app.v1 import deps, models, sections
 from app.v1.answers import common
 from app.v1.answers import maintenance as answers
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Maintenance"]
+    route_class=deps.AppRoute,
+    dependencies=deps.ROUTER_DEPENDENCIES,
+    tags=sections.tag("maintenance"),
 )
 
 NO_DATABASE = {"error": "Persistence DB not configured"}

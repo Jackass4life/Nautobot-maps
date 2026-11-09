@@ -19,18 +19,25 @@ from app.services import notify_service as notify
 from app.services import templating_service as templating
 from app.services import wireless_service as wireless
 from app.utils.legacy_settings import settings
-from app.v1 import deps
+from app.v1 import deps, sections
 from app.v1.answers import common
 from app.v1.answers import help as help_answers
 from app.v1.answers import pages as answers
 from app.v1.routes import maintenance as api_maintenance
 
-router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Pages"])
+# No router tag (#623): each route is tagged with its own section; the old paths
+# and the static files stay untagged and unlisted.
+router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
 
 STATIC = pathlib.Path(__file__).resolve().parent.parent.parent / "static"
 
 
-@router.get("/api/v1/page-config", name="pages.api_page_config", response_model=answers.PageConfig)
+@router.get(
+    "/api/v1/page-config",
+    name="pages.api_page_config",
+    response_model=answers.PageConfig,
+    tags=sections.tag("shared"),
+)
 def api_page_config():
     """What the pages built with Nuxt read to draw themselves (#463): who is
     signed in (the top bar), Nautobot's address (links to its pages), the
@@ -77,7 +84,7 @@ def api_page_config():
     )
 
 
-@router.get("/", name="pages.index", include_in_schema=False)
+@router.get("/", name="pages.index", include_in_schema=False, tags=sections.tag("map"))
 def index():
     """The map: Nautobot locations, address and GPS search, the sites in
     alarm.  Built with Nuxt (#463); the page reads ``/api/page-config``,
@@ -85,7 +92,9 @@ def index():
     return frontend.shell()
 
 
-@router.get("/alerts", name="pages.alert_board", include_in_schema=False)
+@router.get(
+    "/alerts", name="pages.alert_board", include_in_schema=False, tags=sections.tag("alert_board")
+)
 def alert_board():
     """The alert board: every site's severity, down devices, cases and history;
     ``?view=wall`` is the wall screen (#243): alarms only, every site open, no
@@ -111,8 +120,15 @@ def openapi_moved(request: Request):
     return _moved(request, navigation.API_SPEC_PATH)
 
 
-@router.get("/help", name="help.help_page", include_in_schema=False)
-@router.get("/help/{slug}", name="help.help_page", include_in_schema=False)
+@router.get(
+    "/help", name="help.help_page", include_in_schema=False, tags=sections.tag("documentation")
+)
+@router.get(
+    "/help/{slug}",
+    name="help.help_page",
+    include_in_schema=False,
+    tags=sections.tag("documentation"),
+)
 def help_page(slug: str = "overview"):
     """The documentation: the overview, then each guide.
 
@@ -129,6 +145,7 @@ def help_page(slug: str = "overview"):
     name="help.api_help",
     response_model=help_answers.HelpPage,
     responses={404: {"model": common.Error, "description": "No such guide"}},
+    tags=sections.tag("documentation"),
 )
 def api_help(slug: str):
     """One documentation page (#433): its title and HTML, and the list of guides."""
@@ -138,7 +155,12 @@ def api_help(slug: str):
     return deps.Json({**found, "contents": guide.contents()})
 
 
-@router.get("/help/images/{name:path}", name="help.help_image", include_in_schema=False)
+@router.get(
+    "/help/images/{name:path}",
+    name="help.help_image",
+    include_in_schema=False,
+    tags=sections.tag("documentation"),
+)
 def help_image(request: Request, name: str):
     """The screenshots the documentation shows."""
     return files.send(request, guide.IMAGES, name, max_age=3600)

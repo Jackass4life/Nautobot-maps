@@ -264,12 +264,17 @@ class HeadAsGet:
 
 def openapi(app) -> dict:  # type: ignore[no-untyped-def]
     """The spec without FastAPI's 422 for bad input (the app answers 400 with
-    ``{"error": ...}``); an error's example is its description."""
+    ``{"error": ...}``); an error's example is its description; the sections as
+    its ordered tags (#623)."""
     if app.openapi_schema is None:
         from fastapi.openapi.utils import get_openapi
 
         schema = get_openapi(
-            title=app.title, version=app.version, description=app.description, routes=app.routes
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+            tags=app.openapi_tags,
         )
         error = {"$ref": "#/components/schemas/Error"}
         for operations in schema.get("paths", {}).values():

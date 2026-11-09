@@ -17,13 +17,15 @@ from app.services import coordinates_service as coordinates
 from app.services import inventory_service as inventory
 from app.services import scope_service as scope
 from app.utils.legacy_settings import settings
-from app.v1 import deps, models
+from app.v1 import deps, models, sections
 from app.v1.answers import common
 from app.v1.answers import locations as answers
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=["Map"])
+router = APIRouter(
+    route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=sections.tag("map")
+)
 
 INTERNAL_ERROR = {"error": "Internal server error"}
 UPSTREAM_ERROR = {"error": "Failed to communicate with Nautobot API"}
