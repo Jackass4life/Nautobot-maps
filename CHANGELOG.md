@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **The status page says "6 network devices", not "6 network"** (#515): a site where all is well now reads "12 network devices · 40 access points" in full, like the lines with something down; Availability's table keeps its short "12 network · 40 APs"
 
 ### Fixed
+- **A slow answer no longer overwrites a newer one on Maintenance and in the documentation** (#605): picking another history period while the first was still loading could leave the older period's windows and count on screen; leaving a guide while it was still loading could jump the next one back to the top
 - **The sign-in guide says acknowledgements work without sign-in** (#606): with `AUTH_MODE=disabled`, acknowledging and **Remove ack** are open to anyone who can reach the app, like adding a case; [Sign-in and roles](docs/authentication.md#without-sign-in-default) and the alert board guide now say so
 - **A date with a month that doesn't exist is no longer read as another day** (#607): with `2026-13-01` or `2026-00-15` in a maintenance history address, the period picker and the period's name showed January 2027 or December 2025; such a date now counts as no date, as `2026-02-30` already did
 - **A status token for a tenant Nautobot doesn't have is refused** (#528): `token create --role status --tenant` and `POST /api/tokens` answer `no tenant 'Acme' in Nautobot (as of the last sync)`, as `status-link` does, instead of making a link that shows nothing; the token keeps Nautobot's spelling of the tenant
