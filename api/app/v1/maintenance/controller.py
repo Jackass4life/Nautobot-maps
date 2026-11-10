@@ -1,7 +1,6 @@
 """Ported from nautobot_maps/api/maintenance.py (#604), its API under /api/v1. Maintenance (#283, #343, #353; on FastAPI since #436): the page, windows now
 and planned, their history, and planning and ending them."""
 
-import logging
 import re
 from datetime import timedelta
 from typing import Annotated
@@ -9,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from app.db import connection as db
 from app.frontend import controller as frontend
@@ -21,8 +21,6 @@ from app.services import status_service as status
 from app.v1 import deps, sections
 from app.v1.common import dtos as common
 from app.v1.maintenance import dtos
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -84,7 +82,7 @@ def _board_sites() -> list[dict]:
     try:
         return alerts.cached_alert_board().get("alerts") or []
     except Exception as exc:
-        logger.warning("Maintenance: could not read the alert board for names: %s", exc)
+        logger.warning("Maintenance: could not read the alert board for names: {}", exc)
         return []
 
 

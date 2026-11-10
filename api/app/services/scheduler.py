@@ -5,9 +5,10 @@ Called as ``scheduler.function()`` so tests can replace it on this module.
 Ported from nautobot_maps/scheduler.py (#602): only the imports changed.
 """
 
-import logging
 import threading
 from datetime import UTC
+
+from loguru import logger
 
 from app.clients import caching
 from app.core.legacy_settings import settings
@@ -18,8 +19,6 @@ from app.services import notify_service as notify
 from app.services import webhooks_service as webhooks
 from app.services import wireless_service as wireless
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 # Every app process runs one scheduler thread; a PostgreSQL advisory lock
 # makes sure only one of them (across all workers and containers) works per
@@ -53,7 +52,7 @@ def prune_alert_history_if_due() -> None:
     try:
         alerts.maybe_prune_alert_history(conn)
     except Exception as exc:
-        logger.warning("Alert history retention failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Alert history retention failed: {}", exc)
     finally:
         conn.close()
 
@@ -104,7 +103,7 @@ def sync_wireless() -> bool:
     try:
         changed = wireless.sync_due()
     except Exception as exc:
-        logger.warning("Wireless controller sync failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Wireless controller sync failed: {}", exc)
         return False
     finally:
         release()
@@ -165,7 +164,7 @@ def request_change_rebuild() -> None:
                 conn, CHANGE_REQUESTED_STATE, last_completed_at=timeutil.iso_utc_now()
             )
     except Exception as exc:
-        logger.warning("Recording a board change failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Recording a board change failed: {}", exc)
     finally:
         conn.close()
 
@@ -184,7 +183,7 @@ def pending_changes():
             else None
         )
     except Exception as exc:
-        logger.warning("Reading pending board changes failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Reading pending board changes failed: {}", exc)
         return None
     finally:
         conn.close()
@@ -204,7 +203,7 @@ def ack_changes(requested) -> None:
                 last_completed_at=requested.astimezone(UTC).isoformat().replace("+00:00", "Z"),
             )
     except Exception as exc:
-        logger.warning("Recording the board change rebuild failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Recording the board change rebuild failed: {}", exc)
     finally:
         conn.close()
 
@@ -216,7 +215,7 @@ def pending_librenms_pushes() -> list[int]:
     try:
         return inventory.pending_librenms_pushes(conn)
     except Exception as exc:
-        logger.warning("Reading pending LibreNMS pushes failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Reading pending LibreNMS pushes failed: {}", exc)
         return []
     finally:
         conn.close()
@@ -261,7 +260,7 @@ def rebuild_after_push(always: bool = False, trigger: str = "push") -> None:
                 ack_webhook_alerts(received)
                 ack_changes(changed)
         except Exception as exc:
-            logger.warning("Rebuild after a LibreNMS push failed: %s", exc, exc_info=True)
+            logger.opt(exception=True).warning("Rebuild after a LibreNMS push failed: {}", exc)
         finally:
             release()
 
@@ -276,7 +275,7 @@ def pending_webhook_alerts():
     try:
         return webhooks.pending_rebuild(conn)
     except Exception as exc:
-        logger.warning("Reading pending webhook alerts failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Reading pending webhook alerts failed: {}", exc)
         return None
     finally:
         conn.close()
@@ -291,7 +290,7 @@ def ack_webhook_alerts(received) -> None:
     try:
         webhooks.mark_rebuilt(conn, received)
     except Exception as exc:
-        logger.warning("Recording the webhook rebuild failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Recording the webhook rebuild failed: {}", exc)
     finally:
         conn.close()
 
@@ -300,7 +299,7 @@ def send_notifications() -> None:
     try:
         notify.send_pending()
     except Exception as exc:
-        logger.warning("Sending notifications failed: %s", exc, exc_info=True)
+        logger.opt(exception=True).warning("Sending notifications failed: {}", exc)
 
 
 def loop(stop_event: threading.Event | None = None) -> None:
@@ -311,7 +310,7 @@ def loop(stop_event: threading.Event | None = None) -> None:
         try:
             tick()
         except Exception as exc:
-            logger.warning("Background scheduler tick failed: %s", exc, exc_info=True)
+            logger.opt(exception=True).warning("Background scheduler tick failed: {}", exc)
         stop_event.wait(tick_seconds())
 
 
@@ -332,7 +331,7 @@ def start() -> bool:
         threading.Thread(
             target=loop, args=(_stop,), name="background-scheduler", daemon=True
         ).start()
-    logger.info("Background scheduler started (tick every %ss)", tick_seconds())
+    logger.info("Background scheduler started (tick every {}s)", tick_seconds())
     return True
 
 

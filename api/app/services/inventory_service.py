@@ -8,20 +8,18 @@ Called as ``inventory.function()`` so tests can replace it on this module.
 
 import ipaddress
 import json
-import logging
 import re
 import threading
 from datetime import UTC, datetime
 
 import requests
+from loguru import logger
 
 from app.clients import caching, librenms, nautobot
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import contract_service as contract
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # Bumped when cached fields change, forcing one full Nautobot resync
@@ -138,7 +136,7 @@ def normalize_locations(
 
     if raw:
         logger.debug(
-            "Nautobot location sample – tenant=%r  status=%r",
+            "Nautobot location sample – tenant={!r}  status={!r}",
             raw[0].get("tenant"),
             raw[0].get("status"),
         )
@@ -247,7 +245,7 @@ def normalize_locations(
         )
     if invalid_tenant_scopes:
         logger.warning(
-            "Invalid %s custom field on %d locations; tenant status will use all monitored devices there",
+            "Invalid {} custom field on {} locations; tenant status will use all monitored devices there",
             settings.TENANT_SCOPE_FIELD,
             invalid_tenant_scopes,
         )
@@ -365,7 +363,7 @@ def fetch_location_tenant_links() -> list[dict] | None:
         )
         return list(links.values())
     except Exception as exc:
-        logger.warning("Could not read location tenant relationships from Nautobot: %s", exc)
+        logger.warning("Could not read location tenant relationships from Nautobot: {}", exc)
         return None
 
 
@@ -378,7 +376,7 @@ def fetch_tenants() -> list[dict] | None:
     try:
         tenants = nautobot.fetch_all_pages("tenancy/tenants/", use_cache=False)
     except Exception as exc:
-        logger.warning("Could not read tenants from Nautobot: %s", exc)
+        logger.warning("Could not read tenants from Nautobot: {}", exc)
         return None
     contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", tenants)
     return [
@@ -461,7 +459,7 @@ def fetch_cables(params: dict | None) -> list[dict] | None:
             "dcim/cables/", {**(params or {}), "depth": 1}, use_cache=False
         )
     except Exception as exc:
-        logger.warning("Could not read cables from Nautobot: %s", exc)
+        logger.warning("Could not read cables from Nautobot: {}", exc)
         return None
     contract.check_and_record(contract.NAUTOBOT, "dcim/cables/", cables, bool(params))
     result = []
@@ -515,10 +513,10 @@ def fetch_circuits() -> list[dict] | None:
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             return []
-        logger.warning("Could not read circuits from Nautobot: %s", exc)
+        logger.warning("Could not read circuits from Nautobot: {}", exc)
         return None
     except Exception as exc:
-        logger.warning("Could not read circuits from Nautobot: %s", exc)
+        logger.warning("Could not read circuits from Nautobot: {}", exc)
         return None
     contract.check_and_record(contract.NAUTOBOT, "circuits/circuits/", circuits)
     result = []
@@ -634,7 +632,7 @@ def virtual_chassis_changed(since: str) -> bool:
             )
         )
     except Exception as exc:
-        logger.debug("Could not read changed virtual chassis: %s", exc)
+        logger.debug("Could not read changed virtual chassis: {}", exc)
         return False
 
 
@@ -741,7 +739,7 @@ def read_location_tree(conn=None) -> dict[str, dict]:
             if data.get("location_id")
         }
     except Exception as exc:
-        logger.debug("Could not read cached locations: %s", exc)
+        logger.debug("Could not read cached locations: {}", exc)
         return {}
     finally:
         if owns_conn:
@@ -762,7 +760,7 @@ def read_location_name_map(conn=None) -> dict:
             if db.row_to_dict(row).get("location_id")
         }
     except Exception as exc:
-        logger.debug("Could not read cached location names: %s", exc)
+        logger.debug("Could not read cached location names: {}", exc)
         return {}
     finally:
         if owns_conn:
@@ -867,7 +865,7 @@ def read_locations(include_without_coordinates: bool = False, conn=None) -> list
             )
         return locations
     except Exception as exc:
-        logger.debug("Could not read cached locations: %s", exc)
+        logger.debug("Could not read cached locations: {}", exc)
         return []
     finally:
         if owns_conn:
@@ -947,7 +945,7 @@ def read_devices(location_id: str | None = None, conn=None) -> list:
             for data in (db.row_to_dict(row) for row in rows)
         ]
     except Exception as exc:
-        logger.debug("Could not read cached devices: %s", exc)
+        logger.debug("Could not read cached devices: {}", exc)
         return []
     finally:
         if owns_conn:
@@ -976,7 +974,7 @@ def read_librenms_devices(conn=None) -> list:
             for data in (db.row_to_dict(row) for row in rows)
         ]
     except Exception as exc:
-        logger.debug("Could not read cached LibreNMS inventory: %s", exc)
+        logger.debug("Could not read cached LibreNMS inventory: {}", exc)
         return []
     finally:
         if owns_conn:
@@ -1044,7 +1042,7 @@ def get_sync_state(source: str, conn=None) -> dict:
         ).fetchone()
         return db.row_to_dict(row)
     except Exception as exc:
-        logger.debug("Could not read sync state for %s: %s", source, exc)
+        logger.debug("Could not read sync state for {}: {}", source, exc)
         return {}
     finally:
         if owns_conn:
@@ -1114,7 +1112,7 @@ def board_snapshot(conn=None) -> dict:
             (list(BOARD_SOURCES),),
         ).fetchall()
     except Exception as exc:
-        logger.debug("Could not read the board's snapshot: %s", exc)
+        logger.debug("Could not read the board's snapshot: {}", exc)
         return {"version": None, "initialized": False, "nautobot": {}}
     finally:
         if owns_conn and conn is not None:
@@ -1387,7 +1385,7 @@ def read_tenant_descriptions(conn=None) -> dict[str, str]:
             if data.get("name")
         }
     except Exception as exc:
-        logger.debug("Could not read tenant descriptions: %s", exc)
+        logger.debug("Could not read tenant descriptions: {}", exc)
         return {}
     finally:
         if owns_conn:
@@ -1639,7 +1637,7 @@ def check_lookup_endpoints() -> None:
         try:
             records = nautobot.fetch_all_pages(path)
         except Exception as exc:
-            logger.debug("Contract check: could not read %s: %s", path, exc)
+            logger.debug("Contract check: could not read {}: {}", path, exc)
             continue
         contract.check_and_record(contract.NAUTOBOT, path, records)
 
@@ -1772,7 +1770,7 @@ def sync_nautobot(force: bool = False) -> None:
             )
             if tree_changed or stack_changed:
                 what = "A location with others under it" if tree_changed else "A virtual chassis"
-                logger.info("%s changed: the next Nautobot sync is a full one", what)
+                logger.info("{} changed: the next Nautobot sync is a full one", what)
                 record_sync_state(conn, reconcile_source, cache_version=cache_version())
             if full_reconcile:
                 record_sync_state(
@@ -1787,8 +1785,8 @@ def sync_nautobot(force: bool = False) -> None:
                 )
         caching.invalidate_alert_board()
     except Exception as exc:
-        logger.warning(
-            "Could not sync Nautobot inventory into persistence DB: %s", exc, exc_info=True
+        logger.opt(exception=True).warning(
+            "Could not sync Nautobot inventory into persistence DB: {}", exc
         )
         with db.transaction(conn):
             record_sync_state(
@@ -1867,8 +1865,8 @@ def sync_librenms(force: bool = False) -> None:
             )
         caching.invalidate_alert_board()
     except Exception as exc:
-        logger.warning(
-            "Could not sync LibreNMS inventory into persistence DB: %s", exc, exc_info=True
+        logger.opt(exception=True).warning(
+            "Could not sync LibreNMS inventory into persistence DB: {}", exc
         )
         with db.transaction(conn):
             record_sync_state(
@@ -2027,7 +2025,7 @@ def live_tenant_descriptions() -> dict[str, str]:
     try:
         tenants = nautobot.fetch_all_pages("tenancy/tenants/")
     except Exception as exc:
-        logger.warning("Could not read tenant descriptions from Nautobot: %s", exc)
+        logger.warning("Could not read tenant descriptions from Nautobot: {}", exc)
         return {}
     result = {}
     for tenant in tenants:

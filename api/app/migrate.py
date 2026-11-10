@@ -14,16 +14,15 @@ Holds the current app's migration lock throughout, so neither app migrates the
 database while the other does.
 """
 
-import logging
 from pathlib import Path
 
 from alembic.config import Config
+from loguru import logger
 from sqlalchemy import Connection, Engine, create_engine, text
 
 from alembic import command
 from app.core.settings import get_settings
-
-logger = logging.getLogger(__name__)
+from app.logs import config as logs
 
 API_ROOT = Path(__file__).resolve().parent.parent
 # The revision that is the current app's schema version 33.
@@ -107,7 +106,7 @@ def migrate(engine: Engine, url: str) -> str:
             lock.commit()
             if action == "adopt":
                 logger.info(
-                    "Adopting the current app's database (schema version %s) as revision %s",
+                    "Adopting the current app's database (schema version {}) as revision {}",
                     CURRENT_APP_VERSION,
                     BASELINE,
                 )
@@ -117,7 +116,7 @@ def migrate(engine: Engine, url: str) -> str:
                 # under it. One transaction (#601 review): the revision's removal, the
                 # baseline and the stamp all happen, or none does, so a failed start can
                 # simply be retried.
-                logger.info("Upgrading the example stack's database (%s)", EXAMPLE_REVISION)
+                logger.info("Upgrading the example stack's database ({})", EXAMPLE_REVISION)
                 with engine.begin() as conn:
                     config.attributes["connection"] = conn
                     conn.execute(text("DELETE FROM alembic_version"))
@@ -132,7 +131,8 @@ def migrate(engine: Engine, url: str) -> str:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    if not logs.configured():
+        logs.configure()
     url = get_settings().sqlalchemy_url()
     engine = create_engine(url)
     try:

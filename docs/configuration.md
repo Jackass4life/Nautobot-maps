@@ -232,7 +232,7 @@ By default viewers' browsers load tiles from `tile.openstreetmap.org`, and the a
 | `GUNICORN_TIMEOUT` | `120` | Worker timeout in seconds; lower values are raised to 120 |
 | `GUNICORN_BIND` | `0.0.0.0:5000` | Listen address |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for the app and gunicorn |
-| `LOG_FORMAT` | `text` | `text`, or `json` (one object per line, for Loki, ELK, Splunk) |
+| `LOG_FORMAT` | `text` | `text`, or `json` (one object per line, for Loki, ELK, Splunk). Either way each line names its part (`sync`, `api`, …): see [finding things in the logs](operations.md#finding-things-in-the-logs) |
 | `METRICS_ENABLED` | `true` | Prometheus metrics at `/metrics`; `false`: 404 |
 | `FLASK_DEBUG` | `false` | Reload on code changes (development server, `python run.py`, only; the name is from the Flask days) |
 | `FLASK_RUN_PORT` | `5000` | Port of the development server (e.g. when macOS AirPlay Receiver has 5000) |

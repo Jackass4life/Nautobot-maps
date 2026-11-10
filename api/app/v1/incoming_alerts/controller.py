@@ -1,10 +1,10 @@
 """Ported from nautobot_maps/api/ingest.py (#604), its API under /api/v1. Alerts pushed in (#284, #292; on FastAPI since #436): LibreNMS, Alertmanager
 and the generic webhook."""
 
-import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
+from loguru import logger
 
 from app.clients import caching
 from app.core.legacy_settings import settings
@@ -15,8 +15,6 @@ from app.services import webhooks_service as webhooks
 from app.v1 import deps, sections
 from app.v1.common import dtos as common
 from app.v1.incoming_alerts import dtos
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -79,7 +77,7 @@ def api_librenms_alert(request: Request, body: Body, form: Form):
     except Exception as exc:
         # Only the exception type: the message can hold the LibreNMS URL.
         logger.warning(
-            "LibreNMS push for %r: asking LibreNMS failed: %s", device, type(exc).__name__
+            "LibreNMS push for {!r}: asking LibreNMS failed: {}", device, type(exc).__name__
         )
         return deps.Json({"error": "Could not ask LibreNMS for the device"}, status_code=502)
     if result["updated"]:

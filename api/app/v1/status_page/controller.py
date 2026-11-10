@@ -1,8 +1,7 @@
 """Ported from nautobot_maps/api/status.py (#604), its API under /api/v1. A tenant's status page and its API (#291; on FastAPI since #436)."""
 
-import logging
-
 from fastapi import APIRouter
+from loguru import logger
 
 from app.db import connection as db
 from app.frontend import controller as frontend
@@ -14,8 +13,6 @@ from app.services import status_service as status
 from app.v1 import deps, sections
 from app.v1.common import dtos as common
 from app.v1.status_page import dtos
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -83,7 +80,7 @@ def _circuits(tenant: str, board: dict) -> tuple[list[dict], dict[str, str]]:
         finally:
             conn.close()
     except Exception as exc:
-        logger.warning("Status page: circuits unavailable: %s", type(exc).__name__)
+        logger.warning("Status page: circuits unavailable: {}", type(exc).__name__)
         return [], {}
 
 
@@ -130,7 +127,7 @@ def api_status(link_id: str):
     except LookupError:
         return _unless_denied(NO_DATABASE, 503)
     except Exception as exc:
-        logger.warning("Status page unavailable: %s", type(exc).__name__)
+        logger.warning("Status page unavailable: {}", type(exc).__name__)
         return _unless_denied(UNAVAILABLE, 503)
     return _answer(tenant)
 
@@ -148,7 +145,7 @@ def _answer(tenant: str | None):
         circuits, parents = _circuits(tenant, board)
         result = status.tenant_status(board, tenant, circuits, parents)
     except Exception as exc:
-        logger.warning("Status page unavailable: %s", type(exc).__name__)
+        logger.warning("Status page unavailable: {}", type(exc).__name__)
         return deps.Json(UNAVAILABLE, status_code=503)
     if result is None:
         # Before the first sync the board is empty: that's not "no sites".

@@ -4,11 +4,11 @@ server (ported from nautobot_maps/api/ops.py, #604), and the liveness probe.
 Two routers: ``router`` as the other sections', and ``health_router`` for
 /healthz, which answers without the sign-in check: a probe has no login."""
 
-import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
+from loguru import logger
 
 from app.clients import caching
 from app.core.legacy_settings import settings
@@ -20,8 +20,6 @@ from app.services import mcp_service as mcp
 from app.services import metrics_service as metrics
 from app.v1 import deps, sections
 from app.v1.monitoring import dtos
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -42,7 +40,7 @@ def prometheus_metrics():
             conn = db.get_conn()
         body = metrics.collect(conn)
     except Exception as exc:
-        logger.warning("Metrics: database unavailable: %s", exc)
+        logger.warning("Metrics: database unavailable: {}", exc)
         body = metrics.collect(None)
     try:
         # Sites with missing or wrong coordinates (#368): from the board already
@@ -53,7 +51,7 @@ def prometheus_metrics():
                 coordinates.counts(coordinates.check(stored.get("alerts") or []))
             )
     except Exception as exc:
-        logger.warning("Metrics: coordinate check unavailable: %s", exc)
+        logger.warning("Metrics: coordinate check unavailable: {}", exc)
     finally:
         if conn is not None:
             conn.close()

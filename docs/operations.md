@@ -55,7 +55,41 @@ services:
 
 ## What the container does
 
-- **Logs** go to `docker compose logs`: the app's messages (unexpected errors with their stack trace) and an access log line per request with the signed-in user, status and response time in ms (successful `/healthz` probes are left out). The bundled `docker-compose.yml` caps each container's log at 5 × 10 MB. `LOG_FORMAT=json` gives one JSON object per line.
+- **Logs** go to `docker compose logs`: the app's messages (unexpected errors with their stack trace) and an access log line per request with the signed-in user, status and response time in ms (successful `/healthz` probes are left out). The bundled `docker-compose.yml` caps each container's log at 5 × 10 MB. `LOG_FORMAT=json` gives one JSON object per line. Each line names the part of the app it comes from: see [finding things in the logs](#finding-things-in-the-logs).
+
+### Finding things in the logs
+
+Every line says which part of the app wrote it, in brackets after the level:
+
+```
+2026-11-10 11:23:03.159 INFO [server] gunicorn.error: Listening at: http://0.0.0.0:5000
+2026-11-10 11:23:04.051 INFO [scheduler] app.services.scheduler: Background scheduler started (tick every 30s)
+2026-11-10 11:23:04.170 INFO [web] app.access: 10.0.0.5 "anna" "GET /alerts HTTP/1.1" 200 1839 2ms "Mozilla/5.0 …"
+2026-11-10 11:23:04.237 INFO [api] app.access: 10.0.0.5 "anna" "GET /api/v1/alerts HTTP/1.1" 200 16031 62ms "Mozilla/5.0 …"
+```
+
+| Part | What |
+|---|---|
+| `api` | API requests (`/api/…`, `/mcp`, `/metrics`, `/healthz`) and the API's own messages |
+| `web` | Requests for the pages and their files |
+| `sync` | Reading Nautobot, LibreNMS and the wireless controllers; data contract checks |
+| `board` | The alert board's rules |
+| `scheduler` | The background jobs |
+| `alerts-in` | Alerts pushed to the app: LibreNMS, webhooks |
+| `notify` | Notifications sent out |
+| `auth` | Sign-in and API tokens (created, revoked, purged) |
+| `db` | Migrations and the database |
+| `server` | gunicorn and uvicorn, the startup log, settings |
+
+One part's lines:
+
+```bash
+docker compose logs nautobot-maps | grep '\[sync\]'
+docker compose logs -f nautobot-maps | grep -E '\[(alerts-in|notify)\]'   # follow pushes and notifications
+docker compose logs nautobot-maps | grep '\[api\]' | grep '" 5[0-9][0-9] '   # API errors
+```
+
+With `LOG_FORMAT=json` each line has `"part"` (and `time`, `level`, `logger`, `message`, `exception`); in Loki, for example, `{container="nautobot-maps"} | json | part="sync"`. Request lines (`api`, `web`) go to stdout, everything else to stderr. `LOG_LEVEL=DEBUG` adds detail, e.g. every request the sync makes.
 - **Security headers** on every response: a Content-Security-Policy that only runs the app's own scripts and styles (no inline ones: an HTML injection can't restyle the page) and loads images only from the app and the `MAP_TILE_URL` host, plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
 - **Compression**: text answers over 1 KB (pages, JSON, CSS, JS, CSV) are gzipped for browsers that accept it, with `Vary: Accept-Encoding`. At 1,200 sites the board's data (about 1.3 MB) and the map's (0.8 MB) shrink to about a tenth, which matters with many boards and wall screens refreshing. Streamed exports, partial and not-modified answers, and a new API token's answer are left as they are. The access log's response size is then the compressed size. To compress in your proxy instead, set `COMPRESS_RESPONSES=false` there and, for nginx, turn it on for proxied JSON (by default nginx compresses only HTML, and nothing proxied):
   ```nginx

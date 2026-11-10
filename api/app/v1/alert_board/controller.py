@@ -2,13 +2,13 @@
 activity and history, cases, acknowledgements and criticality overrides."""
 
 import json
-import logging
 from datetime import UTC
 from typing import Annotated
 
 import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
+from loguru import logger
 
 from app.db import connection as db
 from app.frontend import controller as frontend
@@ -23,8 +23,6 @@ from app.utils import timeutil
 from app.v1 import deps, sections
 from app.v1.alert_board import dtos
 from app.v1.common import dtos as common
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -95,10 +93,10 @@ def api_alerts(query: Annotated[dtos.BoardQuery, Query()]):
             {"error": "Alert board unavailable because Nautobot is not configured"}, status_code=503
         )
     except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error while building alert board: %s", exc)
+        logger.error("Nautobot API HTTP error while building alert board: {}", exc)
         return deps.Json({"error": "Failed to communicate with Nautobot API"}, status_code=502)
     except Exception as exc:
-        logger.exception("Unexpected error building alert board: %s", exc)
+        logger.exception("Unexpected error building alert board: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
 
 
@@ -124,7 +122,7 @@ def api_list_criticality_overrides():
         ).fetchall()
         return deps.Json({"overrides": [db.row_to_dict(r) for r in rows]})
     except Exception as exc:
-        logger.exception("Could not list criticality overrides: %s", exc)
+        logger.exception("Could not list criticality overrides: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
@@ -186,7 +184,7 @@ def api_set_criticality_override(body: Body):
             {"status": "ok", "nautobot_device_id": device_id, "is_critical": is_critical}
         )
     except Exception as exc:
-        logger.exception("Could not set criticality override: %s", exc)
+        logger.exception("Could not set criticality override: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
@@ -222,7 +220,7 @@ def api_delete_criticality_override(device_id: str):
             return deps.Json({"error": "Override not found"}, status_code=404)
         return deps.Json({"status": "deleted", "nautobot_device_id": device_id})
     except Exception as exc:
-        logger.exception("Could not delete criticality override: %s", exc)
+        logger.exception("Could not delete criticality override: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
@@ -300,7 +298,7 @@ def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Query()]):
             result["matching_sites"] = len(site_ids)
         return deps.Json(result)
     except Exception as exc:
-        logger.exception("Could not read the alert feed: %s", exc)
+        logger.exception("Could not read the alert feed: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
@@ -413,7 +411,7 @@ def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
             instance["cases"] = cases_by_instance.get(instance_id, [])
         return deps.Json({"instances": instances})
     except Exception as exc:
-        logger.exception("Could not fetch alert history: %s", exc)
+        logger.exception("Could not fetch alert history: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()
@@ -462,7 +460,7 @@ def api_alert_history_csv(query: Annotated[dtos.HistoryCsvQuery, Query()]):
             return Response(body, media_type="text/csv", headers=headers)
     except Exception as exc:
         conn.close()
-        logger.exception("Could not export alert history: %s", exc)
+        logger.exception("Could not export alert history: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
 
     # Incidents are streamed: a site's whole history need not fit in memory.
@@ -471,7 +469,7 @@ def api_alert_history_csv(query: Annotated[dtos.HistoryCsvQuery, Query()]):
             yield from export.incident_lines(export.iter_site_incidents(conn, site_id, since), now)
         except Exception as exc:
             # The status line has been sent; the download ends short.
-            logger.exception("Alert history export failed while streaming: %s", exc)
+            logger.exception("Alert history export failed while streaming: {}", exc)
         finally:
             conn.close()
 
@@ -662,7 +660,7 @@ def api_add_alert_case(body: Body):
             result["alert_instance_id"] = instance_ids[device_ids[0]]
         return deps.Json(result)
     except Exception as exc:
-        logger.exception("Could not add alert case: %s", exc)
+        logger.exception("Could not add alert case: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
         conn.close()

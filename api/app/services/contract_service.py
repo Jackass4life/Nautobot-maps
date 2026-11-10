@@ -12,15 +12,13 @@ warning, not an error: the sync goes on with what it can use.
 switchover; a test keeps this one rendering the same.
 """
 
-import logging
 from dataclasses import dataclass, field
 
+from loguru import logger
 from sqlalchemy import Connection
 
 from app.db import session
 from app.repositories import contract_repository
-
-logger = logging.getLogger(__name__)
 
 NAUTOBOT = "nautobot"
 LIBRENMS = "librenms"
@@ -774,8 +772,10 @@ def check_and_record(source: str, path: str, records: list, incremental: bool = 
     """
     try:
         result = check(endpoint(source, path), records)
-    except Exception as exc:
-        logger.warning("Data contract check for %s %s failed: %s", source, path, exc, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - logged with its stack trace (loguru)
+        logger.opt(exception=True).warning(
+            "Data contract check for {} {} failed: {}", source, path, exc
+        )
         return {"records": 0, "mismatches": []}
     if incremental and not records:
         return result
@@ -785,7 +785,7 @@ def check_and_record(source: str, path: str, records: list, incremental: bool = 
         )
         more = len(result["mismatches"]) - 10
         logger.warning(
-            "Data contract: %s %s does not match in %d records: %s%s (see docs/data-contract.md)",
+            "Data contract: {} {} does not match in {} records: {}{} (see docs/data-contract.md)",
             source,
             path,
             result["records"],
@@ -801,9 +801,9 @@ def _store(source: str, path: str, result: dict) -> None:
         with session.engine.begin() as conn:
             previous = contract_repository.replace(conn, source, path, result)
         if previous and not result["mismatches"]:
-            logger.info("Data contract: %s %s matches again", source, path)
+            logger.info("Data contract: {} {} matches again", source, path)
     except Exception as exc:  # noqa: BLE001 - never stops a sync
-        logger.warning("Could not store the data contract check for %s %s: %s", source, path, exc)
+        logger.warning("Could not store the data contract check for {} {}: {}", source, path, exc)
 
 
 def latest_checks(conn: Connection) -> list[dict]:

@@ -21,11 +21,11 @@ Called as ``wireless.function()`` so tests can replace it on this module.
 Ported from nautobot_maps/wireless.py (#602): only the imports changed.
 """
 
-import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import requests
+from loguru import logger
 
 from app.clients import arubacentral, catalyst
 from app.core.legacy_settings import settings
@@ -34,8 +34,6 @@ from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.services import metrics_service as metrics
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 KIND_NAMES = {
     "catalyst_center": "Catalyst Center",
@@ -197,10 +195,10 @@ def sync_pnp(conn, controller: dict) -> None:
             return
         with db.transaction(conn):
             kept = write_pnp(conn, controller, devices, timeutil.iso_utc_now())
-        logger.info("%s: %s devices in Plug and Play", display_name(controller), kept)
+        logger.info("{}: {} devices in Plug and Play", display_name(controller), kept)
     except Exception as exc:
         logger.warning(
-            "Could not read %s's Plug and Play devices; keeping its last answer: %s",
+            "Could not read {}'s Plug and Play devices; keeping its last answer: {}",
             display_name(controller),
             exc,
         )
@@ -246,10 +244,10 @@ def sync_neighbours(conn, controller: dict, aps: list[dict]) -> None:
                     "seen_at) VALUES (%s, %s, %s, %s, %s, %s)",
                     list(rows.values()),
                 )
-        logger.info("%s: %s access points' switches", display_name(controller), len(rows))
+        logger.info("{}: {} access points' switches", display_name(controller), len(rows))
     except Exception as exc:
         logger.warning(
-            "Could not read %s's topology; keeping its last answer: %s",
+            "Could not read {}'s topology; keeping its last answer: {}",
             display_name(controller),
             exc,
         )
@@ -279,12 +277,12 @@ def sync_controller(controller: dict) -> None:
             inventory.record_sync_state(
                 conn, key, last_started_at=started_at, last_completed_at=completed_at, status="idle"
             )
-        logger.info("%s: %s access points", display_name(controller), kept)
+        logger.info("{}: {} access points", display_name(controller), kept)
         sync_pnp(conn, controller)
         sync_neighbours(conn, controller, aps)
     except Exception as exc:
         # The exception's text names the URL at most, never the password or token.
-        logger.warning("Could not read %s: %s", display_name(controller), exc)
+        logger.warning("Could not read {}: {}", display_name(controller), exc)
         with db.transaction(conn):
             inventory.record_sync_state(
                 conn,
@@ -412,7 +410,7 @@ def load_index(devices: list[dict] | None = None) -> dict:
     try:
         return read_index(conn, devices=devices)
     except Exception as exc:
-        logger.warning("Could not read the wireless controllers' access points: %s", exc)
+        logger.warning("Could not read the wireless controllers' access points: {}", exc)
         return {}
     finally:
         conn.close()

@@ -46,16 +46,76 @@ os.environ["NAUTOBOT_MAPS_DATABASE_URL"] = os.environ["DATABASE_URL"] = TEST_DAT
 # tests empty it (the current app's tests never started gunicorn's). Its own tests turn it on.
 os.environ["BACKGROUND_SYNC_ENABLED"] = "false"
 
+import logging  # noqa: E402
+
 import pytest  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from loguru import logger  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.api import app  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
 from app.db.session import engine  # noqa: E402
+from app.logs import config as logs  # noqa: E402
 from app.models import Base  # noqa: E402
+
+
+def _to_standard_logging(message) -> None:
+    """loguru's lines into Python's standard logging, so ``caplog`` sees them (#633):
+    under the line's logger name, only if that logger is enabled for its level."""
+    record = message.record
+    name = record["extra"]["logger"]
+    target = logging.getLogger(name)
+    if not target.isEnabledFor(record["level"].no):
+        return
+    exception = record["exception"]
+    exc_info = (exception.type, exception.value, exception.traceback) if exception else None
+    target.handle(
+        target.makeRecord(
+            name,
+            record["level"].no,
+            record["file"].path,
+            record["line"],
+            record["message"],
+            (),
+            exc_info,
+            func=record["function"],
+            extra={"from_loguru": True, "loguru_extra": dict(record["extra"])},
+        )
+    )
+
+
+def _loguru_for_tests() -> None:
+    logger.remove()
+    logger.configure(patcher=logs.name_and_part)
+    logger.add(_to_standard_logging, level=0, format="{message}", catch=False)
+
+
+_REAL_CONFIGURE = logs.configure
+
+
+@pytest.fixture(autouse=True)
+def _loguru_to_caplog(monkeypatch):
+    """Each test starts with loguru feeding the standard logging. logs.configure() (the
+    CLI, gunicorn_config) does nothing, so caplog keeps its handler; the
+    ``configure_logs`` fixture runs the real one."""
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    _loguru_for_tests()
+    monkeypatch.setattr(logs, "configure", lambda: None)
+    yield
+    root.handlers[:], root.level = handlers, level
+    logs._configured = False
+    _loguru_for_tests()
+
+
+@pytest.fixture
+def configure_logs():
+    """The real logs.configure(): loguru's sinks on sys.stderr/sys.stdout as they are
+    when it is called (capsys's, in a test)."""
+    return _REAL_CONFIGURE
 
 
 @pytest.fixture(scope="session", autouse=True)

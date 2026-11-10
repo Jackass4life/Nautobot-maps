@@ -8,18 +8,16 @@ request. The current app's nautobot_maps/tokens.py.
 """
 
 import hashlib
-import logging
 import re
 import secrets
 from datetime import datetime, timedelta
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.repositories import token_repository
 from app.services import status_link_service
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 PREFIX = "nmt_"
 SHOWN_CHARACTERS = 12  # "nmt_" and 8 more, in lists
@@ -130,7 +128,7 @@ def create(session: Session, body: dict, created_by: str) -> dict:
             "A token with this name already exists (revoked and expired ones keep their name "
             "until purged; see token list --all)"
         )
-    logger.info("API token %r created (role %s) by %s", name, role, created_by or "unknown")
+    logger.info("API token {!r} created (role {}) by {}", name, role, created_by or "unknown")
     return {**_with_state(row, current), "token": token}
 
 
@@ -164,7 +162,7 @@ def purge(
     )
     if not dry_run:
         for token in purged:
-            logger.info("API token %r purged by %s", token["name"], purged_by or "unknown")
+            logger.info("API token {!r} purged by {}", token["name"], purged_by or "unknown")
     return purged
 
 
@@ -177,7 +175,7 @@ def revoke(session: Session, token_id: int, revoked_by: str) -> dict | None:
         if row is None:
             return None
     else:
-        logger.info("API token %r revoked by %s", row["name"], revoked_by or "unknown")
+        logger.info("API token {!r} revoked by {}", row["name"], revoked_by or "unknown")
     return _with_state(row, current)
 
 

@@ -11,17 +11,16 @@ Ported from nautobot_maps/webhooks.py (#602): only the imports changed.
 
 import hashlib
 import json
-import logging
 import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
+
+from loguru import logger
 
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 MAX_ALERTS = 1000
 MAX_KEY_LENGTH = 255
@@ -280,7 +279,7 @@ def load_index() -> dict:
     try:
         return read_index(conn)
     except Exception as exc:
-        logger.warning("Could not read webhook device alerts: %s", type(exc).__name__)
+        logger.warning("Could not read webhook device alerts: {}", type(exc).__name__)
         return {}
     finally:
         conn.close()

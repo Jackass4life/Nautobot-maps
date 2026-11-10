@@ -19,9 +19,10 @@ role checks as the web UI and can never do more than that route.
 import base64
 import binascii
 import json
-import logging
 import time
 from urllib.parse import quote, urlsplit
+
+from loguru import logger
 
 from app.clients import caching
 from app.context import request as requestctx
@@ -31,8 +32,6 @@ from app.services import legacy_auth as auth
 from app.services import scope_service as scope
 from app.services import status_service as status
 from app.utils import inprocess
-
-logger = logging.getLogger(__name__)
 
 # The request being answered (#436): /mcp is a FastAPI route; this reads its
 # headers and address the same way under either framework.
@@ -634,7 +633,7 @@ def call_tool(params: dict) -> dict:
     except ToolError as exc:
         return {"content": [{"type": "text", "text": exc.message}], "isError": True}
     except Exception as exc:
-        logger.exception("MCP tool %s failed: %s", name, exc)
+        logger.exception("MCP tool {} failed: {}", name, exc)
         return {
             "content": [{"type": "text", "text": "Internal error in the tool"}],
             "isError": True,
@@ -805,7 +804,7 @@ def handle(body: bytes) -> tuple[dict | None, int]:
     except ProtocolError as exc:
         return _error(exc.code, exc.message, exc.status, request_id, exc.data)
     except Exception as exc:
-        logger.exception("MCP request %s failed: %s", method, exc)
+        logger.exception("MCP request {} failed: {}", method, exc)
         return _error(INTERNAL_ERROR, "Internal error", 500, request_id)
     if era == "modern":
         result = {"resultType": "complete", **result, "_meta": {META_SERVER_INFO: SERVER_INFO}}

@@ -116,6 +116,11 @@ the details.
     `version.py` (the version is `api/pyproject.toml`'s); `app/auth/` the sign-in and role
     dependencies; `app/context/` the request being answered; `app/logs/` the log setup and
     the access log; `app/lifespan.py` the startup.
+  - Logging: `from loguru import logger`, placeholders as `{}` (`logger.warning("Sync of
+    {} failed: {}", site, exc)`; tests fail on a `%s` or a wrong count), a stack trace with
+    `logger.exception(...)` or `logger.opt(exception=True).warning(...)`. Each line's part
+    (`sync`, `api`, …) comes from the module's name through `app/logs/parts.py`: a new
+    module that logs gets a line there (a test checks). Tests read the lines with `caplog`.
   - `app/utils/`: small helpers, e.g. `timeutil.py` (tests freeze time with
     `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`).
 - `web/`: the pages (Nuxt), below.

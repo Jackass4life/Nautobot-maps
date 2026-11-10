@@ -6,15 +6,14 @@ Ported from nautobot_maps/repositories/board.py (#602): only the imports changed
 """
 
 import json
-import logging
 from datetime import timedelta
+
+from loguru import logger
 
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 
 def nautobot_inventory_primary_ip_backfill_pending(conn=None) -> bool:
@@ -57,7 +56,7 @@ def load_librenms_id_map() -> dict:
                 for r in rows
             }
         except Exception as exc:
-            logger.debug("Could not read librenms_device_map: %s", exc)
+            logger.debug("Could not read librenms_device_map: {}", exc)
         finally:
             conn.close()
     return lnms_id_map
@@ -87,7 +86,7 @@ def store_librenms_maps(maps: dict) -> None:
                 ],
             )
     except Exception as exc:
-        logger.warning("Could not store %d LibreNMS device mappings: %s", len(maps), exc)
+        logger.warning("Could not store {} LibreNMS device mappings: {}", len(maps), exc)
     finally:
         conn.close()
 
@@ -383,7 +382,7 @@ def record_board_build(trigger: str, seconds: float) -> None:
                 (trigger, seconds, seconds, timeutil.iso_utc_now()),
             )
     except Exception as exc:
-        logger.debug("Could not record the board build: %s", exc)
+        logger.debug("Could not record the board build: {}", exc)
     finally:
         conn.close()
 
