@@ -5,7 +5,7 @@
 <script setup lang="ts">
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { apiError, errorMessage } from "~/utils/format";
 import { SiteMap, loadLeaflet } from "~/utils/leafletmap";
 import {

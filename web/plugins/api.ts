@@ -1,5 +1,5 @@
 import createClient from "openapi-fetch";
-import type { paths } from "~/types/api";
+import type { paths } from "~/api/api.schema";
 
 // The typed API client (#572, #609): every call to the API goes through it, as
 // `const { $api } = useNuxtApp()`, with the paths and bodies of api/openapi.json.

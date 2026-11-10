@@ -49,7 +49,7 @@ response status is < 400, otherwise rolls back, and always closes it.
   `uv run alembic revision --autogenerate -m "..."` and review the generated file.
 - **Endpoint:** set an explicit `response_model` and a camelCase `operation_id`
   (it becomes the name in the generated TypeScript), document error responses with
-  `ERROR_RESPONSES`, then re-export the spec and run `npm run generate:api` in `web/`.
+  `ERROR_RESPONSES`, then re-export the spec and run `bun run api:generate` in `web/`.
 
 ## Settings (#588)
 

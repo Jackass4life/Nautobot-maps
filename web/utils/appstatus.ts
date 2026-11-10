@@ -1,6 +1,6 @@
 // The top bar's "Updated 14:05" (#419; static/js/lib/nav.js): from
 // /api/app-status, once a minute; the worst source speaks.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { formatFeedTime } from "./format";
 
 export type AppStatus = components["schemas"]["AppStatus"];

@@ -1,31 +1,44 @@
-// `npm audit` for the frontend (#463), failing on high or critical findings
-// except the advisories below.  Only the built static files reach production:
-// no Nuxt server, dev server or build tool runs there.  Each accepted
-// advisory has no fixed release yet and says why it can't be reached here;
-// remove it when a fix lands (Dependabot proposes it).
+// `bun audit` for the frontend (#463, bun since #635), failing on high or
+// critical findings except the advisories below.  Only the built static files
+// reach production: no Nuxt server, dev server or build tool runs there.  Each
+// accepted advisory has no fixed release yet and says why it can't be reached
+// here; remove it when a fix lands (Dependabot proposes it).  bun.lock is enough:
+// no install needed.
 import { execFileSync } from "node:child_process";
 
 const ACCEPTED = {};
 
-let report;
+let output;
 try {
-  report = JSON.parse(execFileSync("npm", ["audit", "--json"], { encoding: "utf8" }));
+  output = execFileSync("bun", ["audit", "--json"], { encoding: "utf8" });
 } catch (error) {
-  // npm audit exits non-zero when it finds anything; its report is on stdout.
-  report = JSON.parse(error.stdout);
+  // bun audit exits non-zero when it finds anything; its report is on stdout.
+  output = error.stdout ?? "";
 }
 
-// An error instead of a report (a registry without audits: ENOAUDIT, #610 review)
-// audited nothing: that fails too, never "nothing found".
-if (report.error || typeof report.vulnerabilities !== "object" || report.vulnerabilities === null) {
-  console.log(`npm audit gave no report: ${JSON.stringify(report.error ?? report).slice(0, 500)}`);
+// The report maps each package to its advisories. Anything else (no report, a
+// registry without audits, #610 review) audited nothing: that fails too, never
+// "nothing found".
+let report;
+try {
+  report = JSON.parse(output);
+} catch {
+  report = null;
+}
+const isReport =
+  typeof report === "object" &&
+  report !== null &&
+  !Array.isArray(report) &&
+  Object.values(report).every(Array.isArray);
+if (!isReport) {
+  console.log(`bun audit gave no report: ${String(output).slice(0, 500)}`);
   process.exit(1);
 }
 
 const advisories = new Map();
-for (const finding of Object.values(report.vulnerabilities)) {
-  for (const via of finding.via) {
-    if (typeof via === "object") advisories.set(via.url.split("/").pop(), via);
+for (const [name, found] of Object.entries(report)) {
+  for (const advisory of found) {
+    advisories.set(advisory.url.split("/").pop(), { ...advisory, name, range: advisory.vulnerable_versions });
   }
 }
 

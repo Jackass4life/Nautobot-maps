@@ -1,6 +1,6 @@
 // The board's sites with missing or wrong coordinates (#368): a line under
 // the map's count, and the list behind its Check button.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 
 export type CoordinateProblem = components["schemas"]["CoordinateProblem"];
 

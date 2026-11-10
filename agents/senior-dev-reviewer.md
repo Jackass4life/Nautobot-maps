@@ -58,7 +58,7 @@ api/tests/                  # pytest – coverage, assertion quality
 web/tests/                  # Vitest – the pages' logic
 e2e/test_e2e.py             # Playwright in Chromium, light and dark
 api/uv.lock                 # Dependency versions and security (hashed lock file)
-web/package-lock.json       # The pages' dependencies, pinned
+web/bun.lock                # The pages' dependencies, pinned
 Dockerfile                  # Image size, layer caching, non-root user
 docker-compose.yml          # Port exposure, env var handling, healthchecks
 .env.example                # Completeness – every variable documented
@@ -76,7 +76,7 @@ Before approving, confirm the following commands succeed locally or in CI:
 uv run --project api ruff check .   # e2e, demo, scripts
 
 # The pages
-(cd web && npm ci && npm run lint && npm run typecheck && npm test && npm run generate)
+(cd web && bun install --frozen-lockfile && bun run lint && bun run type:check && bun run test && bun run generate)
 
 # Full test suite
 (cd api && uv run pytest -q)
@@ -93,7 +93,7 @@ docker build -t nautobot-maps:review .
 - **Pagination**: `fetch_all_pages()` must handle `next=null` correctly; never assume a single page.
 - **XSS**: Vue escapes text; `v-html` and Leaflet's HTML strings (markers, tooltips) must escape every value from Nautobot.
 - **Geocoder rate-limit**: Nominatim has a 1 req/s policy; the app must not hammer it in tests without mocking.
-- **CSP**: no inline scripts or styles; third-party code from npm, pinned, never a CDN.
+- **CSP**: no inline scripts or styles; third-party code from the npm registry, pinned, never a CDN.
 
 ---
 

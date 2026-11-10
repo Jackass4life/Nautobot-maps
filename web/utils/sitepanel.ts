@@ -1,6 +1,6 @@
 // The site panel (#394, #398, #400, #405): its status line, the down devices
 // in the board's order, stacks as one device, and each device's facts.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { neighbourText } from "./format";
 import { LEVEL_NAMES, displayLevel, isAlarm, knownLevel } from "./map";
 

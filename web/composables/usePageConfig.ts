@@ -1,7 +1,7 @@
 // What the pages read to draw themselves (#463): who is signed in, Nautobot's
 // address, the menu and each page's settings; fetched once per page load,
 // shared by every component.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 
 export type PageConfig = components["schemas"]["PageConfig"];
 

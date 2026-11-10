@@ -2,4 +2,4 @@
 // .nuxt/eslint.config.mjs).
 import withNuxt from "./.nuxt/eslint.config.mjs";
 
-export default withNuxt({ ignores: ["app/api/schema.d.ts"] });
+export default withNuxt({ ignores: ["api/api.schema.ts"] });

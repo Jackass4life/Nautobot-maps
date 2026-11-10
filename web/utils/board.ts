@@ -1,7 +1,7 @@
 // The alert board (#463; static/js/alerts/*): which sites it lists, in which
 // order, and the words on its rows, panels and feed.  No page access: the
 // tests run these as they are.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { behindText, formatFeedTime, nautobotLocationUrl, neighbourText } from "./format";
 import { siteAddress, siteSearchText } from "./sitesearch";
 import { siteTenants, type Scope } from "./scope";

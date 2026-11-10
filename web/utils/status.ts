@@ -1,7 +1,7 @@
 // A tenant's status page (#291, on Nuxt since #463): what it says, from
 // GET /api/status/{id}, the tenant's random link id (#500).  The key from a share link's "#key=" goes in the
 // Authorization header; the fragment is never sent to the server.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { plural } from "./availability";
 import { formatFeedTime } from "./format";
 
