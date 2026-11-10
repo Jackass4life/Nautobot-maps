@@ -36,14 +36,14 @@ jobs:
         run: uv run --project api --locked ruff format --check --diff .
 
       - name: No committed dependencies
-        # node_modules is git-ignored; a `git add -A` after `npm ci` once
+        # node_modules is git-ignored; a `git add -A` after an install once
         # committed 941 files of it (#189).
         if: success() || failure()
         run: test -z "$(git ls-files node_modules web/node_modules)"
 
   # -----------------------------------------------------------------------
   # The new backend, api/ (#572): its own uv project, ruff, migrations, tests
-  # (incl. "api/openapi.json is the app's spec").
+  # (incl. "web/api/openapi.json is the app's spec").
   # -----------------------------------------------------------------------
   api:
     runs-on: ubuntu-latest
@@ -110,40 +110,39 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          bun-version-file: web/package.json
 
       - name: Install
         # Install scripts don't run; `nuxt prepare` makes the generated types.
+        # --bun everywhere: the tools run on bun, as in the image (#635).
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          npx nuxt prepare
+          bun install --frozen-lockfile --ignore-scripts
+          bun --bun x nuxt prepare
 
-      - name: The API types match api/openapi.json
+      - name: The API types match web/api/openapi.json
         # The api job checks openapi.json is the API's spec.
         run: |
-          npm run generate:api
-          git diff --exit-code types/api.d.ts
+          bun --bun run api:generate
+          git diff --exit-code api/api.schema.ts
 
       - name: Types
         if: success() || failure()
-        run: npm run typecheck
+        run: bun --bun run type:check
 
       - name: Lint (#609)
         if: success() || failure()
-        run: npm run lint
+        run: bun --bun run lint
 
       - name: Unit tests (vitest, #609)
         if: success() || failure()
-        run: npm test
+        run: bun --bun run test
 
       - name: Static build (no inline scripts, #594)
         if: success() || failure()
-        run: npm run generate
+        run: bun --bun run generate
 
   # -----------------------------------------------------------------------
   # Known vulnerabilities in the locked dependencies (#186)
@@ -160,6 +159,11 @@ jobs:
           working-directory: api
           enable-cache: true
 
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: web/package.json
+
       - name: Python dependencies (pip-audit, api/uv.lock)
         working-directory: api
         # Every group: the image's packages, the dev tools and Playwright.
@@ -167,12 +171,12 @@ jobs:
           uv export --locked --all-groups --no-emit-project --format requirements-txt > requirements.audit.txt
           uv tool run pip-audit --strict --require-hashes --disable-pip -r requirements.audit.txt
 
-      - name: The pages (npm audit, #463)
+      - name: The pages (bun audit, #463, #635)
         # High or critical fails, except the advisories scripts/audit.mjs
         # accepts, each with no fix released and out of production's reach.
         if: success() || failure()
         working-directory: web
-        run: node scripts/audit.mjs
+        run: bun --bun scripts/audit.mjs
 
   # -----------------------------------------------------------------------
   # End-to-end in Chromium (#294): the app with the mock Nautobot and
@@ -218,18 +222,16 @@ jobs:
           uv sync --locked --group e2e
           uv run python -m playwright install --with-deps chromium
 
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          bun-version-file: web/package.json
 
       - name: Build the pages (#609)
         working-directory: web
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          npm run generate
+          bun install --frozen-lockfile --ignore-scripts
+          bun --bun run generate
 
       - name: Start the mock Nautobot and the app (#613)
         run: |

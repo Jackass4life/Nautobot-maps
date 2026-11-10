@@ -6,14 +6,14 @@
   "service": "app",
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "features": {
-    // Node builds and tests the pages in web/.
+    // Node, for bun (npm install -g), which builds and tests the pages in web/.
     "ghcr.io/devcontainers/features/node:1": {},
     // GitHub CLI for issues, PRs and CI status.
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
   },
   // api/'s dependencies and dev tools (pytest, ruff) from uv.lock, and web/'s, as CI.
-  "postCreateCommand": "pip install --user uv && cd api && ~/.local/bin/uv sync --locked --group e2e && cd ../web && npm ci --no-audit --no-fund",
+  "postCreateCommand": "pip install --user uv && cd api && ~/.local/bin/uv sync --locked --group e2e && npm install -g bun@1.4.4 && cd ../web && bun install --frozen-lockfile",
   // The app's default port. If 5000 is already taken on your machine, VS Code
   // forwards it to a free local port instead; see the Ports view.
   "forwardPorts": [5000],

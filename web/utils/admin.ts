@@ -1,7 +1,7 @@
 // Administration in the web pages (#530): API tokens, a tenant's status page
 // link to share, the test notification and the wireless controllers' check.
 // What the API can do, the pages can do too.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { hasAllWords, searchWords } from "./format";
 
 export type Token = components["schemas"]["Token"];

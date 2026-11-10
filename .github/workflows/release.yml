@@ -18,7 +18,7 @@ on:
       - api/docker-entrypoint.sh
       - api/gunicorn_config.py
       - web/package.json
-      - web/package-lock.json
+      - web/bun.lock
       - .github/workflows/release.yml
 
 permissions:

@@ -1,7 +1,7 @@
 // Circuit mapping (#385; static/js/circuits/list.js): circuits without a
 // termination, grouped by what their address found, worst first, each group
 // folded with a count and the first CIRCUITS_STEP, "Show N more".
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { hasAllWords } from "./format";
 
 export type MappedCircuit = components["schemas"]["MappedCircuit"];

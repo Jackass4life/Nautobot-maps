@@ -2,7 +2,7 @@
      the text on the right; on a phone the list folds above it.  The HTML is
      the server's, made from the repository's Markdown (no raw HTML in it). -->
 <script setup lang="ts">
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { latestOnly } from "~/utils/latest";
 
 type HelpPage = components["schemas"]["HelpPage"];

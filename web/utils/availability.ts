@@ -1,7 +1,7 @@
 // Availability (#287, #341, #342; static/js/availability/table.js): the
 // tables sorted by a column, searched, filtered by tenant, the worst N first
 // with "Show more", so 1,200 sites stay one screen.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { hasAllWords, searchWords } from "./format";
 
 export type Report = components["schemas"]["Report"];

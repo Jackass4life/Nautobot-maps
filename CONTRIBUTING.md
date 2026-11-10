@@ -16,17 +16,17 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 ### Submitting Changes
 
 1. **Fork** the repository and create a feature branch from `main`.
-2. **Set up** the development environment: [uv](https://docs.astral.sh/uv/) for `api/` (Python 3.13) and Node 22 for `web/`:
+2. **Set up** the development environment: [uv](https://docs.astral.sh/uv/) for `api/` (Python 3.13) and [bun](https://bun.sh) 1.4 for `web/`:
    ```bash
    pip install --user uv
    (cd api && uv sync)                                  # the API's dependencies, dev tools included
-   (cd web && npm ci && npm run generate)               # the pages the API serves
+   (cd web && bun install && bun run generate)          # the pages the API serves
    ```
 3. **Make** your changes in small, focused commits.
 4. **Test** your changes:
    ```bash
    (cd api && uv run pytest && uv run ruff check . && uv run ruff format --check .)
-   (cd web && npm run lint && npm run typecheck && npm test)
+   (cd web && bun run lint && bun run type:check && bun run test)
    uv run --project api ruff check e2e demo scripts deploy   # the files outside api/ and web/
    ```
    For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
@@ -46,7 +46,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && npm ci && npm run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `npm run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && bun install && bun run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `npm run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -73,7 +73,7 @@ Feature versions are pinned in `.devcontainer/devcontainer-lock.json`. After cha
 ### Project layout
 
 Two projects, each with its own dependencies, lint and CI job; they share only the API spec,
-`api/openapi.json`. [`api/README.md`](api/README.md) and [`web/README.md`](web/README.md) have
+`web/api/openapi.json`. [`api/README.md`](api/README.md) and [`web/README.md`](web/README.md) have
 the details.
 
 - `api/`: FastAPI, managed with uv. `app/api.py` is the app: middleware (the access log, the
@@ -137,16 +137,16 @@ Every page is built with [Nuxt](https://nuxt.com) (Vue, TypeScript, [Nuxt UI](ht
 
 ```bash
 cd web
-npm ci              # Node 22
-npm run generate    # the static build the API serves: web/.output/public
-npm run dev         # or: a dev server on :3000 with live reload; /api/ goes to the API on :8000
-npm run lint && npm run typecheck && npm test
+bun install         # bun 1.4 (the version in package.json's packageManager)
+bun run generate    # the static build the API serves: web/.output/public
+bun run dev         # or: a dev server on :3000 with live reload; /api/ goes to the API on :8000
+bun run lint && bun run type:check && bun run test
 ```
 
 - Without a build, every page answers 503 and says to build it (the API still works).
 - `ssr: false`: a single-page app. A page's route answers the shell; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
-- The API only through the typed client: `useNuxtApp().$api` (openapi-fetch) with `unwrap()` from `utils/api.ts`; no raw `fetch`. After an API change: `uv run python scripts/generate_openapi.py` in `api/`, then `npm run generate:api` in `web/` (CI fails until both are done).
-- CSP stays strict: `npm run generate` moves Nuxt's inline config script into a file and fails on any other inline script; Nuxt UI's colours are a stylesheet made at build time (`modules/static-ui-colors.ts`), not its inline `<style>`; no web fonts or icons are fetched from elsewhere.
+- The API only through the typed client: `useNuxtApp().$api` (openapi-fetch) with `unwrap()` from `utils/api.ts`; no raw `fetch`. After an API change: `uv run python scripts/generate_openapi.py` in `api/`, then `bun run api:generate` in `web/` (or both at once: `bun run api:generate:from-source`; CI fails until both are done). The spec and the types are `web/api/openapi.json` and `web/api/api.schema.ts`; never edit them by hand.
+- CSP stays strict: `bun run generate` moves Nuxt's inline config script into a file and fails on any other inline script; Nuxt UI's colours are a stylesheet made at build time (`modules/static-ui-colors.ts`), not its inline `<style>`; no web fonts or icons are fetched from elsewhere.
 - Logic goes in `utils/` (plain functions, tested with Vitest in `web/tests/`); the pages themselves are tested end to end (`e2e/`).
 - Scale: keep big lists (sites, devices) in `shallowRef`, not deep reactivity.
 
@@ -155,11 +155,11 @@ Rules for the pages:
 - No inline styles or scripts (#370): the CSP allows only the app's own files, so markup uses
   classes in `assets/css/main.css` (or Nuxt UI's), never `style="…"`; setting
   `element.style` from script is fine.
-- Third-party code comes from npm, pinned, into the build (Leaflet and markercluster for the map;
+- Third-party code comes from the npm registry, pinned, into the build (Leaflet and markercluster for the map;
   Swagger UI for `/api/docs`, loaded on that page only): no CDN.
 - A rule the server and the browser share is tested on both sides against one fixture, e.g.
   the scope cases for `?tenant=` / `?q=` (`api/app/services/scope_service.py` and `web/utils/scope.ts`).
-- `package-lock.json`: write it with npm 10 (`npx -y npm@10 install --package-lock-only`), as CI runs npm 10.
+- `bun.lock`: change it only with bun (`bun add`, `bun install`); CI and the image install with `--frozen-lockfile`.
 
 ### Code Style
 
@@ -167,7 +167,7 @@ Rules for the pages:
   (configured in `api/pyproject.toml`; CI runs both). Many findings can be fixed with
   `uv run ruff check --fix .` and `uv run ruff format .`. The files outside `api/` (e2e, demo,
   scripts) use the root `pyproject.toml`'s ruff settings.
-- The pages must pass `npm run lint` and `npm run typecheck` in `web/` (CI runs both).
+- The pages must pass `bun run lint` and `bun run type:check` in `web/` (CI runs both).
 - Write clear commit messages describing what changed and why.
 
 ### Database schema changes
@@ -186,9 +186,9 @@ Never edit a revision that may already have been applied. The container runs `py
 
 ### Dependencies
 
-`api/`: `uv add <package>` (or `uv add --dev`, `--group e2e`), never pip; `uv.lock` pins every package, transitive ones included, with hashes, so the image and CI install exactly what was tested (#186). `web/`: `npm install <package>`, then write the lock file with npm 10 as above.
+`api/`: `uv add <package>` (or `uv add --dev`, `--group e2e`), never pip; `uv.lock` pins every package, transitive ones included, with hashes, so the image and CI install exactly what was tested (#186). `web/`: `bun add --exact <package>` (`--dev` for a build tool); `bun.lock` pins every package with its hash.
 
-CI fails when a lock file doesn't match, or when `pip-audit`, `npm audit` or the Trivy image scan finds a known vulnerability. Dependabot proposes updates weekly.
+CI fails when a lock file doesn't match, or when `pip-audit`, `bun audit` or the Trivy image scan finds a known vulnerability. Dependabot proposes updates weekly.
 
 ### Tests
 

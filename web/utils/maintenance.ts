@@ -1,7 +1,7 @@
 // The Maintenance page (#343, #353; static/js/maintenance/): windows planned
 // together are one batch, so a change across 30 sites is one line; the
 // groups Active now, Planned and Ended; the site picker and the request.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { formatFeedTime, hasAllWords, searchWords } from "./format";
 import { tenantDescriptionIn } from "./tenants";
 import { whenRequest, type WhenValues } from "./when";

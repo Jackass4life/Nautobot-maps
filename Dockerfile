@@ -1,16 +1,15 @@
 # The image (#613): api/ (FastAPI, uv) with web/'s pages (Nuxt, static files) and
-# the docs the help pages read (#433). Node is needed only to build the pages.
+# the docs the help pages read (#433). bun is needed only to build the pages (#635).
 FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
 
-FROM node:22-slim AS pages
-# Not "a new npm is available" in every build: npm comes with the Node image.
-ENV NPM_CONFIG_UPDATE_NOTIFIER=false
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS pages
 WORKDIR /web
-COPY web/package.json web/package-lock.json ./
+COPY web/package.json web/bun.lock ./
 # The lock file pins every package with its hash; no install scripts run.
-RUN npm ci --ignore-scripts --no-audit --no-fund
+RUN bun install --frozen-lockfile --ignore-scripts
 COPY web/ ./
-RUN npm run generate
+# --bun: the build's tools run on bun too; the image has no Node.
+RUN bun --bun run generate
 
 FROM python:3.13-slim
 

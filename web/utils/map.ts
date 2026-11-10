@@ -1,7 +1,7 @@
 // The map (#334, #392; on Nuxt since #463): alert levels, the alarm list,
 // the filters, the first view and the folding panel.  No Leaflet here: the
 // markers are in leafletmap.ts.
-import type { components } from "~/types/api";
+import type { components } from "~/api/api.schema";
 import { formatFeedTime } from "./format";
 import { siteTenants } from "./scope";
 

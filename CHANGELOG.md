@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Changed
+- **The pages are built with bun** (#635), not npm: building from source (`cd web && bun install && bun run generate`) needs [bun](https://bun.sh) 1.4 instead of Node 22. The image is built the same way and serves the same pages. For contributors: the API spec moved to `web/api/openapi.json` and its TypeScript types to `web/api/api.schema.ts`, and `web/`'s scripts are `api:generate` (was `generate:api`) and `type:check` (was `typecheck`)
 - **Each log line names its part** (#633): `[sync]`, `[api]`, `[web]`, `[board]`, `[scheduler]`, `[alerts-in]`, `[notify]`, `[auth]`, `[db]` or `[server]` after the level, so one part's lines can be found, e.g. `docker compose logs nautobot-maps | grep '\[sync\]'` (Documentation → *Operations*, *Finding things in the logs*). Requests are `api` (the API, `/mcp`, `/metrics`, `/healthz`) or `web` (the pages). With `LOG_FORMAT=json` each line has a `part` field; the other fields are as before. In the text format the milliseconds now follow a dot (`11:23:04.170`, was `,170`), and gunicorn's and the migrations' lines have the same format as the app's. Logging now goes through loguru
 
 ## [0.3.1] - 2026-11-09

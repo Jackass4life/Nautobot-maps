@@ -1,5 +1,6 @@
-"""Write the OpenAPI spec to `openapi.json`: `uv run python scripts/generate_openapi.py`
-from api/ (or give another path)."""
+"""Write the OpenAPI spec to `web/api/openapi.json`, which the pages' typed client
+is made from: `uv run python scripts/generate_openapi.py` from api/ (or give
+another path), then `bun run api:generate` in web/."""
 
 import json
 import sys
@@ -12,7 +13,7 @@ if str(API_ROOT) not in sys.path:
 
 from app.api import app  # noqa: E402
 
-OUTPUT = API_ROOT / "openapi.json"
+OUTPUT = API_ROOT.parent / "web" / "api" / "openapi.json"
 
 
 def render() -> str:

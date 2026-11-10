@@ -1,0 +1,21 @@
+{
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+  "editor.quickSuggestions": {
+    "strings": true
+  },
+  "editor.tabSize": 2,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "files.watcherExclude": {
+    "**/.output/**": true,
+    "**/.nuxt/**": true,
+    "**/node_modules/**": true
+  },
+  "search.exclude": {
+    "api/api.schema.ts": true,
+    "api/openapi.json": true
+  }
+}

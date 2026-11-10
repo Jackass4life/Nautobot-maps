@@ -5,14 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
-    "generate": "nuxt generate && node scripts/no-inline-scripts.mjs",
-    "generate:api": "openapi-typescript ../api/openapi.json -o ./types/api.d.ts",
+    "generate": "nuxt generate && bun scripts/no-inline-scripts.mjs",
+    "api:generate": "openapi-typescript ./api/openapi.json --output ./api/api.schema.ts",
+    "api:generate:from-source": "(cd ../api && uv run python scripts/generate_openapi.py) && bun run api:generate",
     "lint": "eslint .",
-    "typecheck": "nuxt typecheck",
+    "lint:fix": "eslint . --fix",
+    "type:check": "nuxt typecheck",
     "test": "vitest run",
     "postinstall": "nuxt prepare",
-    "audit": "node scripts/audit.mjs"
+    "audit": "bun scripts/audit.mjs"
   },
+  "packageManager": "bun@1.4.4",
   "dependencies": {
     "@iconify-json/lucide": "1.2.151",
     "@nuxt/ui": "4.12.0",
@@ -37,12 +40,8 @@
   },
   "overrides": {
     "esbuild": "0.28.2",
-    "archiver-utils": {
-      "glob": "13.0.6"
-    },
-    "openapi-typescript": {
-      "typescript": "$typescript"
-    }
+    "glob": "13.0.6",
+    "typescript": "$typescript"
   },
   "scarfSettings": {
     "enabled": false
