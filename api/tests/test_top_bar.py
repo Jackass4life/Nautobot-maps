@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.core.legacy_settings import settings
 from app.services import metrics_service as metrics
-from app.utils.legacy_settings import settings
 from tests.test_app import auth_config
 
 NOW = datetime(2026, 10, 22, 14, 0, tzinfo=UTC).timestamp()
@@ -189,7 +189,7 @@ class TestPageConfig:
 )
 def test_the_sign_out_url_is_a_path_or_http(value, expected):
     """#546: anything else is ignored with a warning, never put in a link."""
-    code = "from app.utils.legacy_settings import settings; print(settings.AUTH_SIGN_OUT_URL)"
+    code = "from app.core.legacy_settings import settings; print(settings.AUTH_SIGN_OUT_URL)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=pathlib.Path(__file__).resolve().parent.parent,

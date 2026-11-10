@@ -1,7 +1,7 @@
 """The app served as ASGI (#436): FastAPI outside, the Flask app mounted behind
 it.  Everything a browser, a script or a proxy relied on must be the same."""
 
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
 
 
 def test_security_headers_and_gzip_once(asgi_client):
@@ -219,7 +219,7 @@ def test_a_body_is_json_only_when_it_says_so(flask_client, monkeypatch):
     cross-site form could send) is no body at all."""
     monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
     monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://unused/x")
-    from app import db
+    from app.db import connection as db
 
     monkeypatch.setattr(
         db, "get_conn", lambda **kwargs: type("C", (), {"close": lambda self: None})()
@@ -295,7 +295,7 @@ def test_a_refused_caller_never_gets_its_body_read(monkeypatch):
 
 
 def test_a_new_token_is_never_compressed_on_fastapi(flask_client, monkeypatch, pg_database):
-    from app import db
+    from app.db import connection as db
     from app.frontend import compression
     from app.services import token_service as tokens
 

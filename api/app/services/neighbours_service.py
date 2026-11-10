@@ -20,9 +20,9 @@ Ported from nautobot_maps/neighbours.py (#602): only the imports changed.
 
 import logging
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import wireless_service as wireless
-from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

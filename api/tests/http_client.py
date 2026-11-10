@@ -86,7 +86,7 @@ class Response:
 class FlaskStyleClient:
     def __init__(self, app=None):
         if app is None:
-            from app.main import app
+            from app.api import app
         self._app = app
         self._clients: dict[tuple, TestClient] = {}
 
@@ -189,7 +189,7 @@ def fake_request(
     what Flask's ``test_request_context`` was for (#604: a Starlette request underneath)."""
     from starlette.requests import Request
 
-    from app.utils import requestctx
+    from app.context import request as requestctx
 
     scope = {
         "type": "http",

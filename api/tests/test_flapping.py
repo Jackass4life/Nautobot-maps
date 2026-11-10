@@ -3,9 +3,9 @@
 import pytest
 
 from app.clients import caching
+from app.core.legacy_settings import settings
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
-from app.utils.legacy_settings import settings
 from tests import test_alert_delay
 from tests.test_alert_delay import LONG_AGO, build, rows, set_devices
 
@@ -229,7 +229,7 @@ class TestCameUpAt:
 
 class TestMapWindow:
     def test_flapping_ends_with_the_window_also_before_a_board_build(self, flapping, clock):
-        from app import db
+        from app.db import connection as db
 
         conn = db.get_conn()
         try:

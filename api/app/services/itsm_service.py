@@ -5,7 +5,7 @@ Ported from nautobot_maps/itsm.py (#602): only the imports changed.
 
 from urllib.parse import quote
 
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
 
 
 def case_url(case: str) -> str:

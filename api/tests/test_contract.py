@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from app import session
+from app.db import session
 from app.services import contract_service as contract
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

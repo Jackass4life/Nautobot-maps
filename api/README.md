@@ -10,8 +10,8 @@ PostgreSQL. It serves `web/`'s built pages; the only thing it shares with `web/`
 cp .env.example .env                  # DATABASE_URL=postgresql+psycopg://...
 uv sync
 uv run alembic upgrade head           # apply migrations
-uv run python -m app.serve            # http://127.0.0.1:5000 (FLASK_RUN_PORT), docs at /api/docs; FLASK_DEBUG=true reloads
-uv run python -m app.export_openapi   # write openapi.json (a test fails if stale)
+uv run python run.py                       # http://127.0.0.1:5000 (FLASK_RUN_PORT), docs at /api/docs; FLASK_DEBUG=true reloads
+uv run python scripts/generate_openapi.py   # write openapi.json (a test fails if stale)
 uv run pytest                         # API_TEST_DATABASE_URL (default fastapi_nuxt_test): a separate DB, reset by the tests
 uv run ruff check . && uv run ruff format --check .
 ```
@@ -22,14 +22,21 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 
 | Path | What |
 |---|---|
-| `main.py` | App, middleware, routers under `/api/v1`, spec at `/api/openapi.json` |
+| `api.py` | App, middleware, routers under `/api/v1`, spec at `/api/openapi.json` (`app.api:app`) |
+| `lifespan.py` | Startup and shutdown: response cache, Nautobot's SSL warnings, the background scheduler |
 | `v1/<section>/controller.py` | One folder per section of `v1/sections.py` (`map/`, `alert_board/`, …): its `APIRouter`s, HTTP only; DTOs in, DTOs out |
 | `v1/<section>/dtos.py` | Its Pydantic request/response models; shared ones in `v1/common/dtos.py` |
 | `services/<resource>_service.py` | Business rules; ORM ↔ DTO conversion |
 | `repositories/<resource>_repository.py` | All queries; takes a session, returns ORM objects |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
-| `session/__init__.py` | Engine, sessionmaker, `DbSessionMiddleware`, `DbSession` dependency |
-| `utils/` | Settings (`config.py`), domain errors + handlers (`errors.py`) |
+| `core/` | Settings (`settings.py`, `legacy_settings.py`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's) |
+| `db/` | `session.py` (engine, sessionmaker, `DbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `connection.py` (psycopg, `db.get_conn()`) |
+| `auth/` | Sign-in and role dependencies (`dependencies.py`) |
+| `context/` | Per-request context (`request.py`) |
+| `logs/` | Log setup (`config.py`) and the access log (`middleware.py`) |
+| `utils/` | Small helpers: `timeutil`, `body`, `locks`, `inprocess` |
+
+Outside `app/`: `run.py` (development server), `scripts/generate_openapi.py`.
 
 Layering is strict: `controller → service → repository → model`, no skipping.
 
@@ -48,7 +55,7 @@ response status is < 400, otherwise rolls back, and always closes it.
 
 Every setting of the first app, same names and meaning: see
 [docs/configuration.md](../docs/configuration.md). Read with `get_settings().name`
-(`app/utils/config.py`, the only module that reads the environment); an empty value means
+(`app/core/settings.py`, the only module that reads the environment); an empty value means
 the default. Only the new stack's own:
 
 | Setting | Default | Meaning |
@@ -99,12 +106,12 @@ app python -m app …`); same options, output and exit status:
 The first app's modules (`nautobot_maps/`) moved here area by area (#587). Where their behaviour is pinned
 by many tests, they are ported close to verbatim, on two thin layers:
 
-- `app/db.py`: the first app's connection helpers (`db.get_conn()`, `db.transaction()`,
+- `app/db/connection.py`: the first app's connection helpers (`db.get_conn()`, `db.transaction()`,
   `db.row_to_dict()`, `db.try_advisory_lock()`, ...). A psycopg connection in autocommit
   with dict rows from a SQLAlchemy engine's pool, with the connect and statement timeouts,
   so the current SQL runs unchanged. The same advisory lock keys: the two apps exclude each
   other during the switchover.
-- `app/utils/legacy_settings.py`: `settings.NAUTOBOT_URL` reads `get_settings().nautobot_url`
+- `app/core/legacy_settings.py`: `settings.NAUTOBOT_URL` reads `get_settings().nautobot_url`
   at call time; a test's `monkeypatch.setattr(settings, "NAME", value)` changes it for every
   module.
 
@@ -125,7 +132,7 @@ name: `getLocations`, `postAlertCases`). They stand on:
 - `app/v1/deps.py`: `Json` (answers as the first app writes them), `AppRoute`, the router
   dependencies, `require_role`;
 - `app/services/legacy_auth.py`: the current `auth` functions over #592's rules (one sign-in);
-- `app/utils/requestctx.py`: the request being answered, for code below the routes (MCP).
+- `app/context/request.py`: the request being answered, for code below the routes (MCP).
 
 **Sections (#623, #624).** The API is grouped by the app's pages: `app/v1/sections.py` lists
 them in the menu's order (Map, Alert Board, … Documentation), then Auth, Incoming alerts,
@@ -148,8 +155,8 @@ non-root, `web/`'s pages and `docs/` (the help pages) built in. `docker-entrypoi
 (`gunicorn_config.py`, `app/server.py`: no proxy headers, no server header) on
 `GUNICORN_BIND` (`0.0.0.0:5000`); healthcheck on `GET /healthz`.
 
-- The access log (`app/utils/access_log.py`, logger `app.access`), the log format
-  (`LOG_FORMAT`, `app/utils/logs.py`) and the startup log (`app/startup.py`) are the first app's.
+- The access log (`app/logs/middleware.py`, logger `app.access`), the log format
+  (`LOG_FORMAT`, `app/logs/config.py`) and the startup log (`app/startup.py`) are the first app's.
 - The first app's `/api/<path>` answers 308 to `/api/v1/<path>` when that is a route
   (`app/v1/legacy_paths.py`), so webhooks and scripts keep working until they are changed.
 

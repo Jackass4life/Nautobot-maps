@@ -2,9 +2,9 @@
 
 import json
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import status_service as status
-from app.utils.legacy_settings import settings
 from tests.test_app import _snapshot_device
 from tests.test_criticality import build, write
 

@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from app import db
+from app.db import connection as db
 from app.frontend import controller as frontend
 from app.services import circuits_service as circuits
 from app.v1 import deps, sections

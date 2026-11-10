@@ -20,7 +20,7 @@ import time
 import requests
 
 from app.clients import http
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
 
 PAGE_SIZE = 1000
 # Safety net against a server whose cursor never ends: 200,000 APs.

@@ -12,8 +12,8 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.settings import get_settings
 from app.frontend import security
-from app.utils.config import get_settings
 
 
 class Error(BaseModel):
@@ -93,8 +93,8 @@ def install_error_handlers(app: FastAPI) -> None:
         """As the current app: someone not allowed in gets 401/403 before a 404 tells which
         paths exist; the error as ``{"error": ...}``; a 405's Allow with HEAD beside GET."""
         if exc.status_code in (404, 405):
+            from app.auth.dependencies import get_current_user
             from app.services import auth_service
-            from app.utils.auth import get_current_user
 
             user = await run_in_threadpool(get_current_user, request)
             refused = auth_service.check_request(request, user, get_settings())

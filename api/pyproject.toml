@@ -94,7 +94,7 @@ select = ["E", "F", "I", "B", "UP", "BLE", "RUF"]
 "app/services/apidocs_service.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003", "RUF012"]
 "app/services/mcp_service.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003", "RUF012"]
 "app/utils/inprocess.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003", "RUF012"]
-"app/utils/requestctx.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003", "RUF012"]
+"app/context/request.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003", "RUF012"]
 # Tests ported from the current app's tests/ as they are (#600): its data has long lines
 # and real-world text (en dashes in addresses).
 "tests/test_help_pages.py" = ["E501", "BLE001", "RUF001", "RUF002", "RUF003", "RUF005", "RUF012", "RUF015", "F811"]

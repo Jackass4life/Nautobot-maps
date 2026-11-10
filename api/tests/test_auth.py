@@ -3,7 +3,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.api import app
 
 PROXY = ("127.0.0.1", 40000)
 ELSEWHERE = ("10.9.8.7", 40000)
@@ -194,7 +194,7 @@ def test_cross_site_reads_are_not_refused(client):
 
 
 def test_settings_are_validated(configure):
-    from app.utils.config import get_settings
+    from app.core.settings import get_settings
 
     configure(AUTH_MODE="sometimes")
     with pytest.raises(ValueError):
@@ -204,7 +204,7 @@ def test_settings_are_validated(configure):
 def test_cors_allows_cookies_from_web(configure):
     # A cookie-based sign-in proxy in front of an API on another origin (#582). CORS is
     # installed only with CORS_ORIGINS (#594): the app's own pages share its origin.
-    from app.main import create_app
+    from app.api import create_app
 
     configure(CORS_ORIGINS="http://localhost:3000")
     with TestClient(create_app()) as client:

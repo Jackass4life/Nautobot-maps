@@ -4,11 +4,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from app.auth.dependencies import require_role
+from app.core.exceptions import ERROR_RESPONSES
+from app.db.session import DbSession
 from app.repositories.item_repository import ItemRepository
 from app.services.item_service import ItemService
-from app.session import DbSession
-from app.utils.auth import require_role
-from app.utils.errors import ERROR_RESPONSES
 from app.v1 import sections
 from app.v1.examples.dtos import ItemCreateDto, ItemDto
 

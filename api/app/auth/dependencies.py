@@ -6,10 +6,10 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from app.core.exceptions import ApiError
+from app.core.settings import Role, get_settings
 from app.services import auth_service
 from app.services.auth_service import CurrentUser
-from app.utils.config import Role, get_settings
-from app.utils.errors import ApiError
 
 
 def get_current_user(request: Request) -> CurrentUser:

@@ -6,11 +6,11 @@ import pytest
 import requests
 
 from app import __main__ as cli
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
-from app.utils.legacy_settings import settings
 from app.v1.administration import controller as admin
 from tests import http_client
 from tests.test_cli import _commands

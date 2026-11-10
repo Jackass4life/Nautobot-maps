@@ -2,13 +2,13 @@
 
 import pytest
 
-from app import db
 from app.clients import caching
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 from tests.test_app import _snapshot_device, _snapshot_location
 
 NOW = "2026-10-10T12:00:00Z"

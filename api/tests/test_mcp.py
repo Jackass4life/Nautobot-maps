@@ -8,10 +8,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.clients import caching
+from app.core.legacy_settings import settings
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import mcp_service as mcp
-from app.utils.legacy_settings import settings
 from app.v1.alert_board import dtos as board_answers
 from tests import answers, http_client
 from tests.test_app import auth_config
@@ -456,7 +456,7 @@ class TestTools:
 
     def test_feed_scope_reaches_the_route(self, flask_client, monkeypatch):
         """Through the real route: the scope picks the sites, and no scope sends none (#375)."""
-        from app import db
+        from app.db import connection as db
         from app.services import inventory_service as inventory
 
         class Conn:

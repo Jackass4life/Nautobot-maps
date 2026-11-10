@@ -5,13 +5,13 @@ import threading
 import pytest
 import requests
 
-from app import db
 from app.clients import caching, librenms
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import scheduler
 from app.services import token_service as tokens
-from app.utils.legacy_settings import settings
 from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 
@@ -90,7 +90,7 @@ def flask_client(lnms):
 
 
 def operator_token() -> dict:
-    from app.session import SessionLocal
+    from app.db.session import SessionLocal
 
     with SessionLocal() as session:
         secret = tokens.create(session, {"name": "librenms", "role": "operator"}, "admin")["token"]

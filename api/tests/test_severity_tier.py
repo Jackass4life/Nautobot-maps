@@ -4,10 +4,10 @@ import subprocess
 
 import pytest
 
+from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import notify_service as notify
-from app.utils.legacy_settings import settings
 from tests import test_maintenance
 from tests.test_maintenance import build
 
@@ -56,7 +56,7 @@ class TestThresholds:
         import os
         import sys
 
-        code = "from app.utils.legacy_settings import settings as s; print(s.ALERT_MEDIUM_PERCENT, s.ALERT_CRITICAL_PERCENT)"
+        code = "from app.core.legacy_settings import settings as s; print(s.ALERT_MEDIUM_PERCENT, s.ALERT_CRITICAL_PERCENT)"
         env = {**os.environ, "ALERT_MEDIUM_PERCENT": "0", "ALERT_CRITICAL_PERCENT": "500"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
@@ -89,7 +89,7 @@ class TestTier:
         assert [alerts.tier_rank(t) for t in ("gold", "Silver", "bronze", "")] == [0, 1, 99, 99]
 
     def test_on_the_board_and_sorting(self, site, monkeypatch):
-        from app import db
+        from app.db import connection as db
         from tests.test_app import _snapshot_location
 
         conn = db.get_conn()
@@ -127,7 +127,7 @@ class TestNotifications:
         import sys
 
         code = (
-            "from app.utils.legacy_settings import settings as s; print(s.NOTIFY_MIN_LEVEL_BY_TIER)"
+            "from app.core.legacy_settings import settings as s; print(s.NOTIFY_MIN_LEVEL_BY_TIER)"
         )
         env = {**os.environ, "NOTIFY_MIN_LEVEL_BY_TIER": ":low, gold:low,silver:bogus"}
         out = subprocess.run(
@@ -140,7 +140,7 @@ class TestTierChangesDuringAnAlarm:
     """The tier changed while a site was in alarm: its end is still announced."""
 
     def enqueue(self, from_level, to_level, tier):
-        from app import db
+        from app.db import connection as db
 
         conn = db.get_conn()
         try:

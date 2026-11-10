@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter
 
+from app.auth.dependencies import CurrentUserDep
+from app.core.settings import get_settings
 from app.services import auth_service
-from app.utils.auth import CurrentUserDep
-from app.utils.config import get_settings
 from app.v1 import sections
 from app.v1.auth.dtos import MeDto
 

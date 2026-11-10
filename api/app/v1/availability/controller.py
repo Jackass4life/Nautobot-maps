@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from app import db
+from app.db import connection as db
 from app.frontend import controller as frontend
 from app.services import availability_service as availability
 from app.services import legacy_auth as auth

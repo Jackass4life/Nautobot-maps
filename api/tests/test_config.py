@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import make_url
 
-from app.utils.config import Settings
+from app.core.settings import Settings
 
 
 @pytest.mark.parametrize("password", ["plain", "p@ss:w/rd", "100%40", "a%b c#?"])

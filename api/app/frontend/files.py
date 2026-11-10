@@ -18,9 +18,9 @@ from email.utils import formatdate
 from fastapi import Request
 from fastapi.responses import FileResponse, Response
 
+from app.core.exceptions import ApiError
+from app.core.settings import get_settings
 from app.frontend import compression
-from app.utils.config import get_settings
-from app.utils.errors import ApiError
 
 
 def inside(base: pathlib.Path, relative: str) -> pathlib.Path | None:

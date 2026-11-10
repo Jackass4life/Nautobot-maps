@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter
 
-from app import db
+from app.db import connection as db
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory

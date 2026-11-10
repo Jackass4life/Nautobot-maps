@@ -1,5 +1,5 @@
 """gunicorn for the image (#613, the current app's gunicorn_config.py):
-``gunicorn --config python:gunicorn_config app.main:app`` from api/.
+``gunicorn --config python:gunicorn_config app.api:app`` from api/.
 
 GUNICORN_BIND (default 0.0.0.0:5000), GUNICORN_WORKERS (4) and GUNICORN_TIMEOUT
 (120 s, never less) as before. Each worker starts its own scheduler thread in the
@@ -8,8 +8,8 @@ app's lifespan; a database lock lets one of them work at a time (#154).
 
 import os
 
-from app.utils import logs
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
+from app.logs import config as logs
 
 
 def _env_int(name: str, default: int) -> int:

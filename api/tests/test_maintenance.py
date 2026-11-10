@@ -5,14 +5,14 @@ import json
 
 import pytest
 
-from app import db
 from app.clients import caching
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import maintenance_service as maintenance
 from app.services import notify_service as notify
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 

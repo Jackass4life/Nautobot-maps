@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from app.main import app
+from app.api import app
 from app.services import apidocs_service as apidocs
 from app.services import navigation_service as navigation
 from app.v1 import sections

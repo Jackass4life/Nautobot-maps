@@ -10,10 +10,10 @@ import pytest
 from starlette.datastructures import QueryParams
 
 from app.clients import caching
+from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
 from app.services import scope_service as scope
-from app.utils.legacy_settings import settings
 from tests import http_client
 
 

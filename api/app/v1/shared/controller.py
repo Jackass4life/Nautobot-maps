@@ -6,7 +6,8 @@ import time
 
 from fastapi import APIRouter
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
 from app.services import legacy_auth as auth
@@ -16,7 +17,6 @@ from app.services import navigation_service as navigation
 from app.services import notify_service as notify
 from app.services import templating_service as templating
 from app.services import wireless_service as wireless
-from app.utils.legacy_settings import settings
 from app.v1 import deps, sections
 from app.v1.shared import dtos
 

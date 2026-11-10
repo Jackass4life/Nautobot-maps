@@ -5,13 +5,13 @@ import json
 import pytest
 
 from app import __main__ as cli
-from app import db
 from app.clients import nautobot
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import status_service as status
-from app.utils.legacy_settings import settings
 from tests import test_tokens
 from tests.test_app import auth_config
 from tests.test_tokens import bearer, make, verify

@@ -20,8 +20,8 @@ import pytest
 import uvicorn
 
 from app.clients import caching
+from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 from tests import http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -480,10 +480,10 @@ class TestAlertBoardWithPersistence:
         self, persisted_integration_client, monkeypatch
     ):
         """End to end (#282): a real sync and board build queue and send a notification."""
-        from app import db
+        from app.core.legacy_settings import settings
+        from app.db import connection as db
         from app.services import alerts_service as alerts
         from app.services import notify_service as notify
-        from app.utils.legacy_settings import settings
 
         posts = []
 

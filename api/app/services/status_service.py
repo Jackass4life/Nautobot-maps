@@ -14,9 +14,9 @@ Ported from nautobot_maps/status.py (#602): only the imports changed.
 
 from datetime import timedelta
 
+from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 # Board level -> what the page says.
 STATES = {

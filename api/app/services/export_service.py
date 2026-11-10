@@ -12,7 +12,7 @@ import io
 import re
 from datetime import UTC, datetime, timedelta
 
-from app import db
+from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import itsm_service as itsm
 from app.utils import timeutil

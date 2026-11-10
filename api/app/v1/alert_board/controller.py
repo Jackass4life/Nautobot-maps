@@ -10,7 +10,7 @@ import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
-from app import db
+from app.db import connection as db
 from app.frontend import controller as frontend
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts

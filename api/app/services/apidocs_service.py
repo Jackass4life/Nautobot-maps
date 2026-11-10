@@ -140,7 +140,7 @@ def routes(app=None) -> list[dict]:
     found = []
     from fastapi.routing import APIRoute
 
-    from app.main import app as whole_app
+    from app.api import app as whole_app
     from app.v1 import deps
 
     # Every route the app has (#608 review: also the new stack's own, tokens, contract,

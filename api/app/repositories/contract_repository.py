@@ -8,8 +8,9 @@ from app.utils.locks import advisory_lock_key
 
 
 def _run(conn, sql: str, params: tuple = ()):  # type: ignore[no-untyped-def]
-    """The statement on a SQLAlchemy connection, or on app/db.py's psycopg one (the ported
-    modules, e.g. metrics, read the checks on theirs, #602): rows as dicts either way."""
+    """The statement on a SQLAlchemy connection, or on app/db/connection.py's psycopg one
+    (the ported modules, e.g. metrics, read the checks on theirs, #602): rows as dicts
+    either way."""
     if hasattr(conn, "exec_driver_sql"):
         return [dict(row) for row in conn.exec_driver_sql(sql, params).mappings()]
     cursor = conn.execute(sql, params)

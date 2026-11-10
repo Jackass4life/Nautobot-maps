@@ -4,8 +4,8 @@ panel shows a stack as one device."""
 import pytest
 
 from app.clients import nautobot
+from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 
 CHASSIS = {"id": "vc-1", "name": "sw-stack01", "display": "sw-stack01", "master": {"id": "m1"}}
 
@@ -77,7 +77,7 @@ def test_stored_and_read_back(flask_client, pg_database, no_lookups):
 
 def test_a_changed_stack_makes_the_next_sync_full(flask_client, pg_database, monkeypatch):
     """Renaming a stack or moving its master saves the chassis, not its members (#400)."""
-    from app.utils.legacy_settings import settings
+    from app.core.legacy_settings import settings
 
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")

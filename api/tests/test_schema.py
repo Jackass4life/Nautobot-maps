@@ -11,8 +11,8 @@ from sqlalchemy import create_engine, make_url, text
 
 from alembic import command
 from app import migrate
+from app.db.session import engine
 from app.models import Base
-from app.session import engine
 from tests.conftest import TEST_DATABASE_URL
 from tests.schema_snapshot import snapshot
 

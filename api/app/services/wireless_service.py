@@ -27,13 +27,13 @@ from datetime import UTC, datetime, timedelta
 
 import requests
 
-from app import db
 from app.clients import arubacentral, catalyst
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.services import metrics_service as metrics
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

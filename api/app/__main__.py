@@ -25,12 +25,13 @@ import argparse
 import logging
 import sys
 
-from app import db, migrate
+from app import migrate
+from app.core.settings import get_settings
+from app.db import connection as db
 from app.services import contract_service as contract
 from app.services import status_link_service as statuslinks
 from app.services import token_service as tokens
 from app.services import wireless_service as wireless
-from app.utils.config import get_settings
 
 
 def build_parser() -> argparse.ArgumentParser:

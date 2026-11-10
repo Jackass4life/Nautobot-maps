@@ -11,7 +11,7 @@ import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 
 from app.clients import caching, http
-from app.utils.config import get_settings
+from app.core.settings import get_settings
 
 logger = logging.getLogger(__name__)
 

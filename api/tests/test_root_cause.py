@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from app import db
+from app.db import connection as db
 from app.services import export_service as export
 from app.services import notify_service as notify
 from tests import test_maintenance

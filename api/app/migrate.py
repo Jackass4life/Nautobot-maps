@@ -21,7 +21,7 @@ from alembic.config import Config
 from sqlalchemy import Connection, Engine, create_engine, text
 
 from alembic import command
-from app.utils.config import get_settings
+from app.core.settings import get_settings
 
 logger = logging.getLogger(__name__)
 

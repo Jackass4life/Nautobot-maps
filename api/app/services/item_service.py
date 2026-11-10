@@ -1,8 +1,8 @@
 """Item business logic: rules, plus ORM <-> DTO conversion."""
 
+from app.core.exceptions import ConflictError, NotFoundError
 from app.models import Item
 from app.repositories.item_repository import DuplicateNameError, ItemRepository
-from app.utils.errors import ConflictError, NotFoundError
 from app.v1.examples.dtos import ItemCreateDto, ItemDto
 
 

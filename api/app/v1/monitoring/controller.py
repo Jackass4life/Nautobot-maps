@@ -10,14 +10,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
 
-from app import db
 from app.clients import caching
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
 from app.services import health_service as health
 from app.services import mcp_service as mcp
 from app.services import metrics_service as metrics
-from app.utils.legacy_settings import settings
 from app.v1 import deps, sections
 from app.v1.monitoring import dtos
 

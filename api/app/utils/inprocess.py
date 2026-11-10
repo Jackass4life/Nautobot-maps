@@ -47,7 +47,7 @@ def call(
     host: str = "localhost",
 ) -> tuple[int, dict]:
     """``(status, JSON body or {})`` of *method* *path* as the caller."""
-    from app.main import app as asgi_app
+    from app.api import app as asgi_app
 
     payload = json.dumps(body).encode() if body is not None else b""
     raw_headers = [

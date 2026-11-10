@@ -16,10 +16,10 @@ import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

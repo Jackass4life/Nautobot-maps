@@ -30,11 +30,11 @@ from email.message import EmailMessage
 
 import requests
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import itsm_service as itsm
 from app.services import status_service as status
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

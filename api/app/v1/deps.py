@@ -29,12 +29,12 @@ from fastapi.dependencies.utils import get_flat_params
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
-from app.utils import requestctx
-from app.utils.auth import check_request
-from app.utils.auth import require_role as _require_role
+from app.auth.dependencies import check_request
+from app.auth.dependencies import require_role as _require_role
+from app.context import request as requestctx
+from app.core.exceptions import ApiError
+from app.core.exceptions import Error as ErrorDto
 from app.utils.body import body_schema, json_body
-from app.utils.errors import ApiError
-from app.utils.errors import Error as ErrorDto
 
 __all__ = [
     "ROUTER_DEPENDENCIES",
@@ -210,8 +210,8 @@ def finish(request: Request, response):  # type: ignore[no-untyped-def]
 
     from fastapi.responses import FileResponse, StreamingResponse
 
+    from app.core.settings import get_settings
     from app.frontend import compression, security
-    from app.utils.config import get_settings
 
     settings = get_settings()
     headers = response.headers
@@ -291,8 +291,8 @@ def openapi(app) -> dict:  # type: ignore[no-untyped-def]
 
 
 def install_error_handlers(app) -> None:  # type: ignore[no-untyped-def]
-    """The current app's handlers: app/utils/errors.py installs them for the whole app."""
-    from app.utils.errors import install_error_handlers as install
+    """The current app's handlers: app/core/exceptions.py installs them for the whole app."""
+    from app.core.exceptions import install_error_handlers as install
 
     install(app)
 

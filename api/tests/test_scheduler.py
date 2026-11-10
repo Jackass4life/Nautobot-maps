@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import scheduler
-from app.utils.legacy_settings import settings
 
 
 @pytest.fixture(autouse=True)
@@ -140,7 +140,7 @@ def test_the_app_starts_and_stops_it(monkeypatch):
     monkeypatch.setattr(scheduler, "stop", lambda: calls.append("stop"))
     from fastapi.testclient import TestClient
 
-    from app.main import create_app
+    from app.api import create_app
 
     with TestClient(create_app()):
         assert calls == ["start"]

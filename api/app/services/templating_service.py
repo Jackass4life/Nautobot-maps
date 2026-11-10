@@ -2,8 +2,8 @@
 app's nautobot_maps/templating.py without its error page (the pages bring theirs,
 step 8 of #587), on #592's sign-in (``legacy_auth``)."""
 
+from app.core.legacy_settings import settings
 from app.services import legacy_auth as auth
-from app.utils.legacy_settings import settings
 
 
 def bar_user() -> dict | None:

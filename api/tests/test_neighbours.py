@@ -4,14 +4,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app import db
 from app.clients import caching, catalyst, nautobot
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.services import neighbours_service as neighbours
 from app.services import wireless_service as wireless
-from app.utils.legacy_settings import settings
 from tests.test_wireless import (  # noqa: F401 (fixtures)
     APS,
     DK,

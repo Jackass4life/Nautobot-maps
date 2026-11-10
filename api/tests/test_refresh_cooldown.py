@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 
 
 @pytest.fixture

@@ -9,10 +9,10 @@ Ported from nautobot_maps/metrics.py (#602): only the imports changed.
 
 from datetime import UTC, datetime
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import contract_service as contract
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 SYNC_SOURCES = ("nautobot_inventory", "nautobot_inventory_reconcile", "librenms_inventory")
 

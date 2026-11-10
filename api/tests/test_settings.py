@@ -14,8 +14,8 @@ import re
 import pytest
 import yaml
 
-from app.utils import config as settings
-from app.utils.config import SETTING_NAMES, Settings
+from app.core import settings
+from app.core.settings import SETTING_NAMES, Settings
 
 API_ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO_ROOT = API_ROOT.parent
@@ -24,7 +24,7 @@ REPO_ROOT = API_ROOT.parent
 LEGACY_SETTINGS = {"NAUTOBOT_MAPS_DB"}
 # Only for the development server.
 NOT_PASSED_BY_COMPOSE = {
-    # The development server's (python -m app.serve), and development's SQL log.
+    # The development server's (python run.py), and development's SQL log.
     "FLASK_DEBUG",
     "FLASK_RUN_PORT",
     "SQL_ECHO",
@@ -73,10 +73,10 @@ def test_only_the_settings_module_reads_the_environment():
     readers = [
         str(path.relative_to(API_ROOT))
         for path in sorted((API_ROOT / "app").rglob("*.py"))
-        if path.name != "config.py"
+        if path != API_ROOT / "app" / "core" / "settings.py"
         and re.search(r"os\.(getenv|environ)", path.read_text(encoding="utf-8"))
     ]
-    assert not readers, f"read settings through app.utils.config: {readers}"
+    assert not readers, f"read settings through app.core.settings: {readers}"
 
 
 def test_empty_settings_mean_defaults(monkeypatch):

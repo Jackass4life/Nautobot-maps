@@ -21,9 +21,9 @@ from urllib.parse import urlsplit
 
 from fastapi import Request
 
-from app import session
+from app.core.settings import Settings
+from app.db import session
 from app.services import token_service
-from app.utils.config import Settings
 
 logger = logging.getLogger(__name__)
 

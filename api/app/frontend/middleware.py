@@ -7,8 +7,8 @@ import gzip
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.settings import get_settings
 from app.frontend import compression, security
-from app.utils.config import get_settings
 
 
 class FinishMiddleware:
