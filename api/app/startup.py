@@ -5,8 +5,8 @@ out and the settings that would quietly break something, once per server
 import logging
 import os
 
-from app.utils import config
-from app.utils.legacy_settings import settings
+from app.core import settings as config
+from app.core.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

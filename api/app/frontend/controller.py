@@ -12,9 +12,9 @@ import pathlib
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 
+from app.auth.dependencies import check_request
+from app.core.settings import get_settings
 from app.frontend import files
-from app.utils.auth import check_request
-from app.utils.config import get_settings
 
 ASSETS_PREFIX = "/_nuxt/"
 # Content-named files never change: a browser keeps them a year.

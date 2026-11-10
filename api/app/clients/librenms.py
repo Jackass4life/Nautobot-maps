@@ -10,7 +10,7 @@ import requests
 from urllib3.exceptions import InsecureRequestWarning
 
 from app.clients import http
-from app.utils.config import get_settings
+from app.core.settings import get_settings
 
 
 def get(path: str, params: dict | None = None) -> dict:

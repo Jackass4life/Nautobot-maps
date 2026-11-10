@@ -1,7 +1,7 @@
 """Logging setup (#193): LOG_LEVEL, optional JSON lines, and gunicorn's logs.
 Ported from nautobot_maps/logs.py (#613).
 
-``configure()`` sets up the app's loggers (``python -m app.serve``);
+``configure()`` sets up the app's loggers (``python run.py``);
 ``gunicorn_logconfig()`` gives gunicorn's error and access logs the same
 format (api/gunicorn_config.py).
 """
@@ -11,7 +11,7 @@ import logging
 import sys
 from datetime import UTC, datetime
 
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
 
 TEXT_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 

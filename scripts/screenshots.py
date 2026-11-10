@@ -3,7 +3,7 @@
 Run the mock at a NOC's scale and the app against an empty database, then this:
 
     MOCK_SCALE=1200 uv run --project api python demo/mock_nautobot.py &
-    (cd api && NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=demo-token uv run python -m app.serve) &
+    (cd api && NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=demo-token uv run python run.py) &
     (cd api && uv run python -m app token create shots --role admin --expires-days 1)
     uv run --project api --group e2e --with Pillow python scripts/screenshots.py --token nmt_... --seed
 

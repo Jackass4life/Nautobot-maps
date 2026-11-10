@@ -3,9 +3,9 @@ what page-config tells it, and the tenants for a status token."""
 
 import pytest
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 from tests.test_app import auth_config
 from tests.test_tokens import bearer, clock, make  # noqa: F401 (fixtures)
 from tests.test_wireless import DK, SE

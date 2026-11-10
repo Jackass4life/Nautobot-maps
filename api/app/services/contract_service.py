@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import Connection
 
-from app import session
+from app.db import session
 from app.repositories import contract_repository
 
 logger = logging.getLogger(__name__)

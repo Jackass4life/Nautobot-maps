@@ -13,12 +13,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from app import db
 from app.clients import caching, librenms, nautobot
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 OFF = {"disabled": False, "disable_notify": False, "ignore": False}
 

@@ -1,6 +1,6 @@
 """API tokens in ``api_tokens`` (#592): the current app's SQL (nautobot_maps/tokens.py).
 
-Each function takes a SQLAlchemy session or connection, or app/db.py's psycopg
+Each function takes a SQLAlchemy session or connection, or app/db/connection.py's psycopg
 connection (the routes ported from the current app use those, #604).
 """
 

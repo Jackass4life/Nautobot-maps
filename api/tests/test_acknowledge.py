@@ -2,8 +2,8 @@
 
 import pytest
 
-from app import db
 from app.clients import caching
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from tests import http_client, test_maintenance
 from tests.test_app import auth_config

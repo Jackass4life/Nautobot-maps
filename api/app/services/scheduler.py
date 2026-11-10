@@ -9,15 +9,15 @@ import logging
 import threading
 from datetime import UTC
 
-from app import db
 from app.clients import caching
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import notify_service as notify
 from app.services import webhooks_service as webhooks
 from app.services import wireless_service as wireless
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

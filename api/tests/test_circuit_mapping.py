@@ -3,8 +3,8 @@
 import pytest
 
 from app.clients import caching, nautobot
+from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 from tests.test_app import auth_config
 from tests.test_circuits_by_address import CIRCUITS, LOCATIONS, _circuit
 

@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 from psycopg.rows import dict_row
 from sqlalchemy import create_engine, event
 
-from app import session
-from app.utils.config import get_settings
+from app.core.settings import get_settings
+from app.db import session
 
 _settings = get_settings()
 

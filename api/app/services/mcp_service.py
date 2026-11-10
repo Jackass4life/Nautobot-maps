@@ -24,12 +24,13 @@ import time
 from urllib.parse import quote, urlsplit
 
 from app.clients import caching
+from app.context import request as requestctx
+from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import legacy_auth as auth
 from app.services import scope_service as scope
 from app.services import status_service as status
-from app.utils import inprocess, requestctx
-from app.utils.legacy_settings import settings
+from app.utils import inprocess
 
 logger = logging.getLogger(__name__)
 

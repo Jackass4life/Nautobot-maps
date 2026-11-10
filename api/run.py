@@ -1,6 +1,6 @@
 """The development server (#613, the current app's ``python app.py``):
 
-    python -m app.serve        (from api/; uv run python -m app.serve)
+    python run.py        (from api/; uv run python run.py)
 
 The same app as the image, on uvicorn with the image's options (app/server.py).
 FLASK_RUN_PORT is its port (default 5000) and FLASK_DEBUG=true reloads on code
@@ -11,8 +11,8 @@ changes: the names are kept from the Flask days. With AUTH_MODE=header it listen
 import uvicorn
 
 from app import server, startup
-from app.utils import logs
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
+from app.logs import config as logs
 
 
 def host() -> str:
@@ -30,7 +30,7 @@ def main() -> None:
     logs.configure()
     startup.log_alert_board_exclusions()
     uvicorn.run(
-        "app.main:app",
+        "app.api:app",
         host=host(),
         port=port(),
         reload=settings.FLASK_DEBUG,

@@ -1,7 +1,7 @@
-"""app/db.py (#600): connections as the current app's db.get_conn() made them."""
+"""app/db/connection.py (#600): connections as the current app's db.get_conn() made them."""
 
-from app import db
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
+from app.db import connection as db
 
 
 def test_autocommit_dict_rows_and_the_statement_timeout():

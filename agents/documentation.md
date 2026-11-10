@@ -21,7 +21,7 @@ and that new features are fully documented for operators and contributors.
 | Area | What to maintain |
 |---|---|
 | **README.md** | Feature list, quick-start guide, environment variables table, screenshot / demo GIF |
-| **`.env.example`** | Every setting in `api/app/utils/config.py` must have a corresponding entry with a description |
+| **`.env.example`** | Every setting in `api/app/core/settings.py` must have a corresponding entry with a description |
 | **Inline docstrings** | Every public Python function in `api/app/` has a PEP 257 docstring explaining purpose, args, and return value |
 | **Agent guides** | `agents/*.md` files stay current with actual project structure and commands |
 | **`demo/README.md`** | Instructions for running the demo stack remain accurate |

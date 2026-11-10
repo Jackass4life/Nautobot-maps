@@ -13,8 +13,9 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 import requests
 
-from app import db
 from app.clients import caching, librenms, nautobot
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import contract_service as contract
@@ -23,7 +24,6 @@ from app.services import maintenance_service as maintenance
 from app.services import navigation_service as navigation
 from app.services import scheduler
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 from app.v1.alert_board import controller as api_board
 from app.v1.alert_board import dtos as board_answers
 from app.v1.map import controller as api_locations
@@ -5566,7 +5566,7 @@ class TestApiExplorer:
         """Every route (#436), in Flask's notation."""
         from fastapi.routing import APIRoute
 
-        from app.main import app as whole_app
+        from app.api import app as whole_app
         from app.services import apidocs_service as apidocs
 
         full = {

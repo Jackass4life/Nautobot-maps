@@ -2,11 +2,11 @@
 
 The code ported from nautobot_maps/ reads ``settings.NAUTOBOT_URL``; here that is
 ``get_settings().nautobot_url``, read at call time (tests change settings with the
-``configure`` fixture). Constants of app.utils.config (``DEVICE_LEVELS``,
+``configure`` fixture). Constants of app.core.settings (``DEVICE_LEVELS``,
 ``WIRELESS_CONTROLLER_KINDS``, ...) read through too.
 """
 
-from app.utils import config
+from app.core import settings as config
 
 
 class _Settings:

@@ -1,7 +1,7 @@
 """Tenant status page links in ``status_links`` (#592), and Nautobot's tenant
 names from the inventory snapshot: the current app's SQL (statuslinks.py).
 
-Each function takes a SQLAlchemy session or connection, or app/db.py's psycopg
+Each function takes a SQLAlchemy session or connection, or app/db/connection.py's psycopg
 connection (the routes ported from the current app use those, #604).
 """
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from app.export_openapi import OUTPUT, render
-from app.main import app
+from app.api import app
+from scripts.generate_openapi import OUTPUT, render
 
 
 def test_spec_is_served(client):
@@ -18,7 +18,7 @@ def test_every_operation_has_stable_id_and_response_schema():
 
 
 def test_exported_spec_is_current():
-    assert Path(OUTPUT).read_text() == render(), "run: uv run python -m app.export_openapi"
+    assert Path(OUTPUT).read_text() == render(), "run: uv run python scripts/generate_openapi.py"
 
 
 def test_healthz(client):
@@ -35,7 +35,7 @@ def test_healthz(client):
 def test_healthz_without_the_database(client, monkeypatch, caplog):
     from sqlalchemy import create_engine
 
-    from app import session
+    from app.db import session
 
     unreachable = create_engine(
         "postgresql+psycopg://nobody:secret@127.0.0.1:1/none", connect_args={"connect_timeout": 1}
@@ -58,7 +58,7 @@ def test_healthz_gives_up_on_a_database_that_never_answers(client, monkeypatch):
     from sqlalchemy import create_engine
     from sqlalchemy.pool import NullPool
 
-    from app import session
+    from app.db import session
 
     silent = socket.socket()
     silent.bind(("127.0.0.1", 0))
@@ -155,7 +155,7 @@ def test_overlapping_checks_share_a_healthy_probe(client, monkeypatch):
 def test_the_engines_keep_the_urls_options():
     from sqlalchemy import make_url
 
-    from app.session import connect_args
+    from app.db.session import connect_args
 
     url = make_url("postgresql+psycopg://u@db/app?options=-c%20search_path%3Dmaps")
     args = connect_args(url, 5, 60)

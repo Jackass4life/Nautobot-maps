@@ -11,18 +11,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from app import db
+from app.auth.dependencies import CurrentUserDep, require_role
+from app.core.exceptions import ApiError, responses
+from app.core.legacy_settings import settings
+from app.db import connection as db
+from app.db.session import DbSession
 from app.frontend import controller as frontend
 from app.services import contract_service, status_link_service, token_service
 from app.services import legacy_auth as auth
 from app.services import notify_service as notify
 from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
-from app.session import DbSession
-from app.utils.auth import CurrentUserDep, require_role
 from app.utils.body import body_schema, json_body
-from app.utils.errors import ApiError, responses
-from app.utils.legacy_settings import settings
 from app.v1 import deps, sections
 from app.v1.administration import dtos
 from app.v1.administration.dtos import (

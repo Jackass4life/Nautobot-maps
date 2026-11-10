@@ -1,8 +1,8 @@
 """The map's site panel says who is on it (#512): the cases of the site's down
 devices, each device's own, and when nobody is."""
 
-from app import db
 from app.clients import nautobot
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from tests import test_maintenance
 

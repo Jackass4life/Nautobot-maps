@@ -16,7 +16,7 @@ from concurrent.futures import TimeoutError as ProbeTimeout
 from psycopg.rows import dict_row
 from sqlalchemy import text
 
-from app import session
+from app.db import session
 from app.services import metrics_service
 
 logger = logging.getLogger(__name__)

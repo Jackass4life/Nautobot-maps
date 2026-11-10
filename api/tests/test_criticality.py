@@ -6,11 +6,11 @@ import sys
 
 import pytest
 
-from app import db
 from app.clients import caching
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 from tests.test_app import _snapshot_device, _snapshot_location
 
 NOW = "2026-10-18T12:00:00Z"
@@ -91,7 +91,7 @@ class TestDeviceLevel:
         assert read({"custom_fields": {"criticality": "critical"}}) == ""
 
     def test_the_tier_setting_keeps_known_levels(self):
-        code = "from app.utils.legacy_settings import settings as s; print(s.TIER_DEVICE_LEVEL)"
+        code = "from app.core.legacy_settings import settings as s; print(s.TIER_DEVICE_LEVEL)"
         env = {**os.environ, "TIER_DEVICE_LEVEL": "Gold:Critical, silver:medium,bronze:urgent,:low"}
         out = subprocess.run(
             [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True

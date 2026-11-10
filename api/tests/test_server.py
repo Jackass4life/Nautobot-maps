@@ -12,8 +12,8 @@ from unittest.mock import patch
 import pytest
 
 from app import server, startup
-from app.utils import logs
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
+from app.logs import config as logs
 
 ACCESS = "app.access"
 
@@ -200,10 +200,10 @@ class TestGunicornConfig:
 
 
 class TestDevelopmentServer:
-    """``python -m app.serve`` (the current app's ``python app.py``)."""
+    """``python run.py`` (the current app's ``python app.py``)."""
 
     def test_header_auth_listens_on_loopback_only(self, monkeypatch):
-        from app import serve
+        import run as serve
 
         monkeypatch.setattr(settings, "AUTH_MODE", "header")
         assert serve.host() == "127.0.0.1"
@@ -212,13 +212,13 @@ class TestDevelopmentServer:
 
     @pytest.mark.parametrize(("value", "port"), [("", 5000), ("5055", 5055), ("x", 5000)])
     def test_its_port(self, monkeypatch, value, port):
-        from app import serve
+        import run as serve
 
         monkeypatch.setattr(settings, "FLASK_RUN_PORT", value)
         assert serve.port() == port
 
     def test_it_runs_the_app_with_the_image_options(self, monkeypatch):
-        from app import serve
+        import run as serve
 
         calls = []
         monkeypatch.setattr(serve.uvicorn, "run", lambda *a, **k: calls.append((a, k)))
@@ -227,5 +227,5 @@ class TestDevelopmentServer:
         monkeypatch.setattr(settings, "FLASK_DEBUG", True)
         serve.main()
         ((args, kwargs),) = calls
-        assert args == ("app.main:app",) and kwargs["reload"] is True
+        assert args == ("app.api:app",) and kwargs["reload"] is True
         assert kwargs["proxy_headers"] is False and kwargs["server_header"] is False

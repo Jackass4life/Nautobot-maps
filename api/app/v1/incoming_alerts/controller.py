@@ -6,12 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
-from app import db
 from app.clients import caching
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import scheduler
 from app.services import webhooks_service as webhooks
-from app.utils.legacy_settings import settings
 from app.v1 import deps, sections
 from app.v1.common import dtos as common
 from app.v1.incoming_alerts import dtos

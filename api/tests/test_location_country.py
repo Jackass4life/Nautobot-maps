@@ -5,8 +5,8 @@ Ported from the current app's tests (#600)."""
 import pytest
 
 from app.clients import nautobot
+from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 
 
 @pytest.mark.parametrize(

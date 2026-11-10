@@ -6,11 +6,11 @@ alert tag" take a device off the alert board (#570)."""
 
 import pytest
 
-from app import db
 from app.clients import caching, nautobot
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 from tests.test_app import _snapshot_device
 from tests.test_librenms_push import board_row, lnms, operator_token  # noqa: F401
 

@@ -8,7 +8,7 @@ default, ``RedisCache`` with ``CACHE_REDIS_URL`` to share it across workers, or
 import redis
 from cachelib import BaseCache, NullCache, RedisCache, SimpleCache
 
-from app.utils.config import get_settings
+from app.core.settings import get_settings
 
 # The current app's (Flask-Caching's) prefix, kept: during the switchover the old
 # and the new app share the same keys (the board, the geocoder's rate limit).

@@ -15,8 +15,9 @@ from datetime import UTC, datetime, timedelta
 
 import requests
 
-from app import db
 from app.clients import caching, librenms, nautobot
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import inventory_service as inventory
 from app.services import maintenance_service as maintenance
@@ -25,7 +26,6 @@ from app.services import notify_service as notify
 from app.services import webhooks_service as webhooks
 from app.services import wireless_service as wireless
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

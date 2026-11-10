@@ -8,7 +8,7 @@ import pathlib
 import pytest
 
 from app import __main__ as cli
-from app import db
+from app.db import connection as db
 from app.services import token_service as tokens
 from app.utils import timeutil
 

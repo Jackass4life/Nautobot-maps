@@ -34,7 +34,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    (cd api && uv sync --group e2e && uv run python -m playwright install chromium)
    uv run --project api python demo/mock_nautobot.py &         # :8080
    export NAUTOBOT_URL=http://127.0.0.1:8080 NAUTOBOT_TOKEN=x NAUTOBOT_MAPS_DATABASE_URL=postgresql://...
-   (cd api && uv run python -m app migrate && FLASK_RUN_PORT=5055 uv run python -m app.serve) &
+   (cd api && uv run python -m app migrate && FLASK_RUN_PORT=5055 uv run python run.py) &
    # Planning maintenance needs the operator role: an API token for the tests.
    export E2E_OPERATOR_TOKEN="$(cd api && uv run python -m app token create e2e --role operator --expires-days 1 | head -n 1)"
    # The Admin page needs the admin role (#530).
@@ -46,7 +46,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && npm ci && npm run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python -m app.serve` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `npm run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && npm ci && npm run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `npm run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -62,7 +62,7 @@ extension), or start it in GitHub Codespaces. It provides:
 - Node, which builds and tests the pages in `web/`
 - GitHub CLI (`gh`) and Claude Code
 - The Python and Ruff VS Code extensions
-- Port 5000 forwarded for `python -m app.serve`. If 5000 is already taken on your machine, VS Code
+- Port 5000 forwarded for `python run.py`. If 5000 is already taken on your machine, VS Code
   picks another local port; check the **Ports** view.
 
 You still need a `.env` (see [docs/configuration.md](docs/configuration.md)) to point the app at a Nautobot instance; for the
@@ -76,10 +76,10 @@ Two projects, each with its own dependencies, lint and CI job; they share only t
 `api/openapi.json`. [`api/README.md`](api/README.md) and [`web/README.md`](web/README.md) have
 the details.
 
-- `api/`: FastAPI, managed with uv. `app/main.py` is the app: middleware (the access log, the
+- `api/`: FastAPI, managed with uv. `app/api.py` is the app: middleware (the access log, the
   security headers and gzip, the old `/api/...` paths' 308), the routers, the pages. The image
   serves it with gunicorn and uvicorn workers (`gunicorn_config.py`, `app/server.py`);
-  `python -m app.serve` runs it for development, `python -m app ...` is the command line.
+  `python run.py` runs it for development, `python -m app ...` is the command line.
   - `app/v1/<section>/`: one folder per section of the API, as `/api/docs` shows them
     (`app/v1/sections.py`: the pages in the menu's order, `map/`, `alert_board/`, …
     `documentation/`, then `auth/`, `incoming_alerts/`, `shared/`, `monitoring/`,
@@ -104,13 +104,19 @@ the details.
   - `app/repositories/`: SQL; `board_repository` holds the board's reads and writes, called as
     `board_store.function()`.
   - `app/models/` and `alembic/`: the schema (SQLAlchemy models, Alembic revisions).
-  - `app/utils/config.py`: every setting, the only module that reads the environment.
-    Code ported from the first app reads them as `settings.NAME` (`app/utils/legacy_settings.py`)
+  - `app/core/settings.py`: every setting, the only module that reads the environment.
+    Code ported from the first app reads them as `settings.NAME` (`app/core/legacy_settings.py`)
     at call time; tests change them with `monkeypatch.setattr(settings, "NAME", value)`.
     Add a new setting there, pass it in `docker-compose.yml` (a test checks this) and document
     it in `docs/configuration.md` and `.env.example`.
-  - `app/db.py`: psycopg connections from the pool (`db.get_conn()`, `db.transaction()`);
-    `app/utils/timeutil.py`: time helpers (tests freeze time with
+  - `app/db/`: `connection.py`, psycopg connections from the pool (imported as `db`:
+    `db.get_conn()`, `db.transaction()`); `session.py`, SQLAlchemy's engine and session;
+    `middleware.py`, one session per API request.
+  - `app/core/`: the settings, the errors and their handlers (`exceptions.py`), `cors.py`,
+    `version.py` (the version is `api/pyproject.toml`'s); `app/auth/` the sign-in and role
+    dependencies; `app/context/` the request being answered; `app/logs/` the log setup and
+    the access log; `app/lifespan.py` the startup.
+  - `app/utils/`: small helpers, e.g. `timeutil.py` (tests freeze time with
     `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`).
 - `web/`: the pages (Nuxt), below.
 - `e2e/`: Playwright tests against a running app; `demo/`: the mock Nautobot; `deploy/proxy/`:
@@ -134,7 +140,7 @@ npm run lint && npm run typecheck && npm test
 
 - Without a build, every page answers 503 and says to build it (the API still works).
 - `ssr: false`: a single-page app. A page's route answers the shell; its files come from `/_nuxt/`, cached for a year and public (code only, no data).
-- The API only through the typed client: `useNuxtApp().$api` (openapi-fetch) with `unwrap()` from `utils/api.ts`; no raw `fetch`. After an API change: `uv run python -m app.export_openapi` in `api/`, then `npm run generate:api` in `web/` (CI fails until both are done).
+- The API only through the typed client: `useNuxtApp().$api` (openapi-fetch) with `unwrap()` from `utils/api.ts`; no raw `fetch`. After an API change: `uv run python scripts/generate_openapi.py` in `api/`, then `npm run generate:api` in `web/` (CI fails until both are done).
 - CSP stays strict: `npm run generate` moves Nuxt's inline config script into a file and fails on any other inline script; Nuxt UI's colours are a stylesheet made at build time (`modules/static-ui-colors.ts`), not its inline `<style>`; no web fonts or icons are fetched from elsewhere.
 - Logic goes in `utils/` (plain functions, tested with Vitest in `web/tests/`); the pages themselves are tested end to end (`e2e/`).
 - Scale: keep big lists (sites, devices) in `shallowRef`, not deep reactivity.

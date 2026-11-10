@@ -66,7 +66,7 @@ def test_errors_are_shown_as_the_app_sends_them(flask_client):
 
 
 def test_a_refusal_is_checked_too(flask_client, monkeypatch):
-    from app.utils.legacy_settings import settings
+    from app.core.legacy_settings import settings
 
     seen = []
     monkeypatch.setattr(

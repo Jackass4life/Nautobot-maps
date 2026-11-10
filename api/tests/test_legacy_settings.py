@@ -2,7 +2,7 @@
 
 from unittest import mock
 
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
 
 
 def test_a_nested_override_undone_restores_the_outer_one(monkeypatch):

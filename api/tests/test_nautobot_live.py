@@ -6,10 +6,10 @@ import os
 
 import pytest
 
-from app import session
+from app.core.legacy_settings import settings
+from app.db import session
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 
 LIVE_URL = os.environ.get("NAUTOBOT_LIVE_URL", "")
 LIVE_TOKEN = os.environ.get("NAUTOBOT_LIVE_TOKEN", "")

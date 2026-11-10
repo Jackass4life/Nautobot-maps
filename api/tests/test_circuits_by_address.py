@@ -6,9 +6,9 @@ import pytest
 import requests
 
 from app.clients import caching, nautobot
+from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 
 
 @pytest.mark.parametrize(

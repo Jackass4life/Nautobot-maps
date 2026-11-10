@@ -8,10 +8,10 @@ import pytest
 from fastapi.responses import Response, StreamingResponse
 from starlette.requests import Request
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.frontend import compression
 from app.services import token_service as tokens
-from app.utils.legacy_settings import settings
 from app.v1 import deps
 from tests import http_client
 

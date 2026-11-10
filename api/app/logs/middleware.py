@@ -3,7 +3,7 @@ one line per request, the same under uvicorn as
 it was under gunicorn's sync workers: client, signed-in user (the proxy's
 header), request, status, size, time in ms, user agent.
 
-ASGI middleware around the whole app (outermost, app/main.py), so
+ASGI middleware around the whole app (outermost, app/api.py), so
 every request is logged once.  Successful health checks are dropped by
 ``logs.SkipSuccessfulHealthChecks``, which reads the same atoms (``U``, ``s``)
 gunicorn's access log had.
@@ -12,7 +12,7 @@ gunicorn's access log had.
 import logging
 import time
 
-from app.utils.legacy_settings import settings
+from app.core.legacy_settings import settings
 
 logger = logging.getLogger("app.access")
 

@@ -13,7 +13,7 @@ Ported from nautobot_maps/maintenance.py (#602): only the imports changed.
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from app import db
+from app.db import connection as db
 from app.services import export_service as export
 from app.services import status_service as status
 from app.utils import timeutil

@@ -2,13 +2,13 @@
 it (#604): its routes, MCP, the page config. One sign-in, not two: each call is
 app/services/auth_service.py's rules (#592) on the request being answered
 (``requestctx``), with the user resolved once per request (shared with
-``app.utils.auth.get_current_user``).
+``app.auth.dependencies.get_current_user``).
 """
 
+from app.context import request as requestctx
+from app.core.settings import get_settings
 from app.services import auth_service
 from app.services.auth_service import ROLE_LEVELS, CurrentUser
-from app.utils import requestctx
-from app.utils.config import get_settings
 
 SUPPORTED_MODES = {"disabled", "header"}
 PUBLIC_PATHS = auth_service.PUBLIC_PATHS

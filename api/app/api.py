@@ -1,41 +1,28 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+"""The app: its middleware, error handlers and routes. ``app.api:app`` is what
+gunicorn (docker-entrypoint.sh) and the development server (run.py) run."""
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app import v1
-from app.clients import caching, nautobot
+from app.core import cors
+from app.core.exceptions import install_error_handlers
+from app.core.settings import get_settings
+from app.core.version import version
+from app.db.middleware import DbSessionMiddleware
 from app.frontend import controller as frontend
 from app.frontend.middleware import FinishMiddleware
-from app.services import scheduler
-from app.session import DbSessionMiddleware
-from app.utils import access_log
-from app.utils.config import get_settings
-from app.utils.errors import install_error_handlers
+from app.lifespan import lifespan
+from app.logs import middleware as access_log
 from app.v1 import deps as v1_deps
 from app.v1 import legacy_paths
 from app.v1 import sections as v1_sections
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Startup (#596, #600): the response cache from the settings, Nautobot's SSL
-    warnings, this process's background scheduler (off with BACKGROUND_SYNC_ENABLED=false
-    or without Nautobot)."""
-    caching.init()
-    nautobot.configure_ssl_warnings()
-    scheduler.start()
-    yield
-    scheduler.stop()
-
-
 def create_app() -> FastAPI:
-    settings = get_settings()
     app = FastAPI(
         lifespan=lifespan,
         title="Nautobot Maps",
-        version="0.3.1",
+        version=version(),
         # One tag per page section, in the menu's order, with what each is for (#623).
         openapi_tags=v1_sections.openapi_tags(),
         # Our own routes (app/v1/documentation/), behind the sign-in rules like every other one.
@@ -44,17 +31,7 @@ def create_app() -> FastAPI:
         redoc_url=None,
     )
     app.add_middleware(DbSessionMiddleware)
-    # Only for other sites' pages: the app's own share its origin (#594), and without
-    # any, the middleware would still add "Vary: Origin" to every answer.
-    if settings.cors_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=settings.cors_origins,
-            # A sign-in proxy's cookie may come along (#582); never with "*".
-            allow_credentials="*" not in settings.cors_origins,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+    cors.configure(app, get_settings())
     # The current app's /api/<path>: 308 to /api/v1/<path> (#613).
     app.add_middleware(legacy_paths.LegacyApiRedirect, routes=lambda: app.routes)
     # The security headers and gzip on every answer, errors included (#594).

@@ -52,10 +52,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from alembic import command  # noqa: E402
-from app.main import app  # noqa: E402
+from app.api import app  # noqa: E402
+from app.core.settings import get_settings  # noqa: E402
+from app.db.session import engine  # noqa: E402
 from app.models import Base  # noqa: E402
-from app.session import engine  # noqa: E402
-from app.utils.config import get_settings  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -100,7 +100,7 @@ def configure(monkeypatch):
     """Set settings through the environment, e.g. configure(AUTH_MODE="header")."""
 
     def apply(**env: str) -> None:
-        from app.utils import config
+        from app.core import settings as config
 
         for key, value in env.items():
             monkeypatch.setenv(key, value)
@@ -119,7 +119,7 @@ class TestDatabase:
 
     def execute(self, sql: str, params=()) -> list[dict]:
         """Run one statement; return its rows as dicts (``[]`` when it returns none)."""
-        from app import db
+        from app.db import connection as db
 
         conn = db.get_conn()
         try:
@@ -129,7 +129,7 @@ class TestDatabase:
             conn.close()
 
     def executemany(self, sql: str, rows) -> None:
-        from app import db
+        from app.db import connection as db
 
         conn = db.get_conn()
         try:
@@ -183,9 +183,9 @@ def pg_database():
 def board(pg_database, monkeypatch):
     """A board built from the database only (no Nautobot, no LibreNMS), at a clock the test
     sets: ``board["now"]`` (the current app's fixture)."""
+    from app.core.legacy_settings import settings
     from app.services import inventory_service
     from app.utils import timeutil
-    from app.utils.legacy_settings import settings
 
     clock = {"now": "2026-10-18T12:00:00Z"}
     monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
@@ -225,8 +225,8 @@ def _answers_match_the_api_spec(monkeypatch):
 @pytest.fixture
 def asgi_client():
     """The whole app as production serves it (the current app's fixture)."""
+    from app.api import app as whole_app
     from app.clients import caching
-    from app.main import app as whole_app
 
     caching.cache.clear()
     with TestClient(whole_app, base_url="http://localhost") as c:
@@ -237,7 +237,7 @@ def asgi_client():
 def frontend_build(tmp_path, monkeypatch):
     """A stand-in for web/'s build (``npm run generate``): its page and one asset, so the
     routes serving it are tested without Node (the current app's fixture, #604)."""
-    from app.utils.legacy_settings import settings
+    from app.core.legacy_settings import settings
 
     build = tmp_path / "public"
     (build / "_nuxt").mkdir(parents=True)

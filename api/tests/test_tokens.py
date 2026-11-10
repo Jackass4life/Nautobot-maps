@@ -13,9 +13,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from app.main import app
+from app.api import app
+from app.db.session import SessionLocal, engine
 from app.services import auth_service, token_service
-from app.session import SessionLocal, engine
 from app.utils import timeutil
 
 NOW = "2026-10-09T12:00:00Z"
@@ -268,7 +268,7 @@ class TestSignIn:
         user = auth_service.CurrentUser(
             True, "token:acme-page", [], "status", "disabled", "acme-page", "Acme"
         )
-        from app.utils.config import get_settings
+        from app.core.settings import get_settings
 
         assert auth_service.status_access(user, get_settings(), "ACME ") is None
         assert auth_service.status_access(user, get_settings(), "Globex") == (

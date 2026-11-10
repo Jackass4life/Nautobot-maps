@@ -4,13 +4,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app import db
 from app.clients import caching
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
 from app.services import inventory_service as inventory
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 from app.v1 import deps
 from app.v1.availability import dtos as answers
 from tests import http_client

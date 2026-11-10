@@ -235,7 +235,7 @@ jobs:
         run: |
           uv run --project api python demo/mock_nautobot.py > mock.log 2>&1 &
           (cd api && uv run python -m app migrate)
-          (cd api && uv run python -m app.serve) > app.log 2>&1 &
+          (cd api && uv run python run.py) > app.log 2>&1 &
           # Ready when the first inventory sync has filled the board.
           for attempt in $(seq 1 60); do
             if curl -sf http://127.0.0.1:5055/api/v1/alerts | grep -q '"name"'; then exit 0; fi

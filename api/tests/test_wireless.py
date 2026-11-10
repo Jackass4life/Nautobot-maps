@@ -9,8 +9,9 @@ import pytest
 import requests
 
 from app import __main__ as cli
-from app import db
 from app.clients import arubacentral, caching, catalyst
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
@@ -21,7 +22,6 @@ from app.services import notify_service as notify
 from app.services import scheduler
 from app.services import status_service as status
 from app.services import wireless_service as wireless
-from app.utils.legacy_settings import settings
 from tests import test_maintenance
 from tests.test_app import _snapshot_device, _snapshot_location
 

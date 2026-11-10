@@ -61,4 +61,4 @@ class Circuit(Answer):
 
 
 # The one error model of the whole API (#604): defined beside the error handlers.
-from app.utils.errors import Error  # noqa: E402, F401
+from app.core.exceptions import Error  # noqa: E402, F401

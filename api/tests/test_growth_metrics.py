@@ -8,7 +8,7 @@ import sys
 import pytest
 
 import app  # noqa: F401  (initializes the cache pg_database clears)
-from app import db
+from app.db import connection as db
 from app.services import metrics_service as metrics
 
 
@@ -62,7 +62,7 @@ def test_retention_defaults_to_two_years(value, days):
         [
             sys.executable,
             "-c",
-            "from app.utils.legacy_settings import settings; print(settings.ALERT_HISTORY_RETENTION_DAYS)",
+            "from app.core.legacy_settings import settings; print(settings.ALERT_HISTORY_RETENTION_DAYS)",
         ],
         cwd=pathlib.Path(__file__).resolve().parents[1],
         env={**os.environ, "ALERT_HISTORY_RETENTION_DAYS": value},

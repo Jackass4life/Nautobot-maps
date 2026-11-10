@@ -19,13 +19,13 @@ Ported from nautobot_maps/availability.py (#602): only the imports changed.
 import re
 from datetime import UTC, datetime, timedelta
 
-from app import db
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import export_service as export
 from app.services import inventory_service as inventory
 from app.services import status_service as status
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 BASES = ("any_down", "critical")
 MONTH_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")

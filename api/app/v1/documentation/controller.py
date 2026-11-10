@@ -10,11 +10,11 @@ token is refused."""
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.auth.dependencies import check_request
 from app.frontend import controller as frontend
 from app.frontend import files
 from app.services import apidocs_service as apidocs
 from app.services import guide_service as guide
-from app.utils.auth import check_request
 from app.v1 import deps, sections
 from app.v1.common import dtos as common
 from app.v1.documentation import dtos

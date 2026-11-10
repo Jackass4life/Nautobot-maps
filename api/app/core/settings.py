@@ -647,7 +647,7 @@ SETTING_NAMES = tuple(
 )
 
 
-# Values set in code through app/utils/legacy_settings.py (the current app's
+# Values set in code through app/core/legacy_settings.py (the current app's
 # ``settings.NAME = value``): kept across fresh settings, as its module globals were.
 OVERRIDES: dict[str, object] = {}
 

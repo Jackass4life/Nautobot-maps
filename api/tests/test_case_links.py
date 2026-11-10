@@ -7,9 +7,9 @@ import sys
 
 import pytest
 
+from app.core.legacy_settings import settings
 from app.services import itsm_service as itsm
 from app.services import notify_service as notify
-from app.utils.legacy_settings import settings
 from tests import http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -34,7 +34,7 @@ def test_case_url(monkeypatch):
     ],
 )
 def test_only_http_templates_with_a_placeholder(value, expected):
-    code = "from app.utils.legacy_settings import settings; print(settings.CASE_URL_TEMPLATE)"
+    code = "from app.core.legacy_settings import settings; print(settings.CASE_URL_TEMPLATE)"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=REPO_ROOT / "api",  # where app/ is
@@ -99,7 +99,7 @@ def test_the_csv_has_the_links(monkeypatch):
 def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
     from datetime import UTC, datetime
 
-    from app import db
+    from app.db import connection as db
     from app.services import export_service as export
 
     monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)

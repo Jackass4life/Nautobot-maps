@@ -34,7 +34,7 @@ export default defineNuxtConfig({
   // is loaded by its own file name instead.
   experimental: { entryImportMap: false },
   vite: {
-    // `npm run dev`: the API from api/ on :8000 (`uv run uvicorn app.main:app`), but not
+    // `npm run dev`: the API from api/ on :8000 (`uv run uvicorn app.api:app`), but not
     // /api/docs, which is a page of this app (#483).
     server: {
       proxy: { "^/api/(?!docs(?:[/?#]|$))": { target: "http://127.0.0.1:8000", changeOrigin: true } },

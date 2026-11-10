@@ -12,12 +12,12 @@ from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 
 from app.clients import caching
+from app.core.legacy_settings import settings
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
 from app.services import inventory_service as inventory
 from app.services import scope_service as scope
-from app.utils.legacy_settings import settings
 from app.v1 import deps, sections
 from app.v1.common import dtos as common
 from app.v1.map import dtos

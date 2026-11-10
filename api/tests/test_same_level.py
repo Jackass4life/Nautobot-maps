@@ -3,9 +3,9 @@
 import pytest
 
 from app.clients import caching
+from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
-from app.utils.legacy_settings import settings
 
 # The demo's mock Nautobot on a real HTTP port.
 from tests.test_integration import mock_nautobot_server  # noqa: F401 - the fixture
@@ -83,7 +83,7 @@ def test_excluded_statuses_count_nowhere(synced, monkeypatch):
 
 def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, monkeypatch):
     """With rows per Site, a floor below a site isn't a row: its own devices, by the board's rule."""
-    from app import db
+    from app.db import connection as db
 
     conn = db.get_conn()
     try:
@@ -110,7 +110,7 @@ def _monitored_london_ids():
 
 
 def _window(body):
-    from app import db
+    from app.db import connection as db
     from app.services import maintenance_service as maintenance
 
     conn = db.get_conn()
@@ -150,7 +150,7 @@ def test_a_site_in_maintenance_keeps_its_counts(synced):
 
 
 def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, monkeypatch):
-    from app import db
+    from app.db import connection as db
     from app.utils import timeutil
 
     conn = db.get_conn()
@@ -176,7 +176,7 @@ def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, 
 
 def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, monkeypatch):
     """Its state row can outlive its IP; the board's rule still applies."""
-    from app import db
+    from app.db import connection as db
     from app.utils import timeutil
 
     conn = db.get_conn()
@@ -213,7 +213,7 @@ def test_a_stack_is_one_device_everywhere(synced):
     """Paris's stack of four: an IP on member 2 is the stack's, and not
     answering, the whole stack is down: one device down on the board, the map
     and in the panel (#405)."""
-    from app import db
+    from app.db import connection as db
 
     conn = db.get_conn()
     try:

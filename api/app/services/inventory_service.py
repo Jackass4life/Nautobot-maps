@@ -15,11 +15,11 @@ from datetime import UTC, datetime
 
 import requests
 
-from app import db
 from app.clients import caching, librenms, nautobot
+from app.core.legacy_settings import settings
+from app.db import connection as db
 from app.services import contract_service as contract
 from app.utils import timeutil
-from app.utils.legacy_settings import settings
 
 logger = logging.getLogger(__name__)
 

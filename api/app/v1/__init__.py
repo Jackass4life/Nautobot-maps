@@ -13,7 +13,7 @@ Two kinds of router, kept as they are:
 
 from fastapi import APIRouter, Depends
 
-from app.utils.auth import check_request
+from app.auth.dependencies import check_request
 from app.v1.administration import controller as administration
 from app.v1.alert_board import controller as alert_board
 from app.v1.auth import controller as auth

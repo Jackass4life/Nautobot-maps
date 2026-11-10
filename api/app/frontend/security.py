@@ -3,7 +3,7 @@ current app's nautobot_maps/web.py and the headers of its deps.finish."""
 
 from urllib.parse import urlsplit
 
-from app.utils.config import Settings
+from app.core.settings import Settings
 
 
 def tile_source(settings: Settings) -> str:
