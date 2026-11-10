@@ -295,7 +295,7 @@ def asgi_client():
 
 @pytest.fixture
 def frontend_build(tmp_path, monkeypatch):
-    """A stand-in for web/'s build (``npm run generate``): its page and one asset, so the
+    """A stand-in for web/'s build (``bun run generate``): its page and one asset, so the
     routes serving it are tested without Node (the current app's fixture, #604)."""
     from app.core.legacy_settings import settings
 

@@ -362,7 +362,7 @@ class Settings(BaseSettings):
     # Other sites' pages allowed to call the API (a JSON list or comma-separated); the
     # app's own pages share its origin (#594), so none by default.
     cors_origins: Annotated[list[str], NoDecode, _text(_origins)] = []
-    # web/'s built pages (`npm run generate`, #594); the image sets it.
+    # web/'s built pages (`bun run generate`, #594); the image sets it.
     web_build_dir: Text = str(
         pathlib.Path(__file__).resolve().parents[3] / "web" / ".output" / "public"
     )

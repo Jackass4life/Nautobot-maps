@@ -1,4 +1,4 @@
-"""web/'s pages (#594): built to static files (``npm run generate``) that this
+"""web/'s pages (#594): built to static files (``bun run generate``) that this
 router serves from the same origin, as the current app serves frontend/.
 
 A page's route answers the shell (``200.html``), whose script then draws it from
@@ -25,7 +25,7 @@ PAGES: list[str] = []
 
 NOT_BUILT = (
     "<!DOCTYPE html><title>Not built</title><p>This page is built with Nuxt and hasn't "
-    "been built: run <code>npm ci &amp;&amp; npm run generate</code> in <code>web/</code>.</p>"
+    "been built: run <code>bun install &amp;&amp; bun run generate</code> in <code>web/</code>.</p>"
 )
 
 router = APIRouter(dependencies=[Depends(check_request)], include_in_schema=False)

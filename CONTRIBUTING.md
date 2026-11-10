@@ -46,7 +46,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 
 ### Development Setup
 
-Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && bun install && bun run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `npm run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
+Install and run the app as in the [README](README.md); every setting is in [docs/configuration.md](docs/configuration.md). Without Docker: build the pages (`cd web && bun install && bun run generate`), copy `.env.example` to `.env`, then `cd api && uv sync && uv run python -m app migrate && uv run python run.py` (port `FLASK_RUN_PORT`, default 5000; `FLASK_DEBUG=true` reloads on changes). For live reload of the pages, `bun run dev` in `web/` serves them on :3000 and sends `/api/` to the API on :8000 (`FLASK_RUN_PORT=8000`). For a real Nautobot 3.x to develop against, see [`development/README.md`](development/README.md).
 
 #### Dev container (optional)
 
@@ -152,6 +152,18 @@ bun run lint && bun run type:check && bun run test
 
 Rules for the pages:
 
+- Components: [Nuxt UI](https://ui.nuxt.com) first (`<UButton>`, `<UTable>`, `<UModal>`, ...).
+  [shadcn-vue](https://www.shadcn-vue.com) (#640) only for what Nuxt UI lacks, or where its look
+  is wanted; its components are `<S…>` (`<STable>`, `<SSonner>`). Add one with
+  `bun run add:component <name>` in `web/` (or copy it from the shadcn-vue repository at the
+  pinned version); it lands in `components/ui/` and is then our code. Icons stay the iconify
+  Lucide set (`<UIcon name="i-lucide-…">`), not `@lucide/vue`, and nothing inline (`:style`)
+  that the CSP would block.
+- One set of colours: shadcn's tokens (`--primary`, `--muted`, `--border`, ...) are Nuxt UI's
+  variables (`assets/css/shadcn.css`). Change a colour in `ui-colors.ts`, never in
+  `shadcn.css`; a new component's border elements go in its `@layer base` rule
+  (`web/tests/shadcn.test.ts` checks all of this).
+- Toasts: `toast("…")` from `vue-sonner` (`<SSonner />` is in `app.vue`) for new code.
 - No inline styles or scripts (#370): the CSP allows only the app's own files, so markup uses
   classes in `assets/css/main.css` (or Nuxt UI's), never `style="…"`; setting
   `element.style` from script is fine.
