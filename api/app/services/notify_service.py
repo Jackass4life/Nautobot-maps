@@ -23,20 +23,18 @@ import hashlib
 import hmac
 import html
 import json
-import logging
 import smtplib
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 
 import requests
+from loguru import logger
 
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import itsm_service as itsm
 from app.services import status_service as status
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 LEVEL_RANK = {"ok": 0, "no_data": 0, "low": 1, "medium": 2, "critical": 3}
 LEVEL_LABEL = {
@@ -519,7 +517,7 @@ def _send_channel(conn, channel: str) -> int:
             except Exception as exc:
                 error = str(exc) if isinstance(exc, SendError) else type(exc).__name__
                 logger.warning(
-                    "Notification on %s failed for %s message(s): %s", channel, len(ids), error
+                    "Notification on {} failed for {} message(s): {}", channel, len(ids), error
                 )
                 # Each row keeps its own retry count: a fresh row in a summary
                 # with an old one gets all its attempts.
@@ -528,7 +526,7 @@ def _send_channel(conn, channel: str) -> int:
                     failed = attempts >= MAX_ATTEMPTS
                     if failed:
                         logger.warning(
-                            "Notification %s on %s given up after %s attempts",
+                            "Notification {} on {} given up after {} attempts",
                             row["id"],
                             channel,
                             attempts,

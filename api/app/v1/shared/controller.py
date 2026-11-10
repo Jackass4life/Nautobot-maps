@@ -1,10 +1,10 @@
 """What every page reads (#463, #419; #624): the page-config the pages draw
 themselves from, and the data's freshness for the top bar."""
 
-import logging
 import time
 
 from fastapi import APIRouter
+from loguru import logger
 
 from app.core.legacy_settings import settings
 from app.db import connection as db
@@ -19,8 +19,6 @@ from app.services import templating_service as templating
 from app.services import wireless_service as wireless
 from app.v1 import deps, sections
 from app.v1.shared import dtos
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -102,7 +100,7 @@ def api_app_status():
             conn = db.get_conn(connect_timeout=2)
             rows = metrics.sync_rows(conn)
         except Exception as exc:
-            logger.warning("App status: database unavailable: %s", exc)
+            logger.warning("App status: database unavailable: {}", exc)
         finally:
             if conn is not None:
                 conn.close()

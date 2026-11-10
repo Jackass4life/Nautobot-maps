@@ -2,13 +2,12 @@
 out and the settings that would quietly break something, once per server
 (gunicorn's ``when_ready``, api/gunicorn_config.py)."""
 
-import logging
 import os
+
+from loguru import logger
 
 from app.core import settings as config
 from app.core.legacy_settings import settings
-
-logger = logging.getLogger(__name__)
 
 
 def _format_set_for_log(values: set[str]) -> str:
@@ -27,13 +26,13 @@ def log_alert_board_exclusions() -> None:
         value = getattr(settings, name)
         if isinstance(value, str) and not os.path.exists(value):
             logger.error(
-                "%s=%r is neither true/false nor an existing CA bundle file: TLS connections "
+                "{}={!r} is neither true/false nor an existing CA bundle file: TLS connections "
                 "will fail",
                 name,
                 value,
             )
         elif isinstance(value, str) and not os.access(value, os.R_OK):
-            logger.error("%s: %s: TLS connections will fail", name, settings.unreadable_hint(value))
+            logger.error("{}: {}: TLS connections will fail", name, settings.unreadable_hint(value))
     if settings.AUTH_MODE == "disabled" and settings.ALLOW_UNAUTHENTICATED_WRITES:
         logger.warning(
             "ALLOW_UNAUTHENTICATED_WRITES is on with AUTH_MODE=disabled: anyone who can reach "
@@ -47,15 +46,15 @@ def log_alert_board_exclusions() -> None:
         # Two calls, so nothing derived from the secret reaches the log.
         if current.auth_proxy_secret:
             logger.info(
-                "Header auth: identity headers trusted from %s with the proxy secret", proxies
+                "Header auth: identity headers trusted from {} with the proxy secret", proxies
             )
         else:
             logger.info(
-                "Header auth: identity headers trusted from %s (no AUTH_PROXY_SECRET)", proxies
+                "Header auth: identity headers trusted from {} (no AUTH_PROXY_SECRET)", proxies
             )
     logger.info(
-        "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, device statuses=%s; "
-        "rows=%s",
+        "Alert board exclusions — statuses={}, names={}, types={}, tags={}, device statuses={}; "
+        "rows={}",
         _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_LOCATION_STATUSES),
         _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_LOCATION_NAMES),
         _format_set_for_log(settings.ALERT_BOARD_EXCLUDED_LOCATION_TYPES),

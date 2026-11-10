@@ -1,7 +1,6 @@
 """Ported from nautobot_maps/api/locations.py (#604), its API under /api/v1. The map's API (#424; on FastAPI since #436): locations, a site's detail,
 alert levels, the coordinate check and the address / GPS search."""
 
-import logging
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -10,6 +9,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
+from loguru import logger
 
 from app.clients import caching
 from app.core.legacy_settings import settings
@@ -21,8 +21,6 @@ from app.services import scope_service as scope
 from app.v1 import deps, sections
 from app.v1.common import dtos as common
 from app.v1.map import dtos
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=sections.tag("map")
@@ -37,7 +35,7 @@ NAUTOBOT_ERRORS = {
 
 
 def nautobot_service_unavailable(context: str, exc: Exception):
-    logger.warning("%s: %s", context, exc)
+    logger.warning("{}: {}", context, exc)
     return deps.Json({"error": "Nautobot service unavailable"}, status_code=503)
 
 
@@ -55,10 +53,10 @@ def api_locations():
     except RuntimeError as exc:
         return nautobot_service_unavailable("Locations endpoint unavailable", exc)
     except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
+        logger.error("Nautobot API HTTP error: {}", exc)
         return deps.Json(UPSTREAM_ERROR, status_code=502)
     except Exception as exc:
-        logger.exception("Unexpected error fetching locations: %s", exc)
+        logger.exception("Unexpected error fetching locations: {}", exc)
         return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
@@ -82,10 +80,10 @@ def api_location_detail(location_id: str, query: Annotated[dtos.LocationDetailQu
     except RuntimeError as exc:
         return nautobot_service_unavailable("Location detail endpoint unavailable", exc)
     except requests.HTTPError as exc:
-        logger.error("Nautobot API HTTP error: %s", exc)
+        logger.error("Nautobot API HTTP error: {}", exc)
         return deps.Json(UPSTREAM_ERROR, status_code=502)
     except Exception as exc:
-        logger.exception("Unexpected error fetching location detail: %s", exc)
+        logger.exception("Unexpected error fetching location detail: {}", exc)
         return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
@@ -100,7 +98,7 @@ def api_location_alerts():
     try:
         return deps.Json(alerts.get_location_alert_levels())
     except Exception as exc:
-        logger.exception("Could not compute location alert levels: %s", exc)
+        logger.exception("Could not compute location alert levels: {}", exc)
         return deps.Json(INTERNAL_ERROR, status_code=500)
 
 
@@ -123,7 +121,7 @@ def api_coordinate_check(request: Request, query: ScopeQuery):
         rows = alerts.board("request").get("alerts") or []
         problems = coordinates.check(rows, scope.read_scope(request.query_params))
     except Exception as exc:
-        logger.exception("Coordinate check failed: %s", exc)
+        logger.exception("Coordinate check failed: {}", exc)
         return deps.Json(INTERNAL_ERROR, status_code=500)
     if request.url.path.endswith(".csv"):
         return Response(
@@ -174,7 +172,7 @@ def geocode(query: str):
         )
         location = geolocator.geocode(query, timeout=10)
     except Exception as exc:
-        logger.exception("Geocoding error: %s", exc)
+        logger.exception("Geocoding error: {}", exc)
         raise GeocoderUnavailable() from exc
     point = [location.latitude, location.longitude] if location is not None else None
     caching.set(cache_key, {"point": point}, timeout=GEOCODE_CACHE_SECONDS)
@@ -241,7 +239,7 @@ def api_search(query: Annotated[dtos.SearchQuery, Query()]):
     except RuntimeError as exc:
         return nautobot_service_unavailable("Location search unavailable", exc)
     except Exception as exc:
-        logger.exception("Error fetching locations for search: %s", exc)
+        logger.exception("Error fetching locations for search: {}", exc)
         return deps.Json(INTERNAL_ERROR, status_code=500)
 
     search_point = (lat, lon)

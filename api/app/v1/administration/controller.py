@@ -4,12 +4,12 @@ nautobot_maps/api/admin.py, #604, with their full /api/v1 paths); and the new
 stack's own routers, under /api/v1 in app/v1/__init__.py, each with its own
 settings: API tokens (#297, #592, admin only) and the data contract (#309, #598)."""
 
-import logging
 import threading
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from loguru import logger
 
 from app.auth.dependencies import CurrentUserDep, require_role
 from app.core.exceptions import ApiError, responses
@@ -35,8 +35,6 @@ from app.v1.administration.dtos import (
     TokensPurged,
 )
 from app.v1.common import dtos as common
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -91,7 +89,7 @@ def _status_link(conn, tenant: str) -> str | None:
         return f"/status/{statuslinks.ensure(conn, [tenant])[tenant]}"
     except Exception as exc:
         logger.warning(
-            "Status token made, but its status link could not be read: %s", type(exc).__name__
+            "Status token made, but its status link could not be read: {}", type(exc).__name__
         )
         return None
 
@@ -158,7 +156,7 @@ def api_status_link_replace(tenant: str):
     finally:
         conn.close()
     logger.info(
-        "Status link of tenant %r replaced by %s",
+        "Status link of tenant {!r} replaced by {}",
         name,
         auth.get_current_user().get("username") or "unknown",
     )
@@ -289,7 +287,7 @@ def _status_link(db: DbSession, tenant: str) -> str | None:
         return f"/status/{link_id}"
     except Exception as exc:
         logger.warning(
-            "Status token made, but its status link could not be read: %s", type(exc).__name__
+            "Status token made, but its status link could not be read: {}", type(exc).__name__
         )
         return None
 

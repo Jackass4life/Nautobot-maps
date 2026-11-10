@@ -12,7 +12,6 @@ the `configure` fixture (environment) or `Settings(name=...)`.
 
 import ipaddress
 import json
-import logging
 import math
 import os
 import pathlib
@@ -22,11 +21,10 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 import yaml
+from loguru import logger
 from pydantic import AliasChoices, BeforeValidator, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy import URL, make_url
-
-logger = logging.getLogger(__name__)
 
 Role = Literal["viewer", "operator", "admin"]
 Level = Literal["low", "medium", "critical"]
@@ -264,7 +262,7 @@ def _tier_device_level(raw: str) -> dict[str, str]:
             levels[tier] = level
         else:
             logger.warning(
-                "TIER_DEVICE_LEVEL entry %r ignored: expected tier:level, "
+                "TIER_DEVICE_LEVEL entry {!r} ignored: expected tier:level, "
                 "the level critical, medium or low",
                 item,
             )
@@ -596,7 +594,7 @@ class Settings(BaseSettings):
     def _wireless_ap_level(cls, value: str) -> str:
         if value not in DEVICE_LEVELS:
             logger.warning(
-                "WIRELESS_AP_LEVEL %r ignored: expected critical, medium or low; using low", value
+                "WIRELESS_AP_LEVEL {!r} ignored: expected critical, medium or low; using low", value
             )
             return "low"
         return value

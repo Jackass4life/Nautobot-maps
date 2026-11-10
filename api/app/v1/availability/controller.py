@@ -1,10 +1,10 @@
 """Ported from nautobot_maps/api/availability.py (#604), its API under /api/v1. Availability (#287; on FastAPI since #436): the page, its API and CSV."""
 
-import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from app.db import connection as db
 from app.frontend import controller as frontend
@@ -14,8 +14,6 @@ from app.services import status_link_service as statuslinks
 from app.v1 import deps, sections
 from app.v1.availability import dtos
 from app.v1.common import dtos as common
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute,
@@ -45,8 +43,8 @@ def _availability_report(
             sites = availability.board_sites()
         except Exception as exc:
             # Without the board's sites and tenants the figures would be wrong.
-            logger.warning(
-                "Availability report: could not read the alert board: %s", exc, exc_info=True
+            logger.opt(exception=True).warning(
+                "Availability report: could not read the alert board: {}", exc
             )
             return (
                 None,
@@ -116,7 +114,7 @@ def _status_links(report: dict) -> dict[str, str]:
     try:
         return statuslinks.ensure(conn, sorted(tenants))
     except Exception as exc:
-        logger.warning("Availability: could not read the status links: %s", type(exc).__name__)
+        logger.warning("Availability: could not read the status links: {}", type(exc).__name__)
         return {}
     finally:
         conn.close()

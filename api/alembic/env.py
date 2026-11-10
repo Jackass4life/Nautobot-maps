@@ -4,6 +4,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.settings import get_settings
+from app.logs import config as logs
 from app.models import Base
 
 # this is the Alembic Config object, which provides
@@ -12,7 +13,9 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
+# Not when the app set up its logging (python -m app migrate, #633): its lines keep
+# their format and part.
+if config.config_file_name is not None and not logs.configured():
     # Keep the app's loggers: by default fileConfig disables every existing one.
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 

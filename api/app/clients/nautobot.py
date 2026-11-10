@@ -5,15 +5,12 @@ Other modules call these as ``nautobot.function()`` so tests can replace them
 with ``monkeypatch.setattr(nautobot, "fetch_all_pages", ...)``.
 """
 
-import logging
-
 import urllib3
+from loguru import logger
 from urllib3.exceptions import InsecureRequestWarning
 
 from app.clients import caching, http
 from app.core.settings import get_settings
-
-logger = logging.getLogger(__name__)
 
 
 def configure_ssl_warnings() -> None:
@@ -56,7 +53,7 @@ def id_name_map(endpoint: str) -> dict:
                 result[uid] = name
         return result
     except Exception as exc:  # noqa: BLE001 - a missing map only loses names
-        logger.debug("Could not build name lookup for %s: %s", endpoint, exc)
+        logger.debug("Could not build name lookup for {}: {}", endpoint, exc)
         return {}
 
 
@@ -86,7 +83,7 @@ def device_type_maps() -> tuple[dict, dict]:
                 dt_mfr[uid] = mfr_name
         return dt_mfr, dt_model
     except Exception as exc:  # noqa: BLE001 - a missing map only loses names
-        logger.debug("Could not build device-type maps: %s", exc)
+        logger.debug("Could not build device-type maps: {}", exc)
         return {}, {}
 
 
@@ -108,7 +105,7 @@ def tenant_group_map() -> dict:
                 groups[tid] = tg_name
         return groups
     except Exception as exc:  # noqa: BLE001 - a missing map only loses names
-        logger.debug("Could not build tenant group map: %s", exc)
+        logger.debug("Could not build tenant group map: {}", exc)
         return {}
 
 

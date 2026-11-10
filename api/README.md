@@ -33,7 +33,7 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `db/` | `session.py` (engine, sessionmaker, `DbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `connection.py` (psycopg, `db.get_conn()`) |
 | `auth/` | Sign-in and role dependencies (`dependencies.py`) |
 | `context/` | Per-request context (`request.py`) |
-| `logs/` | Log setup (`config.py`) and the access log (`middleware.py`) |
+| `logs/` | Log setup through loguru (`config.py`), each line's part (`parts.py`), the access log (`middleware.py`) |
 | `utils/` | Small helpers: `timeutil`, `body`, `locks`, `inprocess` |
 
 Outside `app/`: `run.py` (development server), `scripts/generate_openapi.py`.
@@ -155,8 +155,9 @@ non-root, `web/`'s pages and `docs/` (the help pages) built in. `docker-entrypoi
 (`gunicorn_config.py`, `app/server.py`: no proxy headers, no server header) on
 `GUNICORN_BIND` (`0.0.0.0:5000`); healthcheck on `GET /healthz`.
 
-- The access log (`app/logs/middleware.py`, logger `app.access`), the log format
-  (`LOG_FORMAT`, `app/logs/config.py`) and the startup log (`app/startup.py`) are the first app's.
+- The access log (`app/logs/middleware.py`, logger `app.access`) and the startup log
+  (`app/startup.py`) are the first app's; every line goes through loguru with its part
+  (`LOG_FORMAT`, `app/logs/config.py`, `app/logs/parts.py`, #633).
 - The first app's `/api/<path>` answers 308 to `/api/v1/<path>` when that is a route
   (`app/v1/legacy_paths.py`), so webhooks and scripts keep working until they are changed.
 

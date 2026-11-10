@@ -6,7 +6,6 @@ tests/test_app.py's TestLogging and startup log tests), on the new stack."""
 import importlib
 import json
 import logging
-import sys
 from unittest.mock import patch
 
 import pytest
@@ -26,9 +25,11 @@ def test_one_access_log_line_with_the_same_fields(asgi_client, caplog):
         )
     lines = [record for record in caplog.records if record.name == ACCESS]
     assert len(lines) == 1
+    atoms = lines[0].loguru_extra
+    assert atoms["r"] == "GET /api/v1/app-status?x=1 HTTP/1.1" and atoms["s"] == 200
+    assert atoms["user"] == "olga" and atoms["a"] == "probe/1" and atoms["b"] > 0
+    assert atoms["part"] == "api"
     record = lines[0]
-    assert record.args["r"] == "GET /api/v1/app-status?x=1 HTTP/1.1" and record.args["s"] == 200
-    assert record.args["user"] == "olga" and record.args["a"] == "probe/1" and record.args["b"] > 0
     message = record.getMessage()
     assert message.startswith('testclient "olga" "GET /api/v1/app-status?x=1 HTTP/1.1" 200 ')
     assert message.endswith('ms "probe/1"')
@@ -38,7 +39,14 @@ def test_successful_health_checks_are_still_left_out(asgi_client, caplog):
     with caplog.at_level(logging.INFO, logger=ACCESS):
         asgi_client.get("/healthz")
     (record,) = [record for record in caplog.records if record.name == ACCESS]
-    assert not logs.SkipSuccessfulHealthChecks().filter(record)
+    assert not logs.keep_access_line({"extra": record.loguru_extra})
+
+
+def test_a_page_request_is_the_web_part(asgi_client, caplog):
+    with caplog.at_level(logging.INFO, logger=ACCESS):
+        asgi_client.get("/alerts")
+    (record,) = [record for record in caplog.records if record.name == ACCESS]
+    assert record.loguru_extra["part"] == "web"
 
 
 def test_uvicorn_never_takes_the_client_from_a_header():
@@ -50,27 +58,26 @@ def test_uvicorn_never_takes_the_client_from_a_header():
     assert server.Worker.CONFIG_KWARGS["access_log"] is False
 
 
-def _record(**kwargs) -> logging.LogRecord:
-    record = logging.LogRecord("app.web", logging.ERROR, __file__, 1, "boom %s", ("x",), None)
-    record.__dict__.update(kwargs)
-    return record
-
-
-def test_json_lines_include_the_stack_trace():
+def test_json_lines_include_the_stack_trace(monkeypatch, capsys, configure_logs):
+    monkeypatch.setattr(settings, "LOG_FORMAT", "json")
+    configure_logs()
     try:
         raise KeyError("site")
     except KeyError:
-        record = _record(exc_info=sys.exc_info())
-    entry = json.loads(logs.JsonFormatter().format(record))
+        logging.getLogger("app.web").exception("boom %s", "x")
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert entry["level"] == "ERROR" and entry["logger"] == "app.web"
+    assert entry["part"] == "api" and entry["time"].endswith("Z")
     assert entry["message"] == "boom x" and "KeyError: 'site'" in entry["exception"]
 
 
 def test_successful_health_checks_are_not_access_logged():
-    skip = logs.SkipSuccessfulHealthChecks()
-    assert not skip.filter(_record(args={"U": "/healthz", "s": "200"}))
-    assert skip.filter(_record(args={"U": "/healthz", "s": "503"}))
-    assert skip.filter(_record(args={"U": "/api/v1/alerts", "s": "200"}))
+    def line(path: str, status: int) -> dict:
+        return {"extra": {"logger": ACCESS, "U": path, "s": status}}
+
+    assert not logs.keep_access_line(line("/healthz", 200))
+    assert logs.keep_access_line(line("/healthz", 503))
+    assert logs.keep_access_line(line("/api/v1/alerts", 200))
 
 
 def test_gunicorn_config_logs_access_and_keeps_a_root_logger(monkeypatch):
@@ -81,7 +88,10 @@ def test_gunicorn_config_logs_access_and_keeps_a_root_logger(monkeypatch):
     config = importlib.reload(gunicorn_config)
     # The app writes the access log itself under uvicorn (#436).
     assert config.worker_class == "app.server.Worker" and config.accesslog is None
-    assert ACCESS in config.logconfig_dict["loggers"]
+    # gunicorn's own lines go through loguru like every other one (#633).
+    handlers = config.logconfig_dict["handlers"]
+    assert handlers["loguru"]["()"] is logs.InterceptHandler
+    assert config.logconfig_dict["loggers"]["gunicorn.error"]["handlers"] == ["loguru"]
     # The current app's defaults: port 5000, 4 workers, never under 120 s.
     assert (config.bind, config.workers, config.timeout) == ("0.0.0.0:5000", 4, 120)
     # gunicorn refuses to start if the root logger names a missing handler.
@@ -103,8 +113,8 @@ class TestStartupLog:
         ):
             startup.log_alert_board_exclusions()
         info.assert_called_once_with(
-            "Alert board exclusions — statuses=%s, names=%s, types=%s, tags=%s, "
-            "device statuses=%s; rows=%s",
+            "Alert board exclusions — statuses={}, names={}, types={}, tags={}, "
+            "device statuses={}; rows={}",
             "{decommissioning,staging}",
             "{}",
             "{warehouse}",

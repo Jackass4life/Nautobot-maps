@@ -22,12 +22,12 @@ lists and how many match a Nautobot device; exit status 1 if one fails.
 """
 
 import argparse
-import logging
 import sys
 
 from app import migrate
 from app.core.settings import get_settings
 from app.db import connection as db
+from app.logs import config as logs
 from app.services import contract_service as contract
 from app.services import status_link_service as statuslinks
 from app.services import token_service as tokens
@@ -220,9 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "contract-docs":
         sys.stdout.write(contract.render_markdown())
         return 0
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    logs.configure()
     if args.command == "wireless-check":
         # Without a database it still says whether each controller answers.
         return wireless_check_command()

@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+- **Each log line names its part** (#633): `[sync]`, `[api]`, `[web]`, `[board]`, `[scheduler]`, `[alerts-in]`, `[notify]`, `[auth]`, `[db]` or `[server]` after the level, so one part's lines can be found, e.g. `docker compose logs nautobot-maps | grep '\[sync\]'` (Documentation → *Operations*, *Finding things in the logs*). Requests are `api` (the API, `/mcp`, `/metrics`, `/healthz`) or `web` (the pages). With `LOG_FORMAT=json` each line has a `part` field; the other fields are as before. In the text format the milliseconds now follow a dot (`11:23:04.170`, was `,170`), and gunicorn's and the migrations' lines have the same format as the app's. Logging now goes through loguru
+
 ## [0.3.1] - 2026-11-09
 
 ### Fixed

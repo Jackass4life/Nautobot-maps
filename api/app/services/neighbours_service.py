@@ -18,13 +18,11 @@ Called as ``neighbours.function()`` so tests can replace it on this module.
 Ported from nautobot_maps/neighbours.py (#602): only the imports changed.
 """
 
-import logging
+from loguru import logger
 
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import wireless_service as wireless
-
-logger = logging.getLogger(__name__)
 
 NAUTOBOT_SOURCE = "Nautobot"
 # "12 of 16 behind sw02": at least this many down behind one switch.
@@ -108,7 +106,7 @@ def load_index(devices: list[dict] | None = None) -> dict:
     try:
         return read_index(conn, devices)
     except Exception as exc:
-        logger.warning("Could not read the access points' switches: %s", exc)
+        logger.warning("Could not read the access points' switches: {}", exc)
         return empty_index()
     finally:
         conn.close()

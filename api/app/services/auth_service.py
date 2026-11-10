@@ -14,18 +14,16 @@ Refusals are ``(body, status)``: ``{"error": ...}`` as the current app answers t
 
 import hmac
 import ipaddress
-import logging
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from fastapi import Request
+from loguru import logger
 
 from app.core.settings import Settings
 from app.db import session
 from app.services import token_service
-
-logger = logging.getLogger(__name__)
 
 ROLE_LEVELS: dict[str, int] = {"viewer": 1, "operator": 2, "admin": 3}
 PROXY_SECRET_HEADER = "X-Auth-Proxy-Secret"
@@ -97,7 +95,7 @@ def _token_user(token: str, settings: Settings) -> CurrentUser:
     try:
         found = _verify_token(token)
     except Exception as exc:  # noqa: BLE001 - the database; never log the token
-        logger.warning("API token check failed: %s", type(exc).__name__)
+        logger.warning("API token check failed: {}", type(exc).__name__)
     if found is None:
         return CurrentUser(auth_mode=settings.auth_mode, token_rejected=True)
     return CurrentUser(
@@ -126,7 +124,7 @@ def from_trusted_proxy(request: Request, settings: Settings) -> bool:
     if not trusted and str(address) not in _logged_untrusted and len(_logged_untrusted) < 100:
         _logged_untrusted.add(str(address))
         logger.warning(
-            "Header auth: ignoring identity headers from %s (not in AUTH_TRUSTED_PROXIES%s)",
+            "Header auth: ignoring identity headers from {} (not in AUTH_TRUSTED_PROXIES{})",
             address,
             " or wrong/missing proxy secret" if settings.auth_proxy_secret else "",
         )
@@ -262,7 +260,7 @@ def check_request(request: Request, user: CurrentUser, settings: Settings) -> Re
     path = request.url.path
     if is_cross_site_write(request, settings):
         logger.warning(
-            "Refused a cross-site %s %s (Origin %r)",
+            "Refused a cross-site {} {} (Origin {!r})",
             request.method,
             path,
             request.headers.get("origin"),

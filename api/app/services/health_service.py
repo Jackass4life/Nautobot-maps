@@ -7,19 +7,17 @@ answer ``SELECT 1`` (within 2 s, inside Docker's 5 s probe timeout), since the
 board can't be served without it. Error details are logged, never returned.
 """
 
-import logging
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as ProbeTimeout
 
+from loguru import logger
 from psycopg.rows import dict_row
 from sqlalchemy import text
 
 from app.db import session
 from app.services import metrics_service
-
-logger = logging.getLogger(__name__)
 
 PROBE_SECONDS = 2
 # Probes run here, so one stuck on a dead database can't hold a request thread.
@@ -61,10 +59,10 @@ def check() -> tuple[dict, bool]:
         probe, started = _current_probe()
         sync_age = probe.result(timeout=max(0.0, PROBE_SECONDS - (time.monotonic() - started)))
     except ProbeTimeout:
-        logger.warning("Health check: database unavailable: no answer in %ss", PROBE_SECONDS)
+        logger.warning("Health check: database unavailable: no answer in {}s", PROBE_SECONDS)
         checks["database"] = "unavailable"
     except Exception as exc:  # noqa: BLE001 - any failure is "unavailable"; logged, not returned
-        logger.warning("Health check: database unavailable: %s", type(exc).__name__)
+        logger.warning("Health check: database unavailable: {}", type(exc).__name__)
         checks["database"] = "unavailable"
     healthy = all(value == "ok" for value in checks.values())
     return {

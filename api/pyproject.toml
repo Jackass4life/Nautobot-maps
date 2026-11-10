@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.162.0",
     "geopy>=2.5.0",
     "gunicorn>=23.0.0",
+    "loguru>=0.7.3",
     "markdown-it-py>=4.2.0",
     "openapi-python[httpx]>=0.0.18",
     "psycopg[binary]>=3.3.8",

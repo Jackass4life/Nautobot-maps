@@ -1,7 +1,5 @@
 """Ported from nautobot_maps/api/circuits.py (#604), its API under /api/v1. Circuit mapping (#385; on FastAPI since #436): the page and its API."""
 
-import logging
-
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
@@ -11,8 +9,6 @@ from app.services import circuits_service as circuits
 from app.v1 import deps, sections
 from app.v1.circuits import dtos
 from app.v1.common import dtos as common
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES, tags=sections.tag("circuits")

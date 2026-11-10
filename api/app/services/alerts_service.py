@@ -8,12 +8,12 @@ Ported from nautobot_maps/alerts.py (#602): only the imports changed.
 
 import hashlib
 import json
-import logging
 import time
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 
 import requests
+from loguru import logger
 
 from app.clients import caching, librenms, nautobot
 from app.core.legacy_settings import settings
@@ -26,8 +26,6 @@ from app.services import notify_service as notify
 from app.services import webhooks_service as webhooks
 from app.services import wireless_service as wireless
 from app.utils import timeutil
-
-logger = logging.getLogger(__name__)
 
 # Kept here for the routes and MCP that read the feed (#424).
 FEED_KINDS = board_store.FEED_KINDS
@@ -313,23 +311,23 @@ if settings.CRITICALITY_RULES_FILE:
                 if isinstance(v, list)
             }
             logger.info(
-                "Loaded criticality rules from %s: %s",
+                "Loaded criticality rules from {}: {}",
                 settings.CRITICALITY_RULES_FILE,
                 list(CRITICALITY_RULES.keys()),
             )
         else:
             logger.warning(
-                "Criticality rules file %s must contain a JSON object; ignoring.",
+                "Criticality rules file {} must contain a JSON object; ignoring.",
                 settings.CRITICALITY_RULES_FILE,
             )
     except PermissionError:
         logger.error(
-            "Could not load criticality rules: %s; using CRITICAL_ROLE_KEYWORDS",
+            "Could not load criticality rules: {}; using CRITICAL_ROLE_KEYWORDS",
             settings.unreadable_hint(settings.CRITICALITY_RULES_FILE),
         )
     except Exception as exc:
         logger.warning(
-            "Could not load criticality rules from %s: %s", settings.CRITICALITY_RULES_FILE, exc
+            "Could not load criticality rules from {}: {}", settings.CRITICALITY_RULES_FILE, exc
         )
 
 
@@ -376,7 +374,7 @@ def down_core_devices(
                 if ids:
                     overrides = board_store.read_criticality_overrides(conn, ids)
             except Exception as exc:
-                logger.debug("Could not read criticality overrides: %s", exc)
+                logger.debug("Could not read criticality overrides: {}", exc)
             finally:
                 conn.close()
     return [
@@ -491,7 +489,7 @@ def compute_alert_level(
                 if ids:
                     override_map = board_store.read_criticality_overrides(conn, ids)
             except Exception as exc:
-                logger.debug("Could not read criticality overrides: %s", exc)
+                logger.debug("Could not read criticality overrides: {}", exc)
             finally:
                 conn.close()
 
@@ -797,7 +795,7 @@ def enrich_with_librenms(
             try:
                 lnms_devices = librenms.fetch_inventory()
             except Exception as exc:
-                logger.warning("LibreNMS enrichment failed (could not fetch devices): %s", exc)
+                logger.warning("LibreNMS enrichment failed (could not fetch devices): {}", exc)
                 return devices
         if not lnms_devices:
             return devices
@@ -844,7 +842,7 @@ def enrich_with_librenms(
                     # Nautobot still says up, so its last_updated is not when this outage began (#166).
                     device["down_source"] = "librenms"
                     logger.debug(
-                        "LibreNMS enrichment: device %s marked offline (LibreNMS status=0)",
+                        "LibreNMS enrichment: device {} marked offline (LibreNMS status=0)",
                         device.get("name"),
                     )
             # Remember a mapping resolved by hostname or IP
@@ -1439,8 +1437,8 @@ def upsert_alert_lifecycle_for_site(
             )
         return True
     except Exception as exc:
-        logger.warning(
-            "Could not persist alert lifecycle for site %s: %s", site_id, exc, exc_info=True
+        logger.opt(exception=True).warning(
+            "Could not persist alert lifecycle for site {}: {}", site_id, exc
         )
         return False
     finally:
@@ -1549,7 +1547,7 @@ def get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dict
     try:
         return read_alert_context(conn, site_id, checked_at)
     except Exception as exc:
-        logger.debug("Could not load alert context for site %s: %s", site_id, exc)
+        logger.debug("Could not load alert context for site {}: {}", site_id, exc)
         return empty_alert_context()
     finally:
         if owns_conn:
@@ -1710,7 +1708,7 @@ def roll_up_to_site_locations(
                 if owner["id"] not in logged_rollup_orphans:
                     logged_rollup_orphans.add(owner["id"])
                     logger.info(
-                        "Alert board: location %r has devices but no %r above it; it keeps its own row",
+                        "Alert board: location {!r} has devices but no {!r} above it; it keeps its own row",
                         owner.get("name"),
                         site_type,
                     )
@@ -1848,7 +1846,7 @@ def maybe_prune_alert_history(conn) -> dict | None:
         )
     if any(deleted.values()):
         logger.info(
-            "Alert history retention (%d days): deleted %d resolved alerts and %d severity changes",
+            "Alert history retention ({} days): deleted {} resolved alerts and {} severity changes",
             days,
             deleted["alert_instances"],
             deleted["site_level_changes"],
@@ -1889,7 +1887,7 @@ def build_alert_board_payload(
                 lnms_devices = inventory.read_librenms_devices()
             lnms_id_map = board_store.load_librenms_id_map()
         except Exception as exc:
-            logger.warning("Could not refresh LibreNMS inventory for alert board: %s", exc)
+            logger.warning("Could not refresh LibreNMS inventory for alert board: {}", exc)
             lnms_devices = []
             lnms_id_map = {}
         lnms_index = librenms_index(lnms_devices)
@@ -1927,24 +1925,23 @@ def build_alert_board_payload(
     try:
         read_conn = db.get_conn()
     except Exception as exc:
-        logger.warning("Could not connect to persistence DB for alert board: %s", exc)
+        logger.warning("Could not connect to persistence DB for alert board: {}", exc)
     if read_conn is None:
         persistence_unavailable = True
     else:
         try:
             board_data = board_store.read_alert_board_data(read_conn)
         except Exception as exc:
-            logger.warning(
-                "Could not bulk-read alert board data; reading per site instead: %s",
+            logger.opt(exception=True).warning(
+                "Could not bulk-read alert board data; reading per site instead: {}",
                 exc,
-                exc_info=True,
             )
         try:
             device_states = board_store.read_device_states(read_conn)
             alarmed_device_ids = board_store.read_alarmed_device_ids(read_conn)
         except Exception as exc:
             device_states = None
-            logger.warning("Could not read device states; no alert delay this build: %s", exc)
+            logger.warning("Could not read device states; no alert delay this build: {}", exc)
         try:
             # Every stack's members (#402, #405), wherever they are, once a build.
             all_stacks = inventory.read_stacks(read_conn)
@@ -1963,31 +1960,30 @@ def build_alert_board_payload(
             }
             stacks = board_stacks(all_stacks, muted)
         except Exception as exc:
-            logger.warning("Could not read the stacks; they aren't named this build: %s", exc)
+            logger.warning("Could not read the stacks; they aren't named this build: {}", exc)
         try:
             webhook_index = webhooks.read_index(read_conn)
         except Exception as exc:
-            logger.warning("Could not read webhook device alerts: %s", type(exc).__name__)
+            logger.warning("Could not read webhook device alerts: {}", type(exc).__name__)
         try:
             if wireless.configured():
                 wireless_index = wireless.read_index(read_conn)
         except Exception as exc:
             wireless_unknown = True
-            logger.warning("Could not read the wireless controllers' access points: %s", exc)
+            logger.warning("Could not read the wireless controllers' access points: {}", exc)
         try:
             neighbour_index = neighbours.read_index(read_conn)
         except Exception as exc:
             logger.warning(
-                "Could not read the access points' switches; not named this build: %s", exc
+                "Could not read the access points' switches; not named this build: {}", exc
             )
         try:
             in_maintenance = maintenance.read_active(read_conn, maintenance.now())
         except Exception as exc:
             maintenance_unknown = True
-            logger.warning(
-                "Could not read maintenance windows; no alert history or level changes this build: %s",
+            logger.opt(exception=True).warning(
+                "Could not read maintenance windows; no alert history or level changes this build: {}",
                 exc,
-                exc_info=True,
             )
         finally:
             read_conn.close()
@@ -2049,7 +2045,7 @@ def build_alert_board_payload(
                 )
             except Exception as exc:
                 logger.warning(
-                    "Could not compute alert summary for location %s: %s",
+                    "Could not compute alert summary for location {}: {}",
                     loc.get("id"),
                     exc,
                 )
@@ -2212,7 +2208,7 @@ def build_alert_board_payload(
                         write_conn = db.get_conn()
                     except Exception as exc:
                         logger.warning(
-                            "Could not connect to persistence DB for alert board: %s", exc
+                            "Could not connect to persistence DB for alert board: {}", exc
                         )
                     if write_conn is None:
                         persistence_unavailable = True
@@ -2244,7 +2240,7 @@ def build_alert_board_payload(
                         wrote = True
                     except Exception as exc:
                         logger.warning(
-                            "Alert board persistence failed for site %s; the next site reconnects: %s",
+                            "Alert board persistence failed for site {}; the next site reconnects: {}",
                             site_id,
                             exc,
                         )
@@ -2554,7 +2550,7 @@ def build_alert_board_payload(
                 if write_conn is not None:
                     write_device_states(write_conn, next_device_states, device_states, now)
             except Exception as exc:
-                logger.warning("Could not store device states: %s", exc, exc_info=True)
+                logger.opt(exception=True).warning("Could not store device states: {}", exc)
     finally:
         if write_conn is not None:
             write_conn.close()
@@ -2567,7 +2563,7 @@ def build_alert_board_payload(
                 observed_levels, timeutil.iso_utc_now(), observed_sites, quiet_sites, level_keys
             )
         except Exception as exc:
-            logger.warning("Could not record site alert level changes: %s", exc, exc_info=True)
+            logger.opt(exception=True).warning("Could not record site alert level changes: {}", exc)
 
     alerts.sort(
         key=lambda item: (
@@ -2677,13 +2673,13 @@ def _board_build_lock(stored=None):
         try:
             release = db.try_advisory_lock(BOARD_BUILD_LOCK)
         except Exception as exc:
-            logger.warning("Alert board build lock unavailable: %s", type(exc).__name__)
+            logger.warning("Alert board build lock unavailable: {}", type(exc).__name__)
             return None
         if release is None or callable(release):
             return release
         if time.monotonic() >= deadline:
             logger.warning(
-                "Alert board: another build took over %ss; building anyway",
+                "Alert board: another build took over {}s; building anyway",
                 BOARD_BUILD_WAIT_SECONDS,
             )
             return None
@@ -2823,7 +2819,7 @@ def build_location_alert_levels() -> dict:
                 wireless_index = wireless.read_index(conn) if wireless.configured() else {}
             except Exception as exc:
                 logger.warning(
-                    "Could not read the wireless controllers' access points for the map: %s", exc
+                    "Could not read the wireless controllers' access points for the map: {}", exc
                 )
             # Devices in maintenance don't count, like on the board (#283),
             # nor ones down for less than the alert delay (#286).
@@ -2869,7 +2865,7 @@ def build_location_alert_levels() -> dict:
         }
     except Exception as exc:
         logger.warning(
-            "Could not read the alert board for the map; scoring locations alone: %s", exc
+            "Could not read the alert board for the map; scoring locations alone: {}", exc
         )
 
     levels = {}
@@ -3018,17 +3014,17 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
                 pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
             except Exception as exc:
                 logger.warning(
-                    "Could not read maintenance and alert delay for the site panel: %s", exc
+                    "Could not read maintenance and alert delay for the site panel: {}", exc
                 )
             ids = [d.get("id") for d in devices if d.get("id")]
             try:
                 overrides = board_store.read_criticality_overrides(conn, ids) if ids else {}
             except Exception as exc:
-                logger.warning("Could not read criticality overrides for the site panel: %s", exc)
+                logger.warning("Could not read criticality overrides for the site panel: {}", exc)
             try:
                 cases = board_store.open_cases_for_devices(conn, ids)
             except Exception as exc:
-                logger.warning("Could not read the cases for the site panel: %s", exc)
+                logger.warning("Could not read the cases for the site panel: {}", exc)
         finally:
             conn.close()
     # The panel's down list in the board's order (#394): each device's level as
@@ -3133,10 +3129,10 @@ def location_circuits(location_id: str) -> tuple[list[dict], str]:
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             return [], ""
-        logger.warning("Could not fetch circuits for location %s: %s", location_id, exc)
+        logger.warning("Could not fetch circuits for location {}: {}", location_id, exc)
         return [], "Circuit information unavailable"
     except Exception as exc:
-        logger.warning("Could not fetch circuits for location %s: %s", location_id, exc)
+        logger.warning("Could not fetch circuits for location {}: {}", location_id, exc)
         return [], "Circuit information unavailable"
 
     circuits = []
@@ -3181,7 +3177,7 @@ def address_circuits(location_id: str, terminated_ids: set) -> list[dict]:
         key, parents = inventory.read_locations_at_address(conn, location_id)
         circuits = inventory.read_circuits_at_address(conn, key)
     except Exception as exc:
-        logger.warning("Could not match circuits by address for location %s: %s", location_id, exc)
+        logger.warning("Could not match circuits by address for location {}: {}", location_id, exc)
         return []
     finally:
         conn.close()

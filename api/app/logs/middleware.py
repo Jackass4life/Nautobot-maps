@@ -4,19 +4,20 @@ it was under gunicorn's sync workers: client, signed-in user (the proxy's
 header), request, status, size, time in ms, user agent.
 
 ASGI middleware around the whole app (outermost, app/api.py), so
-every request is logged once.  Successful health checks are dropped by
-``logs.SkipSuccessfulHealthChecks``, which reads the same atoms (``U``, ``s``)
-gunicorn's access log had.
+every request is logged once, under the logger name ``app.access`` and the
+part ``api`` or ``web`` (#633). The atoms (``h``, ``user``, ``r``, ``s``, ``b``, ``M``,
+``a``, ``U``: gunicorn's access log's) are the line's extra fields; successful health
+checks are dropped by ``logs.keep_access_line``.
 """
 
-import logging
 import time
 
+from loguru import logger
+
 from app.core.legacy_settings import settings
+from app.logs import parts
 
-logger = logging.getLogger("app.access")
-
-FORMAT = '%(h)s "%(user)s" "%(r)s" %(s)s %(b)s %(M)sms "%(a)s"'
+FORMAT = '{h} "{user}" "{r}" {s} {b} {M}ms "{a}"'
 
 
 def _header(scope, name: str) -> str:
@@ -48,12 +49,13 @@ class AccessLog:
         try:
             await self.app(scope, receive, send_and_count)
         finally:
+            path = scope.get("path", "")
             query = scope.get("query_string") or b""
-            target = scope.get("path", "") + (f"?{query.decode('latin-1')}" if query else "")
+            target = path + (f"?{query.decode('latin-1')}" if query else "")
             client = scope.get("client") or ("-", 0)
-            logger.info(
+            logger.bind(logger=parts.ACCESS_LOGGER, part=parts.of_request(path)).info(
                 FORMAT,
-                {
+                **{
                     "h": client[0],
                     "user": _header(scope, settings.AUTH_HEADER_USER) or "-",
                     "r": f"{scope.get('method', '-')} {target} "
@@ -62,6 +64,6 @@ class AccessLog:
                     "b": response["size"],
                     "M": round((time.perf_counter() - started) * 1000),
                     "a": _header(scope, "user-agent") or "-",
-                    "U": scope.get("path", ""),
+                    "U": path,
                 },
             )
