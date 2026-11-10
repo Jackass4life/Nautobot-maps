@@ -17,15 +17,15 @@
   },
   "packageManager": "bun@1.4.4",
   "dependencies": {
-    "@iconify-json/lucide": "1.2.151",
+    "@iconify-json/lucide": "1.2.152",
     "@nuxt/ui": "4.12.0",
     "leaflet": "1.9.4",
     "leaflet.markercluster": "1.5.3",
     "nuxt": "4.6.4",
     "openapi-fetch": "0.17.0",
     "swagger-ui-dist": "5.34.1",
-    "tailwindcss": "4.3.4",
-    "vue": "3.5.44",
+    "tailwindcss": "4.3.5",
+    "vue": "3.5.45",
     "vue-router": "5.4.0"
   },
   "devDependencies": {
