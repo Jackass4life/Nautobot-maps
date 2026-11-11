@@ -620,6 +620,22 @@ def test_the_map_at_scale(page):
     page.locator("#inspector-title", has_text="Site 0960").wait_for()
     page.keyboard.press("Escape")
 
+    # Every row in a shorter window: they scroll in the list's own box, never over the
+    # filters below it (#647).
+    page.set_viewport_size({"width": 1400, "height": 700})
+    page.locator("#alarm-more").click()
+    assert page.locator(".alarm-item").count() == 25
+    alarm_list = page.locator("#alarm-list").bounding_box()
+    footer = page.locator("#sidebar-footer").bounding_box()
+    assert alarm_list["y"] + alarm_list["height"] <= footer["y"], (alarm_list, footer)
+    assert footer["y"] + footer["height"] <= 700, "the filters stay on screen"
+    last = page.locator(".alarm-item").last
+    last.focus()  # Tab reaches it: the list scrolls it into view
+    shown = last.bounding_box()
+    assert shown["y"] + shown["height"] <= footer["y"], (shown, footer)
+    page.locator("#alarm-more").click()
+    page.set_viewport_size({"width": 1400, "height": 900})
+
     # During a search a row for a site outside it goes back to the whole map and opens it (#337).
     nearby = [{**sites[1], "distance_km": 0.0}]
     searches = []
