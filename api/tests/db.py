@@ -3,6 +3,9 @@
 import asyncio
 import inspect
 
+import anyio
+import anyio.to_thread
+
 from app.db import aconnection, session
 
 
@@ -40,3 +43,9 @@ def items(generator):  # type: ignore[no-untyped-def]
         return [item async for item in generator]
 
     return asyncio.run(go())
+
+
+def worker(function, *args):  # type: ignore[no-untyped-def]
+    """``function(*args)`` in an anyio worker thread of an event loop, as the scheduler
+    runs its tick (#655): sync code that reaches the loop with ``session.from_sync``."""
+    return anyio.run(lambda: anyio.to_thread.run_sync(lambda: function(*args)))

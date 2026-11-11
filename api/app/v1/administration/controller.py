@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import CurrentUserDep, require_role
 from app.core.exceptions import ApiError, responses
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
@@ -345,11 +346,10 @@ contract_router = APIRouter(prefix="/contract", tags=sections.tag("administratio
 
 
 @contract_router.get("", operation_id="getContract", response_model=ContractDto)
-def get_contract() -> ContractDto:
+async def get_contract() -> ContractDto:
     """The data contract and the last check: per upstream endpoint, the fields read,
     their types and what each becomes; per endpoint, when the last sync checked it,
     how many records, and the fields that didn't match."""
-    # The syncs' threads write the checks on psycopg: read on it too, until they are async.
-    with db.get_conn() as conn:
-        checks = contract_service.latest_checks(conn)
+    async with aconnection.connect() as conn:
+        checks = await contract_service.latest_checks(conn)
     return ContractDto.model_validate({"contract": contract_service.as_json(), "checks": checks})

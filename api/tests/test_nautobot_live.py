@@ -7,9 +7,9 @@ import os
 import pytest
 
 from app.core.legacy_settings import settings
-from app.db import session
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
+from tests import db as adb
 
 LIVE_URL = os.environ.get("NAUTOBOT_LIVE_URL", "")
 LIVE_TOKEN = os.environ.get("NAUTOBOT_LIVE_TOKEN", "")
@@ -44,8 +44,7 @@ def test_their_devices_are_in_the_snapshot(synced):
 
 
 def test_a_real_nautobot_keeps_to_the_contract(synced):
-    with session.engine.connect() as conn:
-        checks = [c for c in contract.latest_checks(conn) if c["source"] == contract.NAUTOBOT]
+    checks = [c for c in adb.call(contract.latest_checks) if c["source"] == contract.NAUTOBOT]
     assert checks, "the sync checked what it fetched"
     mismatched = {c["endpoint"]: c["mismatches"] for c in checks if c["mismatches"]}
     assert mismatched == {}

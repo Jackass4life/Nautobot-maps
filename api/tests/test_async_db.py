@@ -178,3 +178,32 @@ def test_the_base_repository():
 
     adb.run(use)
     assert names() == ["second"]
+
+
+def test_from_sync_reaches_the_bound_loop_from_any_thread(monkeypatch):
+    """A thread anyio didn't start (the scheduler's rebuilds) once the lifespan has
+    bound the loop (#655); before that, the error says so."""
+    import threading
+
+    import anyio
+    import anyio.to_thread
+
+    monkeypatch.setattr(session, "_loop_token", None)
+    results: list = []
+
+    def in_a_thread():
+        try:
+            results.append(session.from_sync(asyncio.sleep, 0, "ok"))
+        except anyio.NoEventLoopError as exc:
+            results.append(type(exc).__name__)
+
+    async def main():
+        for bind in (False, True):
+            if bind:
+                session.bind_loop()
+            thread = threading.Thread(target=in_a_thread)
+            thread.start()
+            await anyio.to_thread.run_sync(thread.join)
+
+    asyncio.run(main())
+    assert results == ["NoEventLoopError", "ok"]

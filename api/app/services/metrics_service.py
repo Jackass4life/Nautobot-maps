@@ -10,7 +10,7 @@ Ported from nautobot_maps/metrics.py (#602): only the imports changed.
 from datetime import UTC, datetime
 
 from app.core.legacy_settings import settings
-from app.db import connection as db
+from app.db import aconnection
 from app.services import contract_service as contract
 from app.utils import timeutil
 
@@ -54,14 +54,17 @@ def _timestamp(value) -> float | None:
     return parsed.timestamp() if parsed else None
 
 
-def sync_rows(conn) -> dict:
-    rows = conn.execute(
-        "SELECT source, status, last_started_at, last_completed_at, last_succeeded_at FROM inventory_sync_state"
+async def sync_rows(conn: aconnection.Connection) -> dict:
+    rows = (
+        await conn.execute(
+            "SELECT source, status, last_started_at, last_completed_at, last_succeeded_at "
+            "FROM inventory_sync_state"
+        )
     ).fetchall()
-    return {row["source"]: row for row in map(db.row_to_dict, rows)}
+    return {row["source"]: row for row in rows}
 
 
-def collect(conn) -> str:
+async def collect(conn: aconnection.Connection | None) -> str:
     """All metrics, from the database behind *conn* (``None``: no database)."""
     out = Exposition()
     out.gauge("nautobot_maps_up", "The app answers.", [({}, 1)])
@@ -73,7 +76,7 @@ def collect(conn) -> str:
     if conn is None:
         return out.render()
 
-    syncs = sync_rows(conn)
+    syncs = await sync_rows(conn)
     success, attempt, duration, failing, running = [], [], [], [], []
     # Each wireless controller instance in the file too (#508): wireless:<kind>:<name>.
     configured = [f"{c['kind']}:{c['name']}" for c in settings.WIRELESS_CONTROLLERS or ()]
@@ -122,16 +125,20 @@ def collect(conn) -> str:
     # scan the devices once per AP on every scrape.
     listed, matched = {}, {}
     if configured:
-        devices = conn.execute("SELECT serial, name, role FROM nautobot_device_cache").fetchall()
+        devices = (
+            await conn.execute("SELECT serial, name, role FROM nautobot_device_cache")
+        ).fetchall()
         serials = {str(d["serial"] or "").strip().upper() for d in devices} - {""}
         names = {
             str(d["name"] or "").strip().lower().split(".", 1)[0]
             for d in devices
             if str(d["role"] or "").strip().casefold() in settings.ACCESS_POINT_ROLES
         } - {""}
-        aps = conn.execute(
-            "SELECT controller, serial_key, name_key, up FROM wireless_ap_status WHERE controller = ANY(%s)",
-            (configured,),
+        aps = (
+            await conn.execute(
+                "SELECT controller, serial_key, name_key, up FROM wireless_ap_status WHERE controller = ANY(%s)",
+                (configured,),
+            )
         ).fetchall()
         for row in aps:
             key = (row["controller"], "up" if row["up"] else "down")
@@ -157,28 +164,33 @@ def collect(conn) -> str:
         ],
     )
 
-    open_alerts = conn.execute(
-        "SELECT alert_level, count(*) AS n FROM alert_instances WHERE status = 'open' GROUP BY alert_level"
+    open_alerts = (
+        await conn.execute(
+            "SELECT alert_level, count(*) AS n FROM alert_instances WHERE status = 'open' GROUP BY alert_level"
+        )
     ).fetchall()
     out.gauge(
         "nautobot_maps_open_alerts",
         "Open device alerts by level.",
-        [({"level": row["alert_level"]}, row["n"]) for row in map(db.row_to_dict, open_alerts)],
+        [({"level": row["alert_level"]}, row["n"]) for row in open_alerts],
     )
-    sites = conn.execute(
-        "SELECT alert_level, count(*) AS n FROM site_alert_levels GROUP BY alert_level"
+    sites = (
+        await conn.execute(
+            "SELECT alert_level, count(*) AS n FROM site_alert_levels GROUP BY alert_level"
+        )
     ).fetchall()
     out.gauge(
         "nautobot_maps_sites",
         "Sites by alert level at the last board build.",
-        [({"level": row["alert_level"]}, row["n"]) for row in map(db.row_to_dict, sites)],
+        [({"level": row["alert_level"]}, row["n"]) for row in sites],
     )
     # Notifications (#282): a growing pending count or failures mean a channel is broken.
-    outbox = conn.execute(
-        "SELECT channel, status, count(*) AS n FROM notification_outbox "
-        "WHERE status IN ('pending', 'failed') GROUP BY channel, status"
+    outbox = (
+        await conn.execute(
+            "SELECT channel, status, count(*) AS n FROM notification_outbox "
+            "WHERE status IN ('pending', 'failed') GROUP BY channel, status"
+        )
     ).fetchall()
-    outbox = [db.row_to_dict(row) for row in outbox]
     out.gauge(
         "nautobot_maps_notifications_pending",
         "Notifications waiting to be sent, by channel.",
@@ -190,12 +202,11 @@ def collect(conn) -> str:
         [({"channel": row["channel"]}, row["n"]) for row in outbox if row["status"] == "failed"],
     )
     # Board builds (#295): requests should hardly ever build; the scheduler does.
-    builds = [
-        db.row_to_dict(row)
-        for row in conn.execute(
+    builds = (
+        await conn.execute(
             "SELECT trigger, builds, total_seconds, last_seconds FROM board_build_stats ORDER BY trigger"
-        ).fetchall()
-    ]
+        )
+    ).fetchall()
     out.counter(
         "nautobot_maps_board_builds_total",
         "Alert board builds by trigger (scheduler, request, push, change).",
@@ -213,14 +224,13 @@ def collect(conn) -> str:
     )
     # Growth (#298): every table's size on disk (with indexes) and the
     # planner's row estimate (no count(*) on a large history at each scrape).
-    tables = [
-        db.row_to_dict(row)
-        for row in conn.execute(
+    tables = (
+        await conn.execute(
             "SELECT c.relname AS name, pg_total_relation_size(c.oid) AS bytes, GREATEST(c.reltuples, 0) AS rows "
             "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
             "WHERE n.nspname = current_schema() AND c.relkind = 'r' ORDER BY c.relname"
-        ).fetchall()
-    ]
+        )
+    ).fetchall()
     out.gauge(
         "nautobot_maps_table_bytes",
         "Size of each database table on disk, with its indexes.",
@@ -231,16 +241,16 @@ def collect(conn) -> str:
         "Rows per table, as PostgreSQL estimates them (updated by autovacuum/ANALYZE).",
         [({"table": row["name"]}, row["rows"]) for row in tables],
     )
-    oldest = db.row_to_dict(
-        conn.execute("SELECT min(changed_at) AS at FROM site_level_changes").fetchone()
-    )
+    oldest = (
+        await conn.execute("SELECT min(changed_at) AS at FROM site_level_changes")
+    ).fetchone() or {}
     out.gauge(
         "nautobot_maps_history_oldest_timestamp_seconds",
         "The oldest site level change kept (Unix time): how far back history goes.",
         [({}, value)] if (value := _timestamp(oldest.get("at"))) is not None else [],
     )
     mismatches: dict[tuple, int] = {}
-    for check in contract.latest_checks(conn):
+    for check in await contract.latest_checks(conn):
         for mismatch in check["mismatches"]:
             key = (check["source"], check["endpoint"], mismatch["field"])
             mismatches[key] = mismatches.get(key, 0) + mismatch["count"]
@@ -256,9 +266,9 @@ def collect(conn) -> str:
     return out.render()
 
 
-def inventory_sync_age_seconds(conn) -> int | None:
+async def inventory_sync_age_seconds(conn: aconnection.Connection) -> int | None:
     """Seconds since the Nautobot inventory sync last succeeded, or None if it never has."""
-    row = sync_rows(conn).get("nautobot_inventory") or {}
+    row = (await sync_rows(conn)).get("nautobot_inventory") or {}
     succeeded = _timestamp(row.get("last_succeeded_at"))
     if succeeded is None:
         return None

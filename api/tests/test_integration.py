@@ -9,6 +9,7 @@ Run with:
     python -m pytest tests/test_integration.py -v
 """
 
+import asyncio
 import json
 import pathlib
 import socket
@@ -504,7 +505,7 @@ class TestAlertBoardWithPersistence:
         finally:
             conn.close()
         alerts.build_alert_board_payload(snapshot_only=True)  # London: OK -> Medium
-        assert notify.send_pending() == 1
+        assert asyncio.run(notify.send_pending()) == 1
         (body,) = [json.loads(data) for data in posts]
         assert (
             body["type"] == "alarm" and body["previous_level"] == "ok" and body["level"] == "medium"

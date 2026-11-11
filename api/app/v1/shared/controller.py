@@ -1,12 +1,14 @@
 """What every page reads (#463, #419; #624): the page-config the pages draw
 themselves from, and the data's freshness for the top bar."""
 
+import asyncio
 import time
 
 from fastapi import APIRouter
 from loguru import logger
 
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
@@ -83,7 +85,7 @@ def api_page_config():
     name="ops.api_app_status",
     response_model=dtos.AppStatus,
 )
-def api_app_status():
+async def api_app_status():
     """How fresh the app's data is, for the top bar on every page (#419).
 
     Read from the sync state the scheduler records: never calls Nautobot or
@@ -95,15 +97,12 @@ def api_app_status():
     # No database configured: nothing synced, not an outage.
     rows = {} if not db.dialect() else None
     if db.dialect():
-        conn = None
         try:
-            conn = db.get_conn(connect_timeout=2)
-            rows = metrics.sync_rows(conn)
+            # A bar polled by every open tab: an unreachable database is "down" within 2 s.
+            async with asyncio.timeout(2), aconnection.connect() as conn:
+                rows = await metrics.sync_rows(conn)
         except Exception as exc:
-            logger.warning("App status: database unavailable: {}", exc)
-        finally:
-            if conn is not None:
-                conn.close()
+            logger.warning("App status: database unavailable: {}", str(exc) or type(exc).__name__)
     body = metrics.app_status(
         rows,
         librenms=bool(settings.LIBRENMS_URL and settings.LIBRENMS_API_TOKEN),

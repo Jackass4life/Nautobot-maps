@@ -10,6 +10,7 @@ import pytest
 from app.core.legacy_settings import settings
 from app.services import itsm_service as itsm
 from app.services import notify_service as notify
+from tests import db as adb
 from tests import http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -87,7 +88,7 @@ def test_the_csv_has_the_links(monkeypatch):
             "case_list": ["INC-1", "INC;7"],
         }
     ]
-    lines = list(export.incident_lines(rows, datetime.now(UTC)))
+    lines = adb.items(export.incident_lines(rows, datetime.now(UTC)))
     # A number with ";" is one ticket, not two.
     assert (
         lines[1]
@@ -115,9 +116,11 @@ def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
                 "INSERT INTO alert_cases (alert_instance_id, case_number, created_by) VALUES (%s, 'INC;7', 'x')",
                 (row["id"],),
             )
-        lines = list(
-            export.incident_lines(export.iter_site_incidents(conn, "s", None), datetime.now(UTC))
-        )
     finally:
         conn.close()
+    lines = adb.call(
+        lambda aconn: export.incident_lines(
+            export.iter_site_incidents(aconn, "s", None), datetime.now(UTC)
+        )
+    )
     assert lines[1].rstrip().endswith(",https://itsm.example.com/ticket/INC%3B7")

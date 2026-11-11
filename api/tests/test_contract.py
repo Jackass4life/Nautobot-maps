@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from app.db import session
 from app.services import contract_service as contract
+from tests import db as adb
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOC = REPO_ROOT / "docs" / "data-contract.md"
@@ -118,8 +119,7 @@ class TestMockNautobot:
 
 
 def latest(path: str) -> dict:
-    with session.engine.connect() as conn:
-        return next(c for c in contract.latest_checks(conn) if c["endpoint"] == path)
+    return next(c for c in adb.call(contract.latest_checks) if c["endpoint"] == path)
 
 
 class TestStorage:

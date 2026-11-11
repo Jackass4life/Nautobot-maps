@@ -9,6 +9,7 @@ from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import webhooks_service as webhooks
 from app.utils import timeutil
+from tests import db as adb
 from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location
 from tests.test_tokens import bearer, make
@@ -216,8 +217,8 @@ class TestTheBoard:
     def test_nautobot_down_is_not_overridden_and_ipv6_matches(self, site):
         conn = db.get_conn()
         try:
-            webhooks.store(
-                conn, webhooks.parse_generic({"device": "2001:db8::3", "status": "down"})
+            adb.call(
+                webhooks.store, webhooks.parse_generic({"device": "2001:db8::3", "status": "down"})
             )
             index = webhooks.read_index(conn)
         finally:
@@ -230,7 +231,7 @@ class TestTheBoard:
     def test_an_alert_that_is_not_repeated_expires(self, site, clock):
         conn = db.get_conn()
         try:
-            webhooks.store(conn, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
             assert "acc1" in webhooks.read_index(conn)["by_host"]
             clock["now"] = "2026-10-10T12:00:01Z"
             assert webhooks.read_index(conn)["by_host"] == {}
@@ -315,15 +316,15 @@ class TestReviewFixes:
     def test_an_expired_alert_firing_again_starts_anew_and_is_pruned(self, site, clock):
         conn = db.get_conn()
         try:
-            webhooks.store(conn, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
             clock["now"] = "2026-10-11T12:00:00Z"  # past the 24 h TTL
-            webhooks.store(conn, webhooks.parse_generic({"device": "other", "status": "down"}))
+            adb.call(webhooks.store, webhooks.parse_generic({"device": "other", "status": "down"}))
             keys = [
                 r["alert_key"]
                 for r in conn.execute("SELECT alert_key FROM webhook_device_alerts").fetchall()
             ]
             assert keys == ["other"], "the expired one is gone"
-            webhooks.store(conn, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
             assert (
                 webhooks.read_index(conn)["by_host"]["acc1"]["started_at"] == "2026-10-11T12:00:00Z"
             )
@@ -336,7 +337,7 @@ class TestReviewFixes:
         conn = db.get_conn()
         try:
             assert webhooks.pending_rebuild(conn) is None
-            webhooks.store(conn, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
             received = webhooks.pending_rebuild(conn)
             assert received is not None
         finally:
@@ -345,6 +346,6 @@ class TestReviewFixes:
         monkeypatch.setattr(scheduler, "rebuild_board", lambda *args: built.append(True))
         monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
         monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: False)
-        assert scheduler.tick() is True and built == [True]
+        assert adb.worker(scheduler.tick) is True and built == [True]
         assert scheduler.pending_webhook_alerts() is None
-        assert scheduler.tick() is False and built == [True], "taken in once"
+        assert adb.worker(scheduler.tick) is False and built == [True], "taken in once"

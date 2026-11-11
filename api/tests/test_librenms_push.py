@@ -317,9 +317,11 @@ class TestRebuild:
         built = []
         monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
         monkeypatch.setattr(scheduler, "rebuild_board", lambda: built.append(True))
-        assert scheduler.tick() is True and built == [True]
+        assert adb.worker(scheduler.tick) is True and built == [True]
         assert not pending()
-        assert scheduler.tick() is False and built == [True], "nothing pending: no rebuild"
+        assert adb.worker(scheduler.tick) is False and built == [True], (
+            "nothing pending: no rebuild"
+        )
 
     def test_a_failed_rebuild_keeps_the_push_for_the_next_tick(
         self, flask_client, lnms, monkeypatch
@@ -333,7 +335,7 @@ class TestRebuild:
 
         monkeypatch.setattr(scheduler, "rebuild_board", broken)
         with pytest.raises(RuntimeError):
-            scheduler.tick()
+            adb.worker(scheduler.tick)
         assert pending()
 
     def test_a_push_during_the_rebuild_stays_pending(self, flask_client, lnms, monkeypatch):
@@ -344,7 +346,7 @@ class TestRebuild:
             inventory.librenms_push_refresh("1002")
 
         monkeypatch.setattr(scheduler, "rebuild_board", rebuild_while_another_push_comes)
-        assert scheduler.tick() is True
+        assert adb.worker(scheduler.tick) is True
         conn = db.get_conn()
         try:
             rows = conn.execute(

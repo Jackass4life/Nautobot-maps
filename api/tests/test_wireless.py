@@ -700,9 +700,9 @@ class TestSync:
                 for r in conn.execute("SELECT DISTINCT controller FROM wireless_ap_status")
             ] == ["catalyst_center:dk"]
             assert inventory.get_sync_state("wireless:catalyst_center:se", conn=conn) == {}
-            assert 'source="wireless:catalyst_center:se"' not in metrics.collect(conn)
         finally:
             conn.close()
+        assert 'source="wireless:catalyst_center:se"' not in adb.call(metrics.collect)
 
     def test_a_sync_failure_never_stops_the_tick(self, pg_database, monkeypatch):
         monkeypatch.setattr(wireless, "sync_due", lambda: 1 / 0)
@@ -1116,11 +1116,7 @@ class TestTopBarAndMetrics:
         finally:
             conn.close()
         wireless.sync_due()
-        conn = db.get_conn()
-        try:
-            text = metrics.collect(conn)
-        finally:
-            conn.close()
+        text = adb.call(metrics.collect)
         assert (
             'nautobot_maps_wireless_access_points{controller="catalyst_center:dk",state="down"} 1'
             in text

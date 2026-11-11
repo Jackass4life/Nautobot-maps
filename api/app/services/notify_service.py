@@ -19,6 +19,7 @@ passwords are secrets: errors are logged and reported without them.
 Ported from nautobot_maps/notify.py (#602): only the imports changed.
 """
 
+import asyncio
 import hashlib
 import hmac
 import html
@@ -32,6 +33,7 @@ from loguru import logger
 
 from app.clients import http
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import itsm_service as itsm
 from app.services import status_service as status
@@ -473,39 +475,34 @@ def retry_delay(attempts: int) -> timedelta:
     return timedelta(minutes=RETRY_MINUTES[min(attempts, len(RETRY_MINUTES)) - 1])
 
 
-def send_pending(conn=None) -> int:
+async def send_pending() -> int:
     """Send every message that is due, per channel; returns how many were sent."""
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
+    if not db.dialect():
         return 0
     sent = 0
-    try:
+    async with aconnection.connect() as conn:
         for channel in CHANNELS:
-            sent += _send_channel(conn, channel)
-        conn.execute(
+            sent += await _send_channel(conn, channel)
+        await conn.execute(
             "DELETE FROM notification_outbox WHERE status IN ('sent', 'failed') AND created_at < %s",
             (_now() - timedelta(days=KEEP_DAYS),),
         )
-    finally:
-        if owns_conn:
-            conn.close()
     return sent
 
 
-def _send_channel(conn, channel: str) -> int:
+async def _send_channel(conn: aconnection.Connection, channel: str) -> int:
     now = _now()
-    with db.transaction(conn):
-        rows = conn.execute(
-            "SELECT id, payload_json, attempts FROM notification_outbox "
-            "WHERE channel = %s AND status = 'pending' AND next_attempt_at <= %s "
-            "ORDER BY id FOR UPDATE SKIP LOCKED",
-            (channel, now),
+    async with conn.transaction():
+        rows = (
+            await conn.execute(
+                "SELECT id, payload_json, attempts FROM notification_outbox "
+                "WHERE channel = %s AND status = 'pending' AND next_attempt_at <= %s "
+                "ORDER BY id FOR UPDATE SKIP LOCKED",
+                (channel, now),
+            )
         ).fetchall()
         if not rows:
             return 0
-        rows = [db.row_to_dict(row) for row in rows]
         # A burst (e.g. a wide outage) goes out as summaries, not one message per
         # site, each small enough for the channel.
         if len(rows) > settings.NOTIFY_SUMMARY_THRESHOLD:
@@ -520,7 +517,8 @@ def _send_channel(conn, channel: str) -> int:
             batch = [json.loads(row["payload_json"]) for row in batch_rows]
             ids = [row["id"] for row in batch_rows]
             try:
-                deliver(channel, batch)
+                # Sent from a thread: SMTP and the posts are blocking calls.
+                await asyncio.to_thread(deliver, channel, batch)
             except Exception as exc:
                 error = str(exc) if isinstance(exc, SendError) else type(exc).__name__
                 logger.warning(
@@ -538,7 +536,7 @@ def _send_channel(conn, channel: str) -> int:
                             channel,
                             attempts,
                         )
-                    conn.execute(
+                    await conn.execute(
                         "UPDATE notification_outbox SET attempts = %s, last_error = %s, status = %s, "
                         "next_attempt_at = %s WHERE id = %s",
                         (
@@ -550,7 +548,7 @@ def _send_channel(conn, channel: str) -> int:
                         ),
                     )
                 continue
-            conn.execute(
+            await conn.execute(
                 "UPDATE notification_outbox SET status = 'sent', sent_at = %s, attempts = attempts + 1, "
                 "last_error = '' WHERE id = ANY(%s)",
                 (now, ids),

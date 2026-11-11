@@ -981,8 +981,7 @@ def read_librenms_devices(conn=None) -> list:
             conn.close()
 
 
-def record_sync_state(
-    conn,
+def sync_state_statement(
     source: str,
     *,
     last_started_at: str | None = None,
@@ -991,17 +990,20 @@ def record_sync_state(
     cache_version: str = "",
     status: str = "idle",
     error_message: str = "",
-) -> None:
-    p0, p1, p2, p3, p4, p5, p6, p7 = db.placeholders(8).split(",")
+) -> tuple[str, tuple]:
+    """``(sql, params)`` that records a source's sync state: for psycopg's connection
+    (`record_sync_state`) and the async one alike (#655). The times are ISO text, cast
+    by the database (asyncpg takes no text for a timestamptz parameter)."""
     # A sync that finished without error ("idle" with a completion time) is
     # also recorded as the last success, which a later failure keeps (#200).
     last_succeeded_at = last_completed_at if status == "idle" else None
-    conn.execute(
-        f"""
+    return (
+        """
         INSERT INTO inventory_sync_state
             (source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message,
              last_succeeded_at)
-        VALUES ({p0}, {p1}, {p2}, {p3}, {p4}, {p5}, {p6}, {p7})
+        VALUES (%s, %s::text::timestamptz, %s::text::timestamptz, %s::text::timestamptz, %s, %s, %s,
+                %s::text::timestamptz)
         ON CONFLICT(source) DO UPDATE SET
             last_started_at = excluded.last_started_at,
             last_completed_at = excluded.last_completed_at,
@@ -1022,6 +1024,11 @@ def record_sync_state(
             last_succeeded_at,
         ),
     )
+
+
+def record_sync_state(conn, source: str, **state) -> None:  # type: ignore[no-untyped-def]
+    """Record *source*'s sync state on *conn* (psycopg); *state* as `sync_state_statement`."""
+    conn.execute(*sync_state_statement(source, **state))
 
 
 def get_sync_state(source: str, conn=None) -> dict:

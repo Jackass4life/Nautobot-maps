@@ -10,7 +10,9 @@ import shlex
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
+import anyio
 import anyio.from_thread
+import anyio.lowlevel
 from fastapi import Depends
 from sqlalchemy import URL, create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -105,13 +107,10 @@ engine = create_engine(
     ),
 )
 # The health check's own (#594): a new connection per probe (no stale pooled one, no
-# waiting for a pool slot), 2 s to connect, 2 s for the statement, and a dead peer
-# noticed within 2 s (tcp_user_timeout); app/services/health_service.py bounds the whole probe too.
-probe_engine = create_engine(
-    _settings.sqlalchemy_url(),
-    poolclass=NullPool,
-    connect_args={**connect_args(_settings.sqlalchemy_url(), 2, 2), "tcp_user_timeout": 2000},
-)
+# waiting for a pool slot), 2 s to connect and 2 s for the statement;
+# app/services/health_service.py cancels the whole probe after 2 s too (#655).
+_probe_url, _probe_args = async_url(_settings.sqlalchemy_url(), 2, 2)
+probe_engine = create_async_engine(_probe_url, poolclass=NullPool, connect_args=_probe_args)
 
 
 def current() -> AsyncSession:
@@ -129,7 +128,24 @@ async def get_database() -> AsyncSession:
 AsyncDbSession = Annotated[AsyncSession, Depends(get_database)]
 
 
+# The app's event loop (the lifespan binds it), for `from_sync` in threads anyio
+# didn't start: the scheduler's push and change rebuilds (#655).
+_loop_token: anyio.lowlevel.EventLoopToken | None = None
+
+
+def bind_loop() -> None:
+    """At startup, on the app's event loop: `from_sync` reaches it from any thread."""
+    global _loop_token
+    _loop_token = anyio.lowlevel.current_token()
+
+
 def from_sync[T](function: Callable[..., Awaitable[T]], *args: object) -> T:
-    """``await function(*args)`` from a sync route's thread, on the app's event loop
-    (its connections are that loop's): for the routes not async yet."""
-    return anyio.from_thread.run(function, *args)
+    """``await function(*args)`` from sync code in a thread, on the app's event loop
+    (its connections are that loop's): a sync route's thread, the scheduler's tick, or
+    any other thread once the lifespan has bound the loop."""
+    try:
+        return anyio.from_thread.run(function, *args)
+    except anyio.NoEventLoopError:
+        if _loop_token is None:
+            raise
+    return anyio.from_thread.run(function, *args, token=_loop_token)
