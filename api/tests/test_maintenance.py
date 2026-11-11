@@ -13,6 +13,7 @@ from app.services import inventory_service as inventory
 from app.services import maintenance_service as maintenance
 from app.services import notify_service as notify
 from app.utils import timeutil
+from tests import db as adb
 from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 
@@ -82,8 +83,8 @@ def open_alerts() -> dict:
 def window(**body) -> list[dict]:
     conn = db.get_conn()
     try:
-        return maintenance.create(
-            conn, {"site_id": "loc-lon", "reason": "Core upgrade", **body}, "olga"
+        return adb.call(
+            maintenance.create, {"site_id": "loc-lon", "reason": "Core upgrade", **body}, "olga"
         )
     finally:
         conn.close()
@@ -151,7 +152,7 @@ class TestWindows:
         conn = db.get_conn()
         try:
             with pytest.raises(maintenance.WindowError, match=error):
-                maintenance.create(conn, body, "olga")
+                adb.call(maintenance.create, body, "olga")
         finally:
             conn.close()
 
@@ -176,13 +177,13 @@ class TestWindows:
         try:
             active = maintenance.read_active(conn, maintenance.now())
             assert set(active["sites"]) == {"loc-lon"} and active["devices"] == {}
-            cancelled = maintenance.end(conn, planned[0]["id"], "ada")
+            cancelled = adb.call(maintenance.end, planned[0]["id"], "ada")
             assert cancelled["state"] == "cancelled" and cancelled["ended_by"] == "ada"
-            ended = maintenance.end(conn, site_window["id"], "ada")
+            ended = adb.call(maintenance.end, site_window["id"], "ada")
             assert ended["state"] == "ended"
-            assert maintenance.end(conn, 999, "ada") is None
-            assert [w["id"] for w in maintenance.list_windows(conn)] == [planned[1]["id"]]
-            assert len(maintenance.list_windows(conn, include_past=True)) == 3
+            assert adb.call(maintenance.end, 999, "ada") is None
+            assert [w["id"] for w in adb.call(maintenance.list_windows)] == [planned[1]["id"]]
+            assert len(adb.call(maintenance.list_windows, include_past=True)) == 3
             self.clock["now"] = "2026-10-09T19:30:00Z"  # before the planned start (20:00 UTC)
             assert maintenance.read_active(conn, maintenance.now())["devices"] == {}
             self.clock["now"] = "2026-10-09T21:00:00Z"
@@ -214,8 +215,8 @@ class TestBoard:
         build()
         conn = db.get_conn()
         try:
-            maintenance.create(
-                conn,
+            adb.call(
+                maintenance.create,
                 {
                     "site_id": "loc-lon",
                     "reason": "Swap",
@@ -254,8 +255,8 @@ class TestBoard:
         build()
         conn = db.get_conn()
         try:
-            maintenance.create(
-                conn,
+            adb.call(
+                maintenance.create,
                 {
                     "site_id": "loc-lon",
                     "reason": "Swap",
@@ -288,8 +289,10 @@ class TestBoard:
         assert build()["down_network_device_count"] == 2
         conn = db.get_conn()
         try:
-            maintenance.create(
-                conn, {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60}, "olga"
+            adb.call(
+                maintenance.create,
+                {"site_id": "loc-lon", "reason": "Swap", "duration_minutes": 60},
+                "olga",
             )
         finally:
             conn.close()
@@ -310,8 +313,8 @@ class TestBoard:
         build()
         conn = db.get_conn()
         try:
-            maintenance.create(
-                conn,
+            adb.call(
+                maintenance.create,
                 {
                     "site_id": "loc-lon",
                     "reason": "Swap",
@@ -351,8 +354,8 @@ class TestBoard:
         build()
         conn = db.get_conn()
         try:
-            maintenance.create(
-                conn,
+            adb.call(
+                maintenance.create,
                 {
                     "site_id": "loc-lon",
                     "reason": "Swap",
@@ -397,7 +400,7 @@ class TestNotifications:
         assert outbox_kinds() == [], "going into maintenance sends nothing"
         conn = db.get_conn()
         try:
-            maintenance.end(conn, created["id"], "olga")
+            adb.call(maintenance.end, created["id"], "olga")
         finally:
             conn.close()
         assert build()["alert_level"] == "critical"
@@ -413,8 +416,8 @@ class TestNotifications:
         build()
         conn = db.get_conn()
         try:
-            (created,) = maintenance.create(
-                conn,
+            (created,) = adb.call(
+                maintenance.create,
                 {
                     "site_id": "loc-lon",
                     "reason": "Swap",
@@ -429,7 +432,7 @@ class TestNotifications:
         assert outbox_kinds() == [], "planned, not a recovery"
         conn = db.get_conn()
         try:
-            maintenance.end(conn, created["id"], "olga")
+            adb.call(maintenance.end, created["id"], "olga")
         finally:
             conn.close()
         build()
@@ -572,8 +575,10 @@ class TestBatches:
     def _create(self, body):
         conn = db.get_conn()
         try:
-            return maintenance.create(
-                conn, {"reason": "Core upgrade", "duration_minutes": 120, **body}, "olga"
+            return adb.call(
+                maintenance.create,
+                {"reason": "Core upgrade", "duration_minutes": 120, **body},
+                "olga",
             )
         finally:
             conn.close()
@@ -603,7 +608,9 @@ class TestBatches:
         )
         conn = db.get_conn()
         try:
-            result = maintenance.end_many(conn, [w["id"] for w in active + planned] + [999], "ivan")
+            result = adb.call(
+                maintenance.end_many, [w["id"] for w in active + planned] + [999], "ivan"
+            )
             ended = result["windows"]
             assert result["changed"] == 3
             # The ended time returned is the one stored.
@@ -614,7 +621,7 @@ class TestBatches:
                 ("c", "cancelled", "ivan"),
             ]
             # Already over: returned as they are, not ended again.
-            again = maintenance.end_many(conn, [active[0]["id"]], "someone")
+            again = adb.call(maintenance.end_many, [active[0]["id"]], "someone")
             assert again["windows"][0]["ended_by"] == "ivan" and again["changed"] == 0
         finally:
             conn.close()
@@ -627,7 +634,7 @@ class TestBatches:
                 old = self._create(
                     {"site_ids": [f"old-{day}-{i}" for i in range(5)], "duration_minutes": 60}
                 )
-                maintenance.end_many(conn, [w["id"] for w in old], "olga")
+                adb.call(maintenance.end_many, [w["id"] for w in old], "olga")
             fresh = self._create(
                 {
                     "site_ids": ["tonight"],
@@ -635,7 +642,7 @@ class TestBatches:
                     "duration_minutes": 60,
                 }
             )
-            listed = maintenance.list_windows(conn, recent_days=7, limit=3)
+            listed = adb.call(maintenance.list_windows, recent_days=7, limit=3)
         finally:
             conn.close()
         assert listed[0]["id"] == fresh[0]["id"] and listed[0]["state"] == "upcoming"
@@ -646,12 +653,12 @@ class TestBatches:
         device = self._create({"site_id": "site-a", "device_ids": ["dev-1"]})
         conn = db.get_conn()
         try:
-            maintenance.end_many(conn, [old[0]["id"]], "olga")
+            adb.call(maintenance.end_many, [old[0]["id"]], "olga")
             self.clock["now"] = "2026-10-12T12:00:00Z"  # three days later: all over
-            assert maintenance.list_windows(conn) == []
-            recent = maintenance.list_windows(conn, recent_days=7)
+            assert adb.call(maintenance.list_windows) == []
+            recent = adb.call(maintenance.list_windows, recent_days=7)
             assert {w["site_id"] for w in recent} == {"gone", "site-a"}
-            assert maintenance.list_windows(conn, recent_days=2) == []
+            assert adb.call(maintenance.list_windows, recent_days=2) == []
             inventory.write_devices(
                 conn, [_snapshot_device("dev-1", "site-a", "Core Router", "Active")]
             )
@@ -664,7 +671,7 @@ class TestBatches:
                     "tenant_descriptions": {"Acme": "Gold"},
                 }
             ]
-            described = maintenance.describe(conn, current + device, sites)
+            described = adb.call(maintenance.describe, current + device, sites)
         finally:
             conn.close()
         whole, dev = described["windows"]
@@ -689,15 +696,15 @@ class TestHistory:
     def _create(self, **body):
         conn = db.get_conn()
         try:
-            return maintenance.create(conn, {"reason": "Work", **body}, "olga")
+            return adb.call(maintenance.create, {"reason": "Work", **body}, "olga")
         finally:
             conn.close()
 
     def _history(self, start, end, site_id=""):
         conn = db.get_conn()
         try:
-            return maintenance.history(
-                conn,
+            return adb.call(
+                maintenance.history,
                 timeutil.parse_iso_datetime(start),
                 timeutil.parse_iso_datetime(end),
                 [site_id] if site_id else None,
@@ -714,8 +721,8 @@ class TestHistory:
         self.clock["now"] = "2026-10-09T12:30:00Z"
         conn = db.get_conn()
         try:
-            maintenance.end_many(
-                conn, [ran[0]["id"], cancelled[0]["id"]], "ivan"
+            adb.call(
+                maintenance.end_many, [ran[0]["id"], cancelled[0]["id"]], "ivan"
             )  # a ends early, c is cancelled
         finally:
             conn.close()
@@ -762,8 +769,8 @@ class TestHistory:
         conn = db.get_conn()
         try:
             text = "".join(
-                maintenance.history_csv_lines(
-                    conn,
+                adb.call(
+                    maintenance.history_csv_lines,
                     timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
                     timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
                     None,
@@ -771,8 +778,8 @@ class TestHistory:
                 )
             )
             # Over the limit is a probe, not a read.
-            assert maintenance.history_exceeds(
-                conn,
+            assert adb.call(
+                maintenance.history_exceeds,
                 timeutil.parse_iso_datetime("2026-10-09T00:00:00Z"),
                 timeutil.parse_iso_datetime("2026-10-10T00:00:00Z"),
                 None,

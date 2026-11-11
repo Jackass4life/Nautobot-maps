@@ -6,6 +6,7 @@ from app.clients import caching
 from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
+from tests import db as adb
 
 # The demo's mock Nautobot on a real HTTP port.
 from tests.test_integration import mock_nautobot_server  # noqa: F401 - the fixture
@@ -115,8 +116,8 @@ def _window(body):
 
     conn = db.get_conn()
     try:
-        return maintenance.create(
-            conn,
+        return adb.call(
+            maintenance.create,
             {"site_id": "loc-lon", "reason": "Upgrade", "duration_minutes": 60, **body},
             "olga",
         )

@@ -9,8 +9,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
-from app.db import connection as db
+from app.db import aconnection
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
@@ -28,7 +29,6 @@ router = APIRouter(
     tags=sections.tag("maintenance"),
 )
 
-NO_DATABASE = {"error": "Persistence DB not configured"}
 NO_DATABASE_RESPONSE = {503: {"model": common.Error, "description": "No database"}}
 Body = Annotated[object, Depends(deps.json_body)]
 
@@ -39,7 +39,7 @@ Body = Annotated[object, Depends(deps.json_body)]
     response_model=dtos.WindowList,
     responses=NO_DATABASE_RESPONSE,
 )
-def api_maintenance_list(query: Annotated[dtos.MaintenanceList, Query()]):
+async def api_maintenance_list(query: Annotated[dtos.MaintenanceList, Query()]):
     """Maintenance windows (#283): active and upcoming, soonest first.
 
     Query parameters: ``site_id`` (one site), ``all=1`` (also ended and
@@ -53,12 +53,9 @@ def api_maintenance_list(query: Annotated[dtos.MaintenanceList, Query()]):
         recent_days = min(max(int(query.recent_days or 0), 0), maintenance.MAX_RECENT_DAYS)
     except ValueError:
         return deps.Json({"error": "recent_days must be a whole number of days"}, status_code=400)
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
-    try:
+    async with aconnection.connect() as conn:
         site_id = query.site_id or ""
-        windows = maintenance.list_windows(
+        windows = await maintenance.list_windows(
             conn,
             site_id=site_id,
             include_past=common.flag(query.all_),
@@ -71,10 +68,10 @@ def api_maintenance_list(query: Annotated[dtos.MaintenanceList, Query()]):
         if site_id:
             payload = {"windows": windows, "tenant_descriptions": {}}
         else:
-            payload = maintenance.describe(conn, windows, _board_sites())
+            payload = await maintenance.describe(
+                conn, windows, await run_in_threadpool(_board_sites)
+            )
         return deps.Json({**payload, "truncated": truncated})
-    finally:
-        conn.close()
 
 
 def _board_sites() -> list[dict]:
@@ -151,24 +148,19 @@ HistoryQuery = Annotated[dtos.MaintenanceHistoryQuery, Query()]
     response_model=dtos.MaintenanceHistory,
     responses=NO_DATABASE_RESPONSE,
 )
-def api_maintenance_history(query: HistoryQuery):
+async def api_maintenance_history(query: HistoryQuery):
     """Every maintenance window that ran in a period, or was planned for it and
     cancelled (#353), newest first: ``from`` and ``to`` (``2026-10-01``, both
     days included; default the last 30 days; at most 366), optional ``tz``
     (whose days; default UTC), ``site_id`` and ``tenant``.  Names and tenants
     as ``/api/maintenance``; ``truncated`` past 5,000 windows."""
-    req = _history_request(query)
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
-    try:
+    req = await run_in_threadpool(_history_request, query)
+    async with aconnection.connect() as conn:
         limit = maintenance.HISTORY_LIMIT
-        windows = maintenance.history(
+        windows = await maintenance.history(
             conn, req["start"], req["end"], req["site_ids"], limit=limit + 1
         )
-        described = maintenance.describe(conn, windows[:limit], req["sites"])
-    finally:
-        conn.close()
+        described = await maintenance.describe(conn, windows[:limit], req["sites"])
     period = req["period"]
     return deps.Json(
         {
@@ -186,36 +178,29 @@ def api_maintenance_history(query: HistoryQuery):
 
 
 @router.get("/api/v1/maintenance/history.csv", name="maintenance.api_maintenance_history_csv")
-def api_maintenance_history_csv(query: HistoryQuery):
+async def api_maintenance_history_csv(query: HistoryQuery):
     """The history as CSV (#353): the same ``from``, ``to``, ``tz``, ``site_id``
     and ``tenant``; one row per window, times in UTC, streamed.  Every window,
     or a 400 past 100,000: never a silently shorter file."""
-    req = _history_request(query)
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
+    req = await run_in_threadpool(_history_request, query)
     limit = maintenance.HISTORY_EXPORT_LIMIT
-    try:
-        too_many = maintenance.history_exceeds(
+    async with aconnection.connect() as conn:
+        too_many = await maintenance.history_exceeds(
             conn, req["start"], req["end"], req["site_ids"], limit
         )
-    except Exception:
-        conn.close()
-        raise
     if too_many:
-        conn.close()
         return deps.Json(
             {"error": f"More than {limit:,} windows: choose a shorter period, a site or a tenant"},
             status_code=400,
         )
 
-    def lines():
-        try:
-            yield from maintenance.history_csv_lines(
+    async def lines():
+        # Its own connection, held while the file streams.
+        async with aconnection.connect() as conn:
+            async for line in maintenance.history_csv_lines(
                 conn, req["start"], req["end"], req["site_ids"], req["sites"]
-            )
-        finally:
-            conn.close()
+            ):
+                yield line
 
     name = req["period"]["label"].replace(" to ", "_")
     if req["site_id"]:
@@ -296,7 +281,7 @@ def _maintenance_changed() -> None:
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(dtos.MaintenanceCreate),
 )
-def api_maintenance_create(body: Body):
+async def api_maintenance_create(body: Body):
     """Put a site, or some of its devices, in maintenance (#283).
 
     JSON body: ``site_id`` (or ``site_ids``, up to 200 sites at once, #343),
@@ -304,19 +289,16 @@ def api_maintenance_create(body: Body):
     for the whole site), optional ``starts_at`` (ISO-8601 with a time zone;
     default now), and ``ends_at`` or ``duration_minutes``.  At most 14 days.
     """
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
     if not isinstance(body, dict):
-        conn.close()
         return deps.Json({"error": "Expected a JSON object"}, status_code=400)
     try:
-        windows = maintenance.create(conn, body, auth.get_current_user().get("username") or "")
+        async with aconnection.connect() as conn:
+            windows = await maintenance.create(
+                conn, body, auth.get_current_user().get("username") or ""
+            )
     except maintenance.WindowError as exc:
         return deps.Json({"error": exc.message}, status_code=400)
-    finally:
-        conn.close()
-    _maintenance_changed()
+    await run_in_threadpool(_maintenance_changed)
     return deps.Json({"windows": windows}, status_code=201)
 
 
@@ -328,7 +310,7 @@ def api_maintenance_create(body: Body):
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(dtos.MaintenanceEnd),
 )
-def api_maintenance_end_many(body: Body):
+async def api_maintenance_end_many(body: Body):
     """End or cancel several windows at once (#343): JSON ``{"ids": [1, 2, ...]}``,
     at most ``maintenance.MAX_END_IDS``; ``not_found`` lists the unknown ones."""
     ids = body.get("ids") if isinstance(body, dict) else None
@@ -343,16 +325,13 @@ def api_maintenance_end_many(body: Body):
             {"error": f"ids must be a list of 1 to {maintenance.MAX_END_IDS} window IDs"},
             status_code=400,
         )
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
-    try:
-        result = maintenance.end_many(conn, ids, auth.get_current_user().get("username") or "")
-    finally:
-        conn.close()
+    async with aconnection.connect() as conn:
+        result = await maintenance.end_many(
+            conn, ids, auth.get_current_user().get("username") or ""
+        )
     # Nothing ended (already over, or unknown): the board and map stay cached.
     if result["changed"]:
-        _maintenance_changed()
+        await run_in_threadpool(_maintenance_changed)
     found = {window["id"] for window in result["windows"]}
     return deps.Json(
         {"windows": result["windows"], "not_found": [i for i in ids if i not in found]}
@@ -369,16 +348,13 @@ def api_maintenance_end_many(body: Body):
     },
     dependencies=[deps.require_role("operator")],
 )
-def api_maintenance_end(window_id: int):
+async def api_maintenance_end(window_id: int):
     """End a maintenance window now, or cancel an upcoming one (#283)."""
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
-    try:
-        window = maintenance.end(conn, window_id, auth.get_current_user().get("username") or "")
-    finally:
-        conn.close()
+    async with aconnection.connect() as conn:
+        window = await maintenance.end(
+            conn, window_id, auth.get_current_user().get("username") or ""
+        )
     if window is None:
         return deps.Json({"error": "No such maintenance window"}, status_code=404)
-    _maintenance_changed()
+    await run_in_threadpool(_maintenance_changed)
     return deps.Json({"window": window})
