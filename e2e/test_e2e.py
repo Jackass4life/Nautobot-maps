@@ -973,6 +973,59 @@ def test_the_map_panel_folds_away(page):
     assert not page.evaluate("document.querySelector('#sidebar').inert")
 
 
+@pytest.mark.parametrize(("width", "height"), [(1280, 800), (390, 844)])
+def test_the_alarm_list_never_runs_over_open_filters(browser, width, height):
+    """58 sites in alarm, all shown, with Filters and the misplaced sites' list open: the
+    tallest footer there is. The rows scroll in their own box above it, and the box keeps
+    some rows (#647)."""
+    sites = [
+        {
+            "id": f"s{i}",
+            "name": f"Site {i:04d}",
+            "latitude": 40 + i * 0.1,
+            "longitude": -5,
+            "status": "Active",
+            "location_type": "Site",
+        }
+        for i in range(200)
+    ]
+    levels = {site["id"]: {"level": "ok", "down": 0, "monitored": 8} for site in sites}
+    for n in range(58):
+        levels[f"s{n}"] = {
+            "level": ("critical", "medium", "low")[n % 3],
+            "reason": "x",
+            "down": 2,
+            "monitored": 8,
+            "since": "2026-10-12T08:00:00Z",
+        }
+    misplaced = [
+        {"id": f"m{i}", "name": f"Missing {i}", "problem": "missing", "latitude": None, "longitude": None}
+        for i in range(24)
+    ]
+    context = browser.new_context(viewport={"width": width, "height": height})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.route("**/api/v1/locations", lambda route: route.fulfill(json={"locations": sites}))
+    page.route("**/api/v1/location-alerts", lambda route: route.fulfill(json={"levels": levels}))
+    page.route("**/api/v1/locations/coordinate-check*", lambda route: route.fulfill(json={"sites": misplaced}))
+    page.route("https://*.tile.openstreetmap.org/**", lambda route: route.abort())
+    page.goto(f"{BASE_URL}/")
+    page.locator("#alarm-count", has_text="58 in alarm").wait_for(timeout=20000)
+    page.locator("#alarm-more").click()
+    page.locator("#filters-toggle").click()
+    page.locator("#coordinate-toggle").click()
+    page.locator("#coordinate-list").wait_for()
+    assert page.locator(".alarm-item").count() == 58
+    alarm_list = page.locator("#alarm-list").bounding_box()
+    footer = page.locator("#sidebar-footer").bounding_box()
+    assert alarm_list["y"] + alarm_list["height"] <= footer["y"], (alarm_list, footer)
+    # Two rows at least: not squeezed away by the open filters.
+    assert alarm_list["height"] >= 2 * page.locator(".alarm-item").first.bounding_box()["height"], alarm_list
+    context.close()
+    assert errors == [], errors
+
+
 def test_the_map_panel_folds_on_a_phone(browser):
     context = browser.new_context(viewport={"width": 390, "height": 800})
     page = context.new_page()
