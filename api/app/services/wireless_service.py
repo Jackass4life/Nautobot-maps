@@ -21,8 +21,8 @@ Called as ``wireless.function()`` so tests can replace it on this module.
 Ported from nautobot_maps/wireless.py (#602): only the imports changed.
 """
 
+import asyncio
 import ssl
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -30,6 +30,7 @@ from loguru import logger
 
 from app.clients import arubacentral, catalyst
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
@@ -103,7 +104,9 @@ def fetch_aps(controller: dict) -> list[dict]:
     return [as_ap(record) for record in records]
 
 
-def write_aps(conn, controller: dict, aps: list[dict], seen_at: str) -> int:
+async def write_aps(
+    conn: aconnection.Connection, controller: dict, aps: list[dict], seen_at: datetime
+) -> int:
     """Replace this instance's rows with *aps*; returns how many were kept
     (one per serial, else per name: an AP listed twice counts once)."""
     rows = {}
@@ -122,15 +125,14 @@ def write_aps(conn, controller: dict, aps: list[dict], seen_at: str) -> int:
             bool(ap.get("up")),
             seen_at,
         )
-    conn.execute(
+    await conn.execute(
         "DELETE FROM wireless_ap_status WHERE controller = %s", (controller_id(controller),)
     )
-    with conn.cursor() as cursor:
-        cursor.executemany(
-            "INSERT INTO wireless_ap_status (controller, serial_key, name_key, serial, mac, name, ip, up, seen_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            list(rows.values()),
-        )
+    await conn.executemany(
+        "INSERT INTO wireless_ap_status (controller, serial_key, name_key, serial, mac, name, ip, up, seen_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        list(rows.values()),
+    )
     return len(rows)
 
 
@@ -154,7 +156,9 @@ def fetch_pnp(controller: dict) -> list[dict] | None:
     return [as_pnp(record) for record in records]
 
 
-def write_pnp(conn, controller: dict, devices: list[dict], seen_at: str) -> int:
+async def write_pnp(
+    conn: aconnection.Connection, controller: dict, devices: list[dict], seen_at: datetime
+) -> int:
     """Replace this instance's Plug and Play rows with *devices*, one per serial."""
     rows = {}
     for device in devices:
@@ -174,28 +178,27 @@ def write_pnp(conn, controller: dict, devices: list[dict], seen_at: str) -> int:
             datetime.fromtimestamp(last_contact, UTC) if last_contact else None,
             seen_at,
         )
-    conn.execute(
+    await conn.execute(
         "DELETE FROM wireless_pnp_status WHERE controller = %s", (controller_id(controller),)
     )
-    with conn.cursor() as cursor:
-        cursor.executemany(
-            "INSERT INTO wireless_pnp_status (controller, serial_key, serial, hostname, pid, state, onb_state, error, "
-            "last_contact, seen_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            list(rows.values()),
-        )
+    await conn.executemany(
+        "INSERT INTO wireless_pnp_status (controller, serial_key, serial, hostname, pid, state, onb_state, error, "
+        "last_contact, seen_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        list(rows.values()),
+    )
     return len(rows)
 
 
-def sync_pnp(conn, controller: dict) -> None:
+async def sync_pnp(conn: aconnection.Connection, controller: dict) -> None:
     """Read and store what this instance's Plug and Play lists (#534).  A
     failure is logged and keeps its last answer, as its access points do; it
     never fails the access points' sync."""
     try:
-        devices = fetch_pnp(controller)
+        devices = await asyncio.to_thread(fetch_pnp, controller)
         if devices is None:
             return
-        with db.transaction(conn):
-            kept = write_pnp(conn, controller, devices, timeutil.iso_utc_now())
+        async with conn.transaction():
+            kept = await write_pnp(conn, controller, devices, _seen_at())
         logger.info("{}: {} devices in Plug and Play", display_name(controller), kept)
     except Exception as exc:
         logger.warning(
@@ -205,20 +208,17 @@ def sync_pnp(conn, controller: dict) -> None:
         )
 
 
-def sync_neighbours(conn, controller: dict, aps: list[dict]) -> None:
+async def sync_neighbours(conn: aconnection.Connection, controller: dict, aps: list[dict]) -> None:
     """Which switch and port each of this instance's APs is on (#524): its
     physical topology (CDP/LLDP), one request, matched to the APs just read
     by the topology's node id.  A failure keeps the last answer."""
     if controller["kind"] != "catalyst_center":
         return
     try:
-        topology = catalyst.fetch_topology(controller)
-        contract.check_and_record(
-            contract.CATALYST_CENTER, "topology/physical-topology", topology.get("links") or []
-        )
+        topology = await asyncio.to_thread(_fetch_topology, controller)
         by_id = {ap["id"]: ap for ap in aps if ap.get("id")}
         rows = {}
-        seen_at = timeutil.iso_utc_now()
+        seen_at = _seen_at()
         for neighbour in catalyst.ap_neighbours(topology):
             ap = by_id.get(neighbour["ap_id"]) or {}
             serial, name = (
@@ -234,17 +234,16 @@ def sync_neighbours(conn, controller: dict, aps: list[dict]) -> None:
                     neighbour["port"],
                     seen_at,
                 )
-        with db.transaction(conn):
-            conn.execute(
+        async with conn.transaction():
+            await conn.execute(
                 "DELETE FROM wireless_ap_neighbours WHERE controller = %s",
                 (controller_id(controller),),
             )
-            with conn.cursor() as cursor:
-                cursor.executemany(
-                    "INSERT INTO wireless_ap_neighbours (controller, serial_key, name_key, switch_name, switch_port, "
-                    "seen_at) VALUES (%s, %s, %s, %s, %s, %s)",
-                    list(rows.values()),
-                )
+            await conn.executemany(
+                "INSERT INTO wireless_ap_neighbours (controller, serial_key, name_key, switch_name, switch_port, "
+                "seen_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                list(rows.values()),
+            )
         logger.info("{}: {} access points' switches", display_name(controller), len(rows))
     except Exception as exc:
         logger.warning(
@@ -254,38 +253,60 @@ def sync_neighbours(conn, controller: dict, aps: list[dict]) -> None:
         )
 
 
-def sync_controller(controller: dict) -> None:
+def _seen_at() -> datetime:
+    """Now, for a row's ``seen_at``: a datetime, as asyncpg takes for a timestamptz."""
+    return timeutil.parse_iso_datetime(timeutil.iso_utc_now())
+
+
+def _fetch_topology(controller: dict) -> dict:
+    topology = catalyst.fetch_topology(controller)
+    contract.check_and_record(
+        contract.CATALYST_CENTER, "topology/physical-topology", topology.get("links") or []
+    )
+    return topology
+
+
+async def _record(conn: aconnection.Connection, key: str, **state) -> None:  # type: ignore[no-untyped-def]
+    await conn.execute(*inventory.sync_state_statement(key, **state))
+
+
+async def sync_controller(controller: dict) -> None:
     """Read one instance and store what it says; a failure is recorded on its
-    sync state (the top bar shows it) and leaves its last answer to age out."""
-    conn = db.get_conn()
-    if conn is None:
-        return
+    sync state (the top bar shows it) and leaves its last answer to age out.
+    Its own connection; the controller's HTTP calls in a thread (#657)."""
     key = source(controller)
     started_at = timeutil.iso_utc_now()
-    try:
-        with db.transaction(conn):
-            inventory.record_sync_state(conn, key, last_started_at=started_at, status="running")
-        aps = fetch_aps(controller)
-        existing = conn.execute(
-            "SELECT count(*) AS n FROM wireless_ap_status WHERE controller = %s",
-            (controller_id(controller),),
-        ).fetchone()
-        if not aps and int(db.row_to_dict(existing).get("n") or 0):
-            raise RuntimeError("it listed no access points; keeping its last answer")
-        with db.transaction(conn):
-            completed_at = timeutil.iso_utc_now()
-            kept = write_aps(conn, controller, aps, completed_at)
-            inventory.record_sync_state(
-                conn, key, last_started_at=started_at, last_completed_at=completed_at, status="idle"
-            )
-        logger.info("{}: {} access points", display_name(controller), kept)
-        sync_pnp(conn, controller)
-        sync_neighbours(conn, controller, aps)
-    except Exception as exc:
-        # The exception's text names the URL at most, never the password or token.
-        logger.warning("Could not read {}: {}", display_name(controller), exc)
-        with db.transaction(conn):
-            inventory.record_sync_state(
+    async with aconnection.connect() as conn:
+        try:
+            await _record(conn, key, last_started_at=started_at, status="running")
+            aps = await asyncio.to_thread(fetch_aps, controller)
+            existing = (
+                await conn.execute(
+                    "SELECT count(*) AS n FROM wireless_ap_status WHERE controller = %s",
+                    (controller_id(controller),),
+                )
+            ).fetchone()
+            if not aps and int((existing or {}).get("n") or 0):
+                raise RuntimeError("it listed no access points; keeping its last answer")
+            async with conn.transaction():
+                completed_at = timeutil.iso_utc_now()
+                kept = await write_aps(
+                    conn, controller, aps, timeutil.parse_iso_datetime(completed_at)
+                )
+                await _record(
+                    conn,
+                    key,
+                    last_started_at=started_at,
+                    last_completed_at=completed_at,
+                    status="idle",
+                )
+            logger.info("{}: {} access points", display_name(controller), kept)
+            await sync_pnp(conn, controller)
+            await sync_neighbours(conn, controller, aps)
+        except Exception as exc:
+            # The exception's text names the URL at most, never the password or token.
+            logger.warning("Could not read {}: {}", display_name(controller), exc)
+            await _record(
                 conn,
                 key,
                 last_started_at=started_at,
@@ -293,17 +314,22 @@ def sync_controller(controller: dict) -> None:
                 status="error",
                 error_message=str(exc)[:500],
             )
-    finally:
-        conn.close()
 
 
-def due(conn) -> list[dict]:
+async def due(conn: aconnection.Connection) -> list[dict]:
+    rows = (
+        await conn.execute(
+            "SELECT source, status, last_started_at, last_completed_at FROM inventory_sync_state "
+            "WHERE source = ANY(%s)",
+            ([source(controller) for controller in configured()],),
+        )
+    ).fetchall()
+    states = {row["source"]: row for row in rows}
     return [
         controller
         for controller in configured()
         if inventory.state_due(
-            inventory.get_sync_state(source(controller), conn=conn),
-            settings.WIRELESS_SYNC_INTERVAL_SECONDS,
+            states.get(source(controller)), settings.WIRELESS_SYNC_INTERVAL_SECONDS
         )
     ]
 
@@ -483,68 +509,65 @@ def matches(ap_serial_key: str, ap_name_key: str, serials: set, names: set) -> b
     )
 
 
-def fingerprint(conn, now: datetime | None = None) -> str:
+async def fingerprint(conn: aconnection.Connection, now: datetime | None = None) -> str:
     """Everything of the APs the board shows (#521): which are listed (now
     monitored), up or down, last known or not, and their addresses.  Hashed
     in the database: no 10,000 rows into Python twice a tick."""
     ids = [controller_id(controller) for controller in configured()]
     stale_before = (now or datetime.now(UTC)) - timedelta(seconds=stale_seconds())
-    row = conn.execute(
-        "SELECT md5(coalesce(string_agg(concat_ws('|', controller, serial_key, name_key, up, ip, seen_at < %s), ',' "
-        "ORDER BY controller, serial_key, name_key), '')) AS hash FROM wireless_ap_status WHERE controller = ANY(%s)",
-        (stale_before, ids),
+    row = (
+        await conn.execute(
+            "SELECT md5(coalesce(string_agg(concat_ws('|', controller, serial_key, name_key, up, ip, "
+            "seen_at < %s::timestamptz), ',' ORDER BY controller, serial_key, name_key), '')) AS hash "
+            "FROM wireless_ap_status WHERE controller = ANY(%s::text[])",
+            (stale_before, ids),
+        )
     ).fetchone()
-    return db.row_to_dict(row).get("hash") or ""
+    return (row or {}).get("hash") or ""
 
 
-def prune(conn) -> None:
+async def prune(conn: aconnection.Connection) -> None:
     """Forget instances no longer in the file (renamed or removed): their APs
     and sync state, so neither /metrics nor the top bar keeps them."""
     ids = [controller_id(controller) for controller in configured()]
-    with db.transaction(conn):
-        conn.execute("DELETE FROM wireless_ap_status WHERE NOT (controller = ANY(%s))", (ids,))
-        conn.execute("DELETE FROM wireless_pnp_status WHERE NOT (controller = ANY(%s))", (ids,))
-        conn.execute("DELETE FROM wireless_ap_neighbours WHERE NOT (controller = ANY(%s))", (ids,))
-        conn.execute(
-            "DELETE FROM inventory_sync_state WHERE source LIKE 'wireless:%%' AND NOT (source = ANY(%s))",
+    async with conn.transaction():
+        await conn.execute(
+            "DELETE FROM wireless_ap_status WHERE NOT (controller = ANY(%s::text[]))", (ids,)
+        )
+        await conn.execute(
+            "DELETE FROM wireless_pnp_status WHERE NOT (controller = ANY(%s::text[]))", (ids,)
+        )
+        await conn.execute(
+            "DELETE FROM wireless_ap_neighbours WHERE NOT (controller = ANY(%s::text[]))", (ids,)
+        )
+        await conn.execute(
+            "DELETE FROM inventory_sync_state WHERE source LIKE 'wireless:%%' "
+            "AND NOT (source = ANY(%s::text[]))",
             ([f"wireless:{controller_id}" for controller_id in ids],),
         )
 
 
-# Kept between syncs: its threads keep their HTTP sessions, so each instance's
-# connection is reused rather than opened anew every interval.
-_pool: ThreadPoolExecutor | None = None
-
-
-def pool() -> ThreadPoolExecutor:
-    global _pool
-    if _pool is None:
-        _pool = ThreadPoolExecutor(max_workers=MAX_PARALLEL, thread_name_prefix="wireless")
-    return _pool
-
-
-def sync_due() -> bool:
-    """Read the instances that are due, a few at a time; returns whether what
-    the board shows of the APs changed, so it is rebuilt only then."""
-    conn = db.get_conn()
-    if conn is None:
+async def sync_due() -> bool:
+    """Read the instances that are due, a few at a time (at most MAX_PARALLEL);
+    returns whether what the board shows of the APs changed, so it is rebuilt
+    only then."""
+    if not db.dialect():
         return False
-    try:
-        prune(conn)
-        todo = due(conn) if configured() else []
+    async with aconnection.connect() as conn:
+        await prune(conn)
+        todo = await due(conn) if configured() else []
         if not todo:
             return False
-        before = fingerprint(conn)
-    finally:
-        conn.close()
-    list(pool().map(sync_controller, todo))
-    conn = db.get_conn()
-    if conn is None:
-        return False
-    try:
-        return fingerprint(conn) != before
-    finally:
-        conn.close()
+        before = await fingerprint(conn)
+    slots = asyncio.Semaphore(MAX_PARALLEL)
+
+    async def one(controller: dict) -> None:
+        async with slots:
+            await sync_controller(controller)
+
+    await asyncio.gather(*(one(controller) for controller in todo))
+    async with aconnection.connect() as conn:
+        return await fingerprint(conn) != before
 
 
 def _certificate_refused(exc: BaseException) -> bool:

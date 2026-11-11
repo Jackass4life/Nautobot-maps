@@ -5,6 +5,7 @@ the asyncpg pool, so its SQL moves over with ``await`` and little else.
         rows = (await conn.execute("SELECT ... WHERE id = %s", (window_id,))).fetchall()
         async with conn.transaction():
             await conn.execute(...)
+            await conn.executemany("INSERT ... VALUES (%s, %s)", rows)
 
 The SQL keeps psycopg's placeholders (``%s``, ``%(name)s``, ``%%`` for a literal
 ``%``); each statement runs through SQLAlchemy's ``text()``, so asyncpg gets typed
@@ -113,6 +114,22 @@ class Connection:
         if not self._in_transaction:
             await self._conn.commit()
         return answer
+
+    async def executemany(self, sql: str, rows: Sequence[Sequence | Mapping]) -> None:
+        """*sql* once per row of *rows*, sent as one batch (psycopg's
+        ``cursor.executemany``); nothing for no rows."""
+        if not rows:
+            return
+        converted, _ = statement(sql, rows[0])
+        binds = [statement(sql, row)[1] for row in rows]
+        try:
+            await self._conn.execute(text(converted), binds)
+        except BaseException:
+            if not self._in_transaction:
+                await self._conn.rollback()
+            raise
+        if not self._in_transaction:
+            await self._conn.commit()
 
     async def stream(
         self, sql: str, params: Sequence | Mapping | None = None, batch: int = 2000

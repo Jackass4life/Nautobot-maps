@@ -2,6 +2,7 @@
 and New Central, any number of instances; on the board without a primary IP,
 at WIRELESS_AP_LEVEL under the Wireless chip, never notified (#521)."""
 
+import asyncio
 import os
 from datetime import UTC, datetime
 
@@ -510,7 +511,7 @@ class TestSync:
     def test_each_instance_stored_on_its_own(self, controllers):
         controllers["dk"] = [ap("dk-ap1", True, "FGL1"), ap("dk-ap2", False, "FGL2")]
         controllers["se"] = [ap("SE-AP1.corp.example", False)]
-        assert wireless.sync_due() is True, "APs went down: rebuild"
+        assert asyncio.run(wireless.sync_due()) is True, "APs went down: rebuild"
         index = read_index()
         assert ups(index["serial"]) == {"FGL1": True, "FGL2": False}
         assert ups(index["name"]) == {"dk-ap1": True, "dk-ap2": False, "se-ap1": False}
@@ -525,16 +526,16 @@ class TestSync:
             "se": "idle",
         }
         # Not due again within the interval; nothing changed, so no rebuild.
-        assert wireless.sync_due() is False
+        assert asyncio.run(wireless.sync_due()) is False
 
     def test_one_unreachable_instance_wipes_nobody_else(self, controllers, monkeypatch):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         controllers["se"] = httpx.ConnectError("https://dnac-se.example.com: connection refused")
         monkeypatch.setattr(settings, "WIRELESS_SYNC_INTERVAL_SECONDS", 60)
         monkeypatch.setattr(inventory, "state_due", lambda state, interval: True)
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         states = sync_states()
         assert (
             states["se"]["status"] == "error"
@@ -546,16 +547,16 @@ class TestSync:
 
     def test_an_empty_answer_keeps_the_last_one(self, controllers):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         controllers["dk"] = []
-        wireless.sync_controller(DK)
+        asyncio.run(wireless.sync_controller(DK))
         assert sync_states()["dk"]["status"] == "error"
         assert ups(read_index()["serial"]) == {"FGL1": False}
 
     def test_stale_kept_as_last_known_removed_ignored(self, controllers, monkeypatch):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         conn = db.get_conn()
         try:
             conn.execute(
@@ -579,7 +580,7 @@ class TestSync:
     def test_the_same_ap_in_two_instances(self, controllers):
         controllers["dk"] = [ap("ap1", False, "FGL1")]
         controllers["se"] = [ap("ap1", True, "FGL1")]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         conn = db.get_conn()
         try:
             # Read at the same moment: up wins, a stale copy never shows it down.
@@ -631,7 +632,7 @@ class TestSync:
             ap("ap-02", True, "FGL2"),
             ap("ap-01", True, "FGL3"),
         ]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         conn = db.get_conn()
         try:
             index = wireless.read_index(
@@ -648,11 +649,11 @@ class TestSync:
 
     def test_the_board_is_rebuilt_for_anything_it_shows(self, controllers, monkeypatch):
         controllers["dk"] = [ap("ap1", True, "FGL1", "10.0.0.1")]
-        assert wireless.sync_due() is True, "a newly listed AP is monitored now"
+        assert asyncio.run(wireless.sync_due()) is True, "a newly listed AP is monitored now"
         monkeypatch.setattr(inventory, "state_due", lambda state, interval: True)
-        assert wireless.sync_due() is False, "nothing changed"
+        assert asyncio.run(wireless.sync_due()) is False, "nothing changed"
         controllers["dk"] = [ap("ap1", True, "FGL1", "10.0.0.2")]
-        assert wireless.sync_due() is True, "its address changed"
+        assert asyncio.run(wireless.sync_due()) is True, "its address changed"
 
     def test_a_name_two_aps_carry_is_not_matched(self, controllers):
         # ap-01 at two sites, in one instance or two: neither is matched by name.
@@ -662,7 +663,7 @@ class TestSync:
             ap("ap-02", True, "FGL3"),
         ]
         controllers["se"] = [ap("ap-01", True, "FGL2"), ap("ap-04", False, "FGL1")]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         index = read_index()
         assert "ap-01" not in index["name"] and "ap-02" not in index["name"]
         assert index["name"]["ap-04"]["up"] is False, "FGL1 in dk and se is one AP"
@@ -671,7 +672,7 @@ class TestSync:
     def test_newest_by_time_not_text(self, controllers):
         controllers["dk"] = [ap("ap1", False, "FGL1")]
         controllers["se"] = [ap("ap1", True, "FGL1")]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         conn = db.get_conn()
         try:
             # As text "...T12:00:00Z" sorts after "...T12:00:00.500000Z": the older one would win.
@@ -690,9 +691,9 @@ class TestSync:
     def test_a_removed_instance_is_forgotten(self, controllers, monkeypatch):
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         conn = db.get_conn()
         try:
             assert [
@@ -704,17 +705,42 @@ class TestSync:
             conn.close()
         assert 'source="wireless:catalyst_center:se"' not in adb.call(metrics.collect)
 
+    def test_instances_sync_side_by_side_a_few_at_a_time(self, pg_database, monkeypatch):
+        """On the event loop (#657): at most MAX_PARALLEL instances at once, all of them."""
+        controllers = tuple({**DK, "name": f"c{n}"} for n in range(5))
+        monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", controllers)
+        monkeypatch.setattr(wireless, "MAX_PARALLEL", 2)
+        running, most, done = [0], [0], []
+
+        async def sync_controller(controller):
+            running[0] += 1
+            most[0] = max(most[0], running[0])
+            await asyncio.sleep(0.05)
+            running[0] -= 1
+            done.append(controller["name"])
+
+        monkeypatch.setattr(wireless, "sync_controller", sync_controller)
+        asyncio.run(wireless.sync_due())
+        assert most[0] == 2 and sorted(done) == [f"c{n}" for n in range(5)]
+
     def test_a_sync_failure_never_stops_the_tick(self, pg_database, monkeypatch):
-        monkeypatch.setattr(wireless, "sync_due", lambda: 1 / 0)
-        assert scheduler.sync_wireless() is False
+        async def failing():
+            return 1 / 0
+
+        monkeypatch.setattr(wireless, "sync_due", failing)
+        assert adb.worker(scheduler.sync_wireless) is False
 
     def test_a_change_rebuilds_the_board_as_any_change(self, pg_database, monkeypatch):
         rebuilds = []
         monkeypatch.setattr(scheduler, "board_changed", lambda: rebuilds.append(1))
-        monkeypatch.setattr(wireless, "sync_due", lambda: False)
-        assert scheduler.sync_wireless() is False and rebuilds == []
-        monkeypatch.setattr(wireless, "sync_due", lambda: True)
-        assert scheduler.sync_wireless() is True and rebuilds == [1]
+        for changed in (False, True):
+
+            async def sync_due(changed=changed):
+                return changed
+
+            monkeypatch.setattr(wireless, "sync_due", sync_due)
+            assert adb.worker(scheduler.sync_wireless) is changed
+        assert rebuilds == [1]
 
 
 def _utc(text: str):
@@ -1115,7 +1141,7 @@ class TestTopBarAndMetrics:
             )
         finally:
             conn.close()
-        wireless.sync_due()
+        asyncio.run(wireless.sync_due())
         text = adb.call(metrics.collect)
         assert (
             'nautobot_maps_wireless_access_points{controller="catalyst_center:dk",state="down"} 1'
@@ -1190,12 +1216,12 @@ def pnp(serial: str, state: str = "Unclaimed", error: str = "") -> dict:
 
 def store_pnp(controller: dict, devices: list[dict]) -> None:
     """As a sync just now (staleness is by the real clock)."""
-    conn = db.get_conn()
-    try:
-        with db.transaction(conn):
-            wireless.write_pnp(conn, controller, devices, datetime.now(UTC).isoformat())
-    finally:
-        conn.close()
+
+    async def write(conn):
+        async with conn.transaction():
+            await wireless.write_pnp(conn, controller, devices, datetime.now(UTC))
+
+    adb.call(write)
 
 
 class TestPlugAndPlay:
@@ -1268,7 +1294,7 @@ class TestPlugAndPlay:
             pnp("FJC2", "Error", "Image download failed"),
             pnp(""),
         ]
-        wireless.sync_controller(DK)
+        asyncio.run(wireless.sync_controller(DK))
         found = read_index()["pnp"]
         assert set(found) == {"FJC1", "FJC2"}, "by serial; one without a serial can't be matched"
         assert found["FJC2"] == {
@@ -1279,16 +1305,16 @@ class TestPlugAndPlay:
             "stale": False,
         }
         controllers["pnp"]["dk"] = httpx.ConnectError("refused")
-        wireless.sync_controller(DK)
+        asyncio.run(wireless.sync_controller(DK))
         assert sync_states()["dk"]["status"] == "idle", "the access points are unaffected"
         assert set(read_index()["pnp"]) == {"FJC1", "FJC2"}, "kept"
         # An instance no longer in the file is forgotten.
         store_pnp(SE, [pnp("FJC9")])
         assert "FJC9" in read_index()["pnp"]
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
+        adb.call(wireless.prune)
         conn = db.get_conn()
         try:
-            wireless.prune(conn)
             assert (
                 conn.execute(
                     "SELECT count(*) AS n FROM wireless_pnp_status WHERE serial_key = 'FJC9'"
@@ -1304,14 +1330,7 @@ class TestPlugAndPlay:
         )
         before = build_board()["alerts"][0]
         # ap01 joined its controller; ap02 waits to be claimed, ap03 failed; one isn't in Nautobot.
-        conn = db.get_conn()
-        try:
-            with db.transaction(conn):
-                wireless.write_aps(
-                    conn, DK, [ap("cph-ap01", True, "FGL-cph-ap01")], datetime.now(UTC).isoformat()
-                )
-        finally:
-            conn.close()
+        adb.call(wireless.write_aps, DK, [ap("cph-ap01", True, "FGL-cph-ap01")], datetime.now(UTC))
         store_pnp(
             DK,
             [
