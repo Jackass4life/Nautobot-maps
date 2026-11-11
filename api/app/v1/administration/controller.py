@@ -15,11 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import CurrentUserDep, require_role
 from app.core.exceptions import ApiError, responses
 from app.core.legacy_settings import settings
-from app.db import aconnection
+from app.db import aconnection, session
 from app.db import connection as db
 from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
 from app.services import contract_service, status_link_service, token_service
+from app.services import inventory_service as inventory
 from app.services import legacy_auth as auth
 from app.services import notify_service as notify
 from app.services import status_link_service as statuslinks
@@ -175,7 +176,8 @@ def api_wireless_check():
                 status_code=429,
             )
         try:
-            results = wireless.check()
+            # On the event loop (#661): the inventory is read async.
+            results = wireless.check(session.from_sync(inventory.read_devices))
         finally:
             if callable(release):
                 release()

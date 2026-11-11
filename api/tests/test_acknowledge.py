@@ -5,6 +5,7 @@ import pytest
 from app.clients import caching
 from app.db import connection as db
 from app.services import alerts_service as alerts
+from tests import db as adb
 from tests import http_client, test_maintenance
 from tests.test_app import auth_config
 from tests.test_maintenance import build, set_devices
@@ -15,11 +16,7 @@ site = test_maintenance.site
 
 
 def ack(device_ids=None, note="", clear=False, by="olga"):
-    conn = db.get_conn()
-    try:
-        return alerts.acknowledge(conn, "loc-lon", device_ids, by, note, clear=clear)
-    finally:
-        conn.close()
+    return adb.call(alerts.acknowledge, "loc-lon", device_ids, by, note, clear=clear)
 
 
 def events() -> list[tuple]:

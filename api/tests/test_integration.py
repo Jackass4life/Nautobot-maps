@@ -399,7 +399,7 @@ class TestAlertBoardWithPersistence:
         return {site["id"]: site for site in resp.get_json()["alerts"]}
 
     def test_cached_devices_are_linked_to_their_location(self, persisted_integration_client):
-        devices = inventory.read_devices()
+        devices = asyncio.run(inventory.read_devices())
         assert len(devices) == sum(len(devs) for devs in mock_nautobot.DEVICES.values())
         assert all(device["location_id"] for device in devices)
 
@@ -465,12 +465,13 @@ class TestAlertBoardWithPersistence:
         ]
         # What /api/locations serves, read directly: the endpoint would also
         # queue a background sync that outlives this test's database schema.
-        locations = {loc["id"]: loc for loc in inventory.read_locations()}
+        locations = {loc["id"]: loc for loc in asyncio.run(inventory.read_locations())}
         assert set(locations["loc-cph"]["tenant_descriptions"]) == {"Acme Corp"}
         assert set(locations["loc-fra"]["tenant_descriptions"]) == {"DataCenter GmbH"}
         # The site path (#367), as on the board, so a link's ?q= finds the same sites.
         everywhere = {
-            loc["id"]: loc for loc in inventory.read_locations(include_without_coordinates=True)
+            loc["id"]: loc
+            for loc in asyncio.run(inventory.read_locations(include_without_coordinates=True))
         }
         floor = everywhere["loc-aar-bld-a-f2"]["ancestor_path"]
         assert floor == "EMEA › DNK › Aarhus Campus › Bygning A"
@@ -496,7 +497,9 @@ class TestAlertBoardWithPersistence:
         monkeypatch.setattr(
             notify, "_post", lambda url, content=None, **kw: posts.append(content) or Accepted()
         )
-        alerts.build_alert_board_payload(snapshot_only=True)  # records every site's level
+        asyncio.run(
+            alerts.build_alert_board_payload(snapshot_only=True)
+        )  # records every site's level
         conn = db.get_conn()
         try:
             conn.execute(
@@ -504,7 +507,7 @@ class TestAlertBoardWithPersistence:
             )
         finally:
             conn.close()
-        alerts.build_alert_board_payload(snapshot_only=True)  # London: OK -> Medium
+        asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))  # London: OK -> Medium
         assert asyncio.run(notify.send_pending()) == 1
         (body,) = [json.loads(data) for data in posts]
         assert (

@@ -1,5 +1,6 @@
 """The MCP server at /mcp (#250)."""
 
+import asyncio
 import base64
 import json
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from app.services import alerts_service as alerts
 from app.services import mcp_service as mcp
 from app.v1.alert_board import dtos as board_answers
 from tests import answers, http_client
+from tests import db as adb
 from tests.test_app import auth_config
 
 MODERN = "2026-07-28"
@@ -87,7 +89,7 @@ def flask_client(monkeypatch):
     # The rest of a real board's fields, empty (#449: the answer is checked against /api/docs).
     board = answers.complete(board_answers.Board, BOARD)
     monkeypatch.setattr(
-        alerts, "get_alert_board_data", lambda **kwargs: json.loads(json.dumps(board))
+        alerts, "get_alert_board_data", adb.async_of(lambda **kwargs: json.loads(json.dumps(board)))
     )
     caching.cache.clear()
     with http_client.FlaskStyleClient() as test_client:
@@ -456,25 +458,21 @@ class TestTools:
 
     def test_feed_scope_reaches_the_route(self, flask_client, monkeypatch):
         """Through the real route: the scope picks the sites, and no scope sends none (#375)."""
-        from app.db import connection as db
         from app.services import inventory_service as inventory
 
-        class Conn:
-            def close(self):
-                pass
-
         seen = []
-        monkeypatch.setattr(db, "get_conn", Conn)
         monkeypatch.setattr(
             inventory,
             "read_locations",
-            lambda **kwargs: [
-                {"id": "loc-1", "name": "Aarhus HQ", "tenants": ["Acme Corp"]},
-                {"id": "loc-2", "name": "Oslo", "tenants": ["Nordic"]},
-            ],
+            adb.async_of(
+                lambda **kwargs: [
+                    {"id": "loc-1", "name": "Aarhus HQ", "tenants": ["Acme Corp"]},
+                    {"id": "loc-2", "name": "Oslo", "tenants": ["Nordic"]},
+                ]
+            ),
         )
         monkeypatch.setattr(
-            board_store, "read_alert_feed", lambda *args: seen.append(args[-1]) or []
+            board_store, "read_alert_feed", adb.async_of(lambda *args: seen.append(args[-1]) or [])
         )
         assert (
             call(flask_client, "get_alert_feed", {"tenant": "acme corp"})["structuredContent"][
@@ -523,7 +521,7 @@ class TestTools:
             }
         )
         location.update({"tenant_scopes": {}, "tenant_descriptions": {}})
-        monkeypatch.setattr(inventory, "get_locations", lambda: [location])
+        monkeypatch.setattr(inventory, "get_locations", adb.async_of(lambda: [location]))
         found = call(flask_client, "search_locations", {"query": "56.15,10.2"})["structuredContent"]
         assert found["count"] == 1 and found["locations"][0]["id"] == "loc-1"
 
@@ -565,8 +563,10 @@ class TestAddCase:
             {"id": "d2", "name": "acc01", "status": "offline"},
         ]
         started = datetime(2026, 10, 5, 9, 50, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        alerts.upsert_alert_lifecycle_for_site(
-            site, down, {"level": "critical", "reason": "Core down"}, started
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site, down, {"level": "critical", "reason": "Core down"}, started
+            )
         )
 
     def test_defaults_to_every_down_device_and_shows_in_history(self, flask_client):

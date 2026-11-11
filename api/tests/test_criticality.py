@@ -1,5 +1,6 @@
 """Device and site criticality from Nautobot: a device custom field and the site tier (#377)."""
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -233,7 +234,8 @@ def build(clock, at: str) -> dict:
     clock["now"] = at
     caching.cache.clear()
     return {
-        row["id"]: row for row in alerts.build_alert_board_payload(snapshot_only=True)["alerts"]
+        row["id"]: row
+        for row in asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))["alerts"]
     }
 
 
@@ -311,7 +313,7 @@ class TestEditsAreNotNotified:
 
     def test_the_field_is_stored_and_read_back(self, board):
         write({"a": ""}, [{**site_devices("a")[0], "criticality": "medium"}])
-        (stored,) = inventory.read_devices("a")
+        (stored,) = asyncio.run(inventory.read_devices("a"))
         assert stored["criticality"] == "medium"
 
 

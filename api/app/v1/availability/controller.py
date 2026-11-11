@@ -6,7 +6,6 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from starlette.concurrency import run_in_threadpool
 
 from app.db import aconnection
 from app.db import session as db_session
@@ -34,7 +33,7 @@ async def _availability_report(
     for (#287, #341).  *with_incidents* (#354): every incident too, streamed
     from *conn*, which the caller keeps open until then."""
     try:
-        sites = await run_in_threadpool(availability.board_sites)
+        sites = await availability.board_sites()
     except Exception as exc:
         # Without the board's sites and tenants the figures would be wrong.
         logger.opt(exception=True).warning(

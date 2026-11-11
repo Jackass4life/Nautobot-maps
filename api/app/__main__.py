@@ -30,6 +30,7 @@ from app.core.settings import get_settings
 from app.db import session
 from app.logs import config as logs
 from app.services import contract_service as contract
+from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import token_service as tokens
 from app.services import wireless_service as wireless
@@ -80,7 +81,7 @@ def wireless_check_command() -> int:
         print("No wireless controllers (WIRELESS_CONTROLLERS_FILE); nothing to check.")
         return 0
     failed = False
-    for result in wireless.check():
+    for result in wireless.check(asyncio.run(inventory.read_devices())):
         if "duplicates" in result:
             print(
                 f"{result['duplicate_count']} access point(s) listed by more than one controller (the newest answer wins):"

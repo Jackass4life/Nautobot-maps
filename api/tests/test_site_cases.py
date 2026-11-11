@@ -1,9 +1,12 @@
 """The map's site panel says who is on it (#512): the cases of the site's down
 devices, each device's own, and when nobody is."""
 
+import asyncio
+
 from app.clients import nautobot
 from app.db import connection as db
 from app.services import alerts_service as alerts
+from tests import db as adb
 from tests import test_maintenance
 
 clock = test_maintenance.clock
@@ -35,7 +38,7 @@ def add_case(instance_id: int, number: str, at: str) -> None:
 def detail(monkeypatch) -> dict:
     # No Nautobot here: no ASNs or circuits, the devices from the stored inventory.
     monkeypatch.setattr(nautobot, "fetch_all_pages", lambda *args, **kwargs: [])
-    return alerts.get_location_detail("loc-lon")
+    return asyncio.run(alerts.get_location_detail("loc-lon"))
 
 
 class TestSitePanelCases:
@@ -75,9 +78,9 @@ class TestSitePanelCases:
     def test_without_a_database_no_cases(self, monkeypatch):
         monkeypatch.setattr(db, "dialect", lambda: "")
         monkeypatch.setattr(
-            alerts, "get_location_devices_and_alert", lambda *args, **kwargs: ([], {})
+            alerts, "get_location_devices_and_alert", adb.async_of(lambda *args, **kwargs: ([], {}))
         )
         monkeypatch.setattr(nautobot, "fetch_all_pages", lambda *args, **kwargs: [])
-        found = alerts.get_location_detail("loc-x")
+        found = asyncio.run(alerts.get_location_detail("loc-x"))
         # Not read: the panel mustn't say "No case" for what it doesn't know.
         assert (found["cases"], found["cases_read"]) == ([], False)

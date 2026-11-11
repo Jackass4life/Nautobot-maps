@@ -15,9 +15,10 @@ connection did. Rows are dicts. Call these as ``aconnection.function()`` so test
 replace them.
 """
 
+import asyncio
 import re
-from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -72,6 +73,19 @@ def statement(sql: str, params: Sequence | Mapping | None = None) -> tuple[str, 
     return converted, binds
 
 
+# Rows converted between letting other requests in: a big read (every cached device)
+# doesn't hold the event loop for all of its rows (#661).
+TURN_ROWS = 2000
+
+
+async def in_turns[T](rows: Iterable[T], every: int = TURN_ROWS) -> AsyncIterator[dict]:
+    """*rows* as dicts, *every* rows at a time: the event loop runs in between."""
+    for index, row in enumerate(rows):
+        if index % every == every - 1:
+            await asyncio.sleep(0)
+        yield dict(row)  # type: ignore[call-overload]
+
+
 class Rows:
     """A statement's answer, read in full: ``fetchone()``, ``fetchall()``, ``rowcount``."""
 
@@ -105,7 +119,7 @@ class Connection:
         converted, binds = statement(sql, params)
         try:
             result = await self._conn.execute(text(converted), binds)
-            rows = [dict(row) for row in result.mappings()] if result.returns_rows else []
+            rows = [row async for row in in_turns(result.mappings())] if result.returns_rows else []
             answer = Rows(rows, result.rowcount)
         except BaseException:
             if not self._in_transaction:
@@ -167,3 +181,23 @@ async def connect(engine: AsyncEngine | None = None) -> AsyncIterator[Connection
     """A connection from the app's async pool (or *engine*'s), given back at the end."""
     async with (engine or session.async_engine).connect() as conn:
         yield Connection(conn)
+
+
+@asynccontextmanager
+async def using(conn: Connection | None = None) -> AsyncIterator[Connection]:
+    """*conn*, or a connection of the pool's for this block when there is none: the
+    ported readers' ``conn=None`` (#661)."""
+    if conn is not None:
+        yield conn
+        return
+    async with connect() as own:
+        yield own
+
+
+async def open_connection() -> tuple[Connection, Callable[[], Awaitable[None]]]:
+    """``(conn, close)``: a pooled connection and the coroutine function that gives it
+    back, for code that opens and closes it in different places (the board build's
+    write connection, opened on first use and replaced after a failure, #661)."""
+    stack = AsyncExitStack()
+    conn = await stack.enter_async_context(connect())
+    return conn, stack.aclose

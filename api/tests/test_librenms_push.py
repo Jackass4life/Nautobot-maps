@@ -95,7 +95,7 @@ def operator_token() -> dict:
 
 
 def board_row() -> dict:
-    (row,) = alerts.get_alert_board_data()["alerts"]
+    (row,) = asyncio.run(alerts.get_alert_board_data())["alerts"]
     return row
 
 
@@ -185,7 +185,7 @@ class TestPush:
         release_first.set()
         first.join(10)
         assert results["first"]["updated"] is False
-        assert inventory.read_librenms_devices()[0]["status"] == 1
+        assert asyncio.run(inventory.read_librenms_devices())[0]["status"] == 1
 
     def test_a_sync_does_not_overwrite_a_newer_push(self, lnms, monkeypatch):
         """The sync fetched its inventory (sw0 down) before a push stored sw0 up."""
@@ -199,14 +199,16 @@ class TestPush:
         monkeypatch.setattr(librenms, "fetch_inventory", fetch_inventory_while_a_push_comes)
         # The sync's observation number is taken before its fetch, so the push is newer.
         asyncio.run(inventory.sync_librenms(force=True))
-        statuses = {d["device_id"]: d["status"] for d in inventory.read_librenms_devices()}
+        statuses = {
+            d["device_id"]: d["status"] for d in asyncio.run(inventory.read_librenms_devices())
+        }
         assert statuses == {1000: 1, 1001: 1, 1002: 1}
         assert pending(), "and its rebuild is still pending"
 
     def test_a_device_not_cached_yet_is_left_to_the_sync(self, lnms):
         lnms.devices[1003] = {"device_id": 1003, "hostname": "new.corp.example", "status": 0}
         assert asyncio.run(inventory.librenms_push_refresh("1003"))["updated"] is False
-        assert 1003 not in {d["device_id"] for d in inventory.read_librenms_devices()}
+        assert 1003 not in {d["device_id"] for d in asyncio.run(inventory.read_librenms_devices())}
 
     def test_a_slow_push_does_not_bring_back_a_device_a_newer_sync_removed(self, lnms, monkeypatch):
         asked, release = threading.Event(), threading.Event()
@@ -232,14 +234,20 @@ class TestPush:
         release.set()
         push.join(10)
         assert results["push"]["updated"] is False
-        assert sorted(d["device_id"] for d in inventory.read_librenms_devices()) == [1000, 1001]
+        assert sorted(d["device_id"] for d in asyncio.run(inventory.read_librenms_devices())) == [
+            1000,
+            1001,
+        ]
 
     def test_a_sync_removes_devices_gone_from_librenms(self, lnms, monkeypatch):
         monkeypatch.setattr(
             librenms, "fetch_inventory", lambda: [lnms.devices[1000], lnms.devices[1001]]
         )
         asyncio.run(inventory.sync_librenms(force=True))
-        assert sorted(d["device_id"] for d in inventory.read_librenms_devices()) == [1000, 1001]
+        assert sorted(d["device_id"] for d in asyncio.run(inventory.read_librenms_devices())) == [
+            1000,
+            1001,
+        ]
 
     def test_hostname_lookups_have_an_index(self, lnms):
         conn = db.get_conn()

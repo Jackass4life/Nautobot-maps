@@ -14,6 +14,7 @@ from typing import Annotated
 import anyio
 import anyio.from_thread
 import anyio.lowlevel
+import anyio.to_thread
 from fastapi import Depends
 from sqlalchemy import URL, create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -159,3 +160,10 @@ def from_sync[T](function: Callable[..., Awaitable[T]], *args: object, **kwargs:
         if _loop_token is None:
             raise
     return anyio.from_thread.run(call, *([] if kwargs else args), token=_loop_token)
+
+
+async def run_sync[T](function: Callable[..., T], *args: object, **kwargs: object) -> T:
+    """``function(*args, **kwargs)`` in a worker thread, from async code (#661): sync code
+    that blocks (an upstream call, a sync waited for) off the event loop, and still able to
+    reach this loop with `from_sync`."""
+    return await anyio.to_thread.run_sync(functools.partial(function, *args, **kwargs))

@@ -1,5 +1,7 @@
 """Alertmanager and a generic webhook as device status sources (#292)."""
 
+import asyncio
+
 import pytest
 
 from app.clients import caching
@@ -70,7 +72,7 @@ def flask_client(site):
 
 def board_row() -> dict:
     caching.cache.clear()
-    (row,) = alerts.build_alert_board_payload(snapshot_only=True)["alerts"]
+    (row,) = asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))["alerts"]
     return row
 
 
@@ -215,28 +217,20 @@ class TestTheBoard:
         assert {d["device_name"] for d in row["down_devices"]} == {"acc1", "acc2"}
 
     def test_nautobot_down_is_not_overridden_and_ipv6_matches(self, site):
-        conn = db.get_conn()
-        try:
-            adb.call(
-                webhooks.store, webhooks.parse_generic({"device": "2001:db8::3", "status": "down"})
-            )
-            index = webhooks.read_index(conn)
-        finally:
-            conn.close()
+        adb.call(
+            webhooks.store, webhooks.parse_generic({"device": "2001:db8::3", "status": "down"})
+        )
+        index = adb.call(webhooks.read_index)
         devices = alerts.enrich_with_webhooks(
             [{"name": "acc2", "status": "Offline", "primary_ip": "2001:db8::3/64"}], index
         )
         assert devices[0]["status"] == "Offline" and "down_source" not in devices[0]
 
     def test_an_alert_that_is_not_repeated_expires(self, site, clock):
-        conn = db.get_conn()
-        try:
-            adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
-            assert "acc1" in webhooks.read_index(conn)["by_host"]
-            clock["now"] = "2026-10-10T12:00:01Z"
-            assert webhooks.read_index(conn)["by_host"] == {}
-        finally:
-            conn.close()
+        adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
+        assert "acc1" in adb.call(webhooks.read_index)["by_host"]
+        clock["now"] = "2026-10-10T12:00:01Z"
+        assert adb.call(webhooks.read_index)["by_host"] == {}
 
 
 class TestRebuild:
@@ -326,7 +320,8 @@ class TestReviewFixes:
             assert keys == ["other"], "the expired one is gone"
             adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
             assert (
-                webhooks.read_index(conn)["by_host"]["acc1"]["started_at"] == "2026-10-11T12:00:00Z"
+                adb.call(webhooks.read_index)["by_host"]["acc1"]["started_at"]
+                == "2026-10-11T12:00:00Z"
             )
         finally:
             conn.close()

@@ -142,21 +142,14 @@ class TestTierChangesDuringAnAlarm:
     """The tier changed while a site was in alarm: its end is still announced."""
 
     def enqueue(self, from_level, to_level, tier):
-        from app.db import connection as db
-
-        conn = db.get_conn()
-        try:
-            with db.transaction(conn):
-                return notify.enqueue_change(
-                    conn,
-                    "s1",
-                    from_level,
-                    to_level,
-                    {"id": "s1", "name": "S", "tier": tier},
-                    "2026-10-10T12:00:00Z",
-                )
-        finally:
-            conn.close()
+        return adb.call(
+            notify.enqueue_change,
+            "s1",
+            from_level,
+            to_level,
+            {"id": "s1", "name": "S", "tier": tier},
+            "2026-10-10T12:00:00Z",
+        )
 
     @pytest.fixture
     def hook(self, pg_database, monkeypatch):

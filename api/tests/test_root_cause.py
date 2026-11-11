@@ -94,7 +94,7 @@ def test_a_failed_observation_keeps_the_cause_from_the_history(site, monkeypatch
     def unreadable(*args, **kwargs):
         raise RuntimeError("Nautobot unreachable")
 
-    monkeypatch.setattr(alerts, "get_location_devices_and_alert", unreadable)
+    monkeypatch.setattr(alerts, "get_location_devices_and_alert", adb.async_of(unreadable))
     row = build()
     by_name = {d["device_name"]: d for d in row["down_devices"]}
     assert by_name["acc1"]["probable_cause"] == "core"
@@ -158,6 +158,6 @@ def test_a_failed_observation_keeps_core_devices_also_with_nothing_behind_them(s
     def unreadable(*args, **kwargs):
         raise RuntimeError("Nautobot unreachable")
 
-    monkeypatch.setattr(alerts, "get_location_devices_and_alert", unreadable)
+    monkeypatch.setattr(alerts, "get_location_devices_and_alert", adb.async_of(unreadable))
     (core,) = build()["down_devices"]
     assert core["device_name"] == "core" and core.get("core") is True, "stored with the incident"

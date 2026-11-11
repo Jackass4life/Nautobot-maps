@@ -72,7 +72,7 @@ def test_stored_and_read_back(flask_client, pg_database, no_lookups):
             adb.call(inventory.write_devices, devices)
     finally:
         conn.close()
-    stored = {d["id"]: d for d in inventory.read_devices("loc-1")}
+    stored = {d["id"]: d for d in asyncio.run(inventory.read_devices("loc-1"))}
     assert stored["m1"]["vc_master"] is True and stored["m1"]["vc_position"] == 1
     assert stored["m2"]["name"] == "sw-stack01:2" and stored["m2"]["vc_id"] == "vc-1"
     assert stored["m2"]["vc_master"] is False

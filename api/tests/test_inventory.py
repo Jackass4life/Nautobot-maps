@@ -176,7 +176,7 @@ class TestInventoryCacheSync:
             "fetch_all_pages",
             side_effect=AssertionError("should not fetch live inventory"),
         ):
-            locations = inventory.get_locations()
+            locations = asyncio.run(inventory.get_locations())
 
         assert locations == [
             {
@@ -241,7 +241,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        locations = inventory.read_locations(include_without_coordinates=True)
+        locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         location = next(item for item in locations if item["id"] == "loc-1")
 
         assert location["time_zone"] is None
@@ -279,7 +279,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        locations = inventory.read_locations(include_without_coordinates=True)
+        locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         assert len(locations) == 1
         assert locations[0]["parent"] == ""
         assert locations[0]["description"] == ""
@@ -317,7 +317,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        devices = inventory.read_devices()
+        devices = asyncio.run(inventory.read_devices())
         assert len(devices) == 1
         assert devices[0]["location_id"] == ""
         assert devices[0]["name"] == ""
@@ -384,7 +384,7 @@ class TestInventoryCacheSync:
             patch.object(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 0),
             patch.object(inventory, "sync_nautobot", side_effect=fake_sync),
         ):
-            locations = inventory.get_locations()
+            locations = asyncio.run(inventory.get_locations())
             assert refresh_called.wait(1), "expected cached read to trigger a background refresh"
 
         assert locations[0]["id"] == "loc-1"
@@ -437,7 +437,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot(force=True))
@@ -524,7 +523,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot())
@@ -596,7 +594,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=False),
             patch.object(
@@ -710,7 +707,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=True),
             patch.object(
@@ -827,15 +823,15 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot(force=True))
 
         assert [
-            item["id"] for item in inventory.read_locations(include_without_coordinates=True)
+            item["id"]
+            for item in asyncio.run(inventory.read_locations(include_without_coordinates=True))
         ] == ["loc-1"]
-        assert [item["id"] for item in inventory.read_devices()] == ["dev-1"]
+        assert [item["id"] for item in asyncio.run(inventory.read_devices())] == ["dev-1"]
 
 
 # ---------------------------------------------------------------------------
@@ -911,7 +907,7 @@ class TestLibreNMSPolledIp:
             ],
         ):
             asyncio.run(inventory.sync_librenms(force=True))
-        cached = inventory.read_librenms_devices()
+        cached = asyncio.run(inventory.read_librenms_devices())
         assert cached == [
             {
                 "device_id": 7,
@@ -941,7 +937,6 @@ class TestRefreshIsIncremental:
 
         with (
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             inventory.ensure_snapshot(wait=True, **ensure_kwargs)
@@ -1112,10 +1107,10 @@ class TestTenantDescriptions:
                 ]
             return fetch(endpoint, params, **kwargs)
 
-        monkeypatch.setattr(db, "get_conn", lambda *args, **kwargs: None)
+        monkeypatch.setattr(inventory, "read_locations", adb.async_of(lambda **kwargs: []))
         monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
         monkeypatch.setattr(nautobot, "fetch_all_pages", live)
-        by_name = {loc["name"]: loc for loc in inventory.get_locations()}
+        by_name = {loc["name"]: loc for loc in asyncio.run(inventory.get_locations())}
         assert by_name["London"]["tenant_descriptions"] == {"Acme Corp": "Bank, 24/7 SLA"}
         assert by_name["Paris"]["tenant_descriptions"] == {}  # EuroIX has no description
 
@@ -1123,7 +1118,7 @@ class TestTenantDescriptions:
         self._sync(monkeypatch)
         monkeypatch.setattr(inventory, "fetch_tenants", lambda: None)
         self._sync(monkeypatch)
-        assert inventory.read_tenant_descriptions() == {
+        assert asyncio.run(inventory.read_tenant_descriptions()) == {
             "Acme Corp": "Bank, 24/7 SLA",
             "Nordic Net": "Shared rack",
         }

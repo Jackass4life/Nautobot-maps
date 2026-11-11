@@ -6,6 +6,7 @@ Called as ``alerts.function()`` so tests can replace it on this module.
 Ported from nautobot_maps/alerts.py (#602): only the imports changed.
 """
 
+import asyncio
 import hashlib
 import json
 import time
@@ -17,6 +18,7 @@ from loguru import logger
 
 from app.clients import caching, librenms, nautobot
 from app.core.legacy_settings import settings
+from app.db import aconnection, session
 from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import inventory_service as inventory
@@ -362,21 +364,9 @@ def down_core_devices(
     devices: list, location_type: str | None = None, override_map: dict | None = None
 ) -> list:
     """The down core devices among *devices* (#285): the likely cause of the
-    other devices down at the same site."""
+    other devices down at the same site.  *override_map*: ``criticality_overrides``'."""
     keywords = get_critical_keywords(location_type)
-    overrides = override_map
-    if overrides is None:
-        overrides = {}
-        conn = db.get_conn()
-        if conn is not None:
-            try:
-                ids = [d.get("id") for d in devices if d.get("id")]
-                if ids:
-                    overrides = board_store.read_criticality_overrides(conn, ids)
-            except Exception as exc:
-                logger.debug("Could not read criticality overrides: {}", exc)
-            finally:
-                conn.close()
+    overrides = override_map or {}
     return [
         device
         for device in devices
@@ -387,6 +377,20 @@ def down_core_devices(
 
 # Why a device has its level (#377), in the board's reason line.
 LEVEL_SOURCE_TEXT = {"nautobot": "set in Nautobot", "override": "override", "role": "core role"}
+
+
+async def criticality_overrides(devices: list) -> dict:
+    """The per-device overrides (``{device_id: is_critical}``) of *devices*; {}
+    without a database or on an error."""
+    ids = [d.get("id") for d in devices if d.get("id")]
+    if not ids:
+        return {}
+    try:
+        async with aconnection.connect() as conn:
+            return await board_store.read_criticality_overrides(conn, ids)
+    except Exception as exc:
+        logger.debug("Could not read criticality overrides: {}", exc)
+        return {}
 
 
 def device_level(
@@ -471,27 +475,16 @@ def compute_alert_level(
     when location-type-scoped rules are configured (e.g. "datacenter" vs
     "office").
 
-    *override_map* (``{device_id: is_critical}``) skips the database read of
-    the per-device overrides; the alert board passes one it loaded for all
-    sites at once (#149).
+    *override_map*: the per-device overrides (``{device_id: is_critical}``,
+    ``criticality_overrides``); the alert board passes one it loaded for all
+    sites at once (#149).  None: no overrides.
     """
     if not devices:
         return {"level": "no_data", "reason": "No monitored devices"}
 
     core_keywords = get_critical_keywords(location_type)
 
-    if override_map is None:
-        override_map = {}
-        conn = db.get_conn()
-        if conn is not None:
-            try:
-                ids = [d.get("id") for d in devices if d.get("id")]
-                if ids:
-                    override_map = board_store.read_criticality_overrides(conn, ids)
-            except Exception as exc:
-                logger.debug("Could not read criticality overrides: {}", exc)
-            finally:
-                conn.close()
+    override_map = override_map or {}
 
     wired = [device for device in devices if not device.get("wireless")]
     alert = (
@@ -756,7 +749,7 @@ def librenms_index(lnms_devices: list) -> dict:
     return {"by_id": by_id, "by_hostname": by_hostname, "by_ip": by_ip}
 
 
-def enrich_with_librenms(
+async def enrich_with_librenms(
     devices: list,
     lnms_devices: list | None = None,
     lnms_id_map: dict | None = None,
@@ -787,13 +780,13 @@ def enrich_with_librenms(
 
     if lnms_index is None:
         if lnms_devices is None:
-            lnms_devices = inventory.read_librenms_devices()
+            lnms_devices = await inventory.read_librenms_devices()
         if not lnms_devices and not snapshot_only:
-            inventory.ensure_snapshot()
-            lnms_devices = inventory.read_librenms_devices()
+            await session.run_sync(inventory.ensure_snapshot)
+            lnms_devices = await inventory.read_librenms_devices()
         if not lnms_devices and not snapshot_only:
             try:
-                lnms_devices = librenms.fetch_inventory()
+                lnms_devices = await session.run_sync(librenms.fetch_inventory)
             except Exception as exc:
                 logger.warning("LibreNMS enrichment failed (could not fetch devices): {}", exc)
                 return devices
@@ -805,7 +798,7 @@ def enrich_with_librenms(
 
     # Load Nautobot UUID → LibreNMS device ID overrides from DB
     if lnms_id_map is None:
-        lnms_id_map = board_store.load_librenms_id_map()
+        lnms_id_map = await board_store.load_librenms_id_map()
 
     new_maps = new_librenms_maps if new_librenms_maps is not None else {}
     enriched = []
@@ -853,7 +846,7 @@ def enrich_with_librenms(
 
         enriched.append(device)
     if new_librenms_maps is None and new_maps:
-        board_store.store_librenms_maps(new_maps)
+        await board_store.store_librenms_maps(new_maps)
     return enriched
 
 
@@ -917,7 +910,7 @@ def webhook_reason(device: dict) -> str:
     )
 
 
-def get_location_devices_and_alert(
+async def get_location_devices_and_alert(
     location_id: str,
     location_type: str | None = None,
     devices_data: list | None = None,
@@ -945,18 +938,18 @@ def get_location_devices_and_alert(
     """
     use_normalized_devices = devices_already_normalized
     if devices_data is None:
-        devices_data = inventory.read_devices(location_id)
+        devices_data = await inventory.read_devices(location_id)
         if devices_data:
             use_normalized_devices = True
             if not snapshot_only:
-                inventory.ensure_snapshot()
+                await session.run_sync(inventory.ensure_snapshot)
         elif not snapshot_only:
-            inventory.ensure_snapshot()
-            devices_data = inventory.read_devices(location_id)
+            await session.run_sync(inventory.ensure_snapshot)
+            devices_data = await inventory.read_devices(location_id)
             if devices_data:
                 use_normalized_devices = True
             else:
-                devices_data = fetch_live_location_devices(location_id)
+                devices_data = await session.run_sync(fetch_live_location_devices, location_id)
 
     devices = (
         [
@@ -985,7 +978,7 @@ def get_location_devices_and_alert(
         else inventory.normalize_devices(devices_data, lookup_maps=lookup_maps)
     )
     devices = wireless.attach(
-        devices, wireless.load_index(devices) if wireless_index is None else wireless_index
+        devices, await wireless.load_index(devices) if wireless_index is None else wireless_index
     )
     if require_primary_ip:
         devices = [device for device in devices if is_monitored(device)]
@@ -996,7 +989,7 @@ def get_location_devices_and_alert(
             if not status_is_excluded(device.get("status"), excluded_device_statuses)
         ]
 
-    enriched = enrich_with_librenms(
+    enriched = await enrich_with_librenms(
         devices,
         lnms_devices=lnms_devices,
         lnms_id_map=lnms_id_map,
@@ -1005,7 +998,7 @@ def get_location_devices_and_alert(
         new_librenms_maps=new_librenms_maps,
     )
     enriched = enrich_with_webhooks(
-        enriched, webhooks.load_index() if webhook_index is None else webhook_index
+        enriched, await webhooks.load_index() if webhook_index is None else webhook_index
     )
     # After the status filter: a Decommissioning AP stays left out (#521).
     enriched = enrich_with_wireless(enriched)
@@ -1014,6 +1007,8 @@ def get_location_devices_and_alert(
         enriched = [device for device in enriched if not device.get("librenms_muted")]
         # Counted as the board counts: a stack is one device (#405).
         enriched = merge_stacks(enriched)
+    if override_map is None:
+        override_map = await criticality_overrides(enriched)
     return enriched, compute_alert_level(
         enriched, location_type, override_map=override_map, tier=tier
     )
@@ -1049,8 +1044,8 @@ def alert_sort_key(level: str) -> int:
     return ALERT_LEVEL_ORDER.index(level) if level in ALERT_LEVEL_ORDER else len(ALERT_LEVEL_ORDER)
 
 
-def resolve_open_alert_instances_for_site(
-    conn,
+async def resolve_open_alert_instances_for_site(
+    conn: aconnection.Connection,
     site_id: str,
     open_alert_keys: set[str],
     checked_at: str,
@@ -1059,7 +1054,7 @@ def resolve_open_alert_instances_for_site(
     """Resolve the site's open alerts not in *open_alert_keys* at *checked_at*,
     or, for a device in *resolved_at_by_device* (flapping ended, #286), when
     it came back up."""
-    for row_data in board_store.open_alerts_of_site(conn, site_id):
+    for row_data in await board_store.open_alerts_of_site(conn, site_id):
         alert_key = row_data.get("alert_key", "")
         if alert_key in open_alert_keys:
             continue
@@ -1076,9 +1071,9 @@ def resolve_open_alert_instances_for_site(
         elapsed = 0
         if started and resolved:
             elapsed = max(0, int((resolved - started).total_seconds()))
-        if not board_store.resolve_alert_instance(conn, row_data["id"], resolved_at, elapsed):
+        if not await board_store.resolve_alert_instance(conn, row_data["id"], resolved_at, elapsed):
             continue
-        board_store.insert_alert_event(
+        await board_store.insert_alert_event(
             conn=conn,
             instance_id=row_data["id"],
             event_type="resolved",
@@ -1098,8 +1093,13 @@ def resolve_open_alert_instances_for_site(
 MAX_ACK_NOTE_LENGTH = 200
 
 
-def acknowledge(
-    conn, site_id: str, device_ids: list | None, by: str, note: str = "", clear: bool = False
+async def acknowledge(
+    conn: aconnection.Connection,
+    site_id: str,
+    device_ids: list | None,
+    by: str,
+    note: str = "",
+    clear: bool = False,
 ) -> dict:
     """Acknowledge (or with *clear*, un-acknowledge) the open alerts at *site_id* (#288).
 
@@ -1110,11 +1110,12 @@ def acknowledge(
     """
     note = (note or "").strip()[:MAX_ACK_NOTE_LENGTH]
     at = timeutil.iso_utc_now()
-    with db.transaction(conn):
+    async with conn.transaction():
         # Locked: a board build resolving one meanwhile waits, so an
         # acknowledgement never lands on an alarm that just ended.
         by_device = {
-            row["device_id"]: row for row in board_store.lock_open_alerts_of_site(conn, site_id)
+            row["device_id"]: row
+            for row in await board_store.lock_open_alerts_of_site(conn, site_id)
         }
         wanted = list(dict.fromkeys(device_ids)) if device_ids else list(by_device)
         missing = [device_id for device_id in wanted if device_id not in by_device]
@@ -1127,10 +1128,10 @@ def acknowledge(
             if (row.get("acknowledged_at") is None) == clear:
                 continue
             if clear:
-                board_store.clear_acknowledgement(conn, row["id"])
+                await board_store.clear_acknowledgement(conn, row["id"])
             else:
-                board_store.set_acknowledgement(conn, row["id"], at, by, note)
-            board_store.insert_alert_event(
+                await board_store.set_acknowledgement(conn, row["id"], at, by, note)
+            await board_store.insert_alert_event(
                 conn=conn,
                 instance_id=row["id"],
                 event_type="unacknowledged" if clear else "acknowledged",
@@ -1262,11 +1263,13 @@ def device_states_to_write(next_states: dict, stored: dict, now: str) -> bool:
     )
 
 
-def write_device_states(conn, next_states: dict, stored: dict, now: str) -> None:
+async def write_device_states(
+    conn: aconnection.Connection, next_states: dict, stored: dict, now: str
+) -> None:
     """Store *next_states* ``{device_id: (site_id, row or None)}`` in one
     transaction, only what changed; drop rows of devices no build has seen
     for DEVICE_STATE_RETENTION (gone from the inventory)."""
-    with db.transaction(conn):
+    async with conn.transaction():
         dropped = []
         for device_id, (site_id, row) in next_states.items():
             previous = stored.get(device_id)
@@ -1276,10 +1279,10 @@ def write_device_states(conn, next_states: dict, stored: dict, now: str) -> None
                 continue
             if previous and _same_state(previous, row, now):
                 continue
-            board_store.upsert_device_state(conn, device_id, site_id, row)
+            await board_store.upsert_device_state(conn, device_id, site_id, row)
         if dropped:
-            board_store.delete_device_states(conn, dropped)
-        board_store.delete_unseen_device_states(
+            await board_store.delete_device_states(conn, dropped)
+        await board_store.delete_unseen_device_states(
             conn, now, DEVICE_STATE_RETENTION, list(next_states)
         )
 
@@ -1322,12 +1325,12 @@ def _down_since(device: dict, checked_at: str) -> str:
     return checked_at
 
 
-def upsert_alert_lifecycle_for_site(
+async def upsert_alert_lifecycle_for_site(
     site: dict,
     devices: list[dict],
     alert: dict,
     checked_at: str,
-    conn=None,
+    conn: aconnection.Connection | None = None,
     frozen_device_ids: set[str] | None = None,
     resolved_at_by_device: dict[str, str] | None = None,
     probable_causes: dict[str, str] | None = None,
@@ -1339,21 +1342,27 @@ def upsert_alert_lifecycle_for_site(
     as they are: not updated and not resolved.  Returns ``False`` when the
     write failed (the caller should not reuse *conn*).
     """
-    owns_conn = conn is None
-    if conn is None:
-        conn = db.get_conn()
-    if conn is None:
-        return False
     site_id = (site.get("id") or "").strip()
     if not site_id:
-        if owns_conn:
-            conn.close()
         return True
+    if conn is None:
+        async with aconnection.connect() as own:
+            return await upsert_alert_lifecycle_for_site(
+                site,
+                devices,
+                alert,
+                checked_at,
+                own,
+                frozen_device_ids,
+                resolved_at_by_device,
+                probable_causes,
+                core_device_ids,
+            )
     open_alert_keys: set[str] = {
         db.build_alert_key(site_id, device_id) for device_id in frozen_device_ids or ()
     }
     try:
-        with db.transaction(conn):
+        async with conn.transaction():
             for device in devices:
                 status = (device.get("status") or "").lower().strip()
                 if status not in DOWN_STATUSES:
@@ -1365,9 +1374,9 @@ def upsert_alert_lifecycle_for_site(
                 reason = alert.get("reason") or ""
                 alert_key = db.build_alert_key(site_id, device_id)
                 open_alert_keys.add(alert_key)
-                current = board_store.latest_open_alert(conn, alert_key)
+                current = await board_store.latest_open_alert(conn, alert_key)
                 if current is None:
-                    inserted_id = board_store.open_alert_instance(
+                    inserted_id = await board_store.open_alert_instance(
                         conn,
                         alert_key,
                         site_id,
@@ -1384,7 +1393,7 @@ def upsert_alert_lifecycle_for_site(
                         access_point=bool(device.get("wireless")),
                     )
                     if inserted_id is not None:
-                        board_store.insert_alert_event(
+                        await board_store.insert_alert_event(
                             conn=conn,
                             instance_id=inserted_id,
                             event_type="opened",
@@ -1401,10 +1410,10 @@ def upsert_alert_lifecycle_for_site(
                         )
                         continue
                     # Opened meanwhile by another build: update that one.
-                    current = board_store.latest_open_alert(conn, alert_key)
+                    current = await board_store.latest_open_alert(conn, alert_key)
                     if current is None:
                         continue
-                board_store.refresh_open_alert(
+                await board_store.refresh_open_alert(
                     conn,
                     current["id"],
                     site.get("name") or "",
@@ -1417,7 +1426,7 @@ def upsert_alert_lifecycle_for_site(
                     device_id in (core_device_ids or ()),
                 )
                 if current.get("alert_level") != level or current.get("alert_reason") != reason:
-                    board_store.insert_alert_event(
+                    await board_store.insert_alert_event(
                         conn=conn,
                         instance_id=current["id"],
                         event_type="updated",
@@ -1432,7 +1441,7 @@ def upsert_alert_lifecycle_for_site(
                             "status": status,
                         },
                     )
-            resolve_open_alert_instances_for_site(
+            await resolve_open_alert_instances_for_site(
                 conn, site_id, open_alert_keys, checked_at, resolved_at_by_device
             )
         return True
@@ -1441,9 +1450,6 @@ def upsert_alert_lifecycle_for_site(
             "Could not persist alert lifecycle for site {}: {}", site_id, exc
         )
         return False
-    finally:
-        if owns_conn:
-            conn.close()
 
 
 def empty_alert_context() -> dict:
@@ -1521,15 +1527,15 @@ def summarize_alert_context(
     }
 
 
-def read_alert_context(conn, site_id: str, checked_at: str) -> dict:
+async def read_alert_context(conn: aconnection.Connection, site_id: str, checked_at: str) -> dict:
     """Query one site's alert context on *conn*; raises on database errors."""
     historical_seconds = 0
     open_rows = []
-    for data in board_store.site_alert_rows(conn, site_id):
+    for data in await board_store.site_alert_rows(conn, site_id):
         historical_seconds += int(data.get("total_downtime_seconds") or 0)
         if data.get("status") == "open":
             open_rows.append(data)
-    case_numbers_by_instance = board_store.get_case_numbers_for_instances(
+    case_numbers_by_instance = await board_store.get_case_numbers_for_instances(
         conn,
         [int(data["id"]) for data in open_rows if data.get("id") is not None],
     )
@@ -1538,20 +1544,15 @@ def read_alert_context(conn, site_id: str, checked_at: str) -> dict:
     )
 
 
-def get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dict:
-    owns_conn = conn is None
-    if conn is None:
-        conn = db.get_conn()
-    if conn is None:
-        return empty_alert_context()
+async def get_alert_context_for_site(
+    site_id: str, checked_at: str, conn: aconnection.Connection | None = None
+) -> dict:
     try:
-        return read_alert_context(conn, site_id, checked_at)
+        async with aconnection.using(conn) as conn:
+            return await read_alert_context(conn, site_id, checked_at)
     except Exception as exc:
         logger.debug("Could not load alert context for site {}: {}", site_id, exc)
         return empty_alert_context()
-    finally:
-        if owns_conn:
-            conn.close()
 
 
 # A "running" sync state older than this is treated as abandoned (e.g. the
@@ -1559,7 +1560,7 @@ def get_alert_context_for_site(site_id: str, checked_at: str, conn=None) -> dict
 SYNC_RUNNING_STALE_SECONDS = 900
 
 
-def nautobot_sync_in_progress(state: dict | None = None) -> bool:
+async def nautobot_sync_in_progress(state: dict | None = None) -> bool:
     """Return whether a Nautobot inventory sync is currently running.
 
     Reads the shared ``inventory_sync_state`` row (unless given as *state*),
@@ -1568,7 +1569,7 @@ def nautobot_sync_in_progress(state: dict | None = None) -> bool:
     if not db.dialect():
         return False
     if state is None:
-        state = inventory.get_sync_state("nautobot_inventory")
+        state = await inventory.sync_state("nautobot_inventory")
     if state.get("status") != "running":
         return False
     started_at = timeutil.parse_iso_datetime(state.get("last_started_at"))
@@ -1580,7 +1581,7 @@ def nautobot_sync_in_progress(state: dict | None = None) -> bool:
     return age_seconds < SYNC_RUNNING_STALE_SECONDS
 
 
-def inventory_update_schedule() -> tuple[bool, int | None]:
+async def inventory_update_schedule() -> tuple[bool, int | None]:
     """Return ``(due, next_update_in_seconds)`` for the configured inventory syncs.
 
     *due* is true when a sync should start now (by the same rules as
@@ -1596,35 +1597,35 @@ def inventory_update_schedule() -> tuple[bool, int | None]:
         sources.append(("librenms_inventory", settings.LIBRENMS_SYNC_INTERVAL_SECONDS))
     if not sources or not db.dialect():
         return False, None
-    conn = db.get_conn()
-    if conn is None:
-        return False, None
     try:
-        now = datetime.now(UTC)
-        due = False
-        remaining = []
-        for source, interval_seconds in sources:
-            state = inventory.get_sync_state(source, conn=conn)
-            if inventory.sync_due(source, interval_seconds, conn=conn) or (
-                source == "nautobot_inventory" and inventory.cache_version_mismatch(state)
-            ):
-                due = True
-                continue
-            completed_at = timeutil.parse_iso_datetime(state.get("last_completed_at"))
-            if completed_at is None:
-                continue  # running
-            if completed_at.tzinfo is None:
-                completed_at = completed_at.replace(tzinfo=UTC)
-            elapsed = (now - completed_at).total_seconds()
-            remaining.append(max(0, int(interval_seconds - elapsed)))
-        if due:
-            return True, 0
-        return False, (min(remaining) if remaining else None)
-    finally:
-        conn.close()
+        async with aconnection.connect() as conn:
+            states = {source: await inventory.sync_state(source, conn) for source, _ in sources}
+    except Exception as exc:
+        logger.debug("Could not read the inventory sync states: {}", exc)
+        return False, None
+    now = datetime.now(UTC)
+    due = False
+    remaining = []
+    for source, interval_seconds in sources:
+        state = states[source]
+        if inventory.state_due(state, interval_seconds) or (
+            source == "nautobot_inventory" and inventory.cache_version_mismatch(state)
+        ):
+            due = True
+            continue
+        completed_at = timeutil.parse_iso_datetime(state.get("last_completed_at"))
+        if completed_at is None:
+            continue  # running
+        if completed_at.tzinfo is None:
+            completed_at = completed_at.replace(tzinfo=UTC)
+        elapsed = (now - completed_at).total_seconds()
+        remaining.append(max(0, int(interval_seconds - elapsed)))
+    if due:
+        return True, 0
+    return False, (min(remaining) if remaining else None)
 
 
-def apply_alert_board_freshness(
+async def apply_alert_board_freshness(
     payload: dict,
     sync_enqueued: bool = False,
     next_update_in_seconds: int | None = None,
@@ -1651,7 +1652,7 @@ def apply_alert_board_freshness(
     stale_after_seconds = int(result.get("stale_after_seconds", settings.CACHE_TTL))
     result["age_seconds"] = age_seconds
     result["stale"] = age_seconds > stale_after_seconds
-    result["sync_pending"] = bool(sync_enqueued) or nautobot_sync_in_progress(nautobot_state)
+    result["sync_pending"] = bool(sync_enqueued) or await nautobot_sync_in_progress(nautobot_state)
     # The board reads only the persisted snapshot, so without a database it is
     # always empty; the UI uses this flag to say why (#136).
     result["persistence_configured"] = bool(db.dialect())
@@ -1753,7 +1754,7 @@ def site_level_keys(
     )
 
 
-def record_site_level_changes(
+async def record_site_level_changes(
     levels: dict[str, tuple[str, str]],
     checked_at: str,
     sites: dict[str, dict] | None = None,
@@ -1776,74 +1777,68 @@ def record_site_level_changes(
     """
     if not levels:
         return 0
-    conn = db.get_conn()
-    if conn is None:
-        return 0
     changes = 0
-    try:
-        with db.transaction(conn):
-            previous = board_store.lock_site_levels(conn, list(levels))
-            for site_id in sorted(levels):
-                site_name, level = levels[site_id]
-                criticality_key, down_key = (level_keys or {}).get(site_id, (None, None))
-                before = previous.get(site_id)
-                if before is None:
-                    board_store.insert_site_level(
-                        conn, site_id, site_name, level, checked_at, criticality_key, down_key
-                    )
-                    continue
-                keys_changed = criticality_key is not None and (
-                    (before["criticality_key"], before["down_key"]) != (criticality_key, down_key)
+    async with aconnection.connect() as conn, conn.transaction():
+        previous = await board_store.lock_site_levels(conn, list(levels))
+        for site_id in sorted(levels):
+            site_name, level = levels[site_id]
+            criticality_key, down_key = (level_keys or {}).get(site_id, (None, None))
+            before = previous.get(site_id)
+            if before is None:
+                await board_store.insert_site_level(
+                    conn, site_id, site_name, level, checked_at, criticality_key, down_key
                 )
-                if before["alert_level"] != level:
-                    board_store.record_site_level_change(
-                        conn, site_id, site_name, before["alert_level"], level, checked_at
+                continue
+            keys_changed = criticality_key is not None and (
+                (before["criticality_key"], before["down_key"]) != (criticality_key, down_key)
+            )
+            if before["alert_level"] != level:
+                await board_store.record_site_level_change(
+                    conn, site_id, site_name, before["alert_level"], level, checked_at
+                )
+                # Only the criticality changed, the same devices down: an edit, not
+                # news (#377).  Unknown before (the first build after the upgrade):
+                # notified as before, so a real outage then still pages.
+                edited = (
+                    criticality_key is not None
+                    and before["criticality_key"] is not None
+                    and before["criticality_key"] != criticality_key
+                    and before["down_key"] == down_key
+                )
+                if not edited:
+                    await notify.enqueue_change(
+                        conn,
+                        site_id,
+                        before["alert_level"],
+                        level,
+                        (sites or {}).get(site_id),
+                        checked_at,
+                        quiet_recovery=site_id in (quiet_sites or ()),
                     )
-                    # Only the criticality changed, the same devices down: an edit, not
-                    # news (#377).  Unknown before (the first build after the upgrade):
-                    # notified as before, so a real outage then still pages.
-                    edited = (
-                        criticality_key is not None
-                        and before["criticality_key"] is not None
-                        and before["criticality_key"] != criticality_key
-                        and before["down_key"] == down_key
-                    )
-                    if not edited:
-                        notify.enqueue_change(
-                            conn,
-                            site_id,
-                            before["alert_level"],
-                            level,
-                            (sites or {}).get(site_id),
-                            checked_at,
-                            quiet_recovery=site_id in (quiet_sites or ()),
-                        )
-                    changes += 1
-                if keys_changed:
-                    board_store.set_site_level_keys(conn, site_id, criticality_key, down_key)
-    finally:
-        conn.close()
+                changes += 1
+            if keys_changed:
+                await board_store.set_site_level_keys(conn, site_id, criticality_key, down_key)
     return changes
 
 
 HISTORY_RETENTION_SOURCE = "alert_history_retention"
 
 
-def maybe_prune_alert_history(conn) -> dict | None:
+async def maybe_prune_alert_history(conn: aconnection.Connection) -> dict | None:
     """Prune once a day when ALERT_HISTORY_RETENTION_DAYS is set (scheduler, #194)."""
     days = settings.ALERT_HISTORY_RETENTION_DAYS
-    if days <= 0 or not inventory.sync_due(HISTORY_RETENTION_SOURCE, 24 * 3600, conn=conn):
+    if days <= 0 or not await inventory.sync_due(HISTORY_RETENTION_SOURCE, 24 * 3600, conn=conn):
         return None
     started_at = timeutil.iso_utc_now()
-    deleted = board_store.prune_alert_history(conn, days)
-    with db.transaction(conn):
-        inventory.record_sync_state(
-            conn,
+    deleted = await board_store.prune_alert_history(conn, days)
+    await conn.execute(
+        *inventory.sync_state_statement(
             HISTORY_RETENTION_SOURCE,
             last_started_at=started_at,
             last_completed_at=timeutil.iso_utc_now(),
             status="idle",
         )
+    )
     if any(deleted.values()):
         logger.info(
             "Alert history retention ({} days): deleted {} resolved alerts and {} severity changes",
@@ -1854,12 +1849,17 @@ def maybe_prune_alert_history(conn) -> dict | None:
     return deleted
 
 
-def build_alert_board_payload(
+# On the event loop (#661), a build scores this many sites between letting other
+# requests in.
+YIELD_EVERY_SITES = 100
+
+
+async def build_alert_board_payload(
     snapshot_only: bool = False,
     include_non_operational: bool = False,
 ) -> dict:
     """Build and return a fresh alert-board payload."""
-    locations = inventory.get_locations(
+    locations = await inventory.get_locations(
         include_without_coordinates=True,
         snapshot_only=snapshot_only,
     )
@@ -1881,11 +1881,11 @@ def build_alert_board_payload(
     new_librenms_maps: dict = {}
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
         try:
-            lnms_devices = inventory.read_librenms_devices()
+            lnms_devices = await inventory.read_librenms_devices()
             if not lnms_devices and not snapshot_only:
-                inventory.ensure_snapshot(force=True, wait=True)
-                lnms_devices = inventory.read_librenms_devices()
-            lnms_id_map = board_store.load_librenms_id_map()
+                await session.run_sync(inventory.ensure_snapshot, force=True, wait=True)
+                lnms_devices = await inventory.read_librenms_devices()
+            lnms_id_map = await board_store.load_librenms_id_map()
         except Exception as exc:
             logger.warning("Could not refresh LibreNMS inventory for alert board: {}", exc)
             lnms_devices = []
@@ -1923,33 +1923,33 @@ def build_alert_board_payload(
     # {device_id: (site_id, state row or None)} as this build saw them.
     next_device_states: dict[str, tuple[str, dict | None]] = {}
     try:
-        read_conn = db.get_conn()
+        read_conn, close_read = await aconnection.open_connection()
     except Exception as exc:
         logger.warning("Could not connect to persistence DB for alert board: {}", exc)
     if read_conn is None:
         persistence_unavailable = True
     else:
         try:
-            board_data = board_store.read_alert_board_data(read_conn)
+            board_data = await board_store.read_alert_board_data(read_conn)
         except Exception as exc:
             logger.opt(exception=True).warning(
                 "Could not bulk-read alert board data; reading per site instead: {}",
                 exc,
             )
         try:
-            device_states = board_store.read_device_states(read_conn)
-            alarmed_device_ids = board_store.read_alarmed_device_ids(read_conn)
+            device_states = await board_store.read_device_states(read_conn)
+            alarmed_device_ids = await board_store.read_alarmed_device_ids(read_conn)
         except Exception as exc:
             device_states = None
             logger.warning("Could not read device states; no alert delay this build: {}", exc)
         try:
             # Every stack's members (#402, #405), wherever they are, once a build.
-            all_stacks = inventory.read_stacks(read_conn)
+            all_stacks = await inventory.read_stacks(read_conn)
             # Members LibreNMS doesn't alert for aren't in the stack either (#570).
             members = [member for stack in all_stacks.values() for member in stack]
             muted = {
                 member["id"]
-                for member in enrich_with_librenms(
+                for member in await enrich_with_librenms(
                     members,
                     lnms_id_map=lnms_id_map or {},
                     snapshot_only=True,
@@ -1962,23 +1962,23 @@ def build_alert_board_payload(
         except Exception as exc:
             logger.warning("Could not read the stacks; they aren't named this build: {}", exc)
         try:
-            webhook_index = webhooks.read_index(read_conn)
+            webhook_index = await webhooks.read_index(read_conn)
         except Exception as exc:
             logger.warning("Could not read webhook device alerts: {}", type(exc).__name__)
         try:
             if wireless.configured():
-                wireless_index = wireless.read_index(read_conn)
+                wireless_index = await wireless.read_index(read_conn)
         except Exception as exc:
             wireless_unknown = True
             logger.warning("Could not read the wireless controllers' access points: {}", exc)
         try:
-            neighbour_index = neighbours.read_index(read_conn)
+            neighbour_index = await neighbours.read_index(read_conn)
         except Exception as exc:
             logger.warning(
                 "Could not read the access points' switches; not named this build: {}", exc
             )
         try:
-            in_maintenance = maintenance.read_active(read_conn, maintenance.now())
+            in_maintenance = await maintenance.read_active(read_conn, maintenance.now())
         except Exception as exc:
             maintenance_unknown = True
             logger.opt(exception=True).warning(
@@ -1986,7 +1986,7 @@ def build_alert_board_payload(
                 exc,
             )
         finally:
-            read_conn.close()
+            await close_read()
 
     # One row per site, with the devices of its whole subtree (#158).
     devices_by_row = None
@@ -1995,7 +1995,7 @@ def build_alert_board_payload(
             devices_by_location = board_data["devices_by_location"]
         else:
             devices_by_location = {}
-            for device in inventory.read_devices():
+            for device in await inventory.read_devices():
                 devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
         locations, devices_by_row = roll_up_to_site_locations(
             all_locations,
@@ -2010,9 +2010,12 @@ def build_alert_board_payload(
     # Writes share one connection, opened on first use.  After a failure it is
     # closed and the next site opens a fresh one, so a broken connection
     # cannot fail every later site (#88).
-    write_conn = None
+    write_conn: aconnection.Connection | None = None
+    close_write = None
     try:
-        for loc in locations:
+        for index, loc in enumerate(locations):
+            if index % YIELD_EVERY_SITES == YIELD_EVERY_SITES - 1:
+                await asyncio.sleep(0)  # the scoring is CPU work: let requests in meanwhile
             site_id = loc.get("id") or ""
             observation_succeeded = True
             bulk_kwargs = {}
@@ -2029,7 +2032,7 @@ def build_alert_board_payload(
                 bulk_kwargs["devices_data"] = devices_by_row.get(site_id, [])
                 bulk_kwargs["devices_already_normalized"] = True
             try:
-                devices, alert = get_location_devices_and_alert(
+                devices, alert = await get_location_devices_and_alert(
                     loc["id"],
                     loc.get("location_type") or None,
                     lnms_devices=lnms_devices,
@@ -2052,6 +2055,9 @@ def build_alert_board_payload(
                 observation_succeeded = False
                 devices = []
                 alert = {"level": "no_data", "reason": "Could not compute alert state"}
+            if "override_map" not in bulk_kwargs:
+                # Read per site (no bulk read): the recount and the likely cause below.
+                bulk_kwargs["override_map"] = await criticality_overrides(devices)
 
             # Devices in maintenance are left out of the site's level; their
             # open alerts stay as they are (#283).
@@ -2205,7 +2211,7 @@ def build_alert_board_payload(
             if needs_write and not persistence_unavailable:
                 if write_conn is None:
                     try:
-                        write_conn = db.get_conn()
+                        write_conn, close_write = await aconnection.open_connection()
                     except Exception as exc:
                         logger.warning(
                             "Could not connect to persistence DB for alert board: {}", exc
@@ -2216,13 +2222,13 @@ def build_alert_board_payload(
                     try:
                         if primary_ip_backfill_pending is None:
                             primary_ip_backfill_pending = (
-                                board_store.nautobot_inventory_primary_ip_backfill_pending(
+                                await board_store.nautobot_inventory_primary_ip_backfill_pending(
                                     conn=write_conn
                                 )
                             )
                         if observation_succeeded and not primary_ip_backfill_pending:
                             if (
-                                upsert_alert_lifecycle_for_site(
+                                await upsert_alert_lifecycle_for_site(
                                     loc,
                                     devices,
                                     alert,
@@ -2236,7 +2242,7 @@ def build_alert_board_payload(
                                 is False
                             ):
                                 raise RuntimeError("alert lifecycle write failed")
-                        alert_context = read_alert_context(write_conn, site_id, checked_at)
+                        alert_context = await read_alert_context(write_conn, site_id, checked_at)
                         wrote = True
                     except Exception as exc:
                         logger.warning(
@@ -2244,7 +2250,7 @@ def build_alert_board_payload(
                             site_id,
                             exc,
                         )
-                        write_conn.close()
+                        await close_write()
                         write_conn = None
             if not wrote and board_data is not None:
                 alert_context = summarize_alert_context(
@@ -2546,20 +2552,19 @@ def build_alert_board_payload(
         ):
             try:
                 if write_conn is None:
-                    write_conn = db.get_conn()
-                if write_conn is not None:
-                    write_device_states(write_conn, next_device_states, device_states, now)
+                    write_conn, close_write = await aconnection.open_connection()
+                await write_device_states(write_conn, next_device_states, device_states, now)
             except Exception as exc:
                 logger.opt(exception=True).warning("Could not store device states: {}", exc)
     finally:
         if write_conn is not None:
-            write_conn.close()
+            await close_write()
 
-    board_store.store_librenms_maps(new_librenms_maps)
+    await board_store.store_librenms_maps(new_librenms_maps)
 
     if not persistence_unavailable and not maintenance_unknown and not wireless_unknown:
         try:
-            record_site_level_changes(
+            await record_site_level_changes(
                 observed_levels, timeutil.iso_utc_now(), observed_sites, quiet_sites, level_keys
             )
         except Exception as exc:
@@ -2594,19 +2599,21 @@ def build_alert_board_payload(
     }
 
 
-def site_monitored_devices(site_id: str, include_non_operational: bool = False) -> list[dict]:
+async def site_monitored_devices(site_id: str, include_non_operational: bool = False) -> list[dict]:
     """The devices the board counts for the row *site_id*, for choosing what
     goes into maintenance (#283): with a primary IP or a wireless controller
     (#521), not of an excluded status, not one LibreNMS doesn't alert for
     (#570), including devices below the site when rows are rolled up (not
     those below an excluded location, unless *include_non_operational*, as
     on the board)."""
-    devices = inventory.read_devices()
+    devices = await inventory.read_devices()
     if settings.ALERT_BOARD_SITE_LOCATION_TYPE:
         devices_by_location: dict[str, list] = {}
         for device in devices:
             devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
-        locations = inventory.get_locations(include_without_coordinates=True, snapshot_only=True)
+        locations = await inventory.get_locations(
+            include_without_coordinates=True, snapshot_only=True
+        )
         _, devices_by_row = roll_up_to_site_locations(
             locations,
             devices_by_location,
@@ -2618,7 +2625,7 @@ def site_monitored_devices(site_id: str, include_non_operational: bool = False) 
         devices = [device for device in devices if (device.get("location_id") or "") == site_id]
     counted = [
         device
-        for device in wireless.attach(devices, wireless.load_index(devices))
+        for device in wireless.attach(devices, await wireless.load_index(devices))
         if is_monitored(device)
         and not status_is_excluded(
             device.get("status"), settings.ALERT_BOARD_EXCLUDED_DEVICE_STATUSES
@@ -2627,7 +2634,7 @@ def site_monitored_devices(site_id: str, include_non_operational: bool = False) 
     # Not one LibreNMS says not to alert for (#570); found matches aren't stored here.
     muted = {
         device.get("id")
-        for device in enrich_with_librenms(counted, snapshot_only=True, new_librenms_maps={})
+        for device in await enrich_with_librenms(counted, snapshot_only=True, new_librenms_maps={})
         if device.get("librenms_muted")
     }
     monitored = merge_stacks([device for device in counted if device.get("id") not in muted])
@@ -2661,17 +2668,18 @@ def board_cache_seconds(payload: dict) -> int:
     )
 
 
-def _board_build_lock(stored=None):
-    """The build lock (a release function), or None: no database, or still
+async def _board_build_lock(stored=None):
+    """The build lock (a release function, sync), or None: no database, or still
     held by another build after BOARD_BUILD_WAIT_SECONDS (then build anyway).
 
     While waiting, *stored* (a function) is asked for the board another
     build stored; once there, that is returned as ``("stored", board)``.
+    The lock is still psycopg's, taken in a thread (#661).
     """
     deadline = time.monotonic() + BOARD_BUILD_WAIT_SECONDS
     while True:
         try:
-            release = db.try_advisory_lock(BOARD_BUILD_LOCK)
+            release = await asyncio.to_thread(db.try_advisory_lock, BOARD_BUILD_LOCK)
         except Exception as exc:
             logger.warning("Alert board build lock unavailable: {}", type(exc).__name__)
             return None
@@ -2683,7 +2691,7 @@ def _board_build_lock(stored=None):
                 BOARD_BUILD_WAIT_SECONDS,
             )
             return None
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
         found = stored() if stored is not None else None
         if found is not None:
             return ("stored", found)
@@ -2700,7 +2708,7 @@ def _board_current(stored: dict, version: str | None) -> bool:
     return version is None or built_from is None or built_from == version
 
 
-def board(
+async def board(
     trigger: str = "request",
     rebuild: bool = False,
     include_non_operational: bool = False,
@@ -2713,7 +2721,7 @@ def board(
     same board again.  *trigger* (``request``, ``scheduler``, ``push``,
     ``change``) is counted in board_build_stats.  *include_non_operational*:
     the variant with the excluded locations, stored on its own.
-    *snapshot*: ``inventory.board_snapshot()``, when already read.
+    *snapshot*: ``await inventory.board_snapshot()``, when already read.
     """
     key = (
         f"{BOARD_CACHE_KEY}:include-non-operational" if include_non_operational else BOARD_CACHE_KEY
@@ -2721,7 +2729,7 @@ def board(
     # A board built before a sync committed is never served after it (#523):
     # the sync drops the stored board only after its commit, and a build
     # running across the commit stores what it read before.
-    snapshot = snapshot if snapshot is not None else inventory.board_snapshot()
+    snapshot = snapshot if snapshot is not None else await inventory.board_snapshot()
     version, initialized = snapshot["version"], snapshot["initialized"]
 
     def stored():
@@ -2732,7 +2740,7 @@ def board(
         cached = stored()
         if cached is not None:
             return cached
-    release = _board_build_lock(None if rebuild else stored)
+    release = await _board_build_lock(None if rebuild else stored)
     if isinstance(release, tuple):
         return release[1]  # another worker built it while we waited
     try:
@@ -2745,22 +2753,22 @@ def board(
         # board is stored only when the snapshot it was built from was
         # complete, and one read from an older snapshot is rebuilt next time.
         payload = (
-            build_alert_board_payload(snapshot_only=True, include_non_operational=True)
+            await build_alert_board_payload(snapshot_only=True, include_non_operational=True)
             if include_non_operational
-            else build_alert_board_payload(snapshot_only=True)
+            else await build_alert_board_payload(snapshot_only=True)
         )
         if version is not None:
             payload[BOARD_SNAPSHOT_KEY] = version
         if payload.get("alerts") or initialized:
             caching.set(key, payload, timeout=board_cache_seconds(payload))
-        board_store.record_board_build(trigger, time.monotonic() - started)
+        await board_store.record_board_build(trigger, time.monotonic() - started)
         return payload
     finally:
         if callable(release):
-            release()
+            await asyncio.to_thread(release)
 
 
-def get_alert_board_data(
+async def get_alert_board_data(
     force_refresh: bool = False,
     include_non_operational: bool = False,
 ) -> dict:
@@ -2769,22 +2777,23 @@ def get_alert_board_data(
     if force_refresh:
         # "Sync now": incremental, not a full reconcile (#135).  Deletions are
         # still caught by the scheduled full reconcile.
-        sync_enqueued = inventory.ensure_snapshot(
+        sync_enqueued = await session.run_sync(
+            inventory.ensure_snapshot,
             force=True,
             full=False,
             wait=False,
             cooldown_seconds=inventory.FORCED_SYNC_COOLDOWN_SECONDS,
         )
-    sync_due, next_update_in_seconds = inventory_update_schedule()
+    sync_due, next_update_in_seconds = await inventory_update_schedule()
     if not sync_enqueued and sync_due:
         # A sync is due (or none has run yet): start it in the background, so
         # an open board keeps itself up to date (#152).  This request still
         # makes no upstream calls itself.
-        sync_enqueued = inventory.ensure_snapshot(wait=False)
+        sync_enqueued = await session.run_sync(inventory.ensure_snapshot, wait=False)
     # One read for both: "sync done" never comes with a board built before it (#523).
-    snapshot = inventory.board_snapshot()
-    return apply_alert_board_freshness(
-        board("request", include_non_operational=include_non_operational, snapshot=snapshot),
+    snapshot = await inventory.board_snapshot()
+    return await apply_alert_board_freshness(
+        await board("request", include_non_operational=include_non_operational, snapshot=snapshot),
         sync_enqueued=sync_enqueued,
         next_update_in_seconds=next_update_in_seconds,
         nautobot_state=snapshot["nautobot"],
@@ -2794,7 +2803,7 @@ def get_alert_board_data(
 LOCATION_ALERTS_CACHE_KEY = "location-alert-levels:v1"
 
 
-def build_location_alert_levels() -> dict:
+async def build_location_alert_levels() -> dict:
     """Score every mapped location from the inventory snapshot (#234).
 
     The same scoring as the map's site panel (``get_location_detail``): each
@@ -2803,7 +2812,7 @@ def build_location_alert_levels() -> dict:
     with monitored devices are returned (critical, medium, low or ok; #311:
     the map tells OK from no data), and sites in maintenance.
     """
-    locations = inventory.get_locations(snapshot_only=True)
+    locations = await inventory.get_locations(snapshot_only=True)
     devices_by_location: dict[str, list] = {}
     override_map: dict = {}
     in_maintenance = {"sites": {}, "devices": {}, "next_change": None}
@@ -2812,46 +2821,42 @@ def build_location_alert_levels() -> dict:
     held_back: dict[str, int] = {}
     webhook_index: dict = {}
     wireless_index: dict = {}
-    conn = db.get_conn()
-    if conn is not None:
+    async with aconnection.connect() as conn:
         try:
-            try:
-                wireless_index = wireless.read_index(conn) if wireless.configured() else {}
-            except Exception as exc:
-                logger.warning(
-                    "Could not read the wireless controllers' access points for the map: {}", exc
-                )
-            # Devices in maintenance don't count, like on the board (#283),
-            # nor ones down for less than the alert delay (#286).
-            in_maintenance = maintenance.read_active(conn, maintenance.now())
-            pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
-            flapping = board_store.flapping_device_ids(conn, timeutil.iso_utc_now(), FLAP_WINDOW)
-            for device in wireless.attach(inventory.read_devices(conn=conn), wireless_index):
-                if (device.get("id") or "") in pending:
-                    # Only a device the board counts (its state row can outlive its IP).
-                    if not not_monitored_reason(device):
-                        location = device.get("location_id") or ""
-                        held_back[location] = held_back.get(location, 0) + 1
-                    continue
-                if (device.get("id") or "") in in_maintenance["devices"]:
-                    continue
-                if (device.get("id") or "") in flapping:
-                    device = {
-                        **device,
-                        "status": "Flapping",
-                    }  # counts as down, like on the board (#286)
-                devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
-            override_map = board_store.read_criticality_overrides(conn)
-            webhook_index = webhooks.read_index(conn)
-        finally:
-            conn.close()
+            wireless_index = await wireless.read_index(conn) if wireless.configured() else {}
+        except Exception as exc:
+            logger.warning(
+                "Could not read the wireless controllers' access points for the map: {}", exc
+            )
+        # Devices in maintenance don't count, like on the board (#283),
+        # nor ones down for less than the alert delay (#286).
+        in_maintenance = await maintenance.read_active(conn, maintenance.now())
+        pending = await board_store.pending_device_ids(conn, timeutil.iso_utc_now())
+        flapping = await board_store.flapping_device_ids(conn, timeutil.iso_utc_now(), FLAP_WINDOW)
+        for device in wireless.attach(await inventory.read_devices(conn=conn), wireless_index):
+            if (device.get("id") or "") in pending:
+                # Only a device the board counts (its state row can outlive its IP).
+                if not not_monitored_reason(device):
+                    location = device.get("location_id") or ""
+                    held_back[location] = held_back.get(location, 0) + 1
+                continue
+            if (device.get("id") or "") in in_maintenance["devices"]:
+                continue
+            if (device.get("id") or "") in flapping:
+                device = {
+                    **device,
+                    "status": "Flapping",
+                }  # counts as down, like on the board (#286)
+            devices_by_location.setdefault(device.get("location_id") or "", []).append(device)
+        override_map = await board_store.read_criticality_overrides(conn)
+        webhook_index = await webhooks.read_index(conn)
     lnms_devices = None
     lnms_id_map = None
     lnms_index = None
     new_librenms_maps: dict = {}
     if (settings.LIBRENMS_URL or "").strip() and (settings.LIBRENMS_API_TOKEN or "").strip():
-        lnms_devices = inventory.read_librenms_devices()
-        lnms_id_map = board_store.load_librenms_id_map()
+        lnms_devices = await inventory.read_librenms_devices()
+        lnms_id_map = await board_store.load_librenms_id_map()
         lnms_index = librenms_index(lnms_devices)
 
     # The board's rows are the truth (#316): a site has the same level, the
@@ -2860,7 +2865,7 @@ def build_location_alert_levels() -> dict:
     try:
         board_rows = {
             str(item.get("id")): item
-            for item in cached_alert_board().get("alerts") or []
+            for item in (await cached_alert_board()).get("alerts") or []
             if item.get("id")
         }
     except Exception as exc:
@@ -2869,7 +2874,9 @@ def build_location_alert_levels() -> dict:
         )
 
     levels = {}
-    for loc in locations:
+    for index, loc in enumerate(locations):
+        if index % YIELD_EVERY_SITES == YIELD_EVERY_SITES - 1:
+            await asyncio.sleep(0)  # as the board's build
         location_id = loc.get("id") or ""
         row = board_rows.get(location_id)
         if row is not None:
@@ -2900,7 +2907,7 @@ def build_location_alert_levels() -> dict:
         devices = devices_by_location.get(location_id)
         if not location_id or not devices:
             continue
-        counted, alert = get_location_devices_and_alert(
+        counted, alert = await get_location_devices_and_alert(
             location_id,
             loc.get("location_type") or None,
             devices_data=devices,
@@ -2927,7 +2934,7 @@ def build_location_alert_levels() -> dict:
                 # Devices within the alert delay are monitored, as on the board.
                 "monitored": len(counted) + held_back.get(location_id, 0),
             }
-    board_store.store_librenms_maps(new_librenms_maps)
+    await board_store.store_librenms_maps(new_librenms_maps)
     for location_id, count in held_back.items():
         if location_id and location_id not in levels and location_id not in board_rows:
             levels[location_id] = {"level": "ok", "reason": "", "down": 0, "monitored": count}
@@ -2946,18 +2953,18 @@ def build_location_alert_levels() -> dict:
     }
 
 
-def cached_alert_board() -> dict:
+async def cached_alert_board() -> dict:
     """The alert board as cached, built and cached when it isn't; starts no sync."""
-    return board("request")
+    return await board("request")
 
 
-def get_location_alert_levels() -> dict:
+async def get_location_alert_levels() -> dict:
     """``build_location_alert_levels``, cached like the alert board (``CACHE_TTL``)."""
     cached = caching.get(LOCATION_ALERTS_CACHE_KEY)
     if cached is not None:
         return cached
-    payload = build_location_alert_levels()
-    if payload["levels"] or inventory.snapshot_initialized():
+    payload = await build_location_alert_levels()
+    if payload["levels"] or await inventory.snapshot_initialized():
         caching.set(
             LOCATION_ALERTS_CACHE_KEY,
             payload,
@@ -2968,7 +2975,7 @@ def get_location_alert_levels() -> dict:
     return payload
 
 
-def location_field_asns(location_id: str) -> list:
+async def location_field_asns(location_id: str) -> list:
     """Return the ASN stored directly on a location as an ASN-list entry.
 
     Nautobot 3.x core keeps a single integer ``asn`` field on each Location
@@ -2978,26 +2985,26 @@ def location_field_asns(location_id: str) -> list:
     asn = None
     cached = [
         loc
-        for loc in inventory.read_locations(include_without_coordinates=True)
+        for loc in await inventory.read_locations(include_without_coordinates=True)
         if loc.get("id") == location_id
     ]
     if cached:
         asn = cached[0].get("asn")
     else:
-        asn = nautobot.get(f"dcim/locations/{location_id}/").get("asn")
+        asn = (await session.run_sync(nautobot.get, f"dcim/locations/{location_id}/")).get("asn")
     if asn in (None, ""):
         return []
     return [{"asn": asn, "description": "", "tenant": ""}]
 
 
-def get_location_detail(location_id: str, location_type: str | None = None) -> dict:
+async def get_location_detail(location_id: str, location_type: str | None = None) -> dict:
     """Fetch detailed info (devices, ASNs, circuits) for a single location.
 
     Upstream failures raise so the caller can report them.  The one exception
     is a 404 from ``ipam/asns/``: that endpoint does not exist on Nautobot 3.x
     without the BGP Models plugin, so the location's own ``asn`` field is used.
     """
-    devices, _ = get_location_devices_and_alert(location_id, location_type)
+    devices, _ = await get_location_devices_and_alert(location_id, location_type)
     # The level the board and the map show (#316); without a database (map
     # only), the same rule on the devices read now.
     in_window: dict = {}
@@ -3006,32 +3013,29 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
     # Who is on it (#512); None: not read (no database, or it failed), so the
     # panel doesn't say "No case" for what it doesn't know.
     cases: dict | None = None
-    conn = db.get_conn() if db.dialect() else None
-    if conn is not None:
-        try:
+    if db.dialect():
+        async with aconnection.connect() as conn:
             try:
-                in_window = maintenance.read_active(conn, maintenance.now())["devices"]
-                pending = board_store.pending_device_ids(conn, timeutil.iso_utc_now())
+                in_window = (await maintenance.read_active(conn, maintenance.now()))["devices"]
+                pending = await board_store.pending_device_ids(conn, timeutil.iso_utc_now())
             except Exception as exc:
                 logger.warning(
                     "Could not read maintenance and alert delay for the site panel: {}", exc
                 )
             ids = [d.get("id") for d in devices if d.get("id")]
             try:
-                overrides = board_store.read_criticality_overrides(conn, ids) if ids else {}
+                overrides = await board_store.read_criticality_overrides(conn, ids) if ids else {}
             except Exception as exc:
                 logger.warning("Could not read criticality overrides for the site panel: {}", exc)
             try:
-                cases = board_store.open_cases_for_devices(conn, ids)
+                cases = await board_store.open_cases_for_devices(conn, ids)
             except Exception as exc:
                 logger.warning("Could not read the cases for the site panel: {}", exc)
-        finally:
-            conn.close()
     # The panel's down list in the board's order (#394): each device's level as
     # the board weighs it (#377), and whether it is core, the likely cause (#285).
     core_keywords = get_critical_keywords(location_type)
     aps = [device for device in devices if neighbours.is_ap(device)]
-    neighbour_index = neighbours.load_index(aps) if aps else None
+    neighbour_index = await neighbours.load_index(aps) if aps else None
     for device in devices:
         # The switch and port an access point is on (#524).
         if neighbours.is_ap(device) and (neighbour := neighbours.lookup(neighbour_index, device)):
@@ -3067,7 +3071,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
                     dict.fromkeys([*(lead.get("case_numbers") or []), *member_cases])
                 )
                 lead["acknowledged_by"] = lead.get("acknowledged_by") or member_ack or ""
-    level = get_location_alert_levels()["levels"].get(location_id) if db.dialect() else None
+    level = (await get_location_alert_levels())["levels"].get(location_id) if db.dialect() else None
     if level is not None:
         alert = {
             "level": level["level"],
@@ -3077,7 +3081,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
         counts = {key: level[key] for key in ("down", "monitored") if key in level}
     else:
         monitored = [device for device in devices if not device["not_monitored"]]
-        alert = compute_alert_level(monitored, location_type)
+        alert = compute_alert_level(monitored, location_type, override_map=overrides)
         counts = {
             "down": sum(
                 (d.get("status") or "").lower().strip() in DOWN_STATUSES for d in monitored
@@ -3085,11 +3089,13 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             "monitored": len(monitored),
         }
     try:
-        asns_data = nautobot.fetch_all_pages("ipam/asns/", {"location_id": location_id})
+        asns_data = await session.run_sync(
+            nautobot.fetch_all_pages, "ipam/asns/", {"location_id": location_id}
+        )
     except httpx.HTTPStatusError as exc:
         if exc.response is None or exc.response.status_code != 404:
             raise
-        asns = location_field_asns(location_id)
+        asns = await location_field_asns(location_id)
     else:
         asns = [
             {
@@ -3099,9 +3105,9 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
             }
             for a in asns_data
         ]
-    circuits, circuits_error = location_circuits(location_id)
+    circuits, circuits_error = await session.run_sync(location_circuits, location_id)
     if not circuits_error:  # without the terminations, they couldn't be told apart (#383)
-        circuits += address_circuits(location_id, {circuit["id"] for circuit in circuits})
+        circuits += await address_circuits(location_id, {circuit["id"] for circuit in circuits})
     return {
         "devices": devices,
         "alert": alert,
@@ -3161,7 +3167,7 @@ def location_circuits(location_id: str) -> tuple[list[dict], str]:
     return circuits, ""
 
 
-def address_circuits(location_id: str, terminated_ids: set) -> list[dict]:
+async def address_circuits(location_id: str, terminated_ids: set) -> list[dict]:
     """The cached circuits without a termination whose description is this
     location's address (#383), after those terminated at it (*terminated_ids*,
     not repeated).
@@ -3170,17 +3176,15 @@ def address_circuits(location_id: str, terminated_ids: set) -> list[dict]:
     its parent or children at that address (a building of the site) are one
     site.  Without a database, or on an error: none.
     """
-    conn = db.get_conn() if db.dialect() else None
-    if conn is None:
+    if not db.dialect():
         return []
     try:
-        key, parents = inventory.read_locations_at_address(conn, location_id)
-        circuits = inventory.read_circuits_at_address(conn, key)
+        async with aconnection.connect() as conn:
+            key, parents = await inventory.read_locations_at_address(conn, location_id)
+            circuits = await inventory.read_circuits_at_address(conn, key)
     except Exception as exc:
         logger.warning("Could not match circuits by address for location {}: {}", location_id, exc)
         return []
-    finally:
-        conn.close()
 
     sites = {inventory.address_site(loc_id, parents) for loc_id in parents}
     shared_with = len(sites - {inventory.address_site(location_id, parents)})

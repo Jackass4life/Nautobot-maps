@@ -142,7 +142,7 @@ class TestWirelessCheck:
         self, flask_client, controllers, monkeypatch
     ):
         admin_token = make("admin", "admin")["token"]
-        monkeypatch.setattr(inventory, "read_devices", lambda: [])
+        monkeypatch.setattr(inventory, "read_devices", adb.async_of(lambda: []))
         controllers["dk"] = [ap("dk-ap1", True, "FGL1"), ap("dk-ap2", False, "FGL2")]
         controllers["se"] = httpx.ConnectError("refused by 10.0.0.1")
         answer = flask_client.post("/api/v1/wireless/check", headers=bearer(admin_token))
@@ -195,10 +195,10 @@ class TestWirelessCheck:
 
     def test_one_check_at_a_time(self, flask_client, controllers, monkeypatch):
         admin_token = make("admin", "admin")["token"]
-        monkeypatch.setattr(inventory, "read_devices", lambda: [])
+        monkeypatch.setattr(inventory, "read_devices", adb.async_of(lambda: []))
         started, finish = threading.Event(), threading.Event()
 
-        def slow():
+        def slow(devices):
             started.set()
             finish.wait(5)
             return []

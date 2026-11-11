@@ -7,9 +7,8 @@ site's level; the alert history is frozen (nothing opens, nothing
 resolves) and nothing is notified.  Ending a window early sets
 ``ended_at``; a window ended before it started is a cancelled one.
 
-Ported from nautobot_maps/maintenance.py (#602). The page's functions are async on
-``aconnection`` (#651); ``read_active`` stays sync on psycopg until the board build,
-which passes its connection, is async.
+Ported from nautobot_maps/maintenance.py (#602). Async on ``aconnection`` (#651;
+``read_active`` with the board build, #661).
 """
 
 import uuid
@@ -68,24 +67,28 @@ def _when(value, name: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def read_active(conn, at: datetime) -> dict:
+async def read_active(conn: aconnection.Connection, at: datetime) -> dict:
     """``{"sites": {site_id: window}, "devices": {device_id: window}, "next_change": iso | None}``.
 
     The windows active at *at* (with several for the same site or device,
     the one ending last wins), and when the next one starts or ends: a
     cached board or map must not outlive that.
     """
-    rows = conn.execute(
-        "SELECT id, site_id, device_id, starts_at, ends_at, reason, created_by FROM maintenance_windows "
-        "WHERE ended_at IS NULL AND starts_at <= %s AND ends_at > %s ORDER BY ends_at",
-        (at, at),
+    rows = (
+        await conn.execute(
+            "SELECT id, site_id, device_id, starts_at, ends_at, reason, created_by FROM maintenance_windows "
+            "WHERE ended_at IS NULL AND starts_at <= %s AND ends_at > %s ORDER BY ends_at",
+            (at, at),
+        )
     ).fetchall()
-    next_change = conn.execute(
-        "SELECT LEAST("
-        "  (SELECT MIN(starts_at) FROM maintenance_windows WHERE ended_at IS NULL AND starts_at > %s),"
-        "  (SELECT MIN(ends_at) FROM maintenance_windows WHERE ended_at IS NULL AND ends_at > %s)"
-        ") AS next_change",
-        (at, at),
+    next_change = (
+        await conn.execute(
+            "SELECT LEAST("
+            "  (SELECT MIN(starts_at) FROM maintenance_windows WHERE ended_at IS NULL AND starts_at > %s),"
+            "  (SELECT MIN(ends_at) FROM maintenance_windows WHERE ended_at IS NULL AND ends_at > %s)"
+            ") AS next_change",
+            (at, at),
+        )
     ).fetchone()
     active = {
         "sites": {},

@@ -17,6 +17,7 @@ import pytest
 from app.clients import caching, librenms, nautobot
 from app.clients import http as upstream_http
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
@@ -659,7 +660,7 @@ class TestAlertBoard:
             patch.object(nautobot, "fetch_all_pages", return_value=[]),
             patch.object(alerts, "get_location_devices_and_alert", side_effect=mock_devices),
         ):
-            data = alerts.get_alert_board_data()
+            data = asyncio.run(alerts.get_alert_board_data())
 
         assert data["summary"] == {
             "total": 3,
@@ -873,19 +874,23 @@ class TestAlertBoard:
                 "primary_ip": "10.0.0.3",
             },
         ]
-        with patch.object(db, "get_conn", return_value=None):
-            scored, alert = alerts.get_location_devices_and_alert(
-                "loc-1",
-                devices_data=devices,
-                devices_already_normalized=True,
-                require_primary_ip=True,
-                excluded_device_statuses={"decommissioning", "null"},
+        with patch.object(alerts, "criticality_overrides", return_value={}):
+            scored, alert = asyncio.run(
+                alerts.get_location_devices_and_alert(
+                    "loc-1",
+                    devices_data=devices,
+                    devices_already_normalized=True,
+                    require_primary_ip=True,
+                    excluded_device_statuses={"decommissioning", "null"},
+                )
             )
-            unfiltered, unfiltered_alert = alerts.get_location_devices_and_alert(
-                "loc-1",
-                devices_data=devices,
-                devices_already_normalized=True,
-                require_primary_ip=True,
+            unfiltered, unfiltered_alert = asyncio.run(
+                alerts.get_location_devices_and_alert(
+                    "loc-1",
+                    devices_data=devices,
+                    devices_already_normalized=True,
+                    require_primary_ip=True,
+                )
             )
 
         assert [device["name"] for device in scored] == ["sw02"]
@@ -970,7 +975,7 @@ class TestAlertBoard:
                 alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")
             ),
         ):
-            data = alerts.get_alert_board_data()
+            data = asyncio.run(alerts.get_alert_board_data())
 
         assert data["summary"]["no_data"] == 1
         assert data["summary"]["ok"] == 0
@@ -987,10 +992,12 @@ class TestAlertBoard:
                 side_effect=AssertionError("should not fetch live inventory"),
             ),
         ):
-            devices, alert = alerts.get_location_devices_and_alert(
-                "loc-1",
-                "Data Center",
-                snapshot_only=True,
+            devices, alert = asyncio.run(
+                alerts.get_location_devices_and_alert(
+                    "loc-1",
+                    "Data Center",
+                    snapshot_only=True,
+                )
             )
 
         assert devices == []
@@ -998,38 +1005,40 @@ class TestAlertBoard:
         ensure_snapshot.assert_not_called()
 
     def test_location_alert_filters_devices_without_primary_ip(self):
-        devices, alert = alerts.get_location_devices_and_alert(
-            "loc-1",
-            "Data Center",
-            devices_data=[
-                {
-                    "id": "dev-1",
-                    "name": "ap01",
-                    "device_type": "AP",
-                    "manufacturer": "Cisco",
-                    "role": "Access Point",
-                    "status": "offline",
-                    "primary_ip": "",
-                    "platform": "",
-                    "serial": "",
-                    "tenant": "",
-                },
-                {
-                    "id": "dev-2",
-                    "name": "router01",
-                    "device_type": "ASR1001-X",
-                    "manufacturer": "Cisco",
-                    "role": "Core Router",
-                    "status": "offline",
-                    "primary_ip": "192.0.2.1/32",
-                    "platform": "",
-                    "serial": "",
-                    "tenant": "",
-                },
-            ],
-            devices_already_normalized=True,
-            snapshot_only=True,
-            require_primary_ip=True,
+        devices, alert = asyncio.run(
+            alerts.get_location_devices_and_alert(
+                "loc-1",
+                "Data Center",
+                devices_data=[
+                    {
+                        "id": "dev-1",
+                        "name": "ap01",
+                        "device_type": "AP",
+                        "manufacturer": "Cisco",
+                        "role": "Access Point",
+                        "status": "offline",
+                        "primary_ip": "",
+                        "platform": "",
+                        "serial": "",
+                        "tenant": "",
+                    },
+                    {
+                        "id": "dev-2",
+                        "name": "router01",
+                        "device_type": "ASR1001-X",
+                        "manufacturer": "Cisco",
+                        "role": "Core Router",
+                        "status": "offline",
+                        "primary_ip": "192.0.2.1/32",
+                        "platform": "",
+                        "serial": "",
+                        "tenant": "",
+                    },
+                ],
+                devices_already_normalized=True,
+                snapshot_only=True,
+                require_primary_ip=True,
+            )
         )
 
         assert [device["id"] for device in devices] == ["dev-2"]
@@ -1065,7 +1074,9 @@ class TestAlertBoard:
             patch.object(inventory, "ensure_snapshot"),
             patch.object(nautobot, "fetch_all_pages", side_effect=_mock_fetch),
         ):
-            devices, alert = alerts.get_location_devices_and_alert("loc-1", "Data Center")
+            devices, alert = asyncio.run(
+                alerts.get_location_devices_and_alert("loc-1", "Data Center")
+            )
 
         assert len(devices) == 1
         assert alert["level"] == "ok"
@@ -1105,7 +1116,7 @@ class TestAlertBoard:
                 side_effect=AssertionError("should not fetch live inventory"),
             ),
         ):
-            data = alerts.get_alert_board_data(force_refresh=True)
+            data = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
 
         # Sites without cached devices have nothing to judge (#124).
         assert data["summary"]["no_data"] == 2
@@ -1157,7 +1168,7 @@ class TestAlertBoard:
                 ],
             ) as get_alert,
         ):
-            data = alerts.get_alert_board_data(force_refresh=True)
+            data = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
 
         assert get_alert.call_count == 2
         assert data["summary"]["critical"] == 1
@@ -1177,8 +1188,11 @@ class TestAlertBoard:
         ]
 
         class _FakeConn:
-            def close(self):
-                return None
+            async def execute(self, *args, **kwargs):
+                raise RuntimeError("no database here")
+
+        async def close():
+            return None
 
         with (
             patch.object(
@@ -1191,7 +1205,7 @@ class TestAlertBoard:
                 "get_location_devices_and_alert",
                 return_value=([], {"level": "ok", "reason": ""}),
             ),
-            patch.object(db, "get_conn", return_value=_FakeConn()),
+            patch.object(aconnection, "open_connection", return_value=(_FakeConn(), close)),
             # Connection handling only: no maintenance windows (#283).
             patch.object(
                 maintenance,
@@ -1200,7 +1214,7 @@ class TestAlertBoard:
             ),
             patch.object(
                 inventory,
-                "get_sync_state",
+                "sync_state",
                 return_value={
                     "status": "error",
                     "last_successful_sync": None,
@@ -1219,7 +1233,7 @@ class TestAlertBoard:
                 },
             ) as get_context,
         ):
-            data = alerts.get_alert_board_data(force_refresh=True)
+            data = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
 
         assert data["summary"]["total"] == 1
         upsert.assert_not_called()
@@ -1513,7 +1527,9 @@ class TestIndex:
         import mock_nautobot
 
         monkeypatch.setattr(
-            inventory, "read_locations", lambda include_without_coordinates=False, conn=None: []
+            inventory,
+            "read_locations",
+            adb.async_of(lambda include_without_coordinates=False, conn=None: []),
         )
         monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: None)
         monkeypatch.setattr(inventory, "live_tenant_descriptions", lambda: {})
@@ -1521,13 +1537,14 @@ class TestIndex:
             nautobot, "fetch_all_pages", lambda path, **kwargs: list(mock_nautobot.LOCATIONS)
         )
         everywhere = {
-            loc["id"]: loc for loc in inventory.get_locations(include_without_coordinates=True)
+            loc["id"]: loc
+            for loc in asyncio.run(inventory.get_locations(include_without_coordinates=True))
         }
         assert (
             everywhere["loc-aar-bld-a-f2"]["ancestor_path"]
             == "EMEA › DNK › Aarhus Campus › Bygning A"
         )
-        assert {loc["id"]: loc["ancestor_path"] for loc in inventory.get_locations()}[
+        assert {loc["id"]: loc["ancestor_path"] for loc in asyncio.run(inventory.get_locations())}[
             "loc-cph"
         ] == ""
 
@@ -1882,7 +1899,9 @@ class TestCriticalityOverrideEndpoints:
         ]
         # The override says is_critical=False, so even a "Core Router" that's
         # offline should not produce a critical alert.
-        result = alerts.compute_alert_level(devices)
+        result = alerts.compute_alert_level(
+            devices, override_map=asyncio.run(alerts.criticality_overrides(devices))
+        )
         assert result["level"] != "critical"
 
     def test_requires_operator_role_when_auth_enabled(self, flask_client):
@@ -2001,17 +2020,21 @@ class TestAlertLifecycleTracking:
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         t1 = datetime(2026, 1, 1, 0, 5, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            devices_down,
-            {"level": "critical", "reason": "Core device(s) offline: router01"},
-            t0,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                devices_down,
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+                t0,
+            )
         )
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            [{"id": "dev-1", "name": "router01", "status": "active"}],
-            {"level": "ok", "reason": ""},
-            t1,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                [{"id": "dev-1", "name": "router01", "status": "active"}],
+                {"level": "ok", "reason": ""},
+                t1,
+            )
         )
         resp = flask_client.get("/api/v1/alert-history?site_id=loc-1")
         assert resp.status_code == 200
@@ -2034,20 +2057,24 @@ class TestAlertLifecycleTracking:
         site = {"id": "loc-1", "name": "Site One"}
         t0 = "2026-01-01T00:00:00Z"
         t1 = "2026-01-01T01:00:00Z"
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            [{"id": "dev-1", "name": "sw01", "status": "offline"}],
-            {"level": "medium", "reason": "1/3 devices offline (33%)"},
-            t0,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                [{"id": "dev-1", "name": "sw01", "status": "offline"}],
+                {"level": "medium", "reason": "1/3 devices offline (33%)"},
+                t0,
+            )
         )
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            [
-                {"id": "dev-1", "name": "sw01", "status": "offline"},
-                {"id": "dev-2", "name": "core01", "status": "offline"},
-            ],
-            {"level": "critical", "reason": "Core device(s) offline: core01"},
-            t1,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                [
+                    {"id": "dev-1", "name": "sw01", "status": "offline"},
+                    {"id": "dev-2", "name": "core01", "status": "offline"},
+                ],
+                {"level": "critical", "reason": "Core device(s) offline: core01"},
+                t1,
+            )
         )
 
         rows = self.db.execute(
@@ -2066,18 +2093,20 @@ class TestAlertLifecycleTracking:
             {"event_type": "opened", "alert_level": "medium"},
             {"event_type": "updated", "alert_level": "critical"},
         ]
-        context = alerts.get_alert_context_for_site("loc-1", t1)
+        context = asyncio.run(alerts.get_alert_context_for_site("loc-1", t1))
         assert context["current_downtime_seconds"] == 3600
 
     def test_add_case_number_to_active_alert(self, flask_client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            devices_down,
-            {"level": "critical", "reason": "Core device(s) offline: router01"},
-            t0,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                devices_down,
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+                t0,
+            )
         )
         created = flask_client.post(
             "/api/v1/alert-cases",
@@ -2094,11 +2123,13 @@ class TestAlertLifecycleTracking:
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            devices_down,
-            {"level": "critical", "reason": "Core device(s) offline: router01"},
-            t0,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                devices_down,
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+                t0,
+            )
         )
         created = flask_client.post(
             "/api/v1/alert-cases",
@@ -2189,11 +2220,13 @@ class TestAlertLifecycleTracking:
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            devices_down,
-            {"level": "critical", "reason": "Core device(s) offline: router01"},
-            t0,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                devices_down,
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+                t0,
+            )
         )
         with auth_config(mode="header", operator_groups={"noc-operators"}):
             created = flask_client.post(
@@ -2227,11 +2260,13 @@ class TestAlertLifecycleTracking:
     def test_failed_alert_observation_does_not_resolve_open_incident(self):
         site = {"id": "loc-1", "name": "Site One"}
         t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat().replace("+00:00", "Z")
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            [{"id": "dev-1", "name": "router01", "status": "offline"}],
-            {"level": "critical", "reason": "Core device(s) offline: router01"},
-            t0,
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                [{"id": "dev-1", "name": "router01", "status": "offline"}],
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+                t0,
+            )
         )
         sample_locations = [{"id": "loc-1", "name": "Site One", "latitude": 1.0, "longitude": 2.0}]
         with (
@@ -2243,9 +2278,9 @@ class TestAlertLifecycleTracking:
                 alerts, "get_location_devices_and_alert", side_effect=RuntimeError("lookup failed")
             ),
         ):
-            data = alerts.get_alert_board_data(force_refresh=True)
+            data = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
         assert data["alerts"][0]["alert_level"] == "no_data"
-        history = alerts.get_alert_context_for_site("loc-1", timeutil.iso_utc_now())
+        history = asyncio.run(alerts.get_alert_context_for_site("loc-1", timeutil.iso_utc_now()))
         assert history["active_alert_instance_count"] == 1
         conn = db.get_conn()
         try:
@@ -2272,8 +2307,8 @@ class TestAlertLifecycleTracking:
                 alerts, "get_location_devices_and_alert", return_value=devices_return
             ) as get_alert,
         ):
-            first = alerts.get_alert_board_data(force_refresh=True)
-            second = alerts.get_alert_board_data()
+            first = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
+            second = asyncio.run(alerts.get_alert_board_data())
         assert first["alerts"] == second["alerts"]
         assert get_locations.call_count == 1
         assert get_alert.call_count == 1
@@ -2309,9 +2344,9 @@ class TestAlertLifecycleTracking:
                 return_value={"version": None, "initialized": True, "nautobot": {}},
             ),
         ):
-            first = alerts.get_alert_board_data(force_refresh=True)
-            second = alerts.get_alert_board_data()
-            refreshed = alerts.get_alert_board_data(force_refresh=True)
+            first = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
+            second = asyncio.run(alerts.get_alert_board_data())
+            refreshed = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
         assert first["checked_at"] == second["checked_at"] == "2026-01-01T00:00:00Z"
         assert refreshed["checked_at"] == "2026-01-01T00:00:00Z"
         assert build_payload.call_count == 1
@@ -2348,7 +2383,7 @@ class TestAlertLifecycleTracking:
             ) as build_payload,
             patch.object(inventory, "ensure_snapshot") as ensure_snapshot,
         ):
-            result = alerts.get_alert_board_data(force_refresh=True)
+            result = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
 
         assert result["checked_at"] == "2026-01-01T00:00:00Z"
         build_payload.assert_called_once_with(snapshot_only=True)
@@ -2385,8 +2420,8 @@ class TestAlertLifecycleTracking:
             ),
             patch.object(inventory, "ensure_snapshot"),
         ):
-            first = alerts.get_alert_board_data(force_refresh=True)
-            second = alerts.get_alert_board_data()
+            first = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
+            second = asyncio.run(alerts.get_alert_board_data())
 
         assert first["alerts"] == []
         assert second["alerts"] == []
@@ -2409,11 +2444,11 @@ class TestAlertLifecycleTracking:
             def __init__(self, conn):
                 self.conn = conn
 
-            def __enter__(self):
+            async def __aenter__(self):
                 self.conn.transaction_entries += 1
                 return self.conn
 
-            def __exit__(self, exc_type, exc, tb):
+            async def __aexit__(self, exc_type, exc, tb):
                 return False
 
         class _FakeConn:
@@ -2437,7 +2472,7 @@ class TestAlertLifecycleTracking:
             def transaction(self):
                 return _FakeTransaction(self)
 
-            def execute(self, query, params=()):
+            async def execute(self, query, params=()):
                 if self.closed:
                     raise RuntimeError("the connection is closed")
                 self.queries.append((query, params))
@@ -2471,18 +2506,17 @@ class TestAlertLifecycleTracking:
         fake_conn = _FakeConn()
         checked_at = "2026-01-01T00:00:00Z"
         with patch.object(db, "dialect", return_value="postgres"):
-            alerts.upsert_alert_lifecycle_for_site(
-                {"id": "loc-1", "name": "Site One"},
-                [{"id": "dev-1", "name": "router01", "status": "offline"}],
-                {"level": "critical", "reason": "offline"},
-                checked_at,
-                conn=fake_conn,
+            asyncio.run(
+                alerts.upsert_alert_lifecycle_for_site(
+                    {"id": "loc-1", "name": "Site One"},
+                    [{"id": "dev-1", "name": "router01", "status": "offline"}],
+                    {"level": "critical", "reason": "offline"},
+                    checked_at,
+                    conn=fake_conn,
+                )
             )
-            alerts.resolve_open_alert_instances_for_site(
-                fake_conn,
-                "loc-1",
-                set(),
-                checked_at,
+            asyncio.run(
+                alerts.resolve_open_alert_instances_for_site(fake_conn, "loc-1", set(), checked_at)
             )
         insert_sql = next(
             query for query, _ in fake_conn.queries if "INSERT INTO alert_instances" in query
@@ -2550,7 +2584,7 @@ class TestInventoryCacheSync:
             "fetch_all_pages",
             side_effect=AssertionError("should not fetch live inventory"),
         ):
-            locations = inventory.get_locations()
+            locations = asyncio.run(inventory.get_locations())
 
         assert locations == [
             {
@@ -2615,7 +2649,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        locations = inventory.read_locations(include_without_coordinates=True)
+        locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         location = next(item for item in locations if item["id"] == "loc-1")
 
         assert location["time_zone"] is None
@@ -2653,7 +2687,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        locations = inventory.read_locations(include_without_coordinates=True)
+        locations = asyncio.run(inventory.read_locations(include_without_coordinates=True))
         assert len(locations) == 1
         assert locations[0]["parent"] == ""
         assert locations[0]["description"] == ""
@@ -2691,7 +2725,7 @@ class TestInventoryCacheSync:
         finally:
             conn.close()
 
-        devices = inventory.read_devices()
+        devices = asyncio.run(inventory.read_devices())
         assert len(devices) == 1
         assert devices[0]["location_id"] == ""
         assert devices[0]["name"] == ""
@@ -2762,7 +2796,7 @@ class TestInventoryCacheSync:
             "fetch_all_pages",
             side_effect=AssertionError("should not fetch live inventory"),
         ):
-            data = alerts.get_alert_board_data(force_refresh=True)
+            data = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
 
         assert data["summary"]["critical"] == 1
         assert data["alerts"][0]["id"] == "loc-1"
@@ -2823,7 +2857,7 @@ class TestInventoryCacheSync:
             patch.object(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 0),
             patch.object(inventory, "sync_nautobot", side_effect=fake_sync),
         ):
-            locations = inventory.get_locations()
+            locations = asyncio.run(inventory.get_locations())
             assert refresh_called.wait(1), "expected cached read to trigger a background refresh"
 
         assert locations[0]["id"] == "loc-1"
@@ -2876,7 +2910,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot(force=True))
@@ -2963,7 +2996,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot())
@@ -3035,7 +3067,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=False),
             patch.object(
@@ -3149,7 +3180,6 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
             patch.object(inventory, "sync_due", return_value=True),
             patch.object(
@@ -3173,23 +3203,25 @@ class TestInventoryCacheSync:
     def test_primary_ip_backfill_pending_until_current_cache_version_sync(self):
         with patch.object(
             inventory,
-            "get_sync_state",
+            "sync_state",
             return_value={
                 "last_successful_sync": "2026-01-01T00:05:00Z",
                 "cache_version": "1",
             },
         ):
-            assert board_store.nautobot_inventory_primary_ip_backfill_pending() is True
+            assert asyncio.run(board_store.nautobot_inventory_primary_ip_backfill_pending()) is True
 
         with patch.object(
             inventory,
-            "get_sync_state",
+            "sync_state",
             return_value={
                 "last_successful_sync": "2026-01-01T00:05:00Z",
                 "cache_version": inventory.CACHE_VERSION,
             },
         ):
-            assert board_store.nautobot_inventory_primary_ip_backfill_pending() is False
+            assert (
+                asyncio.run(board_store.nautobot_inventory_primary_ip_backfill_pending()) is False
+            )
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
         conn = db.get_conn()
@@ -3258,7 +3290,7 @@ class TestInventoryCacheSync:
             "fetch_all_pages",
             side_effect=AssertionError("should not fetch live inventory"),
         ):
-            data = alerts.get_alert_board_data(force_refresh=True)
+            data = asyncio.run(alerts.get_alert_board_data(force_refresh=True))
 
         assert data["summary"]["no_data"] == 1  # no monitored devices yet
         assert data["alerts"][0]["device_count"] == 0
@@ -3461,15 +3493,15 @@ class TestInventoryCacheSync:
             patch.object(settings, "NAUTOBOT_URL", "https://nautobot.example.com"),
             patch.object(settings, "NAUTOBOT_TOKEN", "token"),
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot(force=True))
 
         assert [
-            item["id"] for item in inventory.read_locations(include_without_coordinates=True)
+            item["id"]
+            for item in asyncio.run(inventory.read_locations(include_without_coordinates=True))
         ] == ["loc-1"]
-        assert [item["id"] for item in inventory.read_devices()] == ["dev-1"]
+        assert [item["id"] for item in asyncio.run(inventory.read_devices())] == ["dev-1"]
 
 
 # ---------------------------------------------------------------------------
@@ -3537,7 +3569,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_URL = ""
         settings.LIBRENMS_API_TOKEN = ""
         devices = [{"id": "d1", "name": "router01", "status": "active"}]
-        result = alerts.enrich_with_librenms(devices)
+        result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result == devices
 
     def test_fetch_inventory_skips_when_config_is_blank(self):
@@ -3572,7 +3604,7 @@ class TestLibreNMSEnrichment:
         }
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "offline"
 
     def test_librenms_up_does_not_change_active_status(self):
@@ -3582,7 +3614,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 1}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "active"
 
     def test_librenms_down_does_not_upgrade_already_offline(self):
@@ -3592,7 +3624,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "router01", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "offline"}]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "offline"
 
     def test_librenms_api_failure_returns_original_devices(self):
@@ -3601,7 +3633,7 @@ class TestLibreNMSEnrichment:
         settings.LIBRENMS_API_TOKEN = "tok"
         with patch.object(librenms, "get", side_effect=Exception("timeout")):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result == devices
 
     def test_librenms_unmatched_device_not_affected(self):
@@ -3611,7 +3643,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "other-device", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "active"
 
     def test_librenms_down_matches_short_hostname(self):
@@ -3623,7 +3655,7 @@ class TestLibreNMSEnrichment:
         }
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "router01", "status": "active"}]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "offline"
 
     def test_librenms_down_matches_primary_ip_when_hostname_is_ip(self):
@@ -3635,7 +3667,7 @@ class TestLibreNMSEnrichment:
             devices = [
                 {"id": "d1", "name": "router01", "primary_ip": "192.0.2.1/32", "status": "active"}
             ]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "offline"
 
     def test_librenms_down_matches_primary_ipv6_when_hostname_case_differs(self):
@@ -3652,7 +3684,7 @@ class TestLibreNMSEnrichment:
                     "status": "active",
                 }
             ]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "offline"
 
     def test_librenms_ip_hostnames_do_not_collide_with_short_name_keys(self):
@@ -3662,7 +3694,7 @@ class TestLibreNMSEnrichment:
         lnms_response = {"devices": [{"device_id": 1, "hostname": "10.0.0.1", "status": 0}]}
         with patch.object(librenms, "get", return_value=lnms_response):
             devices = [{"id": "d1", "name": "10", "primary_ip": "192.0.2.5/32", "status": "active"}]
-            result = alerts.enrich_with_librenms(devices)
+            result = asyncio.run(alerts.enrich_with_librenms(devices))
         assert result[0]["status"] == "active"
 
 
@@ -3819,10 +3851,12 @@ class TestDeviceDisplayIp:
         settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN = "https://librenms.test", "tok"
         try:
             devices = [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}]
-            enriched = alerts.enrich_with_librenms(
-                devices,
-                lnms_devices=[{"device_id": 7, "hostname": "router01", "status": 1}],
-                lnms_id_map={},
+            enriched = asyncio.run(
+                alerts.enrich_with_librenms(
+                    devices,
+                    lnms_devices=[{"device_id": 7, "hostname": "router01", "status": 1}],
+                    lnms_id_map={},
+                )
             )
         finally:
             settings.LIBRENMS_URL, settings.LIBRENMS_API_TOKEN = orig_url, orig_token
@@ -3982,7 +4016,7 @@ class TestAlertBoardSyncProgress:
                 status="idle",
             )
         conn.close()
-        due, next_in = alerts.inventory_update_schedule()
+        due, next_in = asyncio.run(alerts.inventory_update_schedule())
         assert due is False
         assert 115 <= next_in <= 120
 
@@ -3990,33 +4024,35 @@ class TestAlertBoardSyncProgress:
         monkeypatch.setattr(settings, "NAUTOBOT_URL", "https://nautobot.example.com")
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
-        assert alerts.inventory_update_schedule() == (False, None)
+        assert asyncio.run(alerts.inventory_update_schedule()) == (False, None)
 
     def test_next_update_unknown_without_persistence(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        assert alerts.inventory_update_schedule() == (False, None)
+        assert asyncio.run(alerts.inventory_update_schedule()) == (False, None)
 
     def test_running_sync_is_reported_as_pending(self, flask_client):
         self._set_nautobot_sync_state("running", timeutil.iso_utc_now())
-        assert alerts.nautobot_sync_in_progress() is True
+        assert asyncio.run(alerts.nautobot_sync_in_progress()) is True
 
     def test_abandoned_running_sync_is_not_pending(self):
         started = datetime(2020, 1, 1, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         self._set_nautobot_sync_state("running", started)
-        assert alerts.nautobot_sync_in_progress() is False
+        assert asyncio.run(alerts.nautobot_sync_in_progress()) is False
 
     def test_no_sync_pending_without_persistence(self, monkeypatch):
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        assert alerts.nautobot_sync_in_progress() is False
+        assert asyncio.run(alerts.nautobot_sync_in_progress()) is False
 
     def test_adding_case_invalidates_cached_board(self, flask_client):
         site = {"id": "loc-1", "name": "Site One"}
         devices_down = [{"id": "dev-1", "name": "router01", "status": "offline"}]
-        alerts.upsert_alert_lifecycle_for_site(
-            site,
-            devices_down,
-            {"level": "critical", "reason": "Core device(s) offline: router01"},
-            timeutil.iso_utc_now(),
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                site,
+                devices_down,
+                {"level": "critical", "reason": "Core device(s) offline: router01"},
+                timeutil.iso_utc_now(),
+            )
         )
         caching.cache.set("alert-board-data:v3", self._board([{"id": "loc-1"}]))
         resp = flask_client.post(
@@ -4033,15 +4069,17 @@ class TestAlertBoardSyncProgress:
 class TestMultiDeviceCases:
     @pytest.fixture(autouse=True)
     def _database_with_open_alerts(self, pg_database):
-        alerts.upsert_alert_lifecycle_for_site(
-            {"id": "loc-1", "name": "Site One"},
-            [
-                {"id": "dev-1", "name": "sw01", "status": "offline"},
-                {"id": "dev-2", "name": "sw02", "status": "offline"},
-                {"id": "dev-3", "name": "sw03", "status": "offline"},
-            ],
-            {"level": "medium", "reason": "3/4 devices offline (75%)"},
-            timeutil.iso_utc_now(),
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                {"id": "loc-1", "name": "Site One"},
+                [
+                    {"id": "dev-1", "name": "sw01", "status": "offline"},
+                    {"id": "dev-2", "name": "sw02", "status": "offline"},
+                    {"id": "dev-3", "name": "sw03", "status": "offline"},
+                ],
+                {"level": "medium", "reason": "3/4 devices offline (75%)"},
+                timeutil.iso_utc_now(),
+            )
         )
         yield
         caching.cache.clear()
@@ -4166,7 +4204,7 @@ class TestLibreNMSPolledIp:
             ],
         ):
             asyncio.run(inventory.sync_librenms(force=True))
-        cached = inventory.read_librenms_devices()
+        cached = asyncio.run(inventory.read_librenms_devices())
         assert cached == [
             {
                 "device_id": 7,
@@ -4180,12 +4218,19 @@ class TestLibreNMSPolledIp:
     def test_device_added_by_hostname_shows_librenms_ip(self, monkeypatch):
         monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
-        enriched = alerts.enrich_with_librenms(
-            [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}],
-            lnms_devices=[
-                {"device_id": 7, "hostname": "router01.example.net", "ip": "192.0.2.7", "status": 1}
-            ],
-            lnms_id_map={},
+        enriched = asyncio.run(
+            alerts.enrich_with_librenms(
+                [{"id": "d1", "name": "router01", "status": "active", "primary_ip": ""}],
+                lnms_devices=[
+                    {
+                        "device_id": 7,
+                        "hostname": "router01.example.net",
+                        "ip": "192.0.2.7",
+                        "status": 1,
+                    }
+                ],
+                lnms_id_map={},
+            )
         )
         assert alerts.device_display_ip(enriched[0]) == "192.0.2.7"
 
@@ -4236,7 +4281,6 @@ class TestRefreshIsIncremental:
 
         with (
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
-            patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             inventory.ensure_snapshot(wait=True, **ensure_kwargs)
@@ -4334,21 +4378,15 @@ class TestAlertBoardBulkReads:
         )[0]["id"]
 
     def _build_counting_connections(self):
-        opened = []
-        real_get_db_conn = db.get_conn
-
-        def counting_get_db_conn():
-            opened.append(1)
-            return real_get_db_conn()
-
+        opened, counting = adb.counting_connections()
         with (
-            patch.object(db, "get_conn", side_effect=counting_get_db_conn),
+            counting,
             # The build's own connections; not the build lock or its stats (#295).
             patch.object(alerts, "_board_build_lock", return_value=None),
             patch.object(board_store, "record_board_build"),
         ):
-            data = alerts.get_alert_board_data()
-        return data, len(opened)
+            data = asyncio.run(alerts.get_alert_board_data())
+        return data, opened["taken"]
 
     def test_connection_count_does_not_grow_with_site_count(self):
         self._seed(20)
@@ -4405,11 +4443,11 @@ class TestAlertBoardBulkReads:
             [(open_id, "INC-1", "2026-09-25T11:05:00"), (open_id, "INC-2", "2026-09-25T11:10:00")],
         )
 
-        data = alerts.get_alert_board_data()
+        data = asyncio.run(alerts.get_alert_board_data())
 
         by_site = {entry["id"]: entry for entry in data["alerts"]}
         for site_id, entry in by_site.items():
-            expected = alerts.get_alert_context_for_site(site_id, self.CHECKED_AT)
+            expected = asyncio.run(alerts.get_alert_context_for_site(site_id, self.CHECKED_AT))
             assert (
                 entry["historical_downtime_seconds"] == expected["historical_downtime_seconds"]
             ), site_id
@@ -4434,7 +4472,7 @@ class TestAlertBoardBulkReads:
         self._add_alert("loc-2", "dev-2-1", "open", "2026-09-25T11:30:00+00:00")
         # loc-1 has no open alert yet: this build opens one, starting now.
 
-        data = alerts.get_alert_board_data()
+        data = asyncio.run(alerts.get_alert_board_data())
 
         by_site = {entry["id"]: entry for entry in data["alerts"]}
 
@@ -4464,7 +4502,7 @@ class TestAlertBoardBulkReads:
         self._add_alert("loc-0", "dev-0-0", "open", "2026-09-25T11:00:00+00:00")
 
         with patch.object(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"decommissioning"}):
-            data = alerts.get_alert_board_data()
+            data = asyncio.run(alerts.get_alert_board_data())
 
         by_site = {entry["id"]: entry for entry in data["alerts"]}
         assert by_site["loc-0"]["alert_level"] == "ok"
@@ -4482,7 +4520,7 @@ class TestAlertBoardBulkReads:
         self._add_alert("loc-1", "dev-1-2", "open", "2026-09-25T11:00:00+00:00")
 
         with patch.object(alerts, "upsert_alert_lifecycle_for_site") as upsert:
-            data = alerts.get_alert_board_data()
+            data = asyncio.run(alerts.get_alert_board_data())
 
         upsert.assert_not_called()
         loc1 = next(entry for entry in data["alerts"] if entry["id"] == "loc-1")
@@ -4557,7 +4595,7 @@ class TestSiteRollup:
     def _board(self, monkeypatch, site_type="site"):
         monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", site_type)
         caching.cache.clear()
-        return {row["id"]: row for row in alerts.get_alert_board_data()["alerts"]}
+        return {row["id"]: row for row in asyncio.run(alerts.get_alert_board_data())["alerts"]}
 
     def test_only_sites_are_rows_and_regions_are_hidden(self, monkeypatch):
         rows = self._board(monkeypatch)
@@ -4795,7 +4833,7 @@ class TestSeverityTiers:
             patch.object(inventory, "get_locations", return_value=locations),
             patch.object(alerts, "get_location_devices_and_alert", side_effect=fake_alert),
         ):
-            summary = alerts.get_alert_board_data()["summary"]
+            summary = asyncio.run(alerts.get_alert_board_data())["summary"]
         assert summary == {
             "total": 5,
             "critical": 1,
@@ -4839,27 +4877,29 @@ class TestRealStartTimes:
     def test_librenms_only_down_is_marked(self, monkeypatch):
         monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.example.com")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "token")
-        enriched = alerts.enrich_with_librenms(
-            [
-                {
-                    "id": "d1",
-                    "name": "sw01",
-                    "status": "active",
-                    "last_updated": "2026-01-01T00:00:00Z",
-                },
-                {
-                    "id": "d2",
-                    "name": "sw02",
-                    "status": "offline",
-                    "last_updated": "2026-01-01T00:00:00Z",
-                },
-            ],
-            lnms_devices=[
-                {"device_id": 1, "hostname": "sw01", "status": 0},
-                {"device_id": 2, "hostname": "sw02", "status": 0},
-            ],
-            lnms_id_map={1: {}, 2: {}},
-            snapshot_only=True,
+        enriched = asyncio.run(
+            alerts.enrich_with_librenms(
+                [
+                    {
+                        "id": "d1",
+                        "name": "sw01",
+                        "status": "active",
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    },
+                    {
+                        "id": "d2",
+                        "name": "sw02",
+                        "status": "offline",
+                        "last_updated": "2026-01-01T00:00:00Z",
+                    },
+                ],
+                lnms_devices=[
+                    {"device_id": 1, "hostname": "sw01", "status": 0},
+                    {"device_id": 2, "hostname": "sw02", "status": 0},
+                ],
+                lnms_id_map={1: {}, 2: {}},
+                snapshot_only=True,
+            )
         )
         assert enriched[0]["status"] == "offline" and enriched[0]["down_source"] == "librenms"
         # Already down in Nautobot: Nautobot is the source.
@@ -4902,7 +4942,7 @@ class TestRealStartTimes:
 
         def build():
             caching.cache.clear()
-            return {row["id"]: row for row in alerts.get_alert_board_data()["alerts"]}
+            return {row["id"]: row for row in asyncio.run(alerts.get_alert_board_data())["alerts"]}
 
         return build
 
@@ -4975,7 +5015,7 @@ class TestAlertFeed:
         def build(at):
             clock["now"] = at
             caching.cache.clear()
-            return {row["id"]: row for row in alerts.get_alert_board_data()["alerts"]}
+            return {row["id"]: row for row in asyncio.run(alerts.get_alert_board_data())["alerts"]}
 
         def set_status(device_id, status):
             pg_database.execute(
@@ -4993,15 +5033,27 @@ class TestAlertFeed:
     def test_level_changes_are_logged_but_not_first_sightings(self, pg_database):
         at = "2026-09-28T12:00:00+00:00"
         assert (
-            alerts.record_site_level_changes({"s1": ("One", "ok"), "s2": ("Two", "critical")}, at)
+            asyncio.run(
+                alerts.record_site_level_changes(
+                    {"s1": ("One", "ok"), "s2": ("Two", "critical")}, at
+                )
+            )
             == 0
         )
         assert (
-            alerts.record_site_level_changes({"s1": ("One", "ok"), "s2": ("Two", "critical")}, at)
+            asyncio.run(
+                alerts.record_site_level_changes(
+                    {"s1": ("One", "ok"), "s2": ("Two", "critical")}, at
+                )
+            )
             == 0
         )
         assert (
-            alerts.record_site_level_changes({"s1": ("One", "low"), "s2": ("Two", "critical")}, at)
+            asyncio.run(
+                alerts.record_site_level_changes(
+                    {"s1": ("One", "low"), "s2": ("Two", "critical")}, at
+                )
+            )
             == 1
         )
         rows = pg_database.execute("SELECT site_id, from_level, to_level FROM site_level_changes")
@@ -5125,7 +5177,7 @@ class TestAlertFeed:
         def fail(*args, **kwargs):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(alerts, "get_location_devices_and_alert", fail)
+        monkeypatch.setattr(alerts, "get_location_devices_and_alert", adb.async_of(fail))
         assert build("2026-09-28T12:05:00+00:00")["loc-1"]["alert_level"] == "no_data"
         assert pg_database.execute("SELECT count(*) AS n FROM site_level_changes") == [{"n": 0}]
 
@@ -5137,7 +5189,7 @@ class TestGeocoder:
     @pytest.fixture(autouse=True)
     def _fresh_cache(self, monkeypatch):
         caching.cache.clear()
-        monkeypatch.setattr(inventory, "get_locations", lambda *a, **k: [])
+        monkeypatch.setattr(inventory, "get_locations", adb.async_of(lambda *a, **k: []))
         yield
         caching.cache.clear()
 
@@ -5281,11 +5333,7 @@ class TestHistoryRetention:
         self._alert(pg_database, "old-open", "open")  # started 400 days ago, still down
         self._change(pg_database, 100)
         self._change(pg_database, 5)
-        conn = db.get_conn()
-        try:
-            deleted = board_store.prune_alert_history(conn, 30)
-        finally:
-            conn.close()
+        deleted = adb.call(board_store.prune_alert_history, 30)
         assert deleted == {"alert_instances": 1, "site_level_changes": 1}
         assert self._devices(pg_database) == ["new-resolved", "old-open"]
         # Its events and cases went with it.
@@ -5296,28 +5344,19 @@ class TestHistoryRetention:
         monkeypatch.setattr(board_store, "RETENTION_BATCH_SIZE", 2)
         for i in range(5):
             self._alert(pg_database, f"d{i}", "resolved", resolved_days_ago=100)
-        conn = db.get_conn()
-        try:
-            assert board_store.prune_alert_history(conn, 30)["alert_instances"] == 5
-        finally:
-            conn.close()
+        assert adb.call(board_store.prune_alert_history, 30)["alert_instances"] == 5
         assert self._devices(pg_database) == []
 
     def test_off_by_default_and_once_a_day(self, pg_database, monkeypatch):
         self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
-        conn = db.get_conn()
-        try:
-            monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 0)
-            assert alerts.maybe_prune_alert_history(conn) is None
-            assert self._devices(pg_database) == ["old-resolved"]
-
-            monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
-            assert alerts.maybe_prune_alert_history(conn)["alert_instances"] == 1
-            self._alert(pg_database, "later", "resolved", resolved_days_ago=100)
-            assert alerts.maybe_prune_alert_history(conn) is None  # already ran today
-            assert self._devices(pg_database) == ["later"]
-        finally:
-            conn.close()
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 0)
+        assert adb.call(alerts.maybe_prune_alert_history) is None
+        assert self._devices(pg_database) == ["old-resolved"]
+        monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
+        assert adb.call(alerts.maybe_prune_alert_history)["alert_instances"] == 1
+        self._alert(pg_database, "later", "resolved", resolved_days_ago=100)
+        assert adb.call(alerts.maybe_prune_alert_history) is None  # already ran today
+        assert self._devices(pg_database) == ["later"]
 
     def test_scheduler_tick_runs_retention(self, pg_database, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
@@ -5363,17 +5402,21 @@ class TestMetrics:
         assert self._value(body, "nautobot_maps_sync_last_duration_seconds" + src) == 10
 
     def test_alert_and_site_counts(self, pg_database, flask_client):
-        alerts.upsert_alert_lifecycle_for_site(
-            {"id": "loc-1", "name": "Site One"},
-            [
-                {"id": "d1", "name": "sw1", "status": "offline"},
-                {"id": "d2", "name": "sw2", "status": "offline"},
-            ],
-            {"level": "critical", "reason": "all down"},
-            timeutil.iso_utc_now(),
+        asyncio.run(
+            alerts.upsert_alert_lifecycle_for_site(
+                {"id": "loc-1", "name": "Site One"},
+                [
+                    {"id": "d1", "name": "sw1", "status": "offline"},
+                    {"id": "d2", "name": "sw2", "status": "offline"},
+                ],
+                {"level": "critical", "reason": "all down"},
+                timeutil.iso_utc_now(),
+            )
         )
-        alerts.record_site_level_changes(
-            {"s1": ("One", "ok"), "s2": ("Two", "ok"), "s3": ("Three", "low")}, "now"
+        asyncio.run(
+            alerts.record_site_level_changes(
+                {"s1": ("One", "ok"), "s2": ("Two", "ok"), "s3": ("Three", "low")}, "now"
+            )
         )
         resp = flask_client.get("/metrics")
         assert resp.headers["Content-Type"].startswith("text/plain; version=0.0.4")
@@ -5737,14 +5780,18 @@ class TestLocationAlertLevels:
         levels = flask_client.get("/api/v1/location-alerts").get_json()["levels"]
         with patch.object(nautobot, "fetch_all_pages", return_value=[]):
             for location_id in ("loc-core", "loc-few", "loc-ok"):
-                detail = alerts.get_location_detail(location_id, location_type="Data Center")
+                detail = asyncio.run(
+                    alerts.get_location_detail(location_id, location_type="Data Center")
+                )
                 expected = levels.get(location_id, {}).get("level", "ok")
                 assert detail["alert"]["level"] == expected
 
     def test_the_site_panel_marks_core_devices(self, flask_client):
         """Core devices first in the panel's down list (#394): by role, or an override."""
         with patch.object(nautobot, "fetch_all_pages", return_value=[]):
-            detail = alerts.get_location_detail("loc-core", location_type="Data Center")
+            detail = asyncio.run(
+                alerts.get_location_detail("loc-core", location_type="Data Center")
+            )
         assert {d["name"]: d["core"] for d in detail["devices"]} == {"core-1": True, "acc-1": False}
         # And the level each gives the site, as the board weighs it (#377).
         assert {d["name"]: d["level"] for d in detail["devices"]} == {
@@ -5761,7 +5808,7 @@ class TestLocationAlertLevels:
         finally:
             conn.close()
         with patch.object(nautobot, "fetch_all_pages", return_value=[]):
-            detail = alerts.get_location_detail("loc-few", location_type="Data Center")
+            detail = asyncio.run(alerts.get_location_detail("loc-few", location_type="Data Center"))
         assert [d["id"] for d in detail["devices"] if d["core"]] == ["few-1"]
 
     def test_criticality_override_is_applied(self, flask_client):
@@ -6157,10 +6204,10 @@ class TestTenantDescriptions:
                 ]
             return fetch(endpoint, params, **kwargs)
 
-        monkeypatch.setattr(db, "get_conn", lambda *args, **kwargs: None)
+        monkeypatch.setattr(inventory, "read_locations", adb.async_of(lambda **kwargs: []))
         monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
         monkeypatch.setattr(nautobot, "fetch_all_pages", live)
-        by_name = {loc["name"]: loc for loc in inventory.get_locations()}
+        by_name = {loc["name"]: loc for loc in asyncio.run(inventory.get_locations())}
         assert by_name["London"]["tenant_descriptions"] == {"Acme Corp": "Bank, 24/7 SLA"}
         assert by_name["Paris"]["tenant_descriptions"] == {}  # EuroIX has no description
 
@@ -6168,7 +6215,7 @@ class TestTenantDescriptions:
         self._sync(monkeypatch)
         monkeypatch.setattr(inventory, "fetch_tenants", lambda: None)
         self._sync(monkeypatch)
-        assert inventory.read_tenant_descriptions() == {
+        assert asyncio.run(inventory.read_tenant_descriptions()) == {
             "Acme Corp": "Bank, 24/7 SLA",
             "Nordic Net": "Shared rack",
         }
@@ -6237,14 +6284,7 @@ class TestLibreNMSMappingsAreBatched:
             conn.close()
 
     def _count_connections(self):
-        counter = {"n": 0}
-        real = db.get_conn
-
-        def counting(*args, **kwargs):
-            counter["n"] += 1
-            return real(*args, **kwargs)
-
-        return counter, patch.object(db, "get_conn", side_effect=counting)
+        return adb.counting_connections()
 
     def test_board_build_uses_a_few_connections(self):
         counter, patched = self._count_connections()
@@ -6254,31 +6294,31 @@ class TestLibreNMSMappingsAreBatched:
                 nautobot, "fetch_all_pages", side_effect=AssertionError("no upstream calls")
             ),
         ):
-            board = alerts.get_alert_board_data()
+            board = asyncio.run(alerts.get_alert_board_data())
         (site,) = board["alerts"]
         assert site["down_device_count"] == 1
         # Before #240 this was one connection per newly matched device.
-        assert counter["n"] < 15, counter["n"]
+        assert counter["taken"] < 15, counter["taken"]
         mappings = self._mappings()
         assert len(mappings) == self.DEVICES
         assert mappings["dev-7"] == 1007
 
     def test_map_levels_store_mappings_in_one_batch(self):
         # The map reads the board's rows (#316); the scheduler keeps it cached.
-        alerts.cached_alert_board()
+        asyncio.run(alerts.cached_alert_board())
         counter, patched = self._count_connections()
         with patched:
-            levels = alerts.build_location_alert_levels()["levels"]
+            levels = asyncio.run(alerts.build_location_alert_levels())["levels"]
         assert levels["loc-1"]["level"] == "low"
-        assert counter["n"] < 10, counter["n"]
+        assert counter["taken"] < 10, counter["taken"]
         assert len(self._mappings()) == self.DEVICES
 
     def test_persisted_mappings_win_and_are_not_rewritten(self):
-        board_store.store_librenms_maps({"dev-1": (1000, "sw0.corp.example")})
+        asyncio.run(board_store.store_librenms_maps({"dev-1": (1000, "sw0.corp.example")}))
         with patch.object(
             board_store, "store_librenms_maps", wraps=board_store.store_librenms_maps
         ) as store:
-            board = alerts.get_alert_board_data()
+            board = asyncio.run(alerts.get_alert_board_data())
         # dev-1 is mapped to LibreNMS device 1000, which is down.
         down = {d["device_id"] for d in board["alerts"][0]["down_devices"]}
         assert down == {"dev-0", "dev-1"}
@@ -6288,13 +6328,13 @@ class TestLibreNMSMappingsAreBatched:
     def test_enrich_on_its_own_writes_once(self):
         devices = [{"id": f"dev-{n}", "name": f"sw{n}", "status": "Active"} for n in range(5)]
         with patch.object(board_store, "store_librenms_maps") as store:
-            alerts.enrich_with_librenms(devices, snapshot_only=True)
+            asyncio.run(alerts.enrich_with_librenms(devices, snapshot_only=True))
         store.assert_called_once()
         assert set(store.call_args.args[0]) == {f"dev-{n}" for n in range(5)}
 
     def test_a_failed_write_does_not_fail_the_board(self, caplog):
-        with patch.object(db, "transaction", side_effect=RuntimeError("db gone")):
-            board_store.store_librenms_maps({"dev-1": (1, "sw1")})
+        with patch.object(aconnection, "connect", side_effect=RuntimeError("db gone")):
+            asyncio.run(board_store.store_librenms_maps({"dev-1": (1, "sw1")}))
         assert "Could not store 1 LibreNMS device mappings" in caplog.text
 
 

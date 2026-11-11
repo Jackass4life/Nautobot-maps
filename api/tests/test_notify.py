@@ -107,11 +107,15 @@ def outbox():
 
 def change(levels_before, levels_after, sites=None):
     """Record two board builds: the first sets the levels, the second changes them."""
-    alerts.record_site_level_changes(
-        {k: ("", v) for k, v in levels_before.items()}, "2026-10-09T11:00:00Z"
+    asyncio.run(
+        alerts.record_site_level_changes(
+            {k: ("", v) for k, v in levels_before.items()}, "2026-10-09T11:00:00Z"
+        )
     )
-    alerts.record_site_level_changes(
-        {k: ("", v) for k, v in levels_after.items()}, NOW, sites or {}
+    asyncio.run(
+        alerts.record_site_level_changes(
+            {k: ("", v) for k, v in levels_after.items()}, NOW, sites or {}
+        )
     )
 
 
@@ -167,8 +171,10 @@ class TestOutbox:
         assert outbox() == []
 
     def test_a_change_queues_one_row_per_channel_in_the_same_transaction(self, channels):
-        alerts.record_site_level_changes(
-            {"loc-9": ("New site", "critical")}, NOW, {"loc-9": site("loc-9")}
+        asyncio.run(
+            alerts.record_site_level_changes(
+                {"loc-9": ("New site", "critical")}, NOW, {"loc-9": site("loc-9")}
+            )
         )
         assert outbox() == [], "a site's first level is not a change"
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
@@ -414,7 +420,7 @@ class TestScheduler:
         monkeypatch.setattr(
             scheduler.alerts,
             "build_alert_board_payload",
-            lambda **kwargs: calls.append("build") or {},
+            adb.async_of(lambda **kwargs: calls.append("build") or {}),
         )
         assert adb.worker(scheduler.tick) is True
         assert calls == ["send", "sync", "build", "send"]

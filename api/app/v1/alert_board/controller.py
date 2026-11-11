@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
 from app.db import aconnection
 from app.db import connection as db
@@ -53,7 +54,7 @@ NO_OPEN_ALERT = {
         503: {"model": common.Error, "description": "Nautobot is not configured"},
     },
 )
-def api_alerts(query: Annotated[dtos.BoardQuery, Query()]):
+async def api_alerts(query: Annotated[dtos.BoardQuery, Query()]):
     """Return alert-board summaries for all Nautobot locations.
 
     Read from the persisted inventory snapshot; never calls Nautobot or
@@ -85,7 +86,7 @@ def api_alerts(query: Annotated[dtos.BoardQuery, Query()]):
     }
     try:
         return deps.Json(
-            alerts.get_alert_board_data(
+            await alerts.get_alert_board_data(
                 force_refresh=force_refresh,
                 include_non_operational=include_non_operational,
             )
@@ -109,25 +110,25 @@ def api_alerts(query: Annotated[dtos.BoardQuery, Query()]):
     responses=NO_DATABASE,
     dependencies=[deps.require_role("operator")],
 )
-def api_list_criticality_overrides():
+async def api_list_criticality_overrides():
     """Return all per-device criticality overrides stored in the DB.
 
     Returns 503 when the persistence DB is not configured.
     """
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    conn, close = await aconnection.open_connection()
     try:
-        rows = conn.execute(
-            "SELECT nautobot_device_id, is_critical, reason, updated_by, updated_at "
-            "FROM device_criticality_override ORDER BY updated_at DESC"
+        rows = (
+            await conn.execute(
+                "SELECT nautobot_device_id, is_critical, reason, updated_by, updated_at "
+                "FROM device_criticality_override ORDER BY updated_at DESC"
+            )
         ).fetchall()
         return deps.Json({"overrides": [db.row_to_dict(r) for r in rows]})
     except Exception as exc:
         logger.exception("Could not list criticality overrides: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
-        conn.close()
+        await close()
 
 
 @router.post(
@@ -138,7 +139,7 @@ def api_list_criticality_overrides():
     openapi_extra=deps.body_schema(dtos.CriticalityOverride),
     dependencies=[deps.require_role("operator")],
 )
-def api_set_criticality_override(body: Body):
+async def api_set_criticality_override(body: Body):
     """Create or update a per-device criticality override.
 
     Expected JSON body::
@@ -152,13 +153,11 @@ def api_set_criticality_override(body: Body):
 
     Returns 503 when the DB is not configured.
     """
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    conn, close = await aconnection.open_connection()
     body = body or {}
     device_id = (body.get("nautobot_device_id") or "").strip()
     if not device_id:
-        conn.close()
+        await close()
         return deps.Json({"error": "nautobot_device_id is required"}, status_code=400)
     is_critical = bool(body.get("is_critical", True))
     reason = (body.get("reason") or "").strip()
@@ -166,14 +165,12 @@ def api_set_criticality_override(body: Body):
     if not updated_by:
         updated_by = auth.get_current_user().get("username", "")
     try:
-        with db.transaction(conn):
-            p0, p1, p2, p3 = db.placeholders(4).split(",")
-            now_sql = db.sql_now()
-            conn.execute(
-                f"""
+        async with conn.transaction():
+            await conn.execute(
+                """
                 INSERT INTO device_criticality_override
                     (nautobot_device_id, is_critical, reason, updated_by, updated_at)
-                VALUES ({p0}, {p1}, {p2}, {p3}, {now_sql})
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
                 ON CONFLICT(nautobot_device_id) DO UPDATE SET
                     is_critical = excluded.is_critical,
                     reason      = excluded.reason,
@@ -189,7 +186,7 @@ def api_set_criticality_override(body: Body):
         logger.exception("Could not set criticality override: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
-        conn.close()
+        await close()
 
 
 @router.delete(
@@ -202,20 +199,17 @@ def api_set_criticality_override(body: Body):
     },
     dependencies=[deps.require_role("operator")],
 )
-def api_delete_criticality_override(device_id: str):
+async def api_delete_criticality_override(device_id: str):
     """Delete a per-device criticality override.
 
     Returns 404 if no override exists for the given device ID.
     Returns 503 when the DB is not configured.
     """
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    conn, close = await aconnection.open_connection()
     try:
-        with db.transaction(conn):
-            marker = db.placeholders(1)
-            cur = conn.execute(
-                f"DELETE FROM device_criticality_override WHERE nautobot_device_id = {marker}",
+        async with conn.transaction():
+            cur = await conn.execute(
+                "DELETE FROM device_criticality_override WHERE nautobot_device_id = %s",
                 (device_id,),
             )
         if cur.rowcount == 0:
@@ -225,7 +219,7 @@ def api_delete_criticality_override(device_id: str):
         logger.exception("Could not delete criticality override: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
-        conn.close()
+        await close()
 
 
 # Most entries /api/alert-feed returns at once.
@@ -243,7 +237,7 @@ MAX_FEED_ENTRIES = 500
         }
     },
 )
-def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Query()]):
+async def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Query()]):
     """What changed on the alert board, newest first (#180).
 
     Devices going down and back up, and site severity changes.  Query
@@ -269,16 +263,14 @@ def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Query()]):
     if unknown:
         return deps.Json({"error": f"Unknown kinds: {', '.join(unknown)}"}, status_code=400)
     page_scope = scope.read_scope(request.query_params)
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json({"events": [], "persistence_configured": False})
+    conn, close = await aconnection.open_connection()
     try:
         site_ids = None
         if page_scope is not None:
             # A board for some sites only (#369): matched on the stored locations
             # (every one, excluded ones too, as they are now: tenant, path, name),
             # a database read, never a board build.
-            locations = inventory.read_locations(include_without_coordinates=True, conn=conn)
+            locations = await inventory.read_locations(include_without_coordinates=True, conn=conn)
             if not locations:
                 # Not synced yet, or the read failed: an empty feed would look like
                 # an all-clear for these sites, so say so instead.
@@ -291,7 +283,7 @@ def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Query()]):
                 for loc in locations
                 if loc.get("id") and scope.in_scope(loc, page_scope)
             ]
-        events = board_store.read_alert_feed(
+        events = await board_store.read_alert_feed(
             conn, limit, since, kinds or alerts.FEED_KINDS, site_ids
         )
         result = {"events": events, "persistence_configured": True}
@@ -303,7 +295,7 @@ def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Query()]):
         logger.exception("Could not read the alert feed: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
-        conn.close()
+        await close()
 
 
 @router.get(
@@ -313,16 +305,14 @@ def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Query()]):
     responses=NO_DATABASE,
     dependencies=[deps.require_role("operator")],
 )
-def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
+async def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
     """Return historical alert instances with events and case numbers.
 
     Newest down first (by when the device went down), at most 500.  Query parameters filter them: ``site_id``,
     ``device_id``, and ``start_at`` / ``end_at``: only incidents created at
     or after / at or before this ISO-8601 time.
     """
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    conn, close = await aconnection.open_connection()
     site_id = query.site_id or ""
     device_id = query.device_id or ""
     start_at = query.start_at or ""
@@ -343,20 +333,21 @@ def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
         conditions = []
         params = []
         if site_id:
-            conditions.append(f"site_id = {db.placeholders(1)}")
+            conditions.append("site_id = %s")
             params.append(site_id)
         if device_id:
-            conditions.append(f"device_id = {db.placeholders(1)}")
+            conditions.append("device_id = %s")
             params.append(device_id)
         if start_at:
-            conditions.append(f"created_at >= {db.placeholders(1)}")
+            conditions.append("created_at >= %s::text::timestamptz")
             params.append(start_at)
         if end_at:
-            conditions.append(f"created_at <= {db.placeholders(1)}")
+            conditions.append("created_at <= %s::text::timestamptz")
             params.append(end_at)
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        rows = conn.execute(
-            f"""
+        rows = (
+            await conn.execute(
+                f"""
             SELECT id, alert_key, site_id, site_name, device_id, device_name, alert_level,
                    alert_reason, status, down_started_at, last_seen_down_at, resolved_at,
                    total_downtime_seconds, created_at, updated_at, probable_cause
@@ -365,7 +356,8 @@ def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
             ORDER BY down_started_at DESC, id DESC
             LIMIT 500
             """,
-            tuple(params),
+                tuple(params),
+            )
         ).fetchall()
         instances = [db.row_to_dict(row) for row in rows]
         instance_ids = [row["id"] for row in instances if row.get("id") is not None]
@@ -377,23 +369,27 @@ def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
         }
         if instance_ids:
             markers = db.placeholders(len(instance_ids))
-            ev_rows = conn.execute(
-                f"""
+            ev_rows = (
+                await conn.execute(
+                    f"""
                 SELECT alert_instance_id, event_type, event_at, alert_level, alert_reason, snapshot_json
                 FROM alert_events
                 WHERE alert_instance_id IN ({markers})
                 ORDER BY alert_instance_id ASC, id ASC
                 """,
-                tuple(instance_ids),
+                    tuple(instance_ids),
+                )
             ).fetchall()
-            case_rows = conn.execute(
-                f"""
+            case_rows = (
+                await conn.execute(
+                    f"""
                 SELECT alert_instance_id, case_number, created_by, created_at
                 FROM alert_cases
                 WHERE alert_instance_id IN ({markers})
                 ORDER BY alert_instance_id ASC, id DESC
                 """,
-                tuple(instance_ids),
+                    tuple(instance_ids),
+                )
             ).fetchall()
             for ev_row in ev_rows:
                 event = db.row_to_dict(ev_row)
@@ -416,7 +412,7 @@ def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
         logger.exception("Could not fetch alert history: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
-        conn.close()
+        await close()
 
 
 @router.get(
@@ -489,7 +485,7 @@ async def api_alert_history_csv(query: Annotated[dtos.HistoryCsvQuery, Query()])
 MAX_CASE_DEVICES = 200
 
 
-def _acknowledge(body, clear: bool):
+async def _acknowledge(body, clear: bool):
     if not isinstance(body, dict):
         return deps.Json({"error": "Expected a JSON object"}, status_code=400)
     site_id = body.get("site_id").strip() if isinstance(body.get("site_id"), str) else ""
@@ -521,14 +517,12 @@ def _acknowledge(body, clear: bool):
         return deps.Json(
             {"error": f"At most {MAX_CASE_DEVICES} devices per request"}, status_code=400
         )
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    conn, close = await aconnection.open_connection()
     by = (auth.get_current_user().get("username") or "").strip()
     try:
-        result = alerts.acknowledge(conn, site_id, device_ids, by, note, clear=clear)
+        result = await alerts.acknowledge(conn, site_id, device_ids, by, note, clear=clear)
     finally:
-        conn.close()
+        await close()
     if result["missing"]:
         return deps.Json(
             {
@@ -537,7 +531,7 @@ def _acknowledge(body, clear: bool):
             },
             status_code=404,
         )
-    scheduler.board_changed()
+    await run_in_threadpool(scheduler.board_changed)
     return deps.Json({"site_id": site_id, "changed": result["changed"]})
 
 
@@ -549,14 +543,14 @@ def _acknowledge(body, clear: bool):
     openapi_extra=deps.body_schema(dtos.Acknowledge),
     dependencies=[deps.require_role("operator", open_when_disabled=True)],
 )
-def api_acknowledge(body: Body):
+async def api_acknowledge(body: Body):
     """Acknowledge a site's alarm (#288): someone is on it, without a case number.
 
     JSON body: ``site_id``, optional ``device_ids`` (default: every device
     with an open alert at the site) and ``note``.  Shown on the board and the
     wall until the alarm ends; recorded in the history.
     """
-    return _acknowledge(body, clear=False)
+    return await _acknowledge(body, clear=False)
 
 
 @router.post(
@@ -567,9 +561,9 @@ def api_acknowledge(body: Body):
     openapi_extra=deps.body_schema(dtos.Acknowledge),
     dependencies=[deps.require_role("operator", open_when_disabled=True)],
 )
-def api_unacknowledge(body: Body):
+async def api_unacknowledge(body: Body):
     """Remove an acknowledgement (#288): ``site_id``, optional ``device_ids``."""
-    return _acknowledge(body, clear=True)
+    return await _acknowledge(body, clear=True)
 
 
 @router.post(
@@ -580,7 +574,7 @@ def api_unacknowledge(body: Body):
     openapi_extra=deps.body_schema(dtos.AlertCase),
     dependencies=[deps.require_role("operator", open_when_disabled=True)],
 )
-def api_add_alert_case(body: Body):
+async def api_add_alert_case(body: Body):
     """Attach a case number to the open alert of one or more devices at a site.
 
     JSON body: ``site_id``, ``case_number`` and either ``device_ids`` (list)
@@ -612,24 +606,23 @@ def api_add_alert_case(body: Body):
             {"error": f"At most {MAX_CASE_DEVICES} devices per request"}, status_code=400
         )
 
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
+    conn, close = await aconnection.open_connection()
     created_by = (auth.get_current_user().get("username") or "").strip()
     try:
-        with db.transaction(conn):
+        async with conn.transaction():
             instance_ids: dict[str, int] = {}
             for device_id in device_ids:
-                p0, p1 = db.placeholders(2).split(",")
-                row = conn.execute(
-                    f"""
+                row = (
+                    await conn.execute(
+                        """
                     SELECT id
                     FROM alert_instances
-                    WHERE site_id = {p0} AND device_id = {p1} AND status = 'open'
+                    WHERE site_id = %s AND device_id = %s AND status = 'open'
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (site_id, device_id),
+                        (site_id, device_id),
+                    )
                 ).fetchone()
                 if row is not None:
                     instance_ids[device_id] = db.row_to_dict(row)["id"]
@@ -643,17 +636,16 @@ def api_add_alert_case(body: Body):
                     status_code=404,
                 )
             for device_id in device_ids:
-                p0, p1, p2 = db.placeholders(3).split(",")
-                conn.execute(
-                    f"""
+                await conn.execute(
+                    """
                     INSERT INTO alert_cases (alert_instance_id, case_number, created_by, created_at)
-                    VALUES ({p0}, {p1}, {p2}, {db.sql_now()})
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT(alert_instance_id, case_number) DO NOTHING
                     """,
                     (instance_ids[device_id], case_number, created_by),
                 )
         # The board payload embeds case numbers; drop it so the new case shows.
-        scheduler.board_changed()
+        await run_in_threadpool(scheduler.board_changed)
         result = {
             "status": "ok",
             "site_id": site_id,
@@ -672,7 +664,7 @@ def api_add_alert_case(body: Body):
         logger.exception("Could not add alert case: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
     finally:
-        conn.close()
+        await close()
 
 
 @router.get("/alerts", name="pages.alert_board", include_in_schema=False)
