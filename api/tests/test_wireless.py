@@ -22,6 +22,7 @@ from app.services import notify_service as notify
 from app.services import scheduler
 from app.services import status_service as status
 from app.services import wireless_service as wireless
+from tests import db as adb
 from tests import test_maintenance, upstream
 from tests.test_app import _snapshot_device, _snapshot_location
 
@@ -941,8 +942,8 @@ class TestOnTheBoard:
                 for r in conn.execute("SELECT device_id, access_point FROM alert_instances")
             }
             feed = board_store.read_alert_feed(conn, 50)
-            incidents = availability.read_incidents(
-                conn,
+            incidents = adb.call(
+                availability.read_incidents,
                 _utc("2026-10-01T00:00:00Z"),
                 _utc("2026-11-01T00:00:00Z"),
                 _utc(test_maintenance.NOW),

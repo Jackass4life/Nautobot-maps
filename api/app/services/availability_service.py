@@ -17,9 +17,11 @@ Ported from nautobot_maps/availability.py (#602): only the imports changed.
 """
 
 import re
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import export_service as export
@@ -187,12 +189,16 @@ def seconds(intervals: list[Interval]) -> int:
 # --- reading --------------------------------------------------------------
 
 
-def read_maintenance(conn, start: datetime, end: datetime) -> tuple[dict, dict]:
+async def read_maintenance(
+    conn: aconnection.Connection, start: datetime, end: datetime
+) -> tuple[dict, dict]:
     """``({site_id: [interval]}, {device_id: [interval]})`` of the windows in the period."""
-    rows = conn.execute(
-        "SELECT site_id, device_id, starts_at, ends_at, ended_at FROM maintenance_windows "
-        "WHERE starts_at < %s AND ends_at > %s AND (ended_at IS NULL OR ended_at > starts_at)",
-        (end, start),
+    rows = (
+        await conn.execute(
+            "SELECT site_id, device_id, starts_at, ends_at, ended_at FROM maintenance_windows "
+            "WHERE starts_at < %s AND ends_at > %s AND (ended_at IS NULL OR ended_at > starts_at)",
+            (end, start),
+        )
     ).fetchall()
     sites: dict[str, list] = {}
     devices: dict[str, list] = {}
@@ -228,13 +234,17 @@ def _down_span(row, at: datetime) -> Interval | None:
     return None if down is None or up <= down else (down, up)
 
 
-def read_incidents(conn, start: datetime, end: datetime, at: datetime) -> dict:
+async def read_incidents(
+    conn: aconnection.Connection, start: datetime, end: datetime, at: datetime
+) -> dict:
     """``{site_id: {"name", "incidents", "devices": {device_id: [interval]}}}`` of incidents
     down at any point in the period; an open one is down until *at*."""
-    rows = conn.execute(
-        "SELECT i.site_id, i.site_name, i.device_id, i.down_started_at, i.resolved_at "
-        f"FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD}",
-        (start, end),
+    rows = (
+        await conn.execute(
+            "SELECT i.site_id, i.site_name, i.device_id, i.down_started_at, i.resolved_at "
+            f"FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD}",
+            (start, end),
+        )
     ).fetchall()
     sites: dict[str, dict] = {}
     for row in rows:
@@ -250,7 +260,7 @@ def read_incidents(conn, start: datetime, end: datetime, at: datetime) -> dict:
     return sites
 
 
-def read_critical(conn, start: datetime, end: datetime) -> dict:
+async def read_critical(conn: aconnection.Connection, start: datetime, end: datetime) -> dict:
     """``{site_id: {"name", "intervals"}}``: when each site was at Critical in the period.
 
     The level at the start is the one the last earlier change set; with no
@@ -261,7 +271,7 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
     # Only what the period needs: the changes in it, and per site the last
     # one before it and the first one after it (#287), not the whole history.
     columns = "site_id, site_name, from_level, to_level, changed_at, id"
-    rows = conn.execute(
+    result = await conn.execute(
         f"""
         (SELECT {columns} FROM site_level_changes WHERE changed_at > %(start)s AND changed_at < %(end)s)
         UNION ALL
@@ -273,7 +283,8 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
         ORDER BY site_id, changed_at, id
         """,
         {"start": start, "end": end},
-    ).fetchall()
+    )
+    rows = result.fetchall()
     by_site: dict[str, list] = {}
     for row in rows:
         # Each change's time parsed once, not in every filter below.
@@ -282,9 +293,10 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
         )
     sites = {}
     first_seen = {}
-    for row in conn.execute(
+    levels = await conn.execute(
         "SELECT site_id, site_name, alert_level, updated_at, first_seen_at FROM site_alert_levels"
-    ).fetchall():
+    )
+    for row in levels.fetchall():
         first_seen[row["site_id"]] = timeutil.as_utc_datetime(row["first_seen_at"])
         if row["site_id"] in by_site or row["alert_level"] != "critical":
             continue
@@ -324,8 +336,8 @@ def read_critical(conn, start: datetime, end: datetime) -> dict:
 # --- the report -----------------------------------------------------------
 
 
-def report(
-    conn,
+async def report(
+    conn: aconnection.Connection,
     month: str | None = None,
     basis: str | None = None,
     sites: list | None = None,
@@ -356,7 +368,7 @@ def report(
             f"{settings.ALERT_HISTORY_RETENTION_DAYS}): {asked['label']} can't be reported in full"
         )
     period = int((end - start).total_seconds())
-    site_windows, device_windows = read_maintenance(conn, start, end)
+    site_windows, device_windows = await read_maintenance(conn, start, end)
 
     rows: dict[str, dict] = {}
     # Every board site's name, tenants and details, also for one listed only because of its history.
@@ -371,7 +383,7 @@ def report(
             rows[site["id"]] = known[site["id"]]
 
     # The incidents count, and list a site only in the history, whatever the basis.
-    site_incidents = read_incidents(conn, start, end, at)
+    site_incidents = await read_incidents(conn, start, end, at)
     for site_id, data in site_incidents.items():
         row = rows.setdefault(site_id, known.get(site_id) or _site_row(site_id, data["name"]))
         row["incidents"] = data["incidents"]
@@ -383,7 +395,7 @@ def report(
             down = subtract(clip(down, start, end), site_windows.get(site_id, []))
             _set_downtime(rows[site_id], down, end)
     else:
-        for site_id, data in read_critical(conn, start, end).items():
+        for site_id, data in (await read_critical(conn, start, end)).items():
             down = subtract(clip(data["intervals"], start, end), site_windows.get(site_id, []))
             row = rows.setdefault(site_id, known.get(site_id) or _site_row(site_id, data["name"]))
             _set_downtime(row, down, end)
@@ -416,7 +428,7 @@ def report(
     )
     # The descriptions of the tenants listed, for their (i) (#342).
     descriptions = status.tenant_descriptions(sites or [])
-    if with_incidents and _incidents_exceed(conn, start, end, INCIDENT_EXPORT_LIMIT):
+    if with_incidents and await _incidents_exceed(conn, start, end, INCIDENT_EXPORT_LIMIT):
         raise ReportError(f"More than {INCIDENT_EXPORT_LIMIT:,} incidents: choose a shorter period")
     result = {
         "month": asked["month"],
@@ -527,16 +539,20 @@ def format_downtime(seconds: int) -> str:
 INCIDENT_EXPORT_LIMIT = 200_000
 
 
-def _incidents_exceed(conn, start: datetime, end: datetime, limit: int) -> bool:
+async def _incidents_exceed(
+    conn: aconnection.Connection, start: datetime, end: datetime, limit: int
+) -> bool:
     """Whether the period has more than *limit* incidents: one index probe, before streaming."""
-    row = conn.execute(
-        f"SELECT 1 FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD} OFFSET %s LIMIT 1",
-        (start, end, limit),
+    row = (
+        await conn.execute(
+            f"SELECT 1 AS found FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD} OFFSET %s LIMIT 1",
+            (start, end, limit),
+        )
     ).fetchone()
     return row is not None
 
 
-def _incident_stream(conn, start, end, at, site_windows, device_windows, site_rows):
+async def _incident_stream(conn, start, end, at, site_windows, device_windows, site_rows):
     """Every device incident in the period (#354), oldest first, a row (dict by
     INCIDENT_COLUMNS) at a time from a server-side cursor: when it was down
     and up, the minutes in the period and those counted after maintenance,
@@ -544,15 +560,14 @@ def _incident_stream(conn, start, end, at, site_windows, device_windows, site_ro
     once (*site_rows*: the report's, with name, path and tenants)."""
     sites: dict[str, tuple] = {}
     holes: dict[tuple, list] = {}
-    with conn.transaction(), conn.cursor(name="availability_incidents_export") as cursor:
-        cursor.itersize = 2000
-        cursor.execute(
+    async with conn.transaction():
+        rows = conn.stream(
             "SELECT i.site_id, i.site_name, i.device_id, i.device_name, i.down_started_at, i.resolved_at, "
             f"i.probable_cause, {export.CASES_SQL} AS cases "
             f"FROM alert_instances i WHERE {INCIDENTS_IN_PERIOD} ORDER BY i.down_started_at, i.id",
             (start, end),
         )
-        for row in cursor:
+        async for row in rows:
             span = _down_span(row, at)
             if span is None:
                 continue
@@ -656,7 +671,7 @@ def _view(data: dict, view: str) -> tuple[tuple, object]:
     """``(columns, rows)`` of one export view: ``sites``, ``tenants`` or
     ``incidents`` (from ``report(with_incidents=True)``, streamed)."""
     if view == "incidents":
-        return INCIDENT_COLUMNS, (tuple(r[c] for c in INCIDENT_COLUMNS) for r in data["incidents"])
+        return INCIDENT_COLUMNS, _incident_rows(data["incidents"])
     before = (data["month"] or "", data["basis"])
     after = (data["period"]["from"], data["period"]["to"])
     if view == "tenants":
@@ -724,16 +739,28 @@ def _view(data: dict, view: str) -> tuple[tuple, object]:
     return columns, rows
 
 
-def csv_lines(data: dict, view: str, header: bool = False, generated_by: str = ""):
+async def _incident_rows(incidents: AsyncIterator[dict]) -> AsyncIterator[tuple]:
+    async for r in incidents:
+        yield tuple(r[c] for c in INCIDENT_COLUMNS)
+
+
+async def csv_lines(
+    data: dict, view: str, header: bool = False, generated_by: str = ""
+) -> AsyncIterator[str]:
     """The report as CSV lines, to stream (formula-safe): one view (``_view``),
-    with the report's header first when *header* (#354)."""
+    with the report's header first when *header* (#354). Async: the incidents
+    view reads them from the database as it goes."""
     columns, rows = _view(data, view)
     lines = [*(header_lines(data, generated_by) if header else []), columns]
     yield export.csv_header(lines[0])
     for line in lines[1:]:
         yield export.csv_line(line)
-    for row in rows:
-        yield export.csv_line(row)
+    if isinstance(rows, AsyncIterator):
+        async for row in rows:
+            yield export.csv_line(row)
+    else:
+        for row in rows:
+            yield export.csv_line(row)
 
 
 def board_sites() -> list[dict]:

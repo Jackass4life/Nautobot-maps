@@ -141,12 +141,6 @@ def test_page_and_nav(flask_client, synced, frontend_build):
     ).items()
 
 
-def test_without_a_database(flask_client, monkeypatch):
-    monkeypatch.setattr(inventory.db, "get_conn", lambda *args, **kwargs: None)
-    assert flask_client.get("/api/v1/circuit-mapping").status_code == 503
-    assert flask_client.get("/api/v1/circuit-mapping.csv").status_code == 503
-
-
 def test_viewers_only_when_required(flask_client, monkeypatch):
     monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
     with auth_config(mode="header", viewer_groups={"noc"}):

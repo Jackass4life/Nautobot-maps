@@ -31,3 +31,12 @@ def call(function, *args, **kwargs):  # type: ignore[no-untyped-def]
             return await result
 
     return asyncio.run(go())
+
+
+def items(generator):  # type: ignore[no-untyped-def]
+    """An async generator's items as a list (one that needs no connection)."""
+
+    async def go():  # type: ignore[no-untyped-def]
+        return [item async for item in generator]
+
+    return asyncio.run(go())
