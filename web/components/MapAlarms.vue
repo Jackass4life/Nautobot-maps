@@ -26,7 +26,15 @@ function label(entry: AlarmSite, meta: string) {
 </script>
 
 <template>
-  <section id="alarm-section" aria-labelledby="alarm-title" class="min-h-0">
+  <!-- The rows scroll in their own box, never over the filters below (#647); with
+       three or more, the box keeps the heading, the counts and two rows, and below
+       that the whole panel scrolls (a phone with search results open). -->
+  <section
+    id="alarm-section"
+    aria-labelledby="alarm-title"
+    class="flex min-h-0 flex-col"
+    :class="{ 'min-h-48': shown.length > 2 }"
+  >
     <div class="alarm-header flex items-center justify-between gap-2">
       <h2 id="alarm-title" class="text-base font-semibold text-highlighted">
         <span id="alarm-count" class="alarm-count">{{ loaded ? title : "Alarms" }}</span>
@@ -44,7 +52,7 @@ function label(entry: AlarmSite, meta: string) {
       >Alarms only</UButton>
     </div>
     <p id="alarm-breakdown" class="alarm-breakdown text-xs text-muted">{{ breakdown }}</p>
-    <ol id="alarm-list" class="alarm-list mt-2 space-y-0.5">
+    <ol id="alarm-list" class="alarm-list mt-2 min-h-0 space-y-0.5 overflow-y-auto">
       <li v-if="!loaded" class="alarm-empty text-sm text-muted">Alert levels not loaded yet.</li>
       <li v-for="{ entry, meta } in rows" :key="entry.loc.id">
         <button
