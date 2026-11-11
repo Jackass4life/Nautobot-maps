@@ -1,7 +1,9 @@
 """The background scheduler (#600), ported from the current app's TestBackgroundScheduler.
 Its board parts (alert history recorded by the tick) come with the board (step 7)."""
 
-from unittest.mock import MagicMock, patch
+import asyncio
+import threading
+from unittest.mock import patch
 
 import pytest
 
@@ -64,57 +66,81 @@ def test_the_lock_is_the_current_apps():
 
 def test_loop_survives_a_failing_tick(monkeypatch):
     calls = []
-
-    def failing_tick():
-        calls.append(1)
-        if len(calls) == 2:
-            scheduler._stop.set()
-        raise RuntimeError("nautobot down")
-
-    monkeypatch.setattr(scheduler, "tick", failing_tick)
     monkeypatch.setattr(scheduler, "tick_seconds", lambda: 0)
-    scheduler._stop.clear()
-    try:
-        scheduler.loop()
-    finally:
-        scheduler._stop.clear()
+
+    async def run():
+        stop, running = asyncio.Event(), asyncio.get_running_loop()
+
+        def failing_tick():
+            calls.append(1)
+            if len(calls) == 2:
+                running.call_soon_threadsafe(stop.set)
+            raise RuntimeError("nautobot down")
+
+        monkeypatch.setattr(scheduler, "tick", failing_tick)
+        await asyncio.wait_for(scheduler.loop(stop), 5)
+
+    asyncio.run(run())
     assert len(calls) == 2
 
 
+def test_the_tick_runs_off_the_event_loop(monkeypatch):
+    """A slow tick (an inventory sync) never holds up the requests (#649)."""
+    seen = []
+    monkeypatch.setattr(scheduler, "tick_seconds", lambda: 0)
+
+    async def run():
+        stop, running = asyncio.Event(), asyncio.get_running_loop()
+
+        def tick():
+            seen.append(threading.current_thread() is threading.main_thread())
+            running.call_soon_threadsafe(stop.set)
+
+        monkeypatch.setattr(scheduler, "tick", tick)
+        await asyncio.wait_for(scheduler.loop(stop), 5)
+
+    asyncio.run(run())
+    assert seen == [False]
+
+
 def test_start_is_idempotent_and_respects_the_setting(monkeypatch):
-    started = []
     monkeypatch.setattr(scheduler, "_started", False)
-    monkeypatch.setattr(
-        scheduler.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock()
-    )
-    monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
-    assert scheduler.start() is False
-    monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
-    assert scheduler.start() is True
-    assert scheduler.start() is True
-    assert len(started) == 1
-    assert started[0]["daemon"] is True and started[0]["name"] == "background-scheduler"
+    monkeypatch.setattr(scheduler, "loop", _idle)
+
+    async def run():
+        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
+        assert scheduler.start() is False
+        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
+        assert scheduler.start() is True
+        first = scheduler._task
+        assert scheduler.start() is True
+        assert scheduler._task is first and first.get_name() == "background-scheduler"
+        scheduler.stop()
+        await asyncio.sleep(0)
+        assert first.cancelled() and scheduler._started is False
+
+    asyncio.run(run())
 
 
 def test_restart_does_not_clear_the_previous_workers_stop_event(monkeypatch):
-    started = []
     monkeypatch.setattr(scheduler, "_started", False)
-    monkeypatch.setattr(scheduler, "_stop", scheduler.threading.Event())
-    monkeypatch.setattr(
-        scheduler.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock()
-    )
+    monkeypatch.setattr(scheduler, "loop", _idle)
     monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
 
-    assert scheduler.start() is True
-    previous_stop = started[0]["args"][0]
-    scheduler.stop()
-    assert previous_stop.is_set()
+    async def run():
+        assert scheduler.start() is True
+        previous_stop = scheduler._stop
+        scheduler.stop()
+        assert previous_stop.is_set()
+        assert scheduler.start() is True
+        assert scheduler._stop is not previous_stop and not scheduler._stop.is_set()
+        scheduler.stop()
 
-    assert scheduler.start() is True
-    current_stop = started[1]["args"][0]
-    assert current_stop is not previous_stop
-    assert not current_stop.is_set()
-    started[0]["target"](*started[0]["args"])
+    asyncio.run(run())
+
+
+async def _idle(stop):
+    await stop.wait()
 
 
 def test_not_started_without_nautobot(monkeypatch):
