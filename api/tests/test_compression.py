@@ -9,10 +9,10 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.requests import Request
 
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.frontend import compression
 from app.services import token_service as tokens
 from app.v1 import deps
+from tests import db as adb
 from tests import http_client
 
 GZIP = {"Accept-Encoding": "gzip, deflate, br"}
@@ -116,11 +116,7 @@ class TestRealRequests:
     def test_a_new_token_is_never_compressed(self, flask_client, monkeypatch, pg_database):
         # The secret is shown once beside the name the flask_client gave it (BREACH): no-transform.
         monkeypatch.setattr(compression, "MIN_BYTES", 10)
-        conn = db.get_conn()
-        try:
-            admin = tokens.create(conn, {"name": "bootstrap", "role": "admin"}, "test")["token"]
-        finally:
-            conn.close()
+        admin = adb.run(tokens.create, {"name": "bootstrap", "role": "admin"}, "test")["token"]
         resp = flask_client.post(
             "/api/v1/tokens",
             json={"name": "script", "role": "viewer"},

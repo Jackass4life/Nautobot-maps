@@ -12,6 +12,7 @@ from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import scheduler
 from app.services import token_service as tokens
+from tests import db as adb
 from tests import http_client
 from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 
@@ -90,11 +91,7 @@ def flask_client(lnms):
 
 
 def operator_token() -> dict:
-    from app.db.session import SessionLocal
-
-    with SessionLocal() as session:
-        secret = tokens.create(session, {"name": "librenms", "role": "operator"}, "admin")["token"]
-        session.commit()
+    secret = adb.run(tokens.create, {"name": "librenms", "role": "operator"}, "admin")["token"]
     return {"Authorization": f"Bearer {secret}"}
 
 
@@ -298,11 +295,7 @@ class TestPush:
         assert (
             flask_client.post("/api/v1/librenms/alert", json={"device_id": 1000}).status_code == 403
         )  # disabled mode
-        conn = db.get_conn()
-        try:
-            viewer = tokens.create(conn, {"name": "reader", "role": "viewer"}, "admin")["token"]
-        finally:
-            conn.close()
+        viewer = adb.run(tokens.create, {"name": "reader", "role": "viewer"}, "admin")["token"]
         refused = flask_client.post(
             "/api/v1/librenms/alert",
             json={"device_id": 1000},

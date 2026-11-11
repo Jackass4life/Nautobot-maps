@@ -74,7 +74,7 @@ def head(db) -> str | None:
 def test_an_existing_database_is_adopted_with_its_data(scratch):
     db, url = scratch
     current_app_database(db, url)
-    assert migrate.migrate(db, url) == "adopt"
+    assert migrate.migrate(make_url(url)) == "adopt"
     with db.connect() as conn:
         token = conn.execute(text("SELECT name, role FROM api_tokens")).one()
         assert tuple(token) == ("ops", "operator")
@@ -86,12 +86,12 @@ def test_an_existing_database_is_adopted_with_its_data(scratch):
         assert conn.execute(text("SELECT to_regclass('items') IS NOT NULL")).scalar()
     assert head(db) != migrate.BASELINE
     # Started again: an ordinary upgrade, nothing adopted twice.
-    assert migrate.migrate(db, url) == "upgrade"
+    assert migrate.migrate(make_url(url)) == "upgrade"
 
 
 def test_an_empty_database_is_created(scratch):
     db, url = scratch
-    assert migrate.migrate(db, url) == "upgrade"
+    assert migrate.migrate(make_url(url)) == "upgrade"
     with db.connect() as conn:
         assert json.loads(json.dumps(snapshot(conn))) == SNAPSHOT
 
@@ -107,7 +107,7 @@ def test_another_version_is_refused(scratch, version, message):
     db, url = scratch
     current_app_database(db, url, version=version)
     with pytest.raises(migrate.MigrationRefused, match=re.escape(message)):
-        migrate.migrate(db, url)
+        migrate.migrate(make_url(url))
     with db.connect() as conn:
         assert not conn.execute(text("SELECT to_regclass('alembic_version') IS NOT NULL")).scalar()
 
@@ -118,7 +118,7 @@ def test_tables_without_a_migration_record_are_refused(scratch):
     with db.begin() as conn:
         conn.execute(text("DROP TABLE schema_migrations"))
     with pytest.raises(migrate.MigrationRefused, match="no schema_migrations record"):
-        migrate.migrate(db, url)
+        migrate.migrate(make_url(url))
 
 
 def migration_locks(conn) -> int:
@@ -142,7 +142,7 @@ def test_the_lock_is_released(scratch):
         with db.connect() as conn:
             assert migration_locks(conn) == 1, "the query sees the lock while it is held"
         holder.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": migrate.MIGRATION_LOCK_KEY})
-    migrate.migrate(db, url)
+    migrate.migrate(make_url(url))
     with db.connect() as conn:
         assert migration_locks(conn) == 0
 
@@ -151,11 +151,11 @@ def test_an_adopted_database_a_newer_current_app_migrated_is_refused(scratch):
     """Adopted, then migrated to 34 by a newer release of the current app."""
     db, url = scratch
     current_app_database(db, url)
-    migrate.migrate(db, url)
+    migrate.migrate(make_url(url))
     with db.begin() as conn:
         conn.execute(text("INSERT INTO schema_migrations (version, name) VALUES (34, 'newer')"))
     with pytest.raises(migrate.MigrationRefused, match="newer than 33"):
-        migrate.migrate(db, url)
+        migrate.migrate(make_url(url))
 
 
 def test_the_current_app_is_still_at_version_33():
@@ -181,12 +181,12 @@ def test_the_example_stacks_database_is_upgraded_with_its_items(scratch):
         conn.execute(text("INSERT INTO items (name) VALUES ('kept')"))
         conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
         conn.execute(text("INSERT INTO alembic_version VALUES ('0ddedf85d6f0')"))
-    assert migrate.migrate(db, url) == "from-example"
+    assert migrate.migrate(make_url(url)) == "from-example"
     with db.connect() as conn:
         assert conn.execute(text("SELECT name FROM items")).scalar() == "kept"
         assert conn.execute(text("SELECT to_regclass('alert_instances') IS NOT NULL")).scalar()
     assert head(db) == migrate.ITEMS_REVISION
-    assert migrate.migrate(db, url) == "upgrade"
+    assert migrate.migrate(make_url(url)) == "upgrade"
 
 
 def test_a_failed_example_upgrade_leaves_it_as_it_was(scratch, monkeypatch):
@@ -211,10 +211,10 @@ def test_a_failed_example_upgrade_leaves_it_as_it_was(scratch, monkeypatch):
 
     monkeypatch.setattr(migrate.command, "stamp", failing_stamp)
     with pytest.raises(RuntimeError, match="interrupted"):
-        migrate.migrate(db, url)
+        migrate.migrate(make_url(url))
     assert head(db) == "0ddedf85d6f0"
     with db.connect() as conn:
         assert not conn.execute(text("SELECT to_regclass('alert_instances') IS NOT NULL")).scalar()
     monkeypatch.setattr(migrate.command, "stamp", real_stamp)
-    assert migrate.migrate(db, url) == "from-example"
+    assert migrate.migrate(make_url(url)) == "from-example"
     assert head(db) == migrate.ITEMS_REVISION

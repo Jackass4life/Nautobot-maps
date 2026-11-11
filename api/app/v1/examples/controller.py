@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.auth.dependencies import require_role
 from app.core.exceptions import ERROR_RESPONSES
-from app.db.session import DbSession
+from app.db.session import AsyncDbSession
 from app.repositories.item_repository import ItemRepository
 from app.services.item_service import ItemService
 from app.v1 import sections
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/items", tags=sections.tag("examples"))
 WRITE_RESPONSES = {401: ERROR_RESPONSES[401], 403: ERROR_RESPONSES[403]}
 
 
-def get_item_service(db: DbSession) -> ItemService:
+def get_item_service(db: AsyncDbSession) -> ItemService:
     return ItemService(ItemRepository(db))
 
 
@@ -30,12 +30,12 @@ Service = Annotated[ItemService, Depends(get_item_service)]
     response_model=list[ItemDto],
     responses={401: ERROR_RESPONSES[401], 403: ERROR_RESPONSES[403]},
 )
-def list_items(
+async def list_items(
     service: Service,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ItemDto]:
-    return service.list_items(limit=limit, offset=offset)
+    return await service.list_items(limit=limit, offset=offset)
 
 
 @router.get(
@@ -44,8 +44,8 @@ def list_items(
     response_model=ItemDto,
     responses={401: ERROR_RESPONSES[401], 403: ERROR_RESPONSES[403], 404: ERROR_RESPONSES[404]},
 )
-def get_item(item_id: int, service: Service) -> ItemDto:
-    return service.get_item(item_id)
+async def get_item(item_id: int, service: Service) -> ItemDto:
+    return await service.get_item(item_id)
 
 
 @router.post(
@@ -57,8 +57,8 @@ def get_item(item_id: int, service: Service) -> ItemDto:
     # The example is open with AUTH_MODE=disabled, as the board's own changes are.
     dependencies=[Depends(require_role("operator", open_when_disabled=True))],
 )
-def create_item(body: ItemCreateDto, service: Service) -> ItemDto:
-    return service.create_item(body)
+async def create_item(body: ItemCreateDto, service: Service) -> ItemDto:
+    return await service.create_item(body)
 
 
 @router.delete(
@@ -70,5 +70,5 @@ def create_item(body: ItemCreateDto, service: Service) -> ItemDto:
     # The example is open with AUTH_MODE=disabled, as the board's own changes are.
     dependencies=[Depends(require_role("operator", open_when_disabled=True))],
 )
-def delete_item(item_id: int, service: Service) -> None:
-    service.delete_item(item_id)
+async def delete_item(item_id: int, service: Service) -> None:
+    await service.delete_item(item_id)

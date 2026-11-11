@@ -14,14 +14,18 @@ Holds the current app's migration lock throughout, so neither app migrates the
 database while the other does.
 """
 
+import asyncio
 from pathlib import Path
 
 from alembic.config import Config
 from loguru import logger
-from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy import URL, Connection, text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from alembic import command
 from app.core.settings import get_settings
+from app.db import session
 from app.logs import config as logs
 
 API_ROOT = Path(__file__).resolve().parent.parent
@@ -96,51 +100,75 @@ def plan(conn: Connection) -> str:
     return "upgrade"
 
 
-def migrate(engine: Engine, url: str) -> str:
-    """Adopt (when needed) and upgrade to head; returns what was done."""
+def _command(conn: Connection, config: Config, name: str, revision: str) -> None:
+    """Alembic's *name* (upgrade, stamp) on *conn*: alembic/env.py runs it there."""
+    config.attributes["connection"] = conn
+    try:
+        getattr(command, name)(config, revision)
+    finally:
+        config.attributes.pop("connection", None)
+
+
+async def _migrate(engine: AsyncEngine, url: str) -> str:
     config = alembic_config(url)
-    with engine.connect() as lock:
-        lock.execute(text("SELECT pg_advisory_lock(:k)"), {"k": MIGRATION_LOCK_KEY})
+    async with engine.connect() as lock:
+        await lock.execute(text("SELECT pg_advisory_lock(:k)"), {"k": MIGRATION_LOCK_KEY})
         try:
-            action = plan(lock)
-            lock.commit()
+            action = await lock.run_sync(plan)
+            await lock.commit()
             if action == "adopt":
                 logger.info(
                     "Adopting the current app's database (schema version {}) as revision {}",
                     CURRENT_APP_VERSION,
                     BASELINE,
                 )
-                command.stamp(config, BASELINE)
+                async with engine.begin() as conn:
+                    await conn.run_sync(_command, config, "stamp", BASELINE)
             if action == "from-example":
                 # The example stack's database (#573): its items kept, the schema built
                 # under it. One transaction (#601 review): the revision's removal, the
                 # baseline and the stamp all happen, or none does, so a failed start can
                 # simply be retried.
                 logger.info("Upgrading the example stack's database ({})", EXAMPLE_REVISION)
-                with engine.begin() as conn:
-                    config.attributes["connection"] = conn
-                    conn.execute(text("DELETE FROM alembic_version"))
-                    command.upgrade(config, BASELINE)
-                    command.stamp(config, ITEMS_REVISION)
-                config.attributes.pop("connection", None)
-            command.upgrade(config, "head")
+                async with engine.begin() as conn:
+                    await conn.execute(text("DELETE FROM alembic_version"))
+                    await conn.run_sync(_command, config, "upgrade", BASELINE)
+                    await conn.run_sync(_command, config, "stamp", ITEMS_REVISION)
+            async with engine.begin() as conn:
+                await conn.run_sync(_command, config, "upgrade", "head")
             return action
         finally:
-            lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": MIGRATION_LOCK_KEY})
-            lock.commit()
+            await lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": MIGRATION_LOCK_KEY})
+            await lock.commit()
+
+
+def engine_for(url: URL) -> AsyncEngine:
+    """An asyncpg engine for migrations (#643): a connection per use, the app's connect
+    timeout and no statement timeout (a migration may take longer)."""
+    async_url, args = session.async_url(url, get_settings().db_connect_timeout_seconds, 0)
+    return create_async_engine(async_url, poolclass=NullPool, connect_args=args)
+
+
+def migrate(url: URL) -> str:
+    """Adopt (when needed) and upgrade to head; returns what was done."""
+
+    async def run() -> str:
+        engine = engine_for(url)
+        try:
+            return await _migrate(engine, url.render_as_string(hide_password=False))
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(run())
 
 
 def main() -> None:
     if not logs.configured():
         logs.configure()
-    url = get_settings().sqlalchemy_url()
-    engine = create_engine(url)
     try:
-        migrate(engine, url.render_as_string(hide_password=False))
+        migrate(get_settings().sqlalchemy_url())
     except MigrationRefused as refused:
         raise SystemExit(f"Not migrating: {refused}") from None
-    finally:
-        engine.dispose()
 
 
 if __name__ == "__main__":

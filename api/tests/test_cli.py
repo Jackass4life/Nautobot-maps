@@ -11,6 +11,7 @@ from app import __main__ as cli
 from app.db import connection as db
 from app.services import token_service as tokens
 from app.utils import timeutil
+from tests import db as adb
 
 NOW = "2026-10-09T12:00:00Z"
 API_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -24,19 +25,11 @@ def clock(monkeypatch):
 
 
 def make(name="script", role="operator", **extra) -> dict:
-    conn = db.get_conn()
-    try:
-        return tokens.create(conn, {"name": name, "role": role, **extra}, "admin-user")
-    finally:
-        conn.close()
+    return adb.run(tokens.create, {"name": name, "role": role, **extra}, "admin-user")
 
 
 def verify(token: str) -> dict | None:
-    conn = db.get_conn()
-    try:
-        return tokens.verify(conn, token)
-    finally:
-        conn.close()
+    return adb.run(tokens.verify, token)
 
 
 def raw_rows() -> list[dict]:
@@ -77,14 +70,10 @@ class TestTokens:
         clock["now"] = "2026-06-01T12:00:00Z"
         old = make("old-revoked")
         expiring = make("expired", expires_in_days=120)  # expires 2026-09-29
-        conn = db.get_conn()
-        try:
-            tokens.revoke(conn, old["id"], "admin-user")
-            clock["now"] = NOW
-            fresh = make("fresh-revoked")
-            tokens.revoke(conn, fresh["id"], "admin-user")
-        finally:
-            conn.close()
+        adb.run(tokens.revoke, old["id"], "admin-user")
+        clock["now"] = NOW
+        fresh = make("fresh-revoked")
+        adb.run(tokens.revoke, fresh["id"], "admin-user")
         active = make("active")
         return {"active": active, "old": old, "expired": expiring, "fresh": fresh}
 

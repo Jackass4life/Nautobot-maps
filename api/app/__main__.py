@@ -22,11 +22,12 @@ lists and how many match a Nautobot device; exit status 1 if one fails.
 """
 
 import argparse
+import asyncio
 import sys
 
 from app import migrate
 from app.core.settings import get_settings
-from app.db import connection as db
+from app.db import session
 from app.logs import config as logs
 from app.services import contract_service as contract
 from app.services import status_link_service as statuslinks
@@ -102,15 +103,15 @@ def wireless_check_command() -> int:
     return 1 if failed else 0
 
 
-def status_link_command(conn, args) -> int:
-    if not args.tenant.strip() or not statuslinks.known(conn, args.tenant):
+async def status_link_command(db, args) -> int:
+    if not args.tenant.strip() or not await statuslinks.known(db, args.tenant):
         # A typo must not make a link, or leave a leaked one working.
         print(f"error: {statuslinks.unknown_tenant(args.tenant)}", file=sys.stderr)
         return 1
     if args.new:
-        link_id = statuslinks.replace(conn, args.tenant)
+        link_id = await statuslinks.replace(db, args.tenant)
     else:
-        link_id = statuslinks.ensure(conn, [args.tenant])[args.tenant]
+        link_id = (await statuslinks.ensure(db, [args.tenant]))[args.tenant]
     print(f"/status/{link_id}")
     print(
         "The status page link; with a status token, share it as /status/<id>#key=<token>."
@@ -130,16 +131,18 @@ def print_token(token: dict) -> None:
     )
 
 
-def token_command(conn, args) -> int:
+async def token_command(db, args) -> int:
     if args.token_command == "create":
         body = {"name": args.name, "role": args.role, "expires_in_days": args.expires_days}
         if args.tenant is not None:
             body["tenant"] = args.tenant
         try:
-            token = tokens.create(conn, body, "cli")
+            token = await tokens.create(db, body, "cli")
         except tokens.TokenError as exc:
             print(f"error: {exc.message}", file=sys.stderr)
             return 1
+        # Kept whatever happens to its status link below.
+        await db.commit()
         print(token["token"])
         print(
             f"Token {token['name']!r} (id {token['id']}, role {token['role']}, "
@@ -149,8 +152,9 @@ def token_command(conn, args) -> int:
         if token.get("tenant"):
             # The link to send the customer (#500); the token is made either way.
             try:
-                link_id = statuslinks.ensure(conn, [token["tenant"]])[token["tenant"]]
+                link_id = (await statuslinks.ensure(db, [token["tenant"]]))[token["tenant"]]
             except Exception as exc:
+                await db.rollback()
                 print(
                     f"warning: no status link ({exc}); try: status-link {token['tenant']!r}",
                     file=sys.stderr,
@@ -159,7 +163,7 @@ def token_command(conn, args) -> int:
                 print(f"Share: /status/{link_id}#key={token['token']}", file=sys.stderr)
         return 0
     if args.token_command == "list":
-        rows = tokens.list_tokens(conn, tenant=args.tenant)
+        rows = await tokens.list_tokens(db, tenant=args.tenant)
         shown = rows if args.all else [token for token in rows if token["state"] == "active"]
         if not shown:
             print("No active tokens." if rows else "No tokens.")
@@ -170,8 +174,8 @@ def token_command(conn, args) -> int:
         return 0
     if args.token_command == "purge":
         try:
-            purged = tokens.purge(
-                conn, "cli", older_than_days=args.older_than, dry_run=args.dry_run
+            purged = await tokens.purge(
+                db, "cli", older_than_days=args.older_than, dry_run=args.dry_run
             )
         except tokens.TokenError as exc:
             print(
@@ -185,7 +189,7 @@ def token_command(conn, args) -> int:
         else:
             print(f"{len(purged)} token(s) purged; their names are free again.")
         return 0
-    token = tokens.revoke(conn, args.id, "cli")
+    token = await tokens.revoke(db, args.id, "cli")
     if token is None:
         print(f"error: no token with id {args.id}", file=sys.stderr)
         return 1
@@ -230,14 +234,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "schema-version":
         return schema_version_command()
-    conn = db.get_conn()
+    command = token_command if args.command == "token" else status_link_command
+    return asyncio.run(_on_a_session(command, args))
+
+
+async def _on_a_session(command, args) -> int:  # type: ignore[no-untyped-def]
+    """*command* on a session of its own (#643), committed when it succeeds."""
     try:
-        if args.command == "token":
-            return token_command(conn, args)
-        return status_link_command(conn, args)
+        async with session.AsyncSessionLocal() as db:
+            code = await command(db, args)
+            if code == 0:
+                await db.commit()
+            return code
     finally:
-        conn.close()
-    return 0
+        # Its connections belong to this event loop, which ends here.
+        await session.async_engine.dispose()
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
 from app.v1.administration import controller as admin
+from tests import db as adb
 from tests import http_client
 from tests.test_cli import _commands
 from tests.test_tokens import bearer, clock, make  # noqa: F401 (clock: a fixture)
@@ -60,11 +61,7 @@ def flask_client(pg_database, clock):
 
 
 def link_of(tenant: str) -> str:
-    conn = db.get_conn()
-    try:
-        return statuslinks.ensure(conn, [tenant])[tenant]
-    finally:
-        conn.close()
+    return adb.run(statuslinks.ensure, [tenant])[tenant]
 
 
 class TestStatusLinks:

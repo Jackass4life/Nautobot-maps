@@ -13,7 +13,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from loguru import logger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories import token_repository
 from app.services import status_link_service
@@ -62,7 +62,7 @@ def _with_state(token: dict, at: datetime) -> dict:
     return {**token, "state": state(token, at)}
 
 
-def create(session: Session, body: dict, created_by: str) -> dict:
+async def create(session: AsyncSession, body: dict, created_by: str) -> dict:
     """Validate *body* (``name``, ``role``, optional ``expires_in_days``; with role
     ``status``, the ``tenant`` it may see) and store a new token. The result has
     ``token``, the secret: the only time it is available."""
@@ -90,7 +90,7 @@ def create(session: Session, body: dict, created_by: str) -> dict:
             )
         # A typo would make a working-looking link that shows nothing (#528):
         # only a tenant Nautobot has, kept as Nautobot spells it.
-        found = status_link_service.nautobot_name(session, tenant)
+        found = await status_link_service.nautobot_name(session, tenant)
         if found is None:
             raise TokenError(status_link_service.unknown_tenant(tenant))
         tenant = found
@@ -110,7 +110,7 @@ def create(session: Session, body: dict, created_by: str) -> dict:
         expires_at = current + timedelta(days=days)
 
     token = PREFIX + secrets.token_urlsafe(32)
-    row = token_repository.insert(
+    row = await token_repository.insert(
         session,
         {
             "name": name,
@@ -132,16 +132,16 @@ def create(session: Session, body: dict, created_by: str) -> dict:
     return {**_with_state(row, current), "token": token}
 
 
-def list_tokens(session: Session, tenant: str | None = None) -> list[dict]:
+async def list_tokens(session: AsyncSession, tenant: str | None = None) -> list[dict]:
     """Every token (only *tenant*'s, capitals ignored, when given), newest first,
     without secrets."""
     current = timeutil.now()
-    rows = token_repository.list_all(session, tenant.strip() if tenant else None)
+    rows = await token_repository.list_all(session, tenant.strip() if tenant else None)
     return [_with_state(token, current) for token in rows]
 
 
-def purge(
-    session: Session, purged_by: str, older_than_days: object = None, dry_run: bool = False
+async def purge(
+    session: AsyncSession, purged_by: str, older_than_days: object = None, dry_run: bool = False
 ) -> list[dict]:
     """Delete revoked and expired tokens for good (#528), never an active one; with
     *older_than_days*, only those that stopped working longer ago. Their names are
@@ -154,7 +154,7 @@ def purge(
         raise TokenError(f"older_than_days must be a whole number from 0 to {MAX_EXPIRY_DAYS}")
     current = timeutil.now()
     cutoff = current - timedelta(days=older_than_days or 0)
-    rows = token_repository.inactive(session, current, cutoff, delete=not dry_run)
+    rows = await token_repository.inactive(session, current, cutoff, delete=not dry_run)
     purged = sorted(
         (_with_state(token, current) for token in rows),
         key=lambda token: (token["created_at"], token["id"]),
@@ -166,12 +166,12 @@ def purge(
     return purged
 
 
-def revoke(session: Session, token_id: int, revoked_by: str) -> dict | None:
+async def revoke(session: AsyncSession, token_id: int, revoked_by: str) -> dict | None:
     """Revoke a token now. None when it doesn't exist; revoking twice changes nothing."""
     current = timeutil.now()
-    row = token_repository.revoke(session, token_id, current, revoked_by)
+    row = await token_repository.revoke(session, token_id, current, revoked_by)
     if row is None:
-        row = token_repository.get(session, token_id)
+        row = await token_repository.get(session, token_id)
         if row is None:
             return None
     else:
@@ -179,7 +179,7 @@ def revoke(session: Session, token_id: int, revoked_by: str) -> dict | None:
     return _with_state(row, current)
 
 
-def verify(session: Session, token: str) -> dict | None:
+async def verify(session: AsyncSession, token: str) -> dict | None:
     """``{"name", "role", "tenant"}`` of an active token, else None (unknown,
     revoked or expired). Writes ``last_used_at`` (at most every 5 minutes) and
     commits *session*: use one of its own, not the request's."""
@@ -187,11 +187,11 @@ def verify(session: Session, token: str) -> dict | None:
         return None
     current = timeutil.now()
     stale_before = current - LAST_USED_INTERVAL
-    found = token_repository.find_active(session, hash_token(token), current, stale_before)
+    found = await token_repository.find_active(session, hash_token(token), current, stale_before)
     if not found:
         return None
     if found["stale"]:
         # The same condition again: of requests that all saw it stale, one writes.
-        token_repository.touch(session, found["id"], current, stale_before)
-        session.commit()
+        await token_repository.touch(session, found["id"], current, stale_before)
+        await session.commit()
     return {"name": found["name"], "role": found["role"], "tenant": found.get("tenant") or ""}

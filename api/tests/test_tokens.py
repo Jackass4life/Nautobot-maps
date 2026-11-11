@@ -14,9 +14,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.api import app
-from app.db.session import SessionLocal, engine
+from app.db.session import engine
 from app.services import auth_service, token_service
 from app.utils import timeutil
+from tests import db as adb
 
 NOW = "2026-10-09T12:00:00Z"
 UNTRUSTED = ("203.0.113.9", 40000)
@@ -30,27 +31,19 @@ def clock(monkeypatch):
 
 
 def make(name="script", role="operator", **extra) -> dict:
-    with SessionLocal() as session:
-        created = token_service.create(session, {"name": name, "role": role, **extra}, "admin-user")
-        session.commit()
-        return created
+    return adb.run(token_service.create, {"name": name, "role": role, **extra}, "admin-user")
 
 
 def revoke(token_id: int, by: str = "admin-user") -> dict | None:
-    with SessionLocal() as session:
-        revoked = token_service.revoke(session, token_id, by)
-        session.commit()
-        return revoked
+    return adb.run(token_service.revoke, token_id, by)
 
 
 def verify(token: str) -> dict | None:
-    with SessionLocal() as session:
-        return token_service.verify(session, token)
+    return adb.run(token_service.verify, token)
 
 
 def listed(**kwargs) -> list[dict]:
-    with SessionLocal() as session:
-        return token_service.list_tokens(session, **kwargs)
+    return adb.run(token_service.list_tokens, **kwargs)
 
 
 def acme_in_nautobot() -> None:
@@ -103,8 +96,8 @@ class TestTokens:
         ],
     )
     def test_validation(self, clock, body, message):
-        with SessionLocal() as session, pytest.raises(token_service.TokenError) as raised:
-            token_service.create(session, body, "")
+        with pytest.raises(token_service.TokenError) as raised:
+            adb.run(token_service.create, body, "")
         assert raised.value.message.startswith(message)
 
     def test_names_are_unique_also_after_revoking(self, clock):
@@ -166,10 +159,10 @@ class TestTokens:
         secret = make()["token"]
         real_touch = token_service.token_repository.touch
 
-        def other_request_first(session, *args):
+        async def other_request_first(session, *args):
             with engine.begin() as other:
                 other.execute(text("UPDATE api_tokens SET last_used_at = '2026-10-09T11:58:00Z'"))
-            real_touch(session, *args)
+            await real_touch(session, *args)
 
         monkeypatch.setattr(token_service.token_repository, "touch", other_request_first)
         assert verify(secret) is not None
@@ -250,7 +243,7 @@ class TestSignIn:
     def test_database_error_is_a_refusal_without_the_token_in_the_log(
         self, client, monkeypatch, caplog
     ):
-        def broken(session, token):
+        async def broken(session, token):
             raise RuntimeError(f"connection failed {token}")
 
         monkeypatch.setattr(token_service, "verify", broken)
@@ -337,8 +330,8 @@ class TestStatusLinkFailure:
         insert stands and its secret is shown, without the link."""
         from app.services import status_link_service
 
-        def broken(session, tenants):
-            session.execute(text("INSERT INTO status_links (tenant_key) VALUES (NULL)"))
+        async def broken(session, tenants):
+            await session.execute(text("INSERT INTO status_links (tenant_key) VALUES (NULL)"))
 
         acme_in_nautobot()
         admin = make("bootstrap", "admin")["token"]
@@ -378,25 +371,17 @@ class TestListAndPurge:
 
     def test_purge_never_an_active_one(self, mixed, caplog):
         caplog.set_level(logging.INFO, logger="app.services.token_service")
-        with SessionLocal() as session:
-            assert len(token_service.purge(session, "cli", dry_run=True)) == 3
+        assert len(adb.run(token_service.purge, "cli", dry_run=True)) == 3
         assert len(raw_rows()) == 4
-        with SessionLocal() as session:
-            assert len(token_service.purge(session, "cli", older_than_days=30)) == 1
-            session.commit()
+        assert len(adb.run(token_service.purge, "cli", older_than_days=30)) == 1
         assert sorted(row["name"] for row in raw_rows()) == ["active", "expired", "fresh-revoked"]
         assert "API token 'old-revoked' purged by cli" in caplog.text
-        with SessionLocal() as session:
-            token_service.purge(session, "cli")
-            session.commit()
+        adb.run(token_service.purge, "cli")
         assert [row["name"] for row in raw_rows()] == ["active"]
         assert verify(mixed["active"]["token"])
         assert make("old-revoked")["name"] == "old-revoked", "the names are free again"
-        with (
-            SessionLocal() as session,
-            pytest.raises(token_service.TokenError, match="whole number"),
-        ):
-            token_service.purge(session, "cli", older_than_days=-1)
+        with pytest.raises(token_service.TokenError, match="whole number"):
+            adb.run(token_service.purge, "cli", older_than_days=-1)
 
     def test_purge_through_the_api(self, client, mixed):
         admin = make("admin", "admin")["token"]

@@ -1,12 +1,13 @@
-"""The per-request database session: `DbSessionMiddleware` opens one session per API
-request, commits it when the response is a success (< 400), rolls it back otherwise,
-and always closes it."""
+"""The per-request database session: `DbSessionMiddleware` opens one `AsyncSession` per
+API request (#643), commits it when the response is a success (< 400), rolls it back
+otherwise, and always closes it. Routes get it as `AsyncDbSession`, other code through
+`app.db.session.current()`."""
 
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
-from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.context.db import db_session_ctx
 from app.db import session as db_session
 
 
@@ -21,8 +22,9 @@ class DbSessionMiddleware:
         if scope["type"] != "http" or not scope["path"].startswith("/api/v1"):
             await self.app(scope, receive, send)
             return
-        session = db_session.SessionLocal()
-        scope.setdefault("state", {})["db"] = session
+        # Connects only when first used: a route without the database holds none.
+        session = db_session.AsyncSessionLocal()
+        token = db_session_ctx.set(session)
         finished = False
         replaced = False
 
@@ -34,21 +36,22 @@ class DbSessionMiddleware:
                 finished = True
                 if message["status"] < 400:
                     try:
-                        await run_in_threadpool(session.commit)
+                        await session.commit()
                     except SQLAlchemyError:
-                        await run_in_threadpool(session.rollback)
+                        await session.rollback()
                         replaced = True
                         failed = JSONResponse(status_code=500, content={"error": "Commit failed"})
                         await failed(scope, receive, send)
                         return
                 else:
-                    await run_in_threadpool(session.rollback)
+                    await session.rollback()
             await send(message)
 
         try:
             await self.app(scope, receive, send_after_commit)
         except BaseException:
-            await run_in_threadpool(session.rollback)
+            await session.rollback()
             raise
         finally:
-            await run_in_threadpool(session.close)
+            db_session_ctx.reset(token)
+            await session.close()

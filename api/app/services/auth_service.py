@@ -83,17 +83,17 @@ def bearer_token(request: Request) -> str:
     return value if scheme.lower() == "bearer" and token_service.is_token(value) else ""
 
 
-def _verify_token(token: str) -> dict | None:
+async def _verify_token(token: str) -> dict | None:
     """The token's owner, on a session of its own: last_used_at is committed
     whatever the request does."""
-    with session.SessionLocal() as own:
-        return token_service.verify(own, token)
+    async with session.AsyncSessionLocal() as own:
+        return await token_service.verify(own, token)
 
 
-def _token_user(token: str, settings: Settings) -> CurrentUser:
+async def _token_user(token: str, settings: Settings) -> CurrentUser:
     found = None
     try:
-        found = _verify_token(token)
+        found = await _verify_token(token)
     except Exception as exc:  # noqa: BLE001 - the database; never log the token
         logger.warning("API token check failed: {}", type(exc).__name__)
     if found is None:
@@ -131,10 +131,10 @@ def from_trusted_proxy(request: Request, settings: Settings) -> bool:
     return trusted
 
 
-def resolve_user(request: Request, settings: Settings) -> CurrentUser:
+async def resolve_user(request: Request, settings: Settings) -> CurrentUser:
     token = bearer_token(request)
     if token:
-        return _token_user(token, settings)
+        return await _token_user(token, settings)
     anonymous = CurrentUser(auth_mode=settings.auth_mode)
     if settings.auth_mode != "header" or not from_trusted_proxy(request, settings):
         return anonymous

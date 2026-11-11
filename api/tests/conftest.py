@@ -53,13 +53,20 @@ from alembic.config import Config  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from loguru import logger  # noqa: E402
 from sqlalchemy import text  # noqa: E402
+from sqlalchemy.pool import NullPool  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.api import app  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
+from app.db import session  # noqa: E402
 from app.db.session import engine  # noqa: E402
 from app.logs import config as logs  # noqa: E402
 from app.models import Base  # noqa: E402
+
+# A pooled async connection belongs to the event loop that opened it, and each
+# TestClient (and asyncio.run) has a loop of its own: a connection per use in tests.
+session.async_engine = session.make_async_engine(poolclass=NullPool)
+session.AsyncSessionLocal.configure(bind=session.async_engine)
 
 
 def _to_standard_logging(message) -> None:

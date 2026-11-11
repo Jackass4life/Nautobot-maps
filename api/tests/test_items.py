@@ -49,7 +49,11 @@ def test_concurrent_duplicate_is_409_not_500(client, monkeypatch):
     # Another request inserted the name after this one's check: only the unique
     # constraint catches it.
     assert client.post("/api/v1/items", json={"name": "Race"}).status_code == 201
-    monkeypatch.setattr(ItemRepository, "get_by_name", lambda self, name: None)
+
+    async def not_seen(self, name):
+        return None
+
+    monkeypatch.setattr(ItemRepository, "get_by_name", not_seen)
     response = client.post("/api/v1/items", json={"name": "Race"})
     assert response.status_code == 409
     assert response.json() == {"error": "Item named 'Race' already exists"}

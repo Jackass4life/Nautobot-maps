@@ -27,12 +27,12 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `v1/<section>/controller.py` | One folder per section of `v1/sections.py` (`map/`, `alert_board/`, …): its `APIRouter`s, HTTP only; DTOs in, DTOs out |
 | `v1/<section>/dtos.py` | Its Pydantic request/response models; shared ones in `v1/common/dtos.py` |
 | `services/<resource>_service.py` | Business rules; ORM ↔ DTO conversion |
-| `repositories/<resource>_repository.py` | All queries; takes a session, returns ORM objects |
+| `repositories/<resource>_repository.py` | All queries; takes an `AsyncSession`, returns ORM objects (`AsyncBaseRepository` in `core/repository.py`) |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
-| `core/` | Settings (`settings.py`, `legacy_settings.py`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's) |
-| `db/` | `session.py` (engine, sessionmaker, `DbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `connection.py` (psycopg, `db.get_conn()`) |
+| `core/` | Settings (`settings.py`, `legacy_settings.py`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
+| `db/` | `session.py` (async engine on asyncpg, sessionmaker, `AsyncDbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `connection.py` (psycopg, `db.get_conn()`, until all code is async) |
 | `auth/` | Sign-in and role dependencies (`dependencies.py`) |
-| `context/` | Per-request context (`request.py`) |
+| `context/` | Per-request context (`request.py`, the request's database session in `db.py`) |
 | `logs/` | Log setup through loguru (`config.py`), each line's part (`parts.py`), the access log (`middleware.py`) |
 | `utils/` | Small helpers: `timeutil`, `body`, `locks`, `inprocess` |
 
@@ -40,8 +40,10 @@ Outside `app/`: `run.py` (development server), `scripts/generate_openapi.py`.
 
 Layering is strict: `controller → service → repository → model`, no skipping.
 
-`DbSessionMiddleware` opens one session per `/api/v1` request, commits when the
-response status is < 400, otherwise rolls back, and always closes it.
+`DbSessionMiddleware` opens one `AsyncSession` per `/api/v1` request, commits when the
+response status is < 400, otherwise rolls back, and always closes it. Routes take it as
+`AsyncDbSession`; other code reads it with `session.current()`. The URL's libpq options
+(`sslmode`, `options=-c ...`, `application_name`) are translated for asyncpg.
 
 ## Adding things
 
