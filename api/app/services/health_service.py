@@ -7,58 +7,56 @@ answer ``SELECT 1`` (within 2 s, inside Docker's 5 s probe timeout), since the
 board can't be served without it. Error details are logged, never returned.
 """
 
-import threading
+import asyncio
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
-from concurrent.futures import TimeoutError as ProbeTimeout
 
 from loguru import logger
-from psycopg.rows import dict_row
-from sqlalchemy import text
 
-from app.db import session
+from app.db import aconnection, session
 from app.services import metrics_service
 
 PROBE_SECONDS = 2
-# Probes run here, so one stuck on a dead database can't hold a request thread.
-_probes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="health-probe")
 # One probe at a time (#603, #601 reviews): a request while one runs shares it, within
-# that probe's deadline; one stuck past it answers "unavailable" at once. Nothing queues.
-_lock = threading.Lock()
-_running: tuple[Future, float] | None = None
+# that probe's deadline. On the event loop since #655: a probe past its deadline is
+# cancelled, so none is ever left stuck on a dead database.
+_running: tuple[asyncio.Task, float] | None = None
 
 
-def _probe() -> int | None:
+async def _probe() -> int | None:
     """``SELECT 1``, then the inventory's sync age, as the current app's /healthz (#604):
     both on the probe's own connection (#608 review), never the app's pool, so a busy
     pool can't make a healthy database look down."""
-    with session.probe_engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-        # A fresh connection (NullPool), used once: dict rows for the metrics' query.
-        driver = conn.connection.driver_connection
-        driver.row_factory = dict_row
-        return metrics_service.inventory_sync_age_seconds(driver)
+    async with aconnection.connect(session.probe_engine) as conn:
+        await conn.execute("SELECT 1")
+        return await metrics_service.inventory_sync_age_seconds(conn)
 
 
-def _current_probe() -> tuple[Future, float]:
+async def _bounded() -> int | None:
+    # The whole probe, connecting included, within PROBE_SECONDS.
+    return await asyncio.wait_for(_probe(), PROBE_SECONDS)
+
+
+def _current_probe() -> tuple[asyncio.Task, float]:
     """The probe running now (shared), or a new one; with when it started."""
     global _running
-    with _lock:
-        if _running is None or _running[0].done():
-            _running = (_probes.submit(_probe), time.monotonic())
-        return _running
+    loop = asyncio.get_running_loop()
+    if _running is None or _running[0].done() or _running[0].get_loop() is not loop:
+        _running = (loop.create_task(_bounded(), name="health-probe"), time.monotonic())
+    return _running
 
 
-def check() -> tuple[dict, bool]:
+async def check() -> tuple[dict, bool]:
     """The probe's answer for ``/healthz`` and whether all is well."""
     checks = {"app": "ok", "database": "ok"}
     # Informational, never a failure: restarting can't fix a sync that fails upstream (#200).
     sync_age = None
     try:
-        # The whole probe, connecting included, within PROBE_SECONDS of its start.
         probe, started = _current_probe()
-        sync_age = probe.result(timeout=max(0.0, PROBE_SECONDS - (time.monotonic() - started)))
-    except ProbeTimeout:
+        # Shielded: a request that gives up doesn't cancel the probe others share.
+        sync_age = await asyncio.wait_for(
+            asyncio.shield(probe), max(0.0, PROBE_SECONDS - (time.monotonic() - started))
+        )
+    except TimeoutError:
         logger.warning("Health check: database unavailable: no answer in {}s", PROBE_SECONDS)
         checks["database"] = "unavailable"
     except Exception as exc:  # noqa: BLE001 - any failure is "unavailable"; logged, not returned

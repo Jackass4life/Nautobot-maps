@@ -31,6 +31,7 @@ from app.v1.alert_board import dtos as board_answers
 from app.v1.map import controller as api_locations
 from app.v1.map import dtos as location_answers
 from tests import answers, http_client, upstream
+from tests import db as adb
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -4755,7 +4756,7 @@ class TestBackgroundScheduler:
 
     def test_tick_after_a_sync_records_alert_history_without_any_request(self):
         with patch.object(inventory, "ensure_snapshot", return_value=True) as ensure:
-            assert scheduler.tick() is True
+            assert adb.worker(scheduler.tick) is True
         ensure.assert_called_once_with(wait=True)
         rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
         assert rows == [{"site_id": "loc-1", "device_id": "dev-1", "status": "open"}]
@@ -4767,7 +4768,7 @@ class TestBackgroundScheduler:
             patch.object(inventory, "ensure_snapshot", return_value=False),
             patch.object(alerts, "build_alert_board_payload") as build,
         ):
-            assert scheduler.tick() is False
+            assert adb.worker(scheduler.tick) is False
         build.assert_not_called()
 
     def test_only_one_process_ticks_at_a_time(self):
@@ -4778,7 +4779,7 @@ class TestBackgroundScheduler:
             other = db.try_advisory_lock("background_scheduler")
             assert other is False  # a second connection cannot take it
             with patch.object(inventory, "ensure_snapshot") as ensure:
-                assert scheduler.tick() is False
+                assert adb.worker(scheduler.tick) is False
             ensure.assert_not_called()
         finally:
             release()
@@ -5421,7 +5422,7 @@ class TestHistoryRetention:
         monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
         monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
         self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
-        scheduler.tick()
+        adb.worker(scheduler.tick)
         assert self._devices(pg_database) == []
 
 

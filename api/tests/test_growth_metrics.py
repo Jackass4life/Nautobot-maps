@@ -10,14 +10,11 @@ import pytest
 import app  # noqa: F401  (initializes the cache pg_database clears)
 from app.db import connection as db
 from app.services import metrics_service as metrics
+from tests import db as adb
 
 
 def scrape() -> str:
-    conn = db.get_conn()
-    try:
-        return metrics.collect(conn)
-    finally:
-        conn.close()
+    return adb.call(metrics.collect)
 
 
 def test_table_sizes_and_the_oldest_history(pg_database):

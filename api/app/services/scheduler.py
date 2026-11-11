@@ -9,11 +9,13 @@ import asyncio
 import threading
 from datetime import UTC
 
+import anyio.to_thread
 from loguru import logger
 
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.db import connection as db
+from app.db import session
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import notify_service as notify
@@ -22,9 +24,9 @@ from app.services import wireless_service as wireless
 from app.utils import timeutil
 
 # Every app process runs one scheduler task (on its event loop since #649, each
-# tick's work in a thread while it is sync); a PostgreSQL advisory lock
-# makes sure only one of them (across all workers and containers) works per
-# tick.  It runs the syncs that are due and, when one ran, rebuilds the alert
+# tick's work in a thread while it is sync, reaching the loop for what is async);
+# a PostgreSQL advisory lock makes sure only one of them (across all workers and
+# containers) works per tick.  It runs the syncs that are due and, when one ran, rebuilds the alert
 # board, which records alert history.  Without it, syncs and history only
 # happened while someone had a page open.
 MAX_TICK_SECONDS = 30
@@ -299,8 +301,9 @@ def ack_webhook_alerts(received) -> None:
 
 
 def send_notifications() -> None:
+    """On the event loop, from the tick's or a rebuild's thread (#655): the sending is async."""
     try:
-        notify.send_pending()
+        session.from_sync(notify.send_pending)
     except Exception as exc:
         logger.opt(exception=True).warning("Sending notifications failed: {}", exc)
 
@@ -311,7 +314,9 @@ async def loop(stop_event: asyncio.Event) -> None:
     restart can't cancel the previous worker's shutdown."""
     while not stop_event.is_set():
         try:
-            await asyncio.to_thread(tick)
+            # anyio's thread (#655): the tick reaches the loop with session.from_sync.
+            # Abandoned on cancel: shutdown doesn't wait for a tick that is running.
+            await anyio.to_thread.run_sync(tick, abandon_on_cancel=True)
         except Exception as exc:
             logger.opt(exception=True).warning("Background scheduler tick failed: {}", exc)
         try:

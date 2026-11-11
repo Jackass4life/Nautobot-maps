@@ -15,9 +15,8 @@ switchover; a test keeps this one rendering the same.
 from dataclasses import dataclass, field
 
 from loguru import logger
-from sqlalchemy import Connection
 
-from app.db import session
+from app.db import aconnection, session
 from app.repositories import contract_repository
 
 NAUTOBOT = "nautobot"
@@ -806,9 +805,9 @@ def _store(source: str, path: str, result: dict) -> None:
         logger.warning("Could not store the data contract check for {} {}: {}", source, path, exc)
 
 
-def latest_checks(conn: Connection) -> list[dict]:
+async def latest_checks(conn: aconnection.Connection) -> list[dict]:
     checks: dict[tuple, dict] = {}
-    for row in contract_repository.latest(conn):
+    for row in await contract_repository.latest(conn):
         entry = checks.setdefault(
             (row["source"], row["endpoint"]),
             {

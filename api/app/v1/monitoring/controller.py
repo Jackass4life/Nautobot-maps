@@ -12,6 +12,7 @@ from loguru import logger
 
 from app.clients import caching
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
@@ -30,18 +31,19 @@ health_router = APIRouter(tags=sections.tag("monitoring"))
 
 
 @router.get("/metrics", name="ops.prometheus_metrics")
-def prometheus_metrics():
+async def prometheus_metrics():
     """Prometheus metrics: sync health, open alerts, sites by level (#200)."""
     if not settings.METRICS_ENABLED:
         return deps.Json({"error": "Not found"}, status_code=404)
-    conn = None
     try:
         if db.dialect():
-            conn = db.get_conn()
-        body = metrics.collect(conn)
+            async with aconnection.connect() as conn:
+                body = await metrics.collect(conn)
+        else:
+            body = await metrics.collect(None)
     except Exception as exc:
         logger.warning("Metrics: database unavailable: {}", exc)
-        body = metrics.collect(None)
+        body = await metrics.collect(None)
     try:
         # Sites with missing or wrong coordinates (#368): from the board already
         # stored, never a build (a scrape must stay cheap); left out without one.
@@ -52,9 +54,6 @@ def prometheus_metrics():
             )
     except Exception as exc:
         logger.warning("Metrics: coordinate check unavailable: {}", exc)
-    finally:
-        if conn is not None:
-            conn.close()
     return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
@@ -81,8 +80,8 @@ def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUES
     response_model=dtos.Health,
     responses={503: {"model": dtos.Health, "description": "The database doesn't answer"}},
 )
-def get_health() -> JSONResponse:
-    body, healthy = health.check()
+async def get_health() -> JSONResponse:
+    body, healthy = await health.check()
     answer = dtos.Health.model_validate(body)
     return JSONResponse(answer.model_dump(mode="json"), status_code=200 if healthy else 503)
 

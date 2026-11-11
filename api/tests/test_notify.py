@@ -1,5 +1,6 @@
 """Notifications when a site's alert level changes (#282)."""
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -16,6 +17,7 @@ from app.services import metrics_service as metrics
 from app.services import notify_service as notify
 from app.services import scheduler
 from app.utils import timeutil
+from tests import db as adb
 from tests import http_client
 from tests.test_app import auth_config
 
@@ -190,8 +192,8 @@ class TestOutbox:
 
     def test_sent_once_on_every_channel(self, channels):
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        assert notify.send_pending() == 3
-        assert notify.send_pending() == 0, "exactly once"
+        assert asyncio.run(notify.send_pending()) == 3
+        assert asyncio.run(notify.send_pending()) == 0, "exactly once"
         assert {row["status"] for row in outbox()} == {"sent"}
 
         webhook = next(post for post in channels["posts"] if post["url"] == HOOK)
@@ -230,16 +232,16 @@ class TestOutbox:
         try:
             with holder.transaction():
                 holder.execute("SELECT id FROM notification_outbox FOR UPDATE").fetchall()
-                assert notify.send_pending() == 0
+                assert asyncio.run(notify.send_pending()) == 0
         finally:
             holder.close()
-        assert notify.send_pending() == 3
+        assert asyncio.run(notify.send_pending()) == 3
 
     def test_a_burst_is_one_summary(self, channels, monkeypatch):
         monkeypatch.setattr(settings, "NOTIFY_SUMMARY_THRESHOLD", 2)
         sites = {f"loc-{n}": site(f"loc-{n}", f"Site {n}") for n in range(3)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
-        assert notify.send_pending() == 9
+        assert asyncio.run(notify.send_pending()) == 9
         webhook = [json.loads(post["body"]) for post in channels["posts"] if post["url"] == HOOK]
         assert (
             len(webhook) == 1 and webhook[0]["type"] == "summary" and len(webhook[0]["events"]) == 3
@@ -254,7 +256,7 @@ class TestOutbox:
         monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
         sites = {f"loc-{n}": site(f"loc-{n}", f"Site {n}") for n in range(7)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
-        assert notify.send_pending() == 7
+        assert asyncio.run(notify.send_pending()) == 7
         bodies = [json.loads(post["body"]) for post in channels["posts"]]
         # A single site left over goes out as a normal, detailed message.
         assert [len(body["events"]) if body["type"] == "summary" else 1 for body in bodies] == [
@@ -284,7 +286,7 @@ class TestOutbox:
             status_code = 503
 
         monkeypatch.setattr(notify, "_post", lambda url, **kwargs: Bad())
-        notify.send_pending()
+        asyncio.run(notify.send_pending())
         by_site = {row["site_id"]: row for row in outbox()}
         assert (
             by_site["loc-0"]["status"] == "failed"
@@ -313,7 +315,7 @@ class TestOutbox:
 
         monkeypatch.setattr(notify, "_post", broken)
         caplog.set_level(logging.WARNING)
-        assert notify.send_pending() == 0
+        assert asyncio.run(notify.send_pending()) == 0
         (row,) = outbox()
         assert (
             row["status"] == "pending"
@@ -322,7 +324,7 @@ class TestOutbox:
         )
         assert row["next_attempt_at"].startswith("2026-10-09T12:01:00")
         assert "secret-token-123" not in caplog.text
-        assert notify.send_pending() == 0, "not due again yet"
+        assert asyncio.run(notify.send_pending()) == 0, "not due again yet"
 
         conn = db.get_conn()
         try:
@@ -332,14 +334,10 @@ class TestOutbox:
             )
         finally:
             conn.close()
-        notify.send_pending()
+        asyncio.run(notify.send_pending())
         (row,) = outbox()
         assert row["status"] == "failed" and row["attempts"] == notify.MAX_ATTEMPTS
-        conn = db.get_conn()
-        try:
-            text = metrics.collect(conn)
-        finally:
-            conn.close()
+        text = adb.call(metrics.collect)
         assert 'nautobot_maps_notifications_failed{channel="webhook"} 1' in text
 
     def test_http_error_status(self, channels, monkeypatch):
@@ -349,27 +347,44 @@ class TestOutbox:
         monkeypatch.setattr(notify, "_post", lambda url, **kwargs: Bad())
         monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        notify.send_pending()
+        asyncio.run(notify.send_pending())
         assert {row["last_error"] for row in outbox()} == {"HTTP 500"}
 
     def test_pending_metric(self, channels):
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        conn = db.get_conn()
-        try:
-            text = metrics.collect(conn)
-        finally:
-            conn.close()
+        text = adb.call(metrics.collect)
         assert 'nautobot_maps_notifications_pending{channel="webhook"} 1' in text
 
 
 class TestScheduler:
+    def test_the_tick_sends_on_the_event_loop(self, channels):
+        """From the tick's worker thread, the async sending runs on the loop (#655)."""
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
+        adb.worker(scheduler.send_notifications)
+        assert {row["status"] for row in outbox()} == {"sent"}
+
+    def test_a_rebuild_thread_sends_on_the_apps_loop(self, channels, client):
+        """A push or change rebuild runs in a thread of its own: it reaches the loop the
+        app's lifespan bound (#655)."""
+        import threading
+
+        change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
+        thread = threading.Thread(target=scheduler.send_notifications)
+        thread.start()
+        thread.join(10)
+        assert {row["status"] for row in outbox()} == {"sent"}
+
     def test_every_tick_sends_even_without_a_sync(self, monkeypatch):
         calls = []
         monkeypatch.setattr(scheduler.db, "try_advisory_lock", lambda name: lambda: None)
         monkeypatch.setattr(scheduler, "prune_alert_history_if_due", lambda: None)
         monkeypatch.setattr(scheduler.inventory, "ensure_snapshot", lambda **kwargs: False)
-        monkeypatch.setattr(scheduler.notify, "send_pending", lambda: calls.append("sent"))
-        assert scheduler.tick() is False
+
+        async def sent():
+            calls.append("sent")
+
+        monkeypatch.setattr(scheduler.notify, "send_pending", sent)
+        assert adb.worker(scheduler.tick) is False
         assert calls == ["sent"]
 
     def test_sends_before_a_slow_or_failing_sync_and_after_a_rebuild(self, monkeypatch):
@@ -377,7 +392,11 @@ class TestScheduler:
         calls = []
         monkeypatch.setattr(scheduler.db, "try_advisory_lock", lambda name: lambda: None)
         monkeypatch.setattr(scheduler, "prune_alert_history_if_due", lambda: None)
-        monkeypatch.setattr(scheduler.notify, "send_pending", lambda: calls.append("send"))
+
+        async def send():
+            calls.append("send")
+
+        monkeypatch.setattr(scheduler.notify, "send_pending", send)
 
         def failing_sync(**kwargs):
             calls.append("sync")
@@ -385,7 +404,7 @@ class TestScheduler:
 
         monkeypatch.setattr(scheduler.inventory, "ensure_snapshot", failing_sync)
         with pytest.raises(RuntimeError):
-            scheduler.tick()
+            adb.worker(scheduler.tick)
         assert calls == ["send", "sync"]
 
         calls.clear()
@@ -397,13 +416,16 @@ class TestScheduler:
             "build_alert_board_payload",
             lambda **kwargs: calls.append("build") or {},
         )
-        assert scheduler.tick() is True
+        assert adb.worker(scheduler.tick) is True
         assert calls == ["send", "sync", "build", "send"]
 
     def test_a_sending_error_does_not_stop_the_tick(self, monkeypatch, caplog):
-        monkeypatch.setattr(scheduler.notify, "send_pending", lambda: 1 / 0)
+        async def failing():
+            return 1 / 0
+
+        monkeypatch.setattr(scheduler.notify, "send_pending", failing)
         caplog.set_level(logging.WARNING)
-        scheduler.send_notifications()
+        adb.worker(scheduler.send_notifications)
         assert "Sending notifications failed" in caplog.text
 
 

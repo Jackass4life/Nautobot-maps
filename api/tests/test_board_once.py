@@ -10,6 +10,7 @@ from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import metrics_service as metrics
 from app.services import scheduler
+from tests import db as adb
 from tests import test_maintenance
 
 clock = test_maintenance.clock
@@ -72,11 +73,7 @@ def test_the_stored_board_outlives_the_sync_interval(site, monkeypatch):
 def test_metrics(site):
     caching.cache.clear()
     alerts.board()
-    conn = db.get_conn()
-    try:
-        text = metrics.collect(conn)
-    finally:
-        conn.close()
+    text = adb.call(metrics.collect)
     assert "# TYPE nautobot_maps_board_builds_total counter" in text
     assert 'nautobot_maps_board_builds_total{trigger="request"} 1' in text
     assert 'nautobot_maps_board_build_last_duration_seconds{trigger="request"}' in text
@@ -106,8 +103,10 @@ def test_a_change_whose_rebuild_lost_the_lock_is_rebuilt_by_the_tick(site, monke
     assert scheduler.pending_changes() is None
     scheduler.board_changed()  # scheduler not started here: no rebuild of its own
     assert scheduler.pending_changes() is not None
-    assert scheduler.tick() is True and built == ["scheduler"]
-    assert scheduler.pending_changes() is None and scheduler.tick() is False, "taken in once"
+    assert adb.worker(scheduler.tick) is True and built == ["scheduler"]
+    assert scheduler.pending_changes() is None and adb.worker(scheduler.tick) is False, (
+        "taken in once"
+    )
 
 
 def test_the_rebuild_loop_drains_a_change_made_during_its_build(site, monkeypatch, clock):

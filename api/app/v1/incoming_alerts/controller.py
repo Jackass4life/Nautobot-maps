@@ -5,9 +5,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
 from app.clients import caching
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import scheduler
@@ -86,23 +88,20 @@ def api_librenms_alert(request: Request, body: Body, form: Form):
     return deps.Json(result)
 
 
-def _webhook_alerts(body, parse):
+async def _webhook_alerts(body, parse):
     """Store the alerts *parse* reads from the JSON body (#292); the board is rebuilt."""
-    conn = db.get_conn()
-    if conn is None:
+    if not db.dialect():
         return deps.Json(NO_DATABASE, status_code=503)
+    if body is None:
+        return deps.Json({"error": "Expected a JSON body"}, status_code=400)
     try:
-        if body is None:
-            return deps.Json({"error": "Expected a JSON body"}, status_code=400)
-        try:
-            events, skipped = parse(body)
-        except webhooks.WebhookError as exc:
-            return deps.Json({"error": exc.message}, status_code=400)
-        webhooks.store(conn, events)
-    finally:
-        conn.close()
+        events, skipped = parse(body)
+    except webhooks.WebhookError as exc:
+        return deps.Json({"error": exc.message}, status_code=400)
+    async with aconnection.connect() as conn:
+        await webhooks.store(conn, events)
     if events:
-        caching.invalidate_alert_board()
+        await run_in_threadpool(caching.invalidate_alert_board)
         # History and notifications now, not at the next tick.
         scheduler.rebuild_after_push(always=True)
     firing = sum(1 for event in events if event["status"] == "down")
@@ -125,7 +124,7 @@ def _webhook_alerts(body, parse):
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(dtos.AlertmanagerWebhook),
 )
-def api_alertmanager(body: Body):
+async def api_alertmanager(body: Body):
     """Prometheus Alertmanager webhook (#292): firing alerts mark devices down.
 
     The device is the first of ``ALERTMANAGER_DEVICE_LABELS`` (default
@@ -133,7 +132,7 @@ def api_alertmanager(body: Body):
     device by name, then primary IP.  Resolved alerts end it.  Use an
     operator API token (``http_config.authorization``).
     """
-    return _webhook_alerts(body, webhooks.parse_alertmanager)
+    return await _webhook_alerts(body, webhooks.parse_alertmanager)
 
 
 @router.post(
@@ -144,7 +143,7 @@ def api_alertmanager(body: Body):
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(dtos.DeviceStatus),
 )
-def api_device_status(body: Body):
+async def api_device_status(body: Body):
     """Generic webhook (#292): ``{"device", "status": "down"|"up", "source"?,
     "id"?, "summary"?, "started_at"?}``, or a list of them.
 
@@ -153,4 +152,4 @@ def api_device_status(body: Body):
     (default: the device) sends ``up``, or WEBHOOK_ALERT_TTL_HOURS without
     a repeat.
     """
-    return _webhook_alerts(body, lambda value: (webhooks.parse_generic(value), 0))
+    return await _webhook_alerts(body, lambda value: (webhooks.parse_generic(value), 0))

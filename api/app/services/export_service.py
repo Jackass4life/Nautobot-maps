@@ -10,10 +10,10 @@ Ported from nautobot_maps/export.py (#602): only the imports changed.
 import csv
 import io
 import re
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
-from app.db import connection as db
-from app.services import inventory_service as inventory
+from app.db import aconnection
 from app.services import itsm_service as itsm
 from app.utils import timeutil
 
@@ -69,12 +69,13 @@ STREAM_BATCH = 500
 
 
 def _where(since: datetime | None) -> tuple[str, list]:
-    p_site, p_since = db.placeholders(2).split(",")
-    period = "" if since is None else f" AND (i.resolved_at IS NULL OR i.resolved_at >= {p_since})"
-    return f"WHERE i.site_id = {p_site}{period}", ([] if since is None else [since])
+    period = "" if since is None else " AND (i.resolved_at IS NULL OR i.resolved_at >= %s)"
+    return f"WHERE i.site_id = %s{period}", ([] if since is None else [since])
 
 
-def iter_site_incidents(conn, site_id: str, since: datetime | None):
+async def iter_site_incidents(
+    conn: aconnection.Connection, site_id: str, since: datetime | None
+) -> AsyncIterator[dict]:
     """The site's incidents that were down at any point since *since*, newest first.
 
     Read with a server-side cursor, a batch at a time: history is kept
@@ -94,37 +95,38 @@ def iter_site_incidents(conn, site_id: str, since: datetime | None):
         {where}
         ORDER BY i.down_started_at DESC, i.id DESC
     """
-    # A named (server-side) cursor needs a transaction; connections autocommit.
-    with conn.transaction(), conn.cursor(name="alert_history_export") as cursor:
-        cursor.itersize = STREAM_BATCH
-        cursor.execute(query, [site_id, *params])
-        for row in cursor:
-            yield db.row_to_dict(row)
+    # A server-side cursor needs a transaction; connections autocommit.
+    async with conn.transaction():
+        async for row in conn.stream(query, [site_id, *params], batch=STREAM_BATCH):
+            yield row
 
 
-def site_name(conn, site_id: str) -> str:
+async def site_name(conn: aconnection.Connection, site_id: str) -> str:
     """For the file name: the site as Nautobot names it now, else as its newest incident did."""
-    name = inventory.read_location_name_map(conn).get(site_id)
-    if name:
-        return name
-    row = conn.execute(
-        f"SELECT site_name FROM alert_instances WHERE site_id = {db.placeholders(1)} ORDER BY id DESC LIMIT 1",
-        (site_id,),
+    row = (
+        await conn.execute(
+            "SELECT COALESCE(NULLIF((SELECT name FROM nautobot_location_cache "
+            "WHERE location_id = %(id)s LIMIT 1), ''), (SELECT site_name FROM alert_instances "
+            "WHERE site_id = %(id)s ORDER BY id DESC LIMIT 1)) AS name",
+            {"id": site_id},
+        )
     ).fetchone()
-    return db.row_to_dict(row).get("site_name") or site_id
+    return (row or {}).get("name") or site_id
 
 
-def read_device_summary(conn, site_id: str, since: datetime | None, now: datetime) -> list[dict]:
+async def read_device_summary(
+    conn: aconnection.Connection, site_id: str, since: datetime | None, now: datetime
+) -> list[dict]:
     """One row per device, summed by the database: most often down first."""
     where, params = _where(since)
-    p_now = db.placeholders(1)
     seconds = (
-        f"CASE WHEN i.status = 'open' OR i.resolved_at IS NULL "
-        f"THEN GREATEST(0, EXTRACT(EPOCH FROM ({p_now} - i.down_started_at)))::bigint "
-        f"ELSE i.total_downtime_seconds END"
+        "CASE WHEN i.status = 'open' OR i.resolved_at IS NULL "
+        "THEN GREATEST(0, EXTRACT(EPOCH FROM (%s::timestamptz - i.down_started_at)))::bigint "
+        "ELSE i.total_downtime_seconds END"
     )
-    rows = conn.execute(
-        f"""
+    rows = (
+        await conn.execute(
+            f"""
         SELECT MAX(i.site_name) AS site_name, i.device_id, MAX(i.device_name) AS device_name,
                MAX(d.role) AS role, MAX(d.primary_ip) AS primary_ip, MAX(s.ip) AS librenms_ip,
                COUNT(*) AS times_down, SUM({seconds}) AS total_seconds, MAX({seconds}) AS longest_seconds,
@@ -134,10 +136,11 @@ def read_device_summary(conn, site_id: str, since: datetime | None, now: datetim
         GROUP BY i.device_id
         ORDER BY COUNT(*) DESC, SUM({seconds}) DESC, LOWER(MAX(i.device_name))
         """,
-        # In the order the placeholders appear: SELECT (2), WHERE, ORDER BY.
-        [now, now, site_id, *params, now],
+            # In the order the placeholders appear: SELECT (2), WHERE, ORDER BY.
+            [now, now, site_id, *params, now],
+        )
     ).fetchall()
-    return [db.row_to_dict(row) for row in rows]
+    return rows
 
 
 def utc_text(value) -> str:
@@ -181,29 +184,38 @@ def csv_header(columns: tuple) -> str:
     return "\ufeff" + csv_line(columns)
 
 
-def incident_lines(incidents, now: datetime):
-    """The incidents CSV, a line at a time, so it can be streamed."""
+async def incident_lines(
+    incidents: AsyncIterator[dict] | list[dict], now: datetime
+) -> AsyncIterator[str]:
+    """The incidents CSV, a line at a time, so it can be streamed: from the database
+    as it reads them (``iter_site_incidents``) or from rows already read."""
     yield csv_header(INCIDENT_COLUMNS)
-    for row in incidents:
-        yield csv_line(
-            [
-                row.get("site_name"),
-                row.get("device_name") or row.get("device_id"),
-                row.get("role"),
-                _ip(row),
-                utc_text(row.get("down_started_at")),
-                "" if row.get("status") == "open" else utc_text(row.get("resolved_at")),
-                minutes(duration_seconds(row, now)),
-                row.get("status"),
-                row.get("alert_level"),
-                row.get("alert_reason"),
-                row.get("cases") or "",
-                row.get("probable_cause") or "",
-                ";".join(
-                    filter(None, (itsm.case_url(case) for case in row.get("case_list") or []))
-                ),
-            ]
-        )
+    if isinstance(incidents, AsyncIterator):
+        async for row in incidents:
+            yield _incident_line(row, now)
+    else:
+        for row in incidents:
+            yield _incident_line(row, now)
+
+
+def _incident_line(row: dict, now: datetime) -> str:
+    return csv_line(
+        [
+            row.get("site_name"),
+            row.get("device_name") or row.get("device_id"),
+            row.get("role"),
+            _ip(row),
+            utc_text(row.get("down_started_at")),
+            "" if row.get("status") == "open" else utc_text(row.get("resolved_at")),
+            minutes(duration_seconds(row, now)),
+            row.get("status"),
+            row.get("alert_level"),
+            row.get("alert_reason"),
+            row.get("cases") or "",
+            row.get("probable_cause") or "",
+            ";".join(filter(None, (itsm.case_url(case) for case in row.get("case_list") or []))),
+        ]
+    )
 
 
 def devices_csv(summary: list[dict]) -> str:

@@ -2,6 +2,7 @@
 activity and history, cases, acknowledgements and criticality overrides."""
 
 import json
+from contextlib import AsyncExitStack
 from datetime import UTC
 from typing import Annotated
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 
+from app.db import aconnection
 from app.db import connection as db
 from app.frontend import controller as frontend
 from app.repositories import board_repository as board_store
@@ -422,7 +424,7 @@ def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
     name="board.api_alert_history_csv",
     dependencies=[deps.require_role("operator")],
 )
-def api_alert_history_csv(query: Annotated[dtos.HistoryCsvQuery, Query()]):
+async def api_alert_history_csv(query: Annotated[dtos.HistoryCsvQuery, Query()]):
     """A site's alert history as a CSV download (#277).
 
     Query parameters: ``site_id`` (required), ``days`` (``7``, ``30``
@@ -447,31 +449,38 @@ def api_alert_history_csv(query: Annotated[dtos.HistoryCsvQuery, Query()]):
         return deps.Json(
             {"error": f"days must be one of: {', '.join(export.PERIOD_DAYS)}"}, status_code=400
         )
-    conn = db.get_conn()
-    if conn is None:
+    if not db.dialect():
         return deps.Json({"error": "Persistence DB not configured"}, status_code=503)
     headers = {"Cache-Control": "no-store"}
+    # The incidents are read while the file streams: the connection stays open until then.
+    held = AsyncExitStack()
     try:
-        name = export.file_name(export.site_name(conn, site_id), view, days, now)
+        conn = await held.enter_async_context(aconnection.connect())
+        name = export.file_name(await export.site_name(conn, site_id), view, days, now)
         headers["Content-Disposition"] = f'attachment; filename="{name}"'
         if view == "devices":
-            body = export.devices_csv(export.read_device_summary(conn, site_id, since, now))
-            conn.close()
+            body = export.devices_csv(await export.read_device_summary(conn, site_id, since, now))
+            await held.aclose()
             return Response(body, media_type="text/csv", headers=headers)
-    except Exception as exc:
-        conn.close()
+    except BaseException as exc:
+        await held.aclose()
+        if not isinstance(exc, Exception):
+            raise  # a cancelled request: the connection is given back all the same
         logger.exception("Could not export alert history: {}", exc)
         return deps.Json({"error": "Internal server error"}, status_code=500)
 
     # Incidents are streamed: a site's whole history need not fit in memory.
-    def lines():
+    async def lines():
         try:
-            yield from export.incident_lines(export.iter_site_incidents(conn, site_id, since), now)
+            async for line in export.incident_lines(
+                export.iter_site_incidents(conn, site_id, since), now
+            ):
+                yield line
         except Exception as exc:
             # The status line has been sent; the download ends short.
             logger.exception("Alert history export failed while streaming: {}", exc)
         finally:
-            conn.close()
+            await held.aclose()
 
     return StreamingResponse(lines(), media_type="text/csv", headers=headers)
 

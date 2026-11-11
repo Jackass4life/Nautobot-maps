@@ -11,6 +11,7 @@ from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import scheduler
+from tests import db as adb
 
 
 @pytest.fixture(autouse=True)
@@ -28,14 +29,14 @@ def test_a_tick_runs_the_due_syncs_and_rebuilds_the_board(pg_database):
         patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
         patch.object(scheduler, "rebuild_board") as rebuild,
     ):
-        assert scheduler.tick() is True
+        assert adb.worker(scheduler.tick) is True
     ensure.assert_called_once_with(wait=True)
     rebuild.assert_called_once()
     with (
         patch.object(inventory, "ensure_snapshot", return_value=False),
         patch.object(scheduler, "rebuild_board") as rebuild,
     ):
-        assert scheduler.tick() is False
+        assert adb.worker(scheduler.tick) is False
     rebuild.assert_not_called()
 
 
@@ -46,13 +47,13 @@ def test_only_one_process_ticks_at_a_time():
     try:
         assert db.try_advisory_lock("background_scheduler") is False
         with patch.object(inventory, "ensure_snapshot") as ensure:
-            assert scheduler.tick() is False
+            assert adb.worker(scheduler.tick) is False
         ensure.assert_not_called()
     finally:
         release()
     # Released: the next one may.
     with patch.object(inventory, "ensure_snapshot", return_value=False):
-        assert scheduler.tick() is False
+        assert adb.worker(scheduler.tick) is False
     again = db.try_advisory_lock("background_scheduler")
     assert callable(again)
     again()

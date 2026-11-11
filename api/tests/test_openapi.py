@@ -33,12 +33,12 @@ def test_healthz(client):
 
 
 def test_healthz_without_the_database(client, monkeypatch, caplog):
-    from sqlalchemy import create_engine
+    from sqlalchemy.ext.asyncio import create_async_engine
 
     from app.db import session
 
-    unreachable = create_engine(
-        "postgresql+psycopg://nobody:secret@127.0.0.1:1/none", connect_args={"connect_timeout": 1}
+    unreachable = create_async_engine(
+        "postgresql+asyncpg://nobody:secret@127.0.0.1:1/none", connect_args={"timeout": 1}
     )
     monkeypatch.setattr(session, "probe_engine", unreachable)
     response = client.get("/healthz")
@@ -55,7 +55,7 @@ def test_healthz_gives_up_on_a_database_that_never_answers(client, monkeypatch):
     import threading
     import time
 
-    from sqlalchemy import create_engine
+    from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
 
     from app.db import session
@@ -79,10 +79,10 @@ def test_healthz_gives_up_on_a_database_that_never_answers(client, monkeypatch):
     monkeypatch.setattr(
         session,
         "probe_engine",
-        create_engine(
-            f"postgresql+psycopg://x:y@127.0.0.1:{port}/none",
+        create_async_engine(
+            f"postgresql+asyncpg://x:y@127.0.0.1:{port}/none",
             poolclass=NullPool,
-            connect_args={"connect_timeout": 30},  # the probe's own bound must win
+            connect_args={"timeout": 30},  # the probe's own bound must win
         ),
     )
     try:
@@ -99,44 +99,47 @@ def test_healthz_gives_up_on_a_database_that_never_answers(client, monkeypatch):
     assert elapsed < 4
 
 
-def test_a_stuck_probe_queues_no_more(client, monkeypatch, caplog):
-    """While a probe waits on a stuck database past its deadline, the next request answers
-    at once and starts nothing (#603 review)."""
-    import threading
+def test_a_stuck_probe_is_cancelled_at_its_deadline(client, monkeypatch):
+    """A probe stuck on the database is cancelled at its deadline (#655): none is left
+    running, and every request answers within it (#603 review)."""
+    import asyncio
+    import time
 
     from app.services import health_service as health
 
-    release = threading.Event()
-    calls = []
+    calls, cancelled = [], []
 
-    def stuck():
+    async def stuck():
         calls.append(1)
-        release.wait(10)
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled.append(1)
+            raise
 
     monkeypatch.setattr(health, "_probe", stuck)
     monkeypatch.setattr(health, "PROBE_SECONDS", 0.2)
     monkeypatch.setattr(health, "_running", None)
-    try:
-        assert client.get("/healthz").status_code == 503  # timed out, still running
-        assert client.get("/healthz").status_code == 503  # past its deadline: at once
-        assert len(calls) == 1
-    finally:
-        release.set()
+    for _ in range(2):
+        started = time.monotonic()
+        assert client.get("/healthz").status_code == 503
+        assert time.monotonic() - started < 1
+    assert len(calls) == 2 and len(cancelled) == 2
 
 
 def test_overlapping_checks_share_a_healthy_probe(client, monkeypatch):
     """Two checks at once, the probe still within its deadline: both healthy, one probe
     (#601 review)."""
+    import asyncio
     import threading
-    import time
 
     from app.services import health_service as health
 
     calls = []
 
-    def slow():
+    async def slow():
         calls.append(1)
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
 
     monkeypatch.setattr(health, "_probe", slow)
     monkeypatch.setattr(health, "_running", None)
@@ -150,6 +153,30 @@ def test_overlapping_checks_share_a_healthy_probe(client, monkeypatch):
     for thread in threads:
         thread.join(5)
     assert statuses == [200, 200] and len(calls) == 1
+
+
+def test_a_check_that_gives_up_leaves_the_shared_probe_running(client, monkeypatch):
+    """One request's deadline passing doesn't cancel the probe another request shares."""
+    import asyncio
+
+    from app.services import health_service as health
+
+    async def scenario():
+        finished = []
+
+        async def slow():
+            await asyncio.sleep(0.2)
+            finished.append(1)
+            return 5
+
+        monkeypatch.setattr(health, "_probe", slow)
+        monkeypatch.setattr(health, "_running", None)
+        probe, _ = health._current_probe()
+        with __import__("contextlib").suppress(TimeoutError):
+            await asyncio.wait_for(health.check(), 0.05)
+        assert await probe == 5 and finished == [1]
+
+    asyncio.run(scenario())
 
 
 def test_the_engines_keep_the_urls_options():

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from app.db import connection as db
 from app.services import export_service as export
 from app.services import notify_service as notify
+from tests import db as adb
 from tests import test_maintenance
 from tests.test_maintenance import build, set_devices
 
@@ -65,15 +66,11 @@ def test_several_core_devices(site):
 
 def test_the_csv_has_the_cause(site):
     build()
-    conn = db.get_conn()
-    try:
-        lines = list(
-            export.incident_lines(
-                export.iter_site_incidents(conn, "loc-lon", None), datetime.now(UTC)
-            )
+    lines = adb.call(
+        lambda conn: export.incident_lines(
+            export.iter_site_incidents(conn, "loc-lon", None), datetime.now(UTC)
         )
-    finally:
-        conn.close()
+    )
     assert lines[0].rstrip().endswith(",probable_cause,case_urls")
     acc1 = next(line for line in lines if line.startswith("London HQ,acc1"))
     assert acc1.rstrip().endswith(",core,")

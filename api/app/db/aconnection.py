@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from app.db import session
 
@@ -146,7 +146,7 @@ class Connection:
 
 
 @asynccontextmanager
-async def connect() -> AsyncIterator[Connection]:
-    """A connection from the app's async pool, given back at the end."""
-    async with session.async_engine.connect() as conn:
+async def connect(engine: AsyncEngine | None = None) -> AsyncIterator[Connection]:
+    """A connection from the app's async pool (or *engine*'s), given back at the end."""
+    async with (engine or session.async_engine).connect() as conn:
         yield Connection(conn)

@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from loguru import logger
 
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.utils import timeutil
@@ -178,23 +179,25 @@ def cutoff(now: datetime) -> datetime:
     return now - timedelta(hours=settings.WEBHOOK_ALERT_TTL_HOURS)
 
 
-def store(conn, events: list[dict]) -> None:
+async def store(conn: aconnection.Connection, events: list[dict]) -> None:
     """A firing alert is stored or refreshed; a resolved one is removed.
 
     Expired alerts are deleted first, so one firing again later starts anew
     (its own start time) and the table doesn't grow with lost resolves.
     """
     now = timeutil.parse_iso_datetime(timeutil.iso_utc_now())
-    with db.transaction(conn):
-        conn.execute("DELETE FROM webhook_device_alerts WHERE updated_at <= %s", (cutoff(now),))
+    async with conn.transaction():
+        await conn.execute(
+            "DELETE FROM webhook_device_alerts WHERE updated_at <= %s", (cutoff(now),)
+        )
         for event in events:
             if event["status"] == "up":
-                conn.execute(
+                await conn.execute(
                     "DELETE FROM webhook_device_alerts WHERE source = %s AND alert_key = %s",
                     (event["source"], event["key"]),
                 )
                 continue
-            conn.execute(
+            await conn.execute(
                 "INSERT INTO webhook_device_alerts "
                 "(source, alert_key, device_key, summary, started_at, updated_at) "
                 "VALUES (%s, %s, %s, %s, %s, %s) "
@@ -211,8 +214,10 @@ def store(conn, events: list[dict]) -> None:
                 ),
             )
         if events:
-            inventory.record_sync_state(
-                conn, RECEIVED_STATE, last_completed_at=timeutil.iso_utc_now()
+            await conn.execute(
+                *inventory.sync_state_statement(
+                    RECEIVED_STATE, last_completed_at=timeutil.iso_utc_now()
+                )
             )
 
 
