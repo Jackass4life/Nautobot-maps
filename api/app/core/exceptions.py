@@ -74,7 +74,6 @@ _HTTP_MESSAGES = {404: "Not found", 405: "Method not allowed", 500: "Internal se
 
 def install_error_handlers(app: FastAPI) -> None:
     from fastapi.exceptions import RequestValidationError
-    from starlette.concurrency import run_in_threadpool
     from starlette.exceptions import HTTPException
 
     @app.exception_handler(ApiError)
@@ -96,7 +95,7 @@ def install_error_handlers(app: FastAPI) -> None:
             from app.auth.dependencies import get_current_user
             from app.services import auth_service
 
-            user = await run_in_threadpool(get_current_user, request)
+            user = await get_current_user(request)
             refused = auth_service.check_request(request, user, get_settings())
             if refused is not None:
                 return JSONResponse(status_code=refused[1], content=refused[0])

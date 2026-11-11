@@ -10,12 +10,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUserDep, require_role
 from app.core.exceptions import ApiError, responses
 from app.core.legacy_settings import settings
 from app.db import connection as db
-from app.db.session import DbSession
+from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
 from app.services import contract_service, status_link_service, token_service
 from app.services import legacy_auth as auth
@@ -82,24 +83,12 @@ def api_tenants():
     )
 
 
-def _status_link(conn, tenant: str) -> str | None:
-    """The page to send a status token with (#500).  None when it can't be
-    read: the token is made already, and its secret must still be shown."""
-    try:
-        return f"/status/{statuslinks.ensure(conn, [tenant])[tenant]}"
-    except Exception as exc:
-        logger.warning(
-            "Status token made, but its status link could not be read: {}", type(exc).__name__
-        )
-        return None
-
-
-def _known_tenant(conn, tenant: str) -> str | None:
+async def _known_tenant(db: AsyncSession, tenant: str) -> str | None:
     """*tenant* as Nautobot spells it, or as given when only its link is left
     (a removed tenant, #500); None when neither: the CLI's check (#528)."""
-    if not tenant.strip() or not statuslinks.known(conn, tenant):
+    if not tenant.strip() or not await statuslinks.known(db, tenant):
         return None
-    return statuslinks.nautobot_name(conn, tenant) or tenant.strip()
+    return await statuslinks.nautobot_name(db, tenant) or tenant.strip()
 
 
 NO_TENANT_RESPONSE = {
@@ -115,21 +104,14 @@ NO_TENANT_RESPONSE = {
     responses=NO_TENANT_RESPONSE,
     dependencies=[deps.require_role("admin")],
 )
-def api_status_link(tenant: str):
+async def api_status_link(tenant: str, db: AsyncDbSession):
     """A tenant's status page link (#529), as ``status-link TENANT`` prints it:
     ``/status/<id>``, made the first time it is asked for.  404 for a tenant
     Nautobot doesn't have (as of the last sync)."""
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
-    try:
-        name = _known_tenant(conn, tenant)
-        if name is None:
-            return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
-        with db.transaction(conn):
-            link_id = statuslinks.ensure(conn, [name])[name]
-    finally:
-        conn.close()
+    name = await _known_tenant(db, tenant)
+    if name is None:
+        return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
+    link_id = (await statuslinks.ensure(db, [name]))[name]
     return deps.Json({"tenant": name, "status_link": f"/status/{link_id}"})
 
 
@@ -140,21 +122,14 @@ def api_status_link(tenant: str):
     responses=NO_TENANT_RESPONSE,
     dependencies=[deps.require_role("admin")],
 )
-def api_status_link_replace(tenant: str):
+async def api_status_link_replace(tenant: str, db: AsyncDbSession):
     """Replace a tenant's status page link that leaked (#529), as
     ``status-link TENANT --new``: the old link stops working at once; the
     tenant's status tokens keep working with the new one."""
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
-    try:
-        name = _known_tenant(conn, tenant)
-        if name is None:
-            return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
-        with db.transaction(conn):
-            link_id = statuslinks.replace(conn, name)
-    finally:
-        conn.close()
+    name = await _known_tenant(db, tenant)
+    if name is None:
+        return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
+    link_id = await statuslinks.replace(db, name)
     logger.info(
         "Status link of tenant {!r} replaced by {}",
         name,
@@ -263,27 +238,27 @@ def _flag(value: str | None) -> bool:
 
 
 @tokens_router.get("", operation_id="listTokens", response_model=Tokens, responses=REFUSALS)
-def list_tokens(
-    db: DbSession,
+async def list_tokens(
+    db: AsyncDbSession,
     all: Annotated[str | None, Query(description="Revoked and expired ones too (#528).")] = None,
     tenant: Annotated[str | None, Query(description="Only this tenant's status tokens.")] = None,
 ) -> Tokens:
     """API tokens: name, first characters, role, expiry, last use, state; never the
     secret. Only the active ones unless ``all=true``; ``inactive`` counts the others."""
-    rows = token_service.list_tokens(db, tenant=tenant)
+    rows = await token_service.list_tokens(db, tenant=tenant)
     active = [token for token in rows if token["state"] == "active"]
     return Tokens.model_validate(
         {"tokens": rows if _flag(all) else active, "inactive": len(rows) - len(active)}
     )
 
 
-def _status_link(db: DbSession, tenant: str) -> str | None:
+async def _status_link(db: AsyncSession, tenant: str) -> str | None:
     """The page to send a status token with (#500). None when it can't be read: the
     token is made already, and its secret must still be shown."""
     try:
         # A savepoint: a database error here mustn't abort the token's own insert.
-        with db.begin_nested():
-            link_id = status_link_service.ensure(db, [tenant])[tenant]
+        async with db.begin_nested():
+            link_id = (await status_link_service.ensure(db, [tenant]))[tenant]
         return f"/status/{link_id}"
     except Exception as exc:
         logger.warning(
@@ -300,7 +275,7 @@ def _status_link(db: DbSession, tenant: str) -> str | None:
     responses={**REFUSALS, **responses(400)},
     openapi_extra=body_schema(TokenCreate),
 )
-def create_token(body: Body, db: DbSession, user: CurrentUserDep) -> JSONResponse:
+async def create_token(body: Body, db: AsyncDbSession, user: CurrentUserDep) -> JSONResponse:
     """Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``
     (viewer, operator, admin, or status with a ``tenant``), optional
     ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A
@@ -308,11 +283,11 @@ def create_token(body: Body, db: DbSession, user: CurrentUserDep) -> JSONRespons
     if not isinstance(body, dict):
         raise ApiError({"error": "Expected a JSON object"}, 400)
     try:
-        token = token_service.create(db, body, user.username)
+        token = await token_service.create(db, body, user.username)
     except token_service.TokenError as exc:
         raise ApiError({"error": exc.message}, 400) from None
     if token.get("tenant"):
-        token["status_link"] = _status_link(db, token["tenant"])
+        token["status_link"] = await _status_link(db, token["tenant"])
     created = TokenCreated.model_validate({"token": token})
     # no-transform: never compressed, the secret beside the name the client chose (#349).
     return JSONResponse(
@@ -328,9 +303,9 @@ def create_token(body: Body, db: DbSession, user: CurrentUserDep) -> JSONRespons
     response_model=TokenRevoked,
     responses={**REFUSALS, **responses(404)},
 )
-def revoke_token(token_id: int, db: DbSession, user: CurrentUserDep) -> TokenRevoked:
+async def revoke_token(token_id: int, db: AsyncDbSession, user: CurrentUserDep) -> TokenRevoked:
     """Revoke an API token: refused from the next request on."""
-    token = token_service.revoke(db, token_id, user.username)
+    token = await token_service.revoke(db, token_id, user.username)
     if token is None:
         raise ApiError({"error": "No such token"}, 404)
     return TokenRevoked.model_validate({"token": token})
@@ -343,7 +318,7 @@ def revoke_token(token_id: int, db: DbSession, user: CurrentUserDep) -> TokenRev
     responses={**REFUSALS, **responses(400)},
     openapi_extra=body_schema(TokenPurge, required=False),
 )
-def purge_tokens(body: Body, db: DbSession, user: CurrentUserDep) -> TokensPurged:
+async def purge_tokens(body: Body, db: AsyncDbSession, user: CurrentUserDep) -> TokensPurged:
     """Delete revoked and expired API tokens for good (#528), never an active one.
     Optional ``older_than_days`` and ``dry_run``. Their names are free again."""
     if body is None:
@@ -354,7 +329,7 @@ def purge_tokens(body: Body, db: DbSession, user: CurrentUserDep) -> TokensPurge
     if not isinstance(dry_run, bool):
         raise ApiError({"error": "dry_run must be true or false"}, 400)
     try:
-        purged = token_service.purge(
+        purged = await token_service.purge(
             db, user.username, older_than_days=body.get("older_than_days"), dry_run=dry_run
         )
     except token_service.TokenError as exc:
@@ -370,9 +345,11 @@ contract_router = APIRouter(prefix="/contract", tags=sections.tag("administratio
 
 
 @contract_router.get("", operation_id="getContract", response_model=ContractDto)
-def get_contract(db: DbSession) -> ContractDto:
+def get_contract() -> ContractDto:
     """The data contract and the last check: per upstream endpoint, the fields read,
     their types and what each becomes; per endpoint, when the last sync checked it,
     how many records, and the fields that didn't match."""
-    checks = contract_service.latest_checks(db.connection())
+    # The syncs' threads write the checks on psycopg: read on it too, until they are async.
+    with db.get_conn() as conn:
+        checks = contract_service.latest_checks(conn)
     return ContractDto.model_validate({"contract": contract_service.as_json(), "checks": checks})

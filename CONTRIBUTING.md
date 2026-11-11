@@ -109,9 +109,12 @@ the details.
     at call time; tests change them with `monkeypatch.setattr(settings, "NAME", value)`.
     Add a new setting there, pass it in `docker-compose.yml` (a test checks this) and document
     it in `docs/configuration.md` and `.env.example`.
-  - `app/db/`: `connection.py`, psycopg connections from the pool (imported as `db`:
-    `db.get_conn()`, `db.transaction()`); `session.py`, SQLAlchemy's engine and session;
-    `middleware.py`, one session per API request.
+  - `app/db/`: `session.py`, SQLAlchemy's async engine (asyncpg) and the `AsyncDbSession`
+    dependency; `middleware.py`, one `AsyncSession` per API request; `connection.py`, psycopg
+    connections from the pool for the code not async yet (imported as `db`: `db.get_conn()`,
+    `db.transaction()`). New database code is async: a repository on `AsyncBaseRepository`
+    (`app/core/repository.py`) or `await session.execute(text(...))` with `:name` parameters.
+    A sync route that needs it calls `session.from_sync(function, ...)`.
   - `app/core/`: the settings, the errors and their handlers (`exceptions.py`), `cors.py`,
     `version.py` (the version is `api/pyproject.toml`'s); `app/auth/` the sign-in and role
     dependencies; `app/context/` the request being answered; `app/logs/` the log setup and

@@ -2,6 +2,7 @@
 it.  Everything a browser, a script or a proxy relied on must be the same."""
 
 from app.core.legacy_settings import settings
+from tests import db as adb
 
 
 def test_security_headers_and_gzip_once(asgi_client):
@@ -295,16 +296,11 @@ def test_a_refused_caller_never_gets_its_body_read(monkeypatch):
 
 
 def test_a_new_token_is_never_compressed_on_fastapi(flask_client, monkeypatch, pg_database):
-    from app.db import connection as db
     from app.frontend import compression
     from app.services import token_service as tokens
 
     monkeypatch.setattr(compression, "MIN_BYTES", 10)
-    conn = db.get_conn()
-    try:
-        admin = tokens.create(conn, {"name": "boot", "role": "admin"}, "test")["token"]
-    finally:
-        conn.close()
+    admin = adb.run(tokens.create, {"name": "boot", "role": "admin"}, "test")["token"]
     created = flask_client.post(
         "/api/v1/tokens",
         json={"name": "s", "role": "viewer"},

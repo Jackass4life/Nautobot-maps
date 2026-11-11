@@ -7,6 +7,7 @@ app/services/auth_service.py's rules (#592) on the request being answered
 
 from app.context import request as requestctx
 from app.core.settings import get_settings
+from app.db import session
 from app.services import auth_service
 from app.services.auth_service import ROLE_LEVELS, CurrentUser
 
@@ -30,10 +31,12 @@ def is_config_valid() -> bool:
 
 
 def _user() -> CurrentUser:
+    """The request's user, resolved by every router's sign-in check before the route
+    runs; else (a route's thread) on the app's event loop (#643)."""
     request = requestctx.current().starlette
     user = getattr(request.state, "user", None)
     if user is None:
-        user = auth_service.resolve_user(request, get_settings())
+        user = session.from_sync(auth_service.resolve_user, request, get_settings())
         request.state.user = user
     return user
 

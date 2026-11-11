@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from loguru import logger
 
 from app.db import connection as db
+from app.db import session as db_session
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -26,27 +27,19 @@ UNAVAILABLE = {"error": "Status unavailable, try again shortly"}
 NOT_FOUND = {"error": "No sites for this tenant"}
 
 
-# The links are kept in the database (#500): without one there are none.
-NO_DATABASE = {
-    "error": "The status page needs the PostgreSQL database (NAUTOBOT_MAPS_DATABASE_URL)."
-}
-
-
 def _tenant_for(link_id: str) -> str | None:
     """The tenant *link_id* opens (#500).  No connection for anything that
     isn't a link id.  Raises when the database can't be read."""
     if not statuslinks.ID_PATTERN.match(link_id):
         return None  # a name, or anything else: no connection for it
-    conn = db.get_conn()
-    if conn is None:
-        raise LookupError("no database")
+    session = db_session.current()
     try:
-        return statuslinks.tenant_for(conn, link_id)
+        return db_session.from_sync(statuslinks.tenant_for, session, link_id)
     finally:
-        # Closed before the board is read, which takes a connection of its own:
+        # Given back before the board is read, which takes a connection of its own:
         # a request never holds two, so busy requests can't use up the pool
         # waiting for their second (#608 review).
-        conn.close()
+        db_session.from_sync(session.close)
 
 
 def _unless_denied(answer: dict, status_code: int):
@@ -124,8 +117,6 @@ def api_status(link_id: str):
     """
     try:
         tenant = _tenant_for(link_id)
-    except LookupError:
-        return _unless_denied(NO_DATABASE, 503)
     except Exception as exc:
         logger.warning("Status page unavailable: {}", type(exc).__name__)
         return _unless_denied(UNAVAILABLE, 503)

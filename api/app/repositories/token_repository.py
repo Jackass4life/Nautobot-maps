@@ -1,13 +1,12 @@
 """API tokens in ``api_tokens`` (#592): the current app's SQL (nautobot_maps/tokens.py).
 
-Each function takes a SQLAlchemy session or connection, or app/db/connection.py's psycopg
-connection (the routes ported from the current app use those, #604).
+Each function takes an `AsyncSession` (#643): the request's, or one of the caller's own.
 """
 
-import re
 from datetime import datetime
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils import timeutil
 
@@ -19,26 +18,22 @@ COLUMNS = (
 INACTIVE = (
     "(revoked_at IS NOT NULL OR expires_at <= :now) AND LEAST(revoked_at, expires_at) <= :cutoff"
 )
-_NAMED = re.compile(r"(?<!:):(\w+)")
 
 
-def _rows(conn, sql: str, params: dict) -> list[dict]:  # type: ignore[no-untyped-def]
-    if hasattr(conn, "exec_driver_sql") or hasattr(conn, "get_bind"):
-        result = conn.execute(text(sql), params)
-        return [dict(row) for row in result.mappings()] if result.returns_rows else []
-    cursor = conn.execute(_NAMED.sub(r"%(\1)s", sql), params)
-    return list(cursor.fetchall()) if cursor.description else []
+async def _rows(db: AsyncSession, sql: str, params: dict) -> list[dict]:
+    result = await db.execute(text(sql), params)
+    return [dict(row) for row in result.mappings()] if result.returns_rows else []
 
 
 def _first(rows: list[dict]) -> dict | None:
     return timeutil.row(rows[0]) if rows else None
 
 
-def insert(conn, values: dict) -> dict | None:  # type: ignore[no-untyped-def]
+async def insert(db: AsyncSession, values: dict) -> dict | None:
     """The new token's row; None when the name is taken (the unique name is the check)."""
     return _first(
-        _rows(
-            conn,
+        await _rows(
+            db,
             "INSERT INTO api_tokens (name, token_hash, prefix, role, tenant, created_by, "
             "created_at, expires_at) VALUES (:name, :token_hash, :prefix, :role, :tenant, "
             ":created_by, :created_at, :expires_at) ON CONFLICT (name) DO NOTHING "
@@ -48,30 +43,30 @@ def insert(conn, values: dict) -> dict | None:  # type: ignore[no-untyped-def]
     )
 
 
-def list_all(conn, tenant: str | None = None) -> list[dict]:  # type: ignore[no-untyped-def]
+async def list_all(db: AsyncSession, tenant: str | None = None) -> list[dict]:
     where, params = "", {}
     if tenant:
         where, params = "WHERE lower(tenant) = lower(:tenant)", {"tenant": tenant}
-    rows = _rows(
-        conn, f"SELECT {COLUMNS} FROM api_tokens {where} ORDER BY created_at DESC, id DESC", params
+    rows = await _rows(
+        db, f"SELECT {COLUMNS} FROM api_tokens {where} ORDER BY created_at DESC, id DESC", params
     )
     return [timeutil.row(row) for row in rows]
 
 
-def inactive(conn, now: datetime, cutoff: datetime, delete: bool) -> list[dict]:  # type: ignore[no-untyped-def]
+async def inactive(db: AsyncSession, now: datetime, cutoff: datetime, delete: bool) -> list[dict]:
     """Revoked or expired before *cutoff*; deleted when *delete*."""
     if delete:
         sql = f"DELETE FROM api_tokens WHERE {INACTIVE} RETURNING {COLUMNS}"
     else:
         sql = f"SELECT {COLUMNS} FROM api_tokens WHERE {INACTIVE}"
-    return [timeutil.row(row) for row in _rows(conn, sql, {"now": now, "cutoff": cutoff})]
+    return [timeutil.row(row) for row in await _rows(db, sql, {"now": now, "cutoff": cutoff})]
 
 
-def revoke(conn, token_id: int, now: datetime, revoked_by: str) -> dict | None:  # type: ignore[no-untyped-def]
+async def revoke(db: AsyncSession, token_id: int, now: datetime, revoked_by: str) -> dict | None:
     """The row, revoked now; None when it doesn't exist or was revoked already."""
     return _first(
-        _rows(
-            conn,
+        await _rows(
+            db,
             "UPDATE api_tokens SET revoked_at = :now, revoked_by = :by "
             f"WHERE id = :id AND revoked_at IS NULL RETURNING {COLUMNS}",
             {"now": now, "by": revoked_by, "id": token_id},
@@ -79,16 +74,20 @@ def revoke(conn, token_id: int, now: datetime, revoked_by: str) -> dict | None: 
     )
 
 
-def get(conn, token_id: int) -> dict | None:  # type: ignore[no-untyped-def]
-    return _first(_rows(conn, f"SELECT {COLUMNS} FROM api_tokens WHERE id = :id", {"id": token_id}))
+async def get(db: AsyncSession, token_id: int) -> dict | None:
+    return _first(
+        await _rows(db, f"SELECT {COLUMNS} FROM api_tokens WHERE id = :id", {"id": token_id})
+    )
 
 
-def find_active(conn, token_hash: str, now: datetime, stale_before: datetime) -> dict:  # type: ignore[no-untyped-def]
+async def find_active(
+    db: AsyncSession, token_hash: str, now: datetime, stale_before: datetime
+) -> dict:
     """An active token by its hash, with ``stale``: last used before *stale_before*."""
     return (
         _first(
-            _rows(
-                conn,
+            await _rows(
+                db,
                 "SELECT id, name, role, tenant, "
                 "(last_used_at IS NULL OR last_used_at < :stale) AS stale "
                 "FROM api_tokens WHERE token_hash = :hash AND revoked_at IS NULL "
@@ -100,10 +99,10 @@ def find_active(conn, token_hash: str, now: datetime, stale_before: datetime) ->
     )
 
 
-def touch(conn, token_id: int, now: datetime, stale_before: datetime) -> None:  # type: ignore[no-untyped-def]
+async def touch(db: AsyncSession, token_id: int, now: datetime, stale_before: datetime) -> None:
     """``last_used_at = now``, unless another request wrote it meanwhile (the same condition)."""
-    _rows(
-        conn,
+    await _rows(
+        db,
         "UPDATE api_tokens SET last_used_at = :now "
         "WHERE id = :id AND (last_used_at IS NULL OR last_used_at < :stale)",
         {"now": now, "id": token_id, "stale": stale_before},

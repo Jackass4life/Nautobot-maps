@@ -8,10 +8,12 @@ from app import __main__ as cli
 from app.clients import nautobot
 from app.core.legacy_settings import settings
 from app.db import connection as db
+from app.db import session as db_session
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import status_service as status
+from tests import db as adb
 from tests import test_tokens
 from tests.test_app import auth_config
 from tests.test_tokens import bearer, make, verify
@@ -84,11 +86,7 @@ BOARD = {
 
 def link(tenant: str) -> str:
     """*tenant*'s status page link id (#500)."""
-    conn = db.get_conn()
-    try:
-        return statuslinks.ensure(conn, [tenant])[tenant]
-    finally:
-        conn.close()
+    return adb.run(statuslinks.ensure, [tenant])[tenant]
 
 
 @pytest.fixture
@@ -416,6 +414,8 @@ class TestCircuits:
         board_data = alerts.get_alert_board_data
 
         def board_with_its_own_connection():
+            # The link's (the request's session, #643) is given back by now.
+            state["link_held"] = db_session.current().in_transaction()
             db.get_conn().close()
             return board_data()
 
@@ -441,7 +441,8 @@ class TestCircuits:
 
         monkeypatch.setattr(db, "get_conn", counted)
         assert flask_client.get(f"/api/v1/status/{acme}").status_code == 200
-        assert state["taken"] >= 3 and state["most"] == 1 and state["open"] == 0
+        assert state["taken"] >= 2 and state["most"] == 1 and state["open"] == 0
+        assert state["link_held"] is False
 
     def test_without_circuits_the_page_still_answers(self, flask_client, board, monkeypatch):
         monkeypatch.setattr(inventory, "read_tenant_circuits", lambda conn, tenant: 1 / 0)
@@ -882,11 +883,7 @@ class TestAccess:
         from app.services import token_service as tokens
 
         created = make("acme-status", "status", tenant="Acme Corp")
-        conn = db.get_conn()
-        try:
-            tokens.revoke(conn, created["id"], "admin")
-        finally:
-            conn.close()
+        adb.run(tokens.revoke, created["id"], "admin")
         assert (
             flask_client.get(
                 f"/api/v1/status/{link('Acme Corp')}", headers=bearer(created["token"])
@@ -984,19 +981,15 @@ class TestLinks:
             }, old
 
     def test_one_link_per_tenant_capitals_aside_and_kept(self, flask_client):
-        conn = db.get_conn()
-        try:
-            first = statuslinks.ensure(conn, ["Acme Corp", "ACME CORP", "Other Co", "", "  "])
-            assert set(first) == {"Acme Corp", "ACME CORP", "Other Co"}
-            assert first["Acme Corp"] == first["ACME CORP"] != first["Other Co"]
-            assert statuslinks.ensure(conn, ["acme corp"]) == {"acme corp": first["Acme Corp"]}
-            assert statuslinks.tenant_for(conn, first["Other Co"]) == "other co"
-            assert statuslinks.tenant_for(conn, "Other Co") is None
-            # 300 tenants at once: two queries, every one its own link.
-            many = statuslinks.ensure(conn, [f"Tenant {i}" for i in range(300)])
-            assert len(set(many.values())) == 300
-        finally:
-            conn.close()
+        first = adb.run(statuslinks.ensure, ["Acme Corp", "ACME CORP", "Other Co", "", "  "])
+        assert set(first) == {"Acme Corp", "ACME CORP", "Other Co"}
+        assert first["Acme Corp"] == first["ACME CORP"] != first["Other Co"]
+        assert adb.run(statuslinks.ensure, ["acme corp"]) == {"acme corp": first["Acme Corp"]}
+        assert adb.run(statuslinks.tenant_for, first["Other Co"]) == "other co"
+        assert adb.run(statuslinks.tenant_for, "Other Co") is None
+        # 300 tenants at once: two queries, every one its own link.
+        many = adb.run(statuslinks.ensure, [f"Tenant {i}" for i in range(300)])
+        assert len(set(many.values())) == 300
 
     def test_a_leaked_link_is_replaced(self, flask_client, board, capsys):
         old = link("Acme Corp")
@@ -1012,9 +1005,13 @@ class TestLinks:
         self, flask_client, board, monkeypatch
     ):
         acme = link("Acme Corp")
-        monkeypatch.setattr(db, "get_conn", lambda *a, **k: None)
+
+        async def unreachable(*args):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(statuslinks, "tenant_for", unreachable)
         response = flask_client.get(f"/api/v1/status/{acme}")
-        assert response.status_code == 503 and "PostgreSQL" in response.get_json()["error"]
+        assert response.status_code == 503 and "unavailable" in response.get_json()["error"]
         monkeypatch.setattr(settings, "AUTH_REQUIRE_VIEWER", True)
         with auth_config(mode="header"):
             # Database trouble is no clue to one who may not look (#500).
@@ -1042,20 +1039,20 @@ class TestLinks:
         assert cli.main(["status-link", "Gone Co", "--new"]) == 0
 
     def test_links_are_read_not_written_once_made(self, flask_client):
-        conn = db.get_conn()
-        try:
-            first = statuslinks.ensure(conn, [f"Tenant {i}" for i in range(300)])
-            writes = []
-            real = conn.execute
+        first = adb.run(statuslinks.ensure, [f"Tenant {i}" for i in range(300)])
+        writes = []
 
-            class Watched:
-                def execute(self, query, *args):
-                    writes.extend(["insert"] if "INSERT" in query else [])
-                    return real(query, *args)
+        async def watched(session, tenants):
+            real = session.execute
 
-            assert statuslinks.ensure(Watched(), list(first)) == first and writes == []
-        finally:
-            conn.close()
+            async def execute(statement, *args, **kwargs):
+                writes.extend(["insert"] if "INSERT" in str(statement) else [])
+                return await real(statement, *args, **kwargs)
+
+            session.execute = execute
+            return await statuslinks.ensure(session, tenants)
+
+        assert adb.run(watched, list(first)) == first and writes == []
 
     def test_a_status_token_is_shown_even_when_its_link_fails(
         self, known_tenants, flask_client, monkeypatch
@@ -1124,7 +1121,7 @@ class TestStatusTokens:
         conn = db.get_conn()
         try:
             assert conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"] == 0
-            assert not statuslinks.known(conn, "Acme")
+            assert not adb.run(statuslinks.known, "Acme")
         finally:
             conn.close()
         # Capitals don't matter; the token keeps Nautobot's spelling.

@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from app.db import connection as db
+from app.db import session as db_session
 from app.frontend import controller as frontend
 from app.services import availability_service as availability
 from app.services import legacy_auth as auth
@@ -108,16 +109,14 @@ def _status_links(report: dict) -> dict[str, str]:
     tenants = {t["tenant"] for t in report["tenants"]} | {
         t for site in report["sites"] for t in site["tenants"]
     }
-    conn = db.get_conn()
-    if conn is None:
-        return {}
+    session = db_session.current()
     try:
-        return statuslinks.ensure(conn, sorted(tenants))
+        return db_session.from_sync(statuslinks.ensure, session, sorted(tenants))
     except Exception as exc:
         logger.warning("Availability: could not read the status links: {}", type(exc).__name__)
+        # The report is answered all the same: its commit mustn't fail on this.
+        db_session.from_sync(session.rollback)
         return {}
-    finally:
-        conn.close()
 
 
 @router.get("/api/v1/availability.csv", name="availability.api_availability_csv")

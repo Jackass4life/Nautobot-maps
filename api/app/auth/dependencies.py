@@ -12,11 +12,11 @@ from app.services import auth_service
 from app.services.auth_service import CurrentUser
 
 
-def get_current_user(request: Request) -> CurrentUser:
+async def get_current_user(request: Request) -> CurrentUser:
     """Once per request: a token is verified (and its last use written) once."""
     user = getattr(request.state, "user", None)
     if user is None:
-        user = auth_service.resolve_user(request, get_settings())
+        user = await auth_service.resolve_user(request, get_settings())
         request.state.user = user
     return user
 
