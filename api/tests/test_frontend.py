@@ -16,7 +16,7 @@ BIG_JS = "console.log('x');\n" * 200  # over 1 KiB
 
 @pytest.fixture
 def built(tmp_path, configure):
-    """A build of web/ as `npm run generate` leaves it."""
+    """A build of web/ as `bun run generate` leaves it."""
     (tmp_path / "_nuxt").mkdir()
     (tmp_path / "200.html").write_text(SHELL, encoding="utf-8")
     (tmp_path / "_nuxt" / "entry.js").write_text(BIG_JS, encoding="utf-8")
@@ -36,7 +36,7 @@ def test_a_page_is_the_shell(client, built):
 def test_not_built_says_how(client, configure, tmp_path):
     configure(WEB_BUILD_DIR=str(tmp_path / "missing"))
     response = client.get("/")
-    assert response.status_code == 503 and "npm run generate" in response.text
+    assert response.status_code == 503 and "bun run generate" in response.text
 
 
 def test_assets_are_cached_a_year_with_etag_and_gzip(client, built):

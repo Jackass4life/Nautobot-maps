@@ -21,7 +21,7 @@ docker-compose.override.yml
 config/*
 !config/README.md
 
-# JavaScript dev tools (npm ci)
+# JavaScript dev tools (bun install)
 node_modules/
 
 # web/'s build (#463, #609); web/.gitignore has the rest.

@@ -42,6 +42,9 @@ query string into the client's query object. No raw `fetch` or `$fetch`.
 - Flat (`srcDir: '.'`): `pages/`, `components/`, `composables/`, `utils/`, `plugins/`,
   `types/` sit in `web/`. `api/` holds the API's spec (`openapi.json`, written by
   `api/scripts/generate_openapi.py`) and the types made from it (`api.schema.ts`). `tests/` and the tool configs are outside the app's types.
+- Components: Nuxt UI's (`<U…>`) first; shadcn-vue's (`<S…>`, #640) in `components/ui/`, added
+  with `bun run add:component <name>` (`components.json`), with `cn()` from `lib/utils.ts`.
+  Their colours are Nuxt UI's (`assets/css/shadcn.css`); see CONTRIBUTING's rules for the pages.
 - The CSP allows no inline scripts or styles: `scripts/no-inline-scripts.mjs` (run by
   `generate`) moves Nuxt's `window.__NUXT__` config into a file under `/_nuxt/` and fails the
   build on any other inline script; `modules/static-ui-colors` makes Nuxt UI's colours a

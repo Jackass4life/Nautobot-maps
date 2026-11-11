@@ -1,0 +1,85 @@
+/* shadcn-vue's colour tokens (#640), imported by main.css after Nuxt UI.
+
+   Every token is one of Nuxt UI's variables, so a shadcn component (<STable>,
+   <SSonner>) has the app's colours, and dark mode follows Nuxt UI's `.dark`
+   (plugins/theme.client.ts): no colours here and no dark block. Change a colour
+   in ui-colors.ts, never here (tests/shadcn.test.ts checks). `bun run add:component`
+   may add a component's own colours to this file: point them at --ui-* too. */
+
+@import "tw-animate-css";
+@import "vue-sonner/style.css";
+
+:root {
+  --background: var(--ui-bg);
+  --foreground: var(--ui-text);
+  --card: var(--ui-bg);
+  --card-foreground: var(--ui-text);
+  --popover: var(--ui-bg);
+  --popover-foreground: var(--ui-text);
+  --primary: var(--ui-primary);
+  --primary-foreground: var(--ui-text-inverted);
+  --secondary: var(--ui-bg-elevated);
+  --secondary-foreground: var(--ui-text-highlighted);
+  --muted: var(--ui-bg-muted);
+  --muted-foreground: var(--ui-text-muted);
+  --accent: var(--ui-bg-elevated);
+  --accent-foreground: var(--ui-text-highlighted);
+  --destructive: var(--ui-error);
+  --destructive-foreground: var(--ui-text-inverted);
+  --success: var(--ui-success);
+  --success-foreground: var(--ui-text-inverted);
+  --warning: var(--ui-warning);
+  --warning-foreground: var(--ui-text-inverted);
+  --info: var(--ui-info);
+  --info-foreground: var(--ui-text-inverted);
+  --border: var(--ui-border);
+  --input: var(--ui-border-accented);
+  --ring: var(--ui-primary);
+  --radius: var(--ui-radius);
+}
+
+/* Only the names Nuxt UI doesn't have: primary, secondary, success, warning,
+   error, info and the radius scale are its own (bg-primary, rounded-md) and stay
+   so, or Nuxt UI's components would change. shadcn's "secondary" is a grey
+   surface; here it is Nuxt UI's secondary colour: use bg-accent for the grey. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+/* shadcn's base border colour, for its own components only. Nuxt UI's mark
+   their elements with data-slot too, so not every [data-slot]: one prefix per
+   added component (tests/shadcn.test.ts checks each is listed). */
+@layer base {
+  :where([data-slot^="table"]) {
+    border-color: var(--color-border);
+  }
+}
+
+/* Sonner's toasts in the same colours, light and dark: vue-sonner's own are
+   [data-sonner-toaster][data-sonner-theme] (upstream shadcn sets these inline,
+   which the CSP forbids). */
+.toaster[data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--popover);
+  --normal-text: var(--popover-foreground);
+  --normal-border: var(--border);
+  --border-radius: var(--radius);
+}

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "./shadcn.css";
 
 /* The documentation's text (#433, #463): the HTML the server makes from the
    repository's Markdown, in a comfortable reading width. */

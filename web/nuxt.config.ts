@@ -1,10 +1,13 @@
-// The app's pages on Nuxt (#463, #609).  Built to static files (`npm run generate`)
+// The app's pages on Nuxt (#463, #609).  Built to static files (`bun run generate`)
 // that api/ serves from the same origin: no Node process in production.
 export default defineNuxtConfig({
   compatibilityDate: "2026-10-01",
   // Flat layout (pages/, components/, plugins/, types/ at the project root).
   srcDir: ".",
-  modules: ["@nuxt/ui", "@nuxt/eslint", "./modules/static-ui-colors"],
+  modules: ["@nuxt/ui", "@nuxt/eslint", "./modules/static-ui-colors", "shadcn-nuxt"],
+  // shadcn-vue's components (#640), next to Nuxt UI's <U…>: <STable>, <SSonner>.
+  // Nuxt UI first; components/ui/ holds what `bun run add:component` added.
+  shadcn: { prefix: "S", componentDir: "./components/ui" },
   // A single-page app: the API does the work, as the old pages' scripts did.
   ssr: false,
   css: ["~/assets/css/main.css"],
@@ -34,7 +37,7 @@ export default defineNuxtConfig({
   // is loaded by its own file name instead.
   experimental: { entryImportMap: false },
   vite: {
-    // `npm run dev`: the API from api/ on :8000 (`uv run uvicorn app.api:app`), but not
+    // `bun run dev`: the API from api/ on :8000 (`uv run uvicorn app.api:app`), but not
     // /api/docs, which is a page of this app (#483).
     server: {
       proxy: { "^/api/(?!docs(?:[/?#]|$))": { target: "http://127.0.0.1:8000", changeOrigin: true } },
