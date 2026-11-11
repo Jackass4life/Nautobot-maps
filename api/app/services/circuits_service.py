@@ -8,6 +8,7 @@ next sync after it gets one.  Read from the stored circuits and locations
 Ported from nautobot_maps/circuits.py (#602): only the imports changed.
 """
 
+from app.db import aconnection
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import export_service as export
@@ -22,7 +23,7 @@ GROUP_LABELS = {"several": "Several sites", "none": "No site", "one": "One site"
 RETIRED_STATUSES = {"decommissioned"}
 
 
-def mapping(conn) -> dict:
+async def mapping(conn: aconnection.Connection) -> dict:
     """``{"summary": {total, several, none, one}, "circuits": [...]}``.
 
     Each circuit: ``alerts.cached_circuit``'s fields, ``group`` and ``sites``
@@ -30,8 +31,8 @@ def mapping(conn) -> dict:
     circuits are left out.  Two queries, however many circuits.
     """
     columns = ", ".join(inventory.CIRCUIT_COLUMNS)
-    rows = conn.execute(
-        f"SELECT {columns} FROM nautobot_circuit_cache WHERE NOT terminated"
+    rows = (
+        await conn.execute(f"SELECT {columns} FROM nautobot_circuit_cache WHERE NOT terminated")
     ).fetchall()
     circuits = [
         circuit
@@ -39,10 +40,12 @@ def mapping(conn) -> dict:
         if (circuit.get("status") or "").strip().lower() not in RETIRED_STATUSES
     ]
     keys = sorted({circuit["address_key"] for circuit in circuits if circuit["address_key"]})
-    rows = conn.execute(
-        "SELECT location_id, name, parent_id, address_key, latitude, longitude FROM nautobot_location_cache "
-        f"WHERE address_key = ANY({db.placeholders(1)})",
-        (keys,),
+    rows = (
+        await conn.execute(
+            "SELECT location_id, name, parent_id, address_key, latitude, longitude FROM nautobot_location_cache "
+            f"WHERE address_key = ANY({db.placeholders(1)})",
+            (keys,),
+        )
     ).fetchall()
     locations: dict[str, dict] = {}
     at_address: dict[str, dict[str, str]] = {}

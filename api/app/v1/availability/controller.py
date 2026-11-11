@@ -1,12 +1,14 @@
 """Ported from nautobot_maps/api/availability.py (#604), its API under /api/v1. Availability (#287; on FastAPI since #436): the page, its API and CSV."""
 
+from contextlib import AsyncExitStack
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
-from app.db import connection as db
+from app.db import aconnection
 from app.db import session as db_session
 from app.frontend import controller as frontend
 from app.services import availability_service as availability
@@ -25,34 +27,26 @@ router = APIRouter(
 PeriodQuery = Annotated[dtos.PeriodQuery, Query()]
 
 
-def _availability_report(
-    period: dtos.PeriodQuery, conn=None, with_incidents: bool = False
+async def _availability_report(
+    period: dtos.PeriodQuery, conn: aconnection.Connection, with_incidents: bool = False
 ) -> tuple[dict | None, str, int]:
     """``(report, error, status)`` for the month or from–to and the basis asked
     for (#287, #341).  *with_incidents* (#354): every incident too, streamed
-    from *conn*, which the caller then closes."""
-    own = conn is None
-    conn = conn or db.get_conn()
-    if conn is None:
+    from *conn*, which the caller keeps open until then."""
+    try:
+        sites = await run_in_threadpool(availability.board_sites)
+    except Exception as exc:
+        # Without the board's sites and tenants the figures would be wrong.
+        logger.opt(exception=True).warning(
+            "Availability report: could not read the alert board: {}", exc
+        )
         return (
             None,
-            "The availability report needs the PostgreSQL database (NAUTOBOT_MAPS_DATABASE_URL).",
+            "The alert board could not be read, so the report would miss sites; try again shortly.",
             503,
         )
     try:
-        try:
-            sites = availability.board_sites()
-        except Exception as exc:
-            # Without the board's sites and tenants the figures would be wrong.
-            logger.opt(exception=True).warning(
-                "Availability report: could not read the alert board: {}", exc
-            )
-            return (
-                None,
-                "The alert board could not be read, so the report would miss sites; try again shortly.",
-                503,
-            )
-        report = availability.report(
+        report = await availability.report(
             conn,
             period.month,
             period.basis,
@@ -61,12 +55,9 @@ def _availability_report(
             period.to,
             with_incidents=with_incidents,
         )
-        return report, "", 200
     except availability.ReportError as exc:
         return None, exc.message, 400
-    finally:
-        if own:
-            conn.close()
+    return report, "", 200
 
 
 @router.get("/availability", name="availability.availability_page")
@@ -87,7 +78,7 @@ def availability_page():
         503: {"model": common.Error, "description": "No database, or the board can't be read"}
     },
 )
-def api_availability(period: PeriodQuery):
+async def api_availability(period: PeriodQuery):
     """Availability per site and tenant for a period (#287, #341).
 
     Query parameters: ``month`` (``2026-10``; default the current month, up
@@ -97,13 +88,14 @@ def api_availability(period: PeriodQuery):
     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
     ``status_links``: each tenant's status page link id (#500), ``/status/<id>``.
     """
-    report, error, status = _availability_report(period)
+    async with aconnection.connect() as conn:
+        report, error, status = await _availability_report(period, conn)
     if report is None:
         return deps.Json({"error": error}, status_code=status)
-    return deps.Json({**report, "status_links": _status_links(report)})
+    return deps.Json({**report, "status_links": await _status_links(report)})
 
 
-def _status_links(report: dict) -> dict[str, str]:
+async def _status_links(report: dict) -> dict[str, str]:
     """Each tenant's status page link id (#500), made for those without one;
     none (no links shown) when the database can't be written."""
     tenants = {t["tenant"] for t in report["tenants"]} | {
@@ -111,16 +103,16 @@ def _status_links(report: dict) -> dict[str, str]:
     }
     session = db_session.current()
     try:
-        return db_session.from_sync(statuslinks.ensure, session, sorted(tenants))
+        return await statuslinks.ensure(session, sorted(tenants))
     except Exception as exc:
         logger.warning("Availability: could not read the status links: {}", type(exc).__name__)
         # The report is answered all the same: its commit mustn't fail on this.
-        db_session.from_sync(session.rollback)
+        await session.rollback()
         return {}
 
 
 @router.get("/api/v1/availability.csv", name="availability.api_availability_csv")
-def api_availability_csv(period: Annotated[dtos.AvailabilityCsv, Query()]):
+async def api_availability_csv(period: Annotated[dtos.AvailabilityCsv, Query()]):
     """The availability report as CSV (#287): ``view=sites`` (default; with each
     site's details and outages, #354), ``tenants`` or ``incidents`` (every
     outage in the period, to check the figures); same ``month``,
@@ -130,21 +122,30 @@ def api_availability_csv(period: Annotated[dtos.AvailabilityCsv, Query()]):
     if view not in ("sites", "tenants", "incidents"):
         return deps.Json({"error": "view must be sites, tenants or incidents"}, status_code=400)
     # Every incident is read while the file streams: the connection stays open until then.
-    conn = db.get_conn() if view == "incidents" else None
-    report, error, code = _availability_report(period, conn, with_incidents=conn is not None)
+    held = AsyncExitStack()
+    conn = await held.enter_async_context(aconnection.connect())
+    try:
+        report, error, code = await _availability_report(
+            period, conn, with_incidents=view == "incidents"
+        )
+    except BaseException:
+        await held.aclose()
+        raise
+    if report is None or view != "incidents":
+        await held.aclose()
     if report is None:
-        if conn is not None:
-            conn.close()
         return deps.Json({"error": error}, status_code=code)
     with_header = common.flag(period.header)
     by = auth.get_current_user().get("username") or "" if with_header else ""
 
-    def lines():
+    async def lines():
         try:
-            yield from availability.csv_lines(report, view, header=with_header, generated_by=by)
+            async for line in availability.csv_lines(
+                report, view, header=with_header, generated_by=by
+            ):
+                yield line
         finally:
-            if conn is not None:
-                conn.close()
+            await held.aclose()
 
     label = report["period"]["label"].replace(" to ", "_")
     return StreamingResponse(

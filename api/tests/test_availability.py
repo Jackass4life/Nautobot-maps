@@ -13,6 +13,7 @@ from app.services import inventory_service as inventory
 from app.utils import timeutil
 from app.v1 import deps
 from app.v1.availability import dtos as answers
+from tests import db as adb
 from tests import http_client
 
 NOW = "2026-10-21T00:00:00Z"  # 20 days into October
@@ -73,13 +74,9 @@ def run(
     to_date=None,
     with_incidents=False,
 ):
-    conn = db.get_conn()
-    try:
-        result = availability.report(
-            conn, month, basis, sites, from_date, to_date, with_incidents=with_incidents
-        )
-    finally:
-        conn.close()
+    result = adb.call(
+        availability.report, month, basis, sites, from_date, to_date, with_incidents=with_incidents
+    )
     if not with_incidents:
         # Every report these tests make, as the API would send it, is what the spec shows (#449).
         # The API adds the status links (#500).
@@ -494,16 +491,15 @@ class TestReport:
             "2026-10-05T08:00:00Z",
         )
         assert site["maintenance_seconds"] == 90 * 60, "the site-wide window only"
-        conn = db.get_conn()
-        try:
+
+        async def incidents(conn):
             # Streamed: read while the connection is open, as the export does.
-            listed = list(
-                availability.report(conn, "2026-10", "any_down", sites, with_incidents=True)[
-                    "incidents"
-                ]
+            report = await availability.report(
+                conn, "2026-10", "any_down", sites, with_incidents=True
             )
-        finally:
-            conn.close()
+            return [row async for row in report["incidents"]]
+
+        listed = adb.call(incidents)
         by_device = {r["device"]: r for r in listed}
         assert by_device["d2"]["cases"] == "INC-1;INC-2", "as the site history's export"
         assert (by_device["d3"]["maintenance"], by_device["d3"]["minutes_counted"]) == (
@@ -527,7 +523,7 @@ class TestReport:
             and site["longest_outage_seconds"] == 2 * 86400
         )
         report = run(sites=[{"id": "s1", "name": "Oslo", "device_count": 1}])
-        line = "".join(availability.csv_lines(report, "sites")).splitlines()[1]
+        line = "".join(adb.items(availability.csv_lines(report, "sites"))).splitlines()[1]
         assert ",1,2880,,2026-10-19 00:00,2026-10-19 00:00," in line
 
     def test_too_many_incidents_are_refused(self, pg_database, clock, monkeypatch):
