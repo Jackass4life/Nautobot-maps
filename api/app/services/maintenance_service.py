@@ -7,12 +7,16 @@ site's level; the alert history is frozen (nothing opens, nothing
 resolves) and nothing is notified.  Ending a window early sets
 ``ended_at``; a window ended before it started is a cancelled one.
 
-Ported from nautobot_maps/maintenance.py (#602): only the imports changed.
+Ported from nautobot_maps/maintenance.py (#602). The page's functions are async on
+``aconnection`` (#651); ``read_active`` stays sync on psycopg until the board build,
+which passes its connection, is async.
 """
 
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
+from app.db import aconnection
 from app.db import connection as db
 from app.services import export_service as export
 from app.services import status_service as status
@@ -106,8 +110,8 @@ def cache_seconds(next_change: str | None, default: int) -> int:
     return max(1, min(default, int((upcoming - now()).total_seconds()) + 1))
 
 
-def list_windows(
-    conn,
+async def list_windows(
+    conn: aconnection.Connection,
     site_id: str = "",
     include_past: bool = False,
     at: datetime | None = None,
@@ -135,17 +139,24 @@ def list_windows(
         conditions.append("ended_at IS NULL AND ends_at > %s")
         params.append(at)
     order = "(ended_at IS NOT NULL OR ends_at <= %s), starts_at, id"
-    return _read(conn, conditions, [*params, at], order, limit, at)
+    return await _read(conn, conditions, [*params, at], order, limit, at)
 
 
-def _read(
-    conn, conditions: list[str], params: list, order: str, limit: int, at: datetime
+async def _read(
+    conn: aconnection.Connection,
+    conditions: list[str],
+    params: list,
+    order: str,
+    limit: int,
+    at: datetime,
 ) -> list[dict]:
     """The windows *conditions* select, in *order*, at most *limit*, each with its state at *at*."""
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    rows = conn.execute(
-        f"SELECT {COLUMNS} FROM maintenance_windows {where} ORDER BY {order} LIMIT %s",
-        (*params, limit),
+    rows = (
+        await conn.execute(
+            f"SELECT {COLUMNS} FROM maintenance_windows {where} ORDER BY {order} LIMIT %s",
+            (*params, limit),
+        )
     ).fetchall()
     return [{**window, "state": state(window, at)} for window in map(db.row_to_dict, rows)]
 
@@ -169,8 +180,8 @@ def _history_where(
     return conditions, params
 
 
-def history(
-    conn,
+async def history(
+    conn: aconnection.Connection,
     start: datetime,
     end: datetime,
     site_ids: list[str] | None = None,
@@ -179,24 +190,33 @@ def history(
 ) -> list[dict]:
     """The history view's and one site's windows (#353), newest first, at most *limit*."""
     conditions, params = _history_where(start, end, site_ids)
-    rows = conn.execute(
-        f"SELECT {COLUMNS} FROM maintenance_windows w WHERE {' AND '.join(conditions)} "
-        "ORDER BY w.starts_at DESC, w.id DESC LIMIT %s",
-        (*params, limit),
+    rows = (
+        await conn.execute(
+            f"SELECT {COLUMNS} FROM maintenance_windows w WHERE {' AND '.join(conditions)} "
+            "ORDER BY w.starts_at DESC, w.id DESC LIMIT %s",
+            (*params, limit),
+        )
     ).fetchall()
     at = at or now()
     return [{**window, "state": state(window, at)} for window in map(db.row_to_dict, rows)]
 
 
-def history_exceeds(
-    conn, start: datetime, end: datetime, site_ids: list[str] | None, limit: int
+async def history_exceeds(
+    conn: aconnection.Connection,
+    start: datetime,
+    end: datetime,
+    site_ids: list[str] | None,
+    limit: int,
 ) -> bool:
     """Whether the period has more than *limit* windows: one index probe, so a
     too-big export is refused before any of it is read."""
     conditions, params = _history_where(start, end, site_ids)
-    row = conn.execute(
-        f"SELECT 1 FROM maintenance_windows w WHERE {' AND '.join(conditions)} OFFSET %s LIMIT 1",
-        (*params, limit),
+    row = (
+        await conn.execute(
+            f"SELECT 1 AS found FROM maintenance_windows w WHERE {' AND '.join(conditions)} "
+            "OFFSET %s LIMIT 1",
+            (*params, limit),
+        )
     ).fetchone()
     return row is not None
 
@@ -229,9 +249,13 @@ def history_minutes(window: dict, at: datetime) -> int:
     return max(0, round((stop - starts).total_seconds() / 60))
 
 
-def history_csv_lines(
-    conn, start: datetime, end: datetime, site_ids: list[str] | None, sites: list[dict]
-):
+async def history_csv_lines(
+    conn: aconnection.Connection,
+    start: datetime,
+    end: datetime,
+    site_ids: list[str] | None,
+    sites: list[dict],
+) -> AsyncIterator[str]:
     """The history as CSV, a line at a time (#353): a server-side cursor and
     the device names joined in, so 100,000 windows stream in steady memory.
     One row per window, times in UTC, formula-safe like the other exports."""
@@ -240,15 +264,14 @@ def history_csv_lines(
     conditions, params = _history_where(start, end, site_ids)
     columns = ", ".join(f"w.{column.strip()}" for column in COLUMNS.split(","))
     yield export.csv_header(HISTORY_COLUMNS)
-    with db.transaction(conn), conn.cursor(name="maintenance_history_export") as cursor:
-        cursor.itersize = 2000
-        cursor.execute(
+    async with conn.transaction():
+        rows = conn.stream(
             f"SELECT {columns}, d.name AS device_name FROM maintenance_windows w "
             "LEFT JOIN nautobot_device_cache d ON d.device_id = w.device_id AND w.device_id <> '' "
             f"WHERE {' AND '.join(conditions)} ORDER BY w.starts_at DESC, w.id DESC",
             params,
         )
-        for row in cursor:
+        async for row in rows:
             w = db.row_to_dict(row)
             site = by_site.get(w["site_id"]) or {}
             yield export.csv_line(
@@ -304,7 +327,7 @@ def _site_ids(body: dict) -> list[str]:
     return [site_id.strip()]
 
 
-def create(conn, body: dict, created_by: str) -> list[dict]:
+async def create(conn: aconnection.Connection, body: dict, created_by: str) -> list[dict]:
     """Validate *body* and store the window(s), in one transaction: one per
     site (``site_id`` or ``site_ids``), or one per device of one site."""
     site_ids = _site_ids(body)
@@ -353,41 +376,46 @@ def create(conn, body: dict, created_by: str) -> list[dict]:
     targets = [(site_ids[0], device_id) for device_id in device_ids] or [
         (site_id, "") for site_id in site_ids
     ]
-    with db.transaction(conn):
-        # One statement for every site or device (#343), not one per row; one batch.
-        rows = conn.execute(
-            "INSERT INTO maintenance_windows (site_id, device_id, starts_at, ends_at, reason, created_by, batch_id) "
-            "SELECT site_id, device_id, %s, %s, %s, %s, %s "
-            "FROM UNNEST(%s::text[], %s::text[]) AS t(site_id, device_id) "
-            f"RETURNING {COLUMNS}",
-            (
-                starts,
-                ends,
-                reason.strip(),
-                created_by,
-                uuid.uuid4().hex,
-                [t[0] for t in targets],
-                [t[1] for t in targets],
-            ),
+    async with conn.transaction():
+        # One statement for every site or device (#343), not one per row; one batch. Typed:
+        # in a SELECT list the database can't tell a parameter's type from its column.
+        rows = (
+            await conn.execute(
+                "INSERT INTO maintenance_windows (site_id, device_id, starts_at, ends_at, reason, created_by, batch_id) "
+                "SELECT site_id, device_id, %s::timestamptz, %s::timestamptz, %s::text, %s::text, %s::text "
+                "FROM UNNEST(%s::text[], %s::text[]) AS t(site_id, device_id) "
+                f"RETURNING {COLUMNS}",
+                (
+                    starts,
+                    ends,
+                    reason.strip(),
+                    created_by,
+                    uuid.uuid4().hex,
+                    [t[0] for t in targets],
+                    [t[1] for t in targets],
+                ),
+            )
         ).fetchall()
     windows = sorted(map(db.row_to_dict, rows), key=lambda window: window["id"])
     return [{**window, "state": state(window, current)} for window in windows]
 
 
-def end_many(conn, window_ids: list[int], ended_by: str) -> dict:
+async def end_many(conn: aconnection.Connection, window_ids: list[int], ended_by: str) -> dict:
     """End or cancel several windows at once (#343): a batch planned together.
     ``{"windows", "changed"}``: unknown IDs are left out, ones already over
     returned as they are; *changed* counts those ended or cancelled now."""
     current = now()
-    with db.transaction(conn):
-        rows = conn.execute(
-            f"SELECT {COLUMNS} FROM maintenance_windows WHERE id = ANY(%s) ORDER BY id FOR UPDATE",
-            (window_ids,),
+    async with conn.transaction():
+        rows = (
+            await conn.execute(
+                f"SELECT {COLUMNS} FROM maintenance_windows WHERE id = ANY(%s) ORDER BY id FOR UPDATE",
+                (window_ids,),
+            )
         ).fetchall()
         windows = list(map(db.row_to_dict, rows))
         open_ids = {w["id"] for w in windows if state(w, current) in ("active", "upcoming")}
         if open_ids:
-            conn.execute(
+            await conn.execute(
                 "UPDATE maintenance_windows SET ended_at = %s, ended_by = %s WHERE id = ANY(%s)",
                 (current, ended_by, list(open_ids)),
             )
@@ -401,7 +429,7 @@ def end_many(conn, window_ids: list[int], ended_by: str) -> dict:
     }
 
 
-def describe(conn, windows: list[dict], sites: list[dict]) -> dict:
+async def describe(conn: aconnection.Connection, windows: list[dict], sites: list[dict]) -> dict:
     """Names for the page (#343): each window's site name and tenants (from
     the board's rows, *sites*) and device name, in one query for all of
     them; and the tenants' descriptions, once."""
@@ -409,9 +437,11 @@ def describe(conn, windows: list[dict], sites: list[dict]) -> dict:
     device_ids = sorted({w["device_id"] for w in windows if w.get("device_id")})
     names = {}
     if device_ids:
-        rows = conn.execute(
-            "SELECT device_id, name FROM nautobot_device_cache WHERE device_id = ANY(%s)",
-            (device_ids,),
+        rows = (
+            await conn.execute(
+                "SELECT device_id, name FROM nautobot_device_cache WHERE device_id = ANY(%s)",
+                (device_ids,),
+            )
         ).fetchall()
         names = {row["device_id"]: row["name"] for row in map(db.row_to_dict, rows)}
     descriptions: dict[str, str] = {}
@@ -435,10 +465,10 @@ def describe(conn, windows: list[dict], sites: list[dict]) -> dict:
     return {"windows": described, "tenant_descriptions": descriptions}
 
 
-def end(conn, window_id: int, ended_by: str) -> dict | None:
+async def end(conn: aconnection.Connection, window_id: int, ended_by: str) -> dict | None:
     """End an active window now, or cancel an upcoming one.  None when it doesn't exist.
 
     Ending one that is already over changes nothing and returns it as it is.
     """
-    windows = end_many(conn, [window_id], ended_by)["windows"]
+    windows = (await end_many(conn, [window_id], ended_by))["windows"]
     return windows[0] if windows else None

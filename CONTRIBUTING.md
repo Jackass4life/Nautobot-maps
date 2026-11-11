@@ -115,6 +115,11 @@ the details.
     `db.transaction()`). New database code is async: a repository on `AsyncBaseRepository`
     (`app/core/repository.py`) or `await session.execute(text(...))` with `:name` parameters.
     A sync route that needs it calls `session.from_sync(function, ...)`.
+    The ported code's raw SQL moves to `aconnection.py` (#651): `async with
+    aconnection.connect() as conn`, then `await conn.execute(sql, params)` with its psycopg
+    placeholders unchanged, `async with conn.transaction()`, `conn.stream()` for a big
+    export. asyncpg wants real types: a time is a `datetime`, and a parameter in a `SELECT`
+    list needs a cast (`%s::timestamptz`).
   - `app/core/`: the settings, the errors and their handlers (`exceptions.py`), `cors.py`,
     `version.py` (the version is `api/pyproject.toml`'s); `app/auth/` the sign-in and role
     dependencies; `app/context/` the request being answered; `app/logs/` the log setup and
