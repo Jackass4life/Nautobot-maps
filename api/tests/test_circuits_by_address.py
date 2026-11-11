@@ -1,5 +1,7 @@
 """Circuits whose description is a site's address, in the site panel (#383)."""
 
+import asyncio
+
 import pytest
 
 from app.clients import caching, nautobot
@@ -216,7 +218,7 @@ class TestSitePanel:
         self.sync()
 
     def sync(self):
-        inventory.sync_nautobot(force=True)
+        asyncio.run(inventory.sync_nautobot(force=True))
         caching.cache.clear()
 
     def panel(self, flask_client, location_id):

@@ -8,6 +8,7 @@ from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import notify_service as notify
+from tests import db as adb
 from tests import test_maintenance
 from tests.test_maintenance import build
 
@@ -95,8 +96,9 @@ class TestTier:
         conn = db.get_conn()
         try:
             with db.transaction(conn):
-                inventory.write_locations(
-                    conn, [{**_snapshot_location("loc-lon", "London HQ"), "tier": "gold"}]
+                adb.call(
+                    inventory.write_locations,
+                    [{**_snapshot_location("loc-lon", "London HQ"), "tier": "gold"}],
                 )
         finally:
             conn.close()

@@ -6,6 +6,7 @@ tracks sync state, and runs the syncs (``inventory.ensure_snapshot()``).
 Called as ``inventory.function()`` so tests can replace it on this module.
 """
 
+import asyncio
 import ipaddress
 import json
 import re
@@ -17,6 +18,7 @@ from loguru import logger
 
 from app.clients import caching, librenms, nautobot
 from app.core.legacy_settings import settings
+from app.db import aconnection, session
 from app.db import connection as db
 from app.services import contract_service as contract
 from app.utils import timeutil
@@ -479,24 +481,26 @@ def fetch_cables(params: dict | None) -> list[dict] | None:
     return result
 
 
-def write_cables(conn, cables: list[dict], full: bool) -> None:
+async def write_cables(conn: aconnection.Connection, cables: list[dict], full: bool) -> None:
     """Store the cables (#524): a full sync replaces them all (a cable removed
     in Nautobot goes), an incremental one adds and updates."""
     if full:
-        conn.execute("DELETE FROM nautobot_cable_cache")
-    with conn.cursor() as cursor:
-        cursor.executemany(
-            """
-            INSERT INTO nautobot_cable_cache (cable_id, a_device_id, a_port, b_device_id, b_port)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (cable_id) DO UPDATE SET a_device_id = EXCLUDED.a_device_id, a_port = EXCLUDED.a_port,
-                b_device_id = EXCLUDED.b_device_id, b_port = EXCLUDED.b_port
-            """,
-            [
-                (c["cable_id"], c["a_device_id"], c["a_port"], c["b_device_id"], c["b_port"])
-                for c in cables
-            ],
-        )
+        await conn.execute("DELETE FROM nautobot_cable_cache")
+    await conn.executemany(
+        """
+        INSERT INTO nautobot_cable_cache (cable_id, a_device_id, a_port, b_device_id, b_port)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (cable_id) DO UPDATE SET a_device_id = EXCLUDED.a_device_id, a_port = EXCLUDED.a_port,
+            b_device_id = EXCLUDED.b_device_id, b_port = EXCLUDED.b_port
+        """,
+        [
+            tuple(
+                _text(c[key])
+                for key in ("cable_id", "a_device_id", "a_port", "b_device_id", "b_port")
+            )
+            for c in cables
+        ],
+    )
 
 
 def fetch_circuits() -> list[dict] | None:
@@ -718,6 +722,24 @@ def tree_change(stored_tree: dict[str, dict], locations: list[dict]) -> bool:
     )
 
 
+LOCATION_TREE_SQL = (
+    "SELECT location_id, parent_id, location_type, name FROM nautobot_location_cache"
+)
+
+
+def location_tree(rows) -> dict[str, dict]:  # type: ignore[no-untyped-def]
+    """``LOCATION_TREE_SQL``'s rows as ``read_location_tree`` answers them."""
+    return {
+        data["location_id"]: {
+            "parent_id": data.get("parent_id") or "",
+            "location_type": data.get("location_type") or "",
+            "name": data.get("name") or "",
+        }
+        for data in rows
+        if data.get("location_id")
+    }
+
+
 def read_location_tree(conn=None) -> dict[str, dict]:
     """The stored locations' ``{location_id: {"parent_id", "location_type", "name"}}`` (#386)."""
     owns_conn = conn is None
@@ -726,18 +748,7 @@ def read_location_tree(conn=None) -> dict[str, dict]:
     if conn is None:
         return {}
     try:
-        rows = conn.execute(
-            "SELECT location_id, parent_id, location_type, name FROM nautobot_location_cache"
-        ).fetchall()
-        return {
-            data["location_id"]: {
-                "parent_id": data.get("parent_id") or "",
-                "location_type": data.get("location_type") or "",
-                "name": data.get("name") or "",
-            }
-            for data in map(db.row_to_dict, rows)
-            if data.get("location_id")
-        }
+        return location_tree(map(db.row_to_dict, conn.execute(LOCATION_TREE_SQL).fetchall()))
     except Exception as exc:
         logger.debug("Could not read cached locations: {}", exc)
         return {}
@@ -1031,6 +1042,17 @@ def record_sync_state(conn, source: str, **state) -> None:  # type: ignore[no-un
     conn.execute(*sync_state_statement(source, **state))
 
 
+SYNC_STATE_SQL = (
+    "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, "
+    "status, error_message FROM inventory_sync_state WHERE source = %s"
+)
+
+
+async def read_sync_state(conn: aconnection.Connection, source: str) -> dict:
+    """``get_sync_state`` on the async connection (#659): its times as ISO text too."""
+    return db.row_to_dict((await conn.execute(SYNC_STATE_SQL, (source,))).fetchone())
+
+
 def get_sync_state(source: str, conn=None) -> dict:
     owns_conn = conn is None
     if owns_conn:
@@ -1038,16 +1060,7 @@ def get_sync_state(source: str, conn=None) -> dict:
     if conn is None:
         return {}
     try:
-        marker = db.placeholders(1)
-        row = conn.execute(
-            f"""
-            SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, error_message
-            FROM inventory_sync_state
-            WHERE source = {marker}
-            """,
-            (source,),
-        ).fetchone()
-        return db.row_to_dict(row)
+        return db.row_to_dict(conn.execute(SYNC_STATE_SQL, (source,)).fetchone())
     except Exception as exc:
         logger.debug("Could not read sync state for {}: {}", source, exc)
         return {}
@@ -1147,20 +1160,28 @@ def snapshot_initialized(conn=None) -> bool:
     return bool(state.get("status") == "idle" and state.get("last_completed_at"))
 
 
-def coalesce_text(value):
-    return "" if value is None else value
+# asyncpg takes each column's own type, where psycopg let the database convert (#659).
+def _text(value) -> str:
+    return "" if value is None else str(value)
 
 
-def write_locations(conn, locations: list) -> None:
-    placeholders = db.placeholders(24).split(",")
-    for loc in locations:
-        conn.execute(
-            f"""
+def _int(value) -> int | None:
+    return None if value is None or value == "" else int(value)
+
+
+def _float(value) -> float | None:
+    return None if value is None or value == "" else float(value)
+
+
+async def write_locations(conn: aconnection.Connection, locations: list) -> None:
+    await conn.executemany(
+        """
             INSERT INTO nautobot_location_cache
                 (location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
                  description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
                  time_zone, tags_json, url, last_updated, country, tier, address_key, tenant_scope_json, synced_at)
-            VALUES ({", ".join(placeholders)}, {db.sql_now()})
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s::text::timestamptz, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
                 slug = excluded.slug,
@@ -1187,60 +1208,71 @@ def write_locations(conn, locations: list) -> None:
                 tenant_scope_json = excluded.tenant_scope_json,
                 synced_at = excluded.synced_at
             """,
+        [
             (
-                coalesce_text(loc.get("id", "")),
-                coalesce_text(loc.get("name", "")),
-                coalesce_text(loc.get("slug", "")),
-                coalesce_text(loc.get("status", "")),
-                coalesce_text(loc.get("location_type", "")),
-                coalesce_text(loc.get("parent", "")),
-                coalesce_text(loc.get("parent_id", "")),
-                loc.get("latitude"),
-                loc.get("longitude"),
-                coalesce_text(loc.get("description", "")),
-                coalesce_text(loc.get("physical_address", "")),
-                coalesce_text(loc.get("facility", "")),
-                coalesce_text(loc.get("tenant", "")),
-                coalesce_text(loc.get("tenant_id", "")),
-                coalesce_text(loc.get("tenant_group", "")),
-                loc.get("asn"),
-                loc.get("time_zone"),
+                _text(loc.get("id", "")),
+                _text(loc.get("name", "")),
+                _text(loc.get("slug", "")),
+                _text(loc.get("status", "")),
+                _text(loc.get("location_type", "")),
+                _text(loc.get("parent", "")),
+                _text(loc.get("parent_id", "")),
+                _float(loc.get("latitude")),
+                _float(loc.get("longitude")),
+                _text(loc.get("description", "")),
+                _text(loc.get("physical_address", "")),
+                _text(loc.get("facility", "")),
+                _text(loc.get("tenant", "")),
+                _text(loc.get("tenant_id", "")),
+                _text(loc.get("tenant_group", "")),
+                _int(loc.get("asn")),
+                None if loc.get("time_zone") is None else _text(loc.get("time_zone")),
                 json.dumps(loc.get("tags", []), separators=(",", ":"), sort_keys=True),
-                coalesce_text(loc.get("url", "")),
-                loc.get("last_updated") or None,
-                coalesce_text(loc.get("country", "")),
-                coalesce_text(loc.get("tier", "")),
+                _text(loc.get("url", "")),
+                _text(loc.get("last_updated")) or None,
+                _text(loc.get("country", "")),
+                _text(loc.get("tier", "")),
                 address_key(loc.get("physical_address") or ""),
                 json.dumps(loc.get("tenant_scopes") or {}, separators=(",", ":"), sort_keys=True),
-            ),
-        )
+            )
+            for loc in locations
+        ],
+    )
 
 
-def write_location_tenant_links(conn, links: list[dict]) -> None:
+async def write_location_tenant_links(conn: aconnection.Connection, links: list[dict]) -> None:
     """Replace the cached location <-> tenant relationship links (#238)."""
-    conn.execute("DELETE FROM nautobot_location_tenant_cache")
-    for link in links:
-        conn.execute(
-            f"INSERT INTO nautobot_location_tenant_cache (location_id, tenant_id, tenant, relationship) "
-            f"VALUES ({db.placeholders(4)}) ON CONFLICT DO NOTHING",
+    await conn.execute("DELETE FROM nautobot_location_tenant_cache")
+    await conn.executemany(
+        "INSERT INTO nautobot_location_tenant_cache (location_id, tenant_id, tenant, relationship) "
+        "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+        [
             (
-                link["location_id"],
-                link["tenant_id"],
-                link.get("tenant") or "",
-                link.get("relationship") or "",
-            ),
-        )
+                _text(link["location_id"]),
+                _text(link["tenant_id"]),
+                _text(link.get("tenant") or ""),
+                _text(link.get("relationship") or ""),
+            )
+            for link in links
+        ],
+    )
 
 
-def write_tenants(conn, tenants: list[dict]) -> None:
+async def write_tenants(conn: aconnection.Connection, tenants: list[dict]) -> None:
     """Replace the cached tenants and their descriptions (#263)."""
-    conn.execute("DELETE FROM nautobot_tenant_cache")
-    for tenant in tenants:
-        conn.execute(
-            f"INSERT INTO nautobot_tenant_cache (tenant_id, name, description) "
-            f"VALUES ({db.placeholders(3)}) ON CONFLICT DO NOTHING",
-            (tenant["tenant_id"], tenant.get("name") or "", tenant.get("description") or ""),
-        )
+    await conn.execute("DELETE FROM nautobot_tenant_cache")
+    await conn.executemany(
+        "INSERT INTO nautobot_tenant_cache (tenant_id, name, description) "
+        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+        [
+            (
+                _text(tenant["tenant_id"]),
+                _text(tenant.get("name") or ""),
+                _text(tenant.get("description") or ""),
+            )
+            for tenant in tenants
+        ],
+    )
 
 
 CIRCUIT_COLUMNS = (
@@ -1264,21 +1296,23 @@ def tenant_key(name) -> str:
     return str(name or "").strip().casefold()
 
 
-def write_circuits(conn, circuits: list[dict]) -> None:
+async def write_circuits(conn: aconnection.Connection, circuits: list[dict]) -> None:
     """Replace the cached circuits (#383), in one batch."""
-    conn.execute("DELETE FROM nautobot_circuit_cache")
+    await conn.execute("DELETE FROM nautobot_circuit_cache")
 
     def row(circuit: dict) -> tuple:
         derived = {
-            "location_ids": circuit.get("location_ids") or [],
+            "location_ids": [str(i) for i in circuit.get("location_ids") or []],
             "tenant_key": tenant_key(circuit.get("tenant")),
+            "commit_rate": _int(circuit.get("commit_rate")),
+            "terminated": bool(circuit.get("terminated")),
         }
         return tuple(
             derived[column] if column in derived else circuit.get(column)
             for column in CIRCUIT_COLUMNS
         )
 
-    conn.cursor().executemany(
+    await conn.executemany(
         f"INSERT INTO nautobot_circuit_cache ({', '.join(CIRCUIT_COLUMNS)}) "
         f"VALUES ({db.placeholders(len(CIRCUIT_COLUMNS))}) ON CONFLICT DO NOTHING",
         [row(circuit) for circuit in circuits],
@@ -1417,16 +1451,15 @@ def read_location_tenant_links(conn) -> dict[str, list[str]]:
     return {location_id: sorted(names, key=str.lower) for location_id, names in tenants.items()}
 
 
-def write_devices(conn, devices: list) -> None:
-    placeholders = db.placeholders(17).split(",")
-    for device in devices:
-        conn.execute(
-            f"""
+async def write_devices(conn: aconnection.Connection, devices: list) -> None:
+    await conn.executemany(
+        """
             INSERT INTO nautobot_device_cache
                 (device_id, location_id, name, device_type, manufacturer, role, status,
                  primary_ip, platform, serial, tenant, last_updated, criticality,
                  vc_id, vc_name, vc_position, vc_master, synced_at)
-            VALUES ({", ".join(placeholders)}, {db.sql_now()})
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::text::timestamptz, %s, %s, %s, %s, %s,
+                    CURRENT_TIMESTAMP)
             ON CONFLICT(device_id) DO UPDATE SET
                 location_id = excluded.location_id,
                 name = excluded.name,
@@ -1446,26 +1479,29 @@ def write_devices(conn, devices: list) -> None:
                 vc_master = excluded.vc_master,
                 synced_at = excluded.synced_at
             """,
+        [
             (
-                coalesce_text(device.get("id", "")),
-                coalesce_text(device.get("location_id", "")),
-                coalesce_text(device.get("name", "")),
-                coalesce_text(device.get("device_type", "")),
-                coalesce_text(device.get("manufacturer", "")),
-                coalesce_text(device.get("role", "")),
-                coalesce_text(device.get("status", "")),
-                coalesce_text(device.get("primary_ip", "")),
-                coalesce_text(device.get("platform", "")),
-                coalesce_text(device.get("serial", "")),
-                coalesce_text(device.get("tenant", "")),
-                device.get("last_updated") or None,
-                coalesce_text(device.get("criticality", "")),
-                coalesce_text(device.get("vc_id", "")),
-                coalesce_text(device.get("vc_name", "")),
-                device.get("vc_position"),
+                _text(device.get("id", "")),
+                _text(device.get("location_id", "")),
+                _text(device.get("name", "")),
+                _text(device.get("device_type", "")),
+                _text(device.get("manufacturer", "")),
+                _text(device.get("role", "")),
+                _text(device.get("status", "")),
+                _text(device.get("primary_ip", "")),
+                _text(device.get("platform", "")),
+                _text(device.get("serial", "")),
+                _text(device.get("tenant", "")),
+                _text(device.get("last_updated")) or None,
+                _text(device.get("criticality", "")),
+                _text(device.get("vc_id", "")),
+                _text(device.get("vc_name", "")),
+                _int(device.get("vc_position")),
                 bool(device.get("vc_master")),
-            ),
-        )
+            )
+            for device in devices
+        ],
+    )
 
 
 def librenms_polled_ip(device: dict) -> str:
@@ -1492,15 +1528,27 @@ def librenms_flag(value) -> bool:
     return str(value).strip().lower() in ("1", "true")
 
 
-def librenms_observation(conn) -> int:
+async def librenms_observation(conn: aconnection.Connection) -> int:
     """A number for a LibreNMS request, taken before it is sent: a higher one
     is a newer answer (#284)."""
-    return db.row_to_dict(
-        conn.execute("SELECT nextval('librenms_observation_seq') AS n").fetchone()
-    )["n"]
+    return (await conn.execute("SELECT nextval('librenms_observation_seq') AS n")).fetchone()["n"]
 
 
-def write_librenms_devices(conn, devices: list, observation: int | None = None) -> set:
+def _librenms_row(device: dict) -> tuple:
+    """A LibreNMS device's columns, from hostname to the mute flags, as asyncpg takes them."""
+    return (
+        _text(device.get("hostname", "")),
+        librenms_polled_ip(device),
+        _int(device.get("status")),
+        str(device.get("status", "")),
+        _text(device.get("status_reason", "") or ""),
+        *(librenms_flag(device.get(flag)) for flag in LIBRENMS_MUTE_FLAGS),
+    )
+
+
+async def write_librenms_devices(
+    conn: aconnection.Connection, devices: list, observation: int | None = None
+) -> set:
     """Store LibreNMS device statuses; returns the device ids written.
 
     *observation* is from ``librenms_observation``, taken before the
@@ -1510,8 +1558,9 @@ def write_librenms_devices(conn, devices: list, observation: int | None = None) 
     """
     written = set()
     for device in devices:
-        row = conn.execute(
-            """
+        row = (
+            await conn.execute(
+                """
             INSERT INTO librenms_device_status
                 (device_id, hostname, ip, status, status_raw, status_reason, disabled, disable_notify, ignore,
                  synced_at, observed_seq)
@@ -1532,23 +1581,15 @@ def write_librenms_devices(conn, devices: list, observation: int | None = None) 
                OR librenms_device_status.observed_seq < excluded.observed_seq
             RETURNING device_id
             """,
-            (
-                device.get("device_id"),
-                device.get("hostname", ""),
-                librenms_polled_ip(device),
-                device.get("status"),
-                str(device.get("status", "")),
-                device.get("status_reason", "") or "",
-                *(librenms_flag(device.get(flag)) for flag in LIBRENMS_MUTE_FLAGS),
-                observation,
-            ),
+                (_int(device.get("device_id")), *_librenms_row(device), observation),
+            )
         ).fetchone()
         if row is not None:
-            written.add(db.row_to_dict(row)["device_id"])
+            written.add(row["device_id"])
     return written
 
 
-def librenms_push_refresh(device: str) -> dict:
+async def librenms_push_refresh(device: str) -> dict:
     """Refresh one device's LibreNMS status after an alert push (#284).
 
     The push only says which device to look at; its status comes from the
@@ -1560,40 +1601,34 @@ def librenms_push_refresh(device: str) -> dict:
     doesn't know the device, it isn't cached yet, or a newer answer was
     already stored.  Raises when LibreNMS can't be asked.
     """
-    conn = db.get_conn()
-    if conn is None:
+    if not db.dialect():
         raise RuntimeError("Persistence DB not configured")
-    try:
-        observation = librenms_observation(conn)
-        found = librenms.fetch_device(device)
-        if found is not None:
-            contract.check_and_record(contract.LIBRENMS, "devices/<id or hostname>", [found])
+    async with aconnection.connect() as conn:
+        observation = await librenms_observation(conn)
+        found = await asyncio.to_thread(_fetch_pushed_device, device)
         if found is None or found.get("device_id") is None:
             return {"updated": False, "device": None}
         # Only devices already cached: an insert could bring back a device a
         # newer sync removed.  A device new in LibreNMS comes with the next sync.
-        with db.transaction(conn):
-            row = conn.execute(
-                "UPDATE librenms_device_status SET hostname = %s, ip = %s, status = %s, status_raw = %s, "
-                "status_reason = %s, disabled = %s, disable_notify = %s, ignore = %s, "
-                "synced_at = CURRENT_TIMESTAMP, observed_seq = %s, "
-                "pushed_at = clock_timestamp(), push_seq = nextval('librenms_push_seq') "
-                "WHERE device_id = %s AND (observed_seq IS NULL OR observed_seq < %s) RETURNING device_id",
-                (
-                    found.get("hostname", ""),
-                    librenms_polled_ip(found),
-                    found.get("status"),
-                    str(found.get("status", "")),
-                    found.get("status_reason", "") or "",
-                    *(librenms_flag(found.get(flag)) for flag in LIBRENMS_MUTE_FLAGS),
-                    observation,
-                    found["device_id"],
-                    observation,
-                ),
+        async with conn.transaction():
+            row = (
+                await conn.execute(
+                    "UPDATE librenms_device_status SET hostname = %s, ip = %s, status = %s, status_raw = %s, "
+                    "status_reason = %s, disabled = %s, disable_notify = %s, ignore = %s, "
+                    "synced_at = CURRENT_TIMESTAMP, observed_seq = %s, "
+                    "pushed_at = clock_timestamp(), push_seq = nextval('librenms_push_seq') "
+                    "WHERE device_id = %s AND (observed_seq IS NULL OR observed_seq < %s) RETURNING device_id",
+                    (*_librenms_row(found), observation, _int(found["device_id"]), observation),
+                )
             ).fetchone()
         return {"updated": row is not None, "device": _pushed_device(found)}
-    finally:
-        conn.close()
+
+
+def _fetch_pushed_device(device: str) -> dict | None:
+    found = librenms.fetch_device(device)
+    if found is not None:
+        contract.check_and_record(contract.LIBRENMS, "devices/<id or hostname>", [found])
+    return found
 
 
 def _pushed_device(device: dict) -> dict:
@@ -1649,67 +1684,101 @@ def check_lookup_endpoints() -> None:
         contract.check_and_record(contract.NAUTOBOT, path, records)
 
 
-def sync_nautobot(force: bool = False) -> None:
-    conn = db.get_conn()
-    if conn is None or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
-        if conn is not None:
-            conn.close()
+def _fetch_nautobot(params: dict, stored_tree: dict[str, dict], full_reconcile: bool) -> dict:
+    """Everything a Nautobot sync reads upstream, checked and normalised: sync
+    HTTP and CPU work, in a thread (#659)."""
+    # Straight from Nautobot, never the response cache (#185).
+    raw_locations = nautobot.fetch_all_pages("dcim/locations/", params or None, use_cache=False)
+    device_params = dict(params)
+    device_params["depth"] = 1
+    raw_devices = nautobot.fetch_all_pages("dcim/devices/", device_params or None, use_cache=False)
+    incremental = bool(params)
+    contract.check_and_record(contract.NAUTOBOT, "dcim/locations/", raw_locations, incremental)
+    contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", raw_devices, incremental)
+    locations = normalize_locations(
+        raw_locations,
+        include_without_coordinates=True,
+        existing_location_name_map={
+            uid: node["name"] for uid, node in stored_tree.items() if node["name"]
+        },
+        existing_location_tree=stored_tree,
+    )
+    devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
+    check_lookup_endpoints()
+    return {
+        "raw_locations": raw_locations,
+        "raw_devices": raw_devices,
+        "locations": locations,
+        # A location with others under it renamed, retyped or moved changes their
+        # country (and path), but an incremental sync brings only it: the next
+        # sync is a full one (#386).
+        "tree_changed": not full_reconcile and tree_change(stored_tree, locations),
+        # A stack renamed or given another master changes its members, which an
+        # incremental sync doesn't bring: the next sync is a full one too (#400).
+        "stack_changed": bool(params) and virtual_chassis_changed(params["last_updated__gte"]),
+        "devices": devices,
+        "tenant_links": fetch_location_tenant_links(),
+        "tenants": fetch_tenants(),
+        "circuits": fetch_circuits(),
+        "cables": fetch_cables(params or None),
+    }
+
+
+async def sync_nautobot(force: bool = False) -> None:
+    """Read Nautobot's locations and devices (changed ones, or all on a full
+    reconcile) into the cache. On the async connection since #659: the
+    upstream reads in a thread, a failure recorded on the sync state."""
+    if not db.dialect() or not settings.NAUTOBOT_URL or not settings.NAUTOBOT_TOKEN:
         return
     source = "nautobot_inventory"
     reconcile_source = "nautobot_inventory_reconcile"
     started_at = timeutil.iso_utc_now()
     last_successful_sync = None
-    source_state = {}
-    try:
-        source_state = {} if force else get_sync_state(source, conn=conn)
-        last_successful_sync = None if force else source_state.get("last_successful_sync")
-        version_mismatch = cache_version_mismatch(source_state)
-        full_reconcile = (
-            force
-            or version_mismatch
-            or not last_successful_sync
-            or sync_due(
-                reconcile_source,
-                FULL_RECONCILE_INTERVAL_SECONDS,
-                conn=conn,
+    source_state: dict = {}
+    async with aconnection.connect() as conn:
+        try:
+            source_state = {} if force else await read_sync_state(conn, source)
+            last_successful_sync = None if force else source_state.get("last_successful_sync")
+            version_mismatch = cache_version_mismatch(source_state)
+            full_reconcile = (
+                force
+                or version_mismatch
+                or not last_successful_sync
+                or state_due(
+                    await read_sync_state(conn, reconcile_source), FULL_RECONCILE_INTERVAL_SECONDS
+                )
             )
-        )
-        with db.transaction(conn):
-            record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=None,
-                last_successful_sync=last_successful_sync,
-                cache_version=source_state.get("cache_version", ""),
-                status="running",
-                error_message="",
+            await conn.execute(
+                *sync_state_statement(
+                    source,
+                    last_started_at=started_at,
+                    last_completed_at=None,
+                    last_successful_sync=_iso(last_successful_sync),
+                    cache_version=source_state.get("cache_version", ""),
+                    status="running",
+                    error_message="",
+                )
             )
 
-        params = {}
-        if last_successful_sync and not full_reconcile:
-            params["last_updated__gte"] = last_successful_sync
-        # Straight from Nautobot, never the response cache (#185).
-        raw_locations = nautobot.fetch_all_pages("dcim/locations/", params or None, use_cache=False)
-        device_params = dict(params)
-        device_params["depth"] = 1
-        raw_devices = nautobot.fetch_all_pages(
-            "dcim/devices/", device_params or None, use_cache=False
-        )
-        incremental = bool(params)
-        contract.check_and_record(contract.NAUTOBOT, "dcim/locations/", raw_locations, incremental)
-        contract.check_and_record(contract.NAUTOBOT, "dcim/devices/", raw_devices, incremental)
-        if full_reconcile:
-            existing_counts = conn.execute(
-                """
-                SELECT
-                    (SELECT COUNT(*) FROM nautobot_location_cache) AS location_count,
-                    (SELECT COUNT(*) FROM nautobot_device_cache) AS device_count
-                """
-            ).fetchone()
-            existing_counts = db.row_to_dict(existing_counts)
+            params = {}
+            if last_successful_sync and not full_reconcile:
+                params["last_updated__gte"] = _iso(last_successful_sync)
+            # Read before the fetch: only this sync (under its lock) writes them.
+            stored_tree = location_tree((await conn.execute(LOCATION_TREE_SQL)).fetchall())
+            existing_counts = (
+                await conn.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM nautobot_location_cache) AS location_count,
+                        (SELECT COUNT(*) FROM nautobot_device_cache) AS device_count
+                    """
+                )
+            ).fetchone() or {}
+            fetched = await asyncio.to_thread(_fetch_nautobot, params, stored_tree, full_reconcile)
+            raw_locations, raw_devices = fetched["raw_locations"], fetched["raw_devices"]
             if (
-                (
+                full_reconcile
+                and (
                     int(existing_counts.get("location_count") or 0) > 0
                     or int(existing_counts.get("device_count") or 0) > 0
                 )
@@ -1719,174 +1788,175 @@ def sync_nautobot(force: bool = False) -> None:
                 raise RuntimeError(
                     "Full inventory reconcile returned an empty dataset; keeping the existing cached snapshot"
                 )
-        stored_tree = read_location_tree(conn)
-        locations = normalize_locations(
-            raw_locations,
-            include_without_coordinates=True,
-            existing_location_name_map={
-                uid: node["name"] for uid, node in stored_tree.items() if node["name"]
-            },
-            existing_location_tree=stored_tree,
-        )
-        # A location with others under it renamed, retyped or moved changes their
-        # country (and path), but an incremental sync brings only it: the next
-        # sync is a full one (#386).
-        tree_changed = not full_reconcile and tree_change(stored_tree, locations)
-        # A stack renamed or given another master changes its members, which an
-        # incremental sync doesn't bring: the next sync is a full one too (#400).
-        stack_changed = bool(params) and virtual_chassis_changed(params["last_updated__gte"])
-        devices = normalize_devices(raw_devices, lookup_maps=nautobot.device_lookup_maps())
-        check_lookup_endpoints()
-        tenant_links = fetch_location_tenant_links()
-        tenants = fetch_tenants()
-        circuits = fetch_circuits()
-        cables = fetch_cables(params or None)
-        completed_at = timeutil.iso_utc_now()
-        watermark = last_successful_sync
-        observed_last_updated = timeutil.max_last_updated(raw_locations + raw_devices)
-        observed_dt = timeutil.parse_iso_datetime(observed_last_updated)
-        current_dt = timeutil.parse_iso_datetime(watermark)
-        if observed_dt and (current_dt is None or observed_dt > current_dt):
-            watermark = timeutil.next_watermark(observed_last_updated)
-        if full_reconcile:
-            watermark = timeutil.max_iso_datetime_value(watermark, started_at) or started_at
-        with db.transaction(conn):
+            completed_at = timeutil.iso_utc_now()
+            watermark = _iso(last_successful_sync)
+            observed_last_updated = timeutil.max_last_updated(raw_locations + raw_devices)
+            observed_dt = timeutil.parse_iso_datetime(observed_last_updated)
+            current_dt = timeutil.parse_iso_datetime(watermark)
+            if observed_dt and (current_dt is None or observed_dt > current_dt):
+                watermark = timeutil.next_watermark(observed_last_updated)
             if full_reconcile:
-                conn.execute("DELETE FROM nautobot_device_cache")
-                conn.execute("DELETE FROM nautobot_location_cache")
-            write_locations(conn, locations)
-            write_devices(conn, devices)
-            if tenant_links is not None:
-                write_location_tenant_links(conn, tenant_links)
-            if tenants is not None:
-                write_tenants(conn, tenants)
-            if circuits is not None:
-                write_circuits(conn, circuits)
-            # A full sync whose cables couldn't be read keeps the old ones.
-            if cables is not None:
-                write_cables(conn, cables, full=full_reconcile)
-            record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=completed_at,
-                last_successful_sync=watermark,
-                cache_version=cache_version(),
-                status="idle",
-                error_message="",
-            )
-            if tree_changed or stack_changed:
-                what = "A location with others under it" if tree_changed else "A virtual chassis"
-                logger.info("{} changed: the next Nautobot sync is a full one", what)
-                record_sync_state(conn, reconcile_source, cache_version=cache_version())
-            if full_reconcile:
-                record_sync_state(
-                    conn,
-                    reconcile_source,
-                    last_started_at=started_at,
-                    last_completed_at=completed_at,
-                    last_successful_sync=watermark,
-                    cache_version=cache_version(),
-                    status="idle",
-                    error_message="",
+                watermark = timeutil.max_iso_datetime_value(watermark, started_at) or started_at
+            async with conn.transaction():
+                if full_reconcile:
+                    await conn.execute("DELETE FROM nautobot_device_cache")
+                    await conn.execute("DELETE FROM nautobot_location_cache")
+                await write_locations(conn, fetched["locations"])
+                await write_devices(conn, fetched["devices"])
+                if fetched["tenant_links"] is not None:
+                    await write_location_tenant_links(conn, fetched["tenant_links"])
+                if fetched["tenants"] is not None:
+                    await write_tenants(conn, fetched["tenants"])
+                if fetched["circuits"] is not None:
+                    await write_circuits(conn, fetched["circuits"])
+                # A full sync whose cables couldn't be read keeps the old ones.
+                if fetched["cables"] is not None:
+                    await write_cables(conn, fetched["cables"], full=full_reconcile)
+                await conn.execute(
+                    *sync_state_statement(
+                        source,
+                        last_started_at=started_at,
+                        last_completed_at=completed_at,
+                        last_successful_sync=_iso(watermark),
+                        cache_version=cache_version(),
+                        status="idle",
+                        error_message="",
+                    )
                 )
-        caching.invalidate_alert_board()
-    except Exception as exc:
-        logger.opt(exception=True).warning(
-            "Could not sync Nautobot inventory into persistence DB: {}", exc
-        )
-        with db.transaction(conn):
-            record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=timeutil.iso_utc_now(),
-                last_successful_sync=last_successful_sync,
-                cache_version=source_state.get("cache_version", ""),
-                status="error",
-                error_message=str(exc),
+                if fetched["tree_changed"] or fetched["stack_changed"]:
+                    what = (
+                        "A location with others under it"
+                        if fetched["tree_changed"]
+                        else "A virtual chassis"
+                    )
+                    logger.info("{} changed: the next Nautobot sync is a full one", what)
+                    await conn.execute(
+                        *sync_state_statement(reconcile_source, cache_version=cache_version())
+                    )
+                if full_reconcile:
+                    await conn.execute(
+                        *sync_state_statement(
+                            reconcile_source,
+                            last_started_at=started_at,
+                            last_completed_at=completed_at,
+                            last_successful_sync=_iso(watermark),
+                            cache_version=cache_version(),
+                            status="idle",
+                            error_message="",
+                        )
+                    )
+            await asyncio.to_thread(caching.invalidate_alert_board)
+        except Exception as exc:
+            logger.opt(exception=True).warning(
+                "Could not sync Nautobot inventory into persistence DB: {}", exc
             )
-    finally:
-        conn.close()
+            await conn.execute(
+                *sync_state_statement(
+                    source,
+                    last_started_at=started_at,
+                    last_completed_at=timeutil.iso_utc_now(),
+                    last_successful_sync=_iso(last_successful_sync),
+                    cache_version=source_state.get("cache_version", ""),
+                    status="error",
+                    error_message=str(exc),
+                )
+            )
 
 
-def sync_librenms(force: bool = False) -> None:
-    conn = db.get_conn()
+def _iso(value) -> str | None:  # type: ignore[no-untyped-def]
+    """A stored time (a datetime from the database, or text) as ISO text, or None."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    return str(value)
+
+
+def _fetch_librenms() -> list:
+    devices = librenms.fetch_inventory()
+    contract.check_and_record(contract.LIBRENMS, "devices?type=all", devices)
+    return devices
+
+
+async def sync_librenms(force: bool = False) -> None:
+    """Read LibreNMS's device statuses into the cache. On the async connection
+    since #659: the upstream read in a thread, a failure recorded on the sync state."""
     if (
-        conn is None
+        not db.dialect()
         or not (settings.LIBRENMS_URL or "").strip()
         or not (settings.LIBRENMS_API_TOKEN or "").strip()
     ):
-        if conn is not None:
-            conn.close()
         return
     source = "librenms_inventory"
     started_at = timeutil.iso_utc_now()
     last_successful_sync = None
-    try:
-        last_successful_sync = (
-            None if force else get_sync_state(source, conn=conn).get("last_successful_sync")
-        )
-        with db.transaction(conn):
-            record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=None,
-                last_successful_sync=last_successful_sync,
-                status="running",
-                error_message="",
+    async with aconnection.connect() as conn:
+        try:
+            last_successful_sync = (
+                None if force else (await read_sync_state(conn, source)).get("last_successful_sync")
             )
-        observation = librenms_observation(conn)
-        devices = librenms.fetch_inventory()
-        contract.check_and_record(contract.LIBRENMS, "devices?type=all", devices)
-        existing_count = conn.execute(
-            "SELECT COUNT(*) AS device_count FROM librenms_device_status"
-        ).fetchone()
-        existing_count = int(db.row_to_dict(existing_count).get("device_count") or 0)
-        if existing_count > 0 and not devices:
-            raise RuntimeError(
-                "LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot"
+            await conn.execute(
+                *sync_state_statement(
+                    source,
+                    last_started_at=started_at,
+                    last_completed_at=None,
+                    last_successful_sync=_iso(last_successful_sync),
+                    status="running",
+                    error_message="",
+                )
             )
-        with db.transaction(conn):
-            completed_at = timeutil.iso_utc_now()
-            # Not "delete everything": a push stored after this fetch is
-            # newer, and keeps its status and pending rebuild (#284).
-            write_librenms_devices(conn, devices, observation)
-            conn.execute(
-                "DELETE FROM librenms_device_status "
-                "WHERE (observed_seq IS NULL OR observed_seq < %s) AND NOT (device_id = ANY(%s))",
-                (
-                    observation,
-                    [d.get("device_id") for d in devices if d.get("device_id") is not None],
-                ),
+            observation = await librenms_observation(conn)
+            devices = await asyncio.to_thread(_fetch_librenms)
+            existing = (
+                await conn.execute("SELECT COUNT(*) AS device_count FROM librenms_device_status")
+            ).fetchone() or {}
+            if int(existing.get("device_count") or 0) > 0 and not devices:
+                raise RuntimeError(
+                    "LibreNMS refresh returned an empty dataset; keeping the existing cached snapshot"
+                )
+            async with conn.transaction():
+                completed_at = timeutil.iso_utc_now()
+                # Not "delete everything": a push stored after this fetch is
+                # newer, and keeps its status and pending rebuild (#284).
+                await write_librenms_devices(conn, devices, observation)
+                await conn.execute(
+                    "DELETE FROM librenms_device_status "
+                    "WHERE (observed_seq IS NULL OR observed_seq < %s) "
+                    "AND NOT (device_id = ANY(%s::integer[]))",
+                    (
+                        observation,
+                        [
+                            _int(d.get("device_id"))
+                            for d in devices
+                            if d.get("device_id") is not None
+                        ],
+                    ),
+                )
+                await conn.execute(
+                    *sync_state_statement(
+                        source,
+                        last_started_at=started_at,
+                        last_completed_at=completed_at,
+                        last_successful_sync=completed_at,
+                        status="idle",
+                        error_message="",
+                    )
+                )
+            await asyncio.to_thread(caching.invalidate_alert_board)
+        except Exception as exc:
+            logger.opt(exception=True).warning(
+                "Could not sync LibreNMS inventory into persistence DB: {}", exc
             )
-            record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=completed_at,
-                last_successful_sync=completed_at,
-                status="idle",
-                error_message="",
+            await conn.execute(
+                *sync_state_statement(
+                    source,
+                    last_started_at=started_at,
+                    last_completed_at=timeutil.iso_utc_now(),
+                    last_successful_sync=None if force else _iso(last_successful_sync),
+                    status="error",
+                    error_message=str(exc),
+                )
             )
-        caching.invalidate_alert_board()
-    except Exception as exc:
-        logger.opt(exception=True).warning(
-            "Could not sync LibreNMS inventory into persistence DB: {}", exc
-        )
-        with db.transaction(conn):
-            record_sync_state(
-                conn,
-                source,
-                last_started_at=started_at,
-                last_completed_at=timeutil.iso_utc_now(),
-                last_successful_sync=None if force else last_successful_sync,
-                status="error",
-                error_message=str(exc),
-            )
-    finally:
-        conn.close()
 
 
 # A forced sync (the board's ?refresh=1) of a source that finished less than
@@ -1967,10 +2037,11 @@ def ensure_snapshot(
             needs_nautobot, needs_librenms = sources_to_sync(conn, force, cooldown_seconds)
             if not needs_nautobot and not needs_librenms:
                 return False
+            # On the app's event loop (#659): the syncs' SQL is async.
             if needs_nautobot:
-                sync_nautobot(force=full)
+                session.from_sync(sync_nautobot, force=full)
             if needs_librenms:
-                sync_librenms(force=full)
+                session.from_sync(sync_librenms, force=full)
             return True
         finally:
             if conn is not None:

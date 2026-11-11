@@ -2,6 +2,7 @@
 seeds one (development/seed_nautobot.py) and sets NAUTOBOT_LIVE_URL/TOKEN; without
 them these are skipped. The pages' reads of the result come with the map (step 6)."""
 
+import asyncio
 import os
 
 import pytest
@@ -23,7 +24,7 @@ def synced(monkeypatch):
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", LIVE_TOKEN)
     monkeypatch.setattr(settings, "NAUTOBOT_VERIFY_SSL", False)
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    inventory.sync_nautobot(force=True)
+    asyncio.run(inventory.sync_nautobot(force=True))
     state = inventory.get_sync_state("nautobot_inventory")
     assert state["status"] == "idle", state.get("error_message")
 

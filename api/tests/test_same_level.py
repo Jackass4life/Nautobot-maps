@@ -1,5 +1,7 @@
 """One site, one level: the board, the map and the site panel agree (#316)."""
 
+import asyncio
+
 import pytest
 
 from app.clients import caching
@@ -17,7 +19,7 @@ def synced(pg_database, mock_nautobot_server, monkeypatch):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", mock_nautobot_server)
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "demo-token")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    inventory.sync_nautobot(force=True)
+    asyncio.run(inventory.sync_nautobot(force=True))
     # The test reads the snapshot; no background sync against the mock.
     monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
     caching.cache.clear()

@@ -154,9 +154,9 @@ def commit_sync(completed_at: str, **statuses) -> None:
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ")])
-            inventory.write_devices(
-                conn,
+            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
+            adb.call(
+                inventory.write_devices,
                 [
                     _snapshot_device(name, "loc-lon", roles[name], status)
                     for name, status in statuses.items()

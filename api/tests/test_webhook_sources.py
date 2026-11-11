@@ -48,7 +48,7 @@ def site(pg_database, monkeypatch, clock):
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ")])
+            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             inventory.record_sync_state(
                 conn,
                 "nautobot_inventory",
@@ -56,7 +56,7 @@ def site(pg_database, monkeypatch, clock):
                 last_successful_sync=NOW,
                 cache_version=inventory.CACHE_VERSION,
             )
-            inventory.write_devices(conn, devices)
+            adb.call(inventory.write_devices, devices)
     finally:
         conn.close()
 

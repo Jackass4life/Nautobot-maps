@@ -11,6 +11,7 @@ from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
+from tests import db as adb
 from tests.test_app import _snapshot_device, _snapshot_location
 
 NOW = "2026-10-18T12:00:00Z"
@@ -197,14 +198,14 @@ def write(sites: dict[str, str], devices: list[dict]) -> None:
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_locations(
-                conn,
+            adb.call(
+                inventory.write_locations,
                 [
                     {**_snapshot_location(sid, f"Site {sid}"), "tier": tier}
                     for sid, tier in sites.items()
                 ],
             )
-            inventory.write_devices(conn, devices)
+            adb.call(inventory.write_devices, devices)
             inventory.record_sync_state(
                 conn,
                 "nautobot_inventory",

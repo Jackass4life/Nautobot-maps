@@ -36,12 +36,21 @@ async def _bounded() -> int | None:
     return await asyncio.wait_for(_probe(), PROBE_SECONDS)
 
 
+def _seen(probe: asyncio.Task) -> None:
+    """Its outcome read: a probe every request gave up on ends unawaited, and asyncio
+    would log its error as never retrieved (#659). The requests log it themselves."""
+    if not probe.cancelled():
+        probe.exception()
+
+
 def _current_probe() -> tuple[asyncio.Task, float]:
     """The probe running now (shared), or a new one; with when it started."""
     global _running
     loop = asyncio.get_running_loop()
     if _running is None or _running[0].done() or _running[0].get_loop() is not loop:
-        _running = (loop.create_task(_bounded(), name="health-probe"), time.monotonic())
+        probe = loop.create_task(_bounded(), name="health-probe")
+        probe.add_done_callback(_seen)
+        _running = (probe, time.monotonic())
     return _running
 
 

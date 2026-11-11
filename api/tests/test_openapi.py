@@ -127,6 +127,35 @@ def test_a_stuck_probe_is_cancelled_at_its_deadline(client, monkeypatch):
     assert len(calls) == 2 and len(cancelled) == 2
 
 
+def test_a_probe_nobody_waits_for_any_more_logs_nothing_more(monkeypatch, caplog):
+    """Every request gave up before the probe's own deadline: its error is read, so
+    asyncio logs no "Task exception was never retrieved" (#659)."""
+    import asyncio
+    import gc
+    import logging
+
+    from app.services import health_service as health
+
+    async def stuck():
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(health, "_probe", stuck)
+    monkeypatch.setattr(health, "PROBE_SECONDS", 0.1)
+    monkeypatch.setattr(health, "_running", None)
+
+    async def scenario():
+        # The request gives up first (as one does when the probe started a while ago).
+        with __import__("contextlib").suppress(TimeoutError):
+            await asyncio.wait_for(health.check(), 0.01)
+        await asyncio.sleep(0.3)  # the probe's own deadline passes, unawaited
+
+    caplog.set_level(logging.ERROR, logger="asyncio")
+    asyncio.run(scenario())
+    health._running = None  # the last reference: the finished probe is collected now
+    gc.collect()
+    assert "never retrieved" not in caplog.text
+
+
 def test_overlapping_checks_share_a_healthy_probe(client, monkeypatch):
     """Two checks at once, the probe still within its deadline: both healthy, one probe
     (#601 review)."""

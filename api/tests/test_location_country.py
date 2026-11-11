@@ -2,6 +2,8 @@
 address's last part only when it can be a country, never the town (#386).
 Ported from the current app's tests (#600)."""
 
+import asyncio
+
 import pytest
 
 from app.clients import nautobot
@@ -141,8 +143,8 @@ def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch):
         return [ODENSE] if (params or {}).get("last_updated__gte") else [DENMARK, ODENSE]
 
     monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-    inventory.sync_nautobot(force=True)
-    inventory.sync_nautobot()
+    asyncio.run(inventory.sync_nautobot(force=True))
+    asyncio.run(inventory.sync_nautobot())
     assert "last_updated__gte" in calls[-1], "the second sync was incremental"
     by_id = {loc["id"]: loc for loc in inventory.read_locations(include_without_coordinates=True)}
     assert by_id["odense"]["country"] == "Denmark"
@@ -168,13 +170,13 @@ def test_a_renamed_country_reaches_its_sites_at_the_next_sync(client, pg_databas
         }
 
     monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-    inventory.sync_nautobot(force=True)
+    asyncio.run(inventory.sync_nautobot(force=True))
     country["name"] = "Danmark"
-    inventory.sync_nautobot()  # incremental: brings only the country
+    asyncio.run(inventory.sync_nautobot())  # incremental: brings only the country
     assert "last_updated__gte" in calls[-1]
     assert countries()["dk"] == "Danmark"
-    inventory.sync_nautobot()  # so this one is full, and brings Odense too
+    asyncio.run(inventory.sync_nautobot())  # so this one is full, and brings Odense too
     assert "last_updated__gte" not in calls[-1]
     assert countries() == {"dk": "Danmark", "odense": "Danmark"}
-    inventory.sync_nautobot()  # and then incremental again
+    asyncio.run(inventory.sync_nautobot())  # and then incremental again
     assert "last_updated__gte" in calls[-1]

@@ -9,6 +9,7 @@ from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.utils import timeutil
+from tests import db as adb
 from tests.test_app import _snapshot_device, _snapshot_location
 
 NOW = "2026-10-10T12:00:00Z"
@@ -40,7 +41,7 @@ def set_devices(**devices):
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ")])
+            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             inventory.record_sync_state(
                 conn,
                 "nautobot_inventory",
@@ -48,8 +49,8 @@ def set_devices(**devices):
                 last_successful_sync=NOW,
                 cache_version=inventory.CACHE_VERSION,
             )
-            inventory.write_devices(
-                conn,
+            adb.call(
+                inventory.write_devices,
                 [
                     {
                         **_snapshot_device(name, "loc-lon", roles[name], status),
@@ -161,9 +162,9 @@ class TestDelay:
         conn = db.get_conn()
         try:
             with db.transaction(conn):
-                inventory.write_locations(conn, [_snapshot_location("loc-one", "One Device")])
-                inventory.write_devices(
-                    conn,
+                adb.call(inventory.write_locations, [_snapshot_location("loc-one", "One Device")])
+                adb.call(
+                    inventory.write_devices,
                     [
                         {
                             **_snapshot_device("solo", "loc-one", "Access Switch", "Offline"),

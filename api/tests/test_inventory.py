@@ -7,6 +7,7 @@ Tests that go through the alert board or the HTTP routes come with those (steps 
 and 7 of #587).
 """
 
+import asyncio
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -16,9 +17,9 @@ from app.clients import caching, librenms, nautobot
 from app.clients import http as upstream_http
 from app.core.legacy_settings import settings
 from app.db import connection as db
-from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.utils import timeutil
+from tests import db as adb
 from tests import upstream
 
 OFF = {"disabled": False, "disable_notify": False, "ignore": False}
@@ -141,8 +142,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.write_locations(
-                    conn,
+                adb.call(
+                    inventory.write_locations,
                     [
                         {
                             "id": "loc-1",
@@ -211,8 +212,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.write_locations(
-                    conn,
+                adb.call(
+                    inventory.write_locations,
                     [
                         {
                             "id": "loc-1",
@@ -249,8 +250,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.write_locations(
-                    conn,
+                adb.call(
+                    inventory.write_locations,
                     [
                         {
                             "id": "loc-1",
@@ -294,8 +295,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.write_devices(
-                    conn,
+                adb.call(
+                    inventory.write_devices,
                     [
                         {
                             "id": "dev-1",
@@ -333,8 +334,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.write_locations(
-                    conn,
+                adb.call(
+                    inventory.write_locations,
                     [
                         {
                             "id": "loc-1",
@@ -439,9 +440,9 @@ class TestInventoryCacheSync:
             patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            inventory.sync_nautobot(force=True)
+            asyncio.run(inventory.sync_nautobot(force=True))
             first_state = inventory.get_sync_state("nautobot_inventory")
-            inventory.sync_nautobot()
+            asyncio.run(inventory.sync_nautobot())
 
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
@@ -526,7 +527,7 @@ class TestInventoryCacheSync:
             patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            inventory.sync_nautobot()
+            asyncio.run(inventory.sync_nautobot())
 
         state = inventory.get_sync_state("nautobot_inventory")
         assert state["last_successful_sync"] == "2026-01-01T00:05:00Z"
@@ -604,7 +605,7 @@ class TestInventoryCacheSync:
                 side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"],
             ),
         ):
-            inventory.sync_nautobot()
+            asyncio.run(inventory.sync_nautobot())
 
         state = inventory.get_sync_state("nautobot_inventory")
         reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
@@ -718,7 +719,7 @@ class TestInventoryCacheSync:
                 side_effect=["2026-01-02T00:00:00Z", "2026-01-02T00:00:10Z"],
             ),
         ):
-            inventory.sync_nautobot()
+            asyncio.run(inventory.sync_nautobot())
 
         state = inventory.get_sync_state("nautobot_inventory")
         reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
@@ -730,110 +731,12 @@ class TestInventoryCacheSync:
         assert state["last_successful_sync"] == "2026-01-02T00:00:00Z"
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
-    def test_sync_librenms_inventory_keeps_postgres_connection_open_between_transactions(self):
-        class _FakeResult:
-            def __init__(self, rows=None, rowcount=0):
-                self._rows = rows or []
-                self.rowcount = rowcount
-
-            def fetchone(self):
-                return self._rows[0] if self._rows else None
-
-        class _FakeTransaction:
-            def __init__(self, conn):
-                self.conn = conn
-                self.nested = False
-
-            def __enter__(self):
-                self.conn.transaction_entries += 1
-                self.nested = self.conn.transaction_open
-                self.conn.transaction_open = True
-                return self.conn
-
-            def __exit__(self, exc_type, exc, tb):
-                if exc_type is None and not self.nested:
-                    self.conn.commits += 1
-                self.conn.transaction_open = self.nested
-                return False
-
-        class _FakeConn:
-            def __init__(self, autocommit=True):
-                self.autocommit = autocommit
-                self.closed = False
-                self.connection_context_entries = 0
-                self.transaction_entries = 0
-                self.transaction_open = False
-                self.commits = 0
-                self.queries = []
-
-            def __enter__(self):
-                self.connection_context_entries += 1
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                self.closed = True
-                return False
-
-            def transaction(self):
-                return _FakeTransaction(self)
-
-            def execute(self, query, params=()):
-                if self.closed:
-                    raise RuntimeError("the connection is closed")
-                if not self.autocommit and query.lstrip().upper().startswith("SELECT"):
-                    self.transaction_open = True
-                self.queries.append((query, params))
-                if "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query:
-                    return _FakeResult([{"device_count": 1}])
-                if (
-                    "librenms_observation_seq" in query
-                    and "nextval" in query
-                    and "INSERT" not in query
-                ):
-                    return _FakeResult([{"n": 1}])
-                return _FakeResult()
-
-            def close(self):
-                self.closed = True
-
-        fake_conn = _FakeConn(autocommit=True)
-        with (
-            patch.object(db, "get_conn", return_value=fake_conn),
-            patch.object(settings, "LIBRENMS_URL", "https://librenms.example.com"),
-            patch.object(settings, "LIBRENMS_API_TOKEN", "token"),
-            patch.object(inventory, "get_sync_state", return_value={"last_successful_sync": None}),
-            patch.object(
-                librenms,
-                "fetch_inventory",
-                return_value=[
-                    {"device_id": 1, "hostname": "router01", "status": 1, "status_reason": ""}
-                ],
-            ),
-            patch.object(caching.cache, "delete") as cache_delete,
-            # Records on its own connection; tested in test_contract.py.
-            patch.object(contract, "check_and_record"),
-        ):
-            inventory.sync_librenms()
-
-        assert fake_conn.connection_context_entries == 0
-        assert fake_conn.transaction_entries == 2
-        assert fake_conn.commits == 2
-        assert any(
-            "SELECT COUNT(*) AS device_count FROM librenms_device_status" in query
-            for query, _ in fake_conn.queries
-        )
-        assert any("DELETE FROM librenms_device_status" in query for query, _ in fake_conn.queries)
-        cache_delete.assert_any_call("alert-board-data:v3")
-        cache_delete.assert_any_call("alert-board-data:v3:include-non-operational")
-        cache_delete.assert_any_call("location-alert-levels:v1")
-        assert cache_delete.call_count == 3
-
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
         conn = db.get_conn()
         try:
             with conn:
-                inventory.write_locations(
-                    conn,
+                adb.call(
+                    inventory.write_locations,
                     [
                         {
                             "id": "loc-stale",
@@ -858,8 +761,8 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                inventory.write_devices(
-                    conn,
+                adb.call(
+                    inventory.write_devices,
                     [
                         {
                             "id": "dev-stale",
@@ -927,7 +830,7 @@ class TestInventoryCacheSync:
             patch.object(inventory, "read_location_name_map", return_value={}),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            inventory.sync_nautobot(force=True)
+            asyncio.run(inventory.sync_nautobot(force=True))
 
         assert [
             item["id"] for item in inventory.read_locations(include_without_coordinates=True)
@@ -1007,7 +910,7 @@ class TestLibreNMSPolledIp:
                 },
             ],
         ):
-            inventory.sync_librenms(force=True)
+            asyncio.run(inventory.sync_librenms(force=True))
         cached = inventory.read_librenms_devices()
         assert cached == [
             {
@@ -1155,7 +1058,7 @@ class TestLocationTenantSync:
             return fetch(endpoint, params, **kwargs)
 
         monkeypatch.setattr(nautobot, "fetch_all_pages", with_inventory)
-        inventory.sync_nautobot(force=True)
+        asyncio.run(inventory.sync_nautobot(force=True))
         caching.cache.clear()
 
     # Its tests read the board and the map: they come with steps 6 and 7 of #587.
@@ -1224,3 +1127,79 @@ class TestTenantDescriptions:
             "Acme Corp": "Bank, 24/7 SLA",
             "Nordic Net": "Shared rack",
         }
+
+
+def test_the_writers_store_upstream_values_as_their_columns_types(pg_database):
+    """Nautobot's numbers as text and its times as ISO text, as psycopg took them: asyncpg
+    takes each column's own type, so the writers convert (#659)."""
+    from datetime import UTC, datetime
+
+    adb.call(
+        inventory.write_locations,
+        [
+            {
+                "id": "loc-1",
+                "name": "One",
+                "latitude": "55.6",
+                "longitude": 12.5,
+                "asn": "65001",
+                "time_zone": None,
+                "last_updated": "2026-01-02T03:04:05Z",
+                "tags": ["b", "a"],
+            }
+        ],
+    )
+    adb.call(
+        inventory.write_devices,
+        [
+            {
+                "id": 7,
+                "location_id": "loc-1",
+                "name": "sw1",
+                "vc_position": "2",
+                "vc_master": 1,
+                "last_updated": "",
+            }
+        ],
+    )
+    adb.call(
+        inventory.write_circuits,
+        [
+            {
+                **dict.fromkeys(
+                    ("provider", "circuit_type", "status", "tenant", "description", "address_key"),
+                    "",
+                ),
+                "circuit_id": "c1",
+                "cid": "C-1",
+                "commit_rate": "10000",
+                "location_ids": ["loc-1"],
+            }
+        ],
+    )
+    seq = adb.call(inventory.librenms_observation)
+    written = adb.call(
+        inventory.write_librenms_devices,
+        [{"device_id": "12", "hostname": "sw1", "status": "1", "ip": "10.0.0.1", "ignore": "0"}],
+        seq,
+    )
+    conn = db.get_conn()
+    try:
+        location = conn.execute("SELECT * FROM nautobot_location_cache").fetchone()
+        device = conn.execute("SELECT * FROM nautobot_device_cache").fetchone()
+        circuit = conn.execute("SELECT * FROM nautobot_circuit_cache").fetchone()
+        status = conn.execute("SELECT * FROM librenms_device_status").fetchone()
+    finally:
+        conn.close()
+    assert (location["latitude"], location["asn"], location["time_zone"]) == (55.6, 65001, None)
+    assert location["last_updated"] == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    assert location["tags_json"] == '["b","a"]'
+    assert (device["device_id"], device["vc_position"], device["vc_master"]) == ("7", 2, True)
+    assert device["last_updated"] is None
+    assert (circuit["commit_rate"], circuit["location_ids"], circuit["terminated"]) == (
+        10000,
+        ["loc-1"],
+        False,
+    )
+    assert written == {12} and (status["status"], status["observed_seq"]) == (1, seq)
+    assert status["ip"] == "10.0.0.1" and status["ignore"] is False

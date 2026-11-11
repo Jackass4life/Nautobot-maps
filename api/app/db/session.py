@@ -6,6 +6,7 @@ The async engine is asyncpg (#643). The sync `engine` (psycopg) is for the code 
 async yet: the data contract's checks, written by the syncs' threads.
 """
 
+import functools
 import shlex
 from collections.abc import Awaitable, Callable
 from typing import Annotated
@@ -133,19 +134,28 @@ AsyncDbSession = Annotated[AsyncSession, Depends(get_database)]
 _loop_token: anyio.lowlevel.EventLoopToken | None = None
 
 
-def bind_loop() -> None:
-    """At startup, on the app's event loop: `from_sync` reaches it from any thread."""
+def bind_loop() -> anyio.lowlevel.EventLoopToken | None:
+    """At startup, on the app's event loop: `from_sync` reaches it from any thread.
+    Returns the loop bound before, for `restore_loop` at shutdown."""
     global _loop_token
-    _loop_token = anyio.lowlevel.current_token()
+    previous, _loop_token = _loop_token, anyio.lowlevel.current_token()
+    return previous
 
 
-def from_sync[T](function: Callable[..., Awaitable[T]], *args: object) -> T:
-    """``await function(*args)`` from sync code in a thread, on the app's event loop
-    (its connections are that loop's): a sync route's thread, the scheduler's tick, or
-    any other thread once the lifespan has bound the loop."""
+def restore_loop(previous: anyio.lowlevel.EventLoopToken | None) -> None:
+    """At shutdown: the loop bound before `bind_loop`, not one about to close."""
+    global _loop_token
+    _loop_token = previous
+
+
+def from_sync[T](function: Callable[..., Awaitable[T]], *args: object, **kwargs: object) -> T:
+    """``await function(*args, **kwargs)`` from sync code in a thread, on the app's event
+    loop (its connections are that loop's): a sync route's thread, the scheduler's tick,
+    or any other thread once the lifespan has bound the loop."""
+    call = functools.partial(function, *args, **kwargs) if kwargs else function
     try:
-        return anyio.from_thread.run(function, *args)
+        return anyio.from_thread.run(call, *([] if kwargs else args))
     except anyio.NoEventLoopError:
         if _loop_token is None:
             raise
-    return anyio.from_thread.run(function, *args, token=_loop_token)
+    return anyio.from_thread.run(call, *([] if kwargs else args), token=_loop_token)
