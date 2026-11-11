@@ -1,6 +1,7 @@
 """Ported from the current app's tests/test_app.py (#602); its classes already ported
 elsewhere (test_clients.py, test_settings.py, test_schema.py) are left out."""
 
+import asyncio
 import importlib
 import json
 import pathlib
@@ -4784,35 +4785,42 @@ class TestBackgroundScheduler:
 
     def test_loop_survives_a_failing_tick(self, monkeypatch):
         calls = []
-
-        def failing_tick():
-            calls.append(1)
-            if len(calls) == 2:
-                scheduler._stop.set()
-            raise RuntimeError("nautobot down")
-
-        monkeypatch.setattr(scheduler, "tick", failing_tick)
         monkeypatch.setattr(scheduler, "tick_seconds", lambda: 0)
-        scheduler._stop.clear()
-        try:
-            scheduler.loop()
-        finally:
-            scheduler._stop.clear()
+
+        async def run():
+            stop, running = asyncio.Event(), asyncio.get_running_loop()
+
+            def failing_tick():
+                calls.append(1)
+                if len(calls) == 2:
+                    running.call_soon_threadsafe(stop.set)
+                raise RuntimeError("nautobot down")
+
+            monkeypatch.setattr(scheduler, "tick", failing_tick)
+            await asyncio.wait_for(scheduler.loop(stop), 5)
+
+        asyncio.run(run())
         assert len(calls) == 2
 
     def test_start_is_idempotent_and_respects_the_setting(self, monkeypatch):
-        started = []
         monkeypatch.setattr(scheduler, "_started", False)
-        monkeypatch.setattr(
-            scheduler.threading, "Thread", lambda **kwargs: started.append(kwargs) or MagicMock()
-        )
-        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
-        assert scheduler.start() is False
-        monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
-        assert scheduler.start() is True
-        assert scheduler.start() is True
-        assert len(started) == 1
-        assert started[0]["daemon"] is True
+
+        async def idle(stop):
+            await stop.wait()
+
+        monkeypatch.setattr(scheduler, "loop", idle)
+
+        async def run():
+            monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
+            assert scheduler.start() is False
+            monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
+            assert scheduler.start() is True
+            first = scheduler._task
+            assert scheduler.start() is True
+            assert scheduler._task is first
+            scheduler.stop()
+
+        asyncio.run(run())
 
     def test_tick_seconds_follow_the_sooner_interval(self, monkeypatch):
         monkeypatch.setattr(settings, "INVENTORY_SYNC_INTERVAL_SECONDS", 300)

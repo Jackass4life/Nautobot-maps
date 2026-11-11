@@ -5,6 +5,7 @@ Called as ``scheduler.function()`` so tests can replace it on this module.
 Ported from nautobot_maps/scheduler.py (#602): only the imports changed.
 """
 
+import asyncio
 import threading
 from datetime import UTC
 
@@ -20,7 +21,8 @@ from app.services import webhooks_service as webhooks
 from app.services import wireless_service as wireless
 from app.utils import timeutil
 
-# Every app process runs one scheduler thread; a PostgreSQL advisory lock
+# Every app process runs one scheduler task (on its event loop since #649, each
+# tick's work in a thread while it is sync); a PostgreSQL advisory lock
 # makes sure only one of them (across all workers and containers) works per
 # tick.  It runs the syncs that are due and, when one ran, rebuilds the alert
 # board, which records alert history.  Without it, syncs and history only
@@ -28,7 +30,8 @@ from app.utils import timeutil
 MAX_TICK_SECONDS = 30
 _started = False
 _start_lock = threading.Lock()
-_stop = threading.Event()
+_stop: asyncio.Event | None = None
+_task: asyncio.Task | None = None
 PUSH_REBUILD_THREAD_NAME = "librenms-push-rebuild"
 
 
@@ -302,21 +305,25 @@ def send_notifications() -> None:
         logger.opt(exception=True).warning("Sending notifications failed: {}", exc)
 
 
-def loop(stop_event: threading.Event | None = None) -> None:
-    # Each worker its own stop event (#601 review): a restart can't cancel the previous
-    # worker's shutdown.
-    stop_event = stop_event or _stop
+async def loop(stop_event: asyncio.Event) -> None:
+    """Tick until *stop_event*: the tick's work in a thread, so the event loop keeps
+    answering requests meanwhile (#649). Each worker its own stop event (#601 review): a
+    restart can't cancel the previous worker's shutdown."""
     while not stop_event.is_set():
         try:
-            tick()
+            await asyncio.to_thread(tick)
         except Exception as exc:
             logger.opt(exception=True).warning("Background scheduler tick failed: {}", exc)
-        stop_event.wait(tick_seconds())
+        try:
+            await asyncio.wait_for(stop_event.wait(), tick_seconds())
+        except TimeoutError:
+            pass
 
 
 def start() -> bool:
-    """Start this process's scheduler thread once.  Returns whether it runs."""
-    global _started, _stop
+    """Start this process's scheduler task once, on the running event loop (the app's
+    lifespan). Returns whether it runs."""
+    global _started, _stop, _task
     if (
         not settings.BACKGROUND_SYNC_ENABLED
         or not db.dialect()
@@ -327,17 +334,21 @@ def start() -> bool:
         if _started:
             return True
         _started = True
-        _stop = threading.Event()
-        threading.Thread(
-            target=loop, args=(_stop,), name="background-scheduler", daemon=True
-        ).start()
+        _stop = asyncio.Event()
+        _task = asyncio.get_running_loop().create_task(loop(_stop), name="background-scheduler")
     logger.info("Background scheduler started (tick every {}s)", tick_seconds())
     return True
 
 
 def stop() -> None:
-    """At shutdown (the app's lifespan, #600): the thread ends after its tick."""
-    global _started
+    """At shutdown (the app's lifespan, #600): the task ends now. A tick already running
+    finishes in its thread, as the scheduler's daemon thread did; shutdown doesn't wait
+    for it."""
+    global _started, _task
     with _start_lock:
-        _stop.set()
+        if _stop is not None:
+            _stop.set()
+        if _task is not None:
+            _task.cancel()
+            _task = None
         _started = False

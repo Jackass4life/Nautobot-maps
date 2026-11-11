@@ -118,7 +118,7 @@ by many tests, they are ported close to verbatim, on two thin layers:
   module.
 
 So far: `app/services/inventory_service.py` (the inventory sync into the snapshot tables, its
-reads), `app/services/scheduler.py` (one thread per process, the `background_scheduler` lock,
+reads), `app/services/scheduler.py` (one asyncio task per process, its sync work in a thread until it is async, the `background_scheduler` lock,
 the due syncs every tick; `BACKGROUND_SYNC_ENABLED=false` turns it off). Their tests are
 ported from the first app's `tests/`, and `tests/test_nautobot_live.py` runs the sync
 against CI's real Nautobot 3.x.
