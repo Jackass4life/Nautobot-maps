@@ -27,9 +27,10 @@ import smtplib
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 
-import requests
+import httpx
 from loguru import logger
 
+from app.clients import http
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import itsm_service as itsm
@@ -341,16 +342,22 @@ class SendError(Exception):
     """A channel failed; the message never contains a URL or password."""
 
 
+def _post(url: str, **kwargs) -> httpx.Response:
+    """Not retried (a resent alert would arrive twice): the client, not http.request.
+    Called as ``notify._post()`` so tests can replace it."""
+    return http.client().post(url, **kwargs)
+
+
 def _post_json(url: str, body: bytes, headers: dict) -> None:
     try:
-        resp = requests.post(
+        resp = _post(
             url,
-            data=body,
+            content=body,
             headers={"Content-Type": "application/json", **headers},
             timeout=SEND_TIMEOUT_SECONDS,
         )
-    except requests.RequestException as exc:
-        # requests' messages include the URL, which holds the webhook's secret.
+    except httpx.HTTPError as exc:
+        # httpx's messages include the URL, which holds the webhook's secret.
         raise SendError(type(exc).__name__) from None
     if not 200 <= resp.status_code < 300:
         raise SendError(f"HTTP {resp.status_code}")

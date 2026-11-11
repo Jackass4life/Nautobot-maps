@@ -2,8 +2,8 @@
 
 import threading
 
+import httpx
 import pytest
-import requests
 
 from app.clients import caching, librenms
 from app.core.legacy_settings import settings
@@ -13,7 +13,7 @@ from app.services import inventory_service as inventory
 from app.services import scheduler
 from app.services import token_service as tokens
 from tests import db as adb
-from tests import http_client
+from tests import http_client, upstream
 from tests.test_app import _snapshot_device, _snapshot_location, auth_config
 
 REAL_REBUILD_AFTER_PUSH = scheduler.rebuild_after_push
@@ -38,9 +38,7 @@ class FakeLibreNMS:
         for device in self.devices.values():
             if key in (str(device["device_id"]), device["hostname"]):
                 return {"status": "ok", "devices": [dict(device)]}
-        response = requests.Response()
-        response.status_code = 404
-        raise requests.HTTPError("404 Client Error", response=response)
+        raise upstream.status_error(404)
 
 
 @pytest.fixture
@@ -270,7 +268,7 @@ class TestPush:
         )
 
     def test_librenms_failure_is_a_502_without_secrets(self, flask_client, lnms, caplog):
-        lnms.fail = requests.ConnectionError(
+        lnms.fail = httpx.ConnectError(
             "https://librenms.test/api/v0/devices/1000 lnms-secret refused"
         )
         response = flask_client.post(
@@ -281,7 +279,7 @@ class TestPush:
         assert (
             "librenms.test" not in text
             and "lnms-secret" not in text
-            and "ConnectionError" in caplog.text
+            and "ConnectError" in caplog.text
         )
 
     def test_not_configured(self, flask_client, monkeypatch):

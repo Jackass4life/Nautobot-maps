@@ -17,7 +17,7 @@ Ported from nautobot_maps/arubacentral.py (#602): only the imports changed.
 import threading
 import time
 
-import requests
+import httpx
 
 from app.clients import http
 from app.core.legacy_settings import settings
@@ -36,7 +36,7 @@ _tokens: dict[
 _tokens_lock = threading.Lock()
 
 
-def _request(controller: dict, method: str, url: str, **kwargs) -> requests.Response:
+def _request(controller: dict, method: str, url: str, **kwargs) -> httpx.Response:
     # HPE's own sign-in service is always verified: verify_ssl is for a
     # Central behind a private CA or in a lab, never for sending the secret.
     verify = True if url == settings.ARUBA_CENTRAL_TOKEN_URL else controller.get("verify_ssl", True)
@@ -88,7 +88,7 @@ def get(controller: dict, path: str, params: dict) -> dict:
                 ).json()
                 or {}
             )
-        except requests.HTTPError as exc:
+        except httpx.HTTPStatusError as exc:
             if attempt == 1 and exc.response is not None and exc.response.status_code == 401:
                 continue
             raise

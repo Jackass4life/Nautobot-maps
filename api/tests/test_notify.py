@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 
+import httpx
 import pytest
 
 from app.clients import caching
@@ -65,8 +66,8 @@ def channels(monkeypatch):
     class Response:
         status_code = 202
 
-    def post(url, data=None, headers=None, timeout=None):
-        sent["posts"].append({"url": url, "body": data, "headers": headers})
+    def post(url, content=None, headers=None, timeout=None):
+        sent["posts"].append({"url": url, "body": content, "headers": headers})
         return Response()
 
     class SMTP:
@@ -88,7 +89,7 @@ def channels(monkeypatch):
         def send_message(self, message):
             sent["mails"].append(message)
 
-    monkeypatch.setattr(notify.requests, "post", post)
+    monkeypatch.setattr(notify, "_post", post)
     monkeypatch.setattr(notify.smtplib, "SMTP", SMTP)
     return sent
 
@@ -282,7 +283,7 @@ class TestOutbox:
         class Bad:
             status_code = 503
 
-        monkeypatch.setattr(notify.requests, "post", lambda url, **kwargs: Bad())
+        monkeypatch.setattr(notify, "_post", lambda url, **kwargs: Bad())
         notify.send_pending()
         by_site = {row["site_id"]: row for row in outbox()}
         assert (
@@ -308,16 +309,16 @@ class TestOutbox:
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
 
         def broken(url, **kwargs):
-            raise notify.requests.ConnectionError(f"Max retries exceeded with url: {url}")
+            raise httpx.ConnectError(f"Max retries exceeded with url: {url}")
 
-        monkeypatch.setattr(notify.requests, "post", broken)
+        monkeypatch.setattr(notify, "_post", broken)
         caplog.set_level(logging.WARNING)
         assert notify.send_pending() == 0
         (row,) = outbox()
         assert (
             row["status"] == "pending"
             and row["attempts"] == 1
-            and row["last_error"] == "ConnectionError"
+            and row["last_error"] == "ConnectError"
         )
         assert row["next_attempt_at"].startswith("2026-10-09T12:01:00")
         assert "secret-token-123" not in caplog.text
@@ -345,7 +346,7 @@ class TestOutbox:
         class Bad:
             status_code = 500
 
-        monkeypatch.setattr(notify.requests, "post", lambda url, **kwargs: Bad())
+        monkeypatch.setattr(notify, "_post", lambda url, **kwargs: Bad())
         monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
         notify.send_pending()
@@ -432,13 +433,13 @@ class TestTestEndpoint:
         monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
 
         def broken(url, **kwargs):
-            raise notify.requests.ConnectionError(f"cannot reach {url}")
+            raise httpx.ConnectError(f"cannot reach {url}")
 
-        monkeypatch.setattr(notify.requests, "post", broken)
+        monkeypatch.setattr(notify, "_post", broken)
         resp = flask_client.post("/api/v1/notifications/test")
         assert resp.status_code == 502
         results = resp.get_json()["results"]
-        assert results["webhook"] == "error: ConnectionError" and results["email"] == "ok"
+        assert results["webhook"] == "error: ConnectError" and results["email"] == "ok"
         assert "secret-token" not in resp.get_data(as_text=True)
 
     def test_no_channel(self, flask_client, monkeypatch):

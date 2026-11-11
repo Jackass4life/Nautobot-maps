@@ -5,17 +5,10 @@ Other modules call these as ``nautobot.function()`` so tests can replace them
 with ``monkeypatch.setattr(nautobot, "fetch_all_pages", ...)``.
 """
 
-import urllib3
 from loguru import logger
-from urllib3.exceptions import InsecureRequestWarning
 
 from app.clients import caching, http
 from app.core.settings import get_settings
-
-
-def configure_ssl_warnings() -> None:
-    if get_settings().nautobot_verify_ssl is False:
-        urllib3.disable_warnings(InsecureRequestWarning)
 
 
 def nested_str(obj: object, *keys: str) -> str:
@@ -134,10 +127,14 @@ def get(endpoint: str, params: dict | None = None, *, use_cache: bool = True) ->
         "Accept": accept,
     }
     url = f"{settings.nautobot_url}/api/{endpoint.lstrip('/')}"
-    response = http.session().get(
-        url, headers=headers, params=params, timeout=(5, 30), verify=settings.nautobot_verify_ssl
+    response = http.request(
+        "GET",
+        url,
+        headers=headers,
+        params=params,
+        timeout=(5, 30),
+        verify=settings.nautobot_verify_ssl,
     )
-    response.raise_for_status()
     data = response.json()
     if use_cache:
         caching.set(cache_key, data)

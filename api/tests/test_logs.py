@@ -130,6 +130,18 @@ class TestTheLines:
         # Milliseconds, no time zone: as before, with a dot.
         assert err[0][19] == "." and err[0][23] == " "
 
+    def test_upstream_requests_are_logged_only_at_debug(self, monkeypatch, capsys, configure_logs):
+        """httpx writes a line per request at INFO (#645): not at the default level."""
+        configure_logs()
+        logging.getLogger("httpx").info('HTTP Request: GET https://nautobot/api/ "HTTP/1.1 200 OK"')
+        logging.getLogger("httpx").warning("pool closed")
+        err = capsys.readouterr().err
+        assert "HTTP Request" not in err and " WARNING [sync] httpx: pool closed" in err
+        monkeypatch.setattr(settings, "LOG_LEVEL", "DEBUG")
+        configure_logs()
+        logging.getLogger("httpx").info("HTTP Request: GET https://nautobot/api/")
+        assert " INFO [sync] httpx: HTTP Request" in capsys.readouterr().err
+
     def test_a_modules_own_lines_are_named_after_it(self, monkeypatch, capsys, configure_logs):
         from app import startup
 

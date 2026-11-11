@@ -10,10 +10,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import ANY, MagicMock, patch
 
+import httpx
 import pytest
-import requests
 
 from app.clients import caching, librenms, nautobot
+from app.clients import http as upstream_http
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.repositories import board_repository as board_store
@@ -28,7 +29,7 @@ from app.v1.alert_board import controller as api_board
 from app.v1.alert_board import dtos as board_answers
 from app.v1.map import controller as api_locations
 from app.v1.map import dtos as location_answers
-from tests import answers, http_client
+from tests import answers, http_client, upstream
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -549,9 +550,8 @@ class TestApiLocations:
             settings.NAUTOBOT_TOKEN = original_token
 
     def test_nautobot_http_error_returns_502(self, flask_client):
-        import requests as req_lib
 
-        http_err = req_lib.HTTPError(response=MagicMock(status_code=500))
+        http_err = upstream.status_error(500)
         with patch.object(nautobot, "get", side_effect=http_err):
             resp = flask_client.get("/api/v1/locations")
         assert resp.status_code == 502
@@ -1038,10 +1038,7 @@ class TestAlertBoard:
         }
 
     def test_location_detail_live_device_fetch_retries_with_location_filter_on_400(self):
-        bad_request = requests.HTTPError(
-            "bad request",
-            response=MagicMock(status_code=400),
-        )
+        bad_request = upstream.status_error(400)
         live_device_page = [
             {
                 "id": "dev-1",
@@ -1326,10 +1323,7 @@ class TestApiLocationDetail:
         assert resp.get_json()["error"] == "Nautobot service unavailable"
 
     def test_asn_lookup_http_error_returns_502(self, flask_client):
-        http_err = requests.HTTPError(
-            "upstream failed",
-            response=MagicMock(status_code=502),
-        )
+        http_err = upstream.status_error(502)
         with (
             patch.object(
                 alerts,
@@ -1345,10 +1339,7 @@ class TestApiLocationDetail:
 
     def _get_detail_with_asn_endpoint_missing(self, flask_client, cached_locations, location_get):
         """Request a detail while ``ipam/asns/`` returns 404 (Nautobot 3.x core)."""
-        not_found = requests.HTTPError(
-            "404 Client Error: Not Found",
-            response=MagicMock(status_code=404),
-        )
+        not_found = upstream.status_error(404)
         with (
             patch.object(
                 alerts,
@@ -1390,10 +1381,7 @@ class TestApiLocationDetail:
         assert resp.get_json()["asns"] == []
 
     def test_missing_asn_endpoint_still_fails_when_location_lookup_fails(self, flask_client):
-        upstream_err = requests.HTTPError(
-            "500 Server Error",
-            response=MagicMock(status_code=500),
-        )
+        upstream_err = upstream.status_error(500)
         resp, _ = self._get_detail_with_asn_endpoint_missing(flask_client, [], upstream_err)
         assert resp.status_code == 502
 
@@ -3653,7 +3641,7 @@ class TestLibreNMSEnrichment:
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
         settings.LIBRENMS_URL = "   "
         settings.LIBRENMS_API_TOKEN = "   "
-        with patch.object(requests.Session, "get") as mock_get:
+        with patch.object(upstream_http, "request") as mock_get:
             result = librenms.fetch_inventory()
         assert result == []
         mock_get.assert_not_called()
@@ -3665,24 +3653,10 @@ class TestLibreNMSEnrichment:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
-        with patch.object(requests.Session, "get", return_value=mock_resp) as mock_get:
+        with patch.object(upstream_http, "request", return_value=mock_resp) as mock_get:
             librenms.get("devices", {"type": "all"})
         _, kwargs = mock_get.call_args
         assert kwargs["verify"] is False
-
-    def test_librenms_get_suppresses_warning_locally_when_verify_disabled(self):
-        settings.LIBRENMS_URL = "https://librenms.test"
-        settings.LIBRENMS_API_TOKEN = "tok"
-        settings.LIBRENMS_VERIFY_SSL = False
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"devices": []}
-        with (
-            patch.object(requests.Session, "get", return_value=mock_resp),
-            patch.object(librenms.warnings, "catch_warnings") as mock_catch,
-        ):
-            librenms.get("devices", {"type": "all"})
-        mock_catch.assert_called_once()
 
     def test_librenms_down_overrides_active_status(self):
         """A device active in Nautobot but down in LibreNMS is set to offline."""
@@ -4242,7 +4216,9 @@ class TestHealthz:
     def test_makes_no_upstream_calls(self, flask_client, monkeypatch):
         """A Nautobot/LibreNMS outage must not make the app look unhealthy."""
         monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "")
-        with patch.object(requests.Session, "get", side_effect=AssertionError("no upstream calls")):
+        with patch.object(
+            upstream_http, "request", side_effect=AssertionError("no upstream calls")
+        ):
             resp = flask_client.get("/healthz")
         assert resp.status_code == 200
 
@@ -5997,14 +5973,13 @@ class TestLocationCircuits:
         assert data["devices"] and data["asns"]
 
     def test_no_circuits_app_is_not_an_error(self, flask_client):
-        response = MagicMock(status_code=404)
-        with self._mock(error=requests.HTTPError(response=response)):
+        with self._mock(error=upstream.status_error(404)):
             data = flask_client.get("/api/v1/locations/loc-1/detail").get_json()
         assert data["circuits"] == []
         assert data["circuits_error"] == ""
 
     def test_a_failed_call_keeps_the_rest_of_the_panel(self, flask_client):
-        with self._mock(error=requests.ConnectionError("boom")):
+        with self._mock(error=httpx.ConnectError("boom")):
             resp = flask_client.get("/api/v1/locations/loc-1/detail")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -6072,7 +6047,7 @@ def _relationship_fetch(error_on=None):
     def fetch(endpoint, params=None, **kwargs):
         calls.append((endpoint, dict(params or {}), kwargs.get("use_cache", True)))
         if error_on and endpoint.startswith(error_on):
-            raise requests.HTTPError(response=MagicMock(status_code=403))
+            raise upstream.status_error(403)
         if endpoint == "extras/relationships/":
             return LOCATION_TENANT_RELATIONSHIPS
         if endpoint == "extras/relationship-associations/":

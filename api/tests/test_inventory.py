@@ -11,14 +11,15 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
 from app.clients import caching, librenms, nautobot
+from app.clients import http as upstream_http
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.utils import timeutil
+from tests import upstream
 
 OFF = {"disabled": False, "disable_notify": False, "ignore": False}
 
@@ -65,7 +66,7 @@ def _relationship_fetch(error_on=None):
     def fetch(endpoint, params=None, **kwargs):
         calls.append((endpoint, dict(params or {}), kwargs.get("use_cache", True)))
         if error_on and endpoint.startswith(error_on):
-            raise requests.HTTPError(response=MagicMock(status_code=403))
+            raise upstream.status_error(403)
         if endpoint == "extras/relationships/":
             return LOCATION_TENANT_RELATIONSHIPS
         if endpoint == "extras/relationship-associations/":
@@ -954,7 +955,7 @@ class TestLibreNMSEnrichment:
         """_fetch_librenms_inventory skips API calls when URL/token are blank."""
         settings.LIBRENMS_URL = "   "
         settings.LIBRENMS_API_TOKEN = "   "
-        with patch.object(requests.Session, "get") as mock_get:
+        with patch.object(upstream_http, "request") as mock_get:
             result = librenms.fetch_inventory()
         assert result == []
         mock_get.assert_not_called()
@@ -966,24 +967,10 @@ class TestLibreNMSEnrichment:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"devices": []}
-        with patch.object(requests.Session, "get", return_value=mock_resp) as mock_get:
+        with patch.object(upstream_http, "request", return_value=mock_resp) as mock_get:
             librenms.get("devices", {"type": "all"})
         _, kwargs = mock_get.call_args
         assert kwargs["verify"] is False
-
-    def test_librenms_get_suppresses_warning_locally_when_verify_disabled(self):
-        settings.LIBRENMS_URL = "https://librenms.test"
-        settings.LIBRENMS_API_TOKEN = "tok"
-        settings.LIBRENMS_VERIFY_SSL = False
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"devices": []}
-        with (
-            patch.object(requests.Session, "get", return_value=mock_resp),
-            patch.object(librenms.warnings, "catch_warnings") as mock_catch,
-        ):
-            librenms.get("devices", {"type": "all"})
-        mock_catch.assert_called_once()
 
 
 class TestLibreNMSPolledIp:
