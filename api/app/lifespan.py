@@ -15,8 +15,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     BACKGROUND_SYNC_ENABLED=false or without Nautobot); at shutdown, the upstream HTTP
     clients' connections closed (#645)."""
     caching.init()
-    session.bind_loop()
+    bound_before = session.bind_loop()
     scheduler.start()
     yield
     scheduler.stop()
+    session.restore_loop(bound_before)
     http.close()

@@ -1,5 +1,6 @@
 """LibreNMS alert pushes (#284): a device's status within seconds, not minutes."""
 
+import asyncio
 import threading
 
 import httpx
@@ -57,9 +58,9 @@ def lnms(pg_database, monkeypatch):
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_locations(conn, [_snapshot_location("loc-1", "Aarhus")])
-            inventory.write_devices(
-                conn,
+            adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Aarhus")])
+            adb.call(
+                inventory.write_devices,
                 [
                     {
                         **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),
@@ -68,7 +69,7 @@ def lnms(pg_database, monkeypatch):
                     for n in range(3)
                 ],
             )
-            inventory.write_librenms_devices(conn, list(fake.devices.values()))
+            adb.call(inventory.write_librenms_devices, list(fake.devices.values()))
             inventory.record_sync_state(
                 conn,
                 "nautobot_inventory",
@@ -172,12 +173,14 @@ class TestPush:
         monkeypatch.setattr(librenms, "get", slow_first)
         results = {}
         first = threading.Thread(
-            target=lambda: results.update(first=inventory.librenms_push_refresh("1000"))
+            target=lambda: results.update(
+                first=asyncio.run(inventory.librenms_push_refresh("1000"))
+            )
         )
         first.start()
         assert first_asked.wait(10)
         lnms.devices[1000]["status"] = 1
-        second = inventory.librenms_push_refresh("sw0.corp.example")
+        second = asyncio.run(inventory.librenms_push_refresh("sw0.corp.example"))
         assert second["updated"] and second["device"]["status"] == "up"
         release_first.set()
         first.join(10)
@@ -190,19 +193,19 @@ class TestPush:
         stale[0]["status"] = 0
 
         def fetch_inventory_while_a_push_comes():
-            inventory.librenms_push_refresh("1000")  # LibreNMS says up
+            asyncio.run(inventory.librenms_push_refresh("1000"))  # LibreNMS says up
             return stale
 
         monkeypatch.setattr(librenms, "fetch_inventory", fetch_inventory_while_a_push_comes)
         # The sync's observation number is taken before its fetch, so the push is newer.
-        inventory.sync_librenms(force=True)
+        asyncio.run(inventory.sync_librenms(force=True))
         statuses = {d["device_id"]: d["status"] for d in inventory.read_librenms_devices()}
         assert statuses == {1000: 1, 1001: 1, 1002: 1}
         assert pending(), "and its rebuild is still pending"
 
     def test_a_device_not_cached_yet_is_left_to_the_sync(self, lnms):
         lnms.devices[1003] = {"device_id": 1003, "hostname": "new.corp.example", "status": 0}
-        assert inventory.librenms_push_refresh("1003")["updated"] is False
+        assert asyncio.run(inventory.librenms_push_refresh("1003"))["updated"] is False
         assert 1003 not in {d["device_id"] for d in inventory.read_librenms_devices()}
 
     def test_a_slow_push_does_not_bring_back_a_device_a_newer_sync_removed(self, lnms, monkeypatch):
@@ -218,14 +221,14 @@ class TestPush:
         monkeypatch.setattr(librenms, "get", slow)
         results = {}
         push = threading.Thread(
-            target=lambda: results.update(push=inventory.librenms_push_refresh("1002"))
+            target=lambda: results.update(push=asyncio.run(inventory.librenms_push_refresh("1002")))
         )
         push.start()
         assert asked.wait(10)
         monkeypatch.setattr(
             librenms, "fetch_inventory", lambda: [lnms.devices[1000], lnms.devices[1001]]
         )
-        inventory.sync_librenms(force=True)  # 1002 is gone from LibreNMS
+        asyncio.run(inventory.sync_librenms(force=True))  # 1002 is gone from LibreNMS
         release.set()
         push.join(10)
         assert results["push"]["updated"] is False
@@ -235,7 +238,7 @@ class TestPush:
         monkeypatch.setattr(
             librenms, "fetch_inventory", lambda: [lnms.devices[1000], lnms.devices[1001]]
         )
-        inventory.sync_librenms(force=True)
+        asyncio.run(inventory.sync_librenms(force=True))
         assert sorted(d["device_id"] for d in inventory.read_librenms_devices()) == [1000, 1001]
 
     def test_hostname_lookups_have_an_index(self, lnms):
@@ -343,7 +346,7 @@ class TestRebuild:
         flask_client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=auth_headers)
 
         def rebuild_while_another_push_comes():
-            inventory.librenms_push_refresh("1002")
+            asyncio.run(inventory.librenms_push_refresh("1002"))
 
         monkeypatch.setattr(scheduler, "rebuild_board", rebuild_while_another_push_comes)
         assert adb.worker(scheduler.tick) is True

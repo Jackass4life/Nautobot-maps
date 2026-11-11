@@ -44,7 +44,7 @@ def set_devices(**statuses):
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_locations(conn, [_snapshot_location("loc-lon", "London HQ")])
+            adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             # A completed sync of the current cache: alert history is written.
             inventory.record_sync_state(
                 conn,
@@ -53,8 +53,8 @@ def set_devices(**statuses):
                 last_successful_sync=NOW,
                 cache_version=inventory.CACHE_VERSION,
             )
-            inventory.write_devices(
-                conn,
+            adb.call(
+                inventory.write_devices,
                 [
                     _snapshot_device(name, "loc-lon", roles[name], status)
                     for name, status in statuses.items()
@@ -494,8 +494,9 @@ class TestSiteDevices:
                     **_snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"),
                     "primary_ip": "",
                 }
-                inventory.write_devices(
-                    conn, [no_ip, _snapshot_device("old", "loc-lon", "Access Switch", "Planned")]
+                adb.call(
+                    inventory.write_devices,
+                    [no_ip, _snapshot_device("old", "loc-lon", "Access Switch", "Planned")],
                 )
         finally:
             conn.close()
@@ -520,11 +521,13 @@ class TestSiteDevices:
                     **_snapshot_location("bld-a", "Bygning A", "Building"),
                     "parent_id": "loc-lon",
                 }
-                inventory.write_locations(
-                    conn, [_snapshot_location("loc-lon", "London HQ", "Site"), building]
+                adb.call(
+                    inventory.write_locations,
+                    [_snapshot_location("loc-lon", "London HQ", "Site"), building],
                 )
-                inventory.write_devices(
-                    conn, [_snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")]
+                adb.call(
+                    inventory.write_devices,
+                    [_snapshot_device("floor-sw", "bld-a", "Access Switch", "Active")],
                 )
         finally:
             conn.close()
@@ -540,11 +543,13 @@ class TestSiteDevices:
                     **_snapshot_location("bld-old", "Old Building", "Building"),
                     "parent_id": "loc-lon",
                 }
-                inventory.write_locations(
-                    conn, [_snapshot_location("loc-lon", "London HQ", "Site"), closed]
+                adb.call(
+                    inventory.write_locations,
+                    [_snapshot_location("loc-lon", "London HQ", "Site"), closed],
                 )
-                inventory.write_devices(
-                    conn, [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")]
+                adb.call(
+                    inventory.write_devices,
+                    [_snapshot_device("old-sw", "bld-old", "Access Switch", "Active")],
                 )
         finally:
             conn.close()
@@ -659,8 +664,9 @@ class TestBatches:
             recent = adb.call(maintenance.list_windows, recent_days=7)
             assert {w["site_id"] for w in recent} == {"gone", "site-a"}
             assert adb.call(maintenance.list_windows, recent_days=2) == []
-            inventory.write_devices(
-                conn, [_snapshot_device("dev-1", "site-a", "Core Router", "Active")]
+            adb.call(
+                inventory.write_devices,
+                [_snapshot_device("dev-1", "site-a", "Core Router", "Active")],
             )
             sites = [
                 {
@@ -761,8 +767,8 @@ class TestHistory:
         # Streamed from a server-side cursor, the device name joined in (#353).
         inventory_conn = db.get_conn()
         try:
-            inventory.write_devices(
-                inventory_conn, [_snapshot_device("d1", "=cmd", "Core Router", "Active")]
+            adb.call(
+                inventory.write_devices, [_snapshot_device("d1", "=cmd", "Core Router", "Active")]
             )
         finally:
             inventory_conn.close()

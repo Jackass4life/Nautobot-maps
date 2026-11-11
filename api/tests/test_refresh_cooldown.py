@@ -19,8 +19,15 @@ def sources(
     monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.example.com")
     monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "token")
     ran = []
-    monkeypatch.setattr(inventory, "sync_nautobot", lambda force=False: ran.append("nautobot"))
-    monkeypatch.setattr(inventory, "sync_librenms", lambda force=False: ran.append("librenms"))
+
+    async def sync_nautobot(force=False):
+        ran.append("nautobot")
+
+    async def sync_librenms(force=False):
+        ran.append("librenms")
+
+    monkeypatch.setattr(inventory, "sync_nautobot", sync_nautobot)
+    monkeypatch.setattr(inventory, "sync_librenms", sync_librenms)
     return ran
 
 

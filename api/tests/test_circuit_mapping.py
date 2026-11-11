@@ -1,5 +1,7 @@
 """Circuit mapping page (#385): circuits without a termination and their likely site."""
 
+import asyncio
+
 import pytest
 
 from app.clients import caching, nautobot
@@ -25,7 +27,7 @@ def synced(flask_client, pg_database, monkeypatch):
         return []
 
     monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-    inventory.sync_nautobot(force=True)
+    asyncio.run(inventory.sync_nautobot(force=True))
     caching.cache.clear()
 
 
@@ -85,7 +87,7 @@ def test_left_out_and_sorted(flask_client, monkeypatch, pg_database):
         "fetch_all_pages",
         lambda endpoint, *a, **k: circuits if endpoint == "circuits/circuits/" else [],
     )
-    inventory.sync_nautobot(force=True)
+    asyncio.run(inventory.sync_nautobot(force=True))
     data = flask_client.get("/api/v1/circuit-mapping").get_json()
     assert [c["cid"] for c in data["circuits"]] == ["AAA-1", "Unnamed circuit", "ZZZ-1"]
     assert data["summary"]["total"] == 3
@@ -118,7 +120,7 @@ def test_a_site_off_the_map_links_through_its_building(flask_client, monkeypatch
         )
 
     monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-    inventory.sync_nautobot(force=True)
+    asyncio.run(inventory.sync_nautobot(force=True))
     by_cid = {
         c["cid"]: c["sites"]
         for c in flask_client.get("/api/v1/circuit-mapping").get_json()["circuits"]

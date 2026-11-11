@@ -42,7 +42,7 @@ NO_DATABASE_RESPONSE = {503: {"model": common.Error, "description": "No database
     dependencies=[deps.require_role("operator")],
     openapi_extra=deps.body_schema(dtos.LibreNmsPushBody),
 )
-def api_librenms_alert(request: Request, body: Body, form: Form):
+async def api_librenms_alert(request: Request, body: Body, form: Form):
     """A LibreNMS alert push (#284): refresh one device's status now.
 
     For LibreNMS's API alert transport, with an operator API token.  The
@@ -75,7 +75,7 @@ def api_librenms_alert(request: Request, body: Body, form: Form):
     if not device or len(device) > 255:
         return deps.Json({"error": "device_id or hostname is required"}, status_code=400)
     try:
-        result = inventory.librenms_push_refresh(device)
+        result = await inventory.librenms_push_refresh(device)
     except Exception as exc:
         # Only the exception type: the message can hold the LibreNMS URL.
         logger.warning(
@@ -83,7 +83,7 @@ def api_librenms_alert(request: Request, body: Body, form: Form):
         )
         return deps.Json({"error": "Could not ask LibreNMS for the device"}, status_code=502)
     if result["updated"]:
-        caching.invalidate_alert_board()
+        await run_in_threadpool(caching.invalidate_alert_board)
         scheduler.rebuild_after_push()
     return deps.Json(result)
 

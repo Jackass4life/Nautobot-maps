@@ -50,8 +50,8 @@ def flask_client(pg_database, clock):
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_tenants(
-                conn,
+            adb.call(
+                inventory.write_tenants,
                 [{"tenant_id": "t1", "name": "Acme Corp"}, {"tenant_id": "t2", "name": "Nord A/S"}],
             )
     finally:

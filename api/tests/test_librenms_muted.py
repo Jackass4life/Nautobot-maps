@@ -11,6 +11,7 @@ from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
+from tests import db as adb
 from tests.test_app import _snapshot_device
 from tests.test_librenms_push import board_row, lnms, operator_token  # noqa: F401
 
@@ -25,7 +26,7 @@ def store(lnms_devices: list) -> None:
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_librenms_devices(conn, lnms_devices)
+            adb.call(inventory.write_librenms_devices, lnms_devices)
     finally:
         conn.close()
     caching.cache.clear()
@@ -112,8 +113,8 @@ class TestBoard:
         conn = db.get_conn()
         try:
             with db.transaction(conn):
-                inventory.write_devices(
-                    conn,
+                adb.call(
+                    inventory.write_devices,
                     [
                         {
                             **_snapshot_device(f"dev-{n}", "loc-1", "Access Switch", "Active"),

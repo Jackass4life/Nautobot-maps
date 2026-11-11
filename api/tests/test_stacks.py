@@ -1,11 +1,14 @@
 """Stacks (virtual chassis, #400): nameless members are named, and the site
 panel shows a stack as one device."""
 
+import asyncio
+
 import pytest
 
 from app.clients import nautobot
 from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
+from tests import db as adb
 
 CHASSIS = {"id": "vc-1", "name": "sw-stack01", "display": "sw-stack01", "master": {"id": "m1"}}
 
@@ -66,7 +69,7 @@ def test_stored_and_read_back(flask_client, pg_database, no_lookups):
     conn = inventory.db.get_conn()
     try:
         with inventory.db.transaction(conn):
-            inventory.write_devices(conn, devices)
+            adb.call(inventory.write_devices, devices)
     finally:
         conn.close()
     stored = {d["id"]: d for d in inventory.read_devices("loc-1")}
@@ -93,15 +96,15 @@ def test_a_changed_stack_makes_the_next_sync_full(flask_client, pg_database, mon
         return []
 
     monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
-    inventory.sync_nautobot(force=True)
-    inventory.sync_nautobot()
+    asyncio.run(inventory.sync_nautobot(force=True))
+    asyncio.run(inventory.sync_nautobot())
     assert "last_updated__gte" in calls[-1]
-    inventory.sync_nautobot()
+    asyncio.run(inventory.sync_nautobot())
     assert "last_updated__gte" in calls[-1], "no stack changed: still incremental"
     changed.append({"id": "vc-1", "name": "sw-stack01-new"})
-    inventory.sync_nautobot()  # incremental, and sees the change
+    asyncio.run(inventory.sync_nautobot())  # incremental, and sees the change
     changed.clear()
-    inventory.sync_nautobot()
+    asyncio.run(inventory.sync_nautobot())
     assert "last_updated__gte" not in calls[-1], "so this one is full"
 
 

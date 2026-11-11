@@ -759,8 +759,9 @@ def write_sites(sites: dict[str, dict[str, str]]) -> None:
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_locations(
-                conn, [_snapshot_location(site_id, site_id.title()) for site_id in sites]
+            adb.call(
+                inventory.write_locations,
+                [_snapshot_location(site_id, site_id.title()) for site_id in sites],
             )
             inventory.record_sync_state(
                 conn,
@@ -778,7 +779,7 @@ def write_sites(sites: dict[str, dict[str, str]]) -> None:
                             role="Access Point", primary_ip="", serial=f"FGL-{site_id}-{name}"
                         )
                     devices.append(device)
-            inventory.write_devices(conn, devices)
+            adb.call(inventory.write_devices, devices)
     finally:
         conn.close()
 
@@ -1136,8 +1137,9 @@ class TestTopBarAndMetrics:
         controllers["se"] = [ap("se-ap1", False)]
         conn = db.get_conn()
         try:
-            inventory.write_devices(
-                conn, [{"id": "d1", "location_id": "x", "name": "x", "serial": "fgl2"}]
+            adb.call(
+                inventory.write_devices,
+                [{"id": "d1", "location_id": "x", "name": "x", "serial": "fgl2"}],
             )
         finally:
             conn.close()

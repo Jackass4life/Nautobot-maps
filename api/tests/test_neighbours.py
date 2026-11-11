@@ -13,6 +13,7 @@ from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.services import neighbours_service as neighbours
 from app.services import wireless_service as wireless
+from tests import db as adb
 from tests.test_wireless import (  # noqa: F401 (fixtures)
     APS,
     DK,
@@ -170,14 +171,14 @@ class TestNautobotCables:
         conn = db.get_conn()
         try:
             with db.transaction(conn):
-                inventory.write_cables(conn, inventory.fetch_cables(None) or [], full=False)
-                inventory.write_cables(
-                    conn,
+                adb.call(inventory.write_cables, inventory.fetch_cables(None) or [], full=False)
+                adb.call(
+                    inventory.write_cables,
                     [dict(cable_id="c1", a_device_id="a", a_port="p", b_device_id="b", b_port="q")],
                     full=False,
                 )
-                inventory.write_cables(
-                    conn,
+                adb.call(
+                    inventory.write_cables,
                     [
                         dict(
                             cable_id="c1", a_device_id="a", a_port="p2", b_device_id="b", b_port="q"
@@ -185,8 +186,8 @@ class TestNautobotCables:
                     ],
                     full=False,
                 )
-                inventory.write_cables(
-                    conn,
+                adb.call(
+                    inventory.write_cables,
                     [dict(cable_id="c2", a_device_id="x", a_port="", b_device_id="y", b_port="")],
                     full=False,
                 )
@@ -197,7 +198,7 @@ class TestNautobotCables:
                 ).fetchall()
             ] == ["p2"]
             with db.transaction(conn):
-                inventory.write_cables(conn, [], full=True)
+                adb.call(inventory.write_cables, [], full=True)
             assert (
                 conn.execute("SELECT count(*) AS n FROM nautobot_cable_cache").fetchone()["n"] == 0
             )
@@ -206,8 +207,8 @@ class TestNautobotCables:
 
 
 def cable(conn, ap_id: str, switch_id: str, port: str) -> None:
-    inventory.write_cables(
-        conn,
+    adb.call(
+        inventory.write_cables,
         [
             {
                 "cable_id": f"c-{ap_id}",

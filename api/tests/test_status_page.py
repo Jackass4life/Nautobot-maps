@@ -95,8 +95,8 @@ def known_tenants(pg_database):
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.write_tenants(
-                conn,
+            adb.call(
+                inventory.write_tenants,
                 [
                     {"tenant_id": "t-acme", "name": "Acme Corp"},
                     {"tenant_id": "t-other", "name": "Other Co"},
@@ -384,7 +384,7 @@ class TestCircuits:
         conn = db.get_conn()
         try:
             with db.transaction(conn):
-                inventory.write_circuits(conn, rows)
+                adb.call(inventory.write_circuits, rows)
             assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "ACME CORP")] == ["MINE"]
             assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "STRASSE AG")] == [
                 "STRASSE"
@@ -399,7 +399,9 @@ class TestCircuits:
         conn = db.get_conn()
         try:
             with db.transaction(conn):
-                inventory.write_circuits(conn, [self.circuit("TEL-1", location_ids=["loc-par"])])
+                adb.call(
+                    inventory.write_circuits, [self.circuit("TEL-1", location_ids=["loc-par"])]
+                )
         finally:
             conn.close()
         sites = flask_client.get(f"/api/v1/status/{link('Acme Corp')}").get_json()["sites"]
@@ -821,8 +823,9 @@ class TestTenantDevices:
         conn = db.get_conn()
         try:
             with db.transaction(conn):
-                inventory.write_locations(
-                    conn, [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}]
+                adb.call(
+                    inventory.write_locations,
+                    [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}],
                 )
                 inventory.record_sync_state(
                     conn,
@@ -831,8 +834,8 @@ class TestTenantDevices:
                     last_successful_sync=self.CHECKED_AT,
                     cache_version=inventory.CACHE_VERSION,
                 )
-                inventory.write_devices(
-                    conn,
+                adb.call(
+                    inventory.write_devices,
                     [
                         {
                             **_snapshot_device("lon-ap-01", "loc-lon", "Access Point", "Offline"),

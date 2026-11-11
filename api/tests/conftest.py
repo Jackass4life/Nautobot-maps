@@ -69,6 +69,28 @@ session.async_engine = session.make_async_engine(poolclass=NullPool)
 session.AsyncSessionLocal.configure(bind=session.async_engine)
 
 
+def _app_loop() -> None:
+    """The app's event loop, as the lifespan binds it (#656, #659): sync code that runs
+    outside a request (the inventory syncs, the scheduler's threads) reaches it with
+    ``session.from_sync``. Here a loop of its own on a thread, for the whole run; a
+    TestClient's lifespan binds its loop while it runs, and gives this one back."""
+    import asyncio
+    import threading
+
+    import anyio.lowlevel
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, name="test-app-loop", daemon=True).start()
+
+    async def token():  # type: ignore[no-untyped-def]
+        return anyio.lowlevel.current_token()
+
+    session._loop_token = asyncio.run_coroutine_threadsafe(token(), loop).result()
+
+
+_app_loop()
+
+
 def _to_standard_logging(message) -> None:
     """loguru's lines into Python's standard logging, so ``caplog`` sees them (#633):
     under the line's logger name, only if that logger is enabled for its level."""
