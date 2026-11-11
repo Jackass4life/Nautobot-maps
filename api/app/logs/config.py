@@ -121,6 +121,11 @@ def configure() -> None:
         else:
             logger.add(stream, level=level, filter=keep, format=TEXT_FORMAT, colorize=False)
     logging.basicConfig(handlers=[InterceptHandler()], level=settings.LOG_LEVEL, force=True)
+    # httpx writes a line per upstream request at INFO (#645): those only with
+    # LOG_LEVEL=DEBUG; httpcore's connection details never.
+    quiet = logging.DEBUG if settings.LOG_LEVEL == "DEBUG" else logging.WARNING
+    logging.getLogger("httpx").setLevel(quiet)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     # uvicorn's and gunicorn's own handlers would print a second, unformatted line.
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "gunicorn.error"):
         logging.getLogger(name).handlers.clear()

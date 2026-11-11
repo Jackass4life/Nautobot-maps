@@ -19,8 +19,7 @@ PARTS: dict[str, str] = {
     "app.services.neighbours_service": "sync",
     "app.services.contract_service": "sync",
     "httpx": "sync",
-    "requests": "sync",
-    "urllib3": "sync",
+    "httpcore": "sync",
     # The alert board's rules and its rebuilds.
     "app.services.alerts_service": "board",
     # The background jobs.

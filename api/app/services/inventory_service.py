@@ -12,7 +12,7 @@ import re
 import threading
 from datetime import UTC, datetime
 
-import requests
+import httpx
 from loguru import logger
 
 from app.clients import caching, librenms, nautobot
@@ -510,7 +510,7 @@ def fetch_circuits() -> list[dict] | None:
     """
     try:
         circuits = nautobot.fetch_all_pages("circuits/circuits/", {"depth": 1}, use_cache=False)
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             return []
         logger.warning("Could not read circuits from Nautobot: {}", exc)

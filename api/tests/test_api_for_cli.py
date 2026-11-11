@@ -2,8 +2,8 @@
 
 import threading
 
+import httpx
 import pytest
-import requests
 
 from app import __main__ as cli
 from app.core.legacy_settings import settings
@@ -13,7 +13,7 @@ from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
 from app.v1.administration import controller as admin
 from tests import db as adb
-from tests import http_client
+from tests import http_client, upstream
 from tests.test_cli import _commands
 from tests.test_tokens import bearer, clock, make  # noqa: F401 (clock: a fixture)
 from tests.test_wireless import DK, SE, ap, controllers  # noqa: F401 (controllers: a fixture)
@@ -144,7 +144,7 @@ class TestWirelessCheck:
         admin_token = make("admin", "admin")["token"]
         monkeypatch.setattr(inventory, "read_devices", lambda: [])
         controllers["dk"] = [ap("dk-ap1", True, "FGL1"), ap("dk-ap2", False, "FGL2")]
-        controllers["se"] = requests.ConnectionError("refused by 10.0.0.1")
+        controllers["se"] = httpx.ConnectError("refused by 10.0.0.1")
         answer = flask_client.post("/api/v1/wireless/check", headers=bearer(admin_token))
         assert answer.status_code == 200
         dk, se = answer.get_json()["controllers"]
@@ -174,8 +174,8 @@ class TestWirelessCheck:
     @pytest.mark.parametrize(
         ("failure", "reachable", "signed_in", "says"),
         [
-            (requests.exceptions.SSLError("bad cert"), False, False, "certificate isn't trusted"),
-            (requests.exceptions.ConnectTimeout("slow"), False, False, "no answer in time"),
+            (upstream.certificate_error(), False, False, "certificate isn't trusted"),
+            (httpx.ConnectTimeout("slow"), False, False, "no answer in time"),
             ("401", True, False, "the account was refused (HTTP 401)"),
             ("500", True, None, "answered HTTP 500"),
             (
@@ -188,9 +188,7 @@ class TestWirelessCheck:
     )
     def test_why_in_plain_words(self, failure, reachable, signed_in, says):
         if isinstance(failure, str):
-            response = requests.Response()
-            response.status_code = int(failure)
-            failure = requests.HTTPError(f"{failure} Client Error", response=response)
+            failure = upstream.status_error(int(failure))
         result = wireless.check_failure(failure)
         assert (result["reachable"], result["signed_in"]) == (reachable, signed_in)
         assert says in result["error"]

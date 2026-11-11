@@ -21,10 +21,11 @@ Called as ``wireless.function()`` so tests can replace it on this module.
 Ported from nautobot_maps/wireless.py (#602): only the imports changed.
 """
 
+import ssl
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
-import requests
+import httpx
 from loguru import logger
 
 from app.clients import arubacentral, catalyst
@@ -546,23 +547,33 @@ def sync_due() -> bool:
         conn.close()
 
 
+def _certificate_refused(exc: BaseException) -> bool:
+    """A TLS failure: httpx reports it as a ConnectError caused by an ssl.SSLError."""
+    seen: BaseException | None = exc
+    while seen is not None:
+        if isinstance(seen, ssl.SSLError):
+            return True
+        seen = seen.__cause__ or seen.__context__
+    return isinstance(exc, httpx.ConnectError) and "CERTIFICATE_VERIFY_FAILED" in str(exc)
+
+
 def check_failure(exc: Exception) -> dict:
     """Why reading an instance failed, in plain words (#529): whether it
     answered at all (``reachable``) and took the account (``signed_in``,
     None when that is unknown).  Never the credentials."""
-    if isinstance(exc, requests.exceptions.SSLError):
+    if _certificate_refused(exc):
         return {
             "reachable": False,
             "signed_in": False,
             "error": "its certificate isn't trusted (a company CA: verify_ssl with the CA file)",
         }
-    if isinstance(exc, requests.exceptions.Timeout):
+    if isinstance(exc, httpx.TimeoutException):
         return {
             "reachable": False,
             "signed_in": False,
             "error": "no answer in time (a firewall, or the server is down)",
         }
-    if isinstance(exc, requests.exceptions.ConnectionError):
+    if isinstance(exc, httpx.TransportError):
         return {
             "reachable": False,
             "signed_in": False,

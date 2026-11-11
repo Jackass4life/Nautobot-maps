@@ -4,7 +4,7 @@ alert levels, the coordinate check and the address / GPS search."""
 from typing import Annotated
 from urllib.parse import urlsplit
 
-import requests
+import httpx
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
 from geopy.distance import geodesic
@@ -52,7 +52,7 @@ def api_locations():
         return deps.Json({"locations": locations})
     except RuntimeError as exc:
         return nautobot_service_unavailable("Locations endpoint unavailable", exc)
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         logger.error("Nautobot API HTTP error: {}", exc)
         return deps.Json(UPSTREAM_ERROR, status_code=502)
     except Exception as exc:
@@ -79,7 +79,7 @@ def api_location_detail(location_id: str, query: Annotated[dtos.LocationDetailQu
         return deps.Json(detail)
     except RuntimeError as exc:
         return nautobot_service_unavailable("Location detail endpoint unavailable", exc)
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         logger.error("Nautobot API HTTP error: {}", exc)
         return deps.Json(UPSTREAM_ERROR, status_code=502)
     except Exception as exc:

@@ -3,11 +3,9 @@
 Called as ``librenms.function()`` so tests can replace it on this module.
 """
 
-import warnings
 from urllib.parse import quote
 
-import requests
-from urllib3.exceptions import InsecureRequestWarning
+import httpx
 
 from app.clients import http
 from app.core.settings import get_settings
@@ -23,17 +21,9 @@ def get(path: str, params: dict | None = None) -> dict:
 
     headers = {"X-Auth-Token": api_token}
     url = f"{base_url}/api/v0/{path.lstrip('/')}"
-    if settings.librenms_verify_ssl is False:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", InsecureRequestWarning)
-            response = http.session().get(
-                url, headers=headers, params=params, timeout=15, verify=False
-            )
-    else:
-        response = http.session().get(
-            url, headers=headers, params=params, timeout=15, verify=settings.librenms_verify_ssl
-        )
-    response.raise_for_status()
+    response = http.request(
+        "GET", url, headers=headers, params=params, timeout=15, verify=settings.librenms_verify_ssl
+    )
     return response.json()
 
 
@@ -41,8 +31,8 @@ def fetch_device(device: str) -> dict | None:
     """One device by LibreNMS id or hostname (#284); None when LibreNMS doesn't know it."""
     try:
         data = get(f"devices/{quote(device, safe='')}")
-    except requests.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code == 404:
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
             return None
         raise
     devices = data.get("devices") or []

@@ -5,8 +5,8 @@ at WIRELESS_AP_LEVEL under the Wireless chip, never notified (#521)."""
 import os
 from datetime import UTC, datetime
 
+import httpx
 import pytest
-import requests
 
 from app import __main__ as cli
 from app.clients import arubacentral, caching, catalyst
@@ -22,7 +22,7 @@ from app.services import notify_service as notify
 from app.services import scheduler
 from app.services import status_service as status
 from app.services import wireless_service as wireless
-from tests import test_maintenance
+from tests import test_maintenance, upstream
 from tests.test_app import _snapshot_device, _snapshot_location
 
 clock = test_maintenance.clock
@@ -217,8 +217,7 @@ class FakeSession:
 
     def request(self, method, url, timeout=None, verify=None, **kwargs):
         self.calls.append((method, url, kwargs))
-        response = requests.Response()
-        response.url = url
+        response = httpx.Response(200, content=b"", request=httpx.Request(method, url))
         if url.endswith("/auth/token"):
             self.tokens += 1
             response.status_code = 200
@@ -242,7 +241,7 @@ class FakeSession:
 def fake_catalyst(monkeypatch):
     catalyst._tokens.clear()
     fake = FakeSession(total_aps=503)
-    monkeypatch.setattr(catalyst.http, "session", lambda: fake)
+    monkeypatch.setattr(catalyst.http, "client", lambda verify=True: upstream.Bound(fake, verify))
     yield fake
     catalyst._tokens.clear()
 
@@ -317,8 +316,7 @@ class FakeCentral:
         import json
 
         self.calls.append((method, url, kwargs))
-        response = requests.Response()
-        response.url = url
+        response = httpx.Response(200, content=b"", request=httpx.Request(method, url))
         response.status_code = 200
         if url.endswith("/token.oauth2"):
             self.tokens += 1
@@ -346,7 +344,9 @@ class FakeCentral:
 def fake_central(monkeypatch):
     arubacentral._tokens.clear()
     fake = FakeCentral()
-    monkeypatch.setattr(arubacentral.http, "session", lambda: fake)
+    monkeypatch.setattr(
+        arubacentral.http, "client", lambda verify=True: upstream.Bound(fake, verify)
+    )
     yield fake
     arubacentral._tokens.clear()
 
@@ -530,9 +530,7 @@ class TestSync:
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         wireless.sync_due()
-        controllers["se"] = requests.ConnectionError(
-            "https://dnac-se.example.com: connection refused"
-        )
+        controllers["se"] = httpx.ConnectError("https://dnac-se.example.com: connection refused")
         monkeypatch.setattr(settings, "WIRELESS_SYNC_INTERVAL_SECONDS", 60)
         monkeypatch.setattr(inventory, "state_due", lambda state, interval: True)
         wireless.sync_due()
@@ -1166,7 +1164,7 @@ class TestCheck:
     def test_the_command(self, controllers, monkeypatch, capsys):
         monkeypatch.setattr(inventory, "read_devices", lambda: [])
         controllers["dk"] = [ap("dk-ap1", True, "FGL1")]
-        controllers["se"] = requests.ConnectionError("refused")
+        controllers["se"] = httpx.ConnectError("refused")
         assert cli.main(["wireless-check"]) == 1
         out = capsys.readouterr().out
         assert (
@@ -1283,7 +1281,7 @@ class TestPlugAndPlay:
             "controller": "Catalyst Center dk",
             "stale": False,
         }
-        controllers["pnp"]["dk"] = requests.ConnectionError("refused")
+        controllers["pnp"]["dk"] = httpx.ConnectError("refused")
         wireless.sync_controller(DK)
         assert sync_states()["dk"]["status"] == "idle", "the access points are unaffected"
         assert set(read_index()["pnp"]) == {"FJC1", "FJC2"}, "kept"

@@ -5,7 +5,7 @@ import json
 from datetime import UTC
 from typing import Annotated
 
-import requests
+import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
@@ -92,7 +92,7 @@ def api_alerts(query: Annotated[dtos.BoardQuery, Query()]):
         return deps.Json(
             {"error": "Alert board unavailable because Nautobot is not configured"}, status_code=503
         )
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         logger.error("Nautobot API HTTP error while building alert board: {}", exc)
         return deps.Json({"error": "Failed to communicate with Nautobot API"}, status_code=502)
     except Exception as exc:

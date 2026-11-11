@@ -16,7 +16,7 @@ Ported from nautobot_maps/catalyst.py (#602): only the imports changed.
 import threading
 import time
 
-import requests
+import httpx
 
 from app.clients import http
 
@@ -32,7 +32,7 @@ _tokens: dict[str, tuple[str, float]] = {}  # instance URL: (token, when it was 
 _tokens_lock = threading.Lock()
 
 
-def _request(controller: dict, method: str, path: str, **kwargs) -> requests.Response:
+def _request(controller: dict, method: str, path: str, **kwargs) -> httpx.Response:
     return http.request(
         method,
         f"{controller['url']}{path}",
@@ -72,7 +72,7 @@ def get(controller: dict, path: str, params: dict) -> dict:
         }
         try:
             return _request(controller, "GET", path, headers=headers, params=params).json() or {}
-        except requests.HTTPError as exc:
+        except httpx.HTTPStatusError as exc:
             if attempt == 1 and exc.response is not None and exc.response.status_code == 401:
                 continue
             raise

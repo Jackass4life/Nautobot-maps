@@ -1,14 +1,12 @@
 """Circuits whose description is a site's address, in the site panel (#383)."""
 
-from unittest.mock import MagicMock
-
 import pytest
-import requests
 
 from app.clients import caching, nautobot
 from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
+from tests import upstream
 
 
 @pytest.mark.parametrize(
@@ -142,14 +140,12 @@ class TestFetch:
 
     def test_no_circuits_app_is_no_circuits(self, monkeypatch):
         def fetch(endpoint, params=None, **kwargs):
-            raise requests.HTTPError(response=MagicMock(status_code=404))
+            raise upstream.status_error(404)
 
         monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)
         assert inventory.fetch_circuits() == []
 
-    @pytest.mark.parametrize(
-        "error", [requests.HTTPError(response=MagicMock(status_code=500)), OSError("down")]
-    )
+    @pytest.mark.parametrize("error", [upstream.status_error(500), OSError("down")])
     def test_a_failed_read_is_none(self, monkeypatch, error):
         def fetch(endpoint, params=None, **kwargs):
             raise error
@@ -262,7 +258,7 @@ class TestSitePanel:
 
         def terminations_fail(endpoint, params=None, **kwargs):
             if endpoint == "circuits/circuit-terminations/":
-                raise requests.HTTPError(response=MagicMock(status_code=500))
+                raise upstream.status_error(500)
             return read(endpoint, params, **kwargs)
 
         monkeypatch.setattr(nautobot, "fetch_all_pages", terminations_fail)
@@ -271,7 +267,7 @@ class TestSitePanel:
         assert detail["circuits_error"] == "Circuit information unavailable"
 
     def test_a_failed_read_keeps_the_circuits_and_a_later_one_replaces_them(self, flask_client):
-        self.circuits_error = requests.HTTPError(response=MagicMock(status_code=500))
+        self.circuits_error = upstream.status_error(500)
         self.sync()
         assert [c["cid"] for c in self.panel(flask_client, "loc-aar")] == ["TDC-0004"]
         self.circuits_error = None

@@ -12,7 +12,7 @@ import time
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 
-import requests
+import httpx
 from loguru import logger
 
 from app.clients import caching, librenms, nautobot
@@ -861,7 +861,7 @@ def fetch_live_location_devices(location_id: str) -> list:
     """Fetch devices for one location, handling Nautobot filter-key variants."""
     try:
         return nautobot.fetch_all_pages("dcim/devices/", {"location_id": location_id, "depth": 1})
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         response = getattr(exc, "response", None)
         status_code = getattr(response, "status_code", None)
         if status_code != 400:
@@ -3086,7 +3086,7 @@ def get_location_detail(location_id: str, location_type: str | None = None) -> d
         }
     try:
         asns_data = nautobot.fetch_all_pages("ipam/asns/", {"location_id": location_id})
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         if exc.response is None or exc.response.status_code != 404:
             raise
         asns = location_field_asns(location_id)
@@ -3126,7 +3126,7 @@ def location_circuits(location_id: str) -> tuple[list[dict], str]:
         terminations = nautobot.fetch_all_pages(
             "circuits/circuit-terminations/", {"location": location_id, "depth": 2}
         )
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             return [], ""
         logger.warning("Could not fetch circuits for location {}: {}", location_id, exc)

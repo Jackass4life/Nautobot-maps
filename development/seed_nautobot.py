@@ -20,10 +20,11 @@ The script is idempotent – running it twice will not create duplicates.
 """
 
 import os
+import ssl
 import sys
 import time
 
-import requests
+import httpx
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -32,21 +33,24 @@ import requests
 NAUTOBOT_URL = os.environ.get("NAUTOBOT_URL", "http://localhost:8080").rstrip("/")
 NAUTOBOT_TOKEN = os.environ.get("NAUTOBOT_TOKEN", "aaaa-bbbb-cccc-dddd-eeee")
 
-session = requests.Session()
-session.headers.update(
-    {
+_verify_env = os.environ.get("NAUTOBOT_VERIFY_SSL", "false").strip()
+_verify: bool | ssl.SSLContext
+if _verify_env.lower() == "true":
+    _verify = True
+elif _verify_env.lower() == "false":
+    _verify = False
+else:
+    _verify = ssl.create_default_context(cafile=_verify_env)  # a CA bundle path
+
+session = httpx.Client(
+    headers={
         "Authorization": f"Token {NAUTOBOT_TOKEN}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-    }
+    },
+    verify=_verify,
+    follow_redirects=True,
 )
-_verify_env = os.environ.get("NAUTOBOT_VERIFY_SSL", "false").strip().lower()
-if _verify_env == "true":
-    session.verify = True
-elif _verify_env == "false":
-    session.verify = False
-else:
-    session.verify = _verify_env  # treat as CA bundle path
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +67,7 @@ def wait_for_nautobot(timeout: int = 300) -> None:
             if resp.status_code < 500:
                 print(f"  Nautobot API reachable ({resp.status_code})")
                 return
-        except requests.ConnectionError:
+        except httpx.TransportError:
             pass
         elapsed = int(time.time() - start)
         print(f"  Waiting for Nautobot … ({elapsed}s / {timeout}s)")
@@ -82,7 +86,7 @@ def _get(endpoint: str, params: dict | None = None) -> dict:
 def _post(endpoint: str, data: dict) -> dict:
     """POST helper with error handling."""
     resp = session.post(f"{NAUTOBOT_URL}/api/{endpoint}", json=data, timeout=30)
-    if not resp.ok:
+    if resp.is_error:
         try:
             body = resp.json()
         except Exception:
@@ -95,7 +99,7 @@ def _post(endpoint: str, data: dict) -> dict:
 def _patch(url: str, data: dict) -> dict:
     """PATCH helper with error handling."""
     resp = session.patch(url, json=data, timeout=30)
-    if not resp.ok:
+    if resp.is_error:
         try:
             body = resp.json()
         except Exception:

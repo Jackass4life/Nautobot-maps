@@ -493,7 +493,7 @@ class TestAlertBoardWithPersistence:
         monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
         monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "medium")
         monkeypatch.setattr(
-            notify.requests, "post", lambda url, data=None, **kw: posts.append(data) or Accepted()
+            notify, "_post", lambda url, content=None, **kw: posts.append(content) or Accepted()
         )
         alerts.build_alert_board_payload(snapshot_only=True)  # records every site's level
         conn = db.get_conn()
