@@ -97,6 +97,24 @@ def test_a_transaction_is_all_or_nothing():
     assert adb.call(_links) == {"b": "1"}
 
 
+def test_executemany_writes_every_row_in_one_go():
+    async def write(conn):
+        await conn.executemany("INSERT INTO status_links (tenant_key, link_id) VALUES (%s, %s)", [])
+        async with conn.transaction():
+            await conn.executemany(
+                "INSERT INTO status_links (tenant_key, link_id) VALUES (%s, %s)",
+                [("d", "1"), ("e", "2")],
+            )
+        with pytest.raises(DBAPIError):  # outside a transaction: committed or not at all
+            await conn.executemany(
+                "INSERT INTO status_links (tenant_key, link_id) VALUES (%(k)s, %(v)s)",
+                [{"k": "f", "v": "3"}, {"k": "d", "v": "4"}],
+            )
+
+    adb.call(write)
+    assert adb.call(_links) == {"d": "1", "e": "2"}
+
+
 def test_stream_reads_a_server_side_cursor_in_a_transaction():
     async def read(conn):
         with pytest.raises(RuntimeError, match="transaction"):

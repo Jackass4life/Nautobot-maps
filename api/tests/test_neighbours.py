@@ -1,5 +1,6 @@
 """Which switch and port a down access point is on (#524)."""
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -96,7 +97,7 @@ class TestCatalystTopology:
             {**ap("hel-ap02", True, "FGL2"), "id": "n-ap2"},
         ]
         controllers["topology"]["dk"] = TOPOLOGY
-        wireless.sync_controller(DK)
+        asyncio.run(wireless.sync_controller(DK))
         index = load()
         assert index["serial"] == {
             "FGL1": {"device": "hel-acc-sw02", "port": "Gi1/0/14", "source": "Catalyst Center dk"},
@@ -107,7 +108,7 @@ class TestCatalystTopology:
         assert "topology/physical-topology" in checked
         # A topology that can't be read keeps the last answer; the APs are unaffected.
         controllers["topology"]["dk"] = RuntimeError("timeout")
-        wireless.sync_controller(DK)
+        asyncio.run(wireless.sync_controller(DK))
         assert load()["serial"]["FGL1"]["port"] == "Gi1/0/14"
         conn = db.get_conn()
         try:

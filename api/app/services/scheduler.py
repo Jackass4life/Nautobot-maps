@@ -106,7 +106,8 @@ def sync_wireless() -> bool:
     if not callable(release):
         return False
     try:
-        changed = wireless.sync_due()
+        # On the event loop (#657): the sync's SQL is async, its HTTP in threads.
+        changed = session.from_sync(wireless.sync_due)
     except Exception as exc:
         logger.opt(exception=True).warning("Wireless controller sync failed: {}", exc)
         return False
