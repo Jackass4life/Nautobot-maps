@@ -4,7 +4,6 @@ what page-config tells it, and the tenants for a status token."""
 import pytest
 
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.services import inventory_service as inventory
 from tests import db as adb
 from tests.test_app import auth_config
@@ -54,9 +53,9 @@ class TestWhoSeesIt:
 
 
 def test_the_tenants_for_a_status_token(flask_client):
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(
                 inventory.write_tenants,
                 [

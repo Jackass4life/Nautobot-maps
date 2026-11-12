@@ -42,9 +42,9 @@ def site(pg_database, monkeypatch, clock):
 
 def set_devices(**statuses):
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             # A completed sync of the current cache: alert history is written.
             adb.call(
@@ -73,7 +73,7 @@ def build() -> dict:
 
 
 def open_alerts() -> dict:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         rows = conn.execute("SELECT device_id, status FROM alert_instances ORDER BY id").fetchall()
         return {row["device_id"]: row["status"] for row in map(db.row_to_dict, rows)}
@@ -82,7 +82,7 @@ def open_alerts() -> dict:
 
 
 def window(**body) -> list[dict]:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         return adb.call(
             maintenance.create, {"site_id": "loc-lon", "reason": "Core upgrade", **body}, "olga"
@@ -150,7 +150,7 @@ class TestWindows:
         ],
     )
     def test_invalid_requests(self, body, error):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with pytest.raises(maintenance.WindowError, match=error):
                 adb.call(maintenance.create, body, "olga")
@@ -210,7 +210,7 @@ class TestBoard:
 
     def test_device_in_maintenance_is_left_out_of_the_level(self, site):
         build()
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(
                 maintenance.create,
@@ -250,7 +250,7 @@ class TestBoard:
         # Availability's "12 network · 40 APs" (#499): by role, capitals aside,
         # a device in maintenance too, and no AP role means none.
         build()
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(
                 maintenance.create,
@@ -284,7 +284,7 @@ class TestBoard:
         # A site window leaves its devices counted, for the level; the status
         # page must not call the two down ones down (#503 review).
         assert build()["down_network_device_count"] == 2
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(
                 maintenance.create,
@@ -308,7 +308,7 @@ class TestBoard:
     def test_a_device_going_down_in_maintenance_is_listed_not_counted(self, site):
         set_devices(core="Active", acc1="Active", acc2="Active")
         build()
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(
                 maintenance.create,
@@ -349,7 +349,7 @@ class TestBoard:
     def test_a_device_gone_from_the_inventory_keeps_its_frozen_alert(self, site):
         """Copilot on #303: frozen ids come from the windows, not the inventory."""
         build()
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(
                 maintenance.create,
@@ -397,7 +397,7 @@ class TestNotifications:
         (created,) = window(duration_minutes=60)
         build()
         assert outbox_kinds() == [], "going into maintenance sends nothing"
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(maintenance.end, created["id"], "olga")
         finally:
@@ -413,7 +413,7 @@ class TestNotifications:
         set_devices(core="Offline", acc1="Active", acc2="Active")
         build()
         build()
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             (created,) = adb.call(
                 maintenance.create,
@@ -429,7 +429,7 @@ class TestNotifications:
             conn.close()
         assert build()["alert_level"] == "ok"
         assert outbox_kinds() == [], "planned, not a recovery"
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(maintenance.end, created["id"], "olga")
         finally:
@@ -445,7 +445,7 @@ class TestNotifications:
 
 
 def outbox_kinds() -> list:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         rows = conn.execute(
             "SELECT kind, payload_json FROM notification_outbox ORDER BY id"
@@ -482,9 +482,9 @@ class TestCache:
 
 class TestSiteDevices:
     def test_monitored_devices_of_a_site(self, site, monkeypatch):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 no_ip = {
                     **_snapshot_device("no-ip", "loc-lon", "Access Switch", "Active"),
                     "primary_ip": "",
@@ -509,9 +509,9 @@ class TestSiteDevices:
         }
 
     def test_rolled_up_site_includes_devices_below_it(self, site, monkeypatch):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 building = {
                     **_snapshot_location("bld-a", "Bygning A", "Building"),
                     "parent_id": "loc-lon",
@@ -531,9 +531,9 @@ class TestSiteDevices:
         assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
 
     def test_not_below_an_excluded_location_unless_shown_on_the_board(self, site, monkeypatch):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 closed = {
                     **_snapshot_location("bld-old", "Old Building", "Building"),
                     "parent_id": "loc-lon",
@@ -575,7 +575,7 @@ class TestBatches:
         self.clock = clock
 
     def _create(self, body):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             return adb.call(
                 maintenance.create,
@@ -608,7 +608,7 @@ class TestBatches:
         planned = self._create(
             {"site_ids": ["c"], "starts_at": "2026-10-10T08:00:00Z", "duration_minutes": 60}
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             result = adb.call(
                 maintenance.end_many, [w["id"] for w in active + planned] + [999], "ivan"
@@ -630,7 +630,7 @@ class TestBatches:
 
     def test_open_windows_are_never_crowded_out(self):
         # A week of ended 200-site batches must not push tonight's work past the limit (review on #343).
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             for day in range(3):
                 old = self._create(
@@ -653,7 +653,7 @@ class TestBatches:
         old = self._create({"site_ids": ["gone"], "duration_minutes": 60})
         current = self._create({"site_ids": ["site-a"]})
         device = self._create({"site_id": "site-a", "device_ids": ["dev-1"]})
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(maintenance.end_many, [old[0]["id"]], "olga")
             self.clock["now"] = "2026-10-12T12:00:00Z"  # three days later: all over
@@ -697,14 +697,14 @@ class TestHistory:
         self.clock = clock
 
     def _create(self, **body):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             return adb.call(maintenance.create, {"reason": "Work", **body}, "olga")
         finally:
             conn.close()
 
     def _history(self, start, end, site_id=""):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             return adb.call(
                 maintenance.history,
@@ -722,7 +722,7 @@ class TestHistory:
         )
         cancelled = self._create(site_id="c", starts_at="2026-10-09T20:00:00Z", duration_minutes=60)
         self.clock["now"] = "2026-10-09T12:30:00Z"
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(
                 maintenance.end_many, [ran[0]["id"], cancelled[0]["id"]], "ivan"
@@ -762,14 +762,14 @@ class TestHistory:
     def test_export(self):
         self._create(site_id="=cmd", device_ids=["d1"], reason="=HYPERLINK()", duration_minutes=90)
         # Streamed from a server-side cursor, the device name joined in (#353).
-        inventory_conn = db.get_conn()
+        inventory_conn = adb.connect()
         try:
             adb.call(
                 inventory.write_devices, [_snapshot_device("d1", "=cmd", "Core Router", "Active")]
             )
         finally:
             inventory_conn.close()
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             text = "".join(
                 adb.call(

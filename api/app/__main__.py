@@ -201,19 +201,28 @@ async def token_command(db, args) -> int:
 def schema_version_command() -> int:
     from alembic.runtime.migration import MigrationContext
     from alembic.script import ScriptDirectory
-    from sqlalchemy import create_engine
 
     url = get_settings().sqlalchemy_url()
     head = ScriptDirectory.from_config(
         migrate.alembic_config(url.render_as_string(hide_password=False))
     ).get_current_head()
-    engine = create_engine(url)
-    try:
-        with engine.connect() as conn:
-            current = MigrationContext.configure(conn).get_current_revision()
-            legacy = migrate._current_app_version(conn)
-    finally:
-        engine.dispose()
+
+    def read(conn) -> tuple:  # type: ignore[no-untyped-def]
+        return (
+            MigrationContext.configure(conn).get_current_revision(),
+            migrate._current_app_version(conn),
+        )
+
+    async def versions() -> tuple:
+        # asyncpg, as the migrations (#664: no sync driver).
+        engine = migrate.engine_for(url)
+        try:
+            async with engine.connect() as conn:
+                return await conn.run_sync(read)
+        finally:
+            await engine.dispose()
+
+    current, legacy = asyncio.run(versions())
     print(f"database: {current or 'none'}, this release: {head}")
     if legacy:  # 0: the empty table the baseline creates
         print(f"current app's schema version: {legacy}")

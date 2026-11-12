@@ -86,11 +86,10 @@ def test_excluded_statuses_count_nowhere(synced, monkeypatch):
 
 def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, monkeypatch):
     """With rows per Site, a floor below a site isn't a row: its own devices, by the board's rule."""
-    from app.db import connection as db
 
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):  # put Etage 2 (below Aarhus Campus) on the map
+        with conn.transaction():  # put Etage 2 (below Aarhus Campus) on the map
             conn.execute(
                 "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
                 "WHERE location_id = 'loc-aar-bld-a-f2'"
@@ -113,10 +112,9 @@ def _monitored_london_ids():
 
 
 def _window(body):
-    from app.db import connection as db
     from app.services import maintenance_service as maintenance
 
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         return adb.call(
             maintenance.create,
@@ -153,12 +151,11 @@ def test_a_site_in_maintenance_keeps_its_counts(synced):
 
 
 def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, monkeypatch):
-    from app.db import connection as db
     from app.utils import timeutil
 
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
                 "WHERE location_id = 'loc-aar-bld-a-f2'"
@@ -179,12 +176,11 @@ def test_pending_devices_count_as_monitored_also_below_a_rolled_up_site(synced, 
 
 def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, monkeypatch):
     """Its state row can outlive its IP; the board's rule still applies."""
-    from app.db import connection as db
     from app.utils import timeutil
 
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_location_cache SET latitude = 56.15, longitude = 10.2 "
                 "WHERE location_id = 'loc-aar-bld-a-f2'"
@@ -199,9 +195,9 @@ def test_a_pending_device_without_a_primary_ip_is_not_monitored(synced, monkeypa
     monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
     caching.cache.clear()
     three_views()  # the board records that dev-aar-2 is pending
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_device_cache SET primary_ip = '' WHERE device_id = 'dev-aar-2'"
             )
@@ -216,11 +212,10 @@ def test_a_stack_is_one_device_everywhere(synced):
     """Paris's stack of four: an IP on member 2 is the stack's, and not
     answering, the whole stack is down: one device down on the board, the map
     and in the panel (#405)."""
-    from app.db import connection as db
 
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             conn.execute(
                 "UPDATE nautobot_device_cache SET primary_ip = '10.0.6.9', status = 'Offline' "
                 "WHERE device_id = 'dev-par-stk-2'"

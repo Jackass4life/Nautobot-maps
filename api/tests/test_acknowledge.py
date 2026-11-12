@@ -3,7 +3,6 @@
 import pytest
 
 from app.clients import caching
-from app.db import connection as db
 from app.services import alerts_service as alerts
 from tests import db as adb
 from tests import http_client, test_maintenance
@@ -20,7 +19,7 @@ def ack(device_ids=None, note="", clear=False, by="olga"):
 
 
 def events() -> list[tuple]:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         rows = conn.execute(
             "SELECT i.device_id, e.event_type FROM alert_events e JOIN alert_instances i ON i.id = e.alert_instance_id "
@@ -142,7 +141,7 @@ class TestApi:
                 "/api/v1/alert-acks", json={"site_id": "loc-lon"}, headers=operator
             )
             assert resp.status_code == 200
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             (by,) = {
                 r["acknowledged_by"]

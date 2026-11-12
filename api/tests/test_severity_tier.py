@@ -90,12 +90,11 @@ class TestTier:
         assert [alerts.tier_rank(t) for t in ("gold", "Silver", "bronze", "")] == [0, 1, 99, 99]
 
     def test_on_the_board_and_sorting(self, site, monkeypatch):
-        from app.db import connection as db
         from tests.test_app import _snapshot_location
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 adb.call(
                     inventory.write_locations,
                     [{**_snapshot_location("loc-lon", "London HQ"), "tier": "gold"}],

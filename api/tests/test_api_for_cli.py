@@ -7,7 +7,6 @@ import pytest
 
 from app import __main__ as cli
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
@@ -47,9 +46,9 @@ def test_every_everyday_command_has_an_api_route():
 
 @pytest.fixture
 def flask_client(pg_database, clock):
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(
                 inventory.write_tenants,
                 [{"tenant_id": "t1", "name": "Acme Corp"}, {"tenant_id": "t2", "name": "Nord A/S"}],
@@ -104,7 +103,7 @@ class TestStatusLinks:
             assert refused.get_json() == {
                 "error": "no tenant 'Acme' in Nautobot (as of the last sync)"
             }
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             assert conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"] == 0, (
                 "a typo makes no link"
@@ -222,7 +221,7 @@ class TestWirelessCheck:
     def test_another_workers_check_is_running(self, flask_client, monkeypatch):
         admin_token = make("admin", "admin")["token"]
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK, SE))
-        release = db.try_advisory_lock(admin.WIRELESS_CHECK_LOCK)
+        release = adb.hold_lock(admin.WIRELESS_CHECK_LOCK)
         try:
             assert (
                 flask_client.post("/api/v1/wireless/check", headers=bearer(admin_token)).status_code

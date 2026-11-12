@@ -2137,7 +2137,7 @@ class TestAlertLifecycleTracking:
             content_type="application/json",
         )
         assert created.status_code == 200
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -2282,7 +2282,7 @@ class TestAlertLifecycleTracking:
         assert data["alerts"][0]["alert_level"] == "no_data"
         history = asyncio.run(alerts.get_alert_context_for_site("loc-1", timeutil.iso_utc_now()))
         assert history["active_alert_instance_count"] == 1
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             rows = conn.execute(
                 "SELECT status FROM alert_instances WHERE site_id = %s ORDER BY id DESC",
@@ -2547,7 +2547,7 @@ class TestInventoryCacheSync:
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -2617,7 +2617,7 @@ class TestInventoryCacheSync:
         ]
 
     def test_cached_locations_allow_null_time_zone(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -2655,7 +2655,7 @@ class TestInventoryCacheSync:
         assert location["time_zone"] is None
 
     def test_write_cached_locations_coalesces_explicit_none_text_fields(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -2700,7 +2700,7 @@ class TestInventoryCacheSync:
         assert locations[0]["url"] == ""
 
     def test_write_cached_devices_coalesces_explicit_none_text_fields(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -2739,7 +2739,7 @@ class TestInventoryCacheSync:
         assert devices[0]["tenant"] == ""
 
     def test_alert_board_uses_cached_inventory_snapshot(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -2804,7 +2804,7 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["alert_level"] == "critical"
 
     def test_cached_location_read_triggers_background_refresh_when_sync_is_due(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -2926,7 +2926,7 @@ class TestInventoryCacheSync:
         assert device_calls[1]["depth"] == 1
 
     def test_incremental_sync_keeps_existing_watermark_without_newer_last_updated(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -3047,7 +3047,7 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -3090,7 +3090,7 @@ class TestInventoryCacheSync:
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
     def test_ensure_inventory_snapshot_runs_nautobot_sync_on_cache_version_mismatch(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -3160,7 +3160,7 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -3224,7 +3224,7 @@ class TestInventoryCacheSync:
             )
 
     def test_alert_board_filters_cached_devices_without_primary_ip_while_backfill_is_pending(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -3297,7 +3297,7 @@ class TestInventoryCacheSync:
         assert data["alerts"][0]["down_device_count"] == 0
 
     def test_api_alerts_filters_cached_devices_without_primary_ip(self, flask_client):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -3398,7 +3398,7 @@ class TestInventoryCacheSync:
         ]
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -3874,7 +3874,7 @@ class TestAlertBoardSyncProgress:
         caching.cache.clear()
 
     def _set_nautobot_sync_state(self, status, started_at, completed_at=None):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -4006,7 +4006,7 @@ class TestAlertBoardSyncProgress:
         monkeypatch.setattr(settings, "LIBRENMS_SYNC_INTERVAL_SECONDS", 120)
         now = datetime.now(UTC).isoformat()
         self._set_nautobot_sync_state("idle", now, now)
-        conn = db.get_conn()
+        conn = adb.connect()
         with conn:
             adb.call(
                 inventory.record_sync_state,
@@ -4344,7 +4344,7 @@ class TestAlertBoardBulkReads:
                 for j in range(3)
             ],
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         with conn:
             adb.call(
                 inventory.record_sync_state,
@@ -4579,7 +4579,7 @@ class TestSiteRollup:
                 ("d-orphan", "bld-orphan", "loose01", "access", "Active", "10.3.0.1/32"),
             ],
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         with conn:
             adb.call(
                 inventory.record_sync_state,
@@ -4680,7 +4680,7 @@ class TestBackgroundScheduler:
             "INSERT INTO nautobot_device_cache (device_id, location_id, name, role, status, primary_ip) "
             "VALUES ('dev-1', 'loc-1', 'router01', 'router', 'Offline', '10.0.0.1/32')"
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         with conn:
             adb.call(
                 inventory.record_sync_state,
@@ -4712,10 +4712,10 @@ class TestBackgroundScheduler:
 
     def test_only_one_process_ticks_at_a_time(self):
         """Another worker holding the lock makes this tick skip."""
-        release = db.try_advisory_lock("background_scheduler")
+        release = adb.hold_lock("background_scheduler")
         assert callable(release)
         try:
-            other = db.try_advisory_lock("background_scheduler")
+            other = adb.hold_lock("background_scheduler")
             assert other is False  # a second connection cannot take it
             with patch.object(inventory, "ensure_snapshot") as ensure:
                 assert asyncio.run(scheduler.tick()) is False
@@ -4927,7 +4927,7 @@ class TestRealStartTimes:
                 ("d-up3", "sw-up3", "Active", "10.0.0.4/32", "2026-09-01T00:00:00Z"),
             ],
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         with conn:
             adb.call(
                 inventory.record_sync_state,
@@ -4999,7 +4999,7 @@ class TestAlertFeed:
             "VALUES (%s, 'loc-1', %s, 'access', 'Active', %s)",
             [("d-1", "sw01", "10.0.0.1/32"), ("d-2", "sw02", "10.0.0.2/32")],
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         with conn:
             adb.call(
                 inventory.record_sync_state,
@@ -5371,7 +5371,7 @@ class TestHistoryRetention:
 # ---------------------------------------------------------------------------
 class TestMetrics:
     def _record(self, status, started, completed):
-        conn = db.get_conn()
+        conn = adb.connect()
         with conn:
             adb.call(
                 inventory.record_sync_state,
@@ -5706,7 +5706,7 @@ class TestLocationAlertLevels:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -5798,7 +5798,7 @@ class TestLocationAlertLevels:
             "core-1": "critical",
             "acc-1": "",
         }
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 conn.execute(
@@ -5812,7 +5812,7 @@ class TestLocationAlertLevels:
         assert [d["id"] for d in detail["devices"] if d["core"]] == ["few-1"]
 
     def test_criticality_override_is_applied(self, flask_client):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 conn.execute(
@@ -5831,7 +5831,7 @@ class TestLocationAlertLevels:
             flask_client.get("/api/v1/location-alerts").get_json()["levels"]["loc-ok"]["level"]
             == "ok"
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 conn.execute(
@@ -6238,7 +6238,7 @@ class TestLibreNMSMappingsAreBatched:
         monkeypatch.setattr(
             inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Big site")])
@@ -6278,7 +6278,7 @@ class TestLibreNMSMappingsAreBatched:
         caching.cache.clear()
 
     def _mappings(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             return {
                 row["nautobot_device_id"]: row["librenms_device_id"]
@@ -6350,9 +6350,9 @@ class TestAlertHistoryCsv:
     @pytest.fixture(autouse=True)
     def _history(self, pg_database, monkeypatch):
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.NOW)
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 for device_id, name, role, ip in (
                     ("d1", "lon-sw01", "Access Switch", "10.0.8.4/24"),
                     ("d2", "lon-core", "Core Router", ""),

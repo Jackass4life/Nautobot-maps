@@ -14,7 +14,7 @@ site = test_maintenance.site
 
 
 def instance_ids() -> dict:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         rows = conn.execute(
             "SELECT id, device_id FROM alert_instances WHERE status = 'open'"
@@ -25,7 +25,7 @@ def instance_ids() -> dict:
 
 
 def add_case(instance_id: int, number: str, at: str) -> None:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         conn.execute(
             "INSERT INTO alert_cases (alert_instance_id, case_number, created_at) VALUES (%s, %s, %s)",
@@ -56,7 +56,7 @@ class TestSitePanelCases:
         add_case(ids["acc1"], "INC0048290", "2026-10-09T12:05:00Z")
         add_case(ids["core"], "INC0048213", "2026-10-09T12:00:00Z")
         add_case(ids["core"], "INC0048300", "2026-10-09T12:03:00Z")
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "UPDATE alert_instances SET acknowledged_by = 'olga' WHERE id = %s", (ids["core"],)

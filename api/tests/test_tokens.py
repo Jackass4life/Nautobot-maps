@@ -14,10 +14,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.api import app
-from app.db.session import engine
 from app.services import auth_service, token_service
 from app.utils import timeutil
 from tests import db as adb
+from tests.conftest import TEST_DATABASE_URL
+
+# Rows written and read beside the app's own session (#664: on asyncpg).
+engine = adb.SyncEngine(TEST_DATABASE_URL)
 
 NOW = "2026-10-09T12:00:00Z"
 UNTRUSTED = ("203.0.113.9", 40000)

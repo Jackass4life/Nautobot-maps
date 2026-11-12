@@ -16,7 +16,6 @@ import pytest
 from app.clients import caching, librenms, nautobot
 from app.clients import http as upstream_http
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.services import inventory_service as inventory
 from app.utils import timeutil
 from tests import db as adb
@@ -139,7 +138,7 @@ class TestInventoryCacheSync:
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
 
     def test_get_locations_prefers_cached_inventory_without_live_api(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -209,7 +208,7 @@ class TestInventoryCacheSync:
         ]
 
     def test_cached_locations_allow_null_time_zone(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -247,7 +246,7 @@ class TestInventoryCacheSync:
         assert location["time_zone"] is None
 
     def test_write_cached_locations_coalesces_explicit_none_text_fields(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -292,7 +291,7 @@ class TestInventoryCacheSync:
         assert locations[0]["url"] == ""
 
     def test_write_cached_devices_coalesces_explicit_none_text_fields(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -331,7 +330,7 @@ class TestInventoryCacheSync:
         assert devices[0]["tenant"] == ""
 
     def test_cached_location_read_triggers_background_refresh_when_sync_is_due(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -453,7 +452,7 @@ class TestInventoryCacheSync:
         assert device_calls[1]["depth"] == 1
 
     def test_incremental_sync_keeps_existing_watermark_without_newer_last_updated(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -574,7 +573,7 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -617,7 +616,7 @@ class TestInventoryCacheSync:
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
     def test_ensure_inventory_snapshot_runs_nautobot_sync_on_cache_version_mismatch(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -687,7 +686,7 @@ class TestInventoryCacheSync:
                 ]
             return []
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -728,7 +727,7 @@ class TestInventoryCacheSync:
         assert reconcile_state["last_successful_sync"] == "2026-01-02T00:00:00Z"
 
     def test_full_reconcile_prunes_deleted_cached_inventory(self):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             with conn:
                 adb.call(
@@ -1180,7 +1179,7 @@ def test_the_writers_store_upstream_values_as_their_columns_types(pg_database):
         [{"device_id": "12", "hostname": "sw1", "status": "1", "ip": "10.0.0.1", "ignore": "0"}],
         seq,
     )
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         location = conn.execute("SELECT * FROM nautobot_location_cache").fetchone()
         device = conn.execute("SELECT * FROM nautobot_device_cache").fetchone()

@@ -206,17 +206,3 @@ def test_a_check_that_gives_up_leaves_the_shared_probe_running(client, monkeypat
         assert await probe == 5 and finished == [1]
 
     asyncio.run(scenario())
-
-
-def test_the_engines_keep_the_urls_options():
-    from sqlalchemy import make_url
-
-    from app.db.session import connect_args
-
-    url = make_url("postgresql+psycopg://u@db/app?options=-c%20search_path%3Dmaps")
-    args = connect_args(url, 5, 60)
-    assert args["options"] == "-c search_path=maps -c statement_timeout=60000"
-    assert args["connect_timeout"] == 5
-    assert connect_args(make_url("postgresql+psycopg://u@db/app"), 5, 1)["options"] == (
-        "-c statement_timeout=1000"
-    )

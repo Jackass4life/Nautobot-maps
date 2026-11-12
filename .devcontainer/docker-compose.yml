@@ -13,7 +13,7 @@ services:
       # pytest creates a throwaway schema per test in this database.
       TEST_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@localhost:5432/nautobot_maps_test
       # api/'s tests (#588): their own database, which they reset (created when missing).
-      API_TEST_DATABASE_URL: postgresql+psycopg://nautobot_maps:nautobot_maps@localhost:5432/fastapi_nuxt_test
+      API_TEST_DATABASE_URL: postgresql://nautobot_maps:nautobot_maps@localhost:5432/fastapi_nuxt_test
     depends_on:
       - postgres
 

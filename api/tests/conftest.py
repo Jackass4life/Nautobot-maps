@@ -8,33 +8,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "demo"))
 # Its own variable: TEST_DATABASE_URL is the current app's test database (#588).
 TEST_DATABASE_URL = os.environ.get(
     "API_TEST_DATABASE_URL",
-    "postgresql+psycopg://nautobot_maps:nautobot_maps@localhost:5432/fastapi_nuxt_test",
+    "postgresql://nautobot_maps:nautobot_maps@localhost:5432/fastapi_nuxt_test",
 )
 
 
 def _provision(url: str) -> None:
     """Create the test database when it doesn't exist yet (an existing devcontainer
     volume has only the current app's): one connection to the server's postgres DB."""
-    import psycopg
+    import asyncio
+
+    import asyncpg
     from sqlalchemy import make_url
 
     target = make_url(url)
-    try:
-        with psycopg.connect(
+
+    async def create() -> None:
+        conn = await asyncpg.connect(
             host=target.host,
             port=target.port or 5432,
             user=target.username,
             password=target.password,
-            dbname="postgres",
-            autocommit=True,
-            connect_timeout=5,
-        ) as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM pg_database WHERE datname = %s", (target.database,)
-            ).fetchone()
-            if not exists:
-                conn.execute(f'CREATE DATABASE "{target.database}"')
-    except psycopg.Error:
+            database="postgres",
+            timeout=5,
+        )
+        try:
+            if not await conn.fetchval(
+                "SELECT 1 FROM pg_database WHERE datname = $1", target.database
+            ):
+                await conn.execute(f'CREATE DATABASE "{target.database}"')
+        finally:
+            await conn.close()
+
+    try:
+        asyncio.run(create())
+    except (OSError, asyncpg.PostgresError):
         pass  # no server, or no rights: the migration fixture says what is wrong
 
 
@@ -52,14 +59,12 @@ import pytest  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from loguru import logger  # noqa: E402
-from sqlalchemy import text  # noqa: E402
 from sqlalchemy.pool import NullPool  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.api import app  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
 from app.db import session  # noqa: E402
-from app.db.session import engine  # noqa: E402
 from app.logs import config as logs  # noqa: E402
 from app.models import Base  # noqa: E402
 from tests import db as adb  # noqa: E402
@@ -87,6 +92,7 @@ def _app_loop() -> None:
         return anyio.lowlevel.current_token()
 
     session._loop_token = asyncio.run_coroutine_threadsafe(token(), loop).result()
+    adb.TEST_LOOP = loop
 
 
 _app_loop()
@@ -168,8 +174,7 @@ def clean_tables():
     if running:
         pytest.fail(f"background threads still running, tables not emptied: {running}")
     tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
-    with engine.begin() as conn:
-        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+    adb.sql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
 
 
 @pytest.fixture
@@ -207,25 +212,13 @@ class TestDatabase:
 
     __test__ = False  # not a test class
 
-    def execute(self, sql: str, params=()) -> list[dict]:
+    def execute(self, sql: str, params=None) -> list[dict]:
         """Run one statement; return its rows as dicts (``[]`` when it returns none)."""
-        from app.db import connection as db
-
-        conn = db.get_conn()
-        try:
-            cur = conn.execute(sql, params)
-            return cur.fetchall() if cur.description else []
-        finally:
-            conn.close()
+        return adb.sql(sql, params)
 
     def executemany(self, sql: str, rows) -> None:
-        from app.db import connection as db
-
-        conn = db.get_conn()
-        try:
-            conn.cursor().executemany(sql, list(rows))
-        finally:
-            conn.close()
+        with adb.connect() as conn:
+            conn.executemany(sql, list(rows))
 
 
 def join_background_threads(timeout: float = 30.0) -> list[str]:

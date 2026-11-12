@@ -23,6 +23,7 @@ import uvicorn
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.services import inventory_service as inventory
+from tests import db as adb
 from tests import http_client
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -483,7 +484,6 @@ class TestAlertBoardWithPersistence:
     ):
         """End to end (#282): a real sync and board build queue and send a notification."""
         from app.core.legacy_settings import settings
-        from app.db import connection as db
         from app.services import alerts_service as alerts
         from app.services import notify_service as notify
 
@@ -500,7 +500,7 @@ class TestAlertBoardWithPersistence:
         asyncio.run(
             alerts.build_alert_board_payload(snapshot_only=True)
         )  # records every site's level
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "UPDATE site_alert_levels SET alert_level = 'ok' WHERE site_id = 'loc-lon'"

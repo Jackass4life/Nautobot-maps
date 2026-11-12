@@ -7,12 +7,12 @@ import re
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine, make_url, text
+from sqlalchemy import make_url, text
 
 from alembic import command
 from app import migrate
-from app.db.session import engine
 from app.models import Base
+from tests import db as adb
 from tests.conftest import TEST_DATABASE_URL
 from tests.schema_snapshot import snapshot
 
@@ -22,27 +22,34 @@ SCRATCH = make_url(TEST_DATABASE_URL).database + "_scratch"
 
 def test_alembic_builds_the_current_apps_schema():
     """Column by column, constraint by constraint, index by index (and sequences)."""
+    engine = adb.SyncEngine(TEST_DATABASE_URL)
     with engine.connect() as conn:
-        assert json.loads(json.dumps(snapshot(conn))) == SNAPSHOT
+        assert json.loads(json.dumps(conn.run_sync(snapshot))) == SNAPSHOT
 
 
 def test_the_models_match_the_migrations():
+    engine = adb.SyncEngine(TEST_DATABASE_URL)
     with engine.connect() as conn:
-        assert compare_metadata(MigrationContext.configure(conn), Base.metadata) == []
+        differences = conn.run_sync(
+            lambda sync: compare_metadata(MigrationContext.configure(sync), Base.metadata)
+        )
+        assert differences == []
 
 
 @pytest.fixture
 def scratch():
     """An empty database of its own: (engine, url), dropped afterwards."""
-    admin = create_engine(make_url(TEST_DATABASE_URL).set(database="postgres"))
-    with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+    admin = adb.SyncEngine(
+        make_url(TEST_DATABASE_URL).set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
+    with admin.connect() as conn:
         conn.execute(text(f'DROP DATABASE IF EXISTS "{SCRATCH}" WITH (FORCE)'))
         conn.execute(text(f'CREATE DATABASE "{SCRATCH}"'))
     url = make_url(TEST_DATABASE_URL).set(database=SCRATCH).render_as_string(hide_password=False)
-    db = create_engine(url)
+    db = adb.SyncEngine(url)
     yield db, url
     db.dispose()
-    with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+    with admin.connect() as conn:
         conn.execute(text(f'DROP DATABASE IF EXISTS "{SCRATCH}" WITH (FORCE)'))
     admin.dispose()
 
@@ -93,7 +100,7 @@ def test_an_empty_database_is_created(scratch):
     db, url = scratch
     assert migrate.migrate(make_url(url)) == "upgrade"
     with db.connect() as conn:
-        assert json.loads(json.dumps(snapshot(conn))) == SNAPSHOT
+        assert json.loads(json.dumps(conn.run_sync(snapshot))) == SNAPSHOT
 
 
 @pytest.mark.parametrize(

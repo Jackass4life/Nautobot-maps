@@ -196,9 +196,9 @@ class TestSiteLevel:
 
 def write(sites: dict[str, str], devices: list[dict]) -> None:
     """*sites*: {site id: tier}; *devices*: snapshot devices."""
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(
                 inventory.write_locations,
                 [
@@ -240,9 +240,9 @@ def build(clock, at: str) -> dict:
 
 
 def query(sql: str) -> list[dict]:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             return [db.row_to_dict(row) for row in conn.execute(sql).fetchall()]
     finally:
         conn.close()

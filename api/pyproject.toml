@@ -14,7 +14,6 @@ dependencies = [
     "loguru>=0.7.3",
     "markdown-it-py>=4.2.0",
     "openapi-python[httpx]>=0.0.18",
-    "psycopg[binary]>=3.3.8",
     "pydantic>=2",
     "pydantic-settings>=2.16.2",
     "python-multipart>=0.0.20",
