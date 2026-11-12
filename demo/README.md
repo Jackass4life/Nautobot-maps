@@ -1,11 +1,13 @@
 # Demo – Nautobot Maps with Mock Nautobot
 
-This `docker-compose.yml` spins up a **complete demo environment** in two containers:
+This `docker-compose.yml` spins up a **complete demo environment**:
 
 | Service | Description | Port |
 |---|---|---|
 | `mock-nautobot` | Lightweight FastAPI app that mimics the Nautobot REST API with pre-seeded European locations, devices, and ASNs | 8080 |
-| `nautobot-maps` | The Nautobot Maps web application, pointed at the mock server | 5000 |
+| `web` | The Nautobot Maps pages; passes the API's paths on to `api` | 5000 |
+| `api` | The Nautobot Maps API, pointed at the mock server | — |
+| `postgres` | The API's database (throwaway: no volume) | — |
 
 ## Quick start
 

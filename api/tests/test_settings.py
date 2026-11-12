@@ -28,7 +28,8 @@ NOT_PASSED_BY_COMPOSE = {
     "FLASK_DEBUG",
     "FLASK_RUN_PORT",
     "SQL_ECHO",
-    # Set by the image (Dockerfile), where it put web/'s built pages.
+    # The development server's: where `bun run generate` put the pages (#674: the API
+    # image has none; the web image serves them).
     "WEB_BUILD_DIR",
     # compose sets NAUTOBOT_MAPS_DATABASE_URL to its own PostgreSQL, which wins.
     "DATABASE_URL",
@@ -52,10 +53,10 @@ def load(monkeypatch, **env: str) -> Settings:
 
 def test_compose_passes_every_setting():
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
-    environment = compose["services"]["nautobot-maps"]["environment"]
+    environment = compose["services"]["api"]["environment"]
     passed = {entry.split("=", 1)[0] for entry in environment}
     missing = sorted(set(SETTING_NAMES) - passed - NOT_PASSED_BY_COMPOSE)
-    assert not missing, f"add to docker-compose.yml (nautobot-maps environment): {missing}"
+    assert not missing, f"add to docker-compose.yml (api environment): {missing}"
 
 
 def test_every_setting_is_documented():

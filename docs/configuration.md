@@ -82,7 +82,7 @@ For a LibreNMS signed by an internal CA, put the CA certificate in `config/certs
 Without pushes, a device going down shows on the board after LibreNMS has polled it **and** the next LibreNMS sync here (`LIBRENMS_SYNC_INTERVAL_SECONDS`, default 300 s). With an alert transport, LibreNMS tells the app right away, and the board shows it within seconds. The periodic sync keeps running as the safety net.
 
 1. Create an [API token](authentication.md#api-tokens) with the `operator` role:
-   `docker compose exec nautobot-maps python -m app token create librenms --role operator`
+   `docker compose exec api python -m app token create librenms --role operator`
 2. In LibreNMS: **Alerts → Alert Transports → Create**, type **API**:
    - API Method: `POST`
    - API URL: `https://<nautobot-maps>/api/v1/librenms/alert`

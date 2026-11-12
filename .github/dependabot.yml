@@ -39,9 +39,10 @@ updates:
       actions:
         patterns: ["*"]
 
-  # python:3.13-slim, oven/bun and uv in the Dockerfile (api/ and web/, #613, #635)
+  # The images (#674): python:3.13-slim and uv (api/), oven/bun (web/, #635) and
+  # nginx (reverse-proxy/), each in its folder's Dockerfile.
   - package-ecosystem: docker
-    directory: /
+    directories: [/api, /web, /reverse-proxy]
     schedule:
       interval: weekly
     ignore:
@@ -53,6 +54,10 @@ updates:
       # goes with CI's bun-version and web/package.json's packageManager.
       - dependency-name: oven/bun
         update-types: [version-update:semver-major]
+      # nginx follows its stable line (1.28, even minor versions); a new one is
+      # a deliberate change, tested with reverse-proxy/ci (#423).
+      - dependency-name: nginx
+        update-types: [version-update:semver-major, version-update:semver-minor]
 
   # postgres / redis images in docker-compose.yml
   - package-ecosystem: docker-compose

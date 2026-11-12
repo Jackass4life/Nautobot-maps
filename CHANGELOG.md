@@ -7,6 +7,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Breaking
+- **The app is two images: `api` and `web`** (#674). `docker-compose.yml` runs `api` (the API, from `api/`) and `web` (the pages, from `web/`) instead of `nautobot-maps`, and releases publish `ghcr.io/jackass4life/nautobot-maps-api` and `ghcr.io/jackass4life/nautobot-maps-web` instead of `ghcr.io/jackass4life/nautobot-maps`. The bundled proxy's nginx is now an image built on your host from `reverse-proxy/` (its host name is built in). The address stays `http://<host>:5000` (`web`, which passes the API's paths on), and the database, `.env` and `config/` stay as they are. Once, on each host:
+
+  ```bash
+  git pull
+  # 1. docker-compose.override.yml, if you run released images: the two instead of one
+  #      services:
+  #        api: { image: ghcr.io/jackass4life/nautobot-maps-api:0.4.0, build: !reset null }
+  #        web: { image: ghcr.io/jackass4life/nautobot-maps-web:0.4.0, build: !reset null }
+  #    and any other override of `nautobot-maps` (ports, volumes) moves to `web` or `api`.
+  # 2. Start: --build builds what isn't a released image (with the bundled proxy, its
+  #    image); --remove-orphans removes the old nautobot-maps container.
+  docker compose pull api web          # with released images
+  docker compose up -d --build --remove-orphans
+  ```
+
+  Commands are now `docker compose exec api python -m app …` (was `exec nautobot-maps`): change scripts and cron jobs. With your own sign-in proxy (`AUTH_MODE=header`), send the API's paths to `api:5000` and the rest to `web:3000`. The root `Dockerfile` is gone (Documentation → *Operations*, *One image per part*)
 - **The bundled HTTPS and sign-in proxy moved to `reverse-proxy/`** (#667), next to `api/` and `web/` (it was `deploy/proxy/`). With the bundled proxy, once on each host after `git pull`, move your certificate and point `COMPOSE_FILE` at the new file:
 
   ```bash
@@ -21,7 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   nginx now stops with a message naming `reverse-proxy/certs/` when `fullchain.pem` or `privkey.pem` is missing there, instead of only "cannot load certificate". Without the bundled proxy, nothing changes (Documentation → *Operations*, *The bundled proxy moved*)
 
 ### Added
-- **The API, the pages and the proxy can be built separately** (#672): `api/Dockerfile`, `web/Dockerfile` (the pages on Nuxt's server, port 3000) and `reverse-proxy/Dockerfile` (nginx with sign-in, `--build-arg DOMAIN=…`), each built from its own folder, for running them as separate containers. The API image can trust company CA certificates (`--build-context certs=../certs`) and include the help pages (`--build-context docs=..`). `docker-compose.yml` and the released image are unchanged for now (Documentation → *Operations*, *Building the API, the pages and the proxy separately*)
+- **The API, the pages and the proxy can be built separately** (#672): `api/Dockerfile`, `web/Dockerfile` (the pages on Nuxt's server, port 3000) and `reverse-proxy/Dockerfile` (nginx with sign-in, `--build-arg DOMAIN=…`), each built from its own folder, for running them as separate containers. The API image can trust company CA certificates (`--build-context certs=../certs`) and include the help pages (`--build-context docs=..`). `docker-compose.yml` and the releases use them too (see Breaking) (Documentation → *Operations*, *Building the API, the pages and the proxy separately*)
 
 ### Fixed
 - **The map's alarm list no longer runs over the filters** (#647): with many sites in alarm, or after **Show all**, the rows drew on top of the Filters footer at the bottom of the left panel. They now scroll in their own box, with the heading, the counts and **Show all/fewer** kept in place. On a phone with search results open, the list keeps at least two rows and the panel scrolls down to the filters

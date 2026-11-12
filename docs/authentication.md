@@ -57,13 +57,17 @@ A user's role is the highest one any of their groups maps to, or `AUTH_DEFAULT_R
 
 The app trusts the identity headers only from the proxy: the direct peer must be in `AUTH_TRUSTED_PROXIES` (default: localhost only) and, if `AUTH_PROXY_SECRET` is set, send it in `X-Auth-Proxy-Secret`. Anything else is treated as anonymous and logged, so a client that reaches the app directly cannot claim to be an admin. The startup log shows which proxies are trusted.
 
-With the proxy as another service in the same compose project, pin the network's subnet and trust it:
+With the proxy as another service in the same compose project, pin its address and trust that one:
 
 ```yaml
 # docker-compose.override.yml
 services:
-  nautobot-maps:
+  web:
     ports: !reset []          # only the proxy talks to the app
+  my-proxy:                   # your proxy's service
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
 networks:
   default:
     ipam:
@@ -73,20 +77,25 @@ networks:
 
 ```dotenv
 AUTH_MODE=header
-AUTH_TRUSTED_PROXIES=172.30.0.0/24
+AUTH_TRUSTED_PROXIES=172.30.0.10/32
 AUTH_PROXY_SECRET=<long random string>
 ```
 
-and in the proxy (nginx):
+and in the proxy (nginx), the API's paths straight to `api` and the pages to `web` (#674): `web` would pass the API's paths on too, but then the API sees `web`'s address, not the proxy's. `/api/docs` is a page.
 
 ```nginx
-location / {
-    proxy_pass http://nautobot-maps:5000;
+location ~ ^/(api/(?!docs(/|$))|mcp(/|$)|healthz$|help/images/|docs(/|$)|openapi\.json$|static/) {
+    proxy_pass http://api:5000;
     proxy_set_header X-Forwarded-User   $authenticated_user;   # from your SSO module
     proxy_set_header X-Forwarded-Groups $authenticated_groups;
     proxy_set_header X-Auth-Proxy-Secret "<the same secret>";
 }
+location / {
+    proxy_pass http://web:3000;
+}
 ```
+
+Trust only the proxy's own address in `AUTH_TRUSTED_PROXIES` (pin it with `ipv4_address`, as `reverse-proxy/compose.yml` does), not the whole subnet, which includes `web`.
 
 ### The bundled proxy: HTTPS and company sign-in
 
@@ -235,10 +244,10 @@ Authorization: Bearer nmt_...
 On the command line (this is how the first admin token is made):
 
 ```sh
-docker compose exec nautobot-maps python -m app token create librenms --role operator --expires-days 365
-docker compose exec nautobot-maps python -m app token list
-docker compose exec nautobot-maps python -m app token revoke 3
-docker compose exec nautobot-maps python -m app token purge --older-than 90 --dry-run
+docker compose exec api python -m app token create librenms --role operator --expires-days 365
+docker compose exec api python -m app token list
+docker compose exec api python -m app token revoke 3
+docker compose exec api python -m app token purge --older-than 90 --dry-run
 ```
 
 On the **Admin** page (☰ → **Admin**, only for admins) the same without a command line: the active tokens newest first (a search past 25), **New token** (name, role, for a status token its tenant picked from Nautobot's, and how long it works) shows the key once with **Copy**, **Revoke** per row (asks once more), and "+N revoked or expired" opens them, with **Purge**. With `AUTH_MODE=disabled` the page is there only with `ALLOW_UNAUTHENTICATED_WRITES=true`, as the routes it uses.

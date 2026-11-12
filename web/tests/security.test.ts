@@ -33,6 +33,7 @@ describe("the API's paths, which the reverse proxy sends to the API", () => {
     "/api/alerts",
     "/api/openapi.json",
     "/healthz",
+    "/metrics",
     "/mcp",
     "/help/images/board.png",
     "/docs",

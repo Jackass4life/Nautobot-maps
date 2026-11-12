@@ -42,11 +42,13 @@ export function mapTileUrl(env: Record<string, string | undefined> = process.env
   return (env.MAP_TILE_URL ?? "").trim() || DEFAULT_MAP_TILE_URL;
 }
 
-/** The API's paths (as the reverse proxy routes them), not pages: /api/docs is a page. */
+/** The API's paths, not pages (/api/docs is a page): what the reverse proxy sends to the
+ * API, and /metrics, which it doesn't serve (#674: through the web image, as the one
+ * image answered it, for Prometheus when there is no proxy). */
 export function isApiPath(path: string): boolean {
   return (
     /^\/api\/(?!docs(?:[/?#]|$))/.test(path) ||
-    /^\/(?:healthz|mcp|docs|openapi\.json)(?:[/?#]|$)/.test(path) ||
+    /^\/(?:healthz|metrics|mcp|docs|openapi\.json)(?:[/?#]|$)/.test(path) ||
     path.startsWith("/help/images/") ||
     path.startsWith("/static/")
   );

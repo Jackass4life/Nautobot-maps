@@ -152,8 +152,9 @@ Errors answer `{"error": ...}`: 404 and 405 after the sign-in check, 400 for bad
 
 ## Container (#613)
 
-The repository's `Dockerfile` (`docker compose up --build` at the root): uv-installed,
-non-root, `web/`'s pages and `docs/` (the help pages) built in. `docker-entrypoint.sh` runs
+`api/Dockerfile` (`docker compose up --build` at the root builds it as `api`, #674): uv-installed,
+non-root, `docs/` (the help pages) built in with `--build-context docs=..`; the pages are
+`web/Dockerfile`'s image. `docker-entrypoint.sh` runs
 `python -m app migrate` (`MIGRATE_ON_START=false` skips it), then gunicorn with uvicorn workers
 (`gunicorn_config.py`, `app/server.py`: no proxy headers, no server header) on
 `GUNICORN_BIND` (`0.0.0.0:5000`); healthcheck on `GET /healthz`.

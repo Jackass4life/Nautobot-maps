@@ -10,7 +10,7 @@ and CI integration testing, replacing the lightweight mock used in `demo/`.
 | PostgreSQL 15   | `postgres:15`                        | —     |
 | Redis 7         | `redis:7-alpine`                     | —     |
 | Nautobot 3.x    | `ghcr.io/nautobot/nautobot:3.0.9`    | 8080  |
-| nautobot-maps   | built from repo `Dockerfile`         | 5000  |
+| api, web        | built from `api/` and `web/`         | 5000 (web) |
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ docker compose -f development/docker-compose.yml up -d --wait
 # 2. Seed test data (locations, devices, ASNs, …)
 uv run --project api python development/seed_nautobot.py
 
-# 3. (Optional) Start nautobot-maps alongside Nautobot
+# 3. (Optional) Start nautobot-maps (api + web) alongside Nautobot
 docker compose -f development/docker-compose.yml --profile full up -d
 
 # 4. Run integration tests against the real Nautobot
