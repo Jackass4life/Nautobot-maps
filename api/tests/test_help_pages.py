@@ -114,3 +114,15 @@ def test_the_docs_go_into_the_image():
             file == entry or file.startswith(entry.rstrip("/") + "/") for entry in ignore
         ), file
     assert "docs" in copies  # its images too (/help/images/)
+
+
+def test_an_image_without_the_docs_says_so(flask_client, monkeypatch, tmp_path):
+    """An API image built without the docs context (api/Dockerfile, #672): every guide
+    is missing, and the page says how to include them, not "No such guide"."""
+    from app.services import guide_service as guide
+
+    monkeypatch.setattr(guide, "ROOT", tmp_path)
+    answer = flask_client.get("/api/v1/help/overview")
+    assert answer.status_code == 404
+    assert answer.get_json() == {"error": guide.NOT_INCLUDED}
+    assert "--build-context docs=.." in guide.NOT_INCLUDED

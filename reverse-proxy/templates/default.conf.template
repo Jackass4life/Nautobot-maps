@@ -1,7 +1,14 @@
 # nginx in front of Nautobot Maps (#423): HTTPS, and company sign-in through
 # oauth2-proxy.  ${PUBLIC_HOSTNAME}, ${AUTH_PROXY_SECRET}, ${OIDC_ISSUER_URL} and
 # ${OIDC_LOGOUT_URL} are filled in when the container starts; everything else
-# with a $ is nginx's own.
+# with a $ is nginx's own.  Where requests go (#672): ${API_UPSTREAM} (the API),
+# ${WEB_UPSTREAM} (the pages; the same app when one image serves both) and
+# ${OAUTH2_PROXY_UPSTREAM}, looked up through ${RESOLVER} as requests come in, so nginx
+# starts before them.  The reverse-proxy image (Dockerfile) fills those in at build
+# time; reverse-proxy/compose.yml at start, with the rest.
+
+# Docker's own DNS; a name is looked up again after 30 s (a restarted container).
+resolver ${RESOLVER} valid=30s;
 
 # An API token (LibreNMS, Alertmanager, scripts, MCP) skips the login: the app
 # checks it.  Matched on the header, so no path is open without one.
@@ -28,12 +35,13 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${PUBLIC_HOSTNAME};
+    set $api_upstream "${API_UPSTREAM}";
     set $auth_user "";
     set $auth_email "";
     set $auth_groups "";
     # Probes may use plain HTTP; everything else goes to HTTPS.
     location = /healthz {
-        include /etc/nginx/conf.d/proxy-to-app.inc;
+        include /etc/nginx/conf.d/proxy-to-api.inc;
     }
     location / {
         return 301 https://${PUBLIC_HOSTNAME}$request_uri;
@@ -61,6 +69,10 @@ server {
     # The app compresses its answers (COMPRESS_RESPONSES); passed through as they are.
     gzip off;
 
+    set $api_upstream "${API_UPSTREAM}";
+    set $web_upstream "${WEB_UPSTREAM}";
+    set $oauth2_upstream "${OAUTH2_PROXY_UPSTREAM}";
+
     # Nobody signed in until oauth2-proxy says so.
     set $auth_user "";
     set $auth_email "";
@@ -69,7 +81,7 @@ server {
 
     # oauth2-proxy: the login pages and the callback.
     location /oauth2/ {
-        proxy_pass http://oauth2-proxy:4180;
+        proxy_pass $oauth2_upstream;
         proxy_buffer_size 32k;
         proxy_buffers 4 32k;
         proxy_set_header Host $host;
@@ -82,7 +94,7 @@ server {
     # browser to "/" (not back here, as $request_uri would); nginx turns that
     # into the identity provider's logout when there is one.
     location = /oauth2/sign_out {
-        proxy_pass http://oauth2-proxy:4180;
+        proxy_pass $oauth2_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
@@ -96,7 +108,7 @@ server {
         if ($api_token) {
             return 202;
         }
-        proxy_pass http://oauth2-proxy:4180;
+        proxy_pass $oauth2_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Uri $request_uri;
@@ -119,7 +131,7 @@ server {
         if ($api_token) {
             return 202;
         }
-        proxy_pass http://oauth2-proxy:4180/oauth2/auth;
+        proxy_pass $oauth2_upstream/oauth2/auth;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Uri $request_uri;
@@ -136,7 +148,7 @@ server {
 
     # No login (the app checks access itself), and no identity passed on.
     location = /healthz {
-        include /etc/nginx/conf.d/proxy-to-app.inc;
+        include /etc/nginx/conf.d/proxy-to-api.inc;
     }
     # After Sign out without OIDC_LOGOUT_URL (#546): no login here, or the
     # identity provider would sign the user straight back in.  Fixed text,
@@ -153,34 +165,37 @@ server {
     # token is checked by the app (#291).  Its files: the Nuxt build's
     # /_nuxt/ (#463), the app's code only, no data.
     location /status/ {
-        include /etc/nginx/conf.d/proxy-to-app.inc;
+        include /etc/nginx/conf.d/proxy-to-web.inc;
     }
-    # Its data: a status token, or staff signed in (#527), never the login.
-    location /api/v1/status/ {
+    # Its data: a status token, or staff signed in (#527), never the login.  ^~:
+    # before the API's regex location below, which would ask for the login.
+    location ^~ /api/v1/status/ {
         auth_request /oauth2/auth-optional;
         auth_request_set $auth_user $upstream_http_x_auth_request_preferred_username;
         auth_request_set $auth_email $upstream_http_x_auth_request_email;
         auth_request_set $auth_groups $upstream_http_x_auth_request_groups;
-        include /etc/nginx/conf.d/proxy-to-app.inc;
+        include /etc/nginx/conf.d/proxy-to-api.inc;
     }
     # Its old path (#613): the app answers 308 to /api/v1/status/, never the login.
-    location /api/status/ {
+    location ^~ /api/status/ {
         auth_request /oauth2/auth-optional;
         auth_request_set $auth_user $upstream_http_x_auth_request_preferred_username;
         auth_request_set $auth_email $upstream_http_x_auth_request_email;
         auth_request_set $auth_groups $upstream_http_x_auth_request_groups;
-        include /etc/nginx/conf.d/proxy-to-app.inc;
+        include /etc/nginx/conf.d/proxy-to-api.inc;
     }
     location /_nuxt/ {
-        include /etc/nginx/conf.d/proxy-to-app.inc;
+        include /etc/nginx/conf.d/proxy-to-web.inc;
     }
     # Prometheus scrapes the app directly, inside the network.
     location = /metrics {
         return 404;
     }
 
-    # Everything else: signed in, or an API token.
-    location / {
+    # Everything else: signed in, or an API token.  The API's paths (#672): /api/
+    # (but /api/docs, a page), /mcp, the help pages' images and the old /docs,
+    # /openapi.json and /static/ (redirects); the rest are pages.
+    location ~ ^/(api/(?!docs(/|$))|mcp(/|$)|help/images/|docs(/|$)|openapi\.json$|static/) {
         auth_request /oauth2/auth;
         auth_request_set $auth_user $upstream_http_x_auth_request_preferred_username;
         auth_request_set $auth_email $upstream_http_x_auth_request_email;
@@ -191,6 +206,17 @@ server {
         # A location's add_header replaces the server's: HSTS again.
         add_header Strict-Transport-Security "max-age=31536000" always;
         error_page 401 = @login;
-        include /etc/nginx/conf.d/proxy-to-app.inc;
+        include /etc/nginx/conf.d/proxy-to-api.inc;
+    }
+    location / {
+        auth_request /oauth2/auth;
+        auth_request_set $auth_user $upstream_http_x_auth_request_preferred_username;
+        auth_request_set $auth_email $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_cookie $upstream_http_set_cookie;
+        add_header Set-Cookie $auth_cookie;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        error_page 401 = @login;
+        include /etc/nginx/conf.d/proxy-to-web.inc;
     }
 }

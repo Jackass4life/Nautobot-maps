@@ -4,7 +4,13 @@ export default defineNuxtConfig({
   compatibilityDate: "2026-10-01",
   // Flat layout (pages/, components/, plugins/, types/ at the project root).
   srcDir: ".",
-  modules: ["@nuxt/ui", "@nuxt/eslint", "./modules/static-ui-colors", "shadcn-nuxt"],
+  modules: [
+    "@nuxt/ui",
+    "@nuxt/eslint",
+    "./modules/static-ui-colors",
+    "./modules/csp-shell",
+    "shadcn-nuxt",
+  ],
   // shadcn-vue's components (#640), next to Nuxt UI's <U…>: <STable>, <SSonner>.
   // Nuxt UI first; components/ui/ holds what `bun run add:component` added.
   shadcn: { prefix: "S", componentDir: "./components/ui" },
@@ -65,6 +71,10 @@ export default defineNuxtConfig({
   typescript: {
     tsConfig: { exclude: ["../tests/**", "../vitest.config.ts", "../eslint.config.mjs"] },
   },
+  // The web image's server (`bun run build`, #672): the single page's shell, rendered at
+  // build time without inline scripts (modules/csp-shell.ts); server/ answers every
+  // page route with it.
+  nitro: { prerender: { routes: ["/200.html"] } },
   devtools: { enabled: false },
   telemetry: false,
 });

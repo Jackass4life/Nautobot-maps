@@ -20,6 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
   nginx now stops with a message naming `reverse-proxy/certs/` when `fullchain.pem` or `privkey.pem` is missing there, instead of only "cannot load certificate". Without the bundled proxy, nothing changes (Documentation → *Operations*, *The bundled proxy moved*)
 
+### Added
+- **The API, the pages and the proxy can be built separately** (#672): `api/Dockerfile`, `web/Dockerfile` (the pages on Nuxt's server, port 3000) and `reverse-proxy/Dockerfile` (nginx with sign-in, `--build-arg DOMAIN=…`), each built from its own folder, for running them as separate containers. The API image can trust company CA certificates (`--build-context certs=../certs`) and include the help pages (`--build-context docs=..`). `docker-compose.yml` and the released image are unchanged for now (Documentation → *Operations*, *Building the API, the pages and the proxy separately*)
+
 ### Fixed
 - **The map's alarm list no longer runs over the filters** (#647): with many sites in alarm, or after **Show all**, the rows drew on top of the Filters footer at the bottom of the left panel. They now scroll in their own box, with the heading, the counts and **Show all/fewer** kept in place. On a phone with search results open, the list keeps at least two rows and the panel scrolls down to the filters
 

@@ -93,8 +93,13 @@ services:
       # that links its sign-in (OIDC_ISSUER_URL) to sign out there.
       - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL}
       - OIDC_LOGOUT_URL=${OIDC_LOGOUT_URL:-}
+      # Where requests go (#672): this compose's one image serves the API and the pages.
+      - API_UPSTREAM=http://nautobot-maps:5000
+      - WEB_UPSTREAM=http://nautobot-maps:5000
+      - OAUTH2_PROXY_UPSTREAM=http://oauth2-proxy:4180
+      - RESOLVER=127.0.0.11
       # Only these are filled into the templates; nginx's own $variables stay.
-      - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_ISSUER_URL|OIDC_LOGOUT_URL)$
+      - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_ISSUER_URL|OIDC_LOGOUT_URL|API_UPSTREAM|WEB_UPSTREAM|OAUTH2_PROXY_UPSTREAM|RESOLVER)$
     volumes:
       - ./reverse-proxy/templates:/etc/nginx/templates:ro
       - ./reverse-proxy/certs:/etc/nginx/certs:ro

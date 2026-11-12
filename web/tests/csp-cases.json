@@ -1,0 +1,22 @@
+{
+  "_comment": "The pages' Content-Security-Policy per MAP_TILE_URL (#672): the web image's server (web/server/utils/security.ts) and the API (api/app/frontend/security.py) must both answer these. Checked by web/tests/security.test.ts and api/tests/test_csp_cases.py.",
+  "cases": [
+    {
+      "map_tile_url": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    },
+    {
+      "map_tile_url": "/tiles/{z}/{x}/{y}.png",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    },
+    {
+      "map_tile_url": "HTTP://Tiles.Example.com:8080/{z}/{x}/{y}.png?key=a",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http://Tiles.Example.com:8080; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    }
+  ],
+  "headers": {
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "strict-origin-when-cross-origin"
+  }
+}

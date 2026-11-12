@@ -27,3 +27,6 @@ node_modules/
 # web/'s build (#463, #609); web/.gitignore has the rest.
 web/.nuxt/
 web/.output/
+
+# Company CA certificates for the API image (api/Dockerfile's certs context, #672).
+/certs/

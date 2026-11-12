@@ -61,6 +61,9 @@ def api_help(slug: str):
     """One documentation page (#433): its title and HTML, and the list of guides."""
     found = guide.page(slug)
     if found is None:
+        if not guide.contents():
+            # An API image built without the docs context (#672).
+            return deps.Json({"error": guide.NOT_INCLUDED}, status_code=404)
         return deps.Json({"error": "No such guide"}, status_code=404)
     return deps.Json({**found, "contents": guide.contents()})
 
