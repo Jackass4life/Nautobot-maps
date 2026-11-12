@@ -473,6 +473,16 @@ jobs:
           (cd reverse-proxy && docker build -t nocwatch-reverse-proxy -t nautobot-maps-reverse-proxy:ci \
             --build-arg DOMAIN=localhost --build-arg API_PORT=4200 .)
 
+      - name: The proxy builds on a host without IPv6 (#680)
+        # nginx -t in the build opens the listening sockets; without IPv6 the [::]
+        # ones must go first. IF_INET6=/dev/null (empty) is the script's own test hook:
+        # the runners have IPv6, a kernel without it can't be had here.
+        run: |
+          (cd reverse-proxy && docker build --no-cache --progress=plain --target check \
+            --build-arg DOMAIN=localhost --build-arg IF_INET6=/dev/null . 2>&1 | tee /tmp/no-ipv6.log)
+          grep -q "no IPv6 on this host: listening on IPv4 only" /tmp/no-ipv6.log
+          grep -q "test is successful" /tmp/no-ipv6.log
+
       - name: Scan the API and web images (Trivy)
         run: |
           for image in nautobot-maps-api:ci nautobot-maps-web:ci; do
