@@ -90,15 +90,15 @@ location / {
 
 ### The bundled proxy: HTTPS and company sign-in
 
-Instead of setting up a proxy yourself, use the one in `deploy/proxy/`: **nginx** for HTTPS and **oauth2-proxy** for the login with any OIDC provider (Entra ID, Keycloak, Okta, Google).
+Instead of setting up a proxy yourself, use the one in `reverse-proxy/`: **nginx** for HTTPS and **oauth2-proxy** for the login with any OIDC provider (Entra ID, Keycloak, Okta, Google).
 
 1. **Register the app** with your identity provider. The redirect URL is `https://<your host>/oauth2/callback`, and the ID token must carry the user's groups (examples below).
-2. **Certificates:** put `fullchain.pem` and `privkey.pem` in `deploy/proxy/certs/` (never committed; from your CA: [your own certificate](#your-own-certificate)). To try it out, a self-signed one:
+2. **Certificates:** put `fullchain.pem` and `privkey.pem` in `reverse-proxy/certs/` (never committed; from your CA: [your own certificate](#your-own-certificate)). To try it out, a self-signed one:
    ```sh
    openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=maps.example.com" \
-     -keyout deploy/proxy/certs/privkey.pem -out deploy/proxy/certs/fullchain.pem
+     -keyout reverse-proxy/certs/privkey.pem -out reverse-proxy/certs/fullchain.pem
    ```
-3. **Settings** in `.env` (see `.env.example`, "HTTPS and sign-in"): `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml`, `PUBLIC_HOSTNAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `AUTH_PROXY_SECRET` and `OAUTH2_COOKIE_SECRET`, plus `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` with your provider's group names or IDs.
+3. **Settings** in `.env` (see `.env.example`, "HTTPS and sign-in"): `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml`, `PUBLIC_HOSTNAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `AUTH_PROXY_SECRET` and `OAUTH2_COOKIE_SECRET`, plus `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` with your provider's group names or IDs.
 4. `docker compose up -d`, then open `https://<your host>`.
 
 #### What it does
@@ -159,20 +159,20 @@ Don't turn the certificate check off instead (`OAUTH2_PROXY_SSL_INSECURE_SKIP_VE
 
 #### Your own certificate
 
-The self-signed certificate from step 2 is for trying it out. With one from your CA, replace the two files in `deploy/proxy/certs/`:
+The self-signed certificate from step 2 is for trying it out. With one from your CA, replace the two files in `reverse-proxy/certs/`:
 
-- `fullchain.pem`: the server certificate **first**, then the intermediate certificate(s), all PEM (`-----BEGIN CERTIFICATE-----`). From separate files: `cat server.crt intermediate.crt > deploy/proxy/certs/fullchain.pem`. A DER file (no `BEGIN` line) first: `openssl x509 -inform der -in server.cer -out server.crt`.
+- `fullchain.pem`: the server certificate **first**, then the intermediate certificate(s), all PEM (`-----BEGIN CERTIFICATE-----`). From separate files: `cat server.crt intermediate.crt > reverse-proxy/certs/fullchain.pem`. A DER file (no `BEGIN` line) first: `openssl x509 -inform der -in server.cer -out server.crt`.
 - `privkey.pem`: the private key, PEM, without a passphrase. `chmod 600` it.
-- From a `.pfx` / `.p12`: `openssl pkcs12 -in cert.pfx -nokeys -out deploy/proxy/certs/fullchain.pem` and `openssl pkcs12 -in cert.pfx -nocerts -nodes -out deploy/proxy/certs/privkey.pem` (add `-legacy` if OpenSSL 3 says "unsupported"); check the server certificate comes first.
+- From a `.pfx` / `.p12`: `openssl pkcs12 -in cert.pfx -nokeys -out reverse-proxy/certs/fullchain.pem` and `openssl pkcs12 -in cert.pfx -nocerts -nodes -out reverse-proxy/certs/privkey.pem` (add `-legacy` if OpenSSL 3 says "unsupported"); check the server certificate comes first.
 
 Check before restarting:
 
 ```sh
 # the key belongs to the certificate: the two lines are the same
-openssl x509 -noout -pubkey -in deploy/proxy/certs/fullchain.pem | sha256sum
-openssl pkey -pubout -in deploy/proxy/certs/privkey.pem | sha256sum
+openssl x509 -noout -pubkey -in reverse-proxy/certs/fullchain.pem | sha256sum
+openssl pkey -pubout -in reverse-proxy/certs/privkey.pem | sha256sum
 # the name is PUBLIC_HOSTNAME, and the dates
-openssl x509 -noout -subject -ext subjectAltName -dates -in deploy/proxy/certs/fullchain.pem
+openssl x509 -noout -subject -ext subjectAltName -dates -in reverse-proxy/certs/fullchain.pem
 ```
 
 Then `docker compose exec nginx nginx -t` and `docker compose restart nginx`: nginx reads the certificate only when it starts. `openssl s_client -connect <host>:443 -servername <host> </dev/null` should end in `Verify return code: 0 (ok)`; a browser that is happy while this complains means an intermediate is missing from `fullchain.pem`. Renewing is the same: replace the files and restart nginx.

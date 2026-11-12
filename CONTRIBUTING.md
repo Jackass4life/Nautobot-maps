@@ -134,7 +134,7 @@ the details.
   - `app/utils/`: small helpers, e.g. `timeutil.py` (tests freeze time with
     `monkeypatch.setattr(timeutil, "iso_utc_now", ...)`).
 - `web/`: the pages (Nuxt), below.
-- `e2e/`: Playwright tests against a running app; `demo/`: the mock Nautobot; `deploy/proxy/`:
+- `e2e/`: Playwright tests against a running app; `demo/`: the mock Nautobot; `reverse-proxy/`:
   the bundled HTTPS and sign-in proxy; `scripts/screenshots.py`: the README's pictures.
 
 Importing a module must not touch the database (connections are made when first used).
