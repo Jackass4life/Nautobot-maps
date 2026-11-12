@@ -266,7 +266,7 @@ Versions follow [Semantic Versioning](https://semver.org/) (a **Breaking** chang
 2. Merge that to `main`.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
-The `Release` workflow then builds the image, pushes `ghcr.io/jackass4life/nautobot-maps:X.Y.Z` (plus `X.Y` and `latest`) with provenance and an SBOM, and creates a GitHub Release with that changelog section. It refuses a tag without a matching changelog section. The first published image is private on GitHub; make the package public (package settings → visibility) or have deployments `docker login ghcr.io`.
+The `Release` workflow then builds the two images (#674), pushes `ghcr.io/jackass4life/nautobot-maps-api:X.Y.Z` and `ghcr.io/jackass4life/nautobot-maps-web:X.Y.Z` (plus `X.Y` and `latest`) with provenance and an SBOM, and creates a GitHub Release with that changelog section. It refuses a tag without a matching changelog section. The reverse proxy's image isn't published: its host name is built in, so each install builds it. A newly published package is private on GitHub; make it public (package settings → visibility) or have deployments `docker login ghcr.io`.
 
 ## Code of Conduct
 

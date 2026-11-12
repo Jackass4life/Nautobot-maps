@@ -6,31 +6,34 @@ For the person who keeps the app running: upgrades, backups, monitoring and the 
 
 | Task | How | More |
 |---|---|---|
-| Upgrade | Set the new version in `docker-compose.override.yml`, then `docker compose pull nautobot-maps && docker compose up -d` | [Run a released version](#run-a-released-version) |
+| Upgrade | Set the new version in `docker-compose.override.yml`, then `docker compose pull api web && docker compose up -d` | [Run a released version](#run-a-released-version) |
 | Roll back | Set the previous version, restore the backup taken before the upgrade | [Backup and restore](#backup-and-restore) |
 | Back up | The database, plus `.env` and the `config/` folder | [Backup and restore](#backup-and-restore) |
 | Change a port or volume | `docker-compose.override.yml`, never `docker-compose.yml` | [Local overrides](#local-overrides-ports-volumes-) |
 | Watch it | `/healthz` for probes, `/metrics` for Prometheus | [Monitoring](#monitoring) |
 | Fix sites missing from the map | The map's **Check** list | [Missing or wrong coordinates](#sites-with-missing-or-wrong-coordinates) |
-| See what happened | `docker compose logs nautobot-maps` | [What the container does](#what-the-container-does) |
+| See what happened | `docker compose logs api` | [What the container does](#what-the-container-does) |
 
 ## Run a released version
 
-`docker compose up --build` builds the image from your checkout. In production, run a published release instead, so every host runs exactly what CI built and tested, and a rollback is one line:
+`docker compose up --build` builds the images from your checkout: `api` (the API) and `web` (the pages). In production, run a published release instead, so every host runs exactly what CI built and tested, and a rollback is one line per image:
 
 ```yaml
 # docker-compose.override.yml
 services:
-  nautobot-maps:
-    image: ghcr.io/jackass4life/nautobot-maps:0.3.1   # the version to run
+  api:
+    image: ghcr.io/jackass4life/nautobot-maps-api:0.4.0   # the version to run
+    build: !reset null
+  web:
+    image: ghcr.io/jackass4life/nautobot-maps-web:0.4.0   # the same version
     build: !reset null
 ```
 
 ```bash
-docker compose pull nautobot-maps && docker compose up -d
+docker compose pull api web && docker compose up -d
 ```
 
-To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`. After upgrading Nautobot or LibreNMS, check the log for "Data contract" warnings or `GET /api/v1/contract`: they name any field that no longer looks as the app expects ([data contract](data-contract.md)).
+With the bundled proxy, its image is built on your host (its host name is built in): add `--build` to `docker compose up -d`. To roll back, set the previous version and run the same commands. Releases before 0.4.0 were one image, `ghcr.io/jackass4life/nautobot-maps`: see [one image per part](#one-image-per-part-674). The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`. After upgrading Nautobot or LibreNMS, check the log for "Data contract" warnings or `GET /api/v1/contract`: they name any field that no longer looks as the app expects ([data contract](data-contract.md)).
 
 ### The bundled proxy moved to `reverse-proxy/` (#667)
 
@@ -47,9 +50,32 @@ docker compose up -d
 
 Without the certificate in `reverse-proxy/certs/`, nginx doesn't start and its log says so (`docker compose logs nginx`). If `COMPOSE_FILE` still names `deploy/proxy/compose.yml`, `docker compose` stops with "no such file or directory".
 
+### One image per part (#674)
+
+From 0.4.0 the app is two images, `api` and `web` (the pages), and the bundled proxy's nginx is built on your host from `reverse-proxy/` (its host name is built in). The database, redis, `.env` and `config/` stay as they are. Once, on each host:
+
+```bash
+git pull
+# 1. docker-compose.override.yml, if you run released images: the two instead of one
+#      services:
+#        api: { image: ghcr.io/jackass4life/nautobot-maps-api:0.4.0, build: !reset null }
+#        web: { image: ghcr.io/jackass4life/nautobot-maps-web:0.4.0, build: !reset null }
+#    and any other override of `nautobot-maps` (ports, volumes) moves to `web` or `api`.
+# 2. Start: --build builds what isn't a released image (with the bundled proxy, its
+#    image); --remove-orphans removes the old nautobot-maps container.
+docker compose pull api web          # with released images
+docker compose up -d --build --remove-orphans
+```
+
+Then:
+- **Commands** run in `api`: `docker compose exec api python -m app …` (was `exec nautobot-maps`), and its log is `docker compose logs api`. Change scripts and cron jobs that name `nautobot-maps`.
+- **The address stays** `http://<host>:5000` without the proxy: `web` answers there and passes the API's paths (`/api/`, `/healthz`, `/metrics`, `/mcp`) on to `api`.
+- **Your own sign-in proxy** (`AUTH_MODE=header`, not the bundled one): send the API's paths to `api:5000` and the rest to `web:3000`, and trust only the proxy's address ([sign-in](authentication.md#trusting-only-the-proxy)). Through `web`, the API sees `web`'s address, not the proxy's, and ignores the sign-in headers.
+- **Prometheus** scraping `<host>:5000/metrics` keeps working through `web`.
+
 ## Building the API, the pages and the proxy separately (#672)
 
-Each part has its own Dockerfile, built from its own folder, for a deployment that runs them as separate containers (`docker-compose.yml` still runs the one image with both):
+Each part has its own Dockerfile, built from its own folder. `docker-compose.yml` builds `api` and `web` this way, and `reverse-proxy/compose.yml` the proxy; for a deployment that runs them some other way:
 
 ```bash
 cd api           && docker build --build-context certs=../certs --build-context docs=.. -t nautobot-maps-api .
@@ -74,7 +100,7 @@ The proxy sends `/api/` (but the `/api/docs` page), `/healthz`, `/mcp`, `/help/i
 
 ## The config folder
 
-`docker-compose.yml` mounts `./config` read-only at `/config`: the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
+`docker-compose.yml` mounts `./config` read-only at `/config`: the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate api`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
 
 ## Local overrides (ports, volumes, …)
 
@@ -83,14 +109,14 @@ Don't edit `docker-compose.yml` for machine-specific settings: `git pull` would 
 ```yaml
 # docker-compose.override.yml
 services:
-  nautobot-maps:
+  web:
     # Port 5000 is taken on this machine: publish the app on 9000 instead.
     ports: !override
-      - "127.0.0.1:9000:5000"
+      - "127.0.0.1:9000:3000"
 ```
 
 - `!override` replaces the port list instead of adding to it (Docker Compose v2.24.4 or newer).
-- Ports are `host:container`: the app inside the container keeps listening on 5000.
+- Ports are `host:container`: the pages inside their container listen on 3000 (and the API in its own on 5000, not published).
 - Check the merged result with `docker compose config`.
 
 ## What the container does
@@ -124,12 +150,12 @@ Every line says which part of the app wrote it, in brackets after the level:
 One part's lines:
 
 ```bash
-docker compose logs nautobot-maps | grep '\[sync\]'
-docker compose logs -f nautobot-maps | grep -E '\[(alerts-in|notify)\]'   # follow pushes and notifications
-docker compose logs nautobot-maps | grep '\[api\]' | grep '" 5[0-9][0-9] '   # API errors
+docker compose logs api | grep '\[sync\]'
+docker compose logs -f api | grep -E '\[(alerts-in|notify)\]'   # follow pushes and notifications
+docker compose logs api | grep '\[api\]' | grep '" 5[0-9][0-9] '   # API errors
 ```
 
-With `LOG_FORMAT=json` each line has `"part"` (and `time`, `level`, `logger`, `message`, `exception`); in Loki, for example, `{container="nautobot-maps"} | json | part="sync"`. Request lines (`api`, `web`) go to stdout, everything else to stderr. `LOG_LEVEL=DEBUG` adds detail, e.g. every request the sync makes.
+With `LOG_FORMAT=json` each line has `"part"` (and `time`, `level`, `logger`, `message`, `exception`); in Loki, for example, `{compose_service="api"} | json | part="sync"`. Request lines (`api`, `web`) go to stdout, everything else to stderr. `LOG_LEVEL=DEBUG` adds detail, e.g. every request the sync makes.
 - **Security headers** on every response: a Content-Security-Policy that only runs the app's own scripts and styles (no inline ones: an HTML injection can't restyle the page) and loads images only from the app and the `MAP_TILE_URL` host, plus `nosniff`, `X-Frame-Options: DENY` and a `strict-origin-when-cross-origin` referrer policy.
 - **Compression**: text answers over 1 KB (pages, JSON, CSS, JS, CSV) are gzipped for browsers that accept it, with `Vary: Accept-Encoding`. At 1,200 sites the board's data (about 1.3 MB) and the map's (0.8 MB) shrink to about a tenth, which matters with many boards and wall screens refreshing. Streamed exports, partial and not-modified answers, and a new API token's answer are left as they are. The access log's response size is then the compressed size. To compress in your proxy instead, set `COMPRESS_RESPONSES=false` there and, for nginx, turn it on for proxied JSON (by default nginx compresses only HTML, and nothing proxied):
   ```nginx
@@ -138,8 +164,8 @@ With `LOG_FORMAT=json` each line has `"part"` (and `time`, `level`, `logger`, `m
   gzip_types application/json application/javascript text/css text/csv image/svg+xml;
   gzip_vary on;
   ```
-- **Unprivileged user:** the image runs as `app` (uid 10001).
-- **Health check:** a Docker `HEALTHCHECK` probes `/healthz`, so `docker ps` shows `healthy`/`unhealthy`. It never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
+- **Unprivileged users:** the API runs as `app` (uid 10001), the pages as `bun`.
+- **Health check:** the API's Docker `HEALTHCHECK` probes `/healthz` (the pages' asks for the page shell), so `docker ps` shows `healthy`/`unhealthy`. It never calls Nautobot or LibreNMS, so an upstream outage doesn't mark the app unhealthy.
 - **Shared cache:** the bundled `docker-compose.yml` runs a `redis` service and sets `CACHE_TYPE=RedisCache`, so the 4 Gunicorn workers share one cache (the board, map levels, geocoding) and the MCP rate limit. Redis holds nothing that isn't rebuilt: it needs no volume or backup. With your own Redis, set `CACHE_REDIS_URL`. `CACHE_TYPE=SimpleCache` gives each worker its own cache again: it works, but each worker rebuilds and limits on its own.
 - **Migrations:** before starting the app the container runs `python -m app migrate` (see [database migrations](#database-migrations)).
 
@@ -162,9 +188,9 @@ docker compose exec -T postgres pg_dump -Fc -U nautobot_maps nautobot_maps > nau
 **Restore** (stop the app first so nothing writes meanwhile):
 
 ```bash
-docker compose stop nautobot-maps
+docker compose stop web api
 docker compose exec -T postgres pg_restore --clean --if-exists --no-owner -U nautobot_maps -d nautobot_maps < nautobot-maps-2026-09-29.dump
-docker compose start nautobot-maps
+docker compose start api web
 ```
 
 Use your `POSTGRES_USER` / `POSTGRES_DB` if you changed them.
@@ -200,7 +226,7 @@ Watch it in `/metrics`:
 The schema is versioned with Alembic: each change is applied once, before the app's workers start, so they never migrate. `python -m app schema-version` shows the database's revision and the one the release expects:
 
 ```bash
-docker compose exec nautobot-maps python -m app schema-version
+docker compose exec api python -m app schema-version
 ```
 
 Rolling back to an older release after a newer one migrated the database stops at startup (it doesn't know the newer revision): run the release the database was migrated with, or restore a backup taken before the upgrade. The release before the new stack (#613) can still start on a database this one took over, until a later release changes the schema.

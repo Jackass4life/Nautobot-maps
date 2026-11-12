@@ -13,8 +13,8 @@
 # At run time (environment, filled in at start; never in the image):
 #   AUTH_PROXY_SECRET, OIDC_ISSUER_URL, OIDC_LOGOUT_URL (may be empty)
 # The certificate: certs/fullchain.pem and certs/privkey.pem, copied in when they are
-# there at build time; a volume on /etc/nginx/certs replaces them.  An image with the
-# key in it belongs in a private registry only (docs/authentication.md).
+# there at build time (INCLUDE_CERTS=false: never); a volume on /etc/nginx/certs
+# replaces them.  An image with the key in it belongs in a private registry only.
 FROM nginx:1.28.0-alpine AS config
 ARG DOMAIN
 ARG API_HOST=api
@@ -55,6 +55,17 @@ RUN apk add --no-cache openssl >/dev/null \
     && nginx -t -c /check/nginx.conf \
     && touch /check/ok
 
+# The certificate files, when they are to be in the image.
+FROM config AS certs
+ARG INCLUDE_CERTS=true
+COPY certs/ /in/
+RUN mkdir -p /out \
+    && if [ "$INCLUDE_CERTS" = "true" ]; then \
+         for file in fullchain.pem privkey.pem; do \
+           if [ -f "/in/$file" ]; then cp "/in/$file" /out/; fi; \
+         done; \
+       fi
+
 FROM nginx:1.28.0-alpine
 COPY --from=config /templates/ /etc/nginx/templates/
 COPY --from=check /check/ok /etc/nginx/.config-checked
@@ -64,5 +75,5 @@ ENV NGINX_ENVSUBST_FILTER="^(AUTH_PROXY_SECRET|OIDC_ISSUER_URL|OIDC_LOGOUT_URL)$
 # Stops with what is missing (the certificate, a setting); IPv6 only where the host has it.
 COPY --chmod=755 entrypoint/05-certificates-present.sh entrypoint/06-settings-present.sh \
     entrypoint/30-listen-ipv6-only-if-available.sh /docker-entrypoint.d/
-COPY certs/ /etc/nginx/certs/
+COPY --from=certs /out/ /etc/nginx/certs/
 EXPOSE 80 443

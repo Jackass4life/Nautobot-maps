@@ -1,9 +1,11 @@
 name: Release
 
-# Pushing a tag vX.Y.Z publishes ghcr.io/<owner>/nautobot-maps:X.Y.Z (and
-# X.Y, latest) and a GitHub Release with that version's CHANGELOG section
-# (#195). On pull requests that touch the image or this workflow, the same
-# build runs without publishing, so a broken release is caught before tagging.
+# Pushing a tag vX.Y.Z publishes ghcr.io/<owner>/nautobot-maps-api:X.Y.Z and
+# ghcr.io/<owner>/nautobot-maps-web:X.Y.Z (and X.Y, latest; #674: one image per
+# folder) and a GitHub Release with that version's CHANGELOG section (#195). The
+# reverse proxy's image isn't published: its DOMAIN is built in, so each install
+# builds its own. On pull requests that touch the images or this workflow, the same
+# builds run without publishing, so a broken release is caught before tagging.
 
 on:
   push:
@@ -11,7 +13,10 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - Dockerfile
+      - api/Dockerfile
+      - api/.dockerignore
+      - web/Dockerfile
+      - web/.dockerignore
       - .dockerignore
       - api/pyproject.toml
       - api/uv.lock
@@ -64,26 +69,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Image name and tags
-        id: meta
+      - name: The API image's name and tags
+        id: api
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           # metadata-action lower-cases it, as registries require.
-          images: ghcr.io/${{ github.repository_owner }}/nautobot-maps
+          images: ghcr.io/${{ github.repository_owner }}/nautobot-maps-api
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=ref,event=pr
 
-      - name: Build (and push on a tag)
-        id: build
+      - name: The API image (and push on a tag)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: .
+          context: ./api
+          # The help pages' files (api/Dockerfile).
+          build-contexts: docs=.
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.api.outputs.tags }}
+          labels: ${{ steps.api.outputs.labels }}
+          provenance: true
+          sbom: true
+
+      - name: The web image's name and tags
+        id: web
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/nautobot-maps-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=pr
+
+      - name: The web image (and push on a tag)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./web
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.web.outputs.tags }}
+          labels: ${{ steps.web.outputs.labels }}
           provenance: true
           sbom: true
 

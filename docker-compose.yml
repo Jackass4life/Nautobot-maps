@@ -4,6 +4,10 @@
 # Logs:    docker compose logs -f
 # Stop:    docker compose down
 #
+# Two images (#674): `api` (api/Dockerfile) and `web`, the pages (web/Dockerfile).
+# Open http://<host>:5000: `web` answers there and passes the API's paths on to `api`.
+# The bundled HTTPS and sign-in proxy goes in front with reverse-proxy/compose.yml.
+#
 # NOTE: Do NOT use "docker compose build && docker compose start".
 # "start" only restarts previously created containers and will fail with
 # "has no container to start" on a fresh checkout.  Always use
@@ -43,15 +47,34 @@ services:
       timeout: 5s
       retries: 10
 
-  nautobot-maps:
-    build: .
+  web:
+    build: ./web
+    logging: *default-logging
+    ports:
+      - "127.0.0.1:5000:3000"
+    environment:
+      # The API's paths (/api/, /healthz, /metrics, /mcp, ...) go to the API (#674).
+      - API_URL=http://api:5000
+      # The map's tile server, as the API's: the pages' CSP allows its images.
+      - MAP_TILE_URL=${MAP_TILE_URL:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      # The help pages' files: docs/, README.md, CONTRIBUTING.md (api/Dockerfile).
+      additional_contexts:
+        docs: .
     logging: *default-logging
     # The app's own files (#517): wireless.yml, criticality rules, CA
     # certificates.  Read-only; empty and harmless when unused (config/README.md).
     volumes:
       - ./config:/config:ro
-    ports:
-      - "127.0.0.1:5000:5000"
+    # Not published: `web` passes the API's paths on (and Prometheus scrapes it
+    # inside the network, or through `web` at /metrics).
     environment:
       - NAUTOBOT_URL=${NAUTOBOT_URL}
       - NAUTOBOT_TOKEN=${NAUTOBOT_TOKEN}

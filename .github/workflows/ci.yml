@@ -329,26 +329,34 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Scan the image (Trivy)
-        # Known fixable HIGH/CRITICAL vulnerabilities in the OS packages and
-        # Python libraries of the image fail the build (#186).
+      # The images are scanned by the images job (#674): the same Dockerfiles.
+      - name: The compose files are valid on their own and with the proxy
+        env:
+          PUBLIC_HOSTNAME: maps.example.com
+          AUTH_PROXY_SECRET: x
+          OIDC_ISSUER_URL: https://idp.example.com
+          OIDC_CLIENT_ID: x
+          OIDC_CLIENT_SECRET: x
+          OAUTH2_COOKIE_SECRET: 0123456789abcdef0123456789abcdef
         run: |
-          docker build -t nautobot-maps:ci .
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 \
-            image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --no-progress nautobot-maps:ci
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f reverse-proxy/compose.yml config -q
 
       - name: Build and start the demo stack
         # --wait blocks until every container is running and healthy
-        # (the app via the image HEALTHCHECK, the mock via its compose one).
+        # (api and web via their images' HEALTHCHECK, the mock via its compose one).
         run: docker compose -f demo/docker-compose.yml up -d --build --wait --wait-timeout 180
 
-      - name: App container runs as a non-root user
+      - name: The API and the pages run as non-root users
         run: |
-          uid=$(docker compose -f demo/docker-compose.yml exec -T nautobot-maps id -u)
-          echo "uid=$uid"
-          test "$uid" != "0"
+          for service in api web; do
+            uid=$(docker compose -f demo/docker-compose.yml exec -T "$service" id -u)
+            echo "$service: uid=$uid"
+            test "$uid" != "0"
+          done
 
       - name: Health endpoint and alert board work end to end
+        # On port 5000, the web image's: it passes the API's paths on to the API.
         run: |
           python3 - <<'PY'
           import json, time, urllib.request
@@ -420,12 +428,12 @@ jobs:
         run: |
           # The tenant is known once the first Nautobot sync is done.
           for attempt in $(seq 1 60); do
-            if link=$(docker compose exec -T nautobot-maps python -m app status-link "Acme Corp" 2>/dev/null); then
+            if link=$(docker compose exec -T api python -m app status-link "Acme Corp" 2>/dev/null); then
               break
             fi
             sleep 2
           done
-          token=$(docker compose exec -T nautobot-maps python -m app token create smoke-status --role status --tenant "Acme Corp" 2>/dev/null)
+          token=$(docker compose exec -T api python -m app token create smoke-status --role status --tenant "Acme Corp" 2>/dev/null)
           echo "::add-mask::$token"
           echo "STATUS_LINK=$link" >> "$GITHUB_ENV"
           echo "STATUS_TOKEN=$token" >> "$GITHUB_ENV"
@@ -487,6 +495,11 @@ jobs:
           # The proxy needs DOMAIN, and says which settings are missing at start.
           if (cd reverse-proxy && docker build -q . 2>/tmp/no-domain.log); then exit 1; fi
           grep -q "Set --build-arg DOMAIN" /tmp/no-domain.log
+          # INCLUDE_CERTS=false (reverse-proxy/compose.yml): no key in the image, even when there.
+          (cd reverse-proxy && docker build -q -t proxy-no-certs:ci --build-arg DOMAIN=localhost \
+            --build-arg INCLUDE_CERTS=false .)
+          docker run --rm --entrypoint sh proxy-no-certs:ci -c 'test -z "$(ls -A /etc/nginx/certs)"'
+          docker run --rm --entrypoint sh nautobot-maps-reverse-proxy:ci -c 'test -s /etc/nginx/certs/privkey.pem'
           if docker run --rm nautobot-maps-reverse-proxy:ci > /tmp/no-settings.log 2>&1; then exit 1; fi
           tail -n 3 /tmp/no-settings.log
           grep -q "set AUTH_PROXY_SECRET OIDC_ISSUER_URL" /tmp/no-settings.log

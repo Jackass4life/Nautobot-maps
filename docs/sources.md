@@ -73,7 +73,7 @@ WIRELESS_SYNC_INTERVAL_SECONDS=300     # how often each one is read (at least 60
 ```bash
 sudo chgrp -R 10001 config && sudo chmod 2750 config
 chmod 640 config/wireless.yml
-docker compose up -d --force-recreate nautobot-maps
+docker compose up -d --force-recreate api
 ```
 
 A file the app can't read stops it at startup, saying what to run ([config/README.md](../config/README.md)). After editing the file, run the last command again. Without Docker, `WIRELESS_CONTROLLERS_FILE` is just the file's path.
@@ -100,7 +100,7 @@ Up to four instances are read at once. The board is rebuilt only when an access 
 **Check the setup:**
 
 ```sh
-docker compose exec nautobot-maps python -m app wireless-check
+docker compose exec api python -m app wireless-check
 ```
 
 ```
@@ -129,7 +129,7 @@ How a device is matched and counted:
 Both endpoints need an **operator** [API token](authentication.md#api-tokens) and the database:
 
 ```sh
-docker compose exec nautobot-maps python -m app token create alertmanager --role operator
+docker compose exec api python -m app token create alertmanager --role operator
 ```
 
 Each answer says what happened:

@@ -1,32 +1,8 @@
-# Only what the image's Dockerfile copies (#613): api/, web/, docs/, README.md,
-# CONTRIBUTING.md. Everything else stays out.
-.git
-.github
-.env
-.env.example
-**/.venv/
-**/__pycache__/
-**/*.pyc
-**/.pytest_cache/
-**/node_modules
-api/tests/
-api/.env
-web/.nuxt
-web/.output
-web/.data
-
-# The proxy setup and its certificates never go into the app image (#423), nor the
-# app's own files: they hold passwords and client secrets, and are mounted at
-# /config when the container runs (#517). deploy/: the proxy's folder before #667,
-# where an install that hasn't moved them yet still has its certificates.
-reverse-proxy/
-deploy/
-config/
-certs/
-
-# Development and test files.
-development/
-demo/
-agents/
-e2e/
-scripts/
+# The repository root is only ever a build context for the help pages' files
+# (#674): `--build-context docs=..` for the API image (api/Dockerfile), which takes
+# docs/, README.md and CONTRIBUTING.md. Everything else stays out: the images are
+# built from api/, web/ and reverse-proxy/, each with its own .dockerignore.
+*
+!docs/
+!README.md
+!CONTRIBUTING.md

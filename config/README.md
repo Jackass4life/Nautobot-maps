@@ -33,4 +33,4 @@ at startup (the app then uses `CRITICAL_ROLE_KEYWORDS`, or its TLS
 connections fail). Without Docker (`python run.py`) the app runs as you:
 nothing to do.
 
-After changing a file, restart the app: `docker compose up -d --force-recreate nautobot-maps`.
+After changing a file, restart the app: `docker compose up -d --force-recreate api`.

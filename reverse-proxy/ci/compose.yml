@@ -10,19 +10,18 @@ services:
       - ./reverse-proxy/ci/stub_oauth2_proxy.py:/stub_oauth2_proxy.py:ro
 
   mock-nautobot:
-    build: .
-    # The image starts the app; the mock is its own program (FastAPI, in the image).
-    entrypoint: ["python", "/app/demo/mock_nautobot.py"]
-    # demo/ is not in the image (.dockerignore), as in demo/docker-compose.yml.
+    # The API image has FastAPI; the mock is its own program (demo/, not in the image).
+    build: ./api
+    entrypoint: ["python", "/mock/mock_nautobot.py"]
     volumes:
-      - ./demo/mock_nautobot.py:/app/demo/mock_nautobot.py:ro
+      - ./demo/mock_nautobot.py:/mock/mock_nautobot.py:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/')"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  nautobot-maps:
+  api:
     depends_on:
       mock-nautobot:
         condition: service_healthy

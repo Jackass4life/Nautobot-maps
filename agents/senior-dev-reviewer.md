@@ -26,7 +26,7 @@ Your sole responsibility on this repository is to **review every code change** a
 | **Testing** | New features accompanied by unit **and** integration tests; mocks limited to the network boundary |
 | **Documentation** | Public functions have docstrings; README / CHANGELOG updated when behaviour changes |
 | **Dependencies** | No new dependencies without a security scan and justification; pinned versions in `api/uv.lock` (`uv add`) |
-| **Docker / Ops** | `Dockerfile` follows multi-stage best practices; secrets not hard-coded; `.env.example` kept in sync |
+| **Docker / Ops** | `api/`, `web/` and `reverse-proxy/Dockerfile` follow multi-stage best practices; secrets not hard-coded; `.env.example` kept in sync |
 
 ---
 
@@ -59,7 +59,7 @@ web/tests/                  # Vitest – the pages' logic
 e2e/test_e2e.py             # Playwright in Chromium, light and dark
 api/uv.lock                 # Dependency versions and security (hashed lock file)
 web/bun.lock                # The pages' dependencies, pinned
-Dockerfile                  # Image size, layer caching, non-root user
+*/Dockerfile                # api/, web/, reverse-proxy/: image size, layer caching, non-root user
 docker-compose.yml          # Port exposure, env var handling, healthchecks
 .env.example                # Completeness – every variable documented
 ```
@@ -81,8 +81,10 @@ uv run --project api ruff check .   # e2e, demo, scripts
 # Full test suite
 (cd api && uv run pytest -q)
 
-# Docker build
-docker build -t nautobot-maps:review .
+# Docker builds (one image per folder, #674)
+(cd api && docker build -t nautobot-maps-api:review .)
+(cd web && docker build -t nautobot-maps-web:review .)
+(cd reverse-proxy && docker build -t nautobot-maps-reverse-proxy:review --build-arg DOMAIN=localhost .)
 ```
 
 ---

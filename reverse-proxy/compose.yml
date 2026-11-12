@@ -1,9 +1,12 @@
 # reverse-proxy/compose.yml - HTTPS and company sign-in in front of the app (#423).
 #
 # nginx ends TLS and asks oauth2-proxy whether each request is signed in
-# (OIDC: Entra ID, Keycloak, Okta, Google, ...); the app gets the user and
+# (OIDC: Entra ID, Keycloak, Okta, Google, ...); the API gets the user and
 # groups as headers (AUTH_MODE=header).  API tokens and the tenant status
-# page skip the login: the app checks those itself.
+# page skip the login: the API checks those itself.  nginx is the reverse-proxy
+# image (reverse-proxy/Dockerfile, #674), built here with PUBLIC_HOSTNAME: it sends
+# the API's paths to `api` and the pages to `web`.  After changing PUBLIC_HOSTNAME,
+# `docker compose up -d --build`.
 #
 # Use it on top of docker-compose.yml, e.g. in .env:
 #   COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml
@@ -11,9 +14,14 @@
 # Paths here are relative to the project directory (where docker-compose.yml is).
 
 services:
-  nautobot-maps:
-    # Only nginx talks to the app.
+  # Only nginx talks to the pages and the API.
+  web:
     ports: !reset []
+    networks:
+      - default
+      - edge
+
+  api:
     environment:
       - AUTH_MODE=header
       # Paths that skip the login (status page, API tokens) still need a token.
@@ -78,7 +86,13 @@ services:
       - edge
 
   nginx:
-    image: nginx:1.28.0-alpine
+    build:
+      context: ./reverse-proxy
+      args:
+        DOMAIN: ${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
+        # The certificate is mounted (below), never built into the image.
+        INCLUDE_CERTS: "false"
+        # The defaults: api:5000, web:3000, oauth2-proxy:4180, Docker's DNS.
     restart: unless-stopped
     logging:
       driver: json-file
@@ -87,32 +101,21 @@ services:
       - "${PROXY_HTTP_PORT:-80}:80"
       - "${PROXY_HTTPS_PORT:-443}:443"
     environment:
-      - PUBLIC_HOSTNAME=${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
       - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:?set AUTH_PROXY_SECRET}
       # After Sign out: the identity provider's logout (#546), else a page
       # that links its sign-in (OIDC_ISSUER_URL) to sign out there.
       - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL}
       - OIDC_LOGOUT_URL=${OIDC_LOGOUT_URL:-}
-      # Where requests go (#672): this compose's one image serves the API and the pages.
-      - API_UPSTREAM=http://nautobot-maps:5000
-      - WEB_UPSTREAM=http://nautobot-maps:5000
-      - OAUTH2_PROXY_UPSTREAM=http://oauth2-proxy:4180
-      - RESOLVER=127.0.0.11
-      # Only these are filled into the templates; nginx's own $variables stay.
-      - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_ISSUER_URL|OIDC_LOGOUT_URL|API_UPSTREAM|WEB_UPSTREAM|OAUTH2_PROXY_UPSTREAM|RESOLVER)$
     volumes:
-      - ./reverse-proxy/templates:/etc/nginx/templates:ro
+      # The certificate, mounted: a new one needs only a restart, not a build.
       - ./reverse-proxy/certs:/etc/nginx/certs:ro
-      # Stops with a clear message when the certificate is missing (#667).
-      - ./reverse-proxy/entrypoint/05-certificates-present.sh:/docker-entrypoint.d/05-certificates-present.sh:ro
-      # Listens on IPv6 only where the host has it (#527).
-      - ./reverse-proxy/entrypoint/30-listen-ipv6-only-if-available.sh:/docker-entrypoint.d/30-listen-ipv6-only-if-available.sh:ro
     depends_on:
-      - nautobot-maps
+      - api
+      - web
       - oauth2-proxy
     networks:
       edge:
-        # The one address the app trusts identity headers from.
+        # The one address the API trusts identity headers from.
         ipv4_address: ${PROXY_IP:-172.30.0.10}
 
 networks:

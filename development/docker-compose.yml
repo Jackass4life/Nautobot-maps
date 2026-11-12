@@ -81,12 +81,24 @@ services:
       start_period: 120s
 
   # -- nautobot-maps (optional – handy for local dev) --------------------
-  nautobot-maps:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+  # The pages on port 5000; the API's paths go on to `api` (#674).
+  web:
+    build: ../web
     ports:
-      - "5000:5000"
+      - "5000:3000"
+    environment:
+      API_URL: http://api:5000
+    depends_on:
+      api:
+        condition: service_healthy
+    profiles:
+      - full
+
+  api:
+    build:
+      context: ../api
+      additional_contexts:
+        docs: ..
     environment:
       NAUTOBOT_URL: http://nautobot:8080
       NAUTOBOT_TOKEN: aaaa-bbbb-cccc-dddd-eeee

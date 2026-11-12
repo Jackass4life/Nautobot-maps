@@ -12,17 +12,14 @@ services:
       retries: 20
 
   mock-nautobot:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    # The image starts the app; the mock is its own program (FastAPI, in the image).
-    entrypoint: ["python", "/app/demo/mock_nautobot.py"]
+    # The API image has FastAPI; the mock is its own program (demo/, not in the image).
+    build: ../api
+    entrypoint: ["python", "/mock/mock_nautobot.py"]
     environment:
       # MOCK_SCALE=1200 adds 1,200 generated sites (demo/README.md).
       MOCK_SCALE: ${MOCK_SCALE:-0}
     volumes:
-      # demo/ is excluded from the image by .dockerignore; mount the mock in.
-      - ./mock_nautobot.py:/app/demo/mock_nautobot.py:ro
+      - ./mock_nautobot.py:/mock/mock_nautobot.py:ro
     ports:
       - "8080:8080"
     healthcheck:
@@ -31,12 +28,22 @@ services:
       timeout: 5s
       retries: 10
 
-  nautobot-maps:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+  # The pages (#674), on port 5000 as before; the API's paths go on to `api`.
+  web:
+    build: ../web
     ports:
-      - "5000:5000"
+      - "5000:3000"
+    environment:
+      API_URL: http://api:5000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ../api
+      additional_contexts:
+        docs: ..
     environment:
       NAUTOBOT_URL: http://mock-nautobot:8080
       NAUTOBOT_TOKEN: demo-token
