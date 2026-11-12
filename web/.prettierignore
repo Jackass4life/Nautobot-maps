@@ -1,0 +1,9 @@
+# Generated (#635): the API spec and its types come from api/ (bun run api:generate).
+api/api.schema.ts
+api/openapi.json
+# Build output, dependencies, the lock file.
+.output/
+.nuxt/
+.data/
+node_modules/
+bun.lock
