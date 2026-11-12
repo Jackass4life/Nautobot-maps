@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-12
+
 ### Breaking
 - **The app is two images: `api` and `web`** (#674). `docker-compose.yml` runs `api` (the API, from `api/`) and `web` (the pages, from `web/`) instead of `nautobot-maps`, and releases publish `ghcr.io/jackass4life/nautobot-maps-api` and `ghcr.io/jackass4life/nautobot-maps-web` instead of `ghcr.io/jackass4life/nautobot-maps`. The bundled proxy's nginx is now an image built on your host from `reverse-proxy/` (its host name is built in). The address stays `http://<host>:5000` (`web`, which passes the API's paths on), and the database, `.env` and `config/` stay as they are. Once, on each host:
 
