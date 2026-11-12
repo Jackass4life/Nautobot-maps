@@ -1,11 +1,14 @@
 """Flapping (#286): a device going up and down is one incident with a label."""
 
+import asyncio
+
 import pytest
 
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
+from tests import db as adb
 from tests import test_alert_delay
 from tests.test_alert_delay import LONG_AGO, build, rows, set_devices
 
@@ -157,7 +160,9 @@ class TestFlapping:
         for minute, status in ((0, "Offline"), (2, "Active"), (4, "Offline"), (6, "Active")):
             at(clock, minute, status)
         caching.cache.clear()
-        assert alerts.build_location_alert_levels()["levels"]["loc-lon"]["level"] != "ok"
+        assert (
+            asyncio.run(alerts.build_location_alert_levels())["levels"]["loc-lon"]["level"] != "ok"
+        )
 
 
 def at_same(clock, now):
@@ -247,8 +252,8 @@ class TestMapWindow:
                         "2026-10-10T11:40:00Z",
                     ),
                 )
-            assert board_store.flapping_device_ids(
-                conn, "2026-10-10T12:00:00Z", alerts.FLAP_WINDOW
+            assert adb.call(
+                board_store.flapping_device_ids, "2026-10-10T12:00:00Z", alerts.FLAP_WINDOW
             ) == {"busy"}
         finally:
             conn.close()

@@ -490,11 +490,7 @@ def controllers(pg_database, monkeypatch):
 
 
 def read_index() -> dict:
-    conn = db.get_conn()
-    try:
-        return wireless.read_index(conn)
-    finally:
-        conn.close()
+    return adb.call(wireless.read_index)
 
 
 def sync_states() -> dict:
@@ -585,16 +581,16 @@ class TestSync:
         try:
             # Read at the same moment: up wins, a stale copy never shows it down.
             conn.execute("UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00Z'")
-            assert ups(wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {
-                "FGL1": True
-            }
+            assert ups(
+                adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]
+            ) == {"FGL1": True}
             # The newest answer wins.
             conn.execute(
                 "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:30Z' WHERE controller = 'catalyst_center:dk'"
             )
-            assert ups(wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {
-                "FGL1": False
-            }
+            assert ups(
+                adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]
+            ) == {"FGL1": False}
         finally:
             conn.close()
 
@@ -633,17 +629,13 @@ class TestSync:
             ap("ap-01", True, "FGL3"),
         ]
         asyncio.run(wireless.sync_due())
-        conn = db.get_conn()
-        try:
-            index = wireless.read_index(
-                conn,
-                devices=[
-                    {"serial": "fgl2", "name": "x"},
-                    {"name": "ap-01", "role": "Access Point"},
-                ],
-            )
-        finally:
-            conn.close()
+        index = adb.call(
+            wireless.read_index,
+            devices=[
+                {"serial": "fgl2", "name": "x"},
+                {"name": "ap-01", "role": "Access Point"},
+            ],
+        )
         assert sorted(index["serial"]) == ["FGL1", "FGL2", "FGL3"], "FGL1 and FGL3 by their name"
         assert "ap-01" not in index["name"], "two APs carry it: still left out"
 
@@ -682,9 +674,9 @@ class TestSync:
             conn.execute(
                 "UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00.5Z' WHERE controller = 'catalyst_center:se'"
             )
-            assert ups(wireless.read_index(conn, now=_utc("2026-10-09T12:01:00Z"))["serial"]) == {
-                "FGL1": True
-            }
+            assert ups(
+                adb.call(wireless.read_index, now=_utc("2026-10-09T12:01:00Z"))["serial"]
+            ) == {"FGL1": True}
         finally:
             conn.close()
 
@@ -798,7 +790,9 @@ def controller_says(
                 "controller": "Catalyst Center dk",
                 "stale": stale,
             }
-    monkeypatch.setattr(wireless, "read_index", lambda conn, now=None, devices=None: index)
+    monkeypatch.setattr(
+        wireless, "read_index", adb.async_of(lambda conn, now=None, devices=None: index)
+    )
 
 
 def one_site(**statuses) -> dict[str, dict[str, str]]:
@@ -817,14 +811,14 @@ def board(pg_database, monkeypatch, clock):
     monkeypatch.setattr(
         notify,
         "enqueue_change",
-        lambda conn, site_id, before, after, *a, **k: notified.append(after),
+        adb.async_of(lambda conn, site_id, before, after, *a, **k: notified.append(after)),
     )
     return notified
 
 
 def build_board() -> dict:
     caching.cache.clear()
-    return alerts.build_alert_board_payload(snapshot_only=True)
+    return asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))
 
 
 class TestOnTheBoard:
@@ -952,7 +946,9 @@ class TestOnTheBoard:
         write_sites(one_site())
         controller_says(monkeypatch, {"cph": ["ap09"]})
         build_board()
-        monkeypatch.setattr(wireless, "read_index", lambda conn, now=None, devices=None: 1 / 0)
+        monkeypatch.setattr(
+            wireless, "read_index", adb.async_of(lambda conn, now=None, devices=None: 1 / 0)
+        )
         build_board()
         assert test_maintenance.open_alerts() == {"cph-ap09": "open"}, (
             "not resolved by a failed read"
@@ -968,7 +964,7 @@ class TestOnTheBoard:
                 r["device_id"]: r["access_point"]
                 for r in conn.execute("SELECT device_id, access_point FROM alert_instances")
             }
-            feed = board_store.read_alert_feed(conn, 50)
+            feed = adb.call(board_store.read_alert_feed, 50)
             incidents = adb.call(
                 availability.read_incidents,
                 _utc("2026-10-01T00:00:00Z"),
@@ -1028,17 +1024,19 @@ class TestOnTheBoard:
         controller_says(monkeypatch, {"cph": ["ap02"]})
         build_board()
         caching.cache.clear()
-        level = alerts.build_location_alert_levels()["levels"]["cph"]
+        level = asyncio.run(alerts.build_location_alert_levels())["levels"]["cph"]
         assert (level["level"], level["wireless_only"], level["down"], level["monitored"]) == (
             "low",
             True,
             1,
             46,
         )
-        monkeypatch.setattr(alerts, "get_location_alert_levels", lambda: {"levels": {"cph": level}})
+        monkeypatch.setattr(
+            alerts, "get_location_alert_levels", adb.async_of(lambda: {"levels": {"cph": level}})
+        )
         monkeypatch.setattr(alerts.nautobot, "fetch_all_pages", lambda *a, **k: [])
         monkeypatch.setattr(alerts, "location_circuits", lambda location_id: ([], ""))
-        detail = alerts.get_location_detail("cph")
+        detail = asyncio.run(alerts.get_location_detail("cph"))
         ap02 = next(d for d in detail["devices"] if d["name"] == "cph-ap02")
         assert (ap02["status"], ap02["not_monitored"], ap02["level"]) == ("offline", "", "low")
         assert ap02["wireless"] == {
@@ -1048,7 +1046,7 @@ class TestOnTheBoard:
             "stale": False,
         }
         # A maintenance window can pick it, as any monitored device.
-        assert "cph-ap02" in {d["id"] for d in alerts.site_monitored_devices("cph")}
+        assert "cph-ap02" in {d["id"] for d in asyncio.run(alerts.site_monitored_devices("cph"))}
 
     def test_at_scale_alarms_stay_in_front(self, board, monkeypatch):
         """120 sites: 30 with only APs down (290 APs in all), 5 with a switch down too, as on a normal day."""
@@ -1166,17 +1164,13 @@ class TestTopBarAndMetrics:
 
 class TestCheck:
     def test_each_instance_matched_and_duplicates(self, controllers, monkeypatch):
-        monkeypatch.setattr(
-            inventory,
-            "read_devices",
-            lambda: [
-                {"serial": "FGL1", "name": "x"},
-                {"serial": "", "name": "se-ap1", "role": "Access Point"},
-            ],
-        )
+        devices = [
+            {"serial": "FGL1", "name": "x"},
+            {"serial": "", "name": "se-ap1", "role": "Access Point"},
+        ]
         controllers["dk"] = [ap("dk-ap1", True, "FGL1"), ap("lab-ap", False, "FGL7")]
         controllers["se"] = [ap("se-ap1", False, "FGL7")]
-        dk, se, duplicates = wireless.check()
+        dk, se, duplicates = wireless.check(devices)
         assert (dk["access_points"], dk["down"], dk["matched"], dk["unmatched_examples"]) == (
             2,
             1,
@@ -1187,7 +1181,7 @@ class TestCheck:
         assert duplicates["duplicates"] == {"FGL7": ["Catalyst Center dk", "Catalyst Center se"]}
 
     def test_the_command(self, controllers, monkeypatch, capsys):
-        monkeypatch.setattr(inventory, "read_devices", lambda: [])
+        monkeypatch.setattr(inventory, "read_devices", adb.async_of(lambda: []))
         controllers["dk"] = [ap("dk-ap1", True, "FGL1")]
         controllers["se"] = httpx.ConnectError("refused")
         assert cli.main(["wireless-check"]) == 1
@@ -1344,7 +1338,7 @@ class TestPlugAndPlay:
         )
         monkeypatch.setattr(alerts.nautobot, "fetch_all_pages", lambda *a, **k: [])
         monkeypatch.setattr(alerts, "location_circuits", lambda location_id: ([], ""))
-        devices = {d["name"]: d for d in alerts.get_location_detail("cph")["devices"]}
+        devices = {d["name"]: d for d in asyncio.run(alerts.get_location_detail("cph"))["devices"]}
         assert "onboarding" not in devices["cph-ap01"] and devices["cph-ap01"]["wireless"], (
             "the inventory wins"
         )

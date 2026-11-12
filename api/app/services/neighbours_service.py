@@ -21,6 +21,7 @@ Ported from nautobot_maps/neighbours.py (#602): only the imports changed.
 from loguru import logger
 
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.services import wireless_service as wireless
 
@@ -33,7 +34,7 @@ def empty_index() -> dict:
     return {"serial": {}, "name": {}, "cables": {}}
 
 
-def read_index(conn, devices: list[dict] | None = None) -> dict:
+async def read_index(conn: aconnection.Connection, devices: list[dict] | None = None) -> dict:
     """Every access point's neighbour, in two queries: ``{"serial": {key:
     n}, "name": {key: n}, "cables": {device_id: n}}``, each *n* ``{"device",
     "port", "source"}`` (and ``device_id`` when Nautobot has the switch).
@@ -51,7 +52,7 @@ def read_index(conn, devices: list[dict] | None = None) -> dict:
         if devices is not None:
             sql += " AND (serial_key = ANY(%s) OR name_key = ANY(%s))"
             params += (list(serials), list(short_names))
-        rows = conn.execute(sql + " ORDER BY seen_at", params).fetchall()
+        rows = (await conn.execute(sql + " ORDER BY seen_at", params)).fetchall()
         for row in map(db.row_to_dict, rows):
             neighbour = {
                 "device": row["switch_name"],
@@ -64,8 +65,9 @@ def read_index(conn, devices: list[dict] | None = None) -> dict:
             if row["name_key"]:
                 index["name"][row["name_key"]] = neighbour
     roles = list(settings.ACCESS_POINT_ROLES)
-    rows = conn.execute(
-        """
+    rows = (
+        await conn.execute(
+            """
         SELECT c.a_device_id, c.a_port, c.b_device_id, c.b_port,
                coalesce(da.name, '') AS a_name, lower(coalesce(da.role, '')) AS a_role,
                coalesce(db.name, '') AS b_name, lower(coalesce(db.role, '')) AS b_role
@@ -76,7 +78,8 @@ def read_index(conn, devices: list[dict] | None = None) -> dict:
           AND (%s OR c.a_device_id = ANY(%s) OR c.b_device_id = ANY(%s))
         ORDER BY c.cable_id
         """,
-        (roles, roles, devices is None, ids, ids),
+            (roles, roles, devices is None, ids, ids),
+        )
     ).fetchall()
     for row in map(db.row_to_dict, rows):
         a_ap, b_ap = row["a_role"] in roles, row["b_role"] in roles
@@ -97,19 +100,17 @@ def read_index(conn, devices: list[dict] | None = None) -> dict:
     return index
 
 
-def load_index(devices: list[dict] | None = None) -> dict:
+async def load_index(devices: list[dict] | None = None) -> dict:
     """``read_index`` (of *devices* only, when given) on its own connection;
     empty without a database or on an error."""
-    conn = db.get_conn() if db.dialect() else None
-    if conn is None:
+    if not db.dialect():
         return empty_index()
     try:
-        return read_index(conn, devices)
+        async with aconnection.connect() as conn:
+            return await read_index(conn, devices)
     except Exception as exc:
         logger.warning("Could not read the access points' switches: {}", exc)
         return empty_index()
-    finally:
-        conn.close()
 
 
 def lookup(index: dict | None, device: dict) -> dict | None:

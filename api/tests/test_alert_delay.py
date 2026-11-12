@@ -1,5 +1,7 @@
 """Alert delay (#286): a device must be down this long before it alarms."""
 
+import asyncio
+
 import pytest
 
 from app.clients import caching
@@ -65,7 +67,7 @@ def set_devices(**devices):
 
 def build() -> dict:
     caching.cache.clear()
-    (row,) = alerts.build_alert_board_payload(snapshot_only=True)["alerts"]
+    (row,) = asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))["alerts"]
     return row
 
 
@@ -147,7 +149,7 @@ class TestDelay:
         def broken(conn):
             raise RuntimeError("bulk read failed")
 
-        monkeypatch.setattr(board_store, "read_alert_board_data", broken)
+        monkeypatch.setattr(board_store, "read_alert_board_data", adb.async_of(broken))
         monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 3600)
         clock["now"] = "2026-10-10T12:01:00Z"
         assert build()["down_device_count"] == 1
@@ -175,10 +177,12 @@ class TestDelay:
         finally:
             conn.close()
         caching.cache.clear()
-        alerts.build_alert_board_payload(snapshot_only=True)  # records since when solo is down
+        asyncio.run(
+            alerts.build_alert_board_payload(snapshot_only=True)
+        )  # records since when solo is down
         assert rows("SELECT device_id FROM device_states") == [{"device_id": "solo"}]
         # As on the board: OK, "0 down · 1 monitored" (#316).
-        assert alerts.build_location_alert_levels()["levels"]["loc-one"] == {
+        assert asyncio.run(alerts.build_location_alert_levels())["levels"]["loc-one"] == {
             "level": "ok",
             "reason": "",
             "down": 0,
@@ -189,10 +193,15 @@ class TestDelay:
         set_devices(core=("Offline", NOW), acc1=("Active", LONG_AGO), acc2=("Active", LONG_AGO))
         build()  # records since when the core is down
         caching.cache.clear()
-        assert alerts.build_location_alert_levels()["levels"]["loc-lon"]["level"] == "ok"
+        assert (
+            asyncio.run(alerts.build_location_alert_levels())["levels"]["loc-lon"]["level"] == "ok"
+        )
         clock["now"] = "2026-10-10T12:06:00Z"
         build()
-        assert alerts.build_location_alert_levels()["levels"]["loc-lon"]["level"] == "critical"
+        assert (
+            asyncio.run(alerts.build_location_alert_levels())["levels"]["loc-lon"]["level"]
+            == "critical"
+        )
 
 
 class TestCleanup:
@@ -231,7 +240,9 @@ class TestFirstSeenDown:
         writes = []
         real = alerts.write_device_states
         monkeypatch.setattr(
-            alerts, "write_device_states", lambda *args: writes.append(1) or real(*args)
+            alerts,
+            "write_device_states",
+            adb.async_of(lambda *args: writes.append(1) or real(*args)),
         )
         clock["now"] = "2026-10-10T12:01:00Z"
         build()

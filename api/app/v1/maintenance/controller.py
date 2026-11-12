@@ -68,16 +68,14 @@ async def api_maintenance_list(query: Annotated[dtos.MaintenanceList, Query()]):
         if site_id:
             payload = {"windows": windows, "tenant_descriptions": {}}
         else:
-            payload = await maintenance.describe(
-                conn, windows, await run_in_threadpool(_board_sites)
-            )
+            payload = await maintenance.describe(conn, windows, await _board_sites())
         return deps.Json({**payload, "truncated": truncated})
 
 
-def _board_sites() -> list[dict]:
+async def _board_sites() -> list[dict]:
     """The board's rows, for names and tenants; none when it can't be read (names stay empty)."""
     try:
-        return alerts.cached_alert_board().get("alerts") or []
+        return (await alerts.cached_alert_board()).get("alerts") or []
     except Exception as exc:
         logger.warning("Maintenance: could not read the alert board for names: {}", exc)
         return []
@@ -94,7 +92,7 @@ def maintenance_page():
     return frontend.shell()
 
 
-def _history_request(query: dtos.MaintenanceHistoryQuery) -> dict:
+async def _history_request(query: dtos.MaintenanceHistoryQuery) -> dict:
     """The history's query (#353): ``from`` and ``to`` (days, both included;
     default the last 30), ``tz`` (the browser's time zone, e.g.
     ``Europe/Copenhagen``: its days, not UTC's; default UTC), ``site_id`` and
@@ -116,7 +114,7 @@ def _history_request(query: dtos.MaintenanceHistoryQuery) -> dict:
     except availability.ReportError as exc:
         raise deps.ApiError({"error": exc.message}, 400) from None
     site_id, tenant = query.site_id or "", query.tenant or ""
-    sites = _board_sites()
+    sites = await _board_sites()
     # One list of sites for both filters, chosen before any limit; a site no
     # longer on the board still has its history, unless a tenant rules it out.
     site_ids = None
@@ -154,7 +152,7 @@ async def api_maintenance_history(query: HistoryQuery):
     days included; default the last 30 days; at most 366), optional ``tz``
     (whose days; default UTC), ``site_id`` and ``tenant``.  Names and tenants
     as ``/api/maintenance``; ``truncated`` past 5,000 windows."""
-    req = await run_in_threadpool(_history_request, query)
+    req = await _history_request(query)
     async with aconnection.connect() as conn:
         limit = maintenance.HISTORY_LIMIT
         windows = await maintenance.history(
@@ -182,7 +180,7 @@ async def api_maintenance_history_csv(query: HistoryQuery):
     """The history as CSV (#353): the same ``from``, ``to``, ``tz``, ``site_id``
     and ``tenant``; one row per window, times in UTC, streamed.  Every window,
     or a 400 past 100,000: never a silently shorter file."""
-    req = await run_in_threadpool(_history_request, query)
+    req = await _history_request(query)
     limit = maintenance.HISTORY_EXPORT_LIMIT
     async with aconnection.connect() as conn:
         too_many = await maintenance.history_exceeds(
@@ -217,7 +215,7 @@ async def api_maintenance_history_csv(query: HistoryQuery):
     name="maintenance.api_maintenance_sites",
     response_model=dtos.PlannableSites,
 )
-def api_maintenance_sites():
+async def api_maintenance_sites():
     """The sites maintenance can be planned for (#343), for the page's site
     picker: ``id``, ``name``, ``path``, ``tenants``, ``devices`` (monitored)
     and ``maintenance`` (in a window now); ``tenant_descriptions``, so the
@@ -225,7 +223,7 @@ def api_maintenance_sites():
     board; no query per site."""
     rows = [
         site
-        for site in _board_sites()
+        for site in await _board_sites()
         if site.get("id") and (site.get("device_count") or site.get("maintenance_device_count"))
     ]
     return deps.Json(
@@ -251,7 +249,7 @@ def api_maintenance_sites():
     name="maintenance.api_maintenance_devices",
     response_model=dtos.Devices,
 )
-def api_maintenance_devices(query: Annotated[dtos.MaintenanceDevices, Query()]):
+async def api_maintenance_devices(query: Annotated[dtos.MaintenanceDevices, Query()]):
     """The devices that can be put in maintenance at a site (#283).
 
     Query parameters: ``site_id`` (a row of the alert board) and
@@ -261,7 +259,7 @@ def api_maintenance_devices(query: Annotated[dtos.MaintenanceDevices, Query()]):
     """
     if not query.site_id:
         return deps.Json({"error": "site_id is required"}, status_code=400)
-    devices = alerts.site_monitored_devices(
+    devices = await alerts.site_monitored_devices(
         query.site_id, include_non_operational=common.flag(query.include_non_operational)
     )
     return deps.Json({"devices": devices})

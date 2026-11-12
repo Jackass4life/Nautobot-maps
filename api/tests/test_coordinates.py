@@ -14,6 +14,7 @@ from app.core.legacy_settings import settings
 from app.services import alerts_service as alerts
 from app.services import coordinates_service as coordinates
 from app.services import scope_service as scope
+from tests import db as adb
 from tests import http_client
 
 
@@ -228,7 +229,9 @@ class TestApi:
 
     @pytest.fixture
     def flask_client(self, monkeypatch, rows):
-        monkeypatch.setattr(alerts, "board", lambda trigger="request", **kwargs: {"alerts": rows})
+        monkeypatch.setattr(
+            alerts, "board", adb.async_of(lambda trigger="request", **kwargs: {"alerts": rows})
+        )
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
@@ -269,7 +272,9 @@ class TestApi:
         """A scrape never builds the board (#368 review): no stored board, no gauge."""
         monkeypatch.setattr(settings, "METRICS_ENABLED", True)
         monkeypatch.setattr(
-            alerts, "board", lambda *args, **kwargs: pytest.fail("a scrape built the board")
+            alerts,
+            "board",
+            adb.async_of(lambda *args, **kwargs: pytest.fail("a scrape built the board")),
         )
         monkeypatch.setattr(caching, "get", lambda key: None)
         assert "coordinate_problems" not in flask_client.get("/metrics").get_data(as_text=True)

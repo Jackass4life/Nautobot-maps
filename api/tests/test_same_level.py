@@ -26,18 +26,18 @@ def synced(pg_database, mock_nautobot_server, monkeypatch):
 
 
 def three_views():
-    board = {row["id"]: row for row in alerts.cached_alert_board()["alerts"]}
-    levels = alerts.build_location_alert_levels()["levels"]
+    board = {row["id"]: row for row in asyncio.run(alerts.cached_alert_board())["alerts"]}
+    levels = asyncio.run(alerts.build_location_alert_levels())["levels"]
     return board, levels
 
 
 def test_every_site_has_the_same_level_and_count_everywhere(synced):
     board, levels = three_views()
-    mapped = {loc["id"] for loc in inventory.get_locations(snapshot_only=True)}
+    mapped = {loc["id"] for loc in asyncio.run(inventory.get_locations(snapshot_only=True))}
     compared = 0
     for site_id in sorted(mapped & set(board)):
         row = board[site_id]
-        detail = alerts.get_location_detail(site_id, row.get("location_type"))
+        detail = asyncio.run(alerts.get_location_detail(site_id, row.get("location_type")))
         # Every row, "no data" (grey) too.
         expected = (row["alert_level"], row["down_device_count"], row["device_count"])
         marker = levels[site_id]
@@ -52,7 +52,7 @@ def test_london_is_medium_everywhere_and_the_panel_says_why_one_device_is_not_co
     board, levels = three_views()
     assert (board["loc-lon"]["alert_level"], board["loc-lon"]["device_count"]) == ("medium", 7)
     assert (levels["loc-lon"]["level"], levels["loc-lon"]["monitored"]) == ("medium", 7)
-    detail = alerts.get_location_detail("loc-lon", "Data Center")
+    detail = asyncio.run(alerts.get_location_detail("loc-lon", "Data Center"))
     assert detail["alert"]["level"] == "medium" and detail["counts"] == {"down": 2, "monitored": 7}
     not_monitored = {d["name"]: d["not_monitored"] for d in detail["devices"] if d["not_monitored"]}
     assert not_monitored == {"lon-oob-sw01": "no primary IP"}
@@ -78,7 +78,7 @@ def test_excluded_statuses_count_nowhere(synced, monkeypatch):
     monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"offline"})
     board, levels = three_views()
     assert board["loc-lon"]["alert_level"] == "ok" and levels["loc-lon"]["level"] == "ok"
-    detail = alerts.get_location_detail("loc-lon", "Data Center")
+    detail = asyncio.run(alerts.get_location_detail("loc-lon", "Data Center"))
     assert detail["alert"]["level"] == "ok" and detail["counts"] == {"down": 0, "monitored": 5}
     reasons = {d["name"]: d["not_monitored"] for d in detail["devices"] if d["not_monitored"]}
     assert reasons["lon-acc-sw01"] == "status Offline is excluded"
@@ -107,7 +107,7 @@ def test_a_mapped_location_below_a_rolled_up_site_uses_the_same_rule(synced, mon
 def _monitored_london_ids():
     return [
         d["id"]
-        for d in inventory.read_devices()
+        for d in asyncio.run(inventory.read_devices())
         if d.get("location_id") == "loc-lon" and alerts.device_has_primary_ip(d)
     ]
 
@@ -139,7 +139,7 @@ def test_every_device_in_maintenance_is_no_data_everywhere_and_says_why(synced):
         "down": 0,
         "monitored": 0,
     }
-    detail = alerts.get_location_detail("loc-lon", "Data Center")
+    detail = asyncio.run(alerts.get_location_detail("loc-lon", "Data Center"))
     assert detail["alert"]["level"] == "no_data" and detail["counts"] == {"down": 0, "monitored": 0}
     in_window = {d["name"] for d in detail["devices"] if d.get("maintenance_until")}
     assert len(in_window) == 7 and "lon-oob-sw01" not in in_window
@@ -236,7 +236,7 @@ def test_a_stack_is_one_device_everywhere(synced):
     )
     assert row["down_devices"][0]["stack"]["whole"] is True
     assert (levels["loc-par"]["down"], levels["loc-par"]["monitored"]) == (1, 2)
-    detail = alerts.get_location_detail("loc-par", row.get("location_type"))
+    detail = asyncio.run(alerts.get_location_detail("loc-par", row.get("location_type")))
     assert detail["counts"] == {"down": 1, "monitored": 2}
     by_id = {d["id"]: d for d in detail["devices"]}
     assert by_id["dev-par-stk-1"]["status"] == "Offline", "the panel's stack row is red"

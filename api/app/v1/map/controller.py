@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 
 from app.clients import caching
 from app.core.legacy_settings import settings
@@ -45,10 +46,10 @@ def nautobot_service_unavailable(context: str, exc: Exception):
     response_model=dtos.Locations,
     responses=NAUTOBOT_ERRORS,
 )
-def api_locations():
+async def api_locations():
     """Return all Nautobot locations that have GPS coordinates."""
     try:
-        locations = inventory.get_locations()
+        locations = await inventory.get_locations()
         return deps.Json({"locations": locations})
     except RuntimeError as exc:
         return nautobot_service_unavailable("Locations endpoint unavailable", exc)
@@ -66,7 +67,9 @@ def api_locations():
     response_model=dtos.LocationDetail,
     responses=NAUTOBOT_ERRORS,
 )
-def api_location_detail(location_id: str, query: Annotated[dtos.LocationDetailQuery, Query()]):
+async def api_location_detail(
+    location_id: str, query: Annotated[dtos.LocationDetailQuery, Query()]
+):
     """Return devices and ASNs for a specific location.
 
     Optional query parameter:
@@ -75,7 +78,7 @@ def api_location_detail(location_id: str, query: Annotated[dtos.LocationDetailQu
         location-type-scoped rules configured via ``CRITICALITY_RULES_FILE``.
     """
     try:
-        detail = alerts.get_location_detail(location_id, location_type=query.location_type)
+        detail = await alerts.get_location_detail(location_id, location_type=query.location_type)
         return deps.Json(detail)
     except RuntimeError as exc:
         return nautobot_service_unavailable("Location detail endpoint unavailable", exc)
@@ -92,11 +95,11 @@ def api_location_detail(location_id: str, query: Annotated[dtos.LocationDetailQu
     name="locations.api_location_alerts",
     response_model=dtos.LocationAlerts,
 )
-def api_location_alerts():
+async def api_location_alerts():
     """Alert level (critical, medium, low, ok, maintenance) of every map location with
     monitored devices, for the marker colours (#234, #311); a location missing has no data."""
     try:
-        return deps.Json(alerts.get_location_alert_levels())
+        return deps.Json(await alerts.get_location_alert_levels())
     except Exception as exc:
         logger.exception("Could not compute location alert levels: {}", exc)
         return deps.Json(INTERNAL_ERROR, status_code=500)
@@ -111,14 +114,14 @@ ScopeQuery = Annotated[dtos.Scope, Query()]
     response_model=dtos.CoordinateCheck,
 )
 @router.get("/api/v1/locations/coordinate-check.csv", name="locations.api_coordinate_check")
-def api_coordinate_check(request: Request, query: ScopeQuery):
+async def api_coordinate_check(request: Request, query: ScopeQuery):
     """The alert board's sites with missing or wrong coordinates (#368), worst
     first: impossible, at 0,0, latitude and longitude swapped, none, then far
     from the rest of their region (a hint, #416).  JSON with counts, or CSV
     (one row per site)."""
     try:
         # From the stored board (no Nautobot call); a page's ?tenant= / ?q= narrow it.
-        rows = alerts.board("request").get("alerts") or []
+        rows = (await alerts.board("request")).get("alerts") or []
         problems = coordinates.check(rows, scope.read_scope(request.query_params))
     except Exception as exc:
         logger.exception("Coordinate check failed: {}", exc)
@@ -192,7 +195,7 @@ def geocode(query: str):
         503: {"model": common.Error, "description": "The geocoder or Nautobot can't be reached"},
     },
 )
-def api_search(query: Annotated[dtos.SearchQuery, Query()]):
+async def api_search(query: Annotated[dtos.SearchQuery, Query()]):
     """
     Geocode an address or parse GPS coordinates and return all Nautobot
     locations within 5 km, sorted by distance.
@@ -222,7 +225,7 @@ def api_search(query: Annotated[dtos.SearchQuery, Query()]):
                 status_code=400,
             )
         try:
-            point = geocode(text)
+            point = await run_in_threadpool(geocode, text)
         except GeocoderBusy:
             return deps.Json(
                 {"error": "Address search is busy; try again in a second"}, status_code=429
@@ -235,7 +238,7 @@ def api_search(query: Annotated[dtos.SearchQuery, Query()]):
 
     # Find locations within 5 km
     try:
-        all_locations = inventory.get_locations()
+        all_locations = await inventory.get_locations()
     except RuntimeError as exc:
         return nautobot_service_unavailable("Location search unavailable", exc)
     except Exception as exc:

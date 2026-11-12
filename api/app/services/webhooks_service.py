@@ -251,12 +251,14 @@ def _keys(device: str) -> tuple[str, str]:
     return inventory.librenms_host_key(device), ""
 
 
-def read_index(conn) -> dict:
+async def read_index(conn: aconnection.Connection) -> dict:
     """``{"by_host": {...}, "by_ip": {...}}`` of the current alerts; per device the earliest."""
-    rows = conn.execute(
-        "SELECT source, device_key, summary, started_at FROM webhook_device_alerts "
-        "WHERE updated_at > %s ORDER BY started_at, source, alert_key",
-        (cutoff(timeutil.parse_iso_datetime(timeutil.iso_utc_now())),),
+    rows = (
+        await conn.execute(
+            "SELECT source, device_key, summary, started_at FROM webhook_device_alerts "
+            "WHERE updated_at > %s ORDER BY started_at, source, alert_key",
+            (cutoff(timeutil.parse_iso_datetime(timeutil.iso_utc_now())),),
+        )
     ).fetchall()
     index: dict = {"by_host": {}, "by_ip": {}}
     for row in map(db.row_to_dict, rows):
@@ -276,18 +278,14 @@ def read_index(conn) -> dict:
     return index
 
 
-def load_index() -> dict:
+async def load_index() -> dict:
     """The current alerts' index; empty without a database or on an error."""
-    conn = db.get_conn()
-    if conn is None:
-        return {}
     try:
-        return read_index(conn)
+        async with aconnection.connect() as conn:
+            return await read_index(conn)
     except Exception as exc:
         logger.warning("Could not read webhook device alerts: {}", type(exc).__name__)
         return {}
-    finally:
-        conn.close()
 
 
 def find(index: dict, device: dict) -> dict | None:
@@ -301,13 +299,13 @@ def find(index: dict, device: dict) -> dict | None:
     return alert
 
 
-def matched(events: list[dict]) -> int:
+async def matched(events: list[dict]) -> int:
     """How many of the firing *events* match a Nautobot device (a wrong label shows as 0)."""
     firing = [event for event in events if event["status"] == "down"]
     if not firing:
         return 0
     hosts, ips = set(), set()
-    for device in inventory.read_devices():
+    for device in await inventory.read_devices():
         hosts.add(inventory.librenms_host_key(device.get("name") or ""))
         ip = inventory.librenms_ip_key(device.get("primary_ip") or "")
         if ip:

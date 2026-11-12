@@ -334,7 +334,9 @@ async def due(conn: aconnection.Connection) -> list[dict]:
     ]
 
 
-def read_index(conn, now: datetime | None = None, devices: list[dict] | None = None) -> dict:
+async def read_index(
+    conn: aconnection.Connection, now: datetime | None = None, devices: list[dict] | None = None
+) -> dict:
     """What the configured instances say: ``{"serial": {key: ap}, "name":
     {key: ap}}``, each *ap* ``{"up", "ip", "controller", "stale"}``
     (*controller* as ``display_name``).  One query.
@@ -364,7 +366,7 @@ def read_index(conn, now: datetime | None = None, devices: list[dict] | None = N
         serials, short_names = match_keys(devices)
         sql += " AND (serial_key = ANY(%s) OR name_key = ANY(%s))"
         params += (list(serials), list(short_names))
-    rows = conn.execute(sql, params).fetchall()
+    rows = (await conn.execute(sql, params)).fetchall()
     best: dict[str, dict] = {"serial": {}, "name": {}}  # key: (rank, ap)
     carriers: dict[str, set] = {}  # name: the APs that carry it
     for row in map(db.row_to_dict, rows):
@@ -389,13 +391,15 @@ def read_index(conn, now: datetime | None = None, devices: list[dict] | None = N
         if len(aps) > 1:
             best["name"].pop(name, None)
     index = {kind: {key: ap for key, (_, ap) in keys.items()} for kind, keys in best.items()}
-    index["pnp"] = read_pnp(
+    index["pnp"] = await read_pnp(
         conn, names, stale_before, None if devices is None else match_keys(devices)[0]
     )
     return index
 
 
-def read_pnp(conn, names: dict, stale_before: float, serials: set | None = None) -> dict:
+async def read_pnp(
+    conn: aconnection.Connection, names: dict, stale_before: float, serials: set | None = None
+) -> dict:
     """The devices onboarding with Plug and Play (#534), by serial: ``{"state",
     "onb_state", "error", "controller", "stale"}``; the newest answer wins.
     *serials*: only these."""
@@ -408,7 +412,7 @@ def read_pnp(conn, names: dict, stale_before: float, serials: set | None = None)
         sql += " AND serial_key = ANY(%s)"
         params += (list(serials),)
     found: dict[str, tuple] = {}
-    for row in map(db.row_to_dict, conn.execute(sql, params).fetchall()):
+    for row in map(db.row_to_dict, (await conn.execute(sql, params)).fetchall()):
         seen = float(row["seen"])
         if row["serial_key"] in found and found[row["serial_key"]][0] >= seen:
             continue
@@ -425,22 +429,18 @@ def read_pnp(conn, names: dict, stale_before: float, serials: set | None = None)
     return {serial: pnp for serial, (_, pnp) in found.items()}
 
 
-def load_index(devices: list[dict] | None = None) -> dict:
+async def load_index(devices: list[dict] | None = None) -> dict:
     """``read_index`` (of *devices* only, when given) on its own connection,
     for one site's panel; {} when none is configured, without a database, or
     on an error."""
     if not configured():
         return {}
-    conn = db.get_conn()
-    if conn is None:
-        return {}
     try:
-        return read_index(conn, devices=devices)
+        async with aconnection.connect() as conn:
+            return await read_index(conn, devices=devices)
     except Exception as exc:
         logger.warning("Could not read the wireless controllers' access points: {}", exc)
         return {}
-    finally:
-        conn.close()
 
 
 def is_access_point(device: dict) -> bool:
@@ -614,11 +614,11 @@ def check_failure(exc: Exception) -> dict:
     return {"reachable": True, "signed_in": None, "error": str(exc)[:300]}
 
 
-def check() -> list[dict]:
+def check(devices: list[dict]) -> list[dict]:
     """For ``python -m nautobot_maps wireless-check`` and ``POST
     /api/wireless/check`` (#529): each instance read now, how many APs it
-    lists and how many match a Nautobot device."""
-    serials, names = match_keys(inventory.read_devices())
+    lists and how many match a Nautobot device (*devices*: ``inventory.read_devices()``'s)."""
+    serials, names = match_keys(devices)
     results, seen = [], {}
     for controller in configured():
         result = {

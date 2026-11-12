@@ -286,4 +286,4 @@ class TestSitePanel:
 
 def test_without_a_database_none_by_address(monkeypatch):
     monkeypatch.setattr(alerts.db, "dialect", lambda: None)
-    assert alerts.address_circuits("loc-ode", set()) == []
+    assert asyncio.run(alerts.address_circuits("loc-ode", set())) == []

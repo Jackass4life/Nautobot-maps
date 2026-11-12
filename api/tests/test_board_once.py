@@ -1,5 +1,6 @@
 """The alert board is built once and served from the stored copy (#295)."""
 
+import asyncio
 import threading
 
 import pytest
@@ -28,8 +29,8 @@ def stats() -> dict:
 
 def test_a_request_builds_once_then_serves_the_stored_board(site):
     caching.cache.clear()
-    first = alerts.board()
-    assert alerts.board() is not None and stats() == {"request": 1}
+    first = asyncio.run(alerts.board())
+    assert asyncio.run(alerts.board()) is not None and stats() == {"request": 1}
     assert caching.get(alerts.BOARD_CACHE_KEY)["checked_at"] == first["checked_at"]
     scheduler.rebuild_board()
     assert stats() == {"request": 1, "scheduler": 1}, "the scheduler always rebuilds"
@@ -40,12 +41,16 @@ def test_a_second_caller_waits_for_the_running_build(site, monkeypatch):
     builds = []
     real_build = alerts.build_alert_board_payload
     monkeypatch.setattr(
-        alerts, "build_alert_board_payload", lambda **kw: builds.append(1) or real_build(**kw)
+        alerts,
+        "build_alert_board_payload",
+        adb.async_of(lambda **kw: builds.append(1) or real_build(**kw)),
     )
     release = db.try_advisory_lock(alerts.BOARD_BUILD_LOCK)  # another worker is building
     assert callable(release)
     result = {}
-    waiter = threading.Thread(target=lambda: result.setdefault("board", alerts.board()))
+    waiter = threading.Thread(
+        target=lambda: result.setdefault("board", asyncio.run(alerts.board()))
+    )
     waiter.start()
     waiter.join(0.5)
     assert waiter.is_alive(), "it waits for the lock"
@@ -60,7 +65,7 @@ def test_after_the_wait_it_builds_anyway(site, monkeypatch):
     monkeypatch.setattr(alerts, "BOARD_BUILD_WAIT_SECONDS", 0.3)
     release = db.try_advisory_lock(alerts.BOARD_BUILD_LOCK)
     try:
-        assert alerts.board()["alerts"], "built without the lock"
+        assert asyncio.run(alerts.board())["alerts"], "built without the lock"
     finally:
         release()
 
@@ -72,7 +77,7 @@ def test_the_stored_board_outlives_the_sync_interval(site, monkeypatch):
 
 def test_metrics(site):
     caching.cache.clear()
-    alerts.board()
+    asyncio.run(alerts.board())
     text = adb.call(metrics.collect)
     assert "# TYPE nautobot_maps_board_builds_total counter" in text
     assert 'nautobot_maps_board_builds_total{trigger="request"} 1' in text
@@ -137,10 +142,12 @@ def test_the_variant_with_excluded_locations_is_built_once_too(site, monkeypatch
     calls = []
     real = alerts.build_alert_board_payload
     monkeypatch.setattr(
-        alerts, "build_alert_board_payload", lambda **kw: calls.append(kw) or real(**kw)
+        alerts,
+        "build_alert_board_payload",
+        adb.async_of(lambda **kw: calls.append(kw) or real(**kw)),
     )
-    alerts.get_alert_board_data(include_non_operational=True)
-    alerts.get_alert_board_data(include_non_operational=True)
+    asyncio.run(alerts.get_alert_board_data(include_non_operational=True))
+    asyncio.run(alerts.get_alert_board_data(include_non_operational=True))
     assert calls == [{"snapshot_only": True, "include_non_operational": True}]
     assert stats() == {"request": 1}
 
@@ -181,26 +188,33 @@ def test_a_sync_committed_before_the_board_is_dropped_is_served_at_once(site):
     """Between a sync's commit and its drop of the stored board, a request
     gets the new data, not the board stored before (#523)."""
     caching.cache.clear()
-    assert london_down(alerts.board()) == 2
+    assert london_down(asyncio.run(alerts.board())) == 2
     commit_sync("2026-10-09T12:05:00Z", core="Active", acc1="Active", acc2="Active")
-    assert london_down(alerts.board()) == 0
-    assert london_down(alerts.apply_alert_board_freshness(alerts.board())) == 0
-    assert "_snapshot" not in alerts.apply_alert_board_freshness(alerts.board())
+    assert london_down(asyncio.run(alerts.board())) == 0
+    assert (
+        london_down(asyncio.run(alerts.apply_alert_board_freshness(asyncio.run(alerts.board()))))
+        == 0
+    )
+    assert "_snapshot" not in asyncio.run(
+        alerts.apply_alert_board_freshness(asyncio.run(alerts.board()))
+    )
 
 
 def test_a_build_across_a_sync_commit_is_not_served_after_it(site, monkeypatch):
     caching.cache.clear()
     real_build = alerts.build_alert_board_payload
 
-    def build_then_commit(**kwargs):
-        payload = real_build(**kwargs)  # read before the commit
-        commit_sync("2026-10-09T12:05:00Z", core="Active", acc1="Active", acc2="Active")
+    async def build_then_commit(**kwargs):
+        payload = await real_build(**kwargs)  # read before the commit
+        await asyncio.to_thread(
+            commit_sync, "2026-10-09T12:05:00Z", core="Active", acc1="Active", acc2="Active"
+        )
         return payload
 
     monkeypatch.setattr(alerts, "build_alert_board_payload", build_then_commit)
-    assert london_down(alerts.board()) == 2
+    assert london_down(asyncio.run(alerts.board())) == 2
     monkeypatch.setattr(alerts, "build_alert_board_payload", real_build)
-    assert london_down(alerts.board()) == 0
+    assert london_down(asyncio.run(alerts.board())) == 0
 
 
 def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(pg_database, monkeypatch):
@@ -214,12 +228,14 @@ def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(pg_databas
     caching.cache.clear()
     real_build = alerts.build_alert_board_payload
 
-    def build_then_commit(**kwargs):
-        payload = real_build(**kwargs)
-        commit_sync("2026-10-09T12:05:00Z", core="Offline", acc1="Active", acc2="Active")
+    async def build_then_commit(**kwargs):
+        payload = await real_build(**kwargs)
+        await asyncio.to_thread(
+            commit_sync, "2026-10-09T12:05:00Z", core="Offline", acc1="Active", acc2="Active"
+        )
         return payload
 
     monkeypatch.setattr(alerts, "build_alert_board_payload", build_then_commit)
-    assert alerts.board()["alerts"] == []
+    assert asyncio.run(alerts.board())["alerts"] == []
     monkeypatch.setattr(alerts, "build_alert_board_payload", real_build)
-    assert london_down(alerts.board()) == 1
+    assert london_down(asyncio.run(alerts.board())) == 1

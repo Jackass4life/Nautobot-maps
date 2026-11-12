@@ -763,11 +763,11 @@ async def csv_lines(
             yield export.csv_line(row)
 
 
-def board_sites() -> list[dict]:
+async def board_sites() -> list[dict]:
     """The board's rows, for the site list and tenants.  Raises when the board
     can't be read: a report without them would miss sites and tenants.  So
     is an empty board before the first inventory sync has finished."""
-    rows = alerts.cached_alert_board().get("alerts") or []
-    if not rows and not inventory.snapshot_initialized():
+    rows = (await alerts.cached_alert_board()).get("alerts") or []
+    if not rows and not await inventory.snapshot_initialized():
         raise RuntimeError("the inventory snapshot is not ready yet")
     return rows

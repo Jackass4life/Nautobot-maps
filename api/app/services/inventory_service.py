@@ -84,7 +84,7 @@ def address_country(physical_address: str) -> str:
 
 def hierarchy_country(location_id: str, tree: dict[str, dict]) -> str:
     """The name of the nearest location of type COUNTRY_LOCATION_TYPE at or
-    above *location_id* (#386); *tree* is ``read_location_tree``'s."""
+    above *location_id* (#386); *tree* is ``location_tree``'s."""
     country_type = settings.COUNTRY_LOCATION_TYPE.strip().lower()
     return next(
         (
@@ -114,7 +114,7 @@ def normalize_locations(
     existing_location_name_map: dict | None = None,
     existing_location_tree: dict | None = None,
 ) -> list:
-    """*existing_location_tree* (``read_location_tree``): the stored locations,
+    """*existing_location_tree* (``location_tree``): the stored locations,
     so an incremental sync finds a location's country above it (#386)."""
     tenant_map = nautobot.id_name_map("tenancy/tenants/")
     status_map = nautobot.id_name_map("extras/statuses/")
@@ -728,7 +728,7 @@ LOCATION_TREE_SQL = (
 
 
 def location_tree(rows) -> dict[str, dict]:  # type: ignore[no-untyped-def]
-    """``LOCATION_TREE_SQL``'s rows as ``read_location_tree`` answers them."""
+    """``LOCATION_TREE_SQL``'s rows as ``{location_id: {"parent_id", "location_type", "name"}}`` (#386)."""
     return {
         data["location_id"]: {
             "parent_id": data.get("parent_id") or "",
@@ -738,44 +738,6 @@ def location_tree(rows) -> dict[str, dict]:  # type: ignore[no-untyped-def]
         for data in rows
         if data.get("location_id")
     }
-
-
-def read_location_tree(conn=None) -> dict[str, dict]:
-    """The stored locations' ``{location_id: {"parent_id", "location_type", "name"}}`` (#386)."""
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return {}
-    try:
-        return location_tree(map(db.row_to_dict, conn.execute(LOCATION_TREE_SQL).fetchall()))
-    except Exception as exc:
-        logger.debug("Could not read cached locations: {}", exc)
-        return {}
-    finally:
-        if owns_conn:
-            conn.close()
-
-
-def read_location_name_map(conn=None) -> dict:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return {}
-    try:
-        rows = conn.execute("SELECT location_id, name FROM nautobot_location_cache").fetchall()
-        return {
-            db.row_to_dict(row).get("location_id", ""): db.row_to_dict(row).get("name", "")
-            for row in rows
-            if db.row_to_dict(row).get("location_id")
-        }
-    except Exception as exc:
-        logger.debug("Could not read cached location names: {}", exc)
-        return {}
-    finally:
-        if owns_conn:
-            conn.close()
 
 
 # Location paths (#178), for the board and the map (#367).
@@ -808,88 +770,91 @@ def with_ancestor_paths(locations: list[dict], all_locations: list[dict]) -> lis
     ]
 
 
-def read_locations(include_without_coordinates: bool = False, conn=None) -> list:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return []
+async def read_locations(
+    include_without_coordinates: bool = False, conn: aconnection.Connection | None = None
+) -> list:
     try:
-        rows = conn.execute(
-            """
-            SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
-                   description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
-                   time_zone, tags_json, url, country, tier, tenant_scope_json
-            FROM nautobot_location_cache
-            ORDER BY name ASC
-            """
-        ).fetchall()
-        related_tenants = read_location_tenant_links(conn)
-        tenant_descriptions = read_tenant_descriptions(conn)
-        rows = [db.row_to_dict(row) for row in rows]
-        # Every location, with coordinates or not, for the paths above them (#367).
-        by_id = {data["location_id"]: data for data in rows if data.get("location_id")}
-        locations = []
-        for data in rows:
-            lat = data.get("latitude")
-            lon = data.get("longitude")
-            has_coordinates = lat is not None and lon is not None
-            if not has_coordinates and not include_without_coordinates:
-                continue
-            tenants = site_tenants(
-                data.get("tenant", ""), related_tenants.get(data.get("location_id"), [])
-            )
-            locations.append(
-                {
-                    "id": data.get("location_id", ""),
-                    "name": data.get("name", ""),
-                    "slug": data.get("slug", ""),
-                    "status": data.get("status", ""),
-                    "location_type": data.get("location_type", ""),
-                    "parent": data.get("parent", ""),
-                    "parent_id": data.get("parent_id", ""),
-                    # "EMEA › DNK", as on the board, so a link's ?q= finds the same sites (#367).
-                    "ancestor_path": ancestor_path(data, by_id),
-                    "latitude": lat,
-                    "longitude": lon,
-                    "description": data.get("description", ""),
-                    "physical_address": data.get("physical_address", ""),
-                    "country": data.get("country", ""),
-                    "tier": data.get("tier", ""),
-                    "tenant_scopes": _load_tenant_scopes(data.get("tenant_scope_json")),
-                    "facility": data.get("facility", ""),
-                    "tenant": data.get("tenant", ""),
-                    "tenant_id": data.get("tenant_id", ""),
-                    "tenant_group": data.get("tenant_group", ""),
-                    "asn": data.get("asn"),
-                    "time_zone": data.get("time_zone", ""),
-                    "tags": json_load_list(data.get("tags_json")),
-                    "url": data.get("url", ""),
-                    "tenants": tenants,
-                    # The (i) next to each tenant that has a description (#263).
-                    "tenant_descriptions": {
-                        name: tenant_descriptions[name]
-                        for name in tenants
-                        if name in tenant_descriptions
-                    },
-                }
-            )
-        return locations
+        async with aconnection.using(conn) as conn:
+            return await _read_locations(conn, include_without_coordinates)
     except Exception as exc:
         logger.debug("Could not read cached locations: {}", exc)
         return []
-    finally:
-        if owns_conn:
-            conn.close()
 
 
-def read_stacks(conn) -> dict[str, list[dict]]:
+async def _read_locations(conn: aconnection.Connection, include_without_coordinates: bool) -> list:
+    rows = (
+        await conn.execute(
+            """
+        SELECT location_id, name, slug, status, location_type, parent, parent_id, latitude, longitude,
+               description, physical_address, facility, tenant, tenant_id, tenant_group, asn,
+               time_zone, tags_json, url, country, tier, tenant_scope_json
+        FROM nautobot_location_cache
+        ORDER BY name ASC
+        """
+        )
+    ).fetchall()
+    related_tenants = await read_location_tenant_links(conn)
+    tenant_descriptions = await read_tenant_descriptions(conn)
+    rows = [db.row_to_dict(row) for row in rows]
+    # Every location, with coordinates or not, for the paths above them (#367).
+    by_id = {data["location_id"]: data for data in rows if data.get("location_id")}
+    locations = []
+    for data in rows:
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        has_coordinates = lat is not None and lon is not None
+        if not has_coordinates and not include_without_coordinates:
+            continue
+        tenants = site_tenants(
+            data.get("tenant", ""), related_tenants.get(data.get("location_id"), [])
+        )
+        locations.append(
+            {
+                "id": data.get("location_id", ""),
+                "name": data.get("name", ""),
+                "slug": data.get("slug", ""),
+                "status": data.get("status", ""),
+                "location_type": data.get("location_type", ""),
+                "parent": data.get("parent", ""),
+                "parent_id": data.get("parent_id", ""),
+                # "EMEA › DNK", as on the board, so a link's ?q= finds the same sites (#367).
+                "ancestor_path": ancestor_path(data, by_id),
+                "latitude": lat,
+                "longitude": lon,
+                "description": data.get("description", ""),
+                "physical_address": data.get("physical_address", ""),
+                "country": data.get("country", ""),
+                "tier": data.get("tier", ""),
+                "tenant_scopes": _load_tenant_scopes(data.get("tenant_scope_json")),
+                "facility": data.get("facility", ""),
+                "tenant": data.get("tenant", ""),
+                "tenant_id": data.get("tenant_id", ""),
+                "tenant_group": data.get("tenant_group", ""),
+                "asn": data.get("asn"),
+                "time_zone": data.get("time_zone", ""),
+                "tags": json_load_list(data.get("tags_json")),
+                "url": data.get("url", ""),
+                "tenants": tenants,
+                # The (i) next to each tenant that has a description (#263).
+                "tenant_descriptions": {
+                    name: tenant_descriptions[name]
+                    for name in tenants
+                    if name in tenant_descriptions
+                },
+            }
+        )
+    return locations
+
+
+async def read_stacks(conn: aconnection.Connection) -> dict[str, list[dict]]:
     """``{virtual chassis id: its members by place}`` over every cached device
     (#402, #405), each ``{"id", "name", "status", "primary_ip", "has_ip", "master"}``: a whole stack
     wherever its members are, in one query."""
-    rows = conn.execute(
-        "SELECT vc_id, device_id, name, status, primary_ip, vc_master FROM nautobot_device_cache WHERE vc_id <> '' "
-        "ORDER BY vc_id, vc_position NULLS LAST, name"
+    rows = (
+        await conn.execute(
+            "SELECT vc_id, device_id, name, status, primary_ip, vc_master FROM nautobot_device_cache "
+            "WHERE vc_id <> '' ORDER BY vc_id, vc_position NULLS LAST, name"
+        )
     ).fetchall()
     stacks: dict[str, list[dict]] = {}
     for data in map(db.row_to_dict, rows):
@@ -906,74 +871,71 @@ def read_stacks(conn) -> dict[str, list[dict]]:
     return stacks
 
 
-def read_devices(location_id: str | None = None, conn=None) -> list:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return []
+async def read_devices(
+    location_id: str | None = None, conn: aconnection.Connection | None = None
+) -> list:
     try:
-        params = ()
-        if location_id:
-            marker = db.placeholders(1)
-            query = (
-                "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
-                "FROM nautobot_device_cache "
-                f"WHERE location_id = {marker} ORDER BY name ASC"
-            )
-            params = (location_id,)
-        else:
-            query = (
-                "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
-                "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
-                "FROM nautobot_device_cache "
-                "ORDER BY location_id, name ASC"
-            )
-        rows = conn.execute(query, params).fetchall()
-        return [
-            {
-                "id": data.get("device_id", ""),
-                "location_id": data.get("location_id", ""),
-                "name": data.get("name", ""),
-                "device_type": data.get("device_type", ""),
-                "manufacturer": data.get("manufacturer", ""),
-                "role": data.get("role", ""),
-                "status": data.get("status", ""),
-                "primary_ip": data.get("primary_ip", ""),
-                "platform": data.get("platform", ""),
-                "serial": data.get("serial", ""),
-                "tenant": data.get("tenant", ""),
-                # When Nautobot last changed the device, e.g. its status (#166).
-                "last_updated": data.get("last_updated") or "",
-                "criticality": data.get("criticality") or "",
-                # Its stack (#400).
-                "vc_id": data.get("vc_id") or "",
-                "vc_name": data.get("vc_name") or "",
-                "vc_position": data.get("vc_position"),
-                "vc_master": bool(data.get("vc_master")),
-            }
-            for data in (db.row_to_dict(row) for row in rows)
-        ]
+        async with aconnection.using(conn) as conn:
+            return await _read_devices(conn, location_id)
     except Exception as exc:
         logger.debug("Could not read cached devices: {}", exc)
         return []
-    finally:
-        if owns_conn:
-            conn.close()
 
 
-def read_librenms_devices(conn=None) -> list:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return []
+async def _read_devices(conn: aconnection.Connection, location_id: str | None) -> list:
+    params: tuple = ()
+    if location_id:
+        marker = db.placeholders(1)
+        query = (
+            "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
+            "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
+            "FROM nautobot_device_cache "
+            f"WHERE location_id = {marker} ORDER BY name ASC"
+        )
+        params = (location_id,)
+    else:
+        query = (
+            "SELECT device_id, location_id, name, device_type, manufacturer, role, status, "
+            "primary_ip, platform, serial, tenant, last_updated, criticality, vc_id, vc_name, vc_position, vc_master "
+            "FROM nautobot_device_cache "
+            "ORDER BY location_id, name ASC"
+        )
+    rows = (await conn.execute(query, params)).fetchall()
+    return [
+        {
+            "id": data.get("device_id", ""),
+            "location_id": data.get("location_id", ""),
+            "name": data.get("name", ""),
+            "device_type": data.get("device_type", ""),
+            "manufacturer": data.get("manufacturer", ""),
+            "role": data.get("role", ""),
+            "status": data.get("status", ""),
+            "primary_ip": data.get("primary_ip", ""),
+            "platform": data.get("platform", ""),
+            "serial": data.get("serial", ""),
+            "tenant": data.get("tenant", ""),
+            # When Nautobot last changed the device, e.g. its status (#166).
+            "last_updated": data.get("last_updated") or "",
+            "criticality": data.get("criticality") or "",
+            # Its stack (#400).
+            "vc_id": data.get("vc_id") or "",
+            "vc_name": data.get("vc_name") or "",
+            "vc_position": data.get("vc_position"),
+            "vc_master": bool(data.get("vc_master")),
+        }
+        async for data in aconnection.in_turns(map(db.row_to_dict, rows))
+    ]
+
+
+async def read_librenms_devices(conn: aconnection.Connection | None = None) -> list:
     try:
-        rows = conn.execute(
-            "SELECT device_id, hostname, ip, status, disabled, disable_notify, ignore "
-            "FROM librenms_device_status ORDER BY hostname ASC"
-        ).fetchall()
+        async with aconnection.using(conn) as conn:
+            rows = (
+                await conn.execute(
+                    "SELECT device_id, hostname, ip, status, disabled, disable_notify, ignore "
+                    "FROM librenms_device_status ORDER BY hostname ASC"
+                )
+            ).fetchall()
         return [
             {
                 "device_id": data.get("device_id"),
@@ -987,9 +949,6 @@ def read_librenms_devices(conn=None) -> list:
     except Exception as exc:
         logger.debug("Could not read cached LibreNMS inventory: {}", exc)
         return []
-    finally:
-        if owns_conn:
-            conn.close()
 
 
 def sync_state_statement(
@@ -1069,8 +1028,20 @@ def get_sync_state(source: str, conn=None) -> dict:
             conn.close()
 
 
-def sync_due(source: str, interval_seconds: int, conn=None) -> bool:
-    return state_due(get_sync_state(source, conn=conn), interval_seconds)
+async def sync_state(source: str, conn: aconnection.Connection | None = None) -> dict:
+    """``get_sync_state`` on the async connection (#661): {} without one or on an error."""
+    try:
+        async with aconnection.using(conn) as conn:
+            return await read_sync_state(conn, source)
+    except Exception as exc:
+        logger.debug("Could not read sync state for {}: {}", source, exc)
+        return {}
+
+
+async def sync_due(
+    source: str, interval_seconds: int, conn: aconnection.Connection | None = None
+) -> bool:
+    return state_due(await sync_state(source, conn), interval_seconds)
 
 
 def state_due(state: dict | None, interval_seconds: int) -> bool:
@@ -1110,7 +1081,7 @@ def cache_version_mismatch(state: dict | None) -> bool:
 BOARD_SOURCES = ("nautobot_inventory", "librenms_inventory")
 
 
-def board_snapshot(conn=None) -> dict:
+async def board_snapshot(conn: aconnection.Connection | None = None) -> dict:
     """What the alert board would be built from now (#523), in one read.
 
     ``version``: each source's last success, which changes in the same
@@ -1118,25 +1089,21 @@ def board_snapshot(conn=None) -> dict:
     read); ``initialized``: ``snapshot_initialized()``; ``nautobot``: the
     Nautobot sync's state (``get_sync_state``), for ``sync_pending``.
     """
-    owns_conn = conn is None
-    if owns_conn and not db.dialect():
+    if conn is None and not db.dialect():
         return {"version": None, "initialized": False, "nautobot": {}}
     try:
-        if owns_conn:
-            conn = db.get_conn()
-        if conn is None:
-            return {"version": None, "initialized": False, "nautobot": {}}
-        rows = conn.execute(
-            "SELECT source, last_started_at, last_completed_at, last_successful_sync, cache_version, status, "
-            "error_message, last_succeeded_at FROM inventory_sync_state WHERE source = ANY(%s) ORDER BY source",
-            (list(BOARD_SOURCES),),
-        ).fetchall()
+        async with aconnection.using(conn) as conn:
+            rows = (
+                await conn.execute(
+                    "SELECT source, last_started_at, last_completed_at, last_successful_sync, "
+                    "cache_version, status, error_message, last_succeeded_at FROM inventory_sync_state "
+                    "WHERE source = ANY(%s) ORDER BY source",
+                    (list(BOARD_SOURCES),),
+                )
+            ).fetchall()
     except Exception as exc:
         logger.debug("Could not read the board's snapshot: {}", exc)
         return {"version": None, "initialized": False, "nautobot": {}}
-    finally:
-        if owns_conn and conn is not None:
-            conn.close()
     states = {state["source"]: state for state in map(db.row_to_dict, rows)}
     nautobot_state = states.get("nautobot_inventory", {})
     return {
@@ -1152,9 +1119,9 @@ def board_snapshot(conn=None) -> dict:
     }
 
 
-def snapshot_initialized(conn=None) -> bool:
+async def snapshot_initialized(conn: aconnection.Connection | None = None) -> bool:
     """Return whether Nautobot inventory snapshot has completed at least once."""
-    state = get_sync_state("nautobot_inventory", conn=conn)
+    state = await sync_state("nautobot_inventory", conn)
     if not state:
         return False
     return bool(state.get("status") == "idle" and state.get("last_completed_at"))
@@ -1339,14 +1306,15 @@ def circuit_cid(circuit: dict) -> str:
     return circuit.get("cid") or "Unnamed circuit"
 
 
-def read_location_parents(conn, location_ids) -> dict[str, str]:
+async def read_location_parents(conn: aconnection.Connection, location_ids) -> dict[str, str]:
     """``{location_id: parent_id}`` for *location_ids* and every location above
     them, in one query (#511): to find the site a circuit's building is in."""
     ids = sorted({str(location_id) for location_id in location_ids if location_id})
     if not ids:
         return {}
-    rows = conn.execute(
-        """
+    rows = (
+        await conn.execute(
+            """
         WITH RECURSIVE up(location_id, parent_id, depth) AS (
             SELECT location_id, parent_id, 0 FROM nautobot_location_cache WHERE location_id = ANY(%s)
             UNION ALL
@@ -1356,30 +1324,35 @@ def read_location_parents(conn, location_ids) -> dict[str, str]:
         )
         SELECT DISTINCT location_id, parent_id FROM up
         """,
-        (ids,),
+            (ids,),
+        )
     ).fetchall()
     return {row["location_id"]: row["parent_id"] or "" for row in rows}
 
 
-def read_tenant_circuits(conn, tenant: str) -> list[dict]:
+async def read_tenant_circuits(conn: aconnection.Connection, tenant: str) -> list[dict]:
     """A tenant's active circuits (#511), for its status page: one query,
     whatever its number of sites."""
-    rows = conn.execute(
-        f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
-        "WHERE tenant_key = %s AND lower(trim(status)) = 'active' ORDER BY lower(cid), circuit_id",
-        (tenant_key(tenant),),
+    rows = (
+        await conn.execute(
+            f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
+            "WHERE tenant_key = %s AND lower(trim(status)) = 'active' ORDER BY lower(cid), circuit_id",
+            (tenant_key(tenant),),
+        )
     ).fetchall()
     return [db.row_to_dict(row) for row in rows]
 
 
-def read_circuits_at_address(conn, key: str) -> list[dict]:
+async def read_circuits_at_address(conn: aconnection.Connection, key: str) -> list[dict]:
     """The cached circuits without a termination whose description has this address key (#383)."""
     if not key:
         return []
-    rows = conn.execute(
-        f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
-        f"WHERE address_key = {db.placeholders(1)} AND NOT terminated ORDER BY lower(cid), circuit_id",
-        (key,),
+    rows = (
+        await conn.execute(
+            f"SELECT {', '.join(CIRCUIT_COLUMNS)} FROM nautobot_circuit_cache "
+            f"WHERE address_key = {db.placeholders(1)} AND NOT terminated ORDER BY lower(cid), circuit_id",
+            (key,),
+        )
     ).fetchall()
     return [db.row_to_dict(row) for row in rows]
 
@@ -1395,31 +1368,33 @@ def address_site(location_id: str, parents: dict[str, str]) -> str:
     return location_id
 
 
-def read_locations_at_address(conn, location_id: str) -> tuple[str, dict[str, str]]:
+async def read_locations_at_address(
+    conn: aconnection.Connection, location_id: str
+) -> tuple[str, dict[str, str]]:
     """``(key, {location_id: parent_id})``: *location_id*'s address key and
     every location with the same one, itself included (#383)."""
     marker = db.placeholders(1)
-    rows = conn.execute(
-        "SELECT location_id, parent_id, address_key FROM nautobot_location_cache WHERE address_key <> '' "
-        f"AND address_key = (SELECT address_key FROM nautobot_location_cache WHERE location_id = {marker})",
-        (location_id,),
+    rows = (
+        await conn.execute(
+            "SELECT location_id, parent_id, address_key FROM nautobot_location_cache WHERE address_key <> '' "
+            f"AND address_key = (SELECT address_key FROM nautobot_location_cache WHERE location_id = {marker})",
+            (location_id,),
+        )
     ).fetchall()
     found = [db.row_to_dict(row) for row in rows]
     key = found[0]["address_key"] if found else ""
     return key, {loc["location_id"]: loc.get("parent_id") or "" for loc in found}
 
 
-def read_tenant_descriptions(conn=None) -> dict[str, str]:
+async def read_tenant_descriptions(conn: aconnection.Connection | None = None) -> dict[str, str]:
     """``{tenant name: description}`` for the tenants that have one (#263)."""
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return {}
     try:
-        rows = conn.execute(
-            "SELECT name, description FROM nautobot_tenant_cache WHERE description <> ''"
-        ).fetchall()
+        async with aconnection.using(conn) as conn:
+            rows = (
+                await conn.execute(
+                    "SELECT name, description FROM nautobot_tenant_cache WHERE description <> ''"
+                )
+            ).fetchall()
         return {
             data["name"]: data["description"]
             for data in map(db.row_to_dict, rows)
@@ -1428,9 +1403,6 @@ def read_tenant_descriptions(conn=None) -> dict[str, str]:
     except Exception as exc:
         logger.debug("Could not read tenant descriptions: {}", exc)
         return {}
-    finally:
-        if owns_conn:
-            conn.close()
 
 
 def site_tenants(tenant: str, related: list[str]) -> list[str]:
@@ -1440,9 +1412,11 @@ def site_tenants(tenant: str, related: list[str]) -> list[str]:
     return names
 
 
-def read_location_tenant_links(conn) -> dict[str, list[str]]:
+async def read_location_tenant_links(conn: aconnection.Connection) -> dict[str, list[str]]:
     """``{location_id: [tenant name, ...]}`` from the relationship links, sorted by name (#238)."""
-    rows = conn.execute("SELECT location_id, tenant FROM nautobot_location_tenant_cache").fetchall()
+    rows = (
+        await conn.execute("SELECT location_id, tenant FROM nautobot_location_tenant_cache")
+    ).fetchall()
     tenants: dict[str, set[str]] = {}
     for row in rows:
         data = db.row_to_dict(row)
@@ -2060,25 +2034,27 @@ def ensure_snapshot(
     return True
 
 
-def get_locations(include_without_coordinates: bool = False, snapshot_only: bool = False) -> list:
+async def get_locations(
+    include_without_coordinates: bool = False, snapshot_only: bool = False
+) -> list:
     """Fetch locations from Nautobot.
 
     By default, only locations with valid GPS coordinates are returned.
     Set ``include_without_coordinates=True`` to include all locations and
     keep missing/invalid coordinates as ``None``.
     """
-    cached = read_locations(include_without_coordinates=include_without_coordinates)
+    cached = await read_locations(include_without_coordinates=include_without_coordinates)
     if cached:
         if not snapshot_only:
-            ensure_snapshot()
+            await session.run_sync(ensure_snapshot)
         return cached
     if snapshot_only:
         return []
-    ensure_snapshot(force=True, wait=True)
-    cached = read_locations(include_without_coordinates=include_without_coordinates)
+    await session.run_sync(ensure_snapshot, force=True, wait=True)
+    cached = await read_locations(include_without_coordinates=include_without_coordinates)
     if cached:
         return cached
-    raw = nautobot.fetch_all_pages("dcim/locations/")
+    raw = await session.run_sync(nautobot.fetch_all_pages, "dcim/locations/")
     # Every location, for the paths above them (#367) as read_locations has;
     # then only those with coordinates unless asked for all.
     everywhere = normalize_locations(raw, include_without_coordinates=True)
@@ -2089,7 +2065,7 @@ def get_locations(include_without_coordinates: bool = False, snapshot_only: bool
         or (loc.get("latitude") is not None and loc.get("longitude") is not None)
     ]
     # Without the database (a map-only setup) the tenant (i) still works (#263).
-    descriptions = live_tenant_descriptions()
+    descriptions = await session.run_sync(live_tenant_descriptions)
     for loc in locations:
         tenant = loc.get("tenant") or ""
         loc["tenant_descriptions"] = (

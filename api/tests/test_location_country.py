@@ -146,7 +146,10 @@ def test_through_full_and_incremental_syncs(client, pg_database, monkeypatch):
     asyncio.run(inventory.sync_nautobot(force=True))
     asyncio.run(inventory.sync_nautobot())
     assert "last_updated__gte" in calls[-1], "the second sync was incremental"
-    by_id = {loc["id"]: loc for loc in inventory.read_locations(include_without_coordinates=True)}
+    by_id = {
+        loc["id"]: loc
+        for loc in asyncio.run(inventory.read_locations(include_without_coordinates=True))
+    }
     assert by_id["odense"]["country"] == "Denmark"
 
 
@@ -166,7 +169,7 @@ def test_a_renamed_country_reaches_its_sites_at_the_next_sync(client, pg_databas
     def countries():
         return {
             loc["id"]: loc["country"]
-            for loc in inventory.read_locations(include_without_coordinates=True)
+            for loc in asyncio.run(inventory.read_locations(include_without_coordinates=True))
         }
 
     monkeypatch.setattr(nautobot, "fetch_all_pages", fetch)

@@ -14,8 +14,8 @@ from loguru import logger
 
 from app.clients import caching
 from app.core.legacy_settings import settings
+from app.db import aconnection, session
 from app.db import connection as db
-from app.db import session
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import notify_service as notify
@@ -47,19 +47,20 @@ def tick_seconds() -> int:
     return max(1, min(MAX_TICK_SECONDS, *intervals))
 
 
+async def _prune_alert_history() -> None:
+    async with aconnection.connect() as conn:
+        await alerts.maybe_prune_alert_history(conn)
+
+
 def prune_alert_history_if_due() -> None:
     """Daily history retention (#194); a failure is logged, never stops the syncs."""
     if settings.ALERT_HISTORY_RETENTION_DAYS <= 0:
         return
-    conn = db.get_conn()
-    if conn is None:
-        return
     try:
-        alerts.maybe_prune_alert_history(conn)
+        # On the event loop (#661): the pruning's SQL is async.
+        session.from_sync(_prune_alert_history)
     except Exception as exc:
         logger.opt(exception=True).warning("Alert history retention failed: {}", exc)
-    finally:
-        conn.close()
 
 
 def tick() -> bool:
@@ -134,7 +135,8 @@ def start_wireless_sync() -> None:
 
 def rebuild_board(trigger: str = "scheduler") -> None:
     """Build the board from the cache, store it, and send what the build queued."""
-    alerts.board(trigger, rebuild=True)
+    # On the event loop (#661): the build is async.
+    session.from_sync(alerts.board, trigger, rebuild=True)
     send_notifications()
 
 

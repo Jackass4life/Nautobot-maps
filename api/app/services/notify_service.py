@@ -168,8 +168,8 @@ def board_url() -> str:
     return f"{settings.NOTIFY_BOARD_URL}/alerts" if settings.NOTIFY_BOARD_URL else ""
 
 
-def enqueue_change(
-    conn,
+async def enqueue_change(
+    conn: aconnection.Connection,
     site_id: str,
     from_level: str,
     to_level: str,
@@ -189,9 +189,11 @@ def enqueue_change(
     if channels and kind is None and site_id and dropped_below_minimum(from_level, to_level, tier):
         # The alarm went out under another threshold (the site's tier changed
         # since, #293): its end is still a recovery.
-        row = conn.execute(
-            "SELECT kind FROM notification_outbox WHERE site_id = %s ORDER BY id DESC LIMIT 1",
-            (site_id,),
+        row = (
+            await conn.execute(
+                "SELECT kind FROM notification_outbox WHERE site_id = %s ORDER BY id DESC LIMIT 1",
+                (site_id,),
+            )
         ).fetchone()
         if row is not None and row["kind"] == "alarm":
             kind = "recovery"
@@ -202,9 +204,9 @@ def enqueue_change(
         return 0
     payload = json.dumps(build_event(kind, from_level, to_level, site, changed_at), sort_keys=True)
     for channel in channels:
-        conn.execute(
+        await conn.execute(
             "INSERT INTO notification_outbox (channel, kind, site_id, payload_json, created_at, next_attempt_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s::text::timestamptz, %s::text::timestamptz)",
             (channel, kind, site_id, payload, changed_at, changed_at),
         )
     return len(channels)

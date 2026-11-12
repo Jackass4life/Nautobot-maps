@@ -119,11 +119,7 @@ class TestCatalystTopology:
 
 
 def load(devices=None) -> dict:
-    conn = db.get_conn()
-    try:
-        return neighbours.read_index(conn, devices)
-    finally:
-        conn.close()
+    return adb.call(neighbours.read_index, devices)
 
 
 CABLE = {
@@ -299,7 +295,7 @@ class TestOnTheBoard:
         monkeypatch.setattr(alerts.nautobot, "fetch_all_pages", lambda *a, **k: [])
         monkeypatch.setattr(alerts, "location_circuits", lambda location_id: ([], ""))
         caching.cache.clear()
-        devices = {d["name"]: d for d in alerts.get_location_detail("cph")["devices"]}
+        devices = {d["name"]: d for d in asyncio.run(alerts.get_location_detail("cph"))["devices"]}
         assert devices[f"cph-{APS[0]}"]["neighbour"]["port"] == "Gi1/0/9"
         assert "neighbour" not in devices["cph-sw1"], "only access points"
 

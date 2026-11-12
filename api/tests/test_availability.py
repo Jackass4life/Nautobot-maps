@@ -560,7 +560,7 @@ class TestPages:
             "access_point_count": 6,
             "network_device_count": 4,
         }
-        monkeypatch.setattr(availability, "board_sites", lambda: [site])
+        monkeypatch.setattr(availability, "board_sites", adb.async_of(lambda: [site]))
         caching.cache.clear()
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
@@ -690,16 +690,18 @@ class TestPages:
         def broken():
             raise RuntimeError("board build failed")
 
-        monkeypatch.setattr(availability, "board_sites", broken)
+        monkeypatch.setattr(availability, "board_sites", adb.async_of(broken))
         resp = flask_client.get("/api/v1/availability")
         assert resp.status_code == 503 and "would miss sites" in resp.get_json()["error"]
 
     def test_an_empty_board_before_the_first_sync_is_a_503(self, flask_client, monkeypatch):
         monkeypatch.setattr(availability, "board_sites", REAL_BOARD_SITES)
-        monkeypatch.setattr(alerts, "cached_alert_board", lambda: {"alerts": []})
-        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
+        monkeypatch.setattr(alerts, "cached_alert_board", adb.async_of(lambda: {"alerts": []}))
+        monkeypatch.setattr(
+            inventory, "snapshot_initialized", adb.async_of(lambda conn=None: False)
+        )
         assert flask_client.get("/api/v1/availability").status_code == 503
-        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        monkeypatch.setattr(inventory, "snapshot_initialized", adb.async_of(lambda conn=None: True))
         assert flask_client.get("/api/v1/availability").status_code == 200, (
             "synced, and really no sites"
         )

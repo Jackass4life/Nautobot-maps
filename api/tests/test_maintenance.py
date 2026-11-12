@@ -1,5 +1,6 @@
 """Maintenance windows (#283): planned work is not an alarm."""
 
+import asyncio
 import csv
 import json
 
@@ -66,7 +67,7 @@ def set_devices(**statuses):
 
 def build() -> dict:
     caching.cache.clear()
-    payload = alerts.build_alert_board_payload(snapshot_only=True)
+    payload = asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))
     (row,) = payload["alerts"]
     return {**row, "summary": payload["summary"]}
 
@@ -173,23 +174,19 @@ class TestWindows:
         } == {"upcoming"}
         assert planned[0]["starts_at"].startswith("2026-10-09T20:00:00"), "stored in UTC"
 
-        conn = db.get_conn()
-        try:
-            active = maintenance.read_active(conn, maintenance.now())
-            assert set(active["sites"]) == {"loc-lon"} and active["devices"] == {}
-            cancelled = adb.call(maintenance.end, planned[0]["id"], "ada")
-            assert cancelled["state"] == "cancelled" and cancelled["ended_by"] == "ada"
-            ended = adb.call(maintenance.end, site_window["id"], "ada")
-            assert ended["state"] == "ended"
-            assert adb.call(maintenance.end, 999, "ada") is None
-            assert [w["id"] for w in adb.call(maintenance.list_windows)] == [planned[1]["id"]]
-            assert len(adb.call(maintenance.list_windows, include_past=True)) == 3
-            self.clock["now"] = "2026-10-09T19:30:00Z"  # before the planned start (20:00 UTC)
-            assert maintenance.read_active(conn, maintenance.now())["devices"] == {}
-            self.clock["now"] = "2026-10-09T21:00:00Z"
-            assert set(maintenance.read_active(conn, maintenance.now())["devices"]) == {"b"}
-        finally:
-            conn.close()
+        active = adb.call(maintenance.read_active, maintenance.now())
+        assert set(active["sites"]) == {"loc-lon"} and active["devices"] == {}
+        cancelled = adb.call(maintenance.end, planned[0]["id"], "ada")
+        assert cancelled["state"] == "cancelled" and cancelled["ended_by"] == "ada"
+        ended = adb.call(maintenance.end, site_window["id"], "ada")
+        assert ended["state"] == "ended"
+        assert adb.call(maintenance.end, 999, "ada") is None
+        assert [w["id"] for w in adb.call(maintenance.list_windows)] == [planned[1]["id"]]
+        assert len(adb.call(maintenance.list_windows, include_past=True)) == 3
+        self.clock["now"] = "2026-10-09T19:30:00Z"  # before the planned start (20:00 UTC)
+        assert adb.call(maintenance.read_active, maintenance.now())["devices"] == {}
+        self.clock["now"] = "2026-10-09T21:00:00Z"
+        assert set(adb.call(maintenance.read_active, maintenance.now())["devices"]) == {"b"}
 
 
 class TestBoard:
@@ -342,7 +339,7 @@ class TestBoard:
         def broken(conn, at):
             raise RuntimeError("permission denied")
 
-        monkeypatch.setattr(maintenance, "read_active", broken)
+        monkeypatch.setattr(maintenance, "read_active", adb.async_of(broken))
         monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
         set_devices(core="Active", acc1="Active", acc2="Active")  # everything recovered
         build()
@@ -376,14 +373,16 @@ class TestBoard:
         build()
         calls = []
         monkeypatch.setattr(
-            alerts, "upsert_alert_lifecycle_for_site", lambda *a, **k: calls.append(1) or True
+            alerts,
+            "upsert_alert_lifecycle_for_site",
+            adb.async_of(lambda *a, **k: calls.append(1) or True),
         )
         build()
         assert calls == []
 
     def test_map_shows_maintenance(self, site):
         window(duration_minutes=30)
-        levels = alerts.build_location_alert_levels()["levels"]
+        levels = asyncio.run(alerts.build_location_alert_levels())["levels"]
         assert (
             levels["loc-lon"]["level"] == "maintenance"
             and levels["loc-lon"]["reason"] == "Core upgrade"
@@ -465,11 +464,7 @@ class TestCache:
         """Copilot on #303: a planned window shows when it starts, not up to CACHE_TTL later."""
 
         def next_change():
-            conn = db.get_conn()
-            try:
-                return maintenance.read_active(conn, maintenance.now())["next_change"]
-            finally:
-                conn.close()
+            return adb.call(maintenance.read_active, maintenance.now())["next_change"]
 
         assert maintenance.cache_seconds(next_change(), 300) == 300, "no windows"
         window(starts_at="2026-10-09T12:01:30Z", ends_at="2026-10-09T13:00:00Z")
@@ -481,7 +476,7 @@ class TestCache:
 
     def test_the_board_carries_the_next_change(self, site):
         window(starts_at="2026-10-09T12:10:00Z", duration_minutes=30)
-        payload = alerts.build_alert_board_payload(snapshot_only=True)
+        payload = asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))
         assert payload["next_maintenance_change"].startswith("2026-10-09T12:10:00")
 
 
@@ -501,7 +496,7 @@ class TestSiteDevices:
         finally:
             conn.close()
         monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_DEVICE_STATUSES", {"planned"})
-        devices = alerts.site_monitored_devices("loc-lon")
+        devices = asyncio.run(alerts.site_monitored_devices("loc-lon"))
         assert [d["id"] for d in devices] == ["acc1", "acc2", "core"], (
             "no primary IP or excluded: not offered"
         )
@@ -532,7 +527,7 @@ class TestSiteDevices:
         finally:
             conn.close()
         monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
-        devices = {d["id"]: d for d in alerts.site_monitored_devices("loc-lon")}
+        devices = {d["id"]: d for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))}
         assert "floor-sw" in devices and devices["floor-sw"]["location_path"] == "Bygning A"
 
     def test_not_below_an_excluded_location_unless_shown_on_the_board(self, site, monkeypatch):
@@ -555,7 +550,9 @@ class TestSiteDevices:
             conn.close()
         monkeypatch.setattr(settings, "ALERT_BOARD_SITE_LOCATION_TYPE", "site")
         monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_NAMES", {"old building"})
-        assert "old-sw" not in {d["id"] for d in alerts.site_monitored_devices("loc-lon")}
+        assert "old-sw" not in {
+            d["id"] for d in asyncio.run(alerts.site_monitored_devices("loc-lon"))
+        }
         with http_client.FlaskStyleClient() as flask_client:
             body = flask_client.get(
                 "/api/v1/maintenance/devices?site_id=loc-lon&include_non_operational=1"
@@ -896,7 +893,7 @@ class TestApi:
                 "tenant_descriptions": {"Hidden": "Not plannable"},
             },
         ]
-        monkeypatch.setattr(api_maintenance, "_board_sites", lambda: rows)
+        monkeypatch.setattr(api_maintenance, "_board_sites", adb.async_of(lambda: rows))
         answer = flask_client.get("/api/v1/maintenance/sites").get_json()
         assert [site["id"] for site in answer["sites"]] == ["a", "b"]
         assert answer["tenant_descriptions"] == {"NNIT": "Novo Nordisk IT"}
@@ -1036,12 +1033,14 @@ class TestApi:
             monkeypatch.setattr(
                 alerts,
                 "cached_alert_board",
-                lambda: {
-                    "alerts": [
-                        {"id": "loc-lon", "name": "London HQ", "tenants": ["Acme"]},
-                        {"id": "loc-x", "name": "X", "tenants": ["Other"]},
-                    ]
-                },
+                adb.async_of(
+                    lambda: {
+                        "alerts": [
+                            {"id": "loc-lon", "name": "London HQ", "tenants": ["Acme"]},
+                            {"id": "loc-x", "name": "X", "tenants": ["Other"]},
+                        ]
+                    }
+                ),
             )
             monkeypatch.setattr(maintenance, "HISTORY_LIMIT", 1)
             only = flask_client.get(

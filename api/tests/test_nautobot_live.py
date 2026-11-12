@@ -31,7 +31,7 @@ def synced(monkeypatch):
 
 def test_the_seeded_sites_are_in_the_snapshot(synced):
     """All 8 seeded locations have coordinates."""
-    locations = inventory.read_locations()
+    locations = asyncio.run(inventory.read_locations())
     assert len(locations) >= 8
     by_name = {location["name"]: location for location in locations}
     copenhagen = by_name["Copenhagen DC"]
@@ -39,8 +39,10 @@ def test_the_seeded_sites_are_in_the_snapshot(synced):
 
 
 def test_their_devices_are_in_the_snapshot(synced):
-    copenhagen = next(loc for loc in inventory.read_locations() if loc["name"] == "Copenhagen DC")
-    names = {device["name"] for device in inventory.read_devices(copenhagen["id"])}
+    copenhagen = next(
+        loc for loc in asyncio.run(inventory.read_locations()) if loc["name"] == "Copenhagen DC"
+    )
+    names = {device["name"] for device in asyncio.run(inventory.read_devices(copenhagen["id"]))}
     assert {"cph-core-rt01", "cph-fw01"} <= names
 
 

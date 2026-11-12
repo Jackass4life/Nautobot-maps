@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 from loguru import logger
 
-from app.db import connection as db
+from app.db import aconnection
 from app.db import session as db_session
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
@@ -27,19 +27,19 @@ UNAVAILABLE = {"error": "Status unavailable, try again shortly"}
 NOT_FOUND = {"error": "No sites for this tenant"}
 
 
-def _tenant_for(link_id: str) -> str | None:
+async def _tenant_for(link_id: str) -> str | None:
     """The tenant *link_id* opens (#500).  No connection for anything that
     isn't a link id.  Raises when the database can't be read."""
     if not statuslinks.ID_PATTERN.match(link_id):
         return None  # a name, or anything else: no connection for it
     session = db_session.current()
     try:
-        return db_session.from_sync(statuslinks.tenant_for, session, link_id)
+        return await statuslinks.tenant_for(session, link_id)
     finally:
         # Given back before the board is read, which takes a connection of its own:
         # a request never holds two, so busy requests can't use up the pool
         # waiting for their second (#608 review).
-        db_session.from_sync(session.close)
+        await session.close()
 
 
 def _unless_denied(answer: dict, status_code: int):
@@ -53,14 +53,13 @@ def _unless_denied(answer: dict, status_code: int):
     return deps.Json(answer, status_code=status_code)
 
 
-def _circuits(tenant: str, board: dict) -> tuple[list[dict], dict[str, str]]:
+async def _circuits(tenant: str, board: dict) -> tuple[list[dict], dict[str, str]]:
     """The tenant's active circuits (#511) and the locations above where they
     and its sites are, two queries on one connection; none when they can't be
     read: the page still shows its sites."""
     try:
-        conn = db.get_conn()
-        try:
-            circuits = inventory.read_tenant_circuits(conn, tenant)
+        async with aconnection.connect() as conn:
+            circuits = await inventory.read_tenant_circuits(conn, tenant)
             if not circuits:
                 return [], {}
             where = {
@@ -69,9 +68,7 @@ def _circuits(tenant: str, board: dict) -> tuple[list[dict], dict[str, str]]:
                 for location_id in circuit.get("location_ids") or []
             }
             where |= {row.get("id") or "" for row in board.get("alerts") or []}
-            return circuits, inventory.read_location_parents(conn, where)
-        finally:
-            conn.close()
+            return circuits, await inventory.read_location_parents(conn, where)
     except Exception as exc:
         logger.warning("Status page: circuits unavailable: {}", type(exc).__name__)
         return [], {}
@@ -105,7 +102,7 @@ def status_page(link_id: str):
         },
     },
 )
-def api_status(link_id: str):
+async def api_status(link_id: str):
     """A tenant's sites and their state (#291), for the tenant's random link
     id (#500; a name answers 404): ``operational``, ``degraded``,
     ``outage``, ``maintenance`` (with ``until``) or ``unknown``, and ``since``;
@@ -116,14 +113,14 @@ def api_status(link_id: str):
     with a status token for this tenant (``Authorization: Bearer``).
     """
     try:
-        tenant = _tenant_for(link_id)
+        tenant = await _tenant_for(link_id)
     except Exception as exc:
         logger.warning("Status page unavailable: {}", type(exc).__name__)
         return _unless_denied(UNAVAILABLE, 503)
-    return _answer(tenant)
+    return await _answer(tenant)
 
 
-def _answer(tenant: str | None):
+async def _answer(tenant: str | None):
     # Access first: one who may not look gets the same answer for any link,
     # so whether one exists is no clue (a status token: 403 for all others).
     denied = auth.status_access(tenant or "")
@@ -132,15 +129,15 @@ def _answer(tenant: str | None):
     if tenant is None:
         return deps.Json(NOT_FOUND, status_code=404)
     try:
-        board = alerts.get_alert_board_data()
-        circuits, parents = _circuits(tenant, board)
+        board = await alerts.get_alert_board_data()
+        circuits, parents = await _circuits(tenant, board)
         result = status.tenant_status(board, tenant, circuits, parents)
     except Exception as exc:
         logger.warning("Status page unavailable: {}", type(exc).__name__)
         return deps.Json(UNAVAILABLE, status_code=503)
     if result is None:
         # Before the first sync the board is empty: that's not "no sites".
-        if not inventory.snapshot_initialized():
+        if not await inventory.snapshot_initialized():
             return deps.Json(UNAVAILABLE, status_code=503)
         return deps.Json(NOT_FOUND, status_code=404)
     return deps.Json(result, headers={"Cache-Control": "no-store"})

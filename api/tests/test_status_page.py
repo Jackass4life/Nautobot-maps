@@ -1,5 +1,6 @@
 """A tenant's status page (#291): its sites only, with a status token or as the board."""
 
+import asyncio
 import json
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from app import __main__ as cli
 from app.clients import nautobot
 from app.core.legacy_settings import settings
+from app.db import aconnection
 from app.db import connection as db
 from app.db import session as db_session
 from app.services import alerts_service as alerts
@@ -108,7 +110,7 @@ def known_tenants(pg_database):
 
 @pytest.fixture
 def board(monkeypatch):
-    monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: BOARD)
+    monkeypatch.setattr(alerts, "get_alert_board_data", adb.async_of(lambda *a, **k: BOARD))
 
 
 class TestTenantStatus:
@@ -381,19 +383,14 @@ class TestCircuits:
                 if k != "location_ids"
             },
         ]
-        conn = db.get_conn()
-        try:
-            with db.transaction(conn):
-                adb.call(inventory.write_circuits, rows)
-            assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "ACME CORP")] == ["MINE"]
-            assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "STRASSE AG")] == [
-                "STRASSE"
-            ]
-            assert [c["cid"] for c in inventory.read_tenant_circuits(conn, "øresund a/s")] == [
-                "OLD"
-            ]
-        finally:
-            conn.close()
+        adb.call(inventory.write_circuits, rows)
+        assert [c["cid"] for c in adb.call(inventory.read_tenant_circuits, "ACME CORP")] == ["MINE"]
+        assert [c["cid"] for c in adb.call(inventory.read_tenant_circuits, "STRASSE AG")] == [
+            "STRASSE"
+        ]
+        assert [c["cid"] for c in adb.call(inventory.read_tenant_circuits, "øresund a/s")] == [
+            "OLD"
+        ]
 
     def test_on_the_page(self, flask_client, board):
         conn = db.get_conn()
@@ -414,40 +411,29 @@ class TestCircuits:
         link's is closed first, so busy requests can't use up the pool (#608 review)."""
         acme = link("Acme Corp")
         board_data = alerts.get_alert_board_data
+        state, counting = adb.counting_connections()
 
-        def board_with_its_own_connection():
+        async def board_with_its_own_connection():
             # The link's (the request's session, #643) is given back by now.
             state["link_held"] = db_session.current().in_transaction()
-            db.get_conn().close()
-            return board_data()
+            async with aconnection.connect():
+                pass
+            return await board_data()
 
         monkeypatch.setattr(alerts, "get_alert_board_data", board_with_its_own_connection)
-        real, state = db.get_conn, {"open": 0, "most": 0, "taken": 0}
-
-        class Counted:
-            def __init__(self, conn):
-                self._conn = conn
-
-            def __getattr__(self, name):
-                return getattr(self._conn, name)
-
-            def close(self):
-                state["open"] -= 1
-                self._conn.close()
-
-        def counted(*args, **kwargs):
-            state["open"] += 1
-            state["taken"] += 1
-            state["most"] = max(state["most"], state["open"])
-            return Counted(real(*args, **kwargs))
-
-        monkeypatch.setattr(db, "get_conn", counted)
-        assert flask_client.get(f"/api/v1/status/{acme}").status_code == 200
+        counting.start()
+        try:
+            answer = flask_client.get(f"/api/v1/status/{acme}")
+        finally:
+            counting.stop()
+        assert answer.status_code == 200
         assert state["taken"] >= 2 and state["most"] == 1 and state["open"] == 0
         assert state["link_held"] is False
 
     def test_without_circuits_the_page_still_answers(self, flask_client, board, monkeypatch):
-        monkeypatch.setattr(inventory, "read_tenant_circuits", lambda conn, tenant: 1 / 0)
+        monkeypatch.setattr(
+            inventory, "read_tenant_circuits", adb.async_of(lambda conn, tenant: 1 / 0)
+        )
         sites = flask_client.get(f"/api/v1/status/{link('Acme Corp')}").get_json()["sites"]
         assert all(site["circuits"] == [] for site in sites)
 
@@ -850,8 +836,8 @@ class TestTenantDevices:
                 )
         finally:
             conn.close()
-        board = alerts.build_alert_board_payload(snapshot_only=True)
-        monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: board)
+        board = asyncio.run(alerts.build_alert_board_payload(snapshot_only=True))
+        monkeypatch.setattr(alerts, "get_alert_board_data", adb.async_of(lambda *a, **k: board))
         (site,) = flask_client.get(f"/api/v1/status/{link('Acme Corp')}").get_json()["sites"]
         assert [(d["name"], d["state"]) for d in site["devices"]] == [
             ("lon-ap-01", "down"),
@@ -936,12 +922,16 @@ class TestAccess:
     def test_open_like_the_board_without_require_viewer(self, flask_client, board, monkeypatch):
         response = flask_client.get(f"/api/v1/status/{link('Acme Corp')}")
         assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
-        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        monkeypatch.setattr(inventory, "snapshot_initialized", adb.async_of(lambda conn=None: True))
         assert flask_client.get(f"/api/v1/status/{link('Nobody')}").status_code == 404
 
     def test_before_the_first_sync_it_is_a_503_not_no_sites(self, flask_client, monkeypatch):
-        monkeypatch.setattr(alerts, "get_alert_board_data", lambda *a, **k: {"alerts": []})
-        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: False)
+        monkeypatch.setattr(
+            alerts, "get_alert_board_data", adb.async_of(lambda *a, **k: {"alerts": []})
+        )
+        monkeypatch.setattr(
+            inventory, "snapshot_initialized", adb.async_of(lambda conn=None: False)
+        )
         assert flask_client.get(f"/api/v1/status/{link('Acme Corp')}").status_code == 503
 
     def test_the_page_never_holds_the_link(self, flask_client, board, frontend_build):
@@ -958,7 +948,7 @@ class TestAccess:
         def broken(*args, **kwargs):
             raise RuntimeError("db at postgresql://secret")
 
-        monkeypatch.setattr(alerts, "get_alert_board_data", broken)
+        monkeypatch.setattr(alerts, "get_alert_board_data", adb.async_of(broken))
         response = flask_client.get(f"/api/v1/status/{link('Acme Corp')}")
         assert response.status_code == 503 and b"secret" not in response.data
 
@@ -967,7 +957,7 @@ class TestLinks:
     """A random link per tenant, not its name (#500)."""
 
     def test_a_name_no_longer_opens_a_page(self, flask_client, board, monkeypatch):
-        monkeypatch.setattr(inventory, "snapshot_initialized", lambda conn=None: True)
+        monkeypatch.setattr(inventory, "snapshot_initialized", adb.async_of(lambda conn=None: True))
         acme = link("Acme Corp")
         assert statuslinks.ID_PATTERN.match(acme) and "acme" not in acme.lower()
         assert flask_client.get(f"/api/v1/status/{acme}").get_json()["tenant"] == "Acme Corp"

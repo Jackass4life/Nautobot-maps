@@ -111,7 +111,7 @@ async def _webhook_alerts(body, parse):
             "resolved": len(events) - firing,
             "skipped": skipped,
             # Firing alerts that name a Nautobot device: 0 hints at the wrong label.
-            "matched": webhooks.matched(events),
+            "matched": await webhooks.matched(events),
         }
     )
 
