@@ -1,4 +1,7 @@
 # Weekly dependency updates (#186). Grouped so each ecosystem is one PR a week.
+# A version is proposed only once it is 14 days old (#678): a compromised release is
+# usually found and pulled within days. Security updates don't wait (the cooldown is
+# for version updates only).
 version: 2
 updates:
   # api/ (uv.lock) and web/ (bun.lock, #635)
@@ -6,6 +9,8 @@ updates:
     directory: /api
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     groups:
       api:
         patterns: ["*"]
@@ -15,6 +20,8 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     groups:
       web:
         patterns: ["*"]
@@ -35,6 +42,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     groups:
       actions:
         patterns: ["*"]
@@ -45,6 +54,8 @@ updates:
     directories: [/api, /web, /reverse-proxy]
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     ignore:
       # A new Python version (3.12 -> 3.14 counts as "minor") is a deliberate
       # change: add it to CI's test matrix and check the image scan first.
@@ -64,6 +75,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     ignore:
       # A new PostgreSQL major version can't read the existing data volume:
       # it needs a dump and restore (README, "Backup and restore").
