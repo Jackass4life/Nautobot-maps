@@ -3,6 +3,7 @@ Its board parts (alert history recorded by the tick) come with the board (step 7
 
 import asyncio
 import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -29,14 +30,14 @@ def test_a_tick_runs_the_due_syncs_and_rebuilds_the_board(pg_database):
         patch.object(inventory, "ensure_snapshot", return_value=True) as ensure,
         patch.object(scheduler, "rebuild_board") as rebuild,
     ):
-        assert adb.worker(scheduler.tick) is True
+        assert asyncio.run(scheduler.tick()) is True
     ensure.assert_called_once_with(wait=True)
     rebuild.assert_called_once()
     with (
         patch.object(inventory, "ensure_snapshot", return_value=False),
         patch.object(scheduler, "rebuild_board") as rebuild,
     ):
-        assert adb.worker(scheduler.tick) is False
+        assert asyncio.run(scheduler.tick()) is False
     rebuild.assert_not_called()
 
 
@@ -47,13 +48,13 @@ def test_only_one_process_ticks_at_a_time():
     try:
         assert db.try_advisory_lock("background_scheduler") is False
         with patch.object(inventory, "ensure_snapshot") as ensure:
-            assert adb.worker(scheduler.tick) is False
+            assert asyncio.run(scheduler.tick()) is False
         ensure.assert_not_called()
     finally:
         release()
     # Released: the next one may.
     with patch.object(inventory, "ensure_snapshot", return_value=False):
-        assert adb.worker(scheduler.tick) is False
+        assert asyncio.run(scheduler.tick()) is False
     again = db.try_advisory_lock("background_scheduler")
     assert callable(again)
     again()
@@ -78,35 +79,45 @@ def test_loop_survives_a_failing_tick(monkeypatch):
                 running.call_soon_threadsafe(stop.set)
             raise RuntimeError("nautobot down")
 
-        monkeypatch.setattr(scheduler, "tick", failing_tick)
+        monkeypatch.setattr(scheduler, "tick", adb.async_of(failing_tick))
         await asyncio.wait_for(scheduler.loop(stop), 5)
 
     asyncio.run(run())
     assert len(calls) == 2
 
 
-def test_the_tick_runs_off_the_event_loop(monkeypatch):
-    """A slow tick (an inventory sync) never holds up the requests (#649)."""
-    seen = []
+def test_the_tick_awaits_its_work_and_leaves_the_loop_free(monkeypatch):
+    """A slow tick (an inventory sync) never holds up the requests (#649): it runs on
+    the event loop, no worker thread, and awaits its work (#663)."""
     monkeypatch.setattr(scheduler, "tick_seconds", lambda: 0)
 
-    async def run():
-        stop, running = asyncio.Event(), asyncio.get_running_loop()
+    async def run() -> tuple[list, float]:
+        stop, threads = asyncio.Event(), []
 
-        def tick():
-            seen.append(threading.current_thread() is threading.main_thread())
-            running.call_soon_threadsafe(stop.set)
+        async def tick() -> bool:
+            threads.append(threading.current_thread())
+            await asyncio.sleep(0.5)  # the sync, awaited
+            stop.set()
+            return True
 
         monkeypatch.setattr(scheduler, "tick", tick)
-        await asyncio.wait_for(scheduler.loop(stop), 5)
+        looping = asyncio.create_task(scheduler.loop(stop))
+        started = time.monotonic()
+        for _ in range(10):  # requests meanwhile: 0.1 s unless the loop is held
+            await asyncio.sleep(0.01)
+        answered = time.monotonic() - started
+        assert not looping.done()
+        await asyncio.wait_for(looping, 5)
+        return threads, answered
 
-    asyncio.run(run())
-    assert seen == [False]
+    threads, answered = asyncio.run(run())
+    assert threads == [threading.current_thread()]
+    assert answered < 0.4, answered
 
 
 def test_start_is_idempotent_and_respects_the_setting(monkeypatch):
     monkeypatch.setattr(scheduler, "_started", False)
-    monkeypatch.setattr(scheduler, "loop", _idle)
+    monkeypatch.setattr(scheduler, "loop", adb.async_of(_idle))
 
     async def run():
         monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
@@ -125,7 +136,7 @@ def test_start_is_idempotent_and_respects_the_setting(monkeypatch):
 
 def test_restart_does_not_clear_the_previous_workers_stop_event(monkeypatch):
     monkeypatch.setattr(scheduler, "_started", False)
-    monkeypatch.setattr(scheduler, "loop", _idle)
+    monkeypatch.setattr(scheduler, "loop", adb.async_of(_idle))
     monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", True)
 
     async def run():

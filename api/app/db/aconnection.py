@@ -16,6 +16,7 @@ replace them.
 """
 
 import asyncio
+import contextlib
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -24,6 +25,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from app.db import session
+from app.utils.locks import advisory_lock_key
 
 # psycopg's placeholders, and its escaped percent sign.
 _PLACEHOLDER = re.compile(r"%\((\w+)\)s|%s|%%")
@@ -157,6 +159,11 @@ class Connection:
         async for row in result.mappings():
             yield dict(row)
 
+    async def invalidate(self) -> None:
+        """Close the database connection instead of giving it back to the pool: what it
+        holds (an advisory lock) ends with it."""
+        await self._conn.invalidate()
+
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator["Connection"]:
         """One transaction: committed at the end, rolled back on an error."""
@@ -201,3 +208,34 @@ async def open_connection() -> tuple[Connection, Callable[[], Awaitable[None]]]:
     stack = AsyncExitStack()
     conn = await stack.enter_async_context(connect())
     return conn, stack.aclose
+
+
+async def try_advisory_lock(name: str) -> Callable[[], Awaitable[None]] | bool:
+    """A release coroutine function when this process got the advisory lock *name*,
+    False when another holds it (#663). The lock is the session's: a connection of its
+    own holds it until the release, which gives the connection back. When the unlock
+    fails (cancelled, connection lost), the connection is closed instead, so the lock
+    ends with it and no pooled connection keeps it. The same keys as the psycopg lock
+    had: the two exclude each other."""
+    key = advisory_lock_key(name)
+    conn, close = await open_connection()
+    try:
+        row = (await conn.execute("SELECT pg_try_advisory_lock(%s) AS acquired", (key,))).fetchone()
+    except BaseException:
+        await close()
+        raise
+    if not (row or {}).get("acquired"):
+        await close()
+        return False
+
+    async def release() -> None:
+        try:
+            await conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
+        except BaseException:
+            with contextlib.suppress(Exception):  # the unlock's error is the one to see
+                await conn.invalidate()
+            raise
+        finally:
+            await close()
+
+    return release

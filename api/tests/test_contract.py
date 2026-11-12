@@ -158,12 +158,15 @@ class TestStorage:
         assert check["records"] == 0 and check["mismatches"] == []
 
     def test_no_database_never_stops_a_sync(self, monkeypatch, caplog):
-        from sqlalchemy import create_engine
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
 
-        unreachable = create_engine(
-            "postgresql+psycopg://x:y@127.0.0.1:1/none", connect_args={"connect_timeout": 1}
+        unreachable = create_async_engine(
+            "postgresql+asyncpg://x:y@127.0.0.1:1/none",
+            poolclass=NullPool,
+            connect_args={"timeout": 1},
         )
-        monkeypatch.setattr(session, "engine", unreachable)
+        monkeypatch.setattr(session, "async_engine", unreachable)
         result = contract.check_and_record(contract.NAUTOBOT, "tenancy/tenants/", [{"id": 1}])
         assert result["mismatches"] and "Could not store the data contract check" in caplog.text
 

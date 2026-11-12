@@ -1,6 +1,7 @@
 """A forced sync (the board's ?refresh=1 and its ↻ button) is skipped for a
 source that finished less than a minute ago (#382)."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from app.core.legacy_settings import settings
 from app.db import connection as db
 from app.services import inventory_service as inventory
+from tests import db as adb
 
 
 @pytest.fixture
@@ -36,8 +38,8 @@ def finished(source: str, seconds_ago: int, status: str = "idle") -> None:
     conn = db.get_conn()
     try:
         with db.transaction(conn):
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 source,
                 last_completed_at=at,
                 last_successful_sync=at,
@@ -49,7 +51,9 @@ def finished(source: str, seconds_ago: int, status: str = "idle") -> None:
 
 
 def force(cooldown: int) -> bool:
-    return inventory.ensure_snapshot(force=True, full=False, wait=True, cooldown_seconds=cooldown)
+    return asyncio.run(
+        inventory.ensure_snapshot(force=True, full=False, wait=True, cooldown_seconds=cooldown)
+    )
 
 
 def test_a_source_synced_just_now_is_not_forced_again(sources):
@@ -94,14 +98,17 @@ def test_a_failed_sync_is_retried_at_once(sources):
 
 
 def test_nothing_to_do_starts_nothing(sources, monkeypatch):
-    """In the background (the board's ↻), every source just synced: no thread,
+    """In the background (the board's ↻), every source just synced: no task,
     and False, so the board doesn't say it is updating (#382)."""
     finished("nautobot_inventory", 10)
     finished("librenms_inventory", 10)
     started = []
-    monkeypatch.setattr(inventory.threading, "Thread", lambda **kwargs: started.append(kwargs))
+    monkeypatch.setattr(inventory.session, "spawn", lambda name, *args: started.append(name))
     assert (
-        inventory.ensure_snapshot(force=True, full=False, wait=False, cooldown_seconds=60) is False
+        asyncio.run(
+            inventory.ensure_snapshot(force=True, full=False, wait=False, cooldown_seconds=60)
+        )
+        is False
     )
     assert started == []
     assert not inventory.sync_lock.locked()

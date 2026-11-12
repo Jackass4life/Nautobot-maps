@@ -32,7 +32,7 @@ def site(pg_database, monkeypatch, clock):
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
     monkeypatch.setattr(settings, "ALERT_DELAY_SECONDS", 300)
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     set_devices(core=("Active", LONG_AGO), acc1=("Active", LONG_AGO), acc2=("Active", LONG_AGO))
     build()  # the site's first level is "ok"
     return "loc-lon"
@@ -44,8 +44,8 @@ def set_devices(**devices):
     try:
         with db.transaction(conn):
             adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_completed_at=NOW,
                 last_successful_sync=NOW,

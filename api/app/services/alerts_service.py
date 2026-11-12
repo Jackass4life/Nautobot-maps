@@ -782,7 +782,7 @@ async def enrich_with_librenms(
         if lnms_devices is None:
             lnms_devices = await inventory.read_librenms_devices()
         if not lnms_devices and not snapshot_only:
-            await session.run_sync(inventory.ensure_snapshot)
+            await inventory.ensure_snapshot()
             lnms_devices = await inventory.read_librenms_devices()
         if not lnms_devices and not snapshot_only:
             try:
@@ -942,9 +942,9 @@ async def get_location_devices_and_alert(
         if devices_data:
             use_normalized_devices = True
             if not snapshot_only:
-                await session.run_sync(inventory.ensure_snapshot)
+                await inventory.ensure_snapshot()
         elif not snapshot_only:
-            await session.run_sync(inventory.ensure_snapshot)
+            await inventory.ensure_snapshot()
             devices_data = await inventory.read_devices(location_id)
             if devices_data:
                 use_normalized_devices = True
@@ -1883,7 +1883,7 @@ async def build_alert_board_payload(
         try:
             lnms_devices = await inventory.read_librenms_devices()
             if not lnms_devices and not snapshot_only:
-                await session.run_sync(inventory.ensure_snapshot, force=True, wait=True)
+                await inventory.ensure_snapshot(force=True, wait=True)
                 lnms_devices = await inventory.read_librenms_devices()
             lnms_id_map = await board_store.load_librenms_id_map()
         except Exception as exc:
@@ -2669,17 +2669,17 @@ def board_cache_seconds(payload: dict) -> int:
 
 
 async def _board_build_lock(stored=None):
-    """The build lock (a release function, sync), or None: no database, or still
+    """The build lock (a release coroutine function), or None: no database, or still
     held by another build after BOARD_BUILD_WAIT_SECONDS (then build anyway).
 
     While waiting, *stored* (a function) is asked for the board another
     build stored; once there, that is returned as ``("stored", board)``.
-    The lock is still psycopg's, taken in a thread (#661).
+    Waiting sleeps on the event loop (#661); the lock is asyncpg's (#663).
     """
     deadline = time.monotonic() + BOARD_BUILD_WAIT_SECONDS
     while True:
         try:
-            release = await asyncio.to_thread(db.try_advisory_lock, BOARD_BUILD_LOCK)
+            release = await aconnection.try_advisory_lock(BOARD_BUILD_LOCK)
         except Exception as exc:
             logger.warning("Alert board build lock unavailable: {}", type(exc).__name__)
             return None
@@ -2765,7 +2765,7 @@ async def board(
         return payload
     finally:
         if callable(release):
-            await asyncio.to_thread(release)
+            await release()
 
 
 async def get_alert_board_data(
@@ -2777,8 +2777,7 @@ async def get_alert_board_data(
     if force_refresh:
         # "Sync now": incremental, not a full reconcile (#135).  Deletions are
         # still caught by the scheduled full reconcile.
-        sync_enqueued = await session.run_sync(
-            inventory.ensure_snapshot,
+        sync_enqueued = await inventory.ensure_snapshot(
             force=True,
             full=False,
             wait=False,
@@ -2789,7 +2788,7 @@ async def get_alert_board_data(
         # A sync is due (or none has run yet): start it in the background, so
         # an open board keeps itself up to date (#152).  This request still
         # makes no upstream calls itself.
-        sync_enqueued = await session.run_sync(inventory.ensure_snapshot, wait=False)
+        sync_enqueued = await inventory.ensure_snapshot(wait=False)
     # One read for both: "sync done" never comes with a board built before it (#523).
     snapshot = await inventory.board_snapshot()
     return await apply_alert_board_freshness(

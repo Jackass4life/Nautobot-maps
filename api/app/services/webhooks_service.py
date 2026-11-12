@@ -221,23 +221,23 @@ async def store(conn: aconnection.Connection, events: list[dict]) -> None:
             )
 
 
-def _state_time(source: str, conn) -> datetime | None:
+async def _state_time(source: str, conn: aconnection.Connection) -> datetime | None:
     return timeutil.as_utc_datetime(
-        inventory.get_sync_state(source, conn=conn).get("last_completed_at")
+        (await inventory.sync_state(source, conn)).get("last_completed_at")
     )
 
 
-def pending_rebuild(conn) -> datetime | None:
+async def pending_rebuild(conn: aconnection.Connection) -> datetime | None:
     """When alerts arrived that no board build has taken in yet, else None."""
-    received = _state_time(RECEIVED_STATE, conn)
-    rebuilt = _state_time(REBUILT_STATE, conn)
+    received = await _state_time(RECEIVED_STATE, conn)
+    rebuilt = await _state_time(REBUILT_STATE, conn)
     return received if received is not None and (rebuilt is None or received > rebuilt) else None
 
 
-def mark_rebuilt(conn, received: datetime) -> None:
+async def mark_rebuilt(conn: aconnection.Connection, received: datetime) -> None:
     """A build that started after *received* has taken those alerts in."""
-    with db.transaction(conn):
-        inventory.record_sync_state(
+    async with conn.transaction():
+        await inventory.record_sync_state(
             conn,
             REBUILT_STATE,
             last_completed_at=received.astimezone(UTC).isoformat().replace("+00:00", "Z"),

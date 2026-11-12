@@ -12,6 +12,7 @@ import pytest
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.db import connection as db
+from app.db import session
 from app.services import alerts_service as alerts
 from app.services import metrics_service as metrics
 from app.services import notify_service as notify
@@ -366,38 +367,39 @@ class TestScheduler:
     def test_the_tick_sends_on_the_event_loop(self, channels):
         """From the tick's worker thread, the async sending runs on the loop (#655)."""
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        adb.worker(scheduler.send_notifications)
+        asyncio.run(scheduler.send_notifications())
         assert {row["status"] for row in outbox()} == {"sent"}
 
-    def test_a_rebuild_thread_sends_on_the_apps_loop(self, channels, client):
-        """A push or change rebuild runs in a thread of its own: it reaches the loop the
-        app's lifespan bound (#655)."""
-        import threading
+    def test_a_background_rebuild_sends_on_the_apps_loop(self, channels, client):
+        """A push or change rebuild is a task on the loop the app's lifespan bound (#655,
+        #663), also when started from another thread."""
+        from tests.conftest import join_background_threads
 
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        thread = threading.Thread(target=scheduler.send_notifications)
-        thread.start()
-        thread.join(10)
+        session.spawn(scheduler.PUSH_REBUILD_TASK_NAME, scheduler.send_notifications)
+        assert join_background_threads() == []
         assert {row["status"] for row in outbox()} == {"sent"}
 
     def test_every_tick_sends_even_without_a_sync(self, monkeypatch):
         calls = []
-        monkeypatch.setattr(scheduler.db, "try_advisory_lock", lambda name: lambda: None)
-        monkeypatch.setattr(scheduler, "prune_alert_history_if_due", lambda: None)
-        monkeypatch.setattr(scheduler.inventory, "ensure_snapshot", lambda **kwargs: False)
+        monkeypatch.setattr(scheduler.aconnection, "try_advisory_lock", adb.always_locked)
+        monkeypatch.setattr(scheduler, "prune_alert_history_if_due", adb.async_of(lambda: None))
+        monkeypatch.setattr(
+            scheduler.inventory, "ensure_snapshot", adb.async_of(lambda **kwargs: False)
+        )
 
         async def sent():
             calls.append("sent")
 
         monkeypatch.setattr(scheduler.notify, "send_pending", sent)
-        assert adb.worker(scheduler.tick) is False
+        assert asyncio.run(scheduler.tick()) is False
         assert calls == ["sent"]
 
     def test_sends_before_a_slow_or_failing_sync_and_after_a_rebuild(self, monkeypatch):
         """Copilot on #302: a sync must not hold messages up."""
         calls = []
-        monkeypatch.setattr(scheduler.db, "try_advisory_lock", lambda name: lambda: None)
-        monkeypatch.setattr(scheduler, "prune_alert_history_if_due", lambda: None)
+        monkeypatch.setattr(scheduler.aconnection, "try_advisory_lock", adb.always_locked)
+        monkeypatch.setattr(scheduler, "prune_alert_history_if_due", adb.async_of(lambda: None))
 
         async def send():
             calls.append("send")
@@ -408,21 +410,23 @@ class TestScheduler:
             calls.append("sync")
             raise RuntimeError("Nautobot down")
 
-        monkeypatch.setattr(scheduler.inventory, "ensure_snapshot", failing_sync)
+        monkeypatch.setattr(scheduler.inventory, "ensure_snapshot", adb.async_of(failing_sync))
         with pytest.raises(RuntimeError):
-            adb.worker(scheduler.tick)
+            asyncio.run(scheduler.tick())
         assert calls == ["send", "sync"]
 
         calls.clear()
         monkeypatch.setattr(
-            scheduler.inventory, "ensure_snapshot", lambda **kwargs: calls.append("sync") or True
+            scheduler.inventory,
+            "ensure_snapshot",
+            adb.async_of(lambda **kwargs: calls.append("sync") or True),
         )
         monkeypatch.setattr(
             scheduler.alerts,
             "build_alert_board_payload",
             adb.async_of(lambda **kwargs: calls.append("build") or {}),
         )
-        assert adb.worker(scheduler.tick) is True
+        assert asyncio.run(scheduler.tick()) is True
         assert calls == ["send", "sync", "build", "send"]
 
     def test_a_sending_error_does_not_stop_the_tick(self, monkeypatch, caplog):
@@ -431,7 +435,7 @@ class TestScheduler:
 
         monkeypatch.setattr(scheduler.notify, "send_pending", failing)
         caplog.set_level(logging.WARNING)
-        adb.worker(scheduler.send_notifications)
+        asyncio.run(scheduler.send_notifications())
         assert "Sending notifications failed" in caplog.text
 
 

@@ -8,6 +8,7 @@ import pytest
 
 from app.clients import caching, librenms
 from app.core.legacy_settings import settings
+from app.db import aconnection, session
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -49,7 +50,7 @@ def lnms(pg_database, monkeypatch):
     monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
     monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "lnms-secret")
     monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", False)
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     fake = FakeLibreNMS()
     monkeypatch.setattr(librenms, "get", fake.get)
     rebuilds = []
@@ -70,8 +71,8 @@ def lnms(pg_database, monkeypatch):
                 ],
             )
             adb.call(inventory.write_librenms_devices, list(fake.devices.values()))
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_completed_at="2026-10-09T12:00:00Z",
                 last_successful_sync="2026-10-09T12:00:00Z",
@@ -326,11 +327,11 @@ class TestRebuild:
             "/api/v1/librenms/alert", json={"device_id": 1001}, headers=operator_token()
         )
         built = []
-        monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
-        monkeypatch.setattr(scheduler, "rebuild_board", lambda: built.append(True))
-        assert adb.worker(scheduler.tick) is True and built == [True]
+        monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
+        monkeypatch.setattr(scheduler, "rebuild_board", adb.async_of(lambda: built.append(True)))
+        assert asyncio.run(scheduler.tick()) is True and built == [True]
         assert not pending()
-        assert adb.worker(scheduler.tick) is False and built == [True], (
+        assert asyncio.run(scheduler.tick()) is False and built == [True], (
             "nothing pending: no rebuild"
         )
 
@@ -344,20 +345,20 @@ class TestRebuild:
         def broken():
             raise RuntimeError("board build failed")
 
-        monkeypatch.setattr(scheduler, "rebuild_board", broken)
+        monkeypatch.setattr(scheduler, "rebuild_board", adb.async_of(broken))
         with pytest.raises(RuntimeError):
-            adb.worker(scheduler.tick)
+            asyncio.run(scheduler.tick())
         assert pending()
 
     def test_a_push_during_the_rebuild_stays_pending(self, flask_client, lnms, monkeypatch):
         auth_headers = operator_token()
         flask_client.post("/api/v1/librenms/alert", json={"device_id": 1001}, headers=auth_headers)
 
-        def rebuild_while_another_push_comes():
-            asyncio.run(inventory.librenms_push_refresh("1002"))
+        async def rebuild_while_another_push_comes():
+            await inventory.librenms_push_refresh("1002")
 
         monkeypatch.setattr(scheduler, "rebuild_board", rebuild_while_another_push_comes)
-        assert adb.worker(scheduler.tick) is True
+        assert asyncio.run(scheduler.tick()) is True
         conn = db.get_conn()
         try:
             rows = conn.execute(
@@ -369,16 +370,9 @@ class TestRebuild:
 
     def test_rebuild_after_push_builds_and_stores_the_board(self, lnms, monkeypatch):
         monkeypatch.setattr(scheduler, "rebuild_after_push", REAL_REBUILD_AFTER_PUSH)
-        monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
+        monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
 
-        class InlineThread:
-            def __init__(self, target, **kwargs):
-                self.target = target
-
-            def start(self):
-                self.target()
-
-        monkeypatch.setattr(scheduler.threading, "Thread", InlineThread)
+        monkeypatch.setattr(session, "spawn", adb.spawn_inline)
         conn = db.get_conn()
         try:
             with db.transaction(conn):
@@ -396,18 +390,11 @@ class TestRebuild:
 
     def test_another_process_holding_the_lock_leaves_it_to_the_tick(self, lnms, monkeypatch):
         monkeypatch.setattr(scheduler, "rebuild_after_push", REAL_REBUILD_AFTER_PUSH)
-        monkeypatch.setattr(db, "try_advisory_lock", lambda name: False)
+        monkeypatch.setattr(aconnection, "try_advisory_lock", adb.async_of(lambda name: False))
         ran = []
-        monkeypatch.setattr(scheduler, "rebuild_board", lambda: ran.append(True))
+        monkeypatch.setattr(scheduler, "rebuild_board", adb.async_of(lambda: ran.append(True)))
 
-        class InlineThread:
-            def __init__(self, target, **kwargs):
-                self.target = target
-
-            def start(self):
-                self.target()
-
-        monkeypatch.setattr(scheduler.threading, "Thread", InlineThread)
+        monkeypatch.setattr(session, "spawn", adb.spawn_inline)
         scheduler.rebuild_after_push()
         assert ran == []
 

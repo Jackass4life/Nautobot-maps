@@ -388,7 +388,7 @@ def persisted_integration_client(integration_client, pg_database, monkeypatch):
     """Integration flask_client with PostgreSQL persistence and a synced inventory snapshot."""
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
     monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-    assert inventory.ensure_snapshot(force=True, wait=True)
+    assert asyncio.run(inventory.ensure_snapshot(force=True, wait=True))
     return integration_client
 
 

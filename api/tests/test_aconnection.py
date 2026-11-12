@@ -141,3 +141,87 @@ def test_connections_are_given_back():
 async def _links(conn):
     rows = (await conn.execute("SELECT tenant_key, link_id FROM status_links")).fetchall()
     return {row["tenant_key"]: row["link_id"] for row in rows}
+
+
+class TestAdvisoryLock:
+    """``try_advisory_lock`` (#663): the scheduler's, the syncs' and the board build's."""
+
+    def test_held_until_released_and_exclusive_meanwhile(self, pg_database):
+        async def go() -> tuple:
+            release = await aconnection.try_advisory_lock("a-test-lock")
+            other = await aconnection.try_advisory_lock("a-test-lock")
+            await release()
+            again = await aconnection.try_advisory_lock("a-test-lock")
+            await again()
+            return release, other, again
+
+        release, other, again = asyncio.run(go())
+        assert callable(release) and other is False and callable(again)
+
+    def test_excludes_the_psycopg_lock_of_the_same_name(self, pg_database):
+        """A worker of the previous version (psycopg) and this one never both hold it."""
+        from app.db import connection as db
+
+        held = db.try_advisory_lock("a-test-lock")
+        try:
+            assert asyncio.run(aconnection.try_advisory_lock("a-test-lock")) is False
+        finally:
+            held()
+
+        async def go() -> bool:
+            release = await aconnection.try_advisory_lock("a-test-lock")
+            try:
+                return db.try_advisory_lock("a-test-lock")
+            finally:
+                await release()
+
+        assert asyncio.run(go()) is False
+
+    def test_a_failed_unlock_closes_the_connection_and_so_the_lock(self, pg_database, monkeypatch):
+        """No pooled connection is left holding the lock: when the unlock fails (a
+        cancelled shutdown, a lost connection), the connection is closed instead. On a
+        real pool (the tests' own closes every connection anyway); another session
+        (psycopg's) then gets the lock."""
+        from app.db import connection as db
+        from app.db import session
+
+        real = aconnection.Connection.execute
+
+        async def execute(self, sql, params=None):  # type: ignore[no-untyped-def]
+            if "pg_advisory_unlock" in sql:
+                raise asyncio.CancelledError
+            return await real(self, sql, params)
+
+        async def go() -> object:
+            pooled = session.make_async_engine(pool_size=1, max_overflow=0)
+            monkeypatch.setattr(session, "async_engine", pooled)
+            try:
+                release = await aconnection.try_advisory_lock("a-test-lock")
+                monkeypatch.setattr(aconnection.Connection, "execute", execute)
+                with pytest.raises(asyncio.CancelledError):
+                    await release()
+                monkeypatch.setattr(aconnection.Connection, "execute", real)
+                other = await asyncio.to_thread(db.try_advisory_lock, "a-test-lock")
+                if callable(other):
+                    await asyncio.to_thread(other)
+                return other
+            finally:
+                await pooled.dispose()
+
+        assert callable(asyncio.run(go())), "the lock ended with its connection"
+
+    def test_no_database_raises(self, monkeypatch):
+        """As the psycopg lock: the callers log it (the board builds without it)."""
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        from app.db import session
+
+        unreachable = create_async_engine(
+            "postgresql+asyncpg://x:y@127.0.0.1:1/none",
+            poolclass=NullPool,
+            connect_args={"timeout": 1},
+        )
+        monkeypatch.setattr(session, "async_engine", unreachable)
+        with pytest.raises(OSError):
+            asyncio.run(aconnection.try_advisory_lock("a-test-lock"))

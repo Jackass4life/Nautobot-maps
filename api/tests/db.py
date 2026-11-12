@@ -5,9 +5,6 @@ import inspect
 from contextlib import asynccontextmanager
 from unittest.mock import patch
 
-import anyio
-import anyio.to_thread
-
 from app.db import aconnection, session
 
 
@@ -47,10 +44,19 @@ def items(generator):  # type: ignore[no-untyped-def]
     return asyncio.run(go())
 
 
-def worker(function, *args):  # type: ignore[no-untyped-def]
-    """``function(*args)`` in an anyio worker thread of an event loop, as the scheduler
-    runs its tick (#655): sync code that reaches the loop with ``session.from_sync``."""
-    return anyio.run(lambda: anyio.to_thread.run_sync(lambda: function(*args)))
+def spawn_inline(_name: str, function, *args) -> None:  # type: ignore[no-untyped-def]
+    """``session.spawn``'s stand-in (#663): the background task run to its end now, from
+    a test's own thread."""
+    asyncio.run(function(*args))
+
+
+async def always_locked(_name: str):  # type: ignore[no-untyped-def]
+    """``aconnection.try_advisory_lock``'s stand-in: this process always gets the lock."""
+
+    async def release() -> None:
+        pass
+
+    return release
 
 
 def async_of(function):  # type: ignore[no-untyped-def]

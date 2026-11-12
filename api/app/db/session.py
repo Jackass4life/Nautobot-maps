@@ -2,12 +2,15 @@
 `app.db.middleware.DbSessionMiddleware`; routes get it through the `AsyncDbSession`
 dependency, other code through `current()`.
 
-The async engine is asyncpg (#643). The sync `engine` (psycopg) is for the code not
-async yet: the data contract's checks, written by the syncs' threads.
+The async engine is asyncpg (#643). The sync `engine` (psycopg) is left for
+`app.db.connection` and the tests until psycopg goes (#664). `spawn` runs background
+work (syncs, rebuilds) as tasks on the app's loop (#663).
 """
 
+import asyncio
 import functools
 import shlex
+import threading
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
@@ -16,6 +19,7 @@ import anyio.from_thread
 import anyio.lowlevel
 import anyio.to_thread
 from fastapi import Depends
+from loguru import logger
 from sqlalchemy import URL, create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -167,3 +171,81 @@ async def run_sync[T](function: Callable[..., T], *args: object, **kwargs: objec
     that blocks (an upstream call, a sync waited for) off the event loop, and still able to
     reach this loop with `from_sync`."""
     return await anyio.to_thread.run_sync(functools.partial(function, *args, **kwargs))
+
+
+# Background work started with `spawn` (#663): kept here until done, so it isn't
+# collected mid-run and tests can wait for it.
+_background: set[asyncio.Task] = set()
+_background_lock = threading.Lock()
+SPAWN_START_TIMEOUT_SECONDS = 5
+
+
+def _app_loop() -> asyncio.AbstractEventLoop:
+    """The loop `bind_loop` bound, else the running one."""
+    if _loop_token is not None:
+        return _loop_token.native_token
+    return asyncio.get_running_loop()
+
+
+def spawn(name: str, function: Callable[..., Awaitable[object]], *args: object) -> None:
+    """``await function(*args)`` as a task named *name* on the app's event loop, from
+    async code or any thread: the background syncs and rebuilds (#663), as their threads
+    did before. A failure is logged, never raised."""
+    loop = _app_loop()
+
+    async def run() -> None:
+        try:
+            await function(*args)
+        except Exception as exc:  # noqa: BLE001 - logged, the task ends
+            logger.opt(exception=True).warning("Background task {} failed: {}", name, exc)
+
+    def start() -> None:
+        task = loop.create_task(run(), name=name)
+        with _background_lock:
+            _background.add(task)
+        task.add_done_callback(_forget)
+
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is loop:
+        start()
+        return
+    # From another thread: started (and so listed by `background_tasks`) on return.
+    started = threading.Event()
+
+    def start_there() -> None:
+        try:
+            start()
+        finally:
+            started.set()
+
+    loop.call_soon_threadsafe(start_there)
+    started.wait(SPAWN_START_TIMEOUT_SECONDS)
+
+
+def _forget(task: asyncio.Task) -> None:
+    with _background_lock:
+        _background.discard(task)
+
+
+def background_tasks(names: set[str] | None = None) -> list[asyncio.Task]:
+    """The tasks `spawn` started that are still running (with *names*: those)."""
+    with _background_lock:
+        tasks = list(_background)
+    return [t for t in tasks if not t.done() and (names is None or t.get_name() in names)]
+
+
+async def finish_background(timeout: float) -> None:
+    """At shutdown: this loop's background tasks get *timeout* seconds to finish, then
+    are cancelled (a rebuild's transaction rolls back)."""
+    loop = asyncio.get_running_loop()
+    tasks = [task for task in background_tasks() if task.get_loop() is loop]
+    if not tasks:
+        return
+    _, pending = await asyncio.wait(tasks, timeout=timeout)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.wait(pending, timeout=1)

@@ -12,9 +12,12 @@ warning, not an error: the sync goes on with what it can use.
 switchover; a test keeps this one rendering the same.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 
+import anyio
 from loguru import logger
+from sqlalchemy.pool import NullPool
 
 from app.db import aconnection, session
 from app.repositories import contract_repository
@@ -795,12 +798,34 @@ def check_and_record(source: str, path: str, records: list, incremental: bool = 
     return result
 
 
-def _store(source: str, path: str, result: dict) -> None:
+async def store(
+    source: str, path: str, result: dict, conn: aconnection.Connection | None = None
+) -> None:
+    """Store *result* as *path*'s last check (#663: on the async connection)."""
+    async with aconnection.using(conn) as conn, conn.transaction():
+        previous = await contract_repository.replace(conn, source, path, result)
+    if previous and not result["mismatches"]:
+        logger.info("Data contract: {} {} matches again", source, path)
+
+
+async def _store_without_the_app(source: str, path: str, result: dict) -> None:
+    """`store` from code no app loop is reachable from (the CLI's wireless-check): a
+    connection of its own, on this call's own loop."""
+    engine = session.make_async_engine(poolclass=NullPool)
     try:
-        with session.engine.begin() as conn:
-            previous = contract_repository.replace(conn, source, path, result)
-        if previous and not result["mismatches"]:
-            logger.info("Data contract: {} {} matches again", source, path)
+        async with aconnection.connect(engine) as conn:
+            await store(source, path, result, conn)
+    finally:
+        await engine.dispose()
+
+
+def _store(source: str, path: str, result: dict) -> None:
+    """From the syncs' threads, which reach the app's loop (`session.from_sync`)."""
+    try:
+        try:
+            session.from_sync(store, source, path, result)
+        except anyio.NoEventLoopError:
+            asyncio.run(_store_without_the_app(source, path, result))
     except Exception as exc:  # noqa: BLE001 - never stops a sync
         logger.warning("Could not store the data contract check for {} {}: {}", source, path, exc)
 

@@ -360,8 +360,8 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:00:00Z",
@@ -440,7 +440,7 @@ class TestInventoryCacheSync:
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot(force=True))
-            first_state = inventory.get_sync_state("nautobot_inventory")
+            first_state = asyncio.run(inventory.sync_state("nautobot_inventory"))
             asyncio.run(inventory.sync_nautobot())
 
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
@@ -456,8 +456,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -466,8 +466,8 @@ class TestInventoryCacheSync:
                     status="idle",
                     error_message="",
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory_reconcile",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2099-01-01T00:00:00Z",
@@ -527,7 +527,7 @@ class TestInventoryCacheSync:
         ):
             asyncio.run(inventory.sync_nautobot())
 
-        state = inventory.get_sync_state("nautobot_inventory")
+        state = asyncio.run(inventory.sync_state("nautobot_inventory"))
         assert state["last_successful_sync"] == "2026-01-01T00:05:00Z"
 
     def test_sync_nautobot_inventory_full_reconciles_when_cache_version_changes(self):
@@ -577,8 +577,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -604,8 +604,8 @@ class TestInventoryCacheSync:
         ):
             asyncio.run(inventory.sync_nautobot())
 
-        state = inventory.get_sync_state("nautobot_inventory")
-        reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
+        state = asyncio.run(inventory.sync_state("nautobot_inventory"))
+        reconcile_state = asyncio.run(inventory.sync_state("nautobot_inventory_reconcile"))
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
@@ -620,8 +620,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -639,7 +639,7 @@ class TestInventoryCacheSync:
             patch.object(inventory, "sync_due", return_value=False),
             patch.object(inventory, "sync_nautobot") as sync_nautobot,
         ):
-            assert inventory.ensure_snapshot(wait=True) is True
+            assert asyncio.run(inventory.ensure_snapshot(wait=True)) is True
 
         sync_nautobot.assert_called_once_with(force=False)
 
@@ -690,8 +690,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -717,8 +717,8 @@ class TestInventoryCacheSync:
         ):
             asyncio.run(inventory.sync_nautobot())
 
-        state = inventory.get_sync_state("nautobot_inventory")
-        reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
+        state = asyncio.run(inventory.sync_state("nautobot_inventory"))
+        reconcile_state = asyncio.run(inventory.sync_state("nautobot_inventory_reconcile"))
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
@@ -939,12 +939,12 @@ class TestRefreshIsIncremental:
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            inventory.ensure_snapshot(wait=True, **ensure_kwargs)
+            asyncio.run(inventory.ensure_snapshot(wait=True, **ensure_kwargs))
         return [params for endpoint, params in calls if endpoint == "dcim/locations/"]
 
     def test_sync_now_only_fetches_changes_since_last_sync(self):
         self._location_queries(force=True)  # first sync: full, sets the watermark
-        watermark = inventory.get_sync_state("nautobot_inventory")["last_successful_sync"]
+        watermark = asyncio.run(inventory.sync_state("nautobot_inventory"))["last_successful_sync"]
         queries = self._location_queries(force=True, full=False)
         assert queries == [{"last_updated__gte": watermark}]
 
@@ -1108,7 +1108,9 @@ class TestTenantDescriptions:
             return fetch(endpoint, params, **kwargs)
 
         monkeypatch.setattr(inventory, "read_locations", adb.async_of(lambda **kwargs: []))
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
+        )
         monkeypatch.setattr(nautobot, "fetch_all_pages", live)
         by_name = {loc["name"]: loc for loc in asyncio.run(inventory.get_locations())}
         assert by_name["London"]["tenant_descriptions"] == {"Acme Corp": "Bank, 24/7 SLA"}
