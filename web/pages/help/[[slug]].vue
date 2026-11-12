@@ -28,7 +28,11 @@ async function showAnchor() {
 // Guides already read, so going back and forth shows them at once.
 const loaded = new Map<string, HelpPage>();
 async function fetchGuide(name: string): Promise<HelpPage> {
-  const found = loaded.get(name) ?? ((await unwrap(useNuxtApp().$api.GET("/api/v1/help/{slug}", { params: { path: { slug: name } } }))) as HelpPage);
+  const found =
+    loaded.get(name) ??
+    ((await unwrap(
+      useNuxtApp().$api.GET("/api/v1/help/{slug}", { params: { path: { slug: name } } }),
+    )) as HelpPage);
   loaded.set(name, found);
   return found;
 }
@@ -57,7 +61,15 @@ watch(slug, load, { immediate: true });
 // A link to another guide opens it here, without a reload; a link to a
 // heading on this page only scrolls.
 function onClick(event: MouseEvent) {
-  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  )
+    return;
   const link = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[href]");
   if (!link || link.target) return;
   const url = new URL(link.href, window.location.href);
@@ -79,10 +91,22 @@ function onClick(event: MouseEvent) {
 <template>
   <div>
     <AppBar active="help" />
-    <div class="help-shell mx-auto grid max-w-6xl grid-cols-1 items-start gap-6 px-4 py-6 md:grid-cols-[220px_minmax(0,1fr)]">
-      <details id="help-nav" class="help-nav group rounded-lg border border-default md:sticky md:top-16 md:border-0" :open="listOpen" @toggle="listOpen = ($event.target as HTMLDetailsElement).open">
-        <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-semibold md:hidden">
-          <UIcon name="i-lucide-chevron-right" class="size-4 text-muted transition-transform group-open:rotate-90" />
+    <div
+      class="help-shell mx-auto grid max-w-6xl grid-cols-1 items-start gap-6 px-4 py-6 md:grid-cols-[220px_minmax(0,1fr)]"
+    >
+      <details
+        id="help-nav"
+        class="help-nav group rounded-lg border border-default md:sticky md:top-16 md:border-0"
+        :open="listOpen"
+        @toggle="listOpen = ($event.target as HTMLDetailsElement).open"
+      >
+        <summary
+          class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-semibold md:hidden"
+        >
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="size-4 text-muted transition-transform group-open:rotate-90"
+          />
           Guides
         </summary>
         <nav aria-label="Guides" class="px-1.5 pb-2 md:p-0">
@@ -91,16 +115,28 @@ function onClick(event: MouseEvent) {
               <NuxtLink
                 :to="item.href"
                 class="block rounded-md px-3 py-1.5 text-sm"
-                :class="item.slug === slug ? 'bg-elevated font-semibold text-primary' : 'text-muted hover:bg-elevated/60 hover:text-highlighted'"
+                :class="
+                  item.slug === slug
+                    ? 'bg-elevated font-semibold text-primary'
+                    : 'text-muted hover:bg-elevated/60 hover:text-highlighted'
+                "
                 :aria-current="item.slug === slug ? 'page' : undefined"
-              >{{ item.title }}</NuxtLink>
+                >{{ item.title }}</NuxtLink
+              >
             </li>
           </ul>
         </nav>
       </details>
       <p v-if="error" class="text-sm text-error" role="alert">{{ error }}</p>
-      <!-- eslint-disable-next-line vue/no-v-html -- the server's HTML from our own Markdown, no raw HTML (guide.py) -->
-      <article v-else-if="page" ref="article" class="help-doc rounded-lg border border-default bg-default px-5 pt-2 pb-10 sm:px-10" @click="onClick" v-html="page.html" />
+      <!-- eslint-disable vue/no-v-html -- the server's HTML from our own Markdown, no raw HTML (guide.py) -->
+      <article
+        v-else-if="page"
+        ref="article"
+        class="help-doc rounded-lg border border-default bg-default px-5 pt-2 pb-10 sm:px-10"
+        @click="onClick"
+        v-html="page.html"
+      />
+      <!-- eslint-enable vue/no-v-html -->
     </div>
   </div>
 </template>
