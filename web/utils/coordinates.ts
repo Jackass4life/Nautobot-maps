@@ -10,7 +10,8 @@ export const COORDINATE_LIST_LIMIT = 50;
 export const COORDINATE_REFRESH_MS = 15 * 60 * 1000;
 
 const WRONG = new Set(["invalid", "zero", "swapped"]);
-const sites = (n: number, one: string, many: string) => `${n} site${n === 1 ? "" : "s"} ${n === 1 ? one : many}`;
+const sites = (n: number, one: string, many: string) =>
+  `${n} site${n === 1 ? "" : "s"} ${n === 1 ? one : many}`;
 
 // "12 sites aren't on the map · 2 have wrong coordinates", or "" when all is
 // well.  "Far" is a hint, not an error (#416): said only when nothing is wrong.
@@ -27,7 +28,8 @@ export function coordinateSummary(problems: Pick<CoordinateProblem, "problem">[]
         : sites(wrong, "has wrong coordinates", "have wrong coordinates"),
     );
   }
-  if (!parts.length && far) parts.push(sites(far, "is far from the others", "are far from the others"));
+  if (!parts.length && far)
+    parts.push(sites(far, "is far from the others", "are far from the others"));
   return parts.join(" · ");
 }
 

@@ -45,7 +45,11 @@ describe("tokens", () => {
     expect(long.length).toBe(100);
     expect(statusTokenName("x".repeat(300), now, randomSuffix()).length).toBe(100);
     expect(randomSuffix()).toMatch(/^[a-z0-9]{5}$/);
-    for (const name of [statusTokenName("Nord A/S", now), statusTokenName("Ørsted (DK)", now, randomSuffix()), long]) {
+    for (const name of [
+      statusTokenName("Nord A/S", now),
+      statusTokenName("Ørsted (DK)", now, randomSuffix()),
+      long,
+    ]) {
       expect(validName(name)).toBe(true);
     }
     expect(validName(" ")).toBe(false);
@@ -83,29 +87,55 @@ describe("sharing a status page", () => {
     expect(shareUrl("https://maps.example.com", "/status/abc", "nmt_x")).toBe(
       "https://maps.example.com/status/abc#key=nmt_x",
     );
-    expect(shareUrl("https://maps.example.com", "/status/abc", "")).toBe("https://maps.example.com/status/abc");
+    expect(shareUrl("https://maps.example.com", "/status/abc", "")).toBe(
+      "https://maps.example.com/status/abc",
+    );
   });
 });
 
 describe("checks", () => {
-  const base = { controller: "Catalyst Center dk", kind: "catalyst_center" as const, url: "https://dnac" };
+  const base = {
+    controller: "Catalyst Center dk",
+    kind: "catalyst_center" as const,
+    url: "https://dnac",
+  };
   it("a wireless controller in a line", () => {
     expect(
-      wirelessLine({ ...base, reachable: true, signed_in: true, access_points: 4210, down: 12, matched: 4198 }),
+      wirelessLine({
+        ...base,
+        reachable: true,
+        signed_in: true,
+        access_points: 4210,
+        down: 12,
+        matched: 4198,
+      }),
     ).toBe("4,210 access points, 12 down, 4,198 match a Nautobot device");
-    expect(wirelessLine({ ...base, reachable: false, signed_in: false, error: "can't connect" })).toBe(
-      "Can't reach it: can't connect",
-    );
-    expect(wirelessLine({ ...base, reachable: true, signed_in: false, error: "the account was refused" })).toBe(
-      "Signed in: no: the account was refused",
-    );
-    expect(wirelessLine({ ...base, reachable: true, signed_in: null, error: "answered HTTP 500" })).toBe(
-      "Can't read it: answered HTTP 500",
-    );
+    expect(
+      wirelessLine({ ...base, reachable: false, signed_in: false, error: "can't connect" }),
+    ).toBe("Can't reach it: can't connect");
+    expect(
+      wirelessLine({
+        ...base,
+        reachable: true,
+        signed_in: false,
+        error: "the account was refused",
+      }),
+    ).toBe("Signed in: no: the account was refused");
+    expect(
+      wirelessLine({ ...base, reachable: true, signed_in: null, error: "answered HTTP 500" }),
+    ).toBe("Can't read it: answered HTTP 500");
   });
 
   it("a test notification per channel", () => {
-    expect(channelLine("teams", "ok")).toEqual({ channel: "Microsoft Teams", ok: true, text: "Sent" });
-    expect(channelLine("email", "error: refused")).toEqual({ channel: "Email", ok: false, text: "error: refused" });
+    expect(channelLine("teams", "ok")).toEqual({
+      channel: "Microsoft Teams",
+      ok: true,
+      text: "Sent",
+    });
+    expect(channelLine("email", "error: refused")).toEqual({
+      channel: "Email",
+      ok: false,
+      text: "error: refused",
+    });
   });
 });

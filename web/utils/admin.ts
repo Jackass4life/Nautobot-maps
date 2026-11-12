@@ -79,7 +79,9 @@ export function tokenMatches(token: Token, query: string): boolean {
   const words = searchWords(query);
   if (!words.length) return true;
   return hasAllWords(
-    [token.name, token.role, token.tenant || "", token.prefix, token.created_by].join(" ").toLowerCase(),
+    [token.name, token.role, token.tenant || "", token.prefix, token.created_by]
+      .join(" ")
+      .toLowerCase(),
     words,
   );
 }
@@ -100,7 +102,11 @@ export function purgedText(count: number, dryRun = false): string {
 // 4,198 match a Nautobot device", or why it can't be read.
 export function wirelessLine(result: WirelessControllerCheck): string {
   if (result.error) {
-    const where = !result.reachable ? "Can't reach it" : result.signed_in === false ? "Signed in: no" : "Can't read it";
+    const where = !result.reachable
+      ? "Can't reach it"
+      : result.signed_in === false
+        ? "Signed in: no"
+        : "Can't read it";
     return `${where}: ${result.error}`;
   }
   const n = (value: number | null | undefined) => (value ?? 0).toLocaleString("en");
@@ -108,7 +114,18 @@ export function wirelessLine(result: WirelessControllerCheck): string {
 }
 
 // A channel's test result: "ok", or the error the API says.
-export function channelLine(channel: string, result: string): { channel: string; ok: boolean; text: string } {
-  const names: Record<string, string> = { webhook: "Webhook", teams: "Microsoft Teams", email: "Email" };
-  return { channel: names[channel] || channel, ok: result === "ok", text: result === "ok" ? "Sent" : result };
+export function channelLine(
+  channel: string,
+  result: string,
+): { channel: string; ok: boolean; text: string } {
+  const names: Record<string, string> = {
+    webhook: "Webhook",
+    teams: "Microsoft Teams",
+    email: "Email",
+  };
+  return {
+    channel: names[channel] || channel,
+    ok: result === "ok",
+    text: result === "ok" ? "Sent" : result,
+  };
 }

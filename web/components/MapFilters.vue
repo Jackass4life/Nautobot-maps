@@ -6,36 +6,58 @@ import { FILTERS, type Criteria, type FilterField } from "~/utils/map";
 import { CHOICE_SEARCH_FIELDS, choiceItems } from "~/utils/tenants";
 
 const criteria = defineModel<Criteria>({ required: true });
-const props = defineProps<{ choices: Criteria; count: string; descriptions: Record<string, string> }>();
+const props = defineProps<{
+  choices: Criteria;
+  count: string;
+  descriptions: Record<string, string>;
+}>();
 const emit = defineEmits<{ clear: [] }>();
 
 const open = ref(false);
 const chips = computed(() =>
-  FILTERS.flatMap(({ field, label }) => criteria.value[field].map((value) => ({ field, label, value }))),
+  FILTERS.flatMap(({ field, label }) =>
+    criteria.value[field].map((value) => ({ field, label, value })),
+  ),
 );
 // The common statuses as buttons (#311), only when some site has them and there is a choice.
 const QUICK = ["Active", "Planned"];
 const quickStatuses = computed(() =>
-  props.choices.status.length < 2 ? [] : ["", ...QUICK.filter((status) => props.choices.status.includes(status))],
+  props.choices.status.length < 2
+    ? []
+    : ["", ...QUICK.filter((status) => props.choices.status.includes(status))],
 );
 // A filter with fewer than two choices is no choice.
 const shown = computed(() => FILTERS.filter(({ field }) => props.choices[field].length >= 2));
 // A tenant is found by its description too (#497).
-const items = computed(() =>
-  Object.fromEntries(
-    FILTERS.map(({ field }) => [field, choiceItems(props.choices[field], field === "tenant" ? props.descriptions : {})]),
-  ) as Record<FilterField, ReturnType<typeof choiceItems>>,
+const items = computed(
+  () =>
+    Object.fromEntries(
+      FILTERS.map(({ field }) => [
+        field,
+        choiceItems(props.choices[field], field === "tenant" ? props.descriptions : {}),
+      ]),
+    ) as Record<FilterField, ReturnType<typeof choiceItems>>,
 );
 
 function set(field: FilterField, values: string[]) {
   criteria.value = { ...criteria.value, [field]: values };
 }
 function remove(field: FilterField, value: string) {
-  set(field, criteria.value[field].filter((other) => other !== value));
+  set(
+    field,
+    criteria.value[field].filter((other) => other !== value),
+  );
 }
 function quick(status: string) {
   const selected = criteria.value.status;
-  set("status", !status ? [] : selected.includes(status) ? selected.filter((v) => v !== status) : [...selected, status]);
+  set(
+    "status",
+    !status
+      ? []
+      : selected.includes(status)
+        ? selected.filter((v) => v !== status)
+        : [...selected, status],
+  );
 }
 function quickActive(status: string) {
   return status ? criteria.value.status.includes(status) : !criteria.value.status.length;
@@ -53,7 +75,13 @@ function shortLabel(values: string[], all: string) {
 
 <template>
   <div id="sidebar-footer" class="space-y-2 border-t border-default pt-3">
-    <div v-if="chips.length" id="filter-chips" class="filter-chips flex flex-wrap gap-1" role="group" aria-label="Active filters">
+    <div
+      v-if="chips.length"
+      id="filter-chips"
+      class="filter-chips flex flex-wrap gap-1"
+      role="group"
+      aria-label="Active filters"
+    >
       <UButton
         v-for="chip in chips"
         :key="chip.field + chip.value"
@@ -64,7 +92,8 @@ function shortLabel(values: string[], all: string) {
         trailing-icon="i-lucide-x"
         :aria-label="`Remove filter ${chip.label}: ${chip.value}`"
         @click="remove(chip.field, chip.value)"
-      >{{ chip.value }}</UButton>
+        >{{ chip.value }}</UButton
+      >
     </div>
     <div class="footer-row flex items-center justify-between gap-2">
       <UButton
@@ -77,11 +106,21 @@ function shortLabel(values: string[], all: string) {
         :aria-expanded="open ? 'true' : 'false'"
         aria-controls="filter-section"
         @click="open = !open"
-      ><span>Filters<span v-if="chips.length" id="filter-count" class="filter-count"> · {{ chips.length }}</span></span></UButton>
+        ><span
+          >Filters<span v-if="chips.length" id="filter-count" class="filter-count">
+            · {{ chips.length }}</span
+          ></span
+        ></UButton
+      >
       <span id="location-count" class="text-sm text-muted">{{ count }}</span>
     </div>
     <div v-show="open" id="filter-section" class="space-y-2">
-      <div v-if="quickStatuses.length" class="quick-filters flex gap-1" role="group" aria-label="Status">
+      <div
+        v-if="quickStatuses.length"
+        class="quick-filters flex gap-1"
+        role="group"
+        aria-label="Status"
+      >
         <UButton
           v-for="status in quickStatuses"
           :key="status"
@@ -93,7 +132,8 @@ function shortLabel(values: string[], all: string) {
           :variant="quickActive(status) ? 'soft' : 'outline'"
           :aria-pressed="quickActive(status) ? 'true' : 'false'"
           @click="quick(status)"
-        >{{ status || "All" }}</UButton>
+          >{{ status || "All" }}</UButton
+        >
       </div>
       <USelectMenu
         v-for="filter in shown"
@@ -109,11 +149,17 @@ function shortLabel(values: string[], all: string) {
         class="w-full"
         @update:model-value="set(filter.field, $event as string[])"
       >
-        <span class="truncate" :class="{ 'text-dimmed': !criteria[filter.field].length }" :title="criteria[filter.field].join(', ')">
+        <span
+          class="truncate"
+          :class="{ 'text-dimmed': !criteria[filter.field].length }"
+          :title="criteria[filter.field].join(', ')"
+        >
           {{ shortLabel(criteria[filter.field], filter.all) }}
         </span>
       </USelectMenu>
-      <UButton id="clear-filters" size="sm" color="neutral" variant="outline" @click="emit('clear')">Clear filters</UButton>
+      <UButton id="clear-filters" size="sm" color="neutral" variant="outline" @click="emit('clear')"
+        >Clear filters</UButton
+      >
     </div>
     <slot />
   </div>

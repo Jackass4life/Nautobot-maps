@@ -30,15 +30,20 @@ export function statusLine(
   const down = isAlarm(level) || level === "wireless";
   let what = "";
   if (down && monitored !== null) what = `${counts?.down || 0} of ${monitored} down`;
-  else if (level === "ok" && monitored !== null) what = `${monitored} device${monitored === 1 ? "" : "s"}`;
+  else if (level === "ok" && monitored !== null)
+    what = `${monitored} device${monitored === 1 ? "" : "s"}`;
   else if (level === "no_data") what = "no monitored devices";
-  const text = [LEVEL_NAMES[level], what, down && since ? `since ${since}` : ""].filter(Boolean).join(" · ");
+  const text = [LEVEL_NAMES[level], what, down && since ? `since ${since}` : ""]
+    .filter(Boolean)
+    .join(" · ");
   const reason = down || level === "maintenance" ? alert?.reason || "" : "";
   return { level, text, reason };
 }
 
 // A device's key in the panel's open/closed state: its id, else what tells it apart.
-export function deviceKey(device: Pick<SiteDevice, "id" | "name" | "serial" | "primary_ip">): string {
+export function deviceKey(
+  device: Pick<SiteDevice, "id" | "name" | "serial" | "primary_ip">,
+): string {
   return String(device.id || [device.name, device.serial, device.primary_ip].join("|"));
 }
 
@@ -57,14 +62,18 @@ export function sortDownDevices(devices: SiteDevice[]): SiteDevice[] {
     .filter((device) => deviceHealth(device.status) === "down" && counted(device))
     .sort(
       (a, b) =>
-        rank(a) - rank(b) || Number(Boolean(b.core)) - Number(Boolean(a.core)) || (a.name || "").localeCompare(b.name || ""),
+        rank(a) - rank(b) ||
+        Number(Boolean(b.core)) - Number(Boolean(a.core)) ||
+        (a.name || "").localeCompare(b.name || ""),
     );
 }
 
 // An access point a wireless controller watches (#521), at the wireless
 // level: not set in Nautobot, not marked critical (core).  The panel folds
 // these under the other down devices.
-export function isWatchedAccessPoint(device: Pick<SiteDevice, "wireless" | "criticality" | "core">): boolean {
+export function isWatchedAccessPoint(
+  device: Pick<SiteDevice, "wireless" | "criticality" | "core">,
+): boolean {
   return Boolean(device.wireless) && !device.criticality && !device.core;
 }
 
@@ -74,8 +83,12 @@ export function deviceAddress(device: Pick<SiteDevice, "primary_ip" | "wireless"
   if (device.primary_ip) return `IP ${String(device.primary_ip).split("/")[0]}`;
   const ap = device.wireless;
   if (!ap) return "";
-  const from = ap.stale ? `last known from ${ap.controller}, which can't be reached` : `from ${ap.controller}`;
-  return ap.ip ? `IP ${ap.ip} · ${from}` : `Watched by ${ap.controller}${ap.stale ? " (last known)" : ""}`;
+  const from = ap.stale
+    ? `last known from ${ap.controller}, which can't be reached`
+    : `from ${ap.controller}`;
+  return ap.ip
+    ? `IP ${ap.ip} · ${from}`
+    : `Watched by ${ap.controller}${ap.stale ? " (last known)" : ""}`;
 }
 
 export interface StackEntry {
@@ -97,9 +110,15 @@ export function groupStacks(devices: SiteDevice[]): StackEntry[] {
   const stacks = new Map<string, { lead: SiteDevice; members: SiteDevice[] }>();
   for (const [id, all] of chassis) {
     if (all.length < 2) continue;
-    const byPosition = [...all].sort((a, b) => (a.vc_position ?? Infinity) - (b.vc_position ?? Infinity));
+    const byPosition = [...all].sort(
+      (a, b) => (a.vc_position ?? Infinity) - (b.vc_position ?? Infinity),
+    );
     const monitored = byPosition.filter((d) => d.primary_ip && !d.not_monitored);
-    const lead = monitored.find((d) => d.vc_master) || monitored[0] || byPosition.find((d) => d.vc_master) || byPosition[0]!;
+    const lead =
+      monitored.find((d) => d.vc_master) ||
+      monitored[0] ||
+      byPosition.find((d) => d.vc_master) ||
+      byPosition[0]!;
     stacks.set(id, { lead, members: byPosition.filter((d) => d !== lead) });
   }
   const entries: StackEntry[] = [];
@@ -154,7 +173,9 @@ export function deviceCountNote(device: SiteDevice): string {
   if (device.not_monitored) return `Not monitored: ${device.not_monitored}`;
   if (device.maintenance_until) {
     const until = new Date(device.maintenance_until);
-    const when = Number.isNaN(until.valueOf()) ? "" : ` until ${until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    const when = Number.isNaN(until.valueOf())
+      ? ""
+      : ` until ${until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     return `In maintenance${when}: not counted`;
   }
   return device.alert_pending ? "Down less than the alert delay: not an alarm yet" : "";
@@ -162,8 +183,13 @@ export function deviceCountNote(device: SiteDevice): string {
 
 // A stack member in its lead's details: place, name, model, serial.
 export function memberText(member: SiteDevice): string {
-  const facts = [member.device_type, member.serial ? `Serial ${member.serial}` : ""].filter(Boolean).join(" · ");
-  const place = member.vc_position !== null && member.vc_position !== undefined ? `${member.vc_position}. ` : "";
+  const facts = [member.device_type, member.serial ? `Serial ${member.serial}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const place =
+    member.vc_position !== null && member.vc_position !== undefined
+      ? `${member.vc_position}. `
+      : "";
   return `${place}${member.name || "Unnamed device"}${facts ? ` · ${facts}` : ""}`;
 }
 
@@ -180,12 +206,25 @@ export function healthCounts(devices: SiteDevice[]): HealthCounts {
   return counts;
 }
 
-export function filterDevices(devices: SiteDevice[], filter: "all" | Health, search: string): SiteDevice[] {
+export function filterDevices(
+  devices: SiteDevice[],
+  filter: "all" | Health,
+  search: string,
+): SiteDevice[] {
   const query = (search || "").trim().toLowerCase();
   return devices.filter((device) => {
     if (filter !== "all" && deviceHealth(device.status) !== filter) return false;
     if (!query) return true;
-    return [device.name, device.status, device.manufacturer, device.device_type, device.role, device.platform, device.serial, device.tenant]
+    return [
+      device.name,
+      device.status,
+      device.manufacturer,
+      device.device_type,
+      device.role,
+      device.platform,
+      device.serial,
+      device.tenant,
+    ]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -224,7 +263,9 @@ export function casesShown(cases: string[]): { shown: string[]; more: number } {
 }
 
 export function nobodyOnIt(down: SiteDevice[]): number {
-  return down.filter((device) => counted(device) && !device.case_numbers?.length && !device.acknowledged_by).length;
+  return down.filter(
+    (device) => counted(device) && !device.case_numbers?.length && !device.acknowledged_by,
+  ).length;
 }
 
 // What the panel says about them: "No case" when nobody is on any, "29
@@ -233,7 +274,9 @@ export function nobodyOnIt(down: SiteDevice[]): number {
 export function noCaseText(down: SiteDevice[], casesRead: boolean, hasCases: boolean): string {
   const waiting = nobodyOnIt(down);
   if (!casesRead || !waiting) return "";
-  return !hasCases && waiting === down.filter(counted).length ? "No case" : `${waiting.toLocaleString("en")} without a case`;
+  return !hasCases && waiting === down.filter(counted).length
+    ? "No case"
+    : `${waiting.toLocaleString("en")} without a case`;
 }
 
 // A down device's case on its row: "INC0048213", "INC0048213 +1".

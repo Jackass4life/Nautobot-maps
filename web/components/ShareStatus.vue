@@ -2,7 +2,14 @@
      link (a status token with the tenant's page, the key shown once) and
      replacing a link that leaked.  The tenant's name still opens its page. -->
 <script setup lang="ts">
-import { EXPIRY_CHOICES, expiryBody, randomSuffix, shareUrl, statusTokenName, type NewToken } from "~/utils/admin";
+import {
+  EXPIRY_CHOICES,
+  expiryBody,
+  randomSuffix,
+  shareUrl,
+  statusTokenName,
+  type NewToken,
+} from "~/utils/admin";
 import { copyText } from "~/utils/clipboard";
 import { apiError, errorMessage } from "~/utils/format";
 
@@ -35,14 +42,16 @@ async function createLink() {
     let answer: { token: NewToken } | null = null;
     for (const extra of ["", randomSuffix()]) {
       try {
-        answer = (await unwrap(useNuxtApp().$api.POST("/api/v1/tokens", {
-          body: {
-            name: statusTokenName(props.tenant, new Date(), extra),
-            role: "status",
-            tenant: props.tenant,
-            ...expiryBody(expiry.value),
-          } as never,
-        }))) as { token: NewToken };
+        answer = (await unwrap(
+          useNuxtApp().$api.POST("/api/v1/tokens", {
+            body: {
+              name: statusTokenName(props.tenant, new Date(), extra),
+              role: "status",
+              tenant: props.tenant,
+              ...expiryBody(expiry.value),
+            } as never,
+          }),
+        )) as { token: NewToken };
         break;
       } catch (err) {
         // Today's name is taken: once more, with a few random letters.
@@ -50,7 +59,8 @@ async function createLink() {
       }
     }
     const token = answer!.token;
-    if (!token.status_link) throw new Error("The token was made, but its link could not be read: try again");
+    if (!token.status_link)
+      throw new Error("The token was made, but its link could not be read: try again");
     made.value = shareUrl(window.location.origin, token.status_link, token.token);
   } catch (err) {
     error.value = errorMessage(err);
@@ -71,7 +81,9 @@ async function replaceLink() {
   error.value = "";
   try {
     const answer = (await unwrap(
-      useNuxtApp().$api.POST("/api/v1/status-links/{tenant}/replace", { params: { path: { tenant: props.tenant } } }),
+      useNuxtApp().$api.POST("/api/v1/status-links/{tenant}/replace", {
+        params: { path: { tenant: props.tenant } },
+      }),
     )) as { status_link: string };
     replaced.value = shareUrl(window.location.origin, answer.status_link, "");
   } catch (err) {
@@ -82,7 +94,9 @@ async function replaceLink() {
 }
 
 async function copy(text: string) {
-  announce.value = (await copyText(text)) ? "Copied to the clipboard" : "Could not copy: select the link and copy it";
+  announce.value = (await copyText(text))
+    ? "Copied to the clipboard"
+    : "Could not copy: select the link and copy it";
 }
 onBeforeUnmount(() => clearTimeout(confirmTimer));
 </script>
@@ -97,29 +111,62 @@ onBeforeUnmount(() => clearTimeout(confirmTimer));
       icon="i-lucide-share-2"
       :aria-label="`Share ${tenant}'s status page`"
       title="Share the status page with the customer"
-    >Share…</UButton>
+      >Share…</UButton
+    >
     <template #content>
-      <div class="share-status-panel w-80 space-y-3 p-3 text-sm" role="group" :aria-label="`Share ${tenant}'s status page`">
+      <div
+        class="share-status-panel w-80 space-y-3 p-3 text-sm"
+        role="group"
+        :aria-label="`Share ${tenant}'s status page`"
+      >
         <p class="font-semibold text-highlighted">{{ tenant }}'s status page</p>
 
         <section v-if="!made" class="space-y-2">
-          <p class="text-muted">A link for the customer, with a key of its own. It works until it expires or you revoke it.</p>
+          <p class="text-muted"
+            >A link for the customer, with a key of its own. It works until it expires or you revoke
+            it.</p
+          >
           <div class="flex items-center gap-2">
-            <USelect v-model="expiry" class="share-expiry w-32" size="sm" :items="EXPIRY_CHOICES" aria-label="Works for" />
-            <UButton class="share-create" size="sm" :loading="busy" :disabled="busy" @click="createLink">Create customer link</UButton>
+            <USelect
+              v-model="expiry"
+              class="share-expiry w-32"
+              size="sm"
+              :items="EXPIRY_CHOICES"
+              aria-label="Works for"
+            />
+            <UButton
+              class="share-create"
+              size="sm"
+              :loading="busy"
+              :disabled="busy"
+              @click="createLink"
+              >Create customer link</UButton
+            >
           </div>
         </section>
         <section v-else class="space-y-2">
           <p class="font-medium">Shown only now: copy it and send it to the customer.</p>
           <div class="flex gap-2">
-            <UInput class="share-link min-w-0 flex-1" size="sm" :model-value="made" readonly aria-label="Customer link" @focus="($event.target as HTMLInputElement).select()" />
-            <UButton class="share-copy" size="sm" icon="i-lucide-copy" @click="copy(made)">Copy</UButton>
+            <UInput
+              class="share-link min-w-0 flex-1"
+              size="sm"
+              :model-value="made"
+              readonly
+              aria-label="Customer link"
+              @focus="($event.target as HTMLInputElement).select()"
+            />
+            <UButton class="share-copy" size="sm" icon="i-lucide-copy" @click="copy(made)"
+              >Copy</UButton
+            >
           </div>
         </section>
 
         <section class="space-y-2 border-t border-default pt-3">
           <template v-if="!replaced">
-            <p class="text-muted">If a link leaked: a new one. The old link stops working at once; the customers' keys keep working with the new link.</p>
+            <p class="text-muted"
+              >If a link leaked: a new one. The old link stops working at once; the customers' keys
+              keep working with the new link.</p
+            >
             <UButton
               class="share-replace"
               size="sm"
@@ -127,12 +174,21 @@ onBeforeUnmount(() => clearTimeout(confirmTimer));
               :variant="confirming ? 'solid' : 'outline'"
               :disabled="busy"
               @click="replaceLink"
-            >{{ confirming ? "Sure? The old link stops now" : "Replace link…" }}</UButton>
+              >{{ confirming ? "Sure? The old link stops now" : "Replace link…" }}</UButton
+            >
           </template>
           <template v-else>
-            <p class="font-medium">New link (the old one no longer works). Send it with each customer's key:</p>
+            <p class="font-medium"
+              >New link (the old one no longer works). Send it with each customer's key:</p
+            >
             <div class="flex gap-2">
-              <UInput class="share-new-link min-w-0 flex-1" size="sm" :model-value="replaced" readonly aria-label="New status page link" />
+              <UInput
+                class="share-new-link min-w-0 flex-1"
+                size="sm"
+                :model-value="replaced"
+                readonly
+                aria-label="New status page link"
+              />
               <UButton size="sm" icon="i-lucide-copy" @click="copy(replaced)">Copy</UButton>
             </div>
           </template>

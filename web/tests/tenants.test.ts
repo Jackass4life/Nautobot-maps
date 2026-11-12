@@ -14,8 +14,14 @@ describe("tenant choices (#497)", () => {
   });
 
   it("every row's descriptions, a tenant named __proto__ too", () => {
-    const rows = Array.from({ length: 1200 }, (_, i) => ({ tenant_descriptions: { [`T${i % 40}`]: `Tenant ${i % 40}` } }));
-    const merged = mergedDescriptions([...rows, {}, { tenant_descriptions: JSON.parse('{"__proto__": "Odd"}') }]);
+    const rows = Array.from({ length: 1200 }, (_, i) => ({
+      tenant_descriptions: { [`T${i % 40}`]: `Tenant ${i % 40}` },
+    }));
+    const merged = mergedDescriptions([
+      ...rows,
+      {},
+      { tenant_descriptions: JSON.parse('{"__proto__": "Odd"}') },
+    ]);
     expect(Object.keys(merged)).toHaveLength(41);
     expect(merged.T7).toBe("Tenant 7");
     expect(Object.hasOwn(merged, "__proto__") && merged["__proto__"]).toBe("Odd");

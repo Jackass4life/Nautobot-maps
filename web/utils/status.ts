@@ -30,7 +30,10 @@ export function headline(data: Pick<TenantStatus, "summary">): string {
   return down ? `${text} · ${down.toLocaleString("en")} device${down === 1 ? "" : "s"} down` : text;
 }
 
-type SiteDevices = Pick<StatusSite, "state" | "network_devices" | "access_points" | "network_devices_down" | "access_points_down">;
+type SiteDevices = Pick<
+  StatusSite,
+  "state" | "network_devices" | "access_points" | "network_devices_down" | "access_points_down"
+>;
 
 // "12 network devices", or "3 of 12 network devices down".
 function kindText(total: number, down: number, word: string): string {
@@ -42,7 +45,11 @@ function kindText(total: number, down: number, word: string): string {
 // in maintenance or without data.  An operational one too: access points a
 // wireless controller reports down never raise its state (#508).
 export function hasDown(site: SiteDevices): boolean {
-  return site.state !== "maintenance" && site.state !== "unknown" && site.network_devices_down + site.access_points_down > 0;
+  return (
+    site.state !== "maintenance" &&
+    site.state !== "unknown" &&
+    site.network_devices_down + site.access_points_down > 0
+  );
 }
 
 // What is at a site, counts only (#503): with something down, how many of
@@ -53,8 +60,13 @@ export function hasDown(site: SiteDevices): boolean {
 export function siteDevices(site: SiteDevices): string {
   if (!site.network_devices && !site.access_points) return "";
   // Nothing "down" in maintenance or without data: the quiet line.
-  const [networkDown, apsDown] = hasDown(site) ? [site.network_devices_down, site.access_points_down] : [0, 0];
-  return [kindText(site.network_devices, networkDown, "network device"), kindText(site.access_points, apsDown, "access point")]
+  const [networkDown, apsDown] = hasDown(site)
+    ? [site.network_devices_down, site.access_points_down]
+    : [0, 0];
+  return [
+    kindText(site.network_devices, networkDown, "network device"),
+    kindText(site.access_points, apsDown, "access point"),
+  ]
     .filter(Boolean)
     .join(" · ");
 }
@@ -76,7 +88,9 @@ export const FOLD_ABOVE = 10;
 
 // The sites to list first (worst first, as the API sorts them) and those
 // folded into "N sites operational" (none for a small tenant).
-export function splitSites<T extends { state: string }>(sites: T[]): { attention: T[]; operational: T[] } {
+export function splitSites<T extends { state: string }>(
+  sites: T[],
+): { attention: T[]; operational: T[] } {
   if (sites.length <= FOLD_ABOVE) return { attention: sites, operational: [] };
   return {
     attention: sites.filter((site) => site.state !== "operational"),
@@ -89,16 +103,20 @@ export function statusKey(hash: string | null | undefined): string {
 }
 
 export function errorText(code: number): string {
-  if (code === 401 || code === 403) return "This link doesn't work (anymore). Ask your contact for a new one.";
+  if (code === 401 || code === 403)
+    return "This link doesn't work (anymore). Ask your contact for a new one.";
   // An old link with the name in it (#500) answers 404 too.
-  if (code === 404) return "No sites found for this link. If it is an old link, ask your contact for a new one.";
+  if (code === 404)
+    return "No sites found for this link. If it is an old link, ask your contact for a new one.";
   return "Status is unavailable right now. Retrying…";
 }
 
 // Where a site is (#493): its address, else its coordinates, as a link to
 // OpenStreetMap; null when Nautobot has neither.  The link is a pin on the
 // coordinates when there are any (exact), else a search for the address.
-export function sitePlace(site: Pick<StatusSite, "address" | "latitude" | "longitude">): { text: string; href: string } | null {
+export function sitePlace(
+  site: Pick<StatusSite, "address" | "latitude" | "longitude">,
+): { text: string; href: string } | null {
   const located = site.latitude != null && site.longitude != null;
   if (!site.address && !located) return null;
   let href = `https://www.openstreetmap.org/search?query=${encodeURIComponent(site.address ?? "")}`;
@@ -133,16 +151,24 @@ export const DEVICE_STATE_LABELS: Record<StatusDevice["state"], string> = {
 // "Down since 14:05", "Maintenance", "Up".
 export function deviceText(device: StatusDevice, now: Date): string {
   const label = DEVICE_STATE_LABELS[device.state] ?? device.state;
-  return device.since && device.state === "down" ? `${label} since ${formatFeedTime(device.since, now)}` : label;
+  return device.since && device.state === "down"
+    ? `${label} since ${formatFeedTime(device.since, now)}`
+    : label;
 }
 
 // Up to this many devices at a site, all listed; above, those up fold into
 // "N devices up" (the API lists down first), so what is wrong stands out.
 export const DEVICES_LISTED = 5;
 
-export function splitDevices(devices: StatusDevice[]): { shown: StatusDevice[]; up: StatusDevice[] } {
+export function splitDevices(devices: StatusDevice[]): {
+  shown: StatusDevice[];
+  up: StatusDevice[];
+} {
   if (devices.length <= DEVICES_LISTED) return { shown: devices, up: [] };
-  return { shown: devices.filter((d) => d.state !== "up"), up: devices.filter((d) => d.state === "up") };
+  return {
+    shown: devices.filter((d) => d.state !== "up"),
+    up: devices.filter((d) => d.state === "up"),
+  };
 }
 
 export function devicesUpLabel(count: number): string {

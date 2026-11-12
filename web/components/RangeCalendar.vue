@@ -3,9 +3,23 @@
      the range follows the pointer.  Keys: arrows by day and week, PageUp /
      PageDown by month, Home / End the week. -->
 <script setup lang="ts">
-import { addDays, addMonths, clampDay, monthGrid, monthStart, parseDay, WEEKDAYS } from "~/utils/calendar";
+import {
+  addDays,
+  addMonths,
+  clampDay,
+  monthGrid,
+  monthStart,
+  parseDay,
+  WEEKDAYS,
+} from "~/utils/calendar";
 
-const props = defineProps<{ from: string; to: string; min?: string; max?: string; today: string }>();
+const props = defineProps<{
+  from: string;
+  to: string;
+  min?: string;
+  max?: string;
+  today: string;
+}>();
 const emit = defineEmits<{ pick: [from: string, to: string] }>();
 
 const limits = computed(() => ({ min: props.min || "", max: props.max || "" }));
@@ -22,16 +36,24 @@ function set(from: string, to: string) {
   focus.value = range.to || clampDay(props.today, limits.value);
   month.value = monthStart(focus.value);
 }
-watch(() => [props.from, props.to], () => set(props.from, props.to), { immediate: true });
+watch(
+  () => [props.from, props.to],
+  () => set(props.from, props.to),
+  { immediate: true },
+);
 
-const grid = computed(() => monthGrid(month.value, { ...range, ...limits.value, today: props.today }));
+const grid = computed(() =>
+  monthGrid(month.value, { ...range, ...limits.value, today: props.today }),
+);
 const preview = computed(() => {
   if (!range.picking || !hovered.value) return null;
   return [range.from, hovered.value].sort() as [string, string];
 });
 
 function focusDay() {
-  nextTick(() => root.value?.querySelector<HTMLButtonElement>(`[data-day="${focus.value}"]`)?.focus());
+  nextTick(() =>
+    root.value?.querySelector<HTMLButtonElement>(`[data-day="${focus.value}"]`)?.focus(),
+  );
 }
 function step(by: number) {
   month.value = addMonths(month.value, by);
@@ -99,8 +121,19 @@ defineExpose({ focus: focusDay, set });
         @click="step(1)"
       />
     </div>
-    <div class="cal-grid grid grid-cols-7 gap-0.5 text-center text-sm" role="group" :aria-label="grid.title" @mouseleave="hovered = ''">
-      <span v-for="name in WEEKDAYS" :key="name" class="cal-weekday py-1 text-xs text-muted" aria-hidden="true">{{ name }}</span>
+    <div
+      class="cal-grid grid grid-cols-7 gap-0.5 text-center text-sm"
+      role="group"
+      :aria-label="grid.title"
+      @mouseleave="hovered = ''"
+    >
+      <span
+        v-for="name in WEEKDAYS"
+        :key="name"
+        class="cal-weekday py-1 text-xs text-muted"
+        aria-hidden="true"
+        >{{ name }}</span
+      >
       <span v-for="n in grid.lead" :key="`blank-${n}`" class="cal-blank" />
       <button
         v-for="cell in grid.days"
@@ -114,7 +147,12 @@ defineExpose({ focus: focusDay, set });
               ? 'bg-primary/15 text-highlighted'
               : 'hover:bg-elevated',
           cell.today && !(cell.start || cell.end) ? 'font-semibold text-primary' : '',
-          { 'in-range': cell.inRange, 'range-start': cell.start, 'range-end': cell.end, 'is-today': cell.today },
+          {
+            'in-range': cell.inRange,
+            'range-start': cell.start,
+            'range-end': cell.end,
+            'is-today': cell.today,
+          },
         ]"
         :data-day="cell.day"
         :tabindex="cell.day === focus ? 0 : -1"
@@ -124,7 +162,8 @@ defineExpose({ focus: focusDay, set });
         @click="pick(cell.day)"
         @mouseover="range.picking && !cell.disabled ? (hovered = cell.day) : undefined"
         @keydown="onKey($event, cell.day)"
-      >{{ cell.date }}</button>
+        >{{ cell.date }}</button
+      >
     </div>
   </div>
 </template>

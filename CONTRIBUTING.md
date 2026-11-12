@@ -26,7 +26,7 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
 4. **Test** your changes:
    ```bash
    (cd api && uv run pytest && uv run ruff check . && uv run ruff format --check .)
-   (cd web && bun run lint && bun run type:check && bun run test)
+   (cd web && bun run format:check && bun run lint && bun run type:check && bun run test)
    uv run --project api ruff check e2e demo scripts deploy   # the files outside api/ and web/
    ```
    For UI changes, also run the end-to-end tests in Chromium against the mock Nautobot (CI's `e2e` job does the same):
@@ -150,7 +150,7 @@ cd web
 bun install         # bun 1.4 (the version in package.json's packageManager)
 bun run generate    # the static build the API serves: web/.output/public
 bun run dev         # or: a dev server on :3000 with live reload; /api/ goes to the API on :8000
-bun run lint && bun run type:check && bun run test
+bun run format:check && bun run lint && bun run type:check && bun run test
 ```
 
 - Without a build, every page answers 503 and says to build it (the API still works).
@@ -189,7 +189,7 @@ Rules for the pages:
   (configured in `api/pyproject.toml`; CI runs both). Many findings can be fixed with
   `uv run ruff check --fix .` and `uv run ruff format .`. The files outside `api/` (e2e, demo,
   scripts) use the root `pyproject.toml`'s ruff settings.
-- The pages must pass `bun run lint` and `bun run type:check` in `web/` (CI runs both).
+- The pages must pass `bun run format:check`, `bun run lint` and `bun run type:check` in `web/` (CI runs all three). `bun run format` formats them (Prettier, #669; `htmlWhitespaceSensitivity: strict`, so a reformat never changes the text on a page). The one-time reformat is in `.git-blame-ignore-revs`: `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes local `git blame` skip it too.
 - Write clear commit messages describing what changed and why.
 
 ### Database schema changes

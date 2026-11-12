@@ -136,6 +136,10 @@ jobs:
         if: success() || failure()
         run: bun --bun run lint
 
+      - name: Formatting (#669)
+        if: success() || failure()
+        run: bun --bun run format:check
+
       - name: Unit tests (vitest, #609)
         if: success() || failure()
         run: bun --bun run test

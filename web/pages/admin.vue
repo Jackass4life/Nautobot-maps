@@ -20,12 +20,17 @@ async function sendTest() {
   sendError.value = "";
   sent.value = null;
   try {
-    const answer = (await unwrap(useNuxtApp().$api.POST("/api/v1/notifications/test"))) as { results: Record<string, string> };
-    sent.value = Object.entries(answer.results).map(([channel, result]) => channelLine(channel, result));
+    const answer = (await unwrap(useNuxtApp().$api.POST("/api/v1/notifications/test"))) as {
+      results: Record<string, string>;
+    };
+    sent.value = Object.entries(answer.results).map(([channel, result]) =>
+      channelLine(channel, result),
+    );
   } catch (err) {
     // 502: a channel failed; the answer still says which.
     const results = (err as { data?: { results?: Record<string, string> } } | null)?.data?.results;
-    if (results) sent.value = Object.entries(results).map(([channel, result]) => channelLine(channel, result));
+    if (results)
+      sent.value = Object.entries(results).map(([channel, result]) => channelLine(channel, result));
     else sendError.value = errorMessage(err);
   } finally {
     sending.value = false;
@@ -40,7 +45,9 @@ async function checkWireless() {
   checking.value = true;
   checkError.value = "";
   try {
-    checked.value = (await unwrap(useNuxtApp().$api.POST("/api/v1/wireless/check"))) as WirelessCheck;
+    checked.value = (await unwrap(
+      useNuxtApp().$api.POST("/api/v1/wireless/check"),
+    )) as WirelessCheck;
   } catch (err) {
     checkError.value = apiError(err) || errorMessage(err);
   } finally {
@@ -56,31 +63,56 @@ async function checkWireless() {
       <h1 class="text-2xl font-bold text-highlighted">Admin</h1>
       <p v-if="configStatus === 'pending'" class="text-sm text-muted">Loading…</p>
       <p v-else-if="!admin" id="admin-refused" class="max-w-3xl text-sm text-muted">
-        Only admins can use this page: API tokens, test notifications and the wireless controllers' check.
+        Only admins can use this page: API tokens, test notifications and the wireless controllers'
+        check.
       </p>
       <template v-else>
         <AdminTokens />
 
         <!-- Always shown (#627): without a channel it says what to set, and Send test
              answers what is missing (NOTIFY_EMAIL_TO without SMTP_HOST, too). -->
-        <section id="admin-notifications" class="space-y-3 rounded-lg border border-default px-4 py-3">
+        <section
+          id="admin-notifications"
+          class="space-y-3 rounded-lg border border-default px-4 py-3"
+        >
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="font-semibold text-highlighted">Notifications</h2>
-            <p v-if="admin.notification_channels.length" class="text-sm text-muted">{{ admin.notification_channels.map((c) => channelLine(c, "ok").channel).join(", ") }}</p>
+            <p v-if="admin.notification_channels.length" class="text-sm text-muted">{{
+              admin.notification_channels.map((c) => channelLine(c, "ok").channel).join(", ")
+            }}</p>
             <p v-else id="notify-none" class="text-sm text-muted">No channel set up</p>
-            <UButton id="notify-test" class="ml-auto" size="sm" color="neutral" variant="outline" icon="i-lucide-send" :loading="sending" :disabled="sending" @click="sendTest">
+            <UButton
+              id="notify-test"
+              class="ml-auto"
+              size="sm"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-send"
+              :loading="sending"
+              :disabled="sending"
+              @click="sendTest"
+            >
               Send test
             </UButton>
           </div>
           <ul v-if="sent" id="notify-results" class="space-y-1 text-sm" aria-live="polite">
             <li v-for="line in sent" :key="line.channel" class="flex gap-2">
-              <UIcon :name="line.ok ? 'i-lucide-check' : 'i-lucide-x'" class="mt-0.5 size-4 shrink-0" :class="line.ok ? 'text-success' : 'text-error'" />
-              <span><span class="font-medium">{{ line.channel }}:</span> {{ line.text }}</span>
+              <UIcon
+                :name="line.ok ? 'i-lucide-check' : 'i-lucide-x'"
+                class="mt-0.5 size-4 shrink-0"
+                :class="line.ok ? 'text-success' : 'text-error'"
+              />
+              <span
+                ><span class="font-medium">{{ line.channel }}:</span> {{ line.text }}</span
+              >
             </li>
           </ul>
           <p v-if="!admin.notification_channels.length && !sendError" class="text-sm text-muted">
-            Set <code>NOTIFY_WEBHOOK_URL</code>, <code>NOTIFY_TEAMS_WEBHOOK_URL</code>, or <code>NOTIFY_EMAIL_TO</code> with <code>SMTP_HOST</code>, then restart the app.
-            <NuxtLink to="/help/notifications" class="text-primary hover:underline">Notifications guide</NuxtLink>
+            Set <code>NOTIFY_WEBHOOK_URL</code>, <code>NOTIFY_TEAMS_WEBHOOK_URL</code>, or
+            <code>NOTIFY_EMAIL_TO</code> with <code>SMTP_HOST</code>, then restart the app.
+            <NuxtLink to="/help/notifications" class="text-primary hover:underline"
+              >Notifications guide</NuxtLink
+            >
           </p>
           <p v-if="sendError" class="text-sm text-error" role="alert">{{ sendError }}</p>
         </section>
@@ -89,15 +121,32 @@ async function checkWireless() {
         <section id="admin-wireless" class="space-y-3 rounded-lg border border-default px-4 py-3">
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="font-semibold text-highlighted">Wireless controllers</h2>
-            <p v-if="admin.wireless_controllers" class="text-sm text-muted">{{ admin.wireless_controllers }} in the controllers file</p>
+            <p v-if="admin.wireless_controllers" class="text-sm text-muted"
+              >{{ admin.wireless_controllers }} in the controllers file</p
+            >
             <p v-else id="wireless-none" class="text-sm text-muted">No controllers set up</p>
-            <UButton v-if="admin.wireless_controllers" id="wireless-check" class="ml-auto" size="sm" color="neutral" variant="outline" icon="i-lucide-radio-tower" :loading="checking" :disabled="checking" @click="checkWireless">
+            <UButton
+              v-if="admin.wireless_controllers"
+              id="wireless-check"
+              class="ml-auto"
+              size="sm"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-radio-tower"
+              :loading="checking"
+              :disabled="checking"
+              @click="checkWireless"
+            >
               Check now
             </UButton>
           </div>
           <ul v-if="checked" id="wireless-results" class="space-y-1 text-sm" aria-live="polite">
             <li v-for="result in checked.controllers" :key="result.url" class="flex gap-2">
-              <UIcon :name="result.error ? 'i-lucide-x' : 'i-lucide-check'" class="mt-0.5 size-4 shrink-0" :class="result.error ? 'text-error' : 'text-success'" />
+              <UIcon
+                :name="result.error ? 'i-lucide-x' : 'i-lucide-check'"
+                class="mt-0.5 size-4 shrink-0"
+                :class="result.error ? 'text-error' : 'text-success'"
+              />
               <span>
                 <span class="font-medium">{{ result.controller }}:</span> {{ wirelessLine(result) }}
                 <span v-if="result.unmatched_examples?.length" class="block text-xs text-muted">
@@ -106,12 +155,18 @@ async function checkWireless() {
               </span>
             </li>
             <li v-if="checked.duplicate_count" class="text-muted">
-              {{ checked.duplicate_count.toLocaleString("en") }} access point(s) listed by more than one controller (the newest answer wins).
+              {{ checked.duplicate_count.toLocaleString("en") }} access point(s) listed by more than
+              one controller (the newest answer wins).
             </li>
           </ul>
           <p v-if="!admin.wireless_controllers" class="text-sm text-muted">
-            Access points from Cisco Catalyst Center or Aruba New Central: list the controllers in a file and set <code>WIRELESS_CONTROLLERS_FILE</code>, then restart the app.
-            <NuxtLink to="/help/sources#wireless-controllers-access-points" class="text-primary hover:underline">Wireless controllers guide</NuxtLink>
+            Access points from Cisco Catalyst Center or Aruba New Central: list the controllers in a
+            file and set <code>WIRELESS_CONTROLLERS_FILE</code>, then restart the app.
+            <NuxtLink
+              to="/help/sources#wireless-controllers-access-points"
+              class="text-primary hover:underline"
+              >Wireless controllers guide</NuxtLink
+            >
           </p>
           <p v-if="checkError" class="text-sm text-error" role="alert">{{ checkError }}</p>
         </section>

@@ -15,7 +15,8 @@ const value = computed(() => props.level || "no_data");
       tabindex="0"
       role="img"
       :aria-label="`${levelLabel(value)}: ${reason}`"
-    >{{ levelLabel(value) }}</span>
+      >{{ levelLabel(value) }}</span
+    >
   </UTooltip>
   <span v-else class="alert-badge" :class="`alert-${value}`">{{ levelLabel(value) }}</span>
 </template>

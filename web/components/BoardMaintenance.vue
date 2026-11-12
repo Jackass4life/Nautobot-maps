@@ -21,7 +21,9 @@ const formError = ref("");
 const saving = ref(false);
 const ending = ref<number | null>(null);
 
-const deviceNames = computed(() => Object.fromEntries(devices.value.map((device) => [device.id, device.name])));
+const deviceNames = computed(() =>
+  Object.fromEntries(devices.value.map((device) => [device.id, device.name])),
+);
 
 // A slower answer for a site opened before must not fill this one's panel.
 let seq = 0;
@@ -32,8 +34,16 @@ async function load() {
   if (props.nonOperational) deviceParams.set("include_non_operational", "1");
   try {
     const [list, found] = await Promise.all([
-      (unwrap(useNuxtApp().$api.GET("/api/v1/maintenance", { params: { query: queryOf(params) as never } })) as Promise<{ windows: MaintenanceWindow[] }>),
-      (unwrap(useNuxtApp().$api.GET("/api/v1/maintenance/devices", { params: { query: queryOf(deviceParams) as never } })) as Promise<{ devices: MaintenanceDevice[] }>),
+      unwrap(
+        useNuxtApp().$api.GET("/api/v1/maintenance", {
+          params: { query: queryOf(params) as never },
+        }),
+      ) as Promise<{ windows: MaintenanceWindow[] }>,
+      unwrap(
+        useNuxtApp().$api.GET("/api/v1/maintenance/devices", {
+          params: { query: queryOf(deviceParams) as never },
+        }),
+      ) as Promise<{ devices: MaintenanceDevice[] }>,
     ]);
     if (mine !== seq) return;
     windows.value = list.windows || [];
@@ -81,7 +91,11 @@ async function save() {
 async function end(window: MaintenanceWindow) {
   ending.value = window.id;
   try {
-    await unwrap(useNuxtApp().$api.POST("/api/v1/maintenance/{window_id}/end", { params: { path: { window_id: Number(window.id) } } }));
+    await unwrap(
+      useNuxtApp().$api.POST("/api/v1/maintenance/{window_id}/end", {
+        params: { path: { window_id: Number(window.id) } },
+      }),
+    );
     emit("changed");
     await load();
   } catch (err) {
@@ -98,12 +112,23 @@ async function end(window: MaintenanceWindow) {
     <p v-else-if="!windows" class="maint-empty text-sm text-muted">Loading…</p>
     <template v-else>
       <ul v-if="windows.length" class="maint-windows space-y-2">
-        <li v-for="window in windows" :key="window.id" class="maint-window flex items-start gap-2 text-sm">
-          <span class="alert-badge alert-maintenance shrink-0">{{ window.state === "upcoming" ? "PLANNED" : "ACTIVE" }}</span>
+        <li
+          v-for="window in windows"
+          :key="window.id"
+          class="maint-window flex items-start gap-2 text-sm"
+        >
+          <span class="alert-badge alert-maintenance shrink-0">{{
+            window.state === "upcoming" ? "PLANNED" : "ACTIVE"
+          }}</span>
           <span class="maint-window-text min-w-0 flex-1">
-            <strong class="text-highlighted">{{ window.device_id ? deviceNames[window.device_id] || window.device_name || window.device_id : "Whole site" }}</strong>
-            · {{ windowWhen(window) }}<br>
-            {{ window.reason }}<template v-if="window.created_by"> · by {{ window.created_by }}</template>
+            <strong class="text-highlighted">{{
+              window.device_id
+                ? deviceNames[window.device_id] || window.device_name || window.device_id
+                : "Whole site"
+            }}</strong>
+            · {{ windowWhen(window) }}<br />
+            {{ window.reason
+            }}<template v-if="window.created_by"> · by {{ window.created_by }}</template>
           </span>
           <UButton
             class="maint-end-btn shrink-0"
@@ -112,7 +137,8 @@ async function end(window: MaintenanceWindow) {
             variant="outline"
             :loading="ending === window.id"
             @click="end(window)"
-          >{{ window.state === "upcoming" ? "Cancel" : "End now" }}</UButton>
+            >{{ window.state === "upcoming" ? "Cancel" : "End now" }}</UButton
+          >
         </li>
       </ul>
       <p v-else class="maint-empty text-sm text-muted">No maintenance now or planned.</p>
@@ -121,24 +147,62 @@ async function end(window: MaintenanceWindow) {
         <fieldset class="space-y-1 text-sm">
           <legend class="mb-1 font-semibold text-highlighted">What</legend>
           <label class="maint-choice flex items-center gap-2">
-            <input v-model="scope" type="radio" name="maint-scope" value="site" class="accent-(--ui-primary)"> Whole site
+            <input
+              v-model="scope"
+              type="radio"
+              name="maint-scope"
+              value="site"
+              class="accent-(--ui-primary)"
+            />
+            Whole site
           </label>
           <label class="maint-choice flex items-center gap-2">
-            <input v-model="scope" type="radio" name="maint-scope" value="devices" class="accent-(--ui-primary)"> Some devices
+            <input
+              v-model="scope"
+              type="radio"
+              name="maint-scope"
+              value="devices"
+              class="accent-(--ui-primary)"
+            />
+            Some devices
           </label>
-          <div v-if="scope === 'devices'" class="maint-devices max-h-64 space-y-1 overflow-y-auto rounded-md border border-default p-2">
+          <div
+            v-if="scope === 'devices'"
+            class="maint-devices max-h-64 space-y-1 overflow-y-auto rounded-md border border-default p-2"
+          >
             <p v-if="!devices.length" class="text-muted">No monitored devices.</p>
-            <label v-for="device in devices" v-else :key="device.id" class="flex flex-wrap items-center gap-2">
-              <input v-model="deviceIds" type="checkbox" class="maint-device accent-(--ui-primary)" :value="device.id">
+            <label
+              v-for="device in devices"
+              v-else
+              :key="device.id"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <input
+                v-model="deviceIds"
+                type="checkbox"
+                class="maint-device accent-(--ui-primary)"
+                :value="device.id"
+              />
               <span>{{ device.name || device.id }}</span>
-              <span class="text-xs text-muted">{{ [device.location_path, device.role, device.status].filter(Boolean).join(" · ") }}</span>
+              <span class="text-xs text-muted">{{
+                [device.location_path, device.role, device.status].filter(Boolean).join(" · ")
+              }}</span>
             </label>
           </div>
         </fieldset>
         <WhenField v-model="when" />
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-highlighted" for="maint-reason">Reason</label>
-          <UInput id="maint-reason" v-model="reason" class="maint-reason w-full" :maxlength="200" autocomplete="off" placeholder="e.g. Core switch upgrade" />
+          <label class="block text-sm font-medium text-highlighted" for="maint-reason"
+            >Reason</label
+          >
+          <UInput
+            id="maint-reason"
+            v-model="reason"
+            class="maint-reason w-full"
+            :maxlength="200"
+            autocomplete="off"
+            placeholder="e.g. Core switch upgrade"
+          />
         </div>
         <p v-if="formError" class="maint-error text-sm text-error" role="alert">{{ formError }}</p>
         <UButton class="maint-save-btn" type="submit" :loading="saving">

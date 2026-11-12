@@ -15,7 +15,13 @@ import {
   type SortKey,
 } from "~/utils/availability";
 
-const site = (name: string, availability: number, downtime: number, incidents: number, tenants: string[]): SiteRow => ({
+const site = (
+  name: string,
+  availability: number,
+  downtime: number,
+  incidents: number,
+  tenants: string[],
+): SiteRow => ({
   site_id: name.toLowerCase(),
   name,
   tenants,
@@ -37,14 +43,24 @@ const site = (name: string, availability: number, downtime: number, incidents: n
   maintenance_seconds: 0,
   availability,
 });
-const rows = siteRows([
-  site("Oslo", 99.5, 432, 3, ["Acme", "Nordic Net"]),
-  site("Bergen", 100, 0, 0, ["Acme"]),
-  site("Aarhus", 97.25, 2000, 9, ["Nordic Net"]),
-  site("Bodø", 100, 0, 0, []),
-], { Acme: "Retail bank" });
-const view = (options: { key?: SortKey; dir?: SortDir; query?: string; tenants?: string[]; limit?: number } = {}) =>
-  filterRows(sortRows(rows, options.key, options.dir), options);
+const rows = siteRows(
+  [
+    site("Oslo", 99.5, 432, 3, ["Acme", "Nordic Net"]),
+    site("Bergen", 100, 0, 0, ["Acme"]),
+    site("Aarhus", 97.25, 2000, 9, ["Nordic Net"]),
+    site("Bodø", 100, 0, 0, []),
+  ],
+  { Acme: "Retail bank" },
+);
+const view = (
+  options: {
+    key?: SortKey;
+    dir?: SortDir;
+    query?: string;
+    tenants?: string[];
+    limit?: number;
+  } = {},
+) => filterRows(sortRows(rows, options.key, options.dir), options);
 const names = (v: ReturnType<typeof view>) => v.shown.map((row) => row.name).join();
 
 describe("the availability tables", () => {
@@ -63,8 +79,15 @@ describe("the availability tables", () => {
     expect(names(view({ key: "downtime", dir: "desc" }))).toBe("Aarhus,Oslo,Bergen,Bodø");
     expect(names(view({ key: "name" }))).toBe("Aarhus,Bergen,Bodø,Oslo");
     expect(names(view({ key: "incidents", dir: "asc" }))).toBe("Bergen,Bodø,Oslo,Aarhus");
-    const ties = siteRows(["bodø", "Bergen", "Zürich", "aarhus"].map((name) => site(name, 100, 0, 0, [])), {});
-    expect(filterRows(sortRows(ties)).shown.map((r) => r.name).join()).toBe("aarhus,Bergen,bodø,Zürich");
+    const ties = siteRows(
+      ["bodø", "Bergen", "Zürich", "aarhus"].map((name) => site(name, 100, 0, 0, [])),
+      {},
+    );
+    expect(
+      filterRows(sortRows(ties))
+        .shown.map((r) => r.name)
+        .join(),
+    ).toBe("aarhus,Bergen,bodø,Zürich");
   });
 
   it("search the site or a tenant, every word; any chosen tenant, exactly", () => {
@@ -90,11 +113,15 @@ describe("the availability tables", () => {
 
   it("1,200 sites, several tenants", () => {
     const many = siteRows(
-      Array.from({ length: 1200 }, (_, i) => site(`Site ${i}`, i < 60 ? 99 : 100, i < 60 ? 600 : 0, 1, [`Tenant ${i % 6}`, "Shared"])),
+      Array.from({ length: 1200 }, (_, i) =>
+        site(`Site ${i}`, i < 60 ? 99 : 100, i < 60 ? 600 : 0, 1, [`Tenant ${i % 6}`, "Shared"]),
+      ),
       {},
     );
     const limited = filterRows(sortRows(many), { limit: 25 });
-    expect(moreText(limited, 1200)).toBe("Showing 25 of 1,200 · 1,140 of the rest with no downtime");
+    expect(moreText(limited, 1200)).toBe(
+      "Showing 25 of 1,200 · 1,140 of the rest with no downtime",
+    );
     const two = filterRows(sortRows(many), { tenants: ["Tenant 1", "Tenant 3"], limit: 25 });
     expect([two.matched, two.shown.length, two.rest.length]).toEqual([400, 25, 375]);
     expect(filterRows(many, { tenants: ["Tenant 1", "Shared"] }).matched).toBe(1200);
@@ -102,13 +129,21 @@ describe("the availability tables", () => {
   });
 
   it("tenants' rows", () => {
-    const t = tenantRows([{ tenant: "Acme", sites: 3, availability: 99.9, downtime_seconds: 60 }], {});
+    const t = tenantRows(
+      [{ tenant: "Acme", sites: 3, availability: 99.9, downtime_seconds: 60 }],
+      {},
+    );
     expect(t[0]).toMatchObject({ name: "Acme", sites: 3, downtime: 60 });
   });
 
   it("a tenant is found by its name or its description (#481)", () => {
     const many = tenantRows(
-      Array.from({ length: 300 }, (_, i) => ({ tenant: `Tenant ${i}`, sites: 4, availability: 99 + (i % 100) / 100, downtime_seconds: i })),
+      Array.from({ length: 300 }, (_, i) => ({
+        tenant: `Tenant ${i}`,
+        sites: 4,
+        availability: 99 + (i % 100) / 100,
+        downtime_seconds: i,
+      })),
       { "Tenant 7": "Retail bank, Nordic offices" },
     );
     const found = (query: string) => filterRows(sortRows(many), { query, limit: 10 });

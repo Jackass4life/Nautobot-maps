@@ -39,7 +39,12 @@ const FIT_MAX_ZOOM = 10;
 // A place search's circle (#392).
 const SEARCH_RADIUS_M = 5000;
 // Above quiet clusters and each other: worst on top.
-const ATTENTION_Z: Record<string, number> = { critical: 4000, medium: 3000, low: 2000, maintenance: 1000 };
+const ATTENTION_Z: Record<string, number> = {
+  critical: 4000,
+  medium: 3000,
+  low: 2000,
+  maintenance: 1000,
+};
 
 const PIN_PATH = "M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24S24 21 24 12C24 5.373 18.627 0 12 0z";
 
@@ -140,7 +145,9 @@ export class SiteMap {
     L.tileLayer(options.tileUrl, { attribution: options.attribution, maxZoom: 19 }).addTo(this.map);
     this.clusterLayer = L.markerClusterGroup({
       iconCreateFunction: (cluster) => {
-        const ids = cluster.getAllChildMarkers().flatMap((marker) => (marker.options as SiteMarkerOptions).locIds || []);
+        const ids = cluster
+          .getAllChildMarkers()
+          .flatMap((marker) => (marker.options as SiteMarkerOptions).locIds || []);
         const { count, level } = quietCluster(ids, this.levelOf);
         return clusterIcon(count, level);
       },
@@ -155,14 +162,21 @@ export class SiteMap {
   // Fit to every site with coordinates, except a lone far-off one (#362, #459).
   fit(locations: MapLocation[]): void {
     const points = viewPoints(locations);
-    if (points.length) this.map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: FIT_MAX_ZOOM, animate: false });
+    if (points.length)
+      this.map.fitBounds(L.latLngBounds(points), {
+        padding: [40, 40],
+        maxZoom: FIT_MAX_ZOOM,
+        animate: false,
+      });
   }
 
   // The map's box changed: measure again once the layout has settled (two
   // frames).  *keepCentre*: the same middle (the left panel folding, #420);
   // else the sites stay where they were (the site panel opening beside them).
   resize(keepCentre = false): void {
-    requestAnimationFrame(() => requestAnimationFrame(() => this.map.invalidateSize({ pan: keepCentre, animate: false })));
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => this.map.invalidateSize({ pan: keepCentre, animate: false })),
+    );
   }
 
   private groupLevel(ids: string[]): string {
@@ -192,7 +206,8 @@ export class SiteMap {
       this.onActivate(first.id, ids, marker.getElement() ?? null);
     });
     // A button for the keyboard too: Tab to it, Enter or Space opens it.
-    const label = group.length === 1 ? `Inspect ${first.name}` : `Inspect ${group.length} co-located locations`;
+    const label =
+      group.length === 1 ? `Inspect ${first.name}` : `Inspect ${group.length} co-located locations`;
     marker.on("add", () => {
       const element = marker.getElement();
       if (!element || element.dataset.wired) return;
@@ -234,8 +249,15 @@ export class SiteMap {
   // searched as a ring (no pin colour means "searched here", #311) and its circle.
   renderSearch(locations: MapLocation[], point: { lat: number; lon: number }): void {
     this.clear();
-    const icon = L.divIcon({ html: '<div class="search-point-marker"></div>', iconSize: [22, 22], iconAnchor: [11, 11], className: "" });
-    L.marker([point.lat, point.lon], { icon, title: "Search point", keyboard: false }).addTo(this.markerLayer);
+    const icon = L.divIcon({
+      html: '<div class="search-point-marker"></div>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+      className: "",
+    });
+    L.marker([point.lat, point.lon], { icon, title: "Search point", keyboard: false }).addTo(
+      this.markerLayer,
+    );
     L.circle([point.lat, point.lon], {
       radius: SEARCH_RADIUS_M,
       color: "#334155",
@@ -244,7 +266,8 @@ export class SiteMap {
       weight: 2,
       dashArray: "6 4",
     }).addTo(this.markerLayer);
-    for (const group of groupByCoords(locations)) this.markerFor(group, false, true).addTo(this.markerLayer);
+    for (const group of groupByCoords(locations))
+      this.markerFor(group, false, true).addTo(this.markerLayer);
     this.drawnAttention = new Set(locations.map((loc) => loc.id));
     this.drawnSearch = true;
     this.map.flyTo([point.lat, point.lon], 11, { duration: 1.2 });
@@ -261,7 +284,10 @@ export class SiteMap {
     // Search results are all pins (review on #336).
     if (!marker || this.drawnSearch) return false;
     const ids = (marker.options as SiteMarkerOptions).locIds;
-    return ids.some((id) => this.drawnAttention.has(id)) !== ids.some((id) => needsAttention(this.levelOf(id)));
+    return (
+      ids.some((id) => this.drawnAttention.has(id)) !==
+      ids.some((id) => needsAttention(this.levelOf(id)))
+    );
   }
 
   // The marker holding *locId* after its level changed (not across the line).
@@ -291,7 +317,9 @@ export class SiteMap {
     const marker = this.markers.get(loc.id);
     if (!marker) return false;
     const zoom = this.clusterLayer.hasLayer(marker) ? UNCLUSTERED_ZOOM : 13;
-    this.map.flyTo([loc.latitude, loc.longitude], Math.max(this.map.getZoom(), zoom), { duration: 0.8 });
+    this.map.flyTo([loc.latitude, loc.longitude], Math.max(this.map.getZoom(), zoom), {
+      duration: 0.8,
+    });
     return marker.getElement() ?? null;
   }
 
@@ -300,4 +328,3 @@ export class SiteMap {
     if (marker) this.map.panTo(marker.getLatLng());
   }
 }
-

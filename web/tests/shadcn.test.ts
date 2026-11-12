@@ -5,13 +5,18 @@ import { describe, expect, it } from "vitest";
 import { cn } from "~/lib/utils";
 
 const WEB = join(__dirname, "..");
-const CSS = readFileSync(join(WEB, "assets/css/shadcn.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const CSS = readFileSync(join(WEB, "assets/css/shadcn.css"), "utf8").replace(
+  /\/\*[\s\S]*?\*\//g,
+  "",
+);
 
 function block(selector: string): Record<string, string> {
   const start = CSS.indexOf(`${selector} {`);
   expect(start, `${selector} in shadcn.css`).toBeGreaterThanOrEqual(0);
   const body = CSS.slice(start, CSS.indexOf("}", start));
-  return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+  return Object.fromEntries(
+    [...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
+  );
 }
 
 // Colour classes the components in components/ui/ use (bg-muted, text-muted-foreground, ...).
@@ -21,7 +26,9 @@ function usedColours(): Set<string> {
   for (const entry of readdirSync(dir, { recursive: true, encoding: "utf8" })) {
     if (!entry.endsWith(".vue")) continue;
     const source = readFileSync(join(dir, entry), "utf8");
-    for (const m of source.matchAll(/\b(?:bg|text|border|ring|outline|fill|stroke)-([a-z]+(?:-foreground)?)\b/g)) {
+    for (const m of source.matchAll(
+      /\b(?:bg|text|border|ring|outline|fill|stroke)-([a-z]+(?:-foreground)?)\b/g,
+    )) {
       used.add(m[1]);
     }
   }
@@ -56,17 +63,33 @@ describe("shadcn's colour tokens", () => {
   });
 
   it("cover every colour the added components use", () => {
-    const nuxtUi = ["primary", "secondary", "success", "warning", "error", "info", "default", "transparent", "current"];
-    const missing = [...usedColours()].filter((c) => !nuxtUi.includes(c) && !(`--color-${c}` in theme));
+    const nuxtUi = [
+      "primary",
+      "secondary",
+      "success",
+      "warning",
+      "error",
+      "info",
+      "default",
+      "transparent",
+      "current",
+    ];
+    const missing = [...usedColours()].filter(
+      (c) => !nuxtUi.includes(c) && !(`--color-${c}` in theme),
+    );
     // Font sizes (text-sm), sides (border-b) and alignment share the prefixes: not colours.
-    expect(missing.filter((c) => !/^(xs|sm|base|lg|xl|[tblrxy]|left|right|center|foreground)$/.test(c))).toEqual([]);
+    expect(
+      missing.filter((c) => !/^(xs|sm|base|lg|xl|[tblrxy]|left|right|center|foreground)$/.test(c)),
+    ).toEqual([]);
   });
 });
 
 describe("shadcn's base border colour", () => {
   it("covers each added component's elements, and only those", () => {
     const rule = CSS.slice(CSS.indexOf("@layer base"));
-    const prefixes = [...rule.slice(0, rule.indexOf("}")).matchAll(/\[data-slot\^="([\w-]+)"\]/g)].map((m) => m[1]);
+    const prefixes = [
+      ...rule.slice(0, rule.indexOf("}")).matchAll(/\[data-slot\^="([\w-]+)"\]/g),
+    ].map((m) => m[1]);
     expect(prefixes.length).toBeGreaterThan(0);
     // Not every [data-slot]: Nuxt UI's elements have one too.
     expect(rule.slice(0, rule.indexOf("}"))).not.toMatch(/\[data-slot\](?!\^)/);
@@ -74,7 +97,10 @@ describe("shadcn's base border colour", () => {
     for (const entry of readdirSync(dir, { recursive: true, encoding: "utf8" })) {
       if (!entry.endsWith(".vue")) continue;
       for (const m of readFileSync(join(dir, entry), "utf8").matchAll(/data-slot="([\w-]+)"/g)) {
-        expect(prefixes.some((p) => m[1].startsWith(p)), `${m[1]} (${entry}): add it to shadcn.css's @layer base`).toBe(true);
+        expect(
+          prefixes.some((p) => m[1].startsWith(p)),
+          `${m[1]} (${entry}): add it to shadcn.css's @layer base`,
+        ).toBe(true);
       }
     }
   });

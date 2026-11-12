@@ -126,7 +126,10 @@ defineExpose({ reset });
         @click="mapSearch"
       />
     </div>
-    <p id="search-hint" class="mt-1 text-xs text-muted">A site's name or address, a place, or <span class="whitespace-nowrap">55.6761, 12.5683</span>.</p>
+    <p id="search-hint" class="mt-1 text-xs text-muted"
+      >A site's name or address, a place, or
+      <span class="whitespace-nowrap">55.6761, 12.5683</span>.</p
+    >
 
     <!-- A click on the list keeps focus in the field (Safari doesn't focus buttons). -->
     <ul
@@ -139,7 +142,11 @@ defineExpose({ reset });
       @keydown="onListKey"
     >
       <li v-if="!found.nameMatch">
-        <button class="site-match site-match-map w-full px-3 py-1.5 text-left text-sm text-primary hover:bg-elevated focus:bg-elevated focus:outline-none" type="button" @click="mapSearch">
+        <button
+          class="site-match site-match-map w-full px-3 py-1.5 text-left text-sm text-primary hover:bg-elevated focus:bg-elevated focus:outline-none"
+          type="button"
+          @click="mapSearch"
+        >
           Search the map for “{{ query.trim() }}”
         </button>
       </li>
@@ -150,27 +157,48 @@ defineExpose({ reset });
           :data-location-id="site.id"
           @click="pick(site.id)"
         >
-          <span class="legend-dot" :class="`dot-${levels[site.id] || 'no-data'}`" aria-hidden="true" />
+          <span
+            class="legend-dot"
+            :class="`dot-${levels[site.id] || 'no-data'}`"
+            aria-hidden="true"
+          />
           <span class="min-w-0 flex-1">
-            <span class="site-match-name block truncate text-sm font-medium text-highlighted">{{ site.name || site.id }}</span>
-            <span v-if="site.ancestor_path || siteAddress(site) || site.location_type" class="site-match-meta block truncate text-xs text-muted">
+            <span class="site-match-name block truncate text-sm font-medium text-highlighted">{{
+              site.name || site.id
+            }}</span>
+            <span
+              v-if="site.ancestor_path || siteAddress(site) || site.location_type"
+              class="site-match-meta block truncate text-xs text-muted"
+            >
               {{ site.ancestor_path || siteAddress(site) || site.location_type }}
             </span>
           </span>
         </button>
       </li>
-      <li v-if="found.more" class="site-match-more px-3 py-1.5 text-xs text-muted">{{ found.more }} more: keep typing</li>
+      <li v-if="found.more" class="site-match-more px-3 py-1.5 text-xs text-muted"
+        >{{ found.more }} more: keep typing</li
+      >
       <li v-if="found.nameMatch">
-        <button class="site-match site-match-map w-full px-3 py-1.5 text-left text-sm text-primary hover:bg-elevated focus:bg-elevated focus:outline-none" type="button" @click="mapSearch">
+        <button
+          class="site-match site-match-map w-full px-3 py-1.5 text-left text-sm text-primary hover:bg-elevated focus:bg-elevated focus:outline-none"
+          type="button"
+          @click="mapSearch"
+        >
           Search the map for “{{ query.trim() }}”
         </button>
       </li>
     </ul>
 
     <div id="search-results" class="mt-3" :class="{ hidden: !results }">
-      <div id="search-results-header" class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{{ resultsHeader }}</div>
+      <div
+        id="search-results-header"
+        class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted"
+        >{{ resultsHeader }}</div
+      >
       <ul id="search-results-list" class="max-h-48 overflow-y-auto">
-        <li v-if="results && !results.length" class="search-none text-sm text-muted">No Nautobot locations found within 5 km.</li>
+        <li v-if="results && !results.length" class="search-none text-sm text-muted"
+          >No Nautobot locations found within 5 km.</li
+        >
         <li v-for="site in results ?? []" :key="site.id">
           <button
             class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-elevated"
@@ -178,10 +206,16 @@ defineExpose({ reset });
             @click="emit('open', site.id, $event.currentTarget as HTMLElement)"
           >
             <span class="min-w-0 flex-1">
-              <span class="result-name block truncate text-sm font-medium text-highlighted">{{ site.name }}</span>
-              <span class="result-meta block truncate text-xs text-muted">{{ [site.location_type, site.tenant].filter(Boolean).join(" · ") || "—" }}</span>
+              <span class="result-name block truncate text-sm font-medium text-highlighted">{{
+                site.name
+              }}</span>
+              <span class="result-meta block truncate text-xs text-muted">{{
+                [site.location_type, site.tenant].filter(Boolean).join(" · ") || "—"
+              }}</span>
             </span>
-            <span class="result-distance shrink-0 text-xs text-muted">{{ site.distance_km }} km</span>
+            <span class="result-distance shrink-0 text-xs text-muted"
+              >{{ site.distance_km }} km</span
+            >
           </button>
         </li>
       </ul>

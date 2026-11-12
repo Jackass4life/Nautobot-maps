@@ -4,7 +4,12 @@
      the old bar's (templates/_nav.html). -->
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
-import { APP_STATUS_REFRESH_MS, appStatusView, isSearchShortcut, type AppStatus } from "~/utils/appstatus";
+import {
+  APP_STATUS_REFRESH_MS,
+  appStatusView,
+  isSearchShortcut,
+  type AppStatus,
+} from "~/utils/appstatus";
 import { matchSites, type SearchableSite } from "~/utils/sitesearch";
 
 const props = withDefaults(
@@ -48,7 +53,15 @@ const menu = computed<DropdownMenuItem[][]>(() => {
   }
   const signOut = config.value?.user?.sign_out_url;
   if (signOut) {
-    groups.push([{ label: "Sign out", icon: "i-lucide-log-out", to: signOut, external: true, class: "app-nav-sign-out" }]);
+    groups.push([
+      {
+        label: "Sign out",
+        icon: "i-lucide-log-out",
+        to: signOut,
+        external: true,
+        class: "app-nav-sign-out",
+      },
+    ]);
   }
   return groups;
 });
@@ -83,7 +96,9 @@ const sites = shallowRef<SearchableSite[] | null>(null);
 const loadError = ref(false);
 let loading: Promise<void> | null = null;
 function loadSites() {
-  loading ??= (unwrap(useNuxtApp().$api.GET("/api/v1/locations")) as Promise<{ locations: SearchableSite[] }>)
+  loading ??= (
+    unwrap(useNuxtApp().$api.GET("/api/v1/locations")) as Promise<{ locations: SearchableSite[] }>
+  )
     .then((data) => {
       sites.value = data.locations || [];
       loadError.value = false;
@@ -94,7 +109,9 @@ function loadSites() {
     });
   return loading;
 }
-const found = computed(() => (sites.value && query.value.trim() ? matchSites(sites.value, query.value) : null));
+const found = computed(() =>
+  sites.value && query.value.trim() ? matchSites(sites.value, query.value) : null,
+);
 const showResults = computed(() => Boolean(query.value.trim()));
 
 function mapHref(site: SearchableSite) {
@@ -169,9 +186,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <header class="app-bar sticky top-0 z-40 flex h-13 items-center gap-2 border-b border-default bg-default/95 px-3 backdrop-blur sm:gap-4 sm:px-4">
+  <header
+    class="app-bar sticky top-0 z-40 flex h-13 items-center gap-2 border-b border-default bg-default/95 px-3 backdrop-blur sm:gap-4 sm:px-4"
+  >
     <slot name="start" />
-    <a class="app-brand flex shrink-0 items-center gap-1.5 font-semibold text-primary" href="/" title="Map">
+    <a
+      class="app-brand flex shrink-0 items-center gap-1.5 font-semibold text-primary"
+      href="/"
+      title="Map"
+    >
       <UIcon name="i-lucide-map-pin" class="size-5" />
       <span class="hidden sm:inline">Nautobot Maps</span>
     </a>
@@ -221,18 +244,31 @@ onBeforeUnmount(() => {
         aria-label="Sites"
         @keydown="onResultsKey"
       >
-        <li v-if="loadError" class="px-3 py-2 text-sm text-muted">The sites could not be loaded: try again.</li>
+        <li v-if="loadError" class="px-3 py-2 text-sm text-muted"
+          >The sites could not be loaded: try again.</li
+        >
         <li v-else-if="!found" class="px-3 py-2 text-sm text-muted">Loading the sites…</li>
-        <li v-else-if="!found.matches.length" class="px-3 py-2 text-sm text-muted">No site matches</li>
+        <li v-else-if="!found.matches.length" class="px-3 py-2 text-sm text-muted"
+          >No site matches</li
+        >
         <template v-else>
-          <li v-for="site in found.matches" :key="site.id" class="bar-hit flex items-center gap-2 px-1">
+          <li
+            v-for="site in found.matches"
+            :key="site.id"
+            class="bar-hit flex items-center gap-2 px-1"
+          >
             <a
               class="bar-hit-map min-w-0 flex-1 rounded px-2 py-1.5 hover:bg-elevated focus:bg-elevated focus:outline-none"
               :href="mapHref(site)"
               title="Show on the map"
             >
-              <span class="block truncate font-medium text-highlighted">{{ site.name || site.id }}</span>
-              <span v-if="site.ancestor_path || site.physical_address" class="block truncate text-xs text-muted">
+              <span class="block truncate font-medium text-highlighted">{{
+                site.name || site.id
+              }}</span>
+              <span
+                v-if="site.ancestor_path || site.physical_address"
+                class="block truncate text-xs text-muted"
+              >
                 {{ site.ancestor_path || site.physical_address }}
               </span>
             </a>
@@ -240,7 +276,8 @@ onBeforeUnmount(() => {
               class="bar-hit-board shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-elevated"
               :href="boardHref(site)"
               :aria-label="`${site.name || site.id} on the board`"
-            >Board</a>
+              >Board</a
+            >
           </li>
           <li v-if="found.more" class="px-3 py-2 text-sm text-muted">
             {{ found.more.toLocaleString("en") }} more: keep typing
@@ -249,28 +286,57 @@ onBeforeUnmount(() => {
       </ul>
     </div>
 
-    <div class="app-actions ml-auto flex shrink-0 items-center gap-1 sm:gap-2" :class="{ 'max-sm:hidden': searchOpen }">
+    <div
+      class="app-actions ml-auto flex shrink-0 items-center gap-1 sm:gap-2"
+      :class="{ 'max-sm:hidden': searchOpen }"
+    >
       <!-- How fresh the data is; a click explains it. -->
       <div v-if="view" id="app-status" :class="`app-status ${view.state}`">
-      <UPopover>
-        <UButton color="neutral" variant="ghost" :aria-label="`Data: ${view.text}`" title="How fresh the data is">
-          <span class="size-2 shrink-0 rounded-full" :class="DOT[view.state]" aria-hidden="true" />
-          <span
-            id="app-status-text"
-            class="max-w-72 truncate max-sm:hidden"
-            :class="view.state === 'down' ? 'text-error' : view.state === 'stale' ? 'text-warning' : 'text-muted'"
-          >{{ view.text }}</span>
-        </UButton>
-        <template #content>
-          <div id="app-status-detail" class="w-72 space-y-2 p-3 text-sm">
-            <p>{{ view.intro }}</p>
-            <p v-for="line in view.lines" :key="line.what" class="flex justify-between gap-3" :class="`app-status-${line.state}`">
-              <span :class="line.state === 'ok' ? '' : line.state === 'down' ? 'text-error' : 'text-warning'">{{ line.what }}</span>
-              <span v-if="line.when" class="shrink-0 text-muted">{{ line.when }}</span>
-            </p>
-          </div>
-        </template>
-      </UPopover>
+        <UPopover>
+          <UButton
+            color="neutral"
+            variant="ghost"
+            :aria-label="`Data: ${view.text}`"
+            title="How fresh the data is"
+          >
+            <span
+              class="size-2 shrink-0 rounded-full"
+              :class="DOT[view.state]"
+              aria-hidden="true"
+            />
+            <span
+              id="app-status-text"
+              class="max-w-72 truncate max-sm:hidden"
+              :class="
+                view.state === 'down'
+                  ? 'text-error'
+                  : view.state === 'stale'
+                    ? 'text-warning'
+                    : 'text-muted'
+              "
+              >{{ view.text }}</span
+            >
+          </UButton>
+          <template #content>
+            <div id="app-status-detail" class="w-72 space-y-2 p-3 text-sm">
+              <p>{{ view.intro }}</p>
+              <p
+                v-for="line in view.lines"
+                :key="line.what"
+                class="flex justify-between gap-3"
+                :class="`app-status-${line.state}`"
+              >
+                <span
+                  :class="
+                    line.state === 'ok' ? '' : line.state === 'down' ? 'text-error' : 'text-warning'
+                  "
+                  >{{ line.what }}</span
+                >
+                <span v-if="line.when" class="shrink-0 text-muted">{{ line.when }}</span>
+              </p>
+            </div>
+          </template>
+        </UPopover>
       </div>
 
       <span
@@ -278,7 +344,8 @@ onBeforeUnmount(() => {
         class="app-user truncate text-sm text-muted max-md:hidden"
         :title="`Signed in as ${config.user.name}${config.user.role ? ` (${config.user.role})` : ''}`"
       >
-        <span class="font-medium text-toned">{{ config.user.name }}</span><span v-if="config.user.role"> · {{ config.user.role }}</span>
+        <span class="font-medium text-toned">{{ config.user.name }}</span
+        ><span v-if="config.user.role"> · {{ config.user.role }}</span>
       </span>
 
       <UButton
@@ -296,7 +363,13 @@ onBeforeUnmount(() => {
            old menu's did (a modal one, after a filter list was used, could miss it). -->
       <div class="app-menu">
         <UDropdownMenu :items="menu" :modal="false" :content="{ align: 'end' }">
-          <UButton icon="i-lucide-menu" color="neutral" variant="ghost" aria-label="Pages" title="Pages" />
+          <UButton
+            icon="i-lucide-menu"
+            color="neutral"
+            variant="ghost"
+            aria-label="Pages"
+            title="Pages"
+          />
         </UDropdownMenu>
       </div>
     </div>

@@ -2,4 +2,10 @@
 // .nuxt/eslint.config.mjs).
 import withNuxt from "./.nuxt/eslint.config.mjs";
 
-export default withNuxt({ ignores: ["api/api.schema.ts"] });
+export default withNuxt(
+  { ignores: ["api/api.schema.ts"] },
+  {
+    // Prettier formats (#669): it writes void elements as `<input />`.
+    rules: { "vue/html-self-closing": "off" },
+  },
+);

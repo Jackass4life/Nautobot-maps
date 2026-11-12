@@ -27,7 +27,9 @@ async function load() {
   params.set("limit", String(FEED_LIMIT));
   params.set("kinds", kinds.value.join(","));
   try {
-    const answer = (await unwrap(useNuxtApp().$api.GET("/api/v1/alert-feed", { params: { query: queryOf(params) as never } }))) as Feed;
+    const answer = (await unwrap(
+      useNuxtApp().$api.GET("/api/v1/alert-feed", { params: { query: queryOf(params) as never } }),
+    )) as Feed;
     if (mine !== seq) return;
     feed.value = answer;
     failed.value = "";
@@ -37,7 +39,9 @@ async function load() {
   }
 }
 function toggle(kind: string) {
-  kinds.value = kinds.value.includes(kind) ? kinds.value.filter((k) => k !== kind) : [...kinds.value, kind];
+  kinds.value = kinds.value.includes(kind)
+    ? kinds.value.filter((k) => k !== kind)
+    : [...kinds.value, kind];
   load();
 }
 watch(() => [props.version, props.open], load);
@@ -53,7 +57,16 @@ const entries = computed(() => {
   <aside id="feed-panel" class="feed-panel" aria-labelledby="feed-title">
     <div class="flex items-center justify-between gap-2 border-b border-default px-3 py-2">
       <h2 id="feed-title" class="truncate text-sm font-semibold text-highlighted">{{ title }}</h2>
-      <UButton id="feed-toggle" class="feed-toggle" size="xs" color="neutral" variant="ghost" aria-controls="feed-panel" @click="emit('hide')">Hide</UButton>
+      <UButton
+        id="feed-toggle"
+        class="feed-toggle"
+        size="xs"
+        color="neutral"
+        variant="ghost"
+        aria-controls="feed-panel"
+        @click="emit('hide')"
+        >Hide</UButton
+      >
     </div>
     <div id="feed-body" class="feed-body space-y-2 p-3">
       <div class="feed-filters flex gap-1" role="group" aria-label="Show in activity">
@@ -67,22 +80,39 @@ const entries = computed(() => {
           :variant="kinds.includes(kind) ? 'soft' : 'outline'"
           :aria-pressed="kinds.includes(kind) ? 'true' : 'false'"
           @click="toggle(kind)"
-        >{{ label }}</UButton>
+          >{{ label }}</UButton
+        >
       </div>
       <ol id="feed-list" class="feed-list space-y-2 text-sm">
         <li v-if="!kinds.length" class="feed-empty text-muted">Choose what to show.</li>
-        <li v-else-if="failed" class="feed-empty text-muted">Could not load activity: {{ failed }}</li>
+        <li v-else-if="failed" class="feed-empty text-muted"
+          >Could not load activity: {{ failed }}</li
+        >
         <li v-else-if="!feed" class="feed-empty text-muted">Loading activity…</li>
-        <li v-else-if="feed.persistence_configured === false" class="feed-empty text-muted">The activity log needs the PostgreSQL database.</li>
+        <li v-else-if="feed.persistence_configured === false" class="feed-empty text-muted"
+          >The activity log needs the PostgreSQL database.</li
+        >
         <li v-else-if="!entries.length" class="feed-empty text-muted">No changes yet.</li>
         <template v-else>
-          <li v-for="({ event, title: what, text, meta }, index) in entries" :key="index" class="feed-entry" :class="`feed-${event.kind}`">
+          <li
+            v-for="({ event, title: what, text, meta }, index) in entries"
+            :key="index"
+            class="feed-entry"
+            :class="`feed-${event.kind}`"
+          >
             <div class="flex items-baseline gap-1.5">
               <span
                 class="feed-icon text-xs"
-                :class="event.kind === 'down' ? 'text-error' : event.kind === 'up' ? 'text-success' : 'text-muted'"
+                :class="
+                  event.kind === 'down'
+                    ? 'text-error'
+                    : event.kind === 'up'
+                      ? 'text-success'
+                      : 'text-muted'
+                "
                 aria-hidden="true"
-              >{{ event.kind === "down" ? "▼" : event.kind === "up" ? "▲" : "●" }}</span>
+                >{{ event.kind === "down" ? "▼" : event.kind === "up" ? "▲" : "●" }}</span
+              >
               <span class="min-w-0">
                 <strong class="font-medium text-highlighted">{{ what }}</strong>
                 <template v-if="text">{{ ` ${text}` }}</template>

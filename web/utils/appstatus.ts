@@ -22,7 +22,8 @@ export function appStatusView(status: AppStatus | null, now: Date = new Date()):
     return {
       state: "down",
       text: "Can't reach Nautobot Maps",
-      intro: "This page can't reach the app: what you see may be out of date. It tries again every minute.",
+      intro:
+        "This page can't reach the app: what you see may be out of date. It tries again every minute.",
       lines: [],
     };
   }
@@ -30,10 +31,19 @@ export function appStatusView(status: AppStatus | null, now: Date = new Date()):
   const worst = sources.find((s) => s.state === "down") || sources.find((s) => s.state === "stale");
   const updated = status.updated_at ? formatFeedTime(status.updated_at, now) : "";
   // Several unreachable (wireless controllers, #508): one line says how many; the list names them.
-  const unreachable = sources.filter((s) => s.state !== "ok" && s.message.startsWith("Can't reach")).length;
+  const unreachable = sources.filter(
+    (s) => s.state !== "ok" && s.message.startsWith("Can't reach"),
+  ).length;
   return {
     state: status.state,
-    text: unreachable > 1 ? `Can't reach ${unreachable} sources` : worst ? worst.message : updated ? `Updated ${updated}` : "Up to date",
+    text:
+      unreachable > 1
+        ? `Can't reach ${unreachable} sources`
+        : worst
+          ? worst.message
+          : updated
+            ? `Updated ${updated}`
+            : "Up to date",
     intro:
       status.state === "ok"
         ? "The map and board are up to date."
@@ -49,8 +59,12 @@ export function appStatusView(status: AppStatus | null, now: Date = new Date()):
 }
 
 // "/" jumps to the site search: not while typing, or with Ctrl, Cmd or Alt.
-export function isSearchShortcut(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "target">): boolean {
+export function isSearchShortcut(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "target">,
+): boolean {
   if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return false;
   const target = event.target as HTMLElement | null;
-  return !(target?.closest?.("input, textarea, select, [contenteditable]") || target?.isContentEditable);
+  return !(
+    target?.closest?.("input, textarea, select, [contenteditable]") || target?.isContentEditable
+  );
 }

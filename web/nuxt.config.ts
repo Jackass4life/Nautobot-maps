@@ -40,7 +40,9 @@ export default defineNuxtConfig({
     // `bun run dev`: the API from api/ on :8000 (`uv run uvicorn app.api:app`), but not
     // /api/docs, which is a page of this app (#483).
     server: {
-      proxy: { "^/api/(?!docs(?:[/?#]|$))": { target: "http://127.0.0.1:8000", changeOrigin: true } },
+      proxy: {
+        "^/api/(?!docs(?:[/?#]|$))": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      },
     },
     build: {
       // Swagger UI (about 1.5 MB since 5.34, the API page only, loaded there by a
@@ -60,7 +62,9 @@ export default defineNuxtConfig({
   },
   // The flat layout puts tests/ and the tool configs beside the pages: not the app's
   // types (vitest runs the tests, as with frontend/'s app/ directory).
-  typescript: { tsConfig: { exclude: ["../tests/**", "../vitest.config.ts", "../eslint.config.mjs"] } },
+  typescript: {
+    tsConfig: { exclude: ["../tests/**", "../vitest.config.ts", "../eslint.config.mjs"] },
+  },
   devtools: { enabled: false },
   telemetry: false,
 });

@@ -3,13 +3,29 @@
      "Show all 28".  A row opens the site; "Alarms only" hides the rest of the
      map. -->
 <script setup lang="ts">
-import { ALARM_LIST_SHOWN, LEVEL_NAMES, alarmMeta, levelBreakdown, type AlarmSite } from "~/utils/map";
+import {
+  ALARM_LIST_SHOWN,
+  LEVEL_NAMES,
+  alarmMeta,
+  levelBreakdown,
+  type AlarmSite,
+} from "~/utils/map";
 
-const props = defineProps<{ sites: AlarmSite[]; loaded: boolean; title: string; alarmsOnly: boolean }>();
-const emit = defineEmits<{ open: [id: string, element: HTMLElement]; "update:alarmsOnly": [on: boolean] }>();
+const props = defineProps<{
+  sites: AlarmSite[];
+  loaded: boolean;
+  title: string;
+  alarmsOnly: boolean;
+}>();
+const emit = defineEmits<{
+  open: [id: string, element: HTMLElement];
+  "update:alarmsOnly": [on: boolean];
+}>();
 
 const expanded = ref(false);
-const shown = computed(() => (expanded.value ? props.sites : props.sites.slice(0, ALARM_LIST_SHOWN)));
+const shown = computed(() =>
+  expanded.value ? props.sites : props.sites.slice(0, ALARM_LIST_SHOWN),
+);
 const breakdown = computed(() => levelBreakdown(props.sites));
 // The times against now, taken again with each refresh of the list.
 const now = computed(() => {
@@ -18,10 +34,14 @@ const now = computed(() => {
 });
 
 // Each row's "2/8 down · since 14:05", worked out once per row.
-const rows = computed(() => shown.value.map((entry) => ({ entry, meta: alarmMeta(entry, now.value) })));
+const rows = computed(() =>
+  shown.value.map((entry) => ({ entry, meta: alarmMeta(entry, now.value) })),
+);
 
 function label(entry: AlarmSite, meta: string) {
-  return [`${LEVEL_NAMES[entry.level]}: ${entry.loc.name || entry.loc.id}`, meta].filter(Boolean).join(", ");
+  return [`${LEVEL_NAMES[entry.level]}: ${entry.loc.name || entry.loc.id}`, meta]
+    .filter(Boolean)
+    .join(", ");
 }
 </script>
 
@@ -49,7 +69,8 @@ function label(entry: AlarmSite, meta: string) {
         :aria-pressed="alarmsOnly ? 'true' : 'false'"
         title="Show only the sites in alarm on the map"
         @click="emit('update:alarmsOnly', !alarmsOnly)"
-      >Alarms only</UButton>
+        >Alarms only</UButton
+      >
     </div>
     <p id="alarm-breakdown" class="alarm-breakdown text-xs text-muted">{{ breakdown }}</p>
     <ol id="alarm-list" class="alarm-list mt-2 min-h-0 space-y-0.5 overflow-y-auto">
@@ -63,7 +84,9 @@ function label(entry: AlarmSite, meta: string) {
           @click="emit('open', entry.loc.id, $event.currentTarget as HTMLElement)"
         >
           <span class="legend-dot" :class="`dot-${entry.level}`" aria-hidden="true" />
-          <span class="alarm-name truncate text-sm font-medium text-highlighted">{{ entry.loc.name || entry.loc.id }}</span>
+          <span class="alarm-name truncate text-sm font-medium text-highlighted">{{
+            entry.loc.name || entry.loc.id
+          }}</span>
           <span v-if="meta" class="alarm-meta col-start-2 text-xs text-muted">{{ meta }}</span>
         </button>
       </li>
@@ -78,6 +101,7 @@ function label(entry: AlarmSite, meta: string) {
       aria-controls="alarm-list"
       :aria-expanded="expanded ? 'true' : 'false'"
       @click="expanded = !expanded"
-    >{{ expanded ? "Show fewer" : `Show all ${sites.length.toLocaleString("en")}` }}</UButton>
+      >{{ expanded ? "Show fewer" : `Show all ${sites.length.toLocaleString("en")}` }}</UButton
+    >
   </section>
 </template>

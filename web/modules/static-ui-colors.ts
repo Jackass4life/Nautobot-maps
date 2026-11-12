@@ -22,7 +22,8 @@ export function colorsCss(colors: Record<string, string>): string {
         `--ui-color-${key}-${shade}: var(--color-${value === "neutral" ? "old-neutral" : value}-${shade}, ${hex(value, shade)});`,
     ),
   );
-  const at = (shade: number) => Object.keys(semantic).map((key) => `--ui-${key}: var(--ui-color-${key}-${shade});`);
+  const at = (shade: number) =>
+    Object.keys(semantic).map((key) => `--ui-${key}: var(--ui-color-${key}-${shade});`);
   return `@layer theme {
   :root, :host { ${shades.join(" ")} }
   :root, :host, .light { ${at(500).join(" ")} }
@@ -34,10 +35,16 @@ export function colorsCss(colors: Record<string, string>): string {
 export default defineNuxtModule({
   meta: { name: "static-ui-colors" },
   setup(_options, nuxt) {
-    const css = addTemplate({ filename: "ui-colors.css", write: true, getContents: () => colorsCss(UI_COLORS) });
+    const css = addTemplate({
+      filename: "ui-colors.css",
+      write: true,
+      getContents: () => colorsCss(UI_COLORS),
+    });
     nuxt.options.css.push(css.dst);
     nuxt.hook("app:resolve", (app) => {
-      app.plugins = app.plugins.filter((plugin) => !/@nuxt[\\/]ui[\\/].*plugins[\\/]colors/.test(plugin.src));
+      app.plugins = app.plugins.filter(
+        (plugin) => !/@nuxt[\\/]ui[\\/].*plugins[\\/]colors/.test(plugin.src),
+      );
     });
   },
 });

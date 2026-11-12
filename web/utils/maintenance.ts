@@ -36,7 +36,11 @@ export function groupsFor(days: number): { id: BatchGroup; title: string; empty:
   return [
     { id: "active", title: "Active now", empty: "Nothing in maintenance now." },
     { id: "upcoming", title: "Planned", empty: "Nothing planned." },
-    { id: "past", title: `Ended in the last ${days} day${days === 1 ? "" : "s"}`, empty: "Nothing ended lately." },
+    {
+      id: "past",
+      title: `Ended in the last ${days} day${days === 1 ? "" : "s"}`,
+      empty: "Nothing ended lately.",
+    },
   ];
 }
 
@@ -63,7 +67,10 @@ export function siteLabel(window: MaintenanceWindow): string {
 // *descriptions* too (#497).
 export function batchesOf(
   windows: MaintenanceWindow[],
-  { keepOrder = false, descriptions = {} }: { keepOrder?: boolean; descriptions?: Record<string, string> } = {},
+  {
+    keepOrder = false,
+    descriptions = {},
+  }: { keepOrder?: boolean; descriptions?: Record<string, string> } = {},
 ): Batch[] {
   const batches = new Map<string, Batch>();
   for (const window of windows) {
@@ -90,7 +97,8 @@ export function batchesOf(
     }
     batch.windows.push(window);
     // Ended at different times: the latest.
-    if (window.ended_at && !(Date.parse(batch.ended_at ?? "") >= Date.parse(window.ended_at))) batch.ended_at = window.ended_at;
+    if (window.ended_at && !(Date.parse(batch.ended_at ?? "") >= Date.parse(window.ended_at)))
+      batch.ended_at = window.ended_at;
   }
   for (const batch of batches.values()) {
     batch.tenants = [...new Set(batch.windows.flatMap((window) => window.tenants || []))].sort();
@@ -100,7 +108,11 @@ export function batchesOf(
       batch.created_by,
       ...batch.tenants,
       ...batch.tenants.map((tenant) => tenantDescriptionIn(descriptions, tenant)),
-      ...batch.windows.flatMap((w) => [siteLabel(w), w.site_path || "", w.device_name || w.device_id]),
+      ...batch.windows.flatMap((w) => [
+        siteLabel(w),
+        w.site_path || "",
+        w.device_name || w.device_id,
+      ]),
     ]
       .join(" ")
       .toLowerCase();
@@ -108,14 +120,25 @@ export function batchesOf(
   if (keepOrder) return [...batches.values()];
   // By group; then ending soonest first, planned soonest first, ended latest first.
   const time = (batch: Batch) =>
-    Date.parse(batch.group === "active" ? batch.ends_at : batch.group === "upcoming" ? batch.starts_at : batch.ended_at || batch.ends_at);
+    Date.parse(
+      batch.group === "active"
+        ? batch.ends_at
+        : batch.group === "upcoming"
+          ? batch.starts_at
+          : batch.ended_at || batch.ends_at,
+    );
   return [...batches.values()].sort(
-    (a, b) => GROUP_ORDER[a.group] - GROUP_ORDER[b.group] || (a.group === "past" ? time(b) - time(a) : time(a) - time(b)),
+    (a, b) =>
+      GROUP_ORDER[a.group] - GROUP_ORDER[b.group] ||
+      (a.group === "past" ? time(b) - time(a) : time(a) - time(b)),
   );
 }
 
 // Search: reason, person, sites, paths, devices and tenants; and any of the chosen tenants.
-export function batchMatches(batch: Batch, { words = [], tenants = [] }: { words?: string[]; tenants?: string[] }): boolean {
+export function batchMatches(
+  batch: Batch,
+  { words = [], tenants = [] }: { words?: string[]; tenants?: string[] },
+): boolean {
   if (tenants.length && !batch.tenants.some((tenant) => tenants.includes(tenant))) return false;
   return hasAllWords(batch.text, words);
 }
@@ -125,7 +148,9 @@ export function batchTitle(batch: Batch): string {
   const { windows, sites } = batch;
   if (windows.length === 1) {
     const window = windows[0]!;
-    return window.device_id ? `${siteLabel(window)} · ${window.device_name || window.device_id}` : siteLabel(window);
+    return window.device_id
+      ? `${siteLabel(window)} · ${window.device_name || window.device_id}`
+      : siteLabel(window);
   }
   if (sites.length === 1) return `${windows.length} devices at ${sites[0]}`;
   return `${sites.length} sites`;
@@ -133,7 +158,8 @@ export function batchTitle(batch: Batch): string {
 
 export function whenText(batch: Batch, now = new Date()): string {
   if (batch.state === "cancelled") return "cancelled";
-  if (batch.group === "past") return `ended ${formatFeedTime(batch.ended_at || batch.ends_at, now)}`;
+  if (batch.group === "past")
+    return `ended ${formatFeedTime(batch.ended_at || batch.ends_at, now)}`;
   if (batch.group === "active") return `until ${formatFeedTime(batch.ends_at, now)}`;
   return `${formatFeedTime(batch.starts_at, now)} – ${formatFeedTime(batch.ends_at, now)}`;
 }
@@ -145,7 +171,10 @@ export function spanText(batch: Batch, now = new Date()): string {
   if (batch.group === "active") return `since ${at(batch.starts_at)}, until ${at(batch.ends_at)}`;
   if (batch.group === "upcoming") return `planned ${at(batch.starts_at)} – ${at(batch.ends_at)}`;
   const end = batch.ended_at || batch.ends_at;
-  const early = batch.ended_at && Date.parse(batch.ended_at) < Date.parse(batch.ends_at) ? " · ended early" : "";
+  const early =
+    batch.ended_at && Date.parse(batch.ended_at) < Date.parse(batch.ends_at)
+      ? " · ended early"
+      : "";
   return `${at(batch.starts_at)} – ${at(end)}${early}`;
 }
 
@@ -169,14 +198,21 @@ export function countText(batches: Batch[]): string {
 export const MAX_MATCHES = 8;
 
 // Each tenant with its lower-cased name and description.
-export type PickerSite = PlannableSite & { lowerName: string; lowerTenants: [string, string, string][]; text: string };
+export type PickerSite = PlannableSite & {
+  lowerName: string;
+  lowerTenants: [string, string, string][];
+  text: string;
+};
 
 const byName = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
 // The sites as the picker searches them: sorted by name and lower-cased once.
 // A tenant's description finds the tenant, not each of its sites: a common
 // word in it would list hundreds (#497).
-export function prepareSites(sites: PlannableSite[], descriptions: Record<string, string> = {}): PickerSite[] {
+export function prepareSites(
+  sites: PlannableSite[],
+  descriptions: Record<string, string> = {},
+): PickerSite[] {
   return [...sites]
     .sort((a, b) => byName.compare(a.name, b.name))
     .map((site) => ({
@@ -223,7 +259,11 @@ export function matchPlannableSites(
     .sort(([, a], [, b]) => Number(b.named) - Number(a.named) || b.ids.length - a.ids.length)
     .slice(0, 3)
     .map(([name, { ids }]) => ({ name, ids }));
-  return { sites: hits.slice(0, MAX_MATCHES), tenants, more: Math.max(0, hits.length - MAX_MATCHES) };
+  return {
+    sites: hits.slice(0, MAX_MATCHES),
+    tenants,
+    more: Math.max(0, hits.length - MAX_MATCHES),
+  };
 }
 
 export interface PlanValues extends WhenValues {
@@ -234,7 +274,10 @@ export interface PlanValues extends WhenValues {
 }
 
 // The request for new windows, or {error}; *maxSites*: the server's limit.
-export function windowRequest(values: PlanValues, maxSites = 200): Record<string, unknown> & { error?: string } {
+export function windowRequest(
+  values: PlanValues,
+  maxSites = 200,
+): Record<string, unknown> & { error?: string } {
   const { siteIds } = values;
   if (!siteIds.length) return { error: "Choose at least one site." };
   if (siteIds.length > maxSites) return { error: `At most ${maxSites} sites at once.` };
@@ -243,7 +286,8 @@ export function windowRequest(values: PlanValues, maxSites = 200): Record<string
   let body: Record<string, unknown>;
   if (values.scope === "devices") {
     if (siteIds.length !== 1) return { error: "Choose devices for one site at a time." };
-    if (!values.deviceIds.length) return { error: "Tick at least one device, or choose the whole site." };
+    if (!values.deviceIds.length)
+      return { error: "Tick at least one device, or choose the whole site." };
     body = { site_id: siteIds[0], reason, device_ids: values.deviceIds };
   } else {
     body = siteIds.length === 1 ? { site_id: siteIds[0], reason } : { site_ids: siteIds, reason };

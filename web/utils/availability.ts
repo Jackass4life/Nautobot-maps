@@ -51,7 +51,9 @@ export function siteRows(sites: SiteRow[], descriptions: Record<string, string>)
       devices: site.network_devices + site.access_points,
       devicesText: devicesText(site.network_devices, site.access_points),
       tenants: site.tenants,
-      search: [name, ...site.tenants, ...site.tenants.map((tenant) => descriptions[tenant] ?? "")].join(" ").toLowerCase(),
+      search: [name, ...site.tenants, ...site.tenants.map((tenant) => descriptions[tenant] ?? "")]
+        .join(" ")
+        .toLowerCase(),
     };
   });
 }
@@ -89,29 +91,45 @@ function byName(a: Row, b: Row): number {
 // A sorted copy by *key* and *dir*; ties by name.
 export function sortRows(rows: Row[], key: SortKey = "availability", dir: SortDir = "asc"): Row[] {
   const sign = dir === "desc" ? -1 : 1;
-  return [...rows].sort((a, b) => (key === "name" ? byName(a, b) : a[key] - b[key]) * sign || byName(a, b));
+  return [...rows].sort(
+    (a, b) => (key === "name" ? byName(a, b) : a[key] - b[key]) * sign || byName(a, b),
+  );
 }
 
 // The sorted rows a search and the chosen tenants leave: {shown, rest, matched}.
 export function filterRows(
   sorted: Row[],
-  { query = "", tenants = [], limit = Infinity }: { query?: string; tenants?: string[]; limit?: number } = {},
+  {
+    query = "",
+    tenants = [],
+    limit = Infinity,
+  }: { query?: string; tenants?: string[]; limit?: number } = {},
 ): { shown: Row[]; rest: Row[]; matched: number } {
   const words = searchWords(query);
   const matched = sorted.filter(
-    (row) => hasAllWords(row.search, words) && (!tenants.length || row.tenants.some((tenant) => tenants.includes(tenant))),
+    (row) =>
+      hasAllWords(row.search, words) &&
+      (!tenants.length || row.tenants.some((tenant) => tenants.includes(tenant))),
   );
   return { shown: matched.slice(0, limit), rest: matched.slice(limit), matched: matched.length };
 }
 
 // The line under a table: "Showing 25 of 1,200 · 1,140 of the rest with no downtime".
-export function moreText(view: { shown: Row[]; rest: Row[]; matched: number }, total: number): string {
+export function moreText(
+  view: { shown: Row[]; rest: Row[]; matched: number },
+  total: number,
+): string {
   const count = (n: number) => n.toLocaleString("en-GB");
   if (!view.matched) return total ? "Nothing matches." : "";
-  if (!view.rest.length) return view.matched < total ? `${count(view.matched)} of ${count(total)}` : "";
+  if (!view.rest.length)
+    return view.matched < total ? `${count(view.matched)} of ${count(total)}` : "";
   const quiet = view.rest.filter((row) => !row.downtime).length;
   const tail =
-    quiet === view.rest.length ? " · all of the rest with no downtime" : quiet ? ` · ${count(quiet)} of the rest with no downtime` : "";
+    quiet === view.rest.length
+      ? " · all of the rest with no downtime"
+      : quiet
+        ? ` · ${count(quiet)} of the rest with no downtime`
+        : "";
   return `Showing ${count(view.shown.length)} of ${count(view.matched)}${tail}`;
 }
 

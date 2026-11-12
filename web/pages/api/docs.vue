@@ -37,11 +37,15 @@ onMounted(async () => {
     <main class="mx-auto max-w-6xl space-y-4 px-4 py-6">
       <h1 class="text-2xl font-bold text-highlighted">API</h1>
       <p class="max-w-3xl text-sm text-muted">
-        Every endpoint, what it takes and what it needs. <strong class="text-highlighted">Try it out</strong> sends a real request as
-        you: your login and role apply, and POST and DELETE change data. As OpenAPI:
+        Every endpoint, what it takes and what it needs.
+        <strong class="text-highlighted">Try it out</strong> sends a real request as you: your login
+        and role apply, and POST and DELETE change data. As OpenAPI:
         <a class="text-primary hover:underline" href="/api/openapi.json">/api/openapi.json</a>.
       </p>
-      <p v-if="failed" class="text-sm text-error">The API page could not load: {{ failed }}. The API as JSON: <a class="underline" href="/api/openapi.json">/api/openapi.json</a>.</p>
+      <p v-if="failed" class="text-sm text-error"
+        >The API page could not load: {{ failed }}. The API as JSON:
+        <a class="underline" href="/api/openapi.json">/api/openapi.json</a>.</p
+      >
       <!-- Swagger UI draws the API here. -->
       <div id="swagger-ui" ref="swagger" class="docs-swagger" />
     </main>

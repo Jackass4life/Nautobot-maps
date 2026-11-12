@@ -17,7 +17,9 @@ const now = ref(new Date());
 // Whether the viewer opened the operational fold: kept across the refresh.
 const operationalOpen = ref(false);
 
-const shown = computed(() => (data.value ? splitSites(data.value.sites) : { attention: [], operational: [] }));
+const shown = computed(() =>
+  data.value ? splitSites(data.value.sites) : { attention: [], operational: [] },
+);
 // The link has no name in it (#500): "Status" until the answer says whose.
 const title = computed(() => data.value?.tenant || "Status");
 
@@ -90,14 +92,25 @@ const DOT: Record<string, string> = {
          The heading is the name alone (what a screen reader announces); the
          line's size is the description's, so a wrapped one keeps its spacing. -->
     <div class="mt-1 text-xl">
-      <h1 id="status-tenant" class="inline text-3xl font-bold text-highlighted">{{ title }}</h1><span v-if="data?.description" id="status-description" class="text-muted"> – {{ data.description }}</span>
+      <h1 id="status-tenant" class="inline text-3xl font-bold text-highlighted">{{ title }}</h1
+      ><span v-if="data?.description" id="status-description" class="text-muted">
+        – {{ data.description }}</span
+      >
     </div>
     <p
       id="status-headline"
       role="status"
       aria-live="polite"
       class="mt-2 text-lg font-semibold"
-      :class="error ? 'text-error' : data?.summary.affected ? 'text-error' : data ? 'text-success' : 'text-muted'"
+      :class="
+        error
+          ? 'text-error'
+          : data?.summary.affected
+            ? 'text-error'
+            : data
+              ? 'text-success'
+              : 'text-muted'
+      "
     >
       {{ error || (data ? headline(data) : "Loading…") }}
     </p>
@@ -105,7 +118,13 @@ const DOT: Record<string, string> = {
     <template v-if="data">
       <UCard v-if="shown.attention.length" class="mt-6" :ui="{ body: 'p-0 sm:p-0' }">
         <ul id="status-sites" class="divide-y divide-default">
-          <StatusSiteRow v-for="site in shown.attention" :key="site.name" :site="site" :now="now" :dot="DOT" />
+          <StatusSiteRow
+            v-for="site in shown.attention"
+            :key="site.name"
+            :site="site"
+            :now="now"
+            :dot="DOT"
+          />
         </ul>
       </UCard>
 
@@ -116,17 +135,32 @@ const DOT: Record<string, string> = {
         :open="operationalOpen"
         @toggle="operationalOpen = ($event.target as HTMLDetailsElement).open"
       >
-        <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-medium text-toned">
-          <UIcon name="i-lucide-chevron-right" class="size-4 text-muted transition-transform group-open:rotate-90" />
-          {{ shown.operational.length.toLocaleString("en") }} site{{ shown.operational.length === 1 ? "" : "s" }}
+        <summary
+          class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-medium text-toned"
+        >
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="size-4 text-muted transition-transform group-open:rotate-90"
+          />
+          {{ shown.operational.length.toLocaleString("en") }} site{{
+            shown.operational.length === 1 ? "" : "s"
+          }}
           operational
         </summary>
         <ul class="divide-y divide-default border-t border-default">
-          <StatusSiteRow v-for="site in shown.operational" :key="site.name" :site="site" :now="now" :dot="DOT" />
+          <StatusSiteRow
+            v-for="site in shown.operational"
+            :key="site.name"
+            :site="site"
+            :now="now"
+            :dot="DOT"
+          />
         </ul>
       </details>
 
-      <p id="status-updated" class="mt-4 text-sm text-muted">Updated {{ formatFeedTime(data.checked_at, now) }}</p>
+      <p id="status-updated" class="mt-4 text-sm text-muted"
+        >Updated {{ formatFeedTime(data.checked_at, now) }}</p
+      >
     </template>
   </main>
 </template>

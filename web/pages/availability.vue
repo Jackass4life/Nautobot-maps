@@ -19,10 +19,14 @@ const HELP = {
   basis:
     "What counts as down. Any monitored device down: a site is down while at least one of its monitored devices is down (several at once count once). Site at Critical: only the time the site was at Critical on the board.",
   csv: "For a spreadsheet, with the period and totals at the top. Sites and tenants: the tables below, with more detail per site. Every incident: each device outage in the period, to check the figures. Times are UTC, downtime in minutes.",
-  downtime: "All sites' downtime in the period added up, without maintenance. An incident is one device going down and coming back.",
-  worst: "The tenant with the lowest availability: the average of its sites, each site counting the same.",
-  tenants: "Each tenant's availability is the average of its sites. The worst first; click a column to sort by it. With more than 10 tenants, search for one by name or description.",
-  sites: "Every monitored site, the worst first. Click a column to sort; search for a site (by name, tenant or tenant description) or pick a tenant. Incidents: device outages in the period. Devices: how many monitored devices the site has, those in maintenance too; APs are access points, network is everything else. The bar runs from 98 to 100 %.",
+  downtime:
+    "All sites' downtime in the period added up, without maintenance. An incident is one device going down and coming back.",
+  worst:
+    "The tenant with the lowest availability: the average of its sites, each site counting the same.",
+  tenants:
+    "Each tenant's availability is the average of its sites. The worst first; click a column to sort by it. With more than 10 tenants, search for one by name or description.",
+  sites:
+    "Every monitored site, the worst first. Click a column to sort; search for a site (by name, tenant or tenant description) or pick a tenant. Incidents: device outages in the period. Devices: how many monitored devices the site has, those in maintenance too; APs are access points, network is everything else. The bar runs from 98 to 100 %.",
 };
 
 // What was asked for, from the address.
@@ -39,14 +43,24 @@ const report = shallowRef<Report | null>(null);
 const error = ref("");
 const loading = ref(true);
 
-const basis = computed(() => report.value?.basis || asked.basis || limits.value?.basis || "any_down");
+const basis = computed(
+  () => report.value?.basis || asked.basis || limits.value?.basis || "any_down",
+);
 // What was just picked, at once; with nothing in the address, the report's (this month).
 const shownFrom = computed(() => asked.from || report.value?.period.from || "");
 const shownTo = computed(() => asked.to || report.value?.period.to || "");
-const csvQuery = computed(() => new URLSearchParams({ from: shownFrom.value, to: shownTo.value, basis: basis.value }).toString());
-const sites = computed(() => (report.value ? siteRows(report.value.sites, report.value.tenant_descriptions) : []));
-const tenants = computed(() => (report.value ? tenantRows(report.value.tenants, report.value.tenant_descriptions) : []));
-const tenantNames = computed(() => (report.value ? report.value.tenants.map((t) => t.tenant).sort() : []));
+const csvQuery = computed(() =>
+  new URLSearchParams({ from: shownFrom.value, to: shownTo.value, basis: basis.value }).toString(),
+);
+const sites = computed(() =>
+  report.value ? siteRows(report.value.sites, report.value.tenant_descriptions) : [],
+);
+const tenants = computed(() =>
+  report.value ? tenantRows(report.value.tenants, report.value.tenant_descriptions) : [],
+);
+const tenantNames = computed(() =>
+  report.value ? report.value.tenants.map((t) => t.tenant).sort() : [],
+);
 const summary = computed(() => report.value?.summary);
 const periodNote = computed(() => {
   const period = report.value?.period;
@@ -67,7 +81,11 @@ function query(): URLSearchParams {
 async function load() {
   loading.value = true;
   try {
-    report.value = (await unwrap(useNuxtApp().$api.GET("/api/v1/availability", { params: { query: queryOf(query()) as never } }))) as Report;
+    report.value = (await unwrap(
+      useNuxtApp().$api.GET("/api/v1/availability", {
+        params: { query: queryOf(query()) as never },
+      }),
+    )) as Report;
     error.value = "";
   } catch (err) {
     report.value = null;
@@ -93,7 +111,12 @@ function pickBasis(value: unknown) {
 }
 function onPopState() {
   const again = new URLSearchParams(window.location.search);
-  Object.assign(asked, { month: again.get("month") || "", from: again.get("from") || "", to: again.get("to") || "", basis: again.get("basis") || "" });
+  Object.assign(asked, {
+    month: again.get("month") || "",
+    from: again.get("from") || "",
+    to: again.get("to") || "",
+    basis: again.get("basis") || "",
+  });
   load();
 }
 
@@ -108,7 +131,9 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
   <div>
     <AppBar active="availability" />
     <main class="mx-auto max-w-6xl space-y-5 px-4 py-6">
-      <h1 class="flex items-center gap-2 text-2xl font-bold text-highlighted">Availability <HelpTip :text="HELP.page" /></h1>
+      <h1 class="flex items-center gap-2 text-2xl font-bold text-highlighted"
+        >Availability <HelpTip :text="HELP.page"
+      /></h1>
 
       <!-- The period and what counts as down (#287, #341). -->
       <section id="availability-form" class="flex flex-wrap items-center gap-3">
@@ -122,8 +147,17 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :today="limits.today"
           @pick="pickPeriod"
         />
-        <span class="ml-2 flex items-center gap-1 text-sm text-muted">Downtime <HelpTip :text="HELP.basis" /></span>
-        <USelect id="availability-basis" :model-value="basis" :items="BASES" class="w-64" aria-label="What counts as down" @update:model-value="pickBasis" />
+        <span class="ml-2 flex items-center gap-1 text-sm text-muted"
+          >Downtime <HelpTip :text="HELP.basis"
+        /></span>
+        <USelect
+          id="availability-basis"
+          :model-value="basis"
+          :items="BASES"
+          class="w-64"
+          aria-label="What counts as down"
+          @update:model-value="pickBasis"
+        />
       </section>
 
       <p v-if="error" class="availability-note text-sm text-error" role="alert">{{ error }}</p>
@@ -132,13 +166,22 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
       <template v-if="report && summary">
         <p class="availability-note text-sm text-muted">
           {{ periodNote }} · maintenance is not downtime · CSV <HelpTip :text="HELP.csv" />:
-          <a class="text-primary hover:underline" :href="`/api/v1/availability.csv?${csvQuery}&view=sites&header=1`">sites</a>,
-          <a class="text-primary hover:underline" :href="`/api/v1/availability.csv?${csvQuery}&view=tenants&header=1`">tenants</a>,
+          <a
+            class="text-primary hover:underline"
+            :href="`/api/v1/availability.csv?${csvQuery}&view=sites&header=1`"
+            >sites</a
+          >,
+          <a
+            class="text-primary hover:underline"
+            :href="`/api/v1/availability.csv?${csvQuery}&view=tenants&header=1`"
+            >tenants</a
+          >,
           <a
             class="text-primary hover:underline"
             :href="`/api/v1/availability.csv?${csvQuery}&view=incidents&header=1`"
             title="Every outage in the period, to check the figures"
-          >every incident</a>
+            >every incident</a
+          >
         </p>
 
         <!-- The answer first (#342): four cards. -->
@@ -146,41 +189,71 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           <UCard class="avail-card">
             <p class="flex items-center gap-1 text-sm text-muted">
               Availability
-              <HelpTip :text="`For each site: the share of the period it was up (1 − downtime ÷ period, in UTC). This card is the average of all sites, each site counting the same. Below ${summary.target} % is red.`" />
+              <HelpTip
+                :text="`For each site: the share of the period it was up (1 − downtime ÷ period, in UTC). This card is the average of all sites, each site counting the same. Below ${summary.target} % is red.`"
+              />
             </p>
-            <p class="mt-1 text-3xl font-bold tabular-nums" :class="summary.availability < summary.target ? 'text-error' : 'text-highlighted'">
+            <p
+              class="mt-1 text-3xl font-bold tabular-nums"
+              :class="summary.availability < summary.target ? 'text-error' : 'text-highlighted'"
+            >
               {{ summary.availability.toFixed(3) }} %
             </p>
             <p class="text-sm text-muted">average of {{ plural(summary.sites, "site") }}</p>
           </UCard>
           <UCard class="avail-card">
-            <p class="flex items-center gap-1 text-sm text-muted">Downtime <HelpTip :text="HELP.downtime" /></p>
-            <p class="mt-1 text-3xl font-bold text-highlighted">{{ formatDowntime(summary.downtime_seconds) }}</p>
+            <p class="flex items-center gap-1 text-sm text-muted"
+              >Downtime <HelpTip :text="HELP.downtime"
+            /></p>
+            <p class="mt-1 text-3xl font-bold text-highlighted">{{
+              formatDowntime(summary.downtime_seconds)
+            }}</p>
             <p class="text-sm text-muted">{{ plural(summary.incidents, "incident") }}, all sites</p>
           </UCard>
           <UCard class="avail-card">
             <p class="flex items-center gap-1 text-sm text-muted">
               Below {{ summary.target }} %
-              <HelpTip :text="`How many sites were up less than ${summary.target} % of the period (the target, shown in red), and how many had no downtime at all.`" />
+              <HelpTip
+                :text="`How many sites were up less than ${summary.target} % of the period (the target, shown in red), and how many had no downtime at all.`"
+              />
             </p>
-            <p class="mt-1 text-3xl font-bold tabular-nums" :class="summary.below_target ? 'text-error' : 'text-highlighted'">
+            <p
+              class="mt-1 text-3xl font-bold tabular-nums"
+              :class="summary.below_target ? 'text-error' : 'text-highlighted'"
+            >
               {{ summary.below_target.toLocaleString("en") }}
             </p>
-            <p class="text-sm text-muted">of {{ plural(summary.sites, "site") }} · {{ summary.no_downtime.toLocaleString("en") }} with no downtime</p>
+            <p class="text-sm text-muted"
+              >of {{ plural(summary.sites, "site") }} ·
+              {{ summary.no_downtime.toLocaleString("en") }} with no downtime</p
+            >
           </UCard>
           <UCard class="avail-card">
-            <p class="flex items-center gap-1 text-sm text-muted">Worst tenant <HelpTip :text="HELP.worst" /></p>
+            <p class="flex items-center gap-1 text-sm text-muted"
+              >Worst tenant <HelpTip :text="HELP.worst"
+            /></p>
             <template v-if="summary.worst_tenant">
               <p class="mt-1 text-xl font-bold text-highlighted">
-                <TenantList :tenants="[summary.worst_tenant.tenant]" :descriptions="report.tenant_descriptions" :links="report.status_links" />
+                <TenantList
+                  :tenants="[summary.worst_tenant.tenant]"
+                  :descriptions="report.tenant_descriptions"
+                  :links="report.status_links"
+                />
               </p>
-              <p class="text-sm" :class="summary.worst_tenant.availability < summary.target ? 'text-error' : 'text-muted'">
+              <p
+                class="text-sm"
+                :class="
+                  summary.worst_tenant.availability < summary.target ? 'text-error' : 'text-muted'
+                "
+              >
                 {{ summary.worst_tenant.availability.toFixed(3) }} %
               </p>
             </template>
             <template v-else>
               <p class="mt-1 text-3xl font-bold text-highlighted">—</p>
-              <p class="text-sm text-muted">{{ report.tenants.length ? "none had downtime" : "no tenants" }}</p>
+              <p class="text-sm text-muted">{{
+                report.tenants.length ? "none had downtime" : "no tenants"
+              }}</p>
             </template>
           </UCard>
         </section>

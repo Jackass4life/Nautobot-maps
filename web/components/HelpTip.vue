@@ -6,7 +6,11 @@ defineProps<{ text: string }>();
 
 <template>
   <UPopover :content="{ side: 'top' }">
-    <button type="button" class="help-tip inline-flex align-middle text-muted hover:text-highlighted" :aria-label="`Help: ${text}`">
+    <button
+      type="button"
+      class="help-tip inline-flex align-middle text-muted hover:text-highlighted"
+      :aria-label="`Help: ${text}`"
+    >
       <UIcon name="i-lucide-info" class="size-4" />
     </button>
     <template #content>

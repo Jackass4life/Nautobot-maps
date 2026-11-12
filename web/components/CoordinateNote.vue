@@ -24,7 +24,11 @@ const suffix = computed(() => (props.query ? `?${props.query}` : ""));
 
 async function load() {
   try {
-    const data = (await unwrap(useNuxtApp().$api.GET("/api/v1/locations/coordinate-check", { params: { query: queryOf(props.query || "") as never } }))) as { sites: CoordinateProblem[] };
+    const data = (await unwrap(
+      useNuxtApp().$api.GET("/api/v1/locations/coordinate-check", {
+        params: { query: queryOf(props.query || "") as never },
+      }),
+    )) as { sites: CoordinateProblem[] };
     sites.value = data.sites || [];
   } catch (err) {
     console.warn("Coordinate check unavailable:", err);
@@ -54,11 +58,18 @@ onBeforeUnmount(() => clearInterval(timer));
       :aria-expanded="open ? 'true' : 'false'"
       aria-controls="coordinate-list"
       @click="open = !open"
-    >Check</button>
-    <div v-show="open" id="coordinate-list" class="coordinate-list mt-2 max-h-64 space-y-2 overflow-y-auto">
+      >Check</button
+    >
+    <div
+      v-show="open"
+      id="coordinate-list"
+      class="coordinate-list mt-2 max-h-64 space-y-2 overflow-y-auto"
+    >
       <ul class="coordinate-items space-y-2">
         <template v-for="(group, index) in [list.wrong, list.far]" :key="index">
-          <li v-if="index === 1 && group.length" class="coordinate-group pt-1 font-medium">Far from the other sites in their region: worth a check</li>
+          <li v-if="index === 1 && group.length" class="coordinate-group pt-1 font-medium"
+            >Far from the other sites in their region: worth a check</li
+          >
           <li v-for="item in group" :key="item.site_id">
             <div class="coordinate-site flex items-center gap-2 text-toned">
               <a
@@ -68,22 +79,30 @@ onBeforeUnmount(() => clearInterval(timer));
                 rel="noopener noreferrer"
                 title="Fix it in Nautobot"
                 class="hover:underline"
-              >{{ item.name || item.site_id }} ↗</a>
+                >{{ item.name || item.site_id }} ↗</a
+              >
               <span v-else>{{ item.name || item.site_id }}</span>
               <button
                 v-if="canShow(item)"
                 class="coordinate-show text-primary hover:underline"
                 type="button"
                 @click="emit('show', item.site_id)"
-              >Show</button>
+                >Show</button
+              >
             </div>
-            <span v-if="item.ancestor_path" class="coordinate-path block">{{ item.ancestor_path }}</span>
+            <span v-if="item.ancestor_path" class="coordinate-path block">{{
+              item.ancestor_path
+            }}</span>
             <div class="coordinate-reason">{{ item.reason }}{{ where(item) }}</div>
           </li>
         </template>
         <li v-if="list.more" class="coordinate-more">+{{ list.more }} more in the CSV</li>
       </ul>
-      <a class="coordinate-csv text-primary hover:underline" :href="`/api/v1/locations/coordinate-check.csv${suffix}`">Download CSV</a>
+      <a
+        class="coordinate-csv text-primary hover:underline"
+        :href="`/api/v1/locations/coordinate-check.csv${suffix}`"
+        >Download CSV</a
+      >
     </div>
   </div>
 </template>

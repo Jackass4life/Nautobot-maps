@@ -9,7 +9,10 @@ const values = defineModel<WhenValues>({ required: true });
 const today = localDay(new Date());
 const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "your time zone";
 const summary = computed(() => whenSummary({ ...values.value, when: "planned" }));
-const durations = DURATIONS.map((minutes) => ({ value: minutes, label: `${minutes / 60} hour${minutes === 60 ? "" : "s"}` }));
+const durations = DURATIONS.map((minutes) => ({
+  value: minutes,
+  label: `${minutes / 60} hour${minutes === 60 ? "" : "s"}`,
+}));
 
 function set<K extends keyof WhenValues>(key: K, value: WhenValues[K]) {
   values.value = { ...values.value, [key]: value };
@@ -30,7 +33,7 @@ function onPick(from: string, to: string) {
         class="accent-(--ui-primary)"
         :checked="values.when === 'now'"
         @change="set('when', 'now')"
-      >
+      />
       Now, for
       <USelect
         class="maint-duration w-28"
@@ -49,7 +52,7 @@ function onPick(from: string, to: string) {
         class="accent-(--ui-primary)"
         :checked="values.when === 'planned'"
         @change="set('when', 'planned')"
-      >
+      />
       Planned
     </label>
     <div v-if="values.when === 'planned'" class="maint-planned flex flex-wrap gap-6 pt-2">
@@ -65,7 +68,8 @@ function onPick(from: string, to: string) {
       <div class="when-times max-w-xs space-y-3 text-sm">
         <p class="when-days font-medium text-highlighted" aria-live="polite">{{ summary }}</p>
         <div class="flex flex-wrap items-center gap-3">
-          <label class="flex items-center gap-2">From
+          <label class="flex items-center gap-2"
+            >From
             <USelect
               class="when-start-time w-24"
               size="sm"
@@ -75,7 +79,8 @@ function onPick(from: string, to: string) {
               @update:model-value="set('startTime', String($event))"
             />
           </label>
-          <label class="flex items-center gap-2">To
+          <label class="flex items-center gap-2"
+            >To
             <USelect
               class="when-end-time w-24"
               size="sm"
@@ -87,8 +92,8 @@ function onPick(from: string, to: string) {
           </label>
         </div>
         <p class="when-hint text-xs text-muted">
-          Click the first and the last day (the same day twice for one day; a To before the From runs overnight).
-          Times in {{ zone }}.
+          Click the first and the last day (the same day twice for one day; a To before the From
+          runs overnight). Times in {{ zone }}.
         </p>
       </div>
     </div>

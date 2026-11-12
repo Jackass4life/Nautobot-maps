@@ -94,49 +94,76 @@ const info = computed(() => {
   ].filter(([, value]) => value) as [string, string][];
 });
 const status = computed(() =>
-  statusLine(props.detail?.alert, props.detail?.counts, props.since ? formatFeedTime(props.since) : ""),
+  statusLine(
+    props.detail?.alert,
+    props.detail?.counts,
+    props.since ? formatFeedTime(props.since) : "",
+  ),
 );
 // Planned, Decommissioning...: said; Active is the norm and isn't.
-const lifecycle = computed(() => (props.loc?.status && props.loc.status.toLowerCase() !== "active" ? props.loc.status : ""));
+const lifecycle = computed(() =>
+  props.loc?.status && props.loc.status.toLowerCase() !== "active" ? props.loc.status : "",
+);
 
-const devices = computed<SiteDevice[]>(() => (props.detail && !props.loading && !props.error ? props.detail.devices : []));
+const devices = computed<SiteDevice[]>(() =>
+  props.detail && !props.loading && !props.error ? props.detail.devices : [],
+);
 const stacks = computed(() => groupStacks(devices.value));
 const allDown = computed(() => sortDownDevices(devices.value));
 // Access points a controller watches fold under the others (#521): at 40 an
 // AP, the site's own outage must stay on top.
 const down = computed(() => allDown.value.filter((device) => !isWatchedAccessPoint(device)));
 const downAps = computed(() => allDown.value.filter(isWatchedAccessPoint));
-const downApsShown = computed(() => (apsExpanded.value ? downAps.value : downAps.value.slice(0, DOWN_SHOWN)));
+const downApsShown = computed(() =>
+  apsExpanded.value ? downAps.value : downAps.value.slice(0, DOWN_SHOWN),
+);
 // Who is on it (#512): the site's cases, linked to the ITSM, and the down
 // devices nobody is on.
 const cases = computed(() => {
   const { shown, more } = casesShown(props.detail?.cases || []);
-  return { shown: shown.map((number) => ({ number, url: caseUrl(number, props.caseUrlTemplate || "") })), more };
+  return {
+    shown: shown.map((number) => ({ number, url: caseUrl(number, props.caseUrlTemplate || "") })),
+    more,
+  };
 });
-const noCase = computed(() => noCaseText(down.value, Boolean(props.detail?.cases_read), cases.value.shown.length > 0));
-const downShown = computed(() => (downExpanded.value ? down.value : down.value.slice(0, DOWN_SHOWN)));
+const noCase = computed(() =>
+  noCaseText(down.value, Boolean(props.detail?.cases_read), cases.value.shown.length > 0),
+);
+const downShown = computed(() =>
+  downExpanded.value ? down.value : down.value.slice(0, DOWN_SHOWN),
+);
 // A stack's lead brings its members, as under All devices (#400), but not
 // those with their own row here; it still says the stack's size (#405).
-const stackOf = computed(() => new Map(stacks.value.map(({ device, members }) => [device, members])));
+const stackOf = computed(
+  () => new Map(stacks.value.map(({ device, members }) => [device, members])),
+);
 const downSet = computed(() => new Set(allDown.value));
 function downMembers(device: SiteDevice) {
   return (stackOf.value.get(device) || []).filter((member) => !downSet.value.has(member));
 }
 
 const counts = computed(() => healthCounts(devices.value));
-const filterKeys = computed(() => (["all", "active", "down", "unknown"] as const).filter((key) => key === "all" || counts.value[key]));
+const filterKeys = computed(() =>
+  (["all", "active", "down", "unknown"] as const).filter(
+    (key) => key === "all" || counts.value[key],
+  ),
+);
 const FILTER_LABELS = { all: "All", active: "Active", down: "Down", unknown: "Unknown" };
 const toolbar = computed(() => devices.value.length > TOOLBAR_ABOVE);
 // A filter or search keeps a stack whole when any of its devices matches.
 const listed = computed(() => {
   if (!toolbar.value) return stacks.value;
   const matching = new Set(filterDevices(devices.value, deviceFilter.value, deviceSearch.value));
-  return stacks.value.filter(({ device, members }) => [device, ...members].some((d) => matching.has(d)));
+  return stacks.value.filter(({ device, members }) =>
+    [device, ...members].some((d) => matching.has(d)),
+  );
 });
 // "12 (4 in stacks)": every device counted, the members folded into their stack's row.
 const deviceCount = computed(() => {
   const inStacks = devices.value.length - stacks.value.length;
-  return inStacks ? `${devices.value.length} (${inStacks} in stacks)` : String(devices.value.length);
+  return inStacks
+    ? `${devices.value.length} (${inStacks} in stacks)`
+    : String(devices.value.length);
 });
 const circuits = computed(() => props.detail?.circuits ?? []);
 const asns = computed(() => props.detail?.asns ?? []);
@@ -171,9 +198,13 @@ function statusClass(status: string) {
     aria-labelledby="inspector-title"
   >
     <div v-if="loc" class="inspector-shell min-h-0 flex-1 overflow-y-auto">
-      <div class="sticky top-0 z-10 flex items-start gap-2 border-b border-default bg-default px-4 py-3">
+      <div
+        class="sticky top-0 z-10 flex items-start gap-2 border-b border-default bg-default px-4 py-3"
+      >
         <div class="min-w-0 flex-1">
-          <h2 id="inspector-title" class="truncate text-lg font-semibold text-highlighted">{{ loc.name || "Site" }}</h2>
+          <h2 id="inspector-title" class="truncate text-lg font-semibold text-highlighted">{{
+            loc.name || "Site"
+          }}</h2>
           <div id="inspector-subtitle" class="text-xs text-muted">{{ subtitle }}</div>
         </div>
         <UButton
@@ -188,7 +219,13 @@ function statusClass(status: string) {
       </div>
 
       <!-- Co-located sites: the status is the chosen one's. -->
-      <div v-if="group.length > 1" id="inspector-site-tabs" class="flex flex-wrap gap-1 px-4 pt-3" role="group" aria-label="Co-located locations">
+      <div
+        v-if="group.length > 1"
+        id="inspector-site-tabs"
+        class="flex flex-wrap gap-1 px-4 pt-3"
+        role="group"
+        aria-label="Co-located locations"
+      >
         <UButton
           v-for="site in group"
           :key="site.id"
@@ -199,7 +236,8 @@ function statusClass(status: string) {
           :variant="site.id === loc.id ? 'soft' : 'ghost'"
           :aria-pressed="site.id === loc.id ? 'true' : 'false'"
           @click="emit('select', site.id)"
-        >{{ site.name }}</UButton>
+          >{{ site.name }}</UButton
+        >
       </div>
 
       <div id="inspector-content" class="space-y-4 p-4">
@@ -214,14 +252,31 @@ function statusClass(status: string) {
             </div>
           </div>
 
-          <div v-if="loading" class="site-status is-loading text-sm text-muted">Loading alert status…</div>
-          <div v-else-if="error" class="site-status is-no_data text-sm text-muted">Alert status unavailable</div>
-          <div v-else-if="detail" class="site-status rounded-md bg-elevated px-3 py-2 text-sm" :class="`is-${status.level}`">
+          <div v-if="loading" class="site-status is-loading text-sm text-muted"
+            >Loading alert status…</div
+          >
+          <div v-else-if="error" class="site-status is-no_data text-sm text-muted"
+            >Alert status unavailable</div
+          >
+          <div
+            v-else-if="detail"
+            class="site-status rounded-md bg-elevated px-3 py-2 text-sm"
+            :class="`is-${status.level}`"
+          >
             <div class="site-status-line flex items-center gap-2 font-medium text-highlighted">
-              <span class="legend-dot" :class="`dot-${status.level.replace('_', '-')}`" aria-hidden="true" />{{ status.text }}
+              <span
+                class="legend-dot"
+                :class="`dot-${status.level.replace('_', '-')}`"
+                aria-hidden="true"
+              />{{ status.text }}
             </div>
-            <div v-if="status.reason" class="site-status-reason mt-0.5 pl-5 text-muted">{{ status.reason }}</div>
-            <div v-if="cases.shown.length || noCase" class="site-cases mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5">
+            <div v-if="status.reason" class="site-status-reason mt-0.5 pl-5 text-muted">{{
+              status.reason
+            }}</div>
+            <div
+              v-if="cases.shown.length || noCase"
+              class="site-cases mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5"
+            >
               <template v-if="cases.shown.length">
                 <span class="text-muted">Case</span>
                 <template v-for="item in cases.shown" :key="item.number">
@@ -231,36 +286,59 @@ function statusClass(status: string) {
                     :href="item.url"
                     target="_blank"
                     rel="noopener noreferrer"
-                  >{{ item.number }}</a>
-                  <span v-else class="site-case font-mono text-xs text-highlighted">{{ item.number }}</span>
+                    >{{ item.number }}</a
+                  >
+                  <span v-else class="site-case font-mono text-xs text-highlighted">{{
+                    item.number
+                  }}</span>
                 </template>
                 <span v-if="cases.more" class="text-xs text-muted">+{{ cases.more }}</span>
               </template>
-              <UBadge v-if="noCase" class="site-no-case" color="error" variant="subtle" size="sm">{{ noCase }}</UBadge>
+              <UBadge v-if="noCase" class="site-no-case" color="error" variant="subtle" size="sm">{{
+                noCase
+              }}</UBadge>
             </div>
           </div>
 
           <div class="inspector-actions-row flex flex-wrap items-center gap-3 text-sm">
-            <UBadge v-if="lifecycle" class="popup-badge" color="warning" variant="subtle">{{ lifecycle }}</UBadge>
+            <UBadge v-if="lifecycle" class="popup-badge" color="warning" variant="subtle">{{
+              lifecycle
+            }}</UBadge>
             <a
               v-if="nautobotUrl"
               class="nautobot-link text-primary hover:underline"
               :href="nautobotLocationUrl(nautobotUrl, loc.id)"
               target="_blank"
               rel="noopener noreferrer"
-            >Open in Nautobot ↗</a>
-            <a class="nautobot-link text-primary hover:underline" :href="maintenanceHistoryHref(loc.id)">Maintenance history</a>
+              >Open in Nautobot ↗</a
+            >
+            <a
+              class="nautobot-link text-primary hover:underline"
+              :href="maintenanceHistoryHref(loc.id)"
+              >Maintenance history</a
+            >
           </div>
         </div>
 
         <div v-if="error" class="inspector-error space-y-2 text-sm text-error">
           <p>Could not load details: {{ error }}</p>
-          <UButton id="inspector-retry" color="neutral" variant="outline" size="sm" @click="emit('retry')">Retry</UButton>
+          <UButton
+            id="inspector-retry"
+            color="neutral"
+            variant="outline"
+            size="sm"
+            @click="emit('retry')"
+            >Retry</UButton
+          >
         </div>
         <div v-else-if="loading" class="inspector-empty text-sm text-muted">Loading devices…</div>
         <template v-else-if="detail">
           <section v-if="down.length" aria-labelledby="inspector-down-title">
-            <h3 id="inspector-down-title" class="panel-heading mb-1 text-sm font-semibold text-highlighted">Down · {{ down.length }}</h3>
+            <h3
+              id="inspector-down-title"
+              class="panel-heading mb-1 text-sm font-semibold text-highlighted"
+              >Down · {{ down.length }}</h3
+            >
             <ul class="device-rows" aria-label="Down devices">
               <DeviceRow
                 v-for="device in downShown"
@@ -280,14 +358,24 @@ function statusClass(status: string) {
               color="neutral"
               variant="link"
               @click="downExpanded = !downExpanded"
-            >{{ downExpanded ? "Show fewer" : `Show all ${down.length}` }}</UButton>
+              >{{ downExpanded ? "Show fewer" : `Show all ${down.length}` }}</UButton
+            >
           </section>
 
           <div class="panel-folds space-y-2">
-            <p v-if="!devices.length" class="inspector-empty text-sm text-muted">No devices at this site.</p>
+            <p v-if="!devices.length" class="inspector-empty text-sm text-muted"
+              >No devices at this site.</p
+            >
             <!-- Access points a wireless controller says are down (#521): open only when nothing else is down. -->
-            <details v-if="downAps.length" class="panel-fold" data-fold="access-points" :open="foldOpen('access-points', !down.length)">
-              <summary class="panel-fold-title" @click="toggleFold('access-points', $event)">{{ accessPointsText(downAps.length) }}</summary>
+            <details
+              v-if="downAps.length"
+              class="panel-fold"
+              data-fold="access-points"
+              :open="foldOpen('access-points', !down.length)"
+            >
+              <summary class="panel-fold-title" @click="toggleFold('access-points', $event)">{{
+                accessPointsText(downAps.length)
+              }}</summary>
               <div class="panel-fold-body">
                 <ul class="device-rows" aria-label="Access points down">
                   <DeviceRow
@@ -306,11 +394,19 @@ function statusClass(status: string) {
                   color="neutral"
                   variant="link"
                   @click="apsExpanded = !apsExpanded"
-                >{{ apsExpanded ? "Show fewer" : `Show all ${downAps.length}` }}</UButton>
+                  >{{ apsExpanded ? "Show fewer" : `Show all ${downAps.length}` }}</UButton
+                >
               </div>
             </details>
-            <details v-if="devices.length" class="panel-fold" data-fold="devices" :open="foldOpen('devices', !down.length && devices.length <= TOOLBAR_ABOVE)">
-              <summary class="panel-fold-title" @click="toggleFold('devices', $event)">All devices · {{ deviceCount }}</summary>
+            <details
+              v-if="devices.length"
+              class="panel-fold"
+              data-fold="devices"
+              :open="foldOpen('devices', !down.length && devices.length <= TOOLBAR_ABOVE)"
+            >
+              <summary class="panel-fold-title" @click="toggleFold('devices', $event)"
+                >All devices · {{ deviceCount }}</summary
+              >
               <div class="panel-fold-body">
                 <div v-if="toolbar" class="inspector-device-toolbar mb-2 space-y-2">
                   <div class="device-filters flex flex-wrap gap-1" aria-label="Device filters">
@@ -324,7 +420,8 @@ function statusClass(status: string) {
                       :variant="deviceFilter === key ? 'soft' : 'ghost'"
                       :aria-pressed="deviceFilter === key ? 'true' : 'false'"
                       @click="deviceFilter = key"
-                    >{{ FILTER_LABELS[key] }} {{ counts[key] }}</UButton>
+                      >{{ FILTER_LABELS[key] }} {{ counts[key] }}</UButton
+                    >
                   </div>
                   <UInput
                     id="inspector-device-search"
@@ -351,14 +448,25 @@ function statusClass(status: string) {
               </div>
             </details>
 
-            <details v-if="detail.circuits_error || circuits.length" class="panel-fold" data-fold="circuits" :open="foldOpen('circuits', false)">
+            <details
+              v-if="detail.circuits_error || circuits.length"
+              class="panel-fold"
+              data-fold="circuits"
+              :open="foldOpen('circuits', false)"
+            >
               <summary class="panel-fold-title" @click="toggleFold('circuits', $event)">
                 Circuits<template v-if="!detail.circuits_error"> · {{ circuits.length }}</template>
               </summary>
               <div class="panel-fold-body">
-                <p v-if="detail.circuits_error" class="inspector-empty text-sm text-muted">{{ detail.circuits_error }}</p>
+                <p v-if="detail.circuits_error" class="inspector-empty text-sm text-muted">{{
+                  detail.circuits_error
+                }}</p>
                 <ul v-else class="space-y-2" aria-label="Circuit list">
-                  <li v-for="circuit in circuits" :key="circuit.id + (circuit.term_side || '')" class="circuit-card rounded-md border border-default p-2 text-xs">
+                  <li
+                    v-for="circuit in circuits"
+                    :key="circuit.id + (circuit.term_side || '')"
+                    class="circuit-card rounded-md border border-default p-2 text-xs"
+                  >
                     <div class="flex items-center gap-2">
                       <a
                         v-if="nautobotUrl && circuit.id"
@@ -366,18 +474,28 @@ function statusClass(status: string) {
                         :href="nautobotCircuitUrl(nautobotUrl, circuit.id)"
                         target="_blank"
                         rel="noopener noreferrer"
-                      >{{ circuit.cid }}</a>
-                      <span v-else class="min-w-0 flex-1 truncate text-sm font-medium">{{ circuit.cid }}</span>
-                      <span class="shrink-0" :class="statusClass(circuit.status)">{{ circuit.status || "Unknown" }}</span>
+                        >{{ circuit.cid }}</a
+                      >
+                      <span v-else class="min-w-0 flex-1 truncate text-sm font-medium">{{
+                        circuit.cid
+                      }}</span>
+                      <span class="shrink-0" :class="statusClass(circuit.status)">{{
+                        circuit.status || "Unknown"
+                      }}</span>
                     </div>
                     <div class="mt-1 space-y-0.5 text-muted">
                       <div
                         v-if="circuitMatchNote(circuit)"
                         class="circuit-match"
                         title="The circuit's description is this site's address; it has no termination here in Nautobot"
-                      >{{ circuitMatchNote(circuit) }}</div>
-                      <div v-if="circuit.provider || circuit.circuit_type">{{ [circuit.provider, circuit.circuit_type].filter(Boolean).join(" · ") }}</div>
-                      <div v-if="circuitTermination(circuit)">{{ circuitTermination(circuit) }}</div>
+                        >{{ circuitMatchNote(circuit) }}</div
+                      >
+                      <div v-if="circuit.provider || circuit.circuit_type">{{
+                        [circuit.provider, circuit.circuit_type].filter(Boolean).join(" · ")
+                      }}</div>
+                      <div v-if="circuitTermination(circuit)">{{
+                        circuitTermination(circuit)
+                      }}</div>
                       <div v-if="circuit.commit_rate">Commit rate: {{ circuit.commit_rate }}</div>
                       <div v-if="circuit.xconnect_id">Cross-connect: {{ circuit.xconnect_id }}</div>
                       <div v-if="circuit.pp_info">Patch panel: {{ circuit.pp_info }}</div>
@@ -389,10 +507,24 @@ function statusClass(status: string) {
               </div>
             </details>
 
-            <details v-if="asns.length" class="panel-fold" data-fold="asns" :open="foldOpen('asns', false)">
-              <summary class="panel-fold-title" @click="toggleFold('asns', $event)">ASNs · {{ asns.length }}</summary>
+            <details
+              v-if="asns.length"
+              class="panel-fold"
+              data-fold="asns"
+              :open="foldOpen('asns', false)"
+            >
+              <summary class="panel-fold-title" @click="toggleFold('asns', $event)"
+                >ASNs · {{ asns.length }}</summary
+              >
               <div class="panel-fold-body flex flex-wrap gap-1">
-                <UBadge v-for="asn in asns" :key="String(asn.asn) + asn.tenant" class="asn-tag" color="neutral" variant="subtle" :title="asn.description">
+                <UBadge
+                  v-for="asn in asns"
+                  :key="String(asn.asn) + asn.tenant"
+                  class="asn-tag"
+                  color="neutral"
+                  variant="subtle"
+                  :title="asn.description"
+                >
                   AS{{ asn.asn }}<template v-if="asn.tenant"> · {{ asn.tenant }}</template>
                 </UBadge>
               </div>

@@ -36,7 +36,10 @@ export function caseBadge(item: BoardSite): { state: "handled" | "partly" | "non
     const devices = item.down_devices || [];
     const cases = [...new Set(devices.flatMap((device) => device.case_numbers || []))];
     const acked = devices.some((device) => device.acknowledged);
-    return { state, text: `✓ ${[cases.join(", "), acked ? "ACK" : ""].filter(Boolean).join(" · ")}` };
+    return {
+      state,
+      text: `✓ ${[cases.join(", "), acked ? "ACK" : ""].filter(Boolean).join(" · ")}`,
+    };
   }
   if (state === "partly") return { state, text: `${without} of ${total} no case or ack` };
   return { state, text: "NO CASE" };
@@ -53,7 +56,8 @@ export function wallStatus(
 ): { text: string; stale: boolean } {
   if (lastLoadedAt === null) return { text: "Loading…", stale: false };
   const scope = scopeText ? `${scopeText} · ` : "";
-  if (now - lastLoadedAt >= WALL_STALE_MS) return { text: `${scope}NOT UPDATED since ${clock(lastLoadedAt)}`, stale: true };
+  if (now - lastLoadedAt >= WALL_STALE_MS)
+    return { text: `${scope}NOT UPDATED since ${clock(lastLoadedAt)}`, stale: true };
   const alarms = sites.filter(hasActiveAlarm);
   const without = alarms.filter((item) => siteCaseState(item).state !== "handled").length;
   const planned = sites.filter((item) => item.alert_level === "maintenance").length;
@@ -94,13 +98,17 @@ export function newAlarms(
     seen.set(id, new Set(kinds));
     if (!before) return;
     const previous = before.get(id) || new Set();
-    kinds.filter((kind) => !previous.has(kind)).forEach((kind) => events.push({ id, name: site.name || id, kind }));
+    kinds
+      .filter((kind) => !previous.has(kind))
+      .forEach((kind) => events.push({ id, name: site.name || id, kind }));
   });
   return { events, seen };
 }
 
 export function alarmText(event: WallAlarm): string {
-  return event.kind === "critical" ? `${event.name} is Critical` : `${event.name}: in alarm, nobody on it`;
+  return event.kind === "critical"
+    ? `${event.name} is Critical`
+    : `${event.name}: in alarm, nobody on it`;
 }
 
 // What the notifier needs of the browser's Notification (a stand-in in tests).
@@ -146,7 +154,10 @@ export class WallNotifier {
     while (this.open.size < MAX_OPEN && this.queue.length) {
       const event = this.queue.shift()!;
       try {
-        const note = new api("Nautobot Maps", { body: alarmText(event), tag: `${event.id}-${event.kind}` });
+        const note = new api("Nautobot Maps", {
+          body: alarmText(event),
+          tag: `${event.id}-${event.kind}`,
+        });
         this.open.add(note);
         note.addEventListener("close", () => {
           this.open.delete(note);
