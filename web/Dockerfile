@@ -20,6 +20,12 @@ ENV NITRO_PRESET=bun
 RUN bun --bun run build
 
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
+# Debian security fixes released after the base image was built (#246, as the API's
+# image); the Trivy scan in CI fails on fixed HIGH/CRITICAL ones.
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000
