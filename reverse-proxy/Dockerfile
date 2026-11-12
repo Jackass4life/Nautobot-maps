@@ -38,8 +38,12 @@ RUN mkdir -p /templates \
        done
 
 # The configuration as nginx will run it, with placeholder secrets and a throwaway
-# certificate: `nginx -t` fails the build on a mistake, not the first start.
+# certificate: `nginx -t` fails the build on a mistake, not the first start.  `nginx -t`
+# opens the listening sockets: on a builder without IPv6, the [::] ones go first, as
+# the same script does at start (#527, #680).  IF_INET6: its test hook (CI).
 FROM config AS check
+ARG IF_INET6=/proc/net/if_inet6
+COPY --chmod=755 entrypoint/30-listen-ipv6-only-if-available.sh /listen-ipv6-only-if-available.sh
 RUN apk add --no-cache openssl >/dev/null \
     && mkdir -p /check/conf.d /check/certs \
     && for template in /templates/*.template; do \
@@ -48,6 +52,7 @@ RUN apk add --no-cache openssl >/dev/null \
            < "$template" > "/check/conf.d/$(basename "$template" .template)"; \
        done \
     && sed -i 's#/etc/nginx/conf.d/#/check/conf.d/#g; s#/etc/nginx/certs/#/check/certs/#g' /check/conf.d/* \
+    && IF_INET6="$IF_INET6" CONF_DIR=/check/conf.d /listen-ipv6-only-if-available.sh \
     && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=check" \
          -keyout /check/certs/privkey.pem -out /check/certs/fullchain.pem 2>/dev/null \
     && printf 'events {}\nhttp { include /etc/nginx/mime.types; include /check/conf.d/default.conf; }\n' \
