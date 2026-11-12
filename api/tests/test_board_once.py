@@ -8,6 +8,7 @@ import pytest
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.db import connection as db
+from app.db import session
 from app.services import alerts_service as alerts
 from app.services import metrics_service as metrics
 from app.services import scheduler
@@ -32,7 +33,7 @@ def test_a_request_builds_once_then_serves_the_stored_board(site):
     first = asyncio.run(alerts.board())
     assert asyncio.run(alerts.board()) is not None and stats() == {"request": 1}
     assert caching.get(alerts.BOARD_CACHE_KEY)["checked_at"] == first["checked_at"]
-    scheduler.rebuild_board()
+    asyncio.run(scheduler.rebuild_board())
     assert stats() == {"request": 1, "scheduler": 1}, "the scheduler always rebuilds"
 
 
@@ -91,7 +92,7 @@ def test_a_change_rebuilds_in_the_background_only_with_the_scheduler(site, monke
     monkeypatch.setattr(scheduler, "_started", started)
     monkeypatch.setattr(scheduler, "rebuild_after_push", lambda **kwargs: calls.append(kwargs))
     caching.set(alerts.BOARD_CACHE_KEY, {"alerts": []}, timeout=60)
-    scheduler.board_changed()
+    asyncio.run(scheduler.board_changed())
     assert caching.get(alerts.BOARD_CACHE_KEY) is None
     assert calls == ([{"always": True, "trigger": "change"}] if started else [])
 
@@ -101,40 +102,33 @@ def test_a_change_whose_rebuild_lost_the_lock_is_rebuilt_by_the_tick(site, monke
 
     built = []
     monkeypatch.setattr(
-        scheduler, "rebuild_board", lambda trigger="scheduler": built.append(trigger)
+        scheduler, "rebuild_board", adb.async_of(lambda trigger="scheduler": built.append(trigger))
     )
-    monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: False)
-    assert scheduler.pending_changes() is None
-    scheduler.board_changed()  # scheduler not started here: no rebuild of its own
-    assert scheduler.pending_changes() is not None
-    assert adb.worker(scheduler.tick) is True and built == ["scheduler"]
-    assert scheduler.pending_changes() is None and adb.worker(scheduler.tick) is False, (
-        "taken in once"
-    )
+    monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda **kwargs: False))
+    assert asyncio.run(scheduler.pending_changes()) is None
+    asyncio.run(scheduler.board_changed())  # scheduler not started here: no rebuild of its own
+    assert asyncio.run(scheduler.pending_changes()) is not None
+    assert asyncio.run(scheduler.tick()) is True and built == ["scheduler"]
+    assert (
+        asyncio.run(scheduler.pending_changes()) is None and asyncio.run(scheduler.tick()) is False
+    ), "taken in once"
 
 
 def test_the_rebuild_loop_drains_a_change_made_during_its_build(site, monkeypatch, clock):
     calls = []
 
-    def build(trigger="scheduler"):
+    async def build(trigger="scheduler"):
         calls.append(trigger)
         if len(calls) == 1:  # a change lands while the first build runs
             clock["now"] = "2026-10-09T12:00:05Z"
-            scheduler.request_change_rebuild()
-
-    class InlineThread:
-        def __init__(self, target, **kwargs):
-            self.target = target
-
-        def start(self):
-            self.target()
+            await scheduler.request_change_rebuild()
 
     monkeypatch.setattr(scheduler, "rebuild_board", build)
-    monkeypatch.setattr(scheduler.threading, "Thread", InlineThread)
-    scheduler.request_change_rebuild()
+    monkeypatch.setattr(session, "spawn", adb.spawn_inline)
+    asyncio.run(scheduler.request_change_rebuild())
     scheduler.rebuild_after_push(always=True, trigger="change")
-    assert calls == ["change", "change"] and scheduler.pending_changes() is None
+    assert calls == ["change", "change"] and asyncio.run(scheduler.pending_changes()) is None
 
 
 def test_the_variant_with_excluded_locations_is_built_once_too(site, monkeypatch):
@@ -169,8 +163,8 @@ def commit_sync(completed_at: str, **statuses) -> None:
                     for name, status in statuses.items()
                 ],
             )
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_completed_at=completed_at,
                 last_successful_sync=completed_at,
@@ -224,7 +218,7 @@ def test_a_cold_start_board_built_during_the_first_sync_is_not_stored(pg_databas
 
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     caching.cache.clear()
     real_build = alerts.build_alert_board_payload
 

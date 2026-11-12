@@ -10,7 +10,6 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
-from starlette.concurrency import run_in_threadpool
 
 from app.db import aconnection
 from app.db import connection as db
@@ -531,7 +530,7 @@ async def _acknowledge(body, clear: bool):
             },
             status_code=404,
         )
-    await run_in_threadpool(scheduler.board_changed)
+    await scheduler.board_changed()
     return deps.Json({"site_id": site_id, "changed": result["changed"]})
 
 
@@ -645,7 +644,7 @@ async def api_add_alert_case(body: Body):
                     (instance_ids[device_id], case_number, created_by),
                 )
         # The board payload embeds case numbers; drop it so the new case shows.
-        await run_in_threadpool(scheduler.board_changed)
+        await scheduler.board_changed()
         result = {
             "status": "ok",
             "site_id": site_id,

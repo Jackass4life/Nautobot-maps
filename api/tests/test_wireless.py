@@ -496,9 +496,7 @@ def read_index() -> dict:
 def sync_states() -> dict:
     conn = db.get_conn()
     try:
-        return {
-            c["name"]: inventory.get_sync_state(wireless.source(c), conn=conn) for c in (DK, SE)
-        }
+        return {c["name"]: asyncio.run(inventory.sync_state(wireless.source(c))) for c in (DK, SE)}
     finally:
         conn.close()
 
@@ -692,7 +690,7 @@ class TestSync:
                 r["controller"]
                 for r in conn.execute("SELECT DISTINCT controller FROM wireless_ap_status")
             ] == ["catalyst_center:dk"]
-            assert inventory.get_sync_state("wireless:catalyst_center:se", conn=conn) == {}
+            assert asyncio.run(inventory.sync_state("wireless:catalyst_center:se")) == {}
         finally:
             conn.close()
         assert 'source="wireless:catalyst_center:se"' not in adb.call(metrics.collect)
@@ -720,18 +718,18 @@ class TestSync:
             return 1 / 0
 
         monkeypatch.setattr(wireless, "sync_due", failing)
-        assert adb.worker(scheduler.sync_wireless) is False
+        assert asyncio.run(scheduler.sync_wireless()) is False
 
     def test_a_change_rebuilds_the_board_as_any_change(self, pg_database, monkeypatch):
         rebuilds = []
-        monkeypatch.setattr(scheduler, "board_changed", lambda: rebuilds.append(1))
+        monkeypatch.setattr(scheduler, "board_changed", adb.async_of(lambda: rebuilds.append(1)))
         for changed in (False, True):
 
             async def sync_due(changed=changed):
                 return changed
 
             monkeypatch.setattr(wireless, "sync_due", sync_due)
-            assert adb.worker(scheduler.sync_wireless) is changed
+            assert asyncio.run(scheduler.sync_wireless()) is changed
         assert rebuilds == [1]
 
 
@@ -755,8 +753,8 @@ def write_sites(sites: dict[str, dict[str, str]]) -> None:
                 inventory.write_locations,
                 [_snapshot_location(site_id, site_id.title()) for site_id in sites],
             )
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_completed_at=test_maintenance.NOW,
                 last_successful_sync=test_maintenance.NOW,
@@ -805,7 +803,7 @@ def board(pg_database, monkeypatch, clock):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
     notified = []
     monkeypatch.setattr(

@@ -1531,7 +1531,7 @@ class TestIndex:
             "read_locations",
             adb.async_of(lambda include_without_coordinates=False, conn=None: []),
         )
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: None)
+        monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda **kwargs: None))
         monkeypatch.setattr(inventory, "live_tenant_descriptions", lambda: {})
         monkeypatch.setattr(
             nautobot, "fetch_all_pages", lambda path, **kwargs: list(mock_nautobot.LOCATIONS)
@@ -2140,8 +2140,8 @@ class TestAlertLifecycleTracking:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -2833,8 +2833,8 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:00:00Z",
@@ -2913,7 +2913,7 @@ class TestInventoryCacheSync:
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
             asyncio.run(inventory.sync_nautobot(force=True))
-            first_state = inventory.get_sync_state("nautobot_inventory")
+            first_state = asyncio.run(inventory.sync_state("nautobot_inventory"))
             asyncio.run(inventory.sync_nautobot())
 
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
@@ -2929,8 +2929,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -2939,8 +2939,8 @@ class TestInventoryCacheSync:
                     status="idle",
                     error_message="",
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory_reconcile",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2099-01-01T00:00:00Z",
@@ -3000,7 +3000,7 @@ class TestInventoryCacheSync:
         ):
             asyncio.run(inventory.sync_nautobot())
 
-        state = inventory.get_sync_state("nautobot_inventory")
+        state = asyncio.run(inventory.sync_state("nautobot_inventory"))
         assert state["last_successful_sync"] == "2026-01-01T00:05:00Z"
 
     def test_sync_nautobot_inventory_full_reconciles_when_cache_version_changes(self):
@@ -3050,8 +3050,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -3077,8 +3077,8 @@ class TestInventoryCacheSync:
         ):
             asyncio.run(inventory.sync_nautobot())
 
-        state = inventory.get_sync_state("nautobot_inventory")
-        reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
+        state = asyncio.run(inventory.sync_state("nautobot_inventory"))
+        reconcile_state = asyncio.run(inventory.sync_state("nautobot_inventory_reconcile"))
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
@@ -3093,8 +3093,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -3112,7 +3112,7 @@ class TestInventoryCacheSync:
             patch.object(inventory, "sync_due", return_value=False),
             patch.object(inventory, "sync_nautobot") as sync_nautobot,
         ):
-            assert inventory.ensure_snapshot(wait=True) is True
+            assert asyncio.run(inventory.ensure_snapshot(wait=True)) is True
 
         sync_nautobot.assert_called_once_with(force=False)
 
@@ -3163,8 +3163,8 @@ class TestInventoryCacheSync:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -3190,8 +3190,8 @@ class TestInventoryCacheSync:
         ):
             asyncio.run(inventory.sync_nautobot())
 
-        state = inventory.get_sync_state("nautobot_inventory")
-        reconcile_state = inventory.get_sync_state("nautobot_inventory_reconcile")
+        state = asyncio.run(inventory.sync_state("nautobot_inventory"))
+        reconcile_state = asyncio.run(inventory.sync_state("nautobot_inventory_reconcile"))
         location_calls = [params for endpoint, params in calls if endpoint == "dcim/locations/"]
         device_calls = [params for endpoint, params in calls if endpoint == "dcim/devices/"]
 
@@ -3272,8 +3272,8 @@ class TestInventoryCacheSync:
                         }
                     ],
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at=None,
                     last_completed_at=None,
@@ -3359,8 +3359,8 @@ class TestInventoryCacheSync:
                         },
                     ],
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:05:00Z",
@@ -3877,8 +3877,8 @@ class TestAlertBoardSyncProgress:
         conn = db.get_conn()
         try:
             with conn:
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at=started_at,
                     last_completed_at=completed_at,
@@ -4008,8 +4008,8 @@ class TestAlertBoardSyncProgress:
         self._set_nautobot_sync_state("idle", now, now)
         conn = db.get_conn()
         with conn:
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "librenms_inventory",
                 last_started_at=now,
                 last_completed_at=now,
@@ -4283,12 +4283,12 @@ class TestRefreshIsIncremental:
             patch.object(nautobot, "fetch_all_pages", side_effect=fake_fetch),
             patch.object(nautobot, "device_lookup_maps", return_value={}),
         ):
-            inventory.ensure_snapshot(wait=True, **ensure_kwargs)
+            asyncio.run(inventory.ensure_snapshot(wait=True, **ensure_kwargs))
         return [params for endpoint, params in calls if endpoint == "dcim/locations/"]
 
     def test_sync_now_only_fetches_changes_since_last_sync(self):
         self._location_queries(force=True)  # first sync: full, sets the watermark
-        watermark = inventory.get_sync_state("nautobot_inventory")["last_successful_sync"]
+        watermark = asyncio.run(inventory.sync_state("nautobot_inventory"))["last_successful_sync"]
         queries = self._location_queries(force=True, full=False)
         assert queries == [{"last_updated__gte": watermark}]
 
@@ -4311,7 +4311,7 @@ class TestAlertBoardBulkReads:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
         pass  # the schema: Alembic's (tests/test_schema.py)
         caching.cache.clear()
@@ -4346,8 +4346,8 @@ class TestAlertBoardBulkReads:
         )
         conn = db.get_conn()
         with conn:
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_started_at="2026-09-25T11:00:00+00:00",
                 last_completed_at="2026-09-25T11:00:00+00:00",
@@ -4555,7 +4555,7 @@ class TestSiteRollup:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_STATUSES", {"decommissioning"})
         monkeypatch.setattr(settings, "ALERT_BOARD_EXCLUDED_LOCATION_TYPES", set())
         names = {location_id: name for location_id, name, *_ in self.LOCATIONS}
@@ -4581,8 +4581,8 @@ class TestSiteRollup:
         )
         conn = db.get_conn()
         with conn:
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_started_at="2026-09-25T11:00:00+00:00",
                 last_completed_at="2026-09-25T11:00:00+00:00",
@@ -4682,8 +4682,8 @@ class TestBackgroundScheduler:
         )
         conn = db.get_conn()
         with conn:
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_started_at="2026-09-25T11:00:00+00:00",
                 last_completed_at="2026-09-25T11:00:00+00:00",
@@ -4695,7 +4695,7 @@ class TestBackgroundScheduler:
 
     def test_tick_after_a_sync_records_alert_history_without_any_request(self):
         with patch.object(inventory, "ensure_snapshot", return_value=True) as ensure:
-            assert adb.worker(scheduler.tick) is True
+            assert asyncio.run(scheduler.tick()) is True
         ensure.assert_called_once_with(wait=True)
         rows = self.db.execute("SELECT site_id, device_id, status FROM alert_instances")
         assert rows == [{"site_id": "loc-1", "device_id": "dev-1", "status": "open"}]
@@ -4707,7 +4707,7 @@ class TestBackgroundScheduler:
             patch.object(inventory, "ensure_snapshot", return_value=False),
             patch.object(alerts, "build_alert_board_payload") as build,
         ):
-            assert adb.worker(scheduler.tick) is False
+            assert asyncio.run(scheduler.tick()) is False
         build.assert_not_called()
 
     def test_only_one_process_ticks_at_a_time(self):
@@ -4718,7 +4718,7 @@ class TestBackgroundScheduler:
             other = db.try_advisory_lock("background_scheduler")
             assert other is False  # a second connection cannot take it
             with patch.object(inventory, "ensure_snapshot") as ensure:
-                assert adb.worker(scheduler.tick) is False
+                assert asyncio.run(scheduler.tick()) is False
             ensure.assert_not_called()
         finally:
             release()
@@ -4736,7 +4736,7 @@ class TestBackgroundScheduler:
                     running.call_soon_threadsafe(stop.set)
                 raise RuntimeError("nautobot down")
 
-            monkeypatch.setattr(scheduler, "tick", failing_tick)
+            monkeypatch.setattr(scheduler, "tick", adb.async_of(failing_tick))
             await asyncio.wait_for(scheduler.loop(stop), 5)
 
         asyncio.run(run())
@@ -4748,7 +4748,7 @@ class TestBackgroundScheduler:
         async def idle(stop):
             await stop.wait()
 
-        monkeypatch.setattr(scheduler, "loop", idle)
+        monkeypatch.setattr(scheduler, "loop", adb.async_of(idle))
 
         async def run():
             monkeypatch.setattr(settings, "BACKGROUND_SYNC_ENABLED", False)
@@ -4911,7 +4911,7 @@ class TestRealStartTimes:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: self.CHECKED_AT)
         pg_database.execute(
             "INSERT INTO nautobot_location_cache (location_id, name, location_type, status) "
@@ -4929,8 +4929,8 @@ class TestRealStartTimes:
         )
         conn = db.get_conn()
         with conn:
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_started_at="2026-09-28T11:00:00+00:00",
                 last_completed_at="2026-09-28T11:00:00+00:00",
@@ -4987,7 +4987,7 @@ class TestAlertFeed:
         monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "token")
         monkeypatch.setattr(settings, "LIBRENMS_URL", "")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "")
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         clock = {"now": "2026-09-28T12:00:00+00:00"}
         monkeypatch.setattr(timeutil, "iso_utc_now", lambda: clock["now"])
         pg_database.execute(
@@ -5001,8 +5001,8 @@ class TestAlertFeed:
         )
         conn = db.get_conn()
         with conn:
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_started_at="2026-09-28T11:00:00+00:00",
                 last_completed_at="2026-09-28T11:00:00+00:00",
@@ -5360,9 +5360,9 @@ class TestHistoryRetention:
 
     def test_scheduler_tick_runs_retention(self, pg_database, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_HISTORY_RETENTION_DAYS", 30)
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *a, **k: False)
+        monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *a, **k: False))
         self._alert(pg_database, "old-resolved", "resolved", resolved_days_ago=100)
-        adb.worker(scheduler.tick)
+        asyncio.run(scheduler.tick())
         assert self._devices(pg_database) == []
 
 
@@ -5373,8 +5373,8 @@ class TestMetrics:
     def _record(self, status, started, completed):
         conn = db.get_conn()
         with conn:
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_started_at=started,
                 last_completed_at=completed,
@@ -5731,8 +5731,8 @@ class TestLocationAlertLevels:
                         _snapshot_device("ok-1", "loc-ok", "Access Switch", "Active"),
                     ],
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:01:00Z",
@@ -6205,7 +6205,9 @@ class TestTenantDescriptions:
             return fetch(endpoint, params, **kwargs)
 
         monkeypatch.setattr(inventory, "read_locations", adb.async_of(lambda **kwargs: []))
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
+        )
         monkeypatch.setattr(nautobot, "fetch_all_pages", live)
         by_name = {loc["name"]: loc for loc in asyncio.run(inventory.get_locations())}
         assert by_name["London"]["tenant_descriptions"] == {"Acme Corp": "Bank, 24/7 SLA"}
@@ -6233,7 +6235,9 @@ class TestLibreNMSMappingsAreBatched:
         monkeypatch.setattr(settings, "LIBRENMS_URL", "https://librenms.test")
         monkeypatch.setattr(settings, "LIBRENMS_API_TOKEN", "tok")
         # No background sync against the fake LibreNMS URL.
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
+        )
         conn = db.get_conn()
         try:
             with conn:
@@ -6260,8 +6264,8 @@ class TestLibreNMSMappingsAreBatched:
                         for n in range(self.DEVICES)
                     ],
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_started_at="2026-01-01T00:00:00Z",
                     last_completed_at="2026-01-01T00:01:00Z",

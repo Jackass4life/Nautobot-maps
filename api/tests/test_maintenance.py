@@ -35,7 +35,7 @@ def site(pg_database, monkeypatch, clock):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     set_devices(core="Offline", acc1="Offline", acc2="Active")
     return "loc-lon"
 
@@ -47,8 +47,8 @@ def set_devices(**statuses):
         with db.transaction(conn):
             adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             # A completed sync of the current cache: alert history is written.
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_completed_at=NOW,
                 last_successful_sync=NOW,

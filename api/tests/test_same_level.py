@@ -21,7 +21,7 @@ def synced(pg_database, mock_nautobot_server, monkeypatch):
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
     asyncio.run(inventory.sync_nautobot(force=True))
     # The test reads the snapshot; no background sync against the mock.
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     caching.cache.clear()
 
 

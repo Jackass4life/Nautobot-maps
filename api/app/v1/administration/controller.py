@@ -16,7 +16,6 @@ from app.auth.dependencies import CurrentUserDep, require_role
 from app.core.exceptions import ApiError, responses
 from app.core.legacy_settings import settings
 from app.db import aconnection, session
-from app.db import connection as db
 from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
 from app.services import contract_service, status_link_service, token_service
@@ -64,18 +63,15 @@ def admin_page():
     responses=NO_DATABASE_RESPONSE,
     dependencies=[deps.require_role("admin")],
 )
-def api_tenants():
+async def api_tenants():
     """Nautobot's tenants as of the last sync (#530), with their
     descriptions, by name: what a status token can be made for."""
-    conn = db.get_conn()
-    if conn is None:
-        return deps.Json(NO_DATABASE, status_code=503)
-    try:
-        rows = conn.execute(
-            "SELECT name, description FROM nautobot_tenant_cache ORDER BY lower(name), name"
+    async with aconnection.connect() as conn:
+        rows = (
+            await conn.execute(
+                "SELECT name, description FROM nautobot_tenant_cache ORDER BY lower(name), name"
+            )
         ).fetchall()
-    finally:
-        conn.close()
     return deps.Json(
         {
             "tenants": [
@@ -159,7 +155,7 @@ WIRELESS_CHECK_LOCK = "wireless_check"
     responses={429: {"model": common.Error, "description": "A check is running already"}},
     dependencies=[deps.require_role("admin")],
 )
-def api_wireless_check():
+async def api_wireless_check():
     """Read every wireless controller now (#529), as ``wireless-check``: per
     instance whether it answers, takes the account, how many access points it
     lists and how many match a Nautobot device.  Never the credentials.  One
@@ -169,18 +165,18 @@ def api_wireless_check():
             {"error": "A wireless check is running already; try again in a minute"}, status_code=429
         )
     try:
-        release = db.try_advisory_lock(WIRELESS_CHECK_LOCK)
+        release = await aconnection.try_advisory_lock(WIRELESS_CHECK_LOCK)
         if release is False:
             return deps.Json(
                 {"error": "A wireless check is running already; try again in a minute"},
                 status_code=429,
             )
         try:
-            # On the event loop (#661): the inventory is read async.
-            results = wireless.check(session.from_sync(inventory.read_devices))
+            # The controllers asked in a thread: the check is sync HTTP.
+            results = await session.run_sync(wireless.check, await inventory.read_devices())
         finally:
             if callable(release):
-                release()
+                await release()
     finally:
         _wireless_check_running.release()
     duplicates = next((result for result in results if "duplicates" in result), None)

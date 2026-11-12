@@ -805,7 +805,9 @@ class TestTenantDevices:
 
         for name, value in (("NAUTOBOT_URL", ""), ("NAUTOBOT_TOKEN", ""), ("LIBRENMS_URL", "")):
             monkeypatch.setattr(settings, name, value)
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
+        )
         conn = db.get_conn()
         try:
             with db.transaction(conn):
@@ -813,8 +815,8 @@ class TestTenantDevices:
                     inventory.write_locations,
                     [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}],
                 )
-                inventory.record_sync_state(
-                    conn,
+                adb.call(
+                    inventory.record_sync_state,
                     "nautobot_inventory",
                     last_completed_at=self.CHECKED_AT,
                     last_successful_sync=self.CHECKED_AT,

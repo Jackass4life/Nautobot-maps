@@ -113,7 +113,7 @@ class TestCatalystTopology:
         assert load()["serial"]["FGL1"]["port"] == "Gi1/0/14"
         conn = db.get_conn()
         try:
-            assert inventory.get_sync_state(wireless.source(DK), conn=conn)["status"] == "idle"
+            assert asyncio.run(inventory.sync_state(wireless.source(DK)))["status"] == "idle"
         finally:
             conn.close()
 

@@ -62,6 +62,7 @@ from app.db import session  # noqa: E402
 from app.db.session import engine  # noqa: E402
 from app.logs import config as logs  # noqa: E402
 from app.models import Base  # noqa: E402
+from tests import db as adb  # noqa: E402
 
 # A pooled async connection belongs to the event loop that opened it, and each
 # TestClient (and asyncio.run) has a loop of its own: a connection per use in tests.
@@ -229,22 +230,27 @@ class TestDatabase:
 
 def join_background_threads(timeout: float = 30.0) -> list[str]:
     """Wait for background syncs and rebuilds a test started, so none runs into the next
-    test (as the current app's conftest). Returns the ones still running."""
-    import threading
+    test (as the current app's conftest). Their tasks (#663) run on the app's loop, a
+    thread here (`_app_loop`), or on a TestClient's while it runs. Returns the ones
+    still running."""
+    import asyncio
+    import concurrent.futures
 
-    from app.services import inventory_service, scheduler
-
-    names = {
-        inventory_service.SYNC_THREAD_NAME,
-        scheduler.PUSH_REBUILD_THREAD_NAME,
-        scheduler.WIRELESS_THREAD_NAME,
-    }
     running = []
-    for thread in threading.enumerate():
-        if thread.name in names and thread is not threading.current_thread():
-            thread.join(timeout)
-            if thread.is_alive():
-                running.append(thread.name)
+    for task in session.background_tasks():
+        loop = task.get_loop()
+        if not loop.is_running():
+            continue  # a TestClient's that ended: its tasks ended with it
+
+        async def finished(task=task) -> None:  # type: ignore[no-untyped-def]
+            await asyncio.wait([task])
+
+        try:
+            asyncio.run_coroutine_threadsafe(finished(), loop).result(timeout)
+        except (concurrent.futures.TimeoutError, RuntimeError):
+            pass
+        if not task.done():
+            running.append(task.get_name())
     return running
 
 
@@ -283,7 +289,9 @@ def board(pg_database, monkeypatch):
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
     monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "https://hooks.example.com/x")
     monkeypatch.setattr(settings, "NOTIFY_MIN_LEVEL", "critical")
-    monkeypatch.setattr(inventory_service, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        inventory_service, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
+    )
     return clock
 
 

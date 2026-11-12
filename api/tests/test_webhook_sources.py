@@ -6,6 +6,7 @@ import pytest
 
 from app.clients import caching
 from app.core.legacy_settings import settings
+from app.db import aconnection, session
 from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -32,7 +33,7 @@ def site(pg_database, monkeypatch, clock):
     monkeypatch.setattr(settings, "NAUTOBOT_URL", "")
     monkeypatch.setattr(settings, "NAUTOBOT_TOKEN", "")
     monkeypatch.setattr(settings, "LIBRENMS_URL", "")
-    monkeypatch.setattr(inventory, "ensure_snapshot", lambda *args, **kwargs: False)
+    monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False))
     devices = [
         {
             **_snapshot_device("core", "loc-lon", "Core Router", "Active"),
@@ -51,8 +52,8 @@ def site(pg_database, monkeypatch, clock):
     try:
         with db.transaction(conn):
             adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_completed_at=NOW,
                 last_successful_sync=NOW,
@@ -252,19 +253,14 @@ class TestRebuild:
 
         ran = []
         monkeypatch.setattr(
-            scheduler, "rebuild_board", lambda trigger="scheduler": ran.append(trigger)
+            scheduler,
+            "rebuild_board",
+            adb.async_of(lambda trigger="scheduler": ran.append(trigger)),
         )
-        monkeypatch.setattr(scheduler, "pending_librenms_pushes", lambda: [])
-        monkeypatch.setattr(db, "try_advisory_lock", lambda name: lambda: None)
+        monkeypatch.setattr(scheduler, "pending_librenms_pushes", adb.async_of(lambda: []))
+        monkeypatch.setattr(aconnection, "try_advisory_lock", adb.always_locked)
 
-        class InlineThread:
-            def __init__(self, target, **kwargs):
-                self.target = target
-
-            def start(self):
-                self.target()
-
-        monkeypatch.setattr(scheduler.threading, "Thread", InlineThread)
+        monkeypatch.setattr(session, "spawn", adb.spawn_inline)
         scheduler.rebuild_after_push()
         assert ran == [], "no push pending: nothing to do"
         scheduler.rebuild_after_push(always=True)
@@ -331,16 +327,18 @@ class TestReviewFixes:
 
         conn = db.get_conn()
         try:
-            assert webhooks.pending_rebuild(conn) is None
+            assert adb.call(webhooks.pending_rebuild) is None
             adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
-            received = webhooks.pending_rebuild(conn)
+            received = adb.call(webhooks.pending_rebuild)
             assert received is not None
         finally:
             conn.close()
         built = []
-        monkeypatch.setattr(scheduler, "rebuild_board", lambda *args: built.append(True))
-        monkeypatch.setattr(scheduler, "send_notifications", lambda: None)
-        monkeypatch.setattr(inventory, "ensure_snapshot", lambda **kwargs: False)
-        assert adb.worker(scheduler.tick) is True and built == [True]
-        assert scheduler.pending_webhook_alerts() is None
-        assert adb.worker(scheduler.tick) is False and built == [True], "taken in once"
+        monkeypatch.setattr(
+            scheduler, "rebuild_board", adb.async_of(lambda *args: built.append(True))
+        )
+        monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
+        monkeypatch.setattr(inventory, "ensure_snapshot", adb.async_of(lambda **kwargs: False))
+        assert asyncio.run(scheduler.tick()) is True and built == [True]
+        assert asyncio.run(scheduler.pending_webhook_alerts()) is None
+        assert asyncio.run(scheduler.tick()) is False and built == [True], "taken in once"

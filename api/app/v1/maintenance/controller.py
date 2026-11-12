@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from starlette.concurrency import run_in_threadpool
 
 from app.db import aconnection
 from app.frontend import controller as frontend
@@ -265,9 +264,9 @@ async def api_maintenance_devices(query: Annotated[dtos.MaintenanceDevices, Quer
     return deps.Json({"devices": devices})
 
 
-def _maintenance_changed() -> None:
+async def _maintenance_changed() -> None:
     """The board and the map show maintenance: drop their cached copies."""
-    scheduler.board_changed()  # also the map's marker colours
+    await scheduler.board_changed()  # also the map's marker colours
 
 
 @router.post(
@@ -296,7 +295,7 @@ async def api_maintenance_create(body: Body):
             )
     except maintenance.WindowError as exc:
         return deps.Json({"error": exc.message}, status_code=400)
-    await run_in_threadpool(_maintenance_changed)
+    await _maintenance_changed()
     return deps.Json({"windows": windows}, status_code=201)
 
 
@@ -329,7 +328,7 @@ async def api_maintenance_end_many(body: Body):
         )
     # Nothing ended (already over, or unknown): the board and map stay cached.
     if result["changed"]:
-        await run_in_threadpool(_maintenance_changed)
+        await _maintenance_changed()
     found = {window["id"] for window in result["windows"]}
     return deps.Json(
         {"windows": result["windows"], "not_found": [i for i in ids if i not in found]}
@@ -354,5 +353,5 @@ async def api_maintenance_end(window_id: int):
         )
     if window is None:
         return deps.Json({"error": "No such maintenance window"}, status_code=404)
-    await run_in_threadpool(_maintenance_changed)
+    await _maintenance_changed()
     return deps.Json({"window": window})

@@ -207,8 +207,8 @@ def write(sites: dict[str, str], devices: list[dict]) -> None:
                 ],
             )
             adb.call(inventory.write_devices, devices)
-            inventory.record_sync_state(
-                conn,
+            adb.call(
+                inventory.record_sync_state,
                 "nautobot_inventory",
                 last_completed_at=NOW,
                 last_successful_sync=NOW,

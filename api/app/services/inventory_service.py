@@ -31,7 +31,8 @@ FULL_RECONCILE_INTERVAL_SECONDS = 86400
 # their virtual chassis, #400; 10: tenant status role scopes, #410).
 CACHE_VERSION = "10"
 sync_lock = threading.Lock()
-SYNC_THREAD_NAME = "inventory-sync"
+SYNC_LOCK_POLL_SECONDS = 0.1
+SYNC_TASK_NAME = "inventory-sync"
 
 
 def json_load_list(value) -> list:
@@ -961,9 +962,9 @@ def sync_state_statement(
     status: str = "idle",
     error_message: str = "",
 ) -> tuple[str, tuple]:
-    """``(sql, params)`` that records a source's sync state: for psycopg's connection
-    (`record_sync_state`) and the async one alike (#655). The times are ISO text, cast
-    by the database (asyncpg takes no text for a timestamptz parameter)."""
+    """``(sql, params)`` that records a source's sync state (`record_sync_state`). The
+    times are ISO text, cast by the database (asyncpg takes no text for a timestamptz
+    parameter)."""
     # A sync that finished without error ("idle" with a completion time) is
     # also recorded as the last success, which a later failure keeps (#200).
     last_succeeded_at = last_completed_at if status == "idle" else None
@@ -996,9 +997,9 @@ def sync_state_statement(
     )
 
 
-def record_sync_state(conn, source: str, **state) -> None:  # type: ignore[no-untyped-def]
-    """Record *source*'s sync state on *conn* (psycopg); *state* as `sync_state_statement`."""
-    conn.execute(*sync_state_statement(source, **state))
+async def record_sync_state(conn: aconnection.Connection, source: str, **state: str) -> None:
+    """Record *source*'s sync state on *conn*; *state* as `sync_state_statement`."""
+    await conn.execute(*sync_state_statement(source, **state))
 
 
 SYNC_STATE_SQL = (
@@ -1008,28 +1009,13 @@ SYNC_STATE_SQL = (
 
 
 async def read_sync_state(conn: aconnection.Connection, source: str) -> dict:
-    """``get_sync_state`` on the async connection (#659): its times as ISO text too."""
+    """*source*'s sync state on *conn* (#659), its times as ISO text; an error raised."""
     return db.row_to_dict((await conn.execute(SYNC_STATE_SQL, (source,))).fetchone())
 
 
-def get_sync_state(source: str, conn=None) -> dict:
-    owns_conn = conn is None
-    if owns_conn:
-        conn = db.get_conn()
-    if conn is None:
-        return {}
-    try:
-        return db.row_to_dict(conn.execute(SYNC_STATE_SQL, (source,)).fetchone())
-    except Exception as exc:
-        logger.debug("Could not read sync state for {}: {}", source, exc)
-        return {}
-    finally:
-        if owns_conn:
-            conn.close()
-
-
 async def sync_state(source: str, conn: aconnection.Connection | None = None) -> dict:
-    """``get_sync_state`` on the async connection (#661): {} without one or on an error."""
+    """*source*'s sync state (#661), on *conn* or a connection of its own: {} without
+    one or on an error."""
     try:
         async with aconnection.using(conn) as conn:
             return await read_sync_state(conn, source)
@@ -1087,7 +1073,7 @@ async def board_snapshot(conn: aconnection.Connection | None = None) -> dict:
     ``version``: each source's last success, which changes in the same
     transaction as its data (None without a database, or when it can't be
     read); ``initialized``: ``snapshot_initialized()``; ``nautobot``: the
-    Nautobot sync's state (``get_sync_state``), for ``sync_pending``.
+    Nautobot sync's state (``sync_state``), for ``sync_pending``.
     """
     if conn is None and not db.dialect():
         return {"version": None, "initialized": False, "nautobot": {}}
@@ -1615,23 +1601,23 @@ def _pushed_device(device: dict) -> dict:
     }
 
 
-def pending_librenms_pushes(conn) -> list[int]:
+async def pending_librenms_pushes(conn: aconnection.Connection) -> list[int]:
     """The ``push_seq`` of refreshes the board hasn't been rebuilt for yet."""
-    rows = conn.execute(
-        "SELECT push_seq FROM librenms_device_status WHERE push_seq IS NOT NULL"
+    rows = (
+        await conn.execute("SELECT push_seq FROM librenms_device_status WHERE push_seq IS NOT NULL")
     ).fetchall()
     return [db.row_to_dict(row)["push_seq"] for row in rows]
 
 
-def ack_librenms_pushes(conn, seqs: list[int]) -> None:
+async def ack_librenms_pushes(conn: aconnection.Connection, seqs: list[int]) -> None:
     """After a successful rebuild: clear exactly the refreshes it was built
     from.  A device pushed again meanwhile has a new ``push_seq`` and stays."""
     if not seqs:
         return
-    with db.transaction(conn):
-        conn.execute(
+    async with conn.transaction():
+        await conn.execute(
             "UPDATE librenms_device_status SET push_seq = NULL WHERE push_seq = ANY(%s)",
-            (list(seqs),),
+            ([int(seq) for seq in seqs],),
         )
 
 
@@ -1948,7 +1934,9 @@ def synced_within(state: dict | None, seconds: int) -> bool:
     return completed is not None and (datetime.now(UTC) - completed).total_seconds() < seconds
 
 
-def sources_to_sync(conn, force: bool = False, cooldown_seconds: int = 0) -> tuple[bool, bool]:
+async def sources_to_sync(
+    conn: aconnection.Connection | None = None, force: bool = False, cooldown_seconds: int = 0
+) -> tuple[bool, bool]:
     """``(Nautobot, LibreNMS)``: which configured sources to sync now: due,
     Nautobot's cache from an older version, or *force*d, but not one that
     synced successfully less than *cooldown_seconds* ago.  One state read per source."""
@@ -1958,21 +1946,21 @@ def sources_to_sync(conn, force: bool = False, cooldown_seconds: int = 0) -> tup
     )
     needs_nautobot = needs_librenms = False
     if nautobot_on:
-        state = get_sync_state("nautobot_inventory", conn=conn)
+        state = await sync_state("nautobot_inventory", conn)
         needs_nautobot = (
             (force and not synced_within(state, cooldown_seconds))
             or cache_version_mismatch(state)
             or state_due(state, settings.INVENTORY_SYNC_INTERVAL_SECONDS)
         )
     if librenms_on:
-        state = get_sync_state("librenms_inventory", conn=conn)
+        state = await sync_state("librenms_inventory", conn)
         needs_librenms = (force and not synced_within(state, cooldown_seconds)) or state_due(
             state, settings.LIBRENMS_SYNC_INTERVAL_SECONDS
         )
     return needs_nautobot, needs_librenms
 
 
-def ensure_snapshot(
+async def ensure_snapshot(
     force: bool = False, wait: bool = False, full: bool | None = None, cooldown_seconds: int = 0
 ) -> bool:
     """Run the inventory syncs that are due, in the background unless *wait*.
@@ -1987,50 +1975,42 @@ def ensure_snapshot(
     if full is None:
         full = force
     # With a cooldown, decide before starting anything: a forced call with every
-    # source just synced starts no thread and says so, so the board doesn't
+    # source just synced starts no task and says so, so the board doesn't
     # show "Updating…" for nothing (#382).
     if force and cooldown_seconds > 0:
-        conn = db.get_conn()
-        if conn is not None:
-            try:
-                if not any(sources_to_sync(conn, force, cooldown_seconds)):
-                    return False
-            finally:
-                conn.close()
+        if not any(await sources_to_sync(None, force, cooldown_seconds)):
+            return False
 
-    def _run_with_lock() -> bool:
-        conn = None
+    async def run_with_lock() -> bool:
         release_db_lock = None
         try:
-            release_db_lock = db.try_advisory_lock("inventory_snapshot_sync")
+            release_db_lock = await aconnection.try_advisory_lock("inventory_snapshot_sync")
             if release_db_lock is False:
                 return False
-            conn = db.get_conn()
-            if conn is None:
-                return False
-            needs_nautobot, needs_librenms = sources_to_sync(conn, force, cooldown_seconds)
+            needs_nautobot, needs_librenms = await sources_to_sync(None, force, cooldown_seconds)
             if not needs_nautobot and not needs_librenms:
                 return False
-            # On the app's event loop (#659): the syncs' SQL is async.
+            # Their upstream HTTP in threads (#659).
             if needs_nautobot:
-                session.from_sync(sync_nautobot, force=full)
+                await sync_nautobot(force=full)
             if needs_librenms:
-                session.from_sync(sync_librenms, force=full)
+                await sync_librenms(force=full)
             return True
         finally:
-            if conn is not None:
-                conn.close()
             if callable(release_db_lock):
-                release_db_lock()
+                await release_db_lock()
             sync_lock.release()
 
     if wait:
-        sync_lock.acquire()
-        return _run_with_lock()
+        # One sync at a time in this process; a thread lock, as the callers' loops
+        # differ in tests (a TestClient's, the app's): waited for without blocking.
+        while not sync_lock.acquire(blocking=False):
+            await asyncio.sleep(SYNC_LOCK_POLL_SECONDS)
+        return await run_with_lock()
     if not sync_lock.acquire(blocking=False):
         return False
     # Named, so tests can wait for it before dropping their schema (#299).
-    threading.Thread(target=_run_with_lock, name=SYNC_THREAD_NAME, daemon=True).start()
+    session.spawn(SYNC_TASK_NAME, run_with_lock)
     return True
 
 
@@ -2046,11 +2026,11 @@ async def get_locations(
     cached = await read_locations(include_without_coordinates=include_without_coordinates)
     if cached:
         if not snapshot_only:
-            await session.run_sync(ensure_snapshot)
+            await ensure_snapshot()
         return cached
     if snapshot_only:
         return []
-    await session.run_sync(ensure_snapshot, force=True, wait=True)
+    await ensure_snapshot(force=True, wait=True)
     cached = await read_locations(include_without_coordinates=include_without_coordinates)
     if cached:
         return cached
