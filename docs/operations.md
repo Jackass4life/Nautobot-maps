@@ -47,6 +47,31 @@ docker compose up -d
 
 Without the certificate in `reverse-proxy/certs/`, nginx doesn't start and its log says so (`docker compose logs nginx`). If `COMPOSE_FILE` still names `deploy/proxy/compose.yml`, `docker compose` stops with "no such file or directory".
 
+## Building the API, the pages and the proxy separately (#672)
+
+Each part has its own Dockerfile, built from its own folder, for a deployment that runs them as separate containers (`docker-compose.yml` still runs the one image with both):
+
+```bash
+cd api           && docker build --build-context certs=../certs --build-context docs=.. -t nautobot-maps-api .
+cd web           && docker build -t nautobot-maps-web .
+cd reverse-proxy && docker build -t nautobot-maps-reverse-proxy --build-arg DOMAIN=maps.example.com --build-arg API_PORT=5000 .
+```
+
+**API** (`api/Dockerfile`): the app as today, without the pages. Port 5000 (`GUNICORN_BIND`, then `HEALTHCHECK_PORT` too); it migrates the database at start. The same settings as the one image ([configuration](configuration.md)). Two optional build contexts:
+- `certs`: a folder of company CA certificates (`*.crt` or `*.pem`, PEM). Outgoing HTTPS (Nautobot, LibreNMS, the wireless controllers, e-mail) trusts them, besides the public ones.
+- `docs`: the repository's root, for the help pages (`docs/`, `README.md`, `CONTRIBUTING.md`). Without it, the help pages say they aren't in the image.
+
+**Pages** (`web/Dockerfile`): Nuxt's server on bun, port 3000 (`PORT`). Set `MAP_TILE_URL` to the API's value, if you changed it: the pages' Content-Security-Policy allows the map's tiles from that server only. With `API_URL` (e.g. `http://api:5000`) it forwards the API's paths there, so it can run on its own without the proxy; behind the proxy, leave it unset.
+
+**Reverse proxy** (`reverse-proxy/Dockerfile`): nginx with HTTPS and company sign-in through oauth2-proxy, as the bundled proxy ([sign-in](authentication.md#the-bundled-proxy-https-and-company-sign-in)).
+- Build args: `DOMAIN` (required), `API_HOST`/`API_PORT` (`api`, 5000), `WEB_HOST`/`WEB_PORT` (`web`, 3000), `OAUTH2_PROXY` (`oauth2-proxy:4180`), `RESOLVER` (127.0.0.11, Docker's DNS). The names are looked up as requests come in, so the proxy starts before the others.
+- At run time: `AUTH_PROXY_SECRET` and `OIDC_ISSUER_URL` (it stops and says so without them), `OIDC_LOGOUT_URL` (may be empty).
+- The certificate: `reverse-proxy/certs/fullchain.pem` and `privkey.pem` are copied into the image when they are there at build time, or mount them on `/etc/nginx/certs`. An image with the key in it belongs in a private registry only; mounting keeps it out of the image.
+- oauth2-proxy runs as its own container, with the settings in `reverse-proxy/compose.yml`.
+- The API must trust the proxy for sign-in: `AUTH_MODE=header`, `AUTH_REQUIRE_VIEWER=true`, `AUTH_TRUSTED_PROXIES=<the proxy's address>/32`, the same `AUTH_PROXY_SECRET`, and `AUTH_SIGN_OUT_URL=/oauth2/sign_out`.
+
+The proxy sends `/api/` (but the `/api/docs` page), `/healthz`, `/mcp`, `/help/images/` and the old `/docs`, `/openapi.json` and `/static/` to the API, and every other path to the pages. `/metrics` isn't served: Prometheus scrapes the API directly.
+
 ## The config folder
 
 `docker-compose.yml` mounts `./config` read-only at `/config`: the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).

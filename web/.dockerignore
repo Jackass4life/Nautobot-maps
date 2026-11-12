@@ -1,6 +1,11 @@
+# Only what the build needs (#672): sources, package.json and bun.lock.
 node_modules/
-.nuxt/
 .output/
+.nuxt/
 .data/
 .env
 README.md
+tests/
+.vscode/
+Dockerfile
+.dockerignore

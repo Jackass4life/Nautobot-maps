@@ -436,3 +436,91 @@ jobs:
       - name: Dump container logs on failure
         if: failure()
         run: docker compose logs --tail=200
+
+  images:
+    # One image per folder (#672): built as the README says, run behind the reverse
+    # proxy with a stub oauth2-proxy and the mock Nautobot, and checked as proxy-smoke
+    # checks the one-image setup.
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_FILE: reverse-proxy/ci/images.compose.yml
+      OIDC_LOGOUT_URL: https://idp.example.com/logout?post_logout_redirect_uri=https://localhost/
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: A company CA and the proxy's certificate
+        run: |
+          mkdir -p certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=CI Company CA" \
+            -keyout /tmp/ca.key -out certs/company-ca.crt
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
+            -keyout reverse-proxy/certs/privkey.pem -out reverse-proxy/certs/fullchain.pem
+
+      - name: Build the three images (the request's commands)
+        run: |
+          (cd api && docker build --build-context certs=../certs -t nocwatch-api .)
+          (cd api && docker build --build-context certs=../certs --build-context docs=.. -t nautobot-maps-api:ci .)
+          (cd web && docker build -t nocwatch-web -t nautobot-maps-web:ci .)
+          (cd reverse-proxy && docker build -t nocwatch-reverse-proxy -t nautobot-maps-reverse-proxy:ci \
+            --build-arg DOMAIN=localhost --build-arg API_PORT=4200 .)
+
+      - name: Scan the API and web images (Trivy)
+        run: |
+          for image in nautobot-maps-api:ci nautobot-maps-web:ci; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 \
+              image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --no-progress "$image"
+          done
+
+      - name: What each image holds
+        run: |
+          # The certs context's CA is trusted by outgoing HTTPS.
+          docker run --rm --entrypoint python nautobot-maps-api:ci -c "
+          import os, ssl
+          context = ssl.create_default_context(cafile=os.environ['SSL_CERT_FILE'])
+          names = [dict(x[0] for x in c['subject']).get('commonName') for c in context.get_ca_certs()]
+          assert 'CI Company CA' in names, 'the company CA is not trusted'
+          print('company CA trusted, with', len(names), 'others')"
+          # The docs context: the help pages' files; without it, none.
+          docker run --rm --entrypoint sh nautobot-maps-api:ci -c 'test -f /app/README.md && test -f /app/docs/operations.md'
+          docker run --rm --entrypoint sh nocwatch-api -c 'test ! -e /app/README.md && test -z "$(ls -A /app/docs)"'
+          # The proxy needs DOMAIN, and says which settings are missing at start.
+          if (cd reverse-proxy && docker build -q . 2>/tmp/no-domain.log); then exit 1; fi
+          grep -q "Set --build-arg DOMAIN" /tmp/no-domain.log
+          if docker run --rm nautobot-maps-reverse-proxy:ci > /tmp/no-settings.log 2>&1; then exit 1; fi
+          tail -n 3 /tmp/no-settings.log
+          grep -q "set AUTH_PROXY_SECRET OIDC_ISSUER_URL" /tmp/no-settings.log
+
+      - name: Start the three images behind the proxy
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: The API and the pages run as non-root users
+        run: |
+          for service in api web; do
+            uid=$(docker compose exec -T "$service" id -u)
+            echo "$service: uid=$uid"
+            test "$uid" != "0"
+          done
+
+      - name: A status link and token (#527)
+        run: |
+          for attempt in $(seq 1 60); do
+            if link=$(docker compose exec -T api python -m app status-link "Acme Corp" 2>/dev/null); then
+              break
+            fi
+            sleep 2
+          done
+          token=$(docker compose exec -T api python -m app token create smoke-status --role status --tenant "Acme Corp" 2>/dev/null)
+          echo "::add-mask::$token"
+          echo "STATUS_LINK=$link" >> "$GITHUB_ENV"
+          echo "STATUS_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: The proxy's rules
+        run: python3 reverse-proxy/ci/smoke.py https://localhost:443 http://localhost:80
+
+      - name: The pages from the web image, the API's paths to the API
+        run: python3 reverse-proxy/ci/images_check.py https://localhost:443
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200

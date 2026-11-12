@@ -1,0 +1,5 @@
+# The image takes templates/, entrypoint/ and certs/ (#672); not the CI files.
+ci/
+compose.yml
+Dockerfile
+.dockerignore

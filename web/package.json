@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
+    "build": "nuxt build && bun scripts/no-inline-scripts.mjs",
     "generate": "nuxt generate && bun scripts/no-inline-scripts.mjs",
     "api:generate": "openapi-typescript ./api/openapi.json --output ./api/api.schema.ts",
     "api:generate:from-source": "(cd ../api && uv run python scripts/generate_openapi.py) && bun run api:generate",
@@ -42,6 +43,7 @@
     "@nuxt/eslint": "1.17.0",
     "@types/leaflet": "1.9.22",
     "@types/leaflet.markercluster": "1.5.6",
+    "@types/node": "24.19.2",
     "eslint": "10.14.0",
     "openapi-typescript": "7.13.0",
     "prettier": "3.6.2",

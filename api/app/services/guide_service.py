@@ -122,6 +122,14 @@ def _title(text: str, fallback: str) -> str:
     return match.group(1).replace("`", "") if match else fallback
 
 
+# What the help pages say when none of their files is there: an API image built
+# without the repository's docs (api/Dockerfile, #672).
+NOT_INCLUDED = (
+    "The help pages aren't in this API image: build it with "
+    "`--build-context docs=..` (api/Dockerfile)."
+)
+
+
 def page(slug: str) -> dict | None:
     """``{slug, title, html}`` of a guide, or None for an unknown one."""
     file = FILE_BY_SLUG.get(slug)
