@@ -32,6 +32,21 @@ docker compose pull nautobot-maps && docker compose up -d
 
 To roll back, set the previous version and run the same commands. The app refuses to start on a database that a newer release has already migrated; restore the backup taken before the upgrade (see [backup and restore](#backup-and-restore)). Releases are listed on the repository's Releases page and in `CHANGELOG.md`. After upgrading Nautobot or LibreNMS, check the log for "Data contract" warnings or `GET /api/v1/contract`: they name any field that no longer looks as the app expects ([data contract](data-contract.md)).
 
+### The bundled proxy moved to `reverse-proxy/` (#667)
+
+With the bundled HTTPS and sign-in proxy, its files are in `reverse-proxy/` (they were in `deploy/proxy/`). `git pull` moves the tracked files, but not your certificate, which git doesn't track, nor `COMPOSE_FILE` in your `.env`. Once, on each host:
+
+```bash
+git pull
+mkdir -p reverse-proxy/certs
+mv deploy/proxy/certs/fullchain.pem deploy/proxy/certs/privkey.pem reverse-proxy/certs/
+sed -i 's#deploy/proxy/compose.yml#reverse-proxy/compose.yml#' .env
+rm -r deploy        # only the old certificate folder is left in it
+docker compose up -d
+```
+
+Without the certificate in `reverse-proxy/certs/`, nginx doesn't start and its log says so (`docker compose logs nginx`). If `COMPOSE_FILE` still names `deploy/proxy/compose.yml`, `docker compose` stops with "no such file or directory".
+
 ## The config folder
 
 `docker-compose.yml` mounts `./config` read-only at `/config`: the files settings point at live there, `/config/wireless.yml`, `/config/criticality_rules.json`, `/config/certs/…`. It is git-ignored and kept out of the image, so its passwords are never committed or built in, and the app (uid 10001 in the container) must be able to read it: `sudo chgrp -R 10001 config && sudo chmod 2750 config`, files `640`. A change to a file takes effect at the next start: `docker compose up -d --force-recreate nautobot-maps`. Back the folder up with `.env`: neither is in the database. See [config/README.md](../config/README.md).
@@ -171,7 +186,7 @@ The first start of this release takes over the database as it is (schema version
 
 - **The API is under `/api/v1/...`.** The old paths (`/api/alerts`, `/api/librenms/alert`, `/api/alertmanager`, …) answer `308` with the new one, method and body kept: LibreNMS transports, Alertmanager and scripts keep working, but change their URLs to `/api/v1/...` when you can. `/api/docs` lists every route.
 - **The command line** is `python -m app ...` (was `python -m nautobot_maps ...`), with the same commands and options.
-- With the bundled proxy, update `deploy/proxy` with the rest of the repository: its status page rule covers `/api/v1/status/`.
+- With the bundled proxy, update `reverse-proxy` with the rest of the repository: its status page rule covers `/api/v1/status/`.
 
 ## Monitoring
 

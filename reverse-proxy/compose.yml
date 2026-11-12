@@ -1,4 +1,4 @@
-# deploy/proxy/compose.yml - HTTPS and company sign-in in front of the app (#423).
+# reverse-proxy/compose.yml - HTTPS and company sign-in in front of the app (#423).
 #
 # nginx ends TLS and asks oauth2-proxy whether each request is signed in
 # (OIDC: Entra ID, Keycloak, Okta, Google, ...); the app gets the user and
@@ -6,7 +6,7 @@
 # page skip the login: the app checks those itself.
 #
 # Use it on top of docker-compose.yml, e.g. in .env:
-#   COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml
+#   COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml
 # then `docker compose up -d`.  Settings: .env.example, "HTTPS and sign-in".
 # Paths here are relative to the project directory (where docker-compose.yml is).
 
@@ -96,10 +96,12 @@ services:
       # Only these are filled into the templates; nginx's own $variables stay.
       - NGINX_ENVSUBST_FILTER=^(PUBLIC_HOSTNAME|AUTH_PROXY_SECRET|OIDC_ISSUER_URL|OIDC_LOGOUT_URL)$
     volumes:
-      - ./deploy/proxy/templates:/etc/nginx/templates:ro
-      - ./deploy/proxy/certs:/etc/nginx/certs:ro
+      - ./reverse-proxy/templates:/etc/nginx/templates:ro
+      - ./reverse-proxy/certs:/etc/nginx/certs:ro
+      # Stops with a clear message when the certificate is missing (#667).
+      - ./reverse-proxy/entrypoint/05-certificates-present.sh:/docker-entrypoint.d/05-certificates-present.sh:ro
       # Listens on IPv6 only where the host has it (#527).
-      - ./deploy/proxy/entrypoint/30-listen-ipv6-only-if-available.sh:/docker-entrypoint.d/30-listen-ipv6-only-if-available.sh:ro
+      - ./reverse-proxy/entrypoint/30-listen-ipv6-only-if-available.sh:/docker-entrypoint.d/30-listen-ipv6-only-if-available.sh:ro
     depends_on:
       - nautobot-maps
       - oauth2-proxy

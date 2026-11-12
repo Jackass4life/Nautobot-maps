@@ -1,6 +1,6 @@
 """Checks the proxy's rules end to end (#423): nginx with the stub sign-in.
 
-    python deploy/proxy/ci/smoke.py https://localhost:443 http://localhost:80
+    python reverse-proxy/ci/smoke.py https://localhost:443 http://localhost:80
 
 The app must run with AUTH_MODE=header and noc-operators as an operator group.
 """

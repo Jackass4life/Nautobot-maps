@@ -14,7 +14,7 @@ Every setting the app has, with its default. This page is for the person install
 | You want… | Setting | Section |
 |---|---|---|
 | LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN` | [LibreNMS](#librenms-optional) |
-| HTTPS and company sign-in | `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` and the proxy settings | [The bundled proxy](#the-bundled-https-and-sign-in-proxy) |
+| HTTPS and company sign-in | `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` and the proxy settings | [The bundled proxy](#the-bundled-https-and-sign-in-proxy) |
 | Messages to Teams or email | `NOTIFY_TEAMS_WEBHOOK_URL`, `NOTIFY_EMAIL_TO`, `SMTP_*` | [Notifications](#notifications) |
 | One board row per Site | `ALERT_BOARD_SITE_LOCATION_TYPE=Site` | [Alert board](#alert-board) |
 | Important sites and devices | `SITE_TIER_FIELD`, `TIER_DEVICE_LEVEL`, `DEVICE_CRITICALITY_FIELD` | [Alert board](#alert-board) |
@@ -163,7 +163,7 @@ See [authentication](authentication.md).
 
 ### The bundled HTTPS and sign-in proxy
 
-Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
+Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml` ([how to set it up](authentication.md#the-bundled-proxy-https-and-company-sign-in)). It sets `AUTH_MODE=header`, the trusted proxy and `AUTH_REQUIRE_VIEWER=true` for you.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -180,7 +180,7 @@ Optional: nginx and oauth2-proxy in front of the app, with `COMPOSE_FILE=docker-
 | `PROXY_HTTP_PORT` / `PROXY_HTTPS_PORT` | `80` / `443` | The ports nginx listens on. HTTPS must stay on 443: the sign-in's redirect and the HTTP→HTTPS redirect name no port. HTTP may move (port 80 taken); only the HTTP→HTTPS redirect is then lost |
 | `PROXY_SUBNET` / `PROXY_IP` | `172.30.0.0/24` / `172.30.0.10` | nginx's own network and address, the one the app trusts; change both if the range is taken |
 
-The certificate goes in `deploy/proxy/certs/` as `fullchain.pem` and `privkey.pem` ([your own certificate](authentication.md#your-own-certificate)).
+The certificate goes in `reverse-proxy/certs/` as `fullchain.pem` and `privkey.pem` ([your own certificate](authentication.md#your-own-certificate)).
 
 ## Notifications
 

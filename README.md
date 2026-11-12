@@ -103,7 +103,7 @@ Each of these is optional and can be added later; the map and the board work wit
 | What | How | Guide |
 |---|---|---|
 | The right data in Nautobot | Coordinates, primary IPs, tenants, and optional custom fields | [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) |
-| HTTPS and company sign-in | The bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:deploy/proxy/compose.yml`), or your own sign-in proxy | [Sign-in and roles](docs/authentication.md) |
+| HTTPS and company sign-in | The bundled nginx + oauth2-proxy (`COMPOSE_FILE=docker-compose.yml:reverse-proxy/compose.yml`), or your own sign-in proxy | [Sign-in and roles](docs/authentication.md) |
 | LibreNMS status | `LIBRENMS_URL`, `LIBRENMS_API_TOKEN`; alert pushes for near-real time | [LibreNMS](docs/nautobot-setup.md#librenms-optional) |
 | Access points from Catalyst Center or Aruba New Central | `config/wireless.yml` and `WIRELESS_CONTROLLERS_FILE=/config/wireless.yml` | [Other sources](docs/sources.md#wireless-controllers-access-points) |
 | Alertmanager, Zabbix or any webhook | An operator API token | [Other sources](docs/sources.md) |

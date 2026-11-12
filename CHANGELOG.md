@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Breaking
+- **The bundled HTTPS and sign-in proxy moved to `reverse-proxy/`** (#667), next to `api/` and `web/` (it was `deploy/proxy/`). With the bundled proxy, once on each host after `git pull`, move your certificate and point `COMPOSE_FILE` at the new file:
+
+  ```bash
+  git pull
+  mkdir -p reverse-proxy/certs
+  mv deploy/proxy/certs/fullchain.pem deploy/proxy/certs/privkey.pem reverse-proxy/certs/
+  sed -i 's#deploy/proxy/compose.yml#reverse-proxy/compose.yml#' .env
+  rm -r deploy        # only the old certificate folder is left in it
+  docker compose up -d
+  ```
+
+  nginx now stops with a message naming `reverse-proxy/certs/` when `fullchain.pem` or `privkey.pem` is missing there, instead of only "cannot load certificate". Without the bundled proxy, nothing changes (Documentation → *Operations*, *The bundled proxy moved*)
+
 ### Fixed
 - **The map's alarm list no longer runs over the filters** (#647): with many sites in alarm, or after **Show all**, the rows drew on top of the Filters footer at the bottom of the left panel. They now scroll in their own box, with the heading, the counts and **Show all/fewer** kept in place. On a phone with search results open, the list keeps at least two rows and the panel scrolls down to the filters
 

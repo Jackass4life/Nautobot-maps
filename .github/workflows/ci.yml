@@ -379,7 +379,7 @@ jobs:
   proxy-smoke:
     runs-on: ubuntu-latest
     env:
-      COMPOSE_FILE: docker-compose.yml:deploy/proxy/compose.yml:deploy/proxy/ci/compose.yml
+      COMPOSE_FILE: docker-compose.yml:reverse-proxy/compose.yml:reverse-proxy/ci/compose.yml
       PUBLIC_HOSTNAME: localhost
       AUTH_PROXY_SECRET: ci-proxy-secret-not-for-production
       OIDC_ISSUER_URL: https://idp.example.com
@@ -394,10 +394,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Without a certificate nginx says where it goes (#667)
+        run: |
+          set +e
+          out=$(docker compose run --rm --no-deps nginx 2>&1)
+          status=$?
+          set -e
+          echo "$out" | tail -n 5
+          test "$status" -ne 0
+          echo "$out" | grep -q "missing or empty in reverse-proxy/certs/: fullchain.pem privkey.pem"
+
       - name: A self-signed certificate
         run: |
           openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
-            -keyout deploy/proxy/certs/privkey.pem -out deploy/proxy/certs/fullchain.pem
+            -keyout reverse-proxy/certs/privkey.pem -out reverse-proxy/certs/fullchain.pem
 
       - name: Start the app behind the proxy
         run: docker compose up -d --build --wait --wait-timeout 180
@@ -417,7 +427,7 @@ jobs:
           echo "STATUS_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: The proxy's rules
-        run: python3 deploy/proxy/ci/smoke.py https://localhost:443 http://localhost:80
+        run: python3 reverse-proxy/ci/smoke.py https://localhost:443 http://localhost:80
 
       - name: Dump container logs on failure
         if: failure()

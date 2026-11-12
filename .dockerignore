@@ -17,7 +17,9 @@ web/.data
 
 # The proxy setup and its certificates never go into the app image (#423), nor the
 # app's own files: they hold passwords and client secrets, and are mounted at
-# /config when the container runs (#517).
+# /config when the container runs (#517). deploy/: the proxy's folder before #667,
+# where an install that hasn't moved them yet still has its certificates.
+reverse-proxy/
 deploy/
 config/
 

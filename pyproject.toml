@@ -1,5 +1,5 @@
 # ruff for the files outside api/ and web/ (e2e, demo, scripts, development,
-# deploy/proxy/ci): `uv run --project api ruff check .` from the repository root.
+# reverse-proxy/ci): `uv run --project api ruff check .` from the repository root.
 
 [tool.ruff]
 target-version = "py311"
