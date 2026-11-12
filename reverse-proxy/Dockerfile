@@ -15,7 +15,7 @@
 # The certificate: certs/fullchain.pem and certs/privkey.pem, copied in when they are
 # there at build time (INCLUDE_CERTS=false: never); a volume on /etc/nginx/certs
 # replaces them.  An image with the key in it belongs in a private registry only.
-FROM nginx:1.28.0-alpine AS config
+FROM nginx:1.28.3-alpine AS config
 ARG DOMAIN
 ARG API_HOST=api
 ARG API_PORT=5000
@@ -66,7 +66,7 @@ RUN mkdir -p /out \
          done; \
        fi
 
-FROM nginx:1.28.0-alpine
+FROM nginx:1.28.3-alpine
 COPY --from=config /templates/ /etc/nginx/templates/
 COPY --from=check /check/ok /etc/nginx/.config-checked
 # Only the secrets are filled in at start; nginx's own $variables stay.
