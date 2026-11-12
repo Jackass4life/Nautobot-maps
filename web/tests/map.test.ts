@@ -63,7 +63,8 @@ describe("alert levels", () => {
   });
 
   it("alarms and the levels never clustered", () => {
-    for (const level of ["critical", "medium", "low", "maintenance"]) expect(needsAttention(level)).toBe(true);
+    for (const level of ["critical", "medium", "low", "maintenance"])
+      expect(needsAttention(level)).toBe(true);
     for (const level of ["ok", "no_data"]) expect(needsAttention(level)).toBe(false);
     expect(isAlarm("maintenance")).toBe(false);
     expect(isAlarm("low")).toBe(true);
@@ -73,10 +74,13 @@ describe("alert levels", () => {
 
 describe("the alarm list", () => {
   // 40 sites: 25 in alarm (9 critical, 8 medium, 8 low), 2 in maintenance, the rest OK.
-  const sites = Array.from({ length: 40 }, (_, i) => site(`s${i}`, { name: `Site ${String(i).padStart(2, "0")}`, tenant: i % 2 ? "Odd" : "Even" }));
+  const sites = Array.from({ length: 40 }, (_, i) =>
+    site(`s${i}`, { name: `Site ${String(i).padStart(2, "0")}`, tenant: i % 2 ? "Odd" : "Even" }),
+  );
   const info = Object.fromEntries(
     sites.map((loc, i) => {
-      const level = i < 25 ? (["critical", "medium", "low"] as const)[i % 3] : i < 27 ? "maintenance" : "ok";
+      const level =
+        i < 25 ? (["critical", "medium", "low"] as const)[i % 3] : i < 27 ? "maintenance" : "ok";
       const since = i < 25 ? new Date(Date.UTC(2026, 9, 12, 8, i)).toISOString() : null;
       return [loc.id, { level, since, down: 2, monitored: 8, reason: "" }];
     }),
@@ -103,7 +107,13 @@ describe("the alarm list", () => {
   });
 
   it("says what is down and since when", () => {
-    const entry = { loc: site("x"), level: "critical", down: 3, monitored: 7, since: "2026-10-12T08:05:00Z" };
+    const entry = {
+      loc: site("x"),
+      level: "critical",
+      down: 3,
+      monitored: 7,
+      since: "2026-10-12T08:05:00Z",
+    };
     // The time in the viewer's locale ("08:05" or "08:05 AM").
     expect(alarmMeta(entry, new Date("2026-10-12T12:00:00Z"))).toMatch(/^3\/7 down · since 08:05/);
     expect(alarmMeta({ ...entry, since: null })).toBe("3/7 down");
@@ -208,8 +218,12 @@ describe("the first view (#362, #459)", () => {
     let seed = 7;
     const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const spread = (n: number, lat: number, lon: number, size: number) =>
-      Array.from({ length: n }, () => [lat + (rand() - 0.5) * size, lon + (rand() - 0.5) * size * 2] as [number, number]);
-    const has = (points: [number, number][], [lat, lon]: [number, number]) => points.some((p) => p[0] === lat && p[1] === lon);
+      Array.from(
+        { length: n },
+        () => [lat + (rand() - 0.5) * size, lon + (rand() - 0.5) * size * 2] as [number, number],
+      );
+    const has = (points: [number, number][], [lat, lon]: [number, number]) =>
+      points.some((p) => p[0] === lat && p[1] === lon);
     const GREENLAND: [number, number] = [82.36694950836477, -25.356299993695405];
 
     const denmark = spread(1200, 56, 10, 3);
@@ -238,9 +252,18 @@ describe("the folding panel (#420)", () => {
 
   it("[ is not typing", () => {
     const page = { closest: () => null } as unknown as EventTarget;
-    const field = { closest: (selector: string) => (selector.includes("input") ? {} : null) } as unknown as EventTarget;
+    const field = {
+      closest: (selector: string) => (selector.includes("input") ? {} : null),
+    } as unknown as EventTarget;
     const on = (target: EventTarget, extra: Partial<KeyboardEvent> = {}) =>
-      isPanelShortcut({ key: "[", target, metaKey: false, ctrlKey: false, altKey: false, ...extra });
+      isPanelShortcut({
+        key: "[",
+        target,
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+        ...extra,
+      });
     expect(on(page)).toBe(true);
     expect(on(field)).toBe(false);
     expect(on(page, { ctrlKey: true })).toBe(false);
@@ -248,7 +271,9 @@ describe("the folding panel (#420)", () => {
     // AltGr+8 on a Danish keyboard (Windows), Option+8 on a Danish Mac.
     expect(on(page, { ctrlKey: true, altKey: true })).toBe(true);
     expect(on(page, { altKey: true })).toBe(true);
-    expect(isPanelShortcut({ key: "]", target: page, metaKey: false, ctrlKey: false, altKey: false })).toBe(false);
+    expect(
+      isPanelShortcut({ key: "]", target: page, metaKey: false, ctrlKey: false, altKey: false }),
+    ).toBe(false);
   });
 });
 
@@ -256,14 +281,23 @@ describe("a link for some sites (#367)", () => {
   it("reads ?tenant= and ?q=, any tenant, every text, any case", () => {
     expect(readScope("")).toBeNull();
     const scope = readScope("?tenant=acme%20corp&tenant=Nordic%20Net&q=dnk");
-    expect(inScope({ id: "a", name: "Aarhus", tenant: "Acme Corp", ancestor_path: "EMEA › DNK" }, scope)).toBe(true);
-    expect(inScope({ id: "b", name: "Bergen", tenants: ["Nordic Net"], ancestor_path: "EMEA › NOR" }, scope)).toBe(false);
+    expect(
+      inScope({ id: "a", name: "Aarhus", tenant: "Acme Corp", ancestor_path: "EMEA › DNK" }, scope),
+    ).toBe(true);
+    expect(
+      inScope(
+        { id: "b", name: "Bergen", tenants: ["Nordic Net"], ancestor_path: "EMEA › NOR" },
+        scope,
+      ),
+    ).toBe(false);
     expect(inScope({ id: "c", name: "Odense DNK", tenant: "Other" }, scope)).toBe(false);
   });
 
   it("says which sites, as Nautobot spells the tenant", () => {
     const scope = readScope("?tenant=acme%20corp&q=DNK");
-    expect(scopeLabel(scope, [{ id: "a", name: "A", tenant: "Acme Corp" }])).toBe("Acme Corp · “DNK”");
+    expect(scopeLabel(scope, [{ id: "a", name: "A", tenant: "Acme Corp" }])).toBe(
+      "Acme Corp · “DNK”",
+    );
     expect(scopeLabel(scope, [])).toBe("acme corp · “DNK”");
   });
 
@@ -271,14 +305,21 @@ describe("a link for some sites (#367)", () => {
     const scope = readScope("?tenant=Acme&q=EMEA");
     expect(scopeParams(scope).toString()).toBe("tenant=Acme&q=EMEA");
     expect(linkParams([], scope).toString()).toBe("tenant=Acme&q=EMEA");
-    expect(linkParams(["Acme Corp", "Nordic Net"], scope).toString()).toBe("q=EMEA&tenant=Acme+Corp&tenant=Nordic+Net");
+    expect(linkParams(["Acme Corp", "Nordic Net"], scope).toString()).toBe(
+      "q=EMEA&tenant=Acme+Corp&tenant=Nordic+Net",
+    );
     expect(linkParams([], null).toString()).toBe("");
   });
 });
 
 describe("the panel's search (#392, #411)", () => {
   const sites = [
-    { id: "c1", name: "Copenhagen Office 01", ancestor_path: "EMEA › DNK", physical_address: "Roersvej 33, 5000 Odense C" },
+    {
+      id: "c1",
+      name: "Copenhagen Office 01",
+      ancestor_path: "EMEA › DNK",
+      physical_address: "Roersvej 33, 5000 Odense C",
+    },
     { id: "c2", name: "Copenhagen DC 02", ancestor_path: "EMEA › DNK" },
     { id: "cph", name: "CPH-01", physical_address: "Main Street 2, Copenhagen" },
     ...Array.from({ length: 1200 }, (_, i) => ({
@@ -308,10 +349,14 @@ describe("the panel's search (#392, #411)", () => {
 
 describe("request errors", () => {
   it("the API's own message, else the error's", () => {
-    const answered = Object.assign(new Error("[GET] /api/search: 404"), { data: { error: "Address not found: Atlantis" } });
+    const answered = Object.assign(new Error("[GET] /api/search: 404"), {
+      data: { error: "Address not found: Atlantis" },
+    });
     expect(apiError(answered)).toBe("Address not found: Atlantis");
     expect(errorMessage(answered)).toBe("Address not found: Atlantis");
-    const page = Object.assign(new Error("[GET] /api/search: 502 Bad Gateway"), { data: "<html>…</html>" });
+    const page = Object.assign(new Error("[GET] /api/search: 502 Bad Gateway"), {
+      data: "<html>…</html>",
+    });
     expect(apiError(page)).toBe("");
     expect(errorMessage(page)).toBe("[GET] /api/search: 502 Bad Gateway");
     expect(errorMessage("offline")).toBe("offline");

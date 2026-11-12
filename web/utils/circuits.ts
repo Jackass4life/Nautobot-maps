@@ -14,8 +14,16 @@ export const CIRCUITS_STEP = 100;
 
 // Worst first: a choice to make, then nothing found, then ready to terminate.
 export const GROUPS: { id: CircuitGroup; title: string; hint: string }[] = [
-  { id: "several", title: "Several sites", hint: "The address belongs to more than one site: choose where to terminate it." },
-  { id: "none", title: "No site", hint: "The description isn't an address of any site: a different address, more text, or no address." },
+  {
+    id: "several",
+    title: "Several sites",
+    hint: "The address belongs to more than one site: choose where to terminate it.",
+  },
+  {
+    id: "none",
+    title: "No site",
+    hint: "The description isn't an address of any site: a different address, more text, or no address.",
+  },
   { id: "one", title: "One site", hint: "Ready: add the termination at this site." },
 ];
 
@@ -43,11 +51,16 @@ export function matches(circuit: SearchableCircuit, words: string[]): boolean {
 
 // "Telia · Internet · 10 Gbps · Acme": what is known, nothing empty.
 export function circuitKind(circuit: MappedCircuit): string {
-  return [circuit.provider, circuit.circuit_type, circuit.commit_rate, circuit.tenant].filter(Boolean).join(" · ");
+  return [circuit.provider, circuit.circuit_type, circuit.commit_rate, circuit.tenant]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // "312 circuits without a termination: 12 several sites · 60 no site · 240 one site".
-export function summaryText(summary: Partial<CircuitMapping["summary"]>, shown: number | null = null): string {
+export function summaryText(
+  summary: Partial<CircuitMapping["summary"]>,
+  shown: number | null = null,
+): string {
   const total = summary.total || 0;
   if (!total) return "Every circuit has a termination at a location.";
   const parts = `${summary.several || 0} several sites · ${summary.none || 0} no site · ${summary.one || 0} one site`;

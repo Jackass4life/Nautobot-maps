@@ -38,7 +38,15 @@ export const LEVEL_NAMES: Record<string, string> = {
 export const ALERT_RANK: Record<string, number> = { low: 1, medium: 2, critical: 3 };
 
 // What a stack or cluster shows: its worst member (#234, #311).
-const DISPLAY_RANK: Record<string, number> = { no_data: 0, ok: 1, wireless: 2, maintenance: 3, low: 4, medium: 5, critical: 6 };
+const DISPLAY_RANK: Record<string, number> = {
+  no_data: 0,
+  ok: 1,
+  wireless: 2,
+  maintenance: 3,
+  low: 4,
+  medium: 5,
+  critical: 6,
+};
 
 // Levels that are never clustered: always their own pin, on top (#334).
 const ATTENTION = new Set(["critical", "medium", "low", "maintenance"]);
@@ -64,7 +72,12 @@ export function needsAttention(level: string): boolean {
 
 // The worst of *levels*, for a stack or a cluster.
 export function worstLevel(levels: string[]): string {
-  return levels.map(knownLevel).reduce((worst, level) => (DISPLAY_RANK[level]! > DISPLAY_RANK[worst]! ? level : worst), "no_data");
+  return levels
+    .map(knownLevel)
+    .reduce(
+      (worst, level) => (DISPLAY_RANK[level]! > DISPLAY_RANK[worst]! ? level : worst),
+      "no_data",
+    );
 }
 
 // --- The alarm list (#334, #392) ------------------------------------------
@@ -92,19 +105,31 @@ export function alarmSites(
   const levelOf = (id: string) => levels[id] ?? info[id]?.level;
   return locations
     .filter((loc) => isAlarm(levelOf(loc.id)))
-    .map((loc) => ({ down: 0, monitored: Number.NaN, ...info[loc.id], level: levelOf(loc.id), loc }) as AlarmSite)
+    .map(
+      (loc) =>
+        ({
+          down: 0,
+          monitored: Number.NaN,
+          ...info[loc.id],
+          level: levelOf(loc.id),
+          loc,
+        }) as AlarmSite,
+    )
     .sort(
       (a, b) =>
-        ALARM_ORDER[a.level]! - ALARM_ORDER[b.level]!
-        || (time(b) ?? -Infinity) - (time(a) ?? -Infinity)
-        || (a.loc.name || "").localeCompare(b.loc.name || ""),
+        ALARM_ORDER[a.level]! - ALARM_ORDER[b.level]! ||
+        (time(b) ?? -Infinity) - (time(a) ?? -Infinity) ||
+        (a.loc.name || "").localeCompare(b.loc.name || ""),
     );
 }
 
 // "2/8 down · since 14:05".
 export function alarmMeta(entry: AlarmSite, now: Date = new Date()): string {
   const since = entry.since ? formatFeedTime(entry.since, now) : "";
-  return [Number.isFinite(entry.monitored) ? `${entry.down || 0}/${entry.monitored} down` : "", since ? `since ${since}` : ""]
+  return [
+    Number.isFinite(entry.monitored) ? `${entry.down || 0}/${entry.monitored} down` : "",
+    since ? `since ${since}` : "",
+  ]
     .filter(Boolean)
     .join(" · ");
 }
@@ -161,7 +186,9 @@ export function filterLocations(locations: MapLocation[], criteria: Criteria): M
   const active = FILTERS.filter(({ field }) => criteria[field].length);
   if (!active.length) return locations;
   return locations.filter((loc) =>
-    active.every(({ field }) => valuesOf(loc, field).some((value) => criteria[field].includes(value))),
+    active.every(({ field }) =>
+      valuesOf(loc, field).some((value) => criteria[field].includes(value)),
+    ),
   );
 }
 
@@ -193,12 +220,16 @@ export function groupByCoords(locations: MapLocation[]): MapLocation[][] {
 export function splitGroups(groups: MapLocation[][], levelOf: (id: string) => string) {
   const attention: MapLocation[][] = [];
   const quiet: MapLocation[][] = [];
-  for (const group of groups) (group.some((loc) => needsAttention(levelOf(loc.id))) ? attention : quiet).push(group);
+  for (const group of groups)
+    (group.some((loc) => needsAttention(levelOf(loc.id))) ? attention : quiet).push(group);
   return { attention, quiet };
 }
 
 // A quiet cluster: green when any site in it is OK, else grey (No data).
-export function quietCluster(ids: string[], levelOf: (id: string) => string): { count: number; level: string } {
+export function quietCluster(
+  ids: string[],
+  levelOf: (id: string) => string,
+): { count: number; level: string } {
   return { count: ids.length, level: ids.some((id) => levelOf(id) === "ok") ? "ok" : "no_data" };
 }
 
@@ -248,7 +279,12 @@ export function mainGroup(points: Point[]): Point[] {
 export function viewPoints(locations: MapLocation[]): Point[] {
   return mainGroup(
     locations
-      .filter((loc) => loc.latitude != null && loc.longitude != null && (loc.latitude !== 0 || loc.longitude !== 0))
+      .filter(
+        (loc) =>
+          loc.latitude != null &&
+          loc.longitude != null &&
+          (loc.latitude !== 0 || loc.longitude !== 0),
+      )
       .map((loc) => [loc.latitude, loc.longitude] as Point),
   );
 }
@@ -257,16 +293,26 @@ export function viewPoints(locations: MapLocation[]): Point[] {
 
 // The folded panel's tab: "23 in alarm", else "Show the panel".  *count*:
 // null until the alert levels are in.
-export function panelToggleLabel(hidden: boolean, count: number | null): { text: string; label: string } {
+export function panelToggleLabel(
+  hidden: boolean,
+  count: number | null,
+): { text: string; label: string } {
   if (!hidden) return { text: "", label: "Hide the panel" };
   const alarms = count ? `${count.toLocaleString("en")} in alarm` : "";
-  return { text: alarms || "Show the panel", label: alarms ? `Show the panel: ${alarms}` : "Show the panel" };
+  return {
+    text: alarms || "Show the panel",
+    label: alarms ? `Show the panel: ${alarms}` : "Show the panel",
+  };
 }
 
 // `[` toggles it, unless typing in a field or another shortcut (Ctrl, Cmd).
 // A Danish or German "[" needs AltGr (Ctrl+Alt) or Option (Alt): allowed.
-export function isPanelShortcut(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "target">): boolean {
+export function isPanelShortcut(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "target">,
+): boolean {
   if (event.key !== "[" || event.metaKey || (event.ctrlKey && !event.altKey)) return false;
   const target = event.target as HTMLElement | null;
-  return !(target?.closest?.("input, textarea, select, [contenteditable]") || target?.isContentEditable);
+  return !(
+    target?.closest?.("input, textarea, select, [contenteditable]") || target?.isContentEditable
+  );
 }

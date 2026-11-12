@@ -25,7 +25,11 @@ export type SeverityFilter = "alarms" | "wireless" | "all" | "no_data" | "mainte
 export const DEFAULT_SEVERITY_FILTER: SeverityFilter = "alarms";
 // The summary chips are the severity filter; the board opens on Alarms (#311).
 // Wireless (#521): sites with only access points down, next to Alarms.
-export const SEVERITY_CHIPS: { key: keyof BoardSummary | "alarms"; filter: SeverityFilter; label: string }[] = [
+export const SEVERITY_CHIPS: {
+  key: keyof BoardSummary | "alarms";
+  filter: SeverityFilter;
+  label: string;
+}[] = [
   { key: "alarms", filter: "alarms", label: "Alarms" },
   { key: "wireless", filter: "wireless", label: "Wireless" },
   { key: "total", filter: "all", label: "All sites" },
@@ -73,11 +77,16 @@ export function hasActiveAlarm(item: Pick<BoardSite, "alert_level" | "wireless_o
 // The chips shown: Wireless only with such sites, or while it is chosen;
 // without wireless controllers it never appears (#521).
 export function shownChips(counts: Record<string, number>, selected: SeverityFilter) {
-  return SEVERITY_CHIPS.filter((chip) => chip.filter !== "wireless" || counts.wireless || selected === "wireless");
+  return SEVERITY_CHIPS.filter(
+    (chip) => chip.filter !== "wireless" || counts.wireless || selected === "wireless",
+  );
 }
 
 export function alarmCount(summary: Partial<BoardSummary>): number {
-  return summary.non_ok ?? ALARM_LEVELS.reduce((sum, level) => sum + (summary[level as keyof BoardSummary] || 0), 0);
+  return (
+    summary.non_ok ??
+    ALARM_LEVELS.reduce((sum, level) => sum + (summary[level as keyof BoardSummary] || 0), 0)
+  );
 }
 
 // "2 alarms · 1 critical · 1 medium": only what is wrong, only levels that aren't 0 (#311).
@@ -102,7 +111,9 @@ export function chipCounts(summary: Partial<BoardSummary>): Record<string, numbe
 }
 
 // The server's summary for the sites in scope only: sites per level.
-export function scopeSummary(sites: Pick<BoardSite, "alert_level" | "wireless_only">[]): Partial<BoardSummary> {
+export function scopeSummary(
+  sites: Pick<BoardSite, "alert_level" | "wireless_only">[],
+): Partial<BoardSummary> {
   const summary: Record<string, number> = { total: sites.length };
   sites.forEach((site) => {
     const level = siteLevel(site);
@@ -120,13 +131,18 @@ export function levelLabel(level: string | null | undefined): string {
 // "1 down · 3 APs down · 46 monitored": access points a wireless controller
 // says are down counted apart (#521), so a row of 40 APs reads at a glance.
 export function siteSummaryText(
-  item: Pick<BoardSite, "down_device_count" | "device_count" | "down_access_point_count" | "down_network_device_count">,
+  item: Pick<
+    BoardSite,
+    "down_device_count" | "device_count" | "down_access_point_count" | "down_network_device_count"
+  >,
 ): string {
   const aps = item.down_access_point_count || 0;
   const monitored = `${item.device_count || 0} monitored`;
   if (!aps) return `${item.down_device_count || 0} down · ${monitored}`;
   const others = item.down_network_device_count || 0;
-  return [others ? `${others} down` : "", `${plural(aps, "AP")} down`, monitored].filter(Boolean).join(" · ");
+  return [others ? `${others} down` : "", `${plural(aps, "AP")} down`, monitored]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // Up to this many access points are listed with the other down devices;
@@ -136,10 +152,15 @@ export const ACCESS_POINTS_SHOWN = 3;
 // A site's down devices for its rows: the others, then the access points a
 // controller watches at the wireless level, *folded* when there are more than
 // ACCESS_POINTS_SHOWN.  One set in Nautobot or core stays with the others.
-export function downDeviceRows(devices: DownDevice[]): { shown: DownDevice[]; folded: DownDevice[] } {
+export function downDeviceRows(devices: DownDevice[]): {
+  shown: DownDevice[];
+  folded: DownDevice[];
+} {
   const others = devices.filter((device) => !isQuietAccessPoint(device));
   const aps = devices.filter(isQuietAccessPoint);
-  return aps.length > ACCESS_POINTS_SHOWN ? { shown: others, folded: aps } : { shown: [...others, ...aps], folded: [] };
+  return aps.length > ACCESS_POINTS_SHOWN
+    ? { shown: others, folded: aps }
+    : { shown: [...others, ...aps], folded: [] };
 }
 
 export function accessPointsText(count: number): string {
@@ -162,7 +183,9 @@ export function siteCaseState(item: Pick<BoardSite, "down_devices">): {
 } {
   // Devices in maintenance are planned work, not waiting for a case (#283).
   const devices = (item.down_devices || []).filter((device) => !device.maintenance_until);
-  const handled = devices.filter((device) => device.case_numbers?.length || device.acknowledged).length;
+  const handled = devices.filter(
+    (device) => device.case_numbers?.length || device.acknowledged,
+  ).length;
   let state: "handled" | "partly" | "none" = "none";
   if (devices.length && handled === devices.length) state = "handled";
   else if (handled) state = "partly";
@@ -189,14 +212,19 @@ export function sinceLabel(what: string, seconds: number | null): string {
   return seconds < 60 ? `${what} <1m` : `${what} ${formatDuration(seconds)}`;
 }
 
-export function deviceDowntimeSeconds(device: Pick<DownDevice, "down_started_at">, now = Date.now()): number {
+export function deviceDowntimeSeconds(
+  device: Pick<DownDevice, "down_started_at">,
+  now = Date.now(),
+): number {
   const since = Date.parse(device.down_started_at || "");
   return Number.isNaN(since) ? NaN : Math.max(0, (now - since) / 1000);
 }
 
 // The site's time in alarm: null with nothing down; NaN when none of its
 // down devices has a known start.
-export function siteAlarmSeconds(item: Pick<BoardSite, "alert_level" | "down_devices" | "current_downtime_seconds">): number | null {
+export function siteAlarmSeconds(
+  item: Pick<BoardSite, "alert_level" | "down_devices" | "current_downtime_seconds">,
+): number | null {
   if (item.alert_level === "maintenance") return null;
   const devices = (item.down_devices || []).filter((device) => !device.maintenance_until);
   if (!devices.length) return null;
@@ -205,7 +233,11 @@ export function siteAlarmSeconds(item: Pick<BoardSite, "alert_level" | "down_dev
 }
 
 // "until 14:00 · core switch upgrade" for a maintenance window (#283).
-export function maintenanceNote(until: string | null | undefined, reason: string | null | undefined, now = new Date()): string {
+export function maintenanceNote(
+  until: string | null | undefined,
+  reason: string | null | undefined,
+  now = new Date(),
+): string {
   const when = formatFeedTime(until, now);
   return [when ? `until ${when}` : "", reason || ""].filter(Boolean).join(" · ");
 }
@@ -235,7 +267,9 @@ export function stackText(stack: DownDevice["stack"], { names = false } = {}): s
   if (!stack || !Number.isInteger(stack.size) || stack.size < 2) return "";
   const name = `Stack${stack.name ? ` ${stack.name}` : ""}`;
   if (!stack.whole) {
-    const where = stack.master ? "master" : `member${Number.isInteger(stack.position) ? ` ${stack.position}` : ""}`;
+    const where = stack.master
+      ? "master"
+      : `member${Number.isInteger(stack.position) ? ` ${stack.position}` : ""}`;
     return `${name}, ${where} of ${stack.size}`;
   }
   const members = names && stack.members?.length ? ` (${stack.members.join(", ")})` : "";
@@ -244,7 +278,13 @@ export function stackText(stack: DownDevice["stack"], { names = false } = {}): s
 
 // The line under a down device: where, its role, its stack, status, why.
 export function deviceMeta(device: DownDevice): string {
-  const parts = [device.location_path, device.role, stackText(device.stack), device.flapping ? "" : device.status, device.down_reason];
+  const parts = [
+    device.location_path,
+    device.role,
+    stackText(device.stack),
+    device.flapping ? "" : device.status,
+    device.down_reason,
+  ];
   return parts.filter(Boolean).join(" · ") || "Down device";
 }
 
@@ -264,7 +304,10 @@ export function onTheMap(item: Pick<BoardSite, "id" | "latitude" | "longitude">)
 }
 
 // Whether a site passes the chips: Alarms, one level, or all.
-export function matchesSeverityFilter(item: Pick<BoardSite, "alert_level" | "wireless_only">, filter: SeverityFilter): boolean {
+export function matchesSeverityFilter(
+  item: Pick<BoardSite, "alert_level" | "wireless_only">,
+  filter: SeverityFilter,
+): boolean {
   if (filter === "all") return true;
   if (filter === "alarms") return hasActiveAlarm(item);
   return siteLevel(item) === filter;
@@ -287,7 +330,8 @@ export function compareSites(a: BoardSite, b: BoardSite, sort: Sort): number {
     // Only access points down: after the alarms, however new (#521).
     const left = latestDownTime(a);
     const right = latestDownTime(b);
-    const rank = (item: BoardSite, time: number | null) => (time === null ? 2 : item.wireless_only ? 1 : 0);
+    const rank = (item: BoardSite, time: number | null) =>
+      time === null ? 2 : item.wireless_only ? 1 : 0;
     if (rank(a, left) !== rank(b, right)) return rank(a, left) - rank(b, right);
     if (left !== right) {
       if (left === null) return 1;
@@ -315,7 +359,15 @@ export interface BoardCriteria {
 }
 
 export function noBoardCriteria(sort: Sort = DEFAULT_SORT): BoardCriteria {
-  return { site: "", status: [], type: [], tenant: [], sort, severity: DEFAULT_SEVERITY_FILTER, nonOperational: false };
+  return {
+    site: "",
+    status: [],
+    type: [],
+    tenant: [],
+    sort,
+    severity: DEFAULT_SEVERITY_FILTER,
+    nonOperational: false,
+  };
 }
 
 // A filter with values: any of them; without: everything.
@@ -325,7 +377,11 @@ function matchesValues(values: string | string[], wanted: string[]): boolean {
 }
 
 // The filters' choices, from the sites in scope.
-export function boardChoices(sites: BoardSite[]): { status: string[]; type: string[]; tenant: string[] } {
+export function boardChoices(sites: BoardSite[]): {
+  status: string[];
+  type: string[];
+  tenant: string[];
+} {
   const sorted = (values: string[]) => [...new Set(values.filter(Boolean))].sort();
   return {
     status: sorted(sites.map((site) => site.status)),
@@ -351,21 +407,36 @@ export function filterSites(sites: BoardSite[], criteria: BoardCriteria): BoardS
 
 // "More filters (2)": the hidden filters say when they are in use.
 export function moreFiltersInUse(criteria: BoardCriteria): number {
-  return [criteria.status.length, criteria.type.length, criteria.nonOperational, criteria.sort !== DEFAULT_SORT].filter(Boolean)
-    .length;
+  return [
+    criteria.status.length,
+    criteria.type.length,
+    criteria.nonOperational,
+    criteria.sort !== DEFAULT_SORT,
+  ].filter(Boolean).length;
 }
 
 // Reset is shown only when there is something to reset (#311).
 export function filtersInUse(criteria: BoardCriteria): boolean {
   return Boolean(
-    criteria.site.trim() || criteria.tenant.length || moreFiltersInUse(criteria) || criteria.severity !== DEFAULT_SEVERITY_FILTER,
+    criteria.site.trim() ||
+      criteria.tenant.length ||
+      moreFiltersInUse(criteria) ||
+      criteria.severity !== DEFAULT_SEVERITY_FILTER,
   );
 }
 
 // The wall for the sites the board shows (#366): the tenant filter, else the
 // link's tenants; the link's q= words and the filter box.  null when nothing
 // narrows the board.
-export function wallLinkFor({ tenant, text, scope }: { tenant: string[]; text: string; scope: Scope | null }): string | null {
+export function wallLinkFor({
+  tenant,
+  text,
+  scope,
+}: {
+  tenant: string[];
+  text: string;
+  scope: Scope | null;
+}): string | null {
   const params = new URLSearchParams({ view: "wall" });
   (tenant.length ? tenant : scope?.tenants || []).forEach((name) => params.append("tenant", name));
   [...(scope?.texts || []), text.trim()].filter(Boolean).forEach((q) => params.append("q", q));
@@ -374,14 +445,20 @@ export function wallLinkFor({ tenant, text, scope }: { tenant: string[]; text: s
 
 // Board filters a wall can't take: it shows alarms, whatever their status or type.
 export function filtersLeftOffTheWall(criteria: Pick<BoardCriteria, "status" | "type">): string[] {
-  return [criteria.status.length && "Status", criteria.type.length && "Type"].filter(Boolean) as string[];
+  return [criteria.status.length && "Status", criteria.type.length && "Type"].filter(
+    Boolean,
+  ) as string[];
 }
 
 // Why the board is empty: no database, the first sync, a link that matches
 // nothing (never an all-clear, #364), nothing in alarm, or the filters.
 export function emptyBoardText(
   payload: Pick<Board, "persistence_configured" | "sync_pending" | "alerts">,
-  { inScope, severity, scopeText }: { inScope: number; severity: SeverityFilter; scopeText: string },
+  {
+    inScope,
+    severity,
+    scopeText,
+  }: { inScope: number; severity: SeverityFilter; scopeText: string },
   anyAlarm: boolean,
 ): { text: string; kind: "plain" | "no-match" | "all-clear" } {
   if (payload.persistence_configured === false) {
@@ -391,13 +468,22 @@ export function emptyBoardText(
     };
   }
   if (payload.sync_pending && !inScope) {
-    return { text: "Inventory sync in progress – the board will update automatically.", kind: "plain" };
+    return {
+      text: "Inventory sync in progress – the board will update automatically.",
+      kind: "plain",
+    };
   }
   if (scopeText && !inScope && payload.alerts.length) {
-    return { text: `No site matches ${scopeText}. Check the link's tenant= and q=.`, kind: "no-match" };
+    return {
+      text: `No site matches ${scopeText}. Check the link's tenant= and q=.`,
+      kind: "no-match",
+    };
   }
   if (severity === "alarms" && !anyAlarm) {
-    return { text: "No site has an active alarm. Choose All sites to see every site.", kind: "all-clear" };
+    return {
+      text: "No site has an active alarm. Choose All sites to see every site.",
+      kind: "all-clear",
+    };
   }
   return { text: "No sites match the current filters.", kind: "plain" };
 }
@@ -440,7 +526,10 @@ export function feedStartsCollapsed(stored: string | null, viewportWidth: number
 
 // A feed entry's words (#180): what, the meta line; "down since" too when it
 // went down a minute or more before it was noticed (#166).
-export function feedEntry(event: FeedEvent, now = new Date()): { title: string; text: string; meta: string } {
+export function feedEntry(
+  event: FeedEvent,
+  now = new Date(),
+): { title: string; text: string; meta: string } {
   const at = formatFeedTime(event.at, now);
   const site = event.site_name || event.site_id || "Unknown site";
   const device = event.device_name || event.device_id || "Unknown device";
@@ -471,18 +560,30 @@ export function caseButtonLabel(selected: number, already = 0): string {
 // to "INC-881" would be a second ticket by mistake.
 export function hasCase(device: Pick<DownDevice, "case_numbers">, caseNumber: string): boolean {
   const wanted = caseNumber.trim().toLowerCase();
-  return Boolean(wanted) && (device.case_numbers || []).some((value) => value.toLowerCase() === wanted);
+  return (
+    Boolean(wanted) && (device.case_numbers || []).some((value) => value.toLowerCase() === wanted)
+  );
 }
 
 // The ticked devices that get *caseNumber*: those that don't have it yet.
 // The button label and the request both use this, so they always agree.
-export function caseTargets(devices: DownDevice[], ticked: Set<string>, caseNumber: string): string[] {
-  return devices.filter((device) => ticked.has(device.device_id) && !hasCase(device, caseNumber)).map((device) => device.device_id);
+export function caseTargets(
+  devices: DownDevice[],
+  ticked: Set<string>,
+  caseNumber: string,
+): string[] {
+  return devices
+    .filter((device) => ticked.has(device.device_id) && !hasCase(device, caseNumber))
+    .map((device) => device.device_id);
 }
 
 // The acknowledge request (#288): no devices = every down device, sent as
 // null; the API refuses an empty list, so bad input never means "all".
-export function ackRequestBody(siteId: string, deviceIds: string[], note = ""): { site_id: string; device_ids: string[] | null; note: string } {
+export function ackRequestBody(
+  siteId: string,
+  deviceIds: string[],
+  note = "",
+): { site_id: string; device_ids: string[] | null; note: string } {
   return { site_id: siteId, device_ids: deviceIds.length ? deviceIds : null, note };
 }
 
@@ -520,25 +621,40 @@ export function siteReport(item: BoardSite, { nautobotUrl = "", caseTemplate = "
   );
   const aps = devices.filter(isQuietAccessPoint);
   const others = devices.filter((device) => !isQuietAccessPoint(device));
-  const first = devices.map((device) => device.down_started_at || "").filter(Boolean).sort()[0] || "";
+  const first =
+    devices
+      .map((device) => device.down_started_at || "")
+      .filter(Boolean)
+      .sort()[0] || "";
 
   const down = `${item.down_device_count || 0} of ${item.device_count || 0} devices down`;
-  const severity = [levelLabel(level), aps.length ? `${down} (${aps.length} of them access points)` : down];
+  const severity = [
+    levelLabel(level),
+    aps.length ? `${down} (${aps.length} of them access points)` : down,
+  ];
   if (first) severity.push(`since ${formatReportTime(first)}`);
   lines.push(`Severity: ${severity.join(" · ")}`);
   if (item.alert_reason) lines.push(`Reason: ${item.alert_reason}`);
-  if (item.active_cases?.length) lines.push(`Cases: ${item.active_cases.map((value) => caseWithUrl(value, caseTemplate)).join(", ")}`);
+  if (item.active_cases?.length)
+    lines.push(
+      `Cases: ${item.active_cases.map((value) => caseWithUrl(value, caseTemplate)).join(", ")}`,
+    );
   if (nautobotUrl && item.id) lines.push(`Nautobot: ${nautobotLocationUrl(nautobotUrl, item.id)}`);
 
-  const cores = others.filter((device) => device.core).map((device) => device.device_name || device.device_id);
+  const cores = others
+    .filter((device) => device.core)
+    .map((device) => device.device_name || device.device_id);
   const behind = devices.filter((device) => device.probable_cause).length;
   if (cores.length && behind) {
-    lines.push(`Likely cause: ${cores.join(", ")} down; ${behind} other device${behind === 1 ? "" : "s"} probably behind it`);
+    lines.push(
+      `Likely cause: ${cores.join(", ")} down; ${behind} other device${behind === 1 ? "" : "s"} probably behind it`,
+    );
   }
   // Access points down behind one switch (#524).
   if (item.behind) lines.push(`Access points: ${behindText(item.behind)}`);
 
-  const cases = (device: DownDevice) => (device.case_numbers || []).map((value) => caseWithUrl(value, caseTemplate)).join(", ");
+  const cases = (device: DownDevice) =>
+    (device.case_numbers || []).map((value) => caseWithUrl(value, caseTemplate)).join(", ");
   const day = first ? dayOf(first) : "";
   if (others.length) {
     lines.push("", `Network devices down (${others.length}):`);
@@ -565,7 +681,13 @@ export function siteReport(item: BoardSite, { nautobotUrl = "", caseTemplate = "
       const names = group.map((device) => {
         const where = shortPort(device.neighbour?.port) || (uplink ? "" : device.device_ip || "");
         const onIt = cases(device);
-        return [device.device_name || device.device_id || "Unknown device", where, onIt ? `(${onIt})` : ""].filter(Boolean).join(" ");
+        return [
+          device.device_name || device.device_id || "Unknown device",
+          where,
+          onIt ? `(${onIt})` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
       });
       lines.push(`- ${uplink || "Switch not known"} (${group.length}): ${names.join(", ")}`);
     }
@@ -589,11 +711,20 @@ function accessPointsBySwitch(aps: DownDevice[]): [string, DownDevice[]][] {
   }
   return [...groups.entries()]
     .map(([uplink, group]): [string, DownDevice[]] => [uplink, group.sort(byName)])
-    .sort(([a, x], [b, y]) => Number(!a) - Number(!b) || y.length - x.length || a.localeCompare(b, "en", { numeric: true }));
+    .sort(
+      ([a, x], [b, y]) =>
+        Number(!a) - Number(!b) ||
+        y.length - x.length ||
+        a.localeCompare(b, "en", { numeric: true }),
+    );
 }
 
 function byName(a: DownDevice, b: DownDevice): number {
-  return (a.device_name || a.device_id || "").localeCompare(b.device_name || b.device_id || "", "en", { numeric: true });
+  return (a.device_name || a.device_id || "").localeCompare(
+    b.device_name || b.device_id || "",
+    "en",
+    { numeric: true },
+  );
 }
 
 // Cisco's interface names as written on a switch's console, "Gi1/0/14" for
@@ -610,7 +741,9 @@ const PORT_PREFIXES: [string, string][] = [
 ];
 export function shortPort(port: string | null | undefined): string {
   const name = (port || "").trim();
-  const match = PORT_PREFIXES.find(([long]) => name.startsWith(long) && /^[\d/.:]/.test(name.slice(long.length)));
+  const match = PORT_PREFIXES.find(
+    ([long]) => name.startsWith(long) && /^[\d/.:]/.test(name.slice(long.length)),
+  );
   return match ? match[1] + name.slice(match[0].length) : name;
 }
 
@@ -626,7 +759,11 @@ function reportTimeOnDay(value: string | null | undefined, day: string): string 
 }
 
 // The site's history as a CSV download (#277).
-export function historyExportUrl(siteId: string, view: "incidents" | "devices", days: string): string {
+export function historyExportUrl(
+  siteId: string,
+  view: "incidents" | "devices",
+  days: string,
+): string {
   return `/api/v1/alert-history.csv?${new URLSearchParams({ site_id: siteId, days, view })}`;
 }
 export const HISTORY_PERIODS = [

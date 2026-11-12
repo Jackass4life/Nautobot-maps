@@ -10,11 +10,17 @@ export interface ChoiceItem {
 export const CHOICE_SEARCH_FIELDS = ["label", "description"];
 
 // A tenant's description, or "": an own key only, as names come from Nautobot.
-export function tenantDescriptionIn(descriptions: Record<string, string> | undefined, tenant: string): string {
+export function tenantDescriptionIn(
+  descriptions: Record<string, string> | undefined,
+  tenant: string,
+): string {
   return descriptions && Object.hasOwn(descriptions, tenant) ? descriptions[tenant] || "" : "";
 }
 
-export function choiceItems(values: string[], descriptions: Record<string, string> = {}): ChoiceItem[] {
+export function choiceItems(
+  values: string[],
+  descriptions: Record<string, string> = {},
+): ChoiceItem[] {
   return values.map((value) => {
     const description = tenantDescriptionIn(descriptions, value);
     return description ? { label: value, value, description } : { label: value, value };
@@ -22,7 +28,9 @@ export function choiceItems(values: string[], descriptions: Record<string, strin
 }
 
 // Every tenant's description, from rows that each carry their own tenants'.
-export function mergedDescriptions(rows: { tenant_descriptions?: Record<string, string> }[]): Record<string, string> {
+export function mergedDescriptions(
+  rows: { tenant_descriptions?: Record<string, string> }[],
+): Record<string, string> {
   // No prototype: a tenant named "__proto__" is a name like any other.
   const merged: Record<string, string> = Object.create(null);
   for (const row of rows) Object.assign(merged, row.tenant_descriptions || {});

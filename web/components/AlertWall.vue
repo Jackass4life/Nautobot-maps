@@ -4,7 +4,13 @@
      last (#283).  When it last updated, and loudly when it can't.  A chime and
      a notification for a new Critical, per screen (#290).  No top bar. -->
 <script setup lang="ts">
-import { emptyBoardText, hasActiveAlarm, siteCaseState, type Board, type BoardSite } from "~/utils/board";
+import {
+  emptyBoardText,
+  hasActiveAlarm,
+  siteCaseState,
+  type Board,
+  type BoardSite,
+} from "~/utils/board";
 import { errorMessage } from "~/utils/format";
 import { inScope, readScope, scopeLabel, scopeParams } from "~/utils/scope";
 import {
@@ -36,7 +42,9 @@ const failed = ref("");
 const now = ref(Date.now());
 
 const scopeText = computed(() => scopeLabel(scope, sites.value));
-const status = computed(() => wallStatus(sites.value, lastLoadedAt.value, now.value, scope ? scopeText.value : ""));
+const status = computed(() =>
+  wallStatus(sites.value, lastLoadedAt.value, now.value, scope ? scopeText.value : ""),
+);
 const shown = computed(() => wallSites(sites.value));
 // Each row's place: someone on it (faded), the first of those (a dashed
 // line), the first in maintenance (a heading).
@@ -60,17 +68,23 @@ const empty = computed(() => {
     { inScope: sites.value.length, severity: "alarms", scopeText: scope ? scopeText.value : "" },
     sites.value.some(hasActiveAlarm),
   );
-  return why.kind === "all-clear" ? { kind: why.kind, text: `No active alarms${scope ? ` for ${scopeText.value}` : ""}.` } : why;
+  return why.kind === "all-clear"
+    ? { kind: why.kind, text: `No active alarms${scope ? ` for ${scopeText.value}` : ""}.` }
+    : why;
 });
 
 // The chime and notifications: off until someone turns them on, per screen.
 const soundOn = ref(false);
 let audio: AudioContext | null = null;
 let announced: Map<string, Set<string>> | null = null;
-const notifier = new WallNotifier(() => (window as unknown as { Notification?: NotificationApi }).Notification);
+const notifier = new WallNotifier(
+  () => (window as unknown as { Notification?: NotificationApi }).Notification,
+);
 
 function unlockAudio() {
-  const Context = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const Context =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (Context && !audio) audio = new Context();
   audio?.resume();
 }
@@ -106,9 +120,17 @@ function toggleSound() {
   if (on) {
     // This click is what lets the browser play sound.
     unlockAudio();
-    const api = (window as unknown as { Notification?: NotificationApi & { requestPermission(): Promise<string> } }).Notification;
+    const api = (
+      window as unknown as {
+        Notification?: NotificationApi & { requestPermission(): Promise<string> };
+      }
+    ).Notification;
     // Show what came in while the browser was asking.
-    if (api && api.permission === "default") Promise.resolve(api.requestPermission()).then(() => notifier.show(), () => {});
+    if (api && api.permission === "default")
+      Promise.resolve(api.requestPermission()).then(
+        () => notifier.show(),
+        () => {},
+      );
     chime();
   }
   setSound(on);
@@ -179,7 +201,12 @@ onBeforeUnmount(() => {
 <template>
   <main class="wall-view space-y-4 px-4 py-4">
     <div class="wall-bar flex items-baseline justify-between gap-4">
-      <span id="wall-updated" class="wall-updated text-base font-bold tabular-nums" :class="{ 'wall-stale text-error': status.stale }">{{ status.text }}</span>
+      <span
+        id="wall-updated"
+        class="wall-updated text-base font-bold tabular-nums"
+        :class="{ 'wall-stale text-error': status.stale }"
+        >{{ status.text }}</span
+      >
       <div class="flex items-center gap-4">
         <UButton
           id="wall-sound"
@@ -190,15 +217,26 @@ onBeforeUnmount(() => {
           :icon="soundOn ? 'i-lucide-volume-2' : 'i-lucide-volume-x'"
           :aria-pressed="soundOn ? 'true' : 'false'"
           @click="toggleSound"
-        >{{ soundOn ? "Sound on" : "Sound off" }}</UButton>
-        <a class="wall-exit text-sm text-muted hover:underline" :href="operatorView">Operator view</a>
+          >{{ soundOn ? "Sound on" : "Sound off" }}</UButton
+        >
+        <a class="wall-exit text-sm text-muted hover:underline" :href="operatorView"
+          >Operator view</a
+        >
       </div>
     </div>
-    <div v-if="failed" id="wall-error" class="wall-error rounded-lg bg-error px-4 py-3 text-base font-bold text-white" role="alert">
+    <div
+      v-if="failed"
+      id="wall-error"
+      class="wall-error rounded-lg bg-error px-4 py-3 text-base font-bold text-white"
+      role="alert"
+    >
       {{ wallErrorText(failed, lastLoadedAt) }}
     </div>
 
-    <section class="table-shell relative overflow-x-auto rounded-lg border border-default" aria-label="Alert table">
+    <section
+      class="table-shell relative overflow-x-auto rounded-lg border border-default"
+      aria-label="Alert table"
+    >
       <table class="board-table w-full text-left text-sm">
         <thead class="bg-elevated/50 text-xs text-muted uppercase">
           <tr>
@@ -210,14 +248,21 @@ onBeforeUnmount(() => {
         </thead>
         <tbody id="alerts-table-body" class="divide-y divide-default">
           <tr v-if="!board">
-            <td colspan="4" class="empty-state px-3 py-10 text-center text-lg text-muted">{{ failed ? "" : "Loading alerts…" }}</td>
+            <td colspan="4" class="empty-state px-3 py-10 text-center text-lg text-muted">{{
+              failed ? "" : "Loading alerts…"
+            }}</td>
           </tr>
           <tr v-else-if="empty">
             <td
               colspan="4"
               class="empty-state px-3 py-10 text-center text-xl"
-              :class="{ 'scope-no-match font-bold': empty.kind === 'no-match', 'all-clear text-success': empty.kind === 'all-clear', 'text-muted': empty.kind === 'plain' }"
-            >{{ empty.text }}</td>
+              :class="{
+                'scope-no-match font-bold': empty.kind === 'no-match',
+                'all-clear text-success': empty.kind === 'all-clear',
+                'text-muted': empty.kind === 'plain',
+              }"
+              >{{ empty.text }}</td
+            >
           </tr>
           <template v-for="row in rows" v-else :key="row.site.id">
             <tr v-if="row.heading" class="maintenance-heading">

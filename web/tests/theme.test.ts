@@ -27,7 +27,9 @@ describe("Nuxt UI's colours as a stylesheet (CSP: no inline style)", () => {
   });
 
   it("500 in light, 400 in dark; neutral is not a semantic colour", () => {
-    expect(css).toMatch(/:root, :host, \.light \{[^}]*--ui-success: var\(--ui-color-success-500\);/);
+    expect(css).toMatch(
+      /:root, :host, \.light \{[^}]*--ui-success: var\(--ui-color-success-500\);/,
+    );
     expect(css).toMatch(/\.dark \{[^}]*--ui-warning: var\(--ui-color-warning-400\);/);
     expect(css).not.toContain("--ui-neutral:");
   });

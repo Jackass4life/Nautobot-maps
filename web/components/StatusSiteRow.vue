@@ -27,13 +27,22 @@ const named = computed(() => splitDevices(props.site.devices ?? []));
 </script>
 
 <template>
-  <li class="status-site flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3" :class="`status-${site.state}`">
-    <span class="size-2.5 shrink-0 rounded-full" :class="dot[site.state] || 'bg-slate-400'" aria-hidden="true" />
+  <li
+    class="status-site flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3"
+    :class="`status-${site.state}`"
+  >
+    <span
+      class="size-2.5 shrink-0 rounded-full"
+      :class="dot[site.state] || 'bg-slate-400'"
+      aria-hidden="true"
+    />
     <div class="min-w-0 flex-1 basis-48">
       <span class="block font-semibold break-words text-highlighted">{{ site.name }}</span>
-      <span v-if="site.description" class="status-description block text-sm break-words whitespace-pre-line text-toned">{{
-        site.description
-      }}</span>
+      <span
+        v-if="site.description"
+        class="status-description block text-sm break-words whitespace-pre-line text-toned"
+        >{{ site.description }}</span
+      >
       <a
         v-if="place"
         class="status-place inline-flex max-w-full items-start gap-1 text-sm text-muted hover:text-primary hover:underline"
@@ -45,22 +54,42 @@ const named = computed(() => splitDevices(props.site.devices ?? []));
         <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
         <span class="min-w-0 break-words">{{ place.text }}</span>
       </a>
-      <span v-if="devices" class="status-devices block text-sm" :class="down ? 'text-toned' : 'text-muted'">{{
-        devices
-      }}</span>
+      <span
+        v-if="devices"
+        class="status-devices block text-sm"
+        :class="down ? 'text-toned' : 'text-muted'"
+        >{{ devices }}</span
+      >
       <ul v-if="named.shown.length" class="status-named mt-0.5 space-y-0.5 text-sm">
-        <li v-for="(device, index) in named.shown" :key="`${device.name}-${index}`" class="flex flex-wrap gap-x-2">
+        <li
+          v-for="(device, index) in named.shown"
+          :key="`${device.name}-${index}`"
+          class="flex flex-wrap gap-x-2"
+        >
           <span class="break-words text-toned">{{ device.name }}</span>
-          <span :class="device.state === 'down' ? 'font-semibold text-highlighted' : 'text-muted'">{{ deviceText(device, now) }}</span>
+          <span
+            :class="device.state === 'down' ? 'font-semibold text-highlighted' : 'text-muted'"
+            >{{ deviceText(device, now) }}</span
+          >
         </li>
       </ul>
       <details v-if="named.up.length" class="status-named-up group mt-0.5 text-sm">
-        <summary class="inline-flex cursor-pointer list-none items-center gap-1 text-muted hover:text-highlighted">
-          <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+        <summary
+          class="inline-flex cursor-pointer list-none items-center gap-1 text-muted hover:text-highlighted"
+        >
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="size-3.5 transition-transform group-open:rotate-90"
+            aria-hidden="true"
+          />
           {{ devicesUpLabel(named.up.length) }}
         </summary>
         <ul class="mt-1 space-y-0.5 pl-4.5">
-          <li v-for="(device, index) in named.up" :key="`${device.name}-${index}`" class="flex flex-wrap gap-x-2">
+          <li
+            v-for="(device, index) in named.up"
+            :key="`${device.name}-${index}`"
+            class="flex flex-wrap gap-x-2"
+          >
             <span class="break-words text-toned">{{ device.name }}</span>
             <span class="text-muted">{{ deviceText(device, now) }}</span>
           </li>
@@ -68,20 +97,38 @@ const named = computed(() => splitDevices(props.site.devices ?? []));
       </details>
       <!-- Folded: one line per circuit only when opened (#511). -->
       <details v-if="site.circuits.length" class="status-circuits group mt-0.5 text-sm">
-        <summary class="inline-flex cursor-pointer list-none items-center gap-1 text-muted hover:text-highlighted">
-          <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+        <summary
+          class="inline-flex cursor-pointer list-none items-center gap-1 text-muted hover:text-highlighted"
+        >
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="size-3.5 transition-transform group-open:rotate-90"
+            aria-hidden="true"
+          />
           {{ circuitsLabel(site.circuits.length) }}
         </summary>
         <ul class="mt-1 space-y-0.5 pl-4.5 text-toned">
-          <li v-for="(circuit, index) in site.circuits" :key="`${circuit.cid}-${index}`" class="status-circuit break-words">
+          <li
+            v-for="(circuit, index) in site.circuits"
+            :key="`${circuit.cid}-${index}`"
+            class="status-circuit break-words"
+          >
             {{ circuitText(circuit) }}
           </li>
         </ul>
       </details>
     </div>
-    <span :class="site.state === 'outage' || site.state === 'degraded' ? 'font-semibold text-highlighted' : 'text-muted'">
+    <span
+      :class="
+        site.state === 'outage' || site.state === 'degraded'
+          ? 'font-semibold text-highlighted'
+          : 'text-muted'
+      "
+    >
       {{ stateLabel(site.state) }}
-      <span v-if="siteWhen(site, now)" class="font-normal text-muted">{{ siteWhen(site, now) }}</span>
+      <span v-if="siteWhen(site, now)" class="font-normal text-muted">{{
+        siteWhen(site, now)
+      }}</span>
     </span>
   </li>
 </template>

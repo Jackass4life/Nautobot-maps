@@ -72,7 +72,9 @@ const scopeQuery = scopeParams(scope).toString();
 
 // The operator's last Sort choice (#228).
 const storedSort = readStored(SORT_KEY);
-const criteria = ref<BoardCriteria>(noBoardCriteria(isSort(storedSort) ? storedSort : DEFAULT_SORT));
+const criteria = ref<BoardCriteria>(
+  noBoardCriteria(isSort(storedSort) ? storedSort : DEFAULT_SORT),
+);
 watch(
   () => criteria.value.sort,
   (sort) => writeStored(SORT_KEY, sort === DEFAULT_SORT ? null : sort),
@@ -92,21 +94,35 @@ const summary = computed(() => (scope ? scopeSummary(sites.value) : board.value?
 const counts = computed(() => chipCounts(summary.value));
 const choices = computed(() => boardChoices(sites.value));
 // A tenant is found by its description too (#497).
-const tenantItems = computed(() => choiceItems(choices.value.tenant, mergedDescriptions(sites.value)));
+const tenantItems = computed(() =>
+  choiceItems(choices.value.tenant, mergedDescriptions(sites.value)),
+);
 const shown = computed(() => filterSites(sites.value, criteria.value));
 const rowLimit = ref(ROWS_STEP);
 const rows = computed(() => shown.value.slice(0, rowLimit.value));
 const empty = computed(() =>
   board.value && !shown.value.length
-    ? emptyBoardText(board.value, { inScope: sites.value.length, severity: criteria.value.severity, scopeText: scopeText.value }, sites.value.some(hasActiveAlarm))
+    ? emptyBoardText(
+        board.value,
+        {
+          inScope: sites.value.length,
+          severity: criteria.value.severity,
+          scopeText: scopeText.value,
+        },
+        sites.value.some(hasActiveAlarm),
+      )
     : null,
 );
 const statusText = computed(() => {
   if (loading.value && !board.value) return "Loading alert board…";
   if (loadFailed.value) return "Alert board unavailable";
-  return board.value ? boardStatusText(board.value, shown.value.length, criteria.value.severity === "alarms") : "";
+  return board.value
+    ? boardStatusText(board.value, shown.value.length, criteria.value.severity === "alarms")
+    : "";
 });
-const wallLink = computed(() => wallLinkFor({ tenant: criteria.value.tenant, text: criteria.value.site, scope }));
+const wallLink = computed(() =>
+  wallLinkFor({ tenant: criteria.value.tenant, text: criteria.value.site, scope }),
+);
 const linkQuery = computed(() => linkParams(criteria.value.tenant, scope).toString());
 const moreCount = computed(() => moreFiltersInUse(criteria.value));
 // New filters start again at the first rows; a refresh keeps what was opened.
@@ -155,7 +171,9 @@ async function load(force = false, { background = false } = {}) {
     if (force) params.set("refresh", "1");
     if (criteria.value.nonOperational) params.set("include_non_operational", "1");
     const query = params.toString();
-    const answer = (await unwrap(useNuxtApp().$api.GET("/api/v1/alerts", { params: { query: queryOf(query || "") as never } }))) as Board;
+    const answer = (await unwrap(
+      useNuxtApp().$api.GET("/api/v1/alerts", { params: { query: queryOf(query || "") as never } }),
+    )) as Board;
     if (seq !== loadSeq) return;
     board.value = answer;
     // Only the sites a link's ?tenant= / ?q= asks for (#364).
@@ -222,7 +240,6 @@ function setNonOperational(on: boolean) {
   load();
 }
 
-
 const COPIED_MS = 2000;
 const announce = ref("");
 // Copy wall link (#366): the full address, for a screen's browser; what the
@@ -249,14 +266,19 @@ const panelBox = useTemplateRef<HTMLElement>("panelBox");
 const panelTitle = computed(() => {
   if (!panel.value) return "";
   const name = panel.value.site.name || panel.value.site.id;
-  return { case: "Add case", maintenance: "Maintenance", history: "History", copy: "Copy site details" }[panel.value.kind] + ` · ${name}`;
+  return (
+    { case: "Add case", maintenance: "Maintenance", history: "History", copy: "Copy site details" }[
+      panel.value.kind
+    ] + ` · ${name}`
+  );
 });
 function openPanel(next: Panel) {
   panel.value = next;
   nextTick(() => {
     const box = panelBox.value;
     if (!box) return;
-    const target = next.kind === "copy" ? box.querySelector<HTMLTextAreaElement>("#copy-text") : null;
+    const target =
+      next.kind === "copy" ? box.querySelector<HTMLTextAreaElement>("#copy-text") : null;
     if (target) {
       target.focus();
       target.select();
@@ -271,7 +293,10 @@ function closePanel() {
   if (!site) return;
   nextTick(() => {
     const row = document.querySelector(`tr[data-site-id="${CSS.escape(site.id)}"]`);
-    (row?.querySelector<HTMLElement>(kind === "case" ? ".case-open-btn" : ".row-menu-btn") ?? row?.querySelector<HTMLElement>(".row-menu-btn"))?.focus();
+    (
+      row?.querySelector<HTMLElement>(kind === "case" ? ".case-open-btn" : ".row-menu-btn") ??
+      row?.querySelector<HTMLElement>(".row-menu-btn")
+    )?.focus();
   });
 }
 // The open panel's site, as the newest board has it.
@@ -284,7 +309,11 @@ watch(sites, (list) => {
 
 async function openHistory(site: BoardSite) {
   try {
-    const answer = (await unwrap(useNuxtApp().$api.GET("/api/v1/alert-history", { params: { query: { site_id: site.id } as never } }))) as { instances: Incident[] };
+    const answer = (await unwrap(
+      useNuxtApp().$api.GET("/api/v1/alert-history", {
+        params: { query: { site_id: site.id } as never },
+      }),
+    )) as { instances: Incident[] };
     openPanel({ kind: "history", site, incidents: answer.instances || [] });
   } catch (err) {
     showError(`Failed to load history: ${errorMessage(err)}`);
@@ -293,7 +322,10 @@ async function openHistory(site: BoardSite) {
 
 const copiedId = ref("");
 async function copySite(site: BoardSite) {
-  const text = siteReport(site, { nautobotUrl: config.value?.nautobot_url || "", caseTemplate: caseTemplate.value });
+  const text = siteReport(site, {
+    nautobotUrl: config.value?.nautobot_url || "",
+    caseTemplate: caseTemplate.value,
+  });
   if (await copyText(text)) {
     announce.value = `Copied ${site.name || site.id} to the clipboard`;
     copiedId.value = site.id;
@@ -309,10 +341,16 @@ async function copySite(site: BoardSite) {
 // Acknowledge every down device (#288), or remove it.
 async function acknowledge(site: BoardSite, remove: boolean) {
   try {
-    await unwrap(useNuxtApp().$api.POST(remove ? "/api/v1/alert-acks/remove" : "/api/v1/alert-acks", { body: ackRequestBody(site.id, []) as never }));
+    await unwrap(
+      useNuxtApp().$api.POST(remove ? "/api/v1/alert-acks/remove" : "/api/v1/alert-acks", {
+        body: ackRequestBody(site.id, []) as never,
+      }),
+    );
     await load();
   } catch (err) {
-    showError(`Could not ${remove ? "remove the acknowledgement" : "acknowledge"}: ${errorMessage(err)}`);
+    showError(
+      `Could not ${remove ? "remove the acknowledgement" : "acknowledge"}: ${errorMessage(err)}`,
+    );
   }
 }
 
@@ -357,7 +395,9 @@ onBeforeUnmount(() => {
 });
 
 const levelTip = computed(() =>
-  ["critical", "medium", "low"].map((level) => `${level[0]!.toUpperCase()}${level.slice(1)}: ${levels.value[level] || ""}`).join(" "),
+  ["critical", "medium", "low"]
+    .map((level) => `${level[0]!.toUpperCase()}${level.slice(1)}: ${levels.value[level] || ""}`)
+    .join(" "),
 );
 // The filter lists' search fields, named for screen readers.
 function searchInput(label: string) {
@@ -378,12 +418,18 @@ function shortLabel(values: string[], all: string) {
 
       <!-- One line of what is wrong, and the chips that choose the sites (#311). -->
       <section class="summary-bar space-y-2" aria-label="Summary">
-        <p class="summary-line flex items-center gap-1.5 text-lg font-semibold" :class="counts.alarms ? 'has-alarms text-error' : 'text-highlighted'">
+        <p
+          class="summary-line flex items-center gap-1.5 text-lg font-semibold"
+          :class="counts.alarms ? 'has-alarms text-error' : 'text-highlighted'"
+        >
           <span id="summary-line-text">{{ board ? boardSummaryText(summary) : "Loading…" }}</span>
           <HelpTip :text="`Alert levels: ${levelTip}`" />
         </p>
         <!-- A link for some sites only says so (#364). -->
-        <p v-if="scope" id="board-scope" class="board-scope text-sm text-toned">Only <strong id="board-scope-label">{{ scopeText }}</strong> · <a class="text-primary hover:underline" href="/alerts">Show all sites</a></p>
+        <p v-if="scope" id="board-scope" class="board-scope text-sm text-toned"
+          >Only <strong id="board-scope-label">{{ scopeText }}</strong> ·
+          <a class="text-primary hover:underline" href="/alerts">Show all sites</a></p
+        >
         <div class="severity-chips flex flex-wrap gap-2" role="group" aria-label="Show sites">
           <UButton
             v-for="chip in shownChips(counts, criteria.severity)"
@@ -396,7 +442,11 @@ function shortLabel(values: string[], all: string) {
             :aria-pressed="criteria.severity === chip.filter ? 'true' : 'false'"
             :title="levels[chip.key]"
             @click="setSeverity(chip.filter)"
-          ><span>{{ chip.label }} <strong :id="`summary-${chip.key}`">{{ counts[chip.key] ?? 0 }}</strong></span></UButton>
+            ><span
+              >{{ chip.label }}
+              <strong :id="`summary-${chip.key}`">{{ counts[chip.key] ?? 0 }}</strong></span
+            ></UButton
+          >
         </div>
       </section>
 
@@ -424,7 +474,11 @@ function shortLabel(values: string[], all: string) {
             class="w-56"
             @update:model-value="set('tenant', $event as string[])"
           >
-            <span class="truncate" :class="{ 'text-dimmed': !criteria.tenant.length }" :title="criteria.tenant.join(', ')">
+            <span
+              class="truncate"
+              :class="{ 'text-dimmed': !criteria.tenant.length }"
+              :title="criteria.tenant.join(', ')"
+            >
               {{ shortLabel(criteria.tenant, "All tenants") }}
             </span>
           </USelectMenu>
@@ -436,8 +490,19 @@ function shortLabel(values: string[], all: string) {
             :aria-expanded="moreOpen ? 'true' : 'false'"
             aria-controls="more-filters"
             @click="moreOpen = !moreOpen"
-          ><span>More filters<template v-if="moreCount"> ({{ moreCount }})</template></span></UButton>
-          <UButton v-if="filtersInUse(criteria)" id="clear-alert-filters" color="neutral" variant="ghost" :disabled="loading" @click="resetFilters">Reset</UButton>
+            ><span
+              >More filters<template v-if="moreCount"> ({{ moreCount }})</template></span
+            ></UButton
+          >
+          <UButton
+            v-if="filtersInUse(criteria)"
+            id="clear-alert-filters"
+            color="neutral"
+            variant="ghost"
+            :disabled="loading"
+            @click="resetFilters"
+            >Reset</UButton
+          >
           <!-- The wall for what the board shows (#366). -->
           <UButton
             v-if="wallLink"
@@ -447,9 +512,14 @@ function shortLabel(values: string[], all: string) {
             icon="i-lucide-monitor"
             title="Copy the link to a wall screen of these sites"
             @click="copyWallLink"
-          ><span>{{ wallCopyLabel }}</span></UButton>
+            ><span>{{ wallCopyLabel }}</span></UButton
+          >
         </div>
-        <div v-show="moreOpen" id="more-filters" class="more-filters flex flex-wrap items-center gap-2">
+        <div
+          v-show="moreOpen"
+          id="more-filters"
+          class="more-filters flex flex-wrap items-center gap-2"
+        >
           <USelect
             id="sort-by"
             :model-value="criteria.sort"
@@ -459,7 +529,10 @@ function shortLabel(values: string[], all: string) {
             @update:model-value="set('sort', $event as BoardCriteria['sort'])"
           />
           <USelectMenu
-            v-for="filter in ([['status', 'Status', 'All statuses'], ['type', 'Type', 'All location types']] as const)"
+            v-for="filter in [
+              ['status', 'Status', 'All statuses'],
+              ['type', 'Type', 'All location types'],
+            ] as const"
             :key="filter[0]"
             :model-value="criteria[filter[0]]"
             :items="choices[filter[0]]"
@@ -470,7 +543,9 @@ function shortLabel(values: string[], all: string) {
             class="w-52"
             @update:model-value="set(filter[0], $event as string[])"
           >
-            <span class="truncate" :class="{ 'text-dimmed': !criteria[filter[0]].length }">{{ shortLabel(criteria[filter[0]], filter[2]) }}</span>
+            <span class="truncate" :class="{ 'text-dimmed': !criteria[filter[0]].length }">{{
+              shortLabel(criteria[filter[0]], filter[2])
+            }}</span>
           </USelectMenu>
           <UCheckbox
             id="toggle-non-operational"
@@ -491,7 +566,8 @@ function shortLabel(values: string[], all: string) {
             variant="outline"
             aria-controls="feed-panel"
             @click="setFeedCollapsed(false)"
-          >Show activity</UButton>
+            >Show activity</UButton
+          >
           <UButton
             id="refresh-alerts"
             size="xs"
@@ -506,8 +582,15 @@ function shortLabel(values: string[], all: string) {
         </div>
       </section>
 
-      <div id="board-layout" class="board-layout flex flex-col gap-4 lg:flex-row lg:items-start" :class="{ 'feed-collapsed': feedCollapsed }">
-        <section class="table-shell relative min-w-0 flex-1 overflow-x-auto rounded-lg border border-default" aria-label="Alert table">
+      <div
+        id="board-layout"
+        class="board-layout flex flex-col gap-4 lg:flex-row lg:items-start"
+        :class="{ 'feed-collapsed': feedCollapsed }"
+      >
+        <section
+          class="table-shell relative min-w-0 flex-1 overflow-x-auto rounded-lg border border-default"
+          aria-label="Alert table"
+        >
           <table class="board-table w-full text-left text-sm">
             <thead class="bg-elevated/50 text-xs text-muted uppercase">
               <tr>
@@ -528,8 +611,13 @@ function shortLabel(values: string[], all: string) {
                 <td
                   colspan="5"
                   class="empty-state px-3 py-6 text-center"
-                  :class="{ 'scope-no-match text-warning': empty.kind === 'no-match', 'all-clear text-success': empty.kind === 'all-clear', 'text-muted': empty.kind === 'plain' }"
-                >{{ empty.text }}</td>
+                  :class="{
+                    'scope-no-match text-warning': empty.kind === 'no-match',
+                    'all-clear text-success': empty.kind === 'all-clear',
+                    'text-muted': empty.kind === 'plain',
+                  }"
+                  >{{ empty.text }}</td
+                >
               </tr>
               <BoardRow
                 v-for="site in rows"
@@ -549,8 +637,15 @@ function shortLabel(values: string[], all: string) {
               />
               <tr v-if="shown.length > rows.length">
                 <td colspan="5" class="px-3 py-3 text-center">
-                  <UButton id="board-more" color="neutral" variant="outline" size="sm" @click="rowLimit += ROWS_STEP">
-                    Show {{ Math.min(ROWS_STEP, shown.length - rows.length) }} more of {{ (shown.length - rows.length).toLocaleString("en") }}
+                  <UButton
+                    id="board-more"
+                    color="neutral"
+                    variant="outline"
+                    size="sm"
+                    @click="rowLimit += ROWS_STEP"
+                  >
+                    Show {{ Math.min(ROWS_STEP, shown.length - rows.length) }} more of
+                    {{ (shown.length - rows.length).toLocaleString("en") }}
                   </UButton>
                 </td>
               </tr>
@@ -583,7 +678,9 @@ function shortLabel(values: string[], all: string) {
     >
       <div class="flex items-center justify-between gap-2 border-b border-default px-4 py-3">
         <h2 id="panel-title" class="truncate font-semibold text-highlighted">{{ panelTitle }}</h2>
-        <UButton class="panel-close-btn" color="neutral" variant="ghost" @click="closePanel">Close</UButton>
+        <UButton class="panel-close-btn" color="neutral" variant="ghost" @click="closePanel"
+          >Close</UButton
+        >
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-4">
         <BoardCase
@@ -602,11 +699,25 @@ function shortLabel(values: string[], all: string) {
           @changed="load()"
           @error="showError"
         />
-        <BoardHistory v-else-if="panel.kind === 'history'" :site-id="panel.site.id" :incidents="panel.incidents" :case-template="caseTemplate" />
+        <BoardHistory
+          v-else-if="panel.kind === 'history'"
+          :site-id="panel.site.id"
+          :incidents="panel.incidents"
+          :case-template="caseTemplate"
+        />
         <template v-else>
           <!-- Copy by hand when the browser won't (#227). -->
-          <p id="copy-hint" class="copy-hint mb-2 text-sm text-muted">The browser did not allow copying. The text is selected: press Ctrl+C (⌘C on a Mac).</p>
-          <textarea id="copy-text" class="copy-text w-full rounded-md border border-default bg-default p-2 font-mono text-xs" readonly rows="14" aria-label="Site details" :value="panel.text" />
+          <p id="copy-hint" class="copy-hint mb-2 text-sm text-muted"
+            >The browser did not allow copying. The text is selected: press Ctrl+C (⌘C on a Mac).</p
+          >
+          <textarea
+            id="copy-text"
+            class="copy-text w-full rounded-md border border-default bg-default p-2 font-mono text-xs"
+            readonly
+            rows="14"
+            aria-label="Site details"
+            :value="panel.text"
+          />
         </template>
       </div>
     </section>

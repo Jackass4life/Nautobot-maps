@@ -12,10 +12,7 @@
       "id": "o",
       "name": "Oslo",
       "parent": "NOR",
-      "tenants": [
-        "Nordic Net",
-        "Acme Corp"
-      ],
+      "tenants": ["Nordic Net", "Acme Corp"],
       "physical_address": "Storgata 1"
     },
     {
@@ -30,35 +27,14 @@
     }
   ],
   "cases": {
-    "": [
-      "a",
-      "o",
-      "l",
-      "n"
-    ],
-    "?tenant=acme%20corp": [
-      "a",
-      "o"
-    ],
-    "?tenant=EUROIX&tenant=Nordic%20Net": [
-      "o",
-      "l"
-    ],
-    "?q=EMEA": [
-      "a"
-    ],
-    "?q=dnk&q=aarhus": [
-      "a"
-    ],
-    "?q=storgata": [
-      "o"
-    ],
-    "?q=dc2": [
-      "l"
-    ],
-    "?tenant=Acme%20Corp&q=oslo": [
-      "o"
-    ],
+    "": ["a", "o", "l", "n"],
+    "?tenant=acme%20corp": ["a", "o"],
+    "?tenant=EUROIX&tenant=Nordic%20Net": ["o", "l"],
+    "?q=EMEA": ["a"],
+    "?q=dnk&q=aarhus": ["a"],
+    "?q=storgata": ["o"],
+    "?q=dc2": ["l"],
+    "?tenant=Acme%20Corp&q=oslo": ["o"],
     "?q=nowhere": []
   }
 }

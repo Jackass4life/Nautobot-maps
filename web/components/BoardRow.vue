@@ -57,18 +57,21 @@ const devices = computed(() => props.item.down_devices || []);
 const deviceRows = computed(() => downDeviceRows(devices.value));
 const accessPointsShown = ref(false);
 const listed = computed(() =>
-  accessPointsShown.value && !props.wall ? [...deviceRows.value.shown, ...deviceRows.value.folded] : deviceRows.value.shown,
+  accessPointsShown.value && !props.wall
+    ? [...deviceRows.value.shown, ...deviceRows.value.folded]
+    : deviceRows.value.shown,
 );
 const withCase = computed(() => caseDevices(props.item));
 const tenants = computed(() => siteTenants(props.item));
 const restShown = ref(false);
-const descriptionOf = (tenant: string) => tenantDescriptionIn(props.item.tenant_descriptions, tenant);
+const descriptionOf = (tenant: string) =>
+  tenantDescriptionIn(props.item.tenant_descriptions, tenant);
 const address = computed(() => siteAddress(props.item));
 const meta = computed(() => props.item.ancestor_path || props.item.parent || "");
 
 // Nothing to put in maintenance without monitored devices (still there while a window is on).
-const canMaintain = computed(
-  () => Boolean(props.item.device_count || props.item.maintenance_device_count || props.item.maintenance),
+const canMaintain = computed(() =>
+  Boolean(props.item.device_count || props.item.maintenance_device_count || props.item.maintenance),
 );
 
 const menu = computed<DropdownMenuItem[]>(() => {
@@ -79,16 +82,38 @@ const menu = computed<DropdownMenuItem[]>(() => {
       items.push(
         all
           ? { label: "Remove ack", class: "unack-btn", onSelect: () => emit("ack", true) }
-          : { label: "Acknowledge", class: "ack-btn", title: "Someone is on it, without a case number", onSelect: () => emit("ack", false) },
+          : {
+              label: "Acknowledge",
+              class: "ack-btn",
+              title: "Someone is on it, without a case number",
+              onSelect: () => emit("ack", false),
+            },
       );
     }
     // The site and its down devices as text for an ITSM ticket (#227).
-    items.push({ label: "Copy", class: "copy-site-btn", title: "Copy the site and its down devices as text", onSelect: () => emit("copy") });
+    items.push({
+      label: "Copy",
+      class: "copy-site-btn",
+      title: "Copy the site and its down devices as text",
+      onSelect: () => emit("copy"),
+    });
   }
-  if (canMaintain.value) items.push({ label: "Maint.", class: "maint-open-btn", title: "Maintenance window", onSelect: () => emit("maintenance") });
+  if (canMaintain.value)
+    items.push({
+      label: "Maint.",
+      class: "maint-open-btn",
+      title: "Maintenance window",
+      onSelect: () => emit("maintenance"),
+    });
   items.push({ label: "History", class: "history-btn", onSelect: () => emit("history") });
   // The site's maintenance history (#353).
-  if (props.item.id) items.push({ label: "Maint. history", class: "maint-history-link", to: maintenanceHistoryHref(props.item.id), external: true });
+  if (props.item.id)
+    items.push({
+      label: "Maint. history",
+      class: "maint-history-link",
+      to: maintenanceHistoryHref(props.item.id),
+      external: true,
+    });
   return items;
 });
 </script>
@@ -97,7 +122,11 @@ const menu = computed<DropdownMenuItem[]>(() => {
   <tr
     class="site-row"
     :data-site-id="item.id"
-    :class="{ 'in-maintenance': item.alert_level === 'maintenance', 'case-handled': handled, 'handled-first': handledFirst }"
+    :class="{
+      'in-maintenance': item.alert_level === 'maintenance',
+      'case-handled': handled,
+      'handled-first': handledFirst,
+    }"
   >
     <td>
       <div class="flex items-start gap-1.5">
@@ -115,16 +144,36 @@ const menu = computed<DropdownMenuItem[]>(() => {
         <span v-else-if="!wall" class="w-6 shrink-0" aria-hidden="true" />
         <div class="min-w-0">
           <div class="site-title font-medium text-highlighted">
-            <a v-if="!wall && onTheMap(item)" class="site-name hover:underline" :href="`/?location_id=${encodeURIComponent(item.id)}`" title="Show on the map">{{ name }}</a>
+            <a
+              v-if="!wall && onTheMap(item)"
+              class="site-name hover:underline"
+              :href="`/?location_id=${encodeURIComponent(item.id)}`"
+              title="Show on the map"
+              >{{ name }}</a
+            >
             <span v-else class="site-name">{{ name }}</span>
             <!-- The site's importance (#293); the most important tier is accented. -->
-            <span v-if="item.tier" class="tier-pill" :class="{ 'tier-top': item.tier_rank === 0 }" title="Importance tier">{{ item.tier.toUpperCase() }}</span>
+            <span
+              v-if="item.tier"
+              class="tier-pill"
+              :class="{ 'tier-top': item.tier_rank === 0 }"
+              title="Importance tier"
+              >{{ item.tier.toUpperCase() }}</span
+            >
           </div>
           <div class="site-summary text-xs text-muted">{{ siteSummaryText(item) }}</div>
           <!-- The first tenant, and "+N" that shows the rest in place (#279). -->
           <div v-if="tenants.length" class="site-tenants text-xs text-toned">
-            <template v-for="(tenant, index) in restShown ? tenants : tenants.slice(0, 1)" :key="tenant">
-              <span v-if="index">, </span>{{ tenant }}<HelpTip v-if="descriptionOf(tenant)" class="ml-0.5" :text="descriptionOf(tenant)" />
+            <template
+              v-for="(tenant, index) in restShown ? tenants : tenants.slice(0, 1)"
+              :key="tenant"
+            >
+              <span v-if="index">, </span>{{ tenant
+              }}<HelpTip
+                v-if="descriptionOf(tenant)"
+                class="ml-0.5"
+                :text="descriptionOf(tenant)"
+              />
             </template>
             <button
               v-if="!restShown && tenants.length > 1"
@@ -132,7 +181,8 @@ const menu = computed<DropdownMenuItem[]>(() => {
               class="tenant-more-btn ml-1 rounded px-1 text-primary hover:bg-elevated"
               :title="tenants.slice(1).join(', ')"
               @click="restShown = true"
-            >+{{ tenants.length - 1 }}</button>
+              >+{{ tenants.length - 1 }}</button
+            >
           </div>
           <div v-if="address" class="site-address text-xs text-muted">{{ address }}</div>
           <div v-if="meta" class="site-meta text-xs text-dimmed">{{ meta }}</div>
@@ -141,17 +191,30 @@ const menu = computed<DropdownMenuItem[]>(() => {
     </td>
     <td>
       <LevelBadge :level="item.alert_level" :reason="item.alert_reason" />
-      <span v-if="wall && item.alert_level !== 'maintenance'" class="case-state" :class="`case-state-${caseBadge(item).state}`">{{ caseBadge(item).text }}</span>
+      <span
+        v-if="wall && item.alert_level !== 'maintenance'"
+        class="case-state"
+        :class="`case-state-${caseBadge(item).state}`"
+        >{{ caseBadge(item).text }}</span
+      >
       <div v-if="item.maintenance" class="maintenance-note mt-1 text-xs text-muted">
         {{ maintenanceNote(item.maintenance.until, item.maintenance.reason) }}
       </div>
       <!-- The switch, its uplink or its PoE is the likely problem, not the access points (#524). -->
-      <div v-if="item.behind && !wall" class="behind-note mt-1 text-xs text-toned" :title="`Access points down behind one switch: ${item.behind.device}, its uplink or its PoE is the likely problem`">
+      <div
+        v-if="item.behind && !wall"
+        class="behind-note mt-1 text-xs text-toned"
+        :title="`Access points down behind one switch: ${item.behind.device}, its uplink or its PoE is the likely problem`"
+      >
         {{ behindText(item.behind) }}
       </div>
     </td>
-    <td class="since-cell whitespace-nowrap text-sm text-toned">{{ wall ? "" : sinceLabel(item.wireless_only ? "down" : "in alarm", siteAlarmSeconds(item)) }}</td>
-    <td class="cases-cell col-cases"><CasePills :cases="item.active_cases" :template="caseTemplate" empty="—" /></td>
+    <td class="since-cell whitespace-nowrap text-sm text-toned">{{
+      wall ? "" : sinceLabel(item.wireless_only ? "down" : "in alarm", siteAlarmSeconds(item))
+    }}</td>
+    <td class="cases-cell col-cases"
+      ><CasePills :cases="item.active_cases" :template="caseTemplate" empty="—"
+    /></td>
     <td v-if="!wall" class="col-action">
       <div class="action-row flex items-center justify-end gap-1">
         <UButton
@@ -163,7 +226,8 @@ const menu = computed<DropdownMenuItem[]>(() => {
           aria-haspopup="dialog"
           :aria-label="`+ Case for ${name}`"
           @click="emit('case')"
-        >+ Case</UButton>
+          >+ Case</UButton
+        >
         <span v-if="copied" class="text-xs text-success" role="status">Copied</span>
         <UDropdownMenu :items="menu" :modal="false" :content="{ align: 'end' }">
           <UButton
@@ -180,35 +244,66 @@ const menu = computed<DropdownMenuItem[]>(() => {
     </td>
   </tr>
   <template v-if="wall ? item.alert_level !== 'maintenance' : expanded">
-    <tr v-for="device in listed" :key="device.device_id" class="down-device-row" :class="{ 'case-handled': handled }">
+    <tr
+      v-for="device in listed"
+      :key="device.device_id"
+      class="down-device-row"
+      :class="{ 'case-handled': handled }"
+    >
       <td class="down-device-cell pl-9" :aria-label="`Down device for ${name}`">
         <div class="down-device-name text-sm">
-          <span class="sr-only">Down device for {{ name }}: </span>↳ {{ device.device_name || device.device_id || "Unknown device" }}
-          <span v-if="device.device_ip" class="device-ip text-xs text-muted">{{ device.device_ip }}</span>
-          <span v-if="device.core" class="core-badge" title="A core device: the likely cause of the other devices down here">CORE</span>
+          <span class="sr-only">Down device for {{ name }}: </span>↳
+          {{ device.device_name || device.device_id || "Unknown device" }}
+          <span v-if="device.device_ip" class="device-ip text-xs text-muted">{{
+            device.device_ip
+          }}</span>
+          <span
+            v-if="device.core"
+            class="core-badge"
+            title="A core device: the likely cause of the other devices down here"
+            >CORE</span
+          >
           <span
             v-if="setLevel(device)"
             class="set-level-badge"
             :title="`Set ${setLevel(device)} in Nautobot: what this device makes its site when down`"
-          >SET {{ setLevel(device).toUpperCase() }}</span>
+            >SET {{ setLevel(device).toUpperCase() }}</span
+          >
           <span v-if="device.flapping" class="flap-badge" :title="flapTitle(device)">FLAPPING</span>
         </div>
         <div class="site-meta text-xs text-muted">{{ deviceMeta(device) }}</div>
-        <div v-if="ackText(device)" class="ack-note text-xs text-success">{{ ackText(device) }}</div>
-        <div v-if="device.probable_cause" class="cause-note text-xs text-muted">Likely caused by {{ device.probable_cause }}</div>
-        <div v-if="device.neighbour" class="neighbour-note text-xs text-muted">{{ neighbourText(device.neighbour) }}</div>
+        <div v-if="ackText(device)" class="ack-note text-xs text-success">{{
+          ackText(device)
+        }}</div>
+        <div v-if="device.probable_cause" class="cause-note text-xs text-muted"
+          >Likely caused by {{ device.probable_cause }}</div
+        >
+        <div v-if="device.neighbour" class="neighbour-note text-xs text-muted">{{
+          neighbourText(device.neighbour)
+        }}</div>
         <div v-if="device.maintenance_until" class="maintenance-note mt-1 text-xs text-muted">
-          <LevelBadge level="maintenance" /> {{ maintenanceNote(device.maintenance_until, device.maintenance_reason) }}
+          <LevelBadge level="maintenance" />
+          {{ maintenanceNote(device.maintenance_until, device.maintenance_reason) }}
         </div>
       </td>
       <td />
-      <td class="since-cell whitespace-nowrap text-sm text-toned">{{ sinceLabel("down", deviceDowntimeSeconds(device, now)) }}</td>
-      <td class="cases-cell col-cases"><CasePills :cases="device.case_numbers" :template="caseTemplate" empty="—" /></td>
+      <td class="since-cell whitespace-nowrap text-sm text-toned">{{
+        sinceLabel("down", deviceDowntimeSeconds(device, now))
+      }}</td>
+      <td class="cases-cell col-cases"
+        ><CasePills :cases="device.case_numbers" :template="caseTemplate" empty="—"
+      /></td>
       <td v-if="!wall" class="col-action" />
     </tr>
-    <tr v-if="deviceRows.folded.length" class="access-points-row" :class="{ 'case-handled': handled }">
+    <tr
+      v-if="deviceRows.folded.length"
+      class="access-points-row"
+      :class="{ 'case-handled': handled }"
+    >
       <td class="down-device-cell pl-9" :colspan="wall ? 4 : 5">
-        <span v-if="wall" class="access-points-count text-sm text-toned">↳ {{ accessPointsText(deviceRows.folded.length) }}</span>
+        <span v-if="wall" class="access-points-count text-sm text-toned"
+          >↳ {{ accessPointsText(deviceRows.folded.length) }}</span
+        >
         <UButton
           v-else
           class="access-points-toggle -ml-1"
@@ -218,7 +313,10 @@ const menu = computed<DropdownMenuItem[]>(() => {
           :icon="accessPointsShown ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
           :aria-expanded="accessPointsShown ? 'true' : 'false'"
           @click="accessPointsShown = !accessPointsShown"
-        >{{ accessPointsShown ? "Hide access points" : accessPointsText(deviceRows.folded.length) }}</UButton>
+          >{{
+            accessPointsShown ? "Hide access points" : accessPointsText(deviceRows.folded.length)
+          }}</UButton
+        >
       </td>
     </tr>
   </template>

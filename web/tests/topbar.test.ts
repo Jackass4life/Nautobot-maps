@@ -11,14 +11,23 @@ describe("how fresh the data is", () => {
       {
         state: "ok",
         updated_at: "2026-10-22T13:56:00Z",
-        sources: [{ name: "Nautobot", state: "ok", message: "Nautobot is up to date", last_success: "2026-10-22T13:56:00Z" }],
+        sources: [
+          {
+            name: "Nautobot",
+            state: "ok",
+            message: "Nautobot is up to date",
+            last_success: "2026-10-22T13:56:00Z",
+          },
+        ],
       },
       now,
     );
     expect(ok.state).toBe("ok");
     expect(ok.text).toMatch(/^Updated /);
     expect(ok.intro).toContain("up to date");
-    expect(ok.lines).toEqual([{ state: "ok", what: "Nautobot", when: expect.stringMatching(/^synced /) }]);
+    expect(ok.lines).toEqual([
+      { state: "ok", what: "Nautobot", when: expect.stringMatching(/^synced /) },
+    ]);
   });
 
   it("the worst source speaks, and when it was last good", () => {
@@ -27,41 +36,79 @@ describe("how fresh the data is", () => {
         state: "down",
         updated_at: null,
         sources: [
-          { name: "Nautobot", state: "stale", message: "Nautobot data is 45 min old", last_success: "2026-10-22T13:15:00Z" },
-          { name: "LibreNMS", state: "down", message: "Can't reach LibreNMS", last_success: "2026-10-22T13:50:00Z" },
+          {
+            name: "Nautobot",
+            state: "stale",
+            message: "Nautobot data is 45 min old",
+            last_success: "2026-10-22T13:15:00Z",
+          },
+          {
+            name: "LibreNMS",
+            state: "down",
+            message: "Can't reach LibreNMS",
+            last_success: "2026-10-22T13:50:00Z",
+          },
         ],
       },
       now,
     );
     expect(bad.text).toBe("Can't reach LibreNMS");
-    expect(bad.lines[1]).toEqual({ state: "down", what: "Can't reach LibreNMS", when: expect.stringMatching(/^last good /) });
+    expect(bad.lines[1]).toEqual({
+      state: "down",
+      what: "Can't reach LibreNMS",
+      when: expect.stringMatching(/^last good /),
+    });
     expect(appStatusView(null).text).toBe("Can't reach Nautobot Maps");
   });
 
   it("several down: how many, and the list names each (#508)", () => {
-    const down = (name: string) => ({ name, state: "down" as const, message: `Can't reach ${name}`, last_success: null });
+    const down = (name: string) => ({
+      name,
+      state: "down" as const,
+      message: `Can't reach ${name}`,
+      last_success: null,
+    });
     const view = appStatusView(
       {
         state: "down",
         updated_at: null,
-        sources: [down("Catalyst Center dk"), down("Catalyst Center se"), { name: "Nautobot", state: "ok", message: "", last_success: null }],
+        sources: [
+          down("Catalyst Center dk"),
+          down("Catalyst Center se"),
+          { name: "Nautobot", state: "ok", message: "", last_success: null },
+        ],
       },
       now,
     );
     expect(view.text).toBe("Can't reach 2 sources");
     // Controllers are amber (#508): still counted as unreachable.
     const amber = appStatusView(
-      { state: "stale", updated_at: null, sources: [{ ...down("Catalyst Center dk"), state: "stale" }, { ...down("Catalyst Center se"), state: "stale" }] },
+      {
+        state: "stale",
+        updated_at: null,
+        sources: [
+          { ...down("Catalyst Center dk"), state: "stale" },
+          { ...down("Catalyst Center se"), state: "stale" },
+        ],
+      },
       now,
     );
     expect(amber.text).toBe("Can't reach 2 sources");
-    expect(view.lines.map((line) => line.what)).toEqual(["Can't reach Catalyst Center dk", "Can't reach Catalyst Center se", "Nautobot"]);
+    expect(view.lines.map((line) => line.what)).toEqual([
+      "Can't reach Catalyst Center dk",
+      "Can't reach Catalyst Center se",
+      "Nautobot",
+    ]);
   });
 });
 
 describe("find a site", () => {
   it("eight at most of 1,200, and how many more", () => {
-    const sites = Array.from({ length: 1200 }, (_, i) => ({ id: `s${i}`, name: `Site ${i}`, ancestor_path: "EMEA › DNK" }));
+    const sites = Array.from({ length: 1200 }, (_, i) => ({
+      id: `s${i}`,
+      name: `Site ${i}`,
+      ancestor_path: "EMEA › DNK",
+    }));
     const { matches, more } = matchSites(sites, "site");
     expect(matches).toHaveLength(8);
     expect(more).toBe(1192);
@@ -86,7 +133,14 @@ describe("find a site", () => {
     const page = { closest: () => null } as unknown as EventTarget;
     const field = { closest: () => ({}) } as unknown as EventTarget;
     const key = (target: EventTarget, extra = {}) =>
-      isSearchShortcut({ key: "/", ctrlKey: false, metaKey: false, altKey: false, target, ...extra });
+      isSearchShortcut({
+        key: "/",
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        target,
+        ...extra,
+      });
     expect(key(page)).toBe(true);
     expect(key(field)).toBe(false);
     expect(key(page, { ctrlKey: true })).toBe(false);

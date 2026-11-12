@@ -38,7 +38,11 @@ if (!isReport) {
 const advisories = new Map();
 for (const [name, found] of Object.entries(report)) {
   for (const advisory of found) {
-    advisories.set(advisory.url.split("/").pop(), { ...advisory, name, range: advisory.vulnerable_versions });
+    advisories.set(advisory.url.split("/").pop(), {
+      ...advisory,
+      name,
+      range: advisory.vulnerable_versions,
+    });
   }
 }
 
@@ -46,11 +50,16 @@ let failed = false;
 for (const [id, advisory] of advisories) {
   const serious = advisory.severity === "high" || advisory.severity === "critical";
   const note = ACCEPTED[id] ? `accepted: ${ACCEPTED[id]}` : serious ? "FAILS" : "below high";
-  console.log(`${advisory.severity.padEnd(8)} ${id} ${advisory.name} ${advisory.range}: ${advisory.title} (${note})`);
+  console.log(
+    `${advisory.severity.padEnd(8)} ${id} ${advisory.name} ${advisory.range}: ${advisory.title} (${note})`,
+  );
   if (serious && !ACCEPTED[id]) failed = true;
 }
 for (const id of Object.keys(ACCEPTED)) {
-  if (!advisories.has(id)) console.log(`${id} is no longer found: remove it from ACCEPTED in scripts/audit.mjs`);
+  if (!advisories.has(id))
+    console.log(`${id} is no longer found: remove it from ACCEPTED in scripts/audit.mjs`);
 }
-console.log(failed ? "High or critical advisories not accepted." : "No unaccepted high or critical advisory.");
+console.log(
+  failed ? "High or critical advisories not accepted." : "No unaccepted high or critical advisory.",
+);
 process.exit(failed ? 1 : 0);

@@ -28,7 +28,11 @@ export function siteTenants(site: TenantedSite): string[] {
 // neither.  ?tenant= is any of them, ?q= every one of them (#366).
 export function readScope(search: string): Scope | null {
   const params = new URLSearchParams(search || "");
-  const clean = (name: string) => params.getAll(name).map((value) => value.trim()).filter(Boolean);
+  const clean = (name: string) =>
+    params
+      .getAll(name)
+      .map((value) => value.trim())
+      .filter(Boolean);
   const tenants = clean("tenant");
   const texts = clean("q");
   if (!tenants.length && !texts.length) return null;
@@ -44,7 +48,11 @@ export function readScope(search: string): Scope | null {
 export function inScope(site: TenantedSite, scope: Scope | null): boolean {
   if (!scope) return true;
   const { lowerTenants, lowerTexts } = scope;
-  if (lowerTenants.length && !siteTenants(site).some((name) => lowerTenants.includes(name.toLowerCase()))) return false;
+  if (
+    lowerTenants.length &&
+    !siteTenants(site).some((name) => lowerTenants.includes(name.toLowerCase()))
+  )
+    return false;
   if (!lowerTexts.length) return true;
   const text = siteSearchText(site);
   return lowerTexts.every((needle) => text.includes(needle));
@@ -75,5 +83,7 @@ export function scopeLabel(scope: Scope | null, sites: TenantedSite[] = []): str
   if (!scope) return "";
   const known = new Map(sites.flatMap(siteTenants).map((name) => [name.toLowerCase(), name]));
   const tenants = scope.tenants.map((name) => known.get(name.toLowerCase()) || name);
-  return [tenants.join(", "), ...scope.texts.map((text) => `“${text}”`)].filter(Boolean).join(" · ");
+  return [tenants.join(", "), ...scope.texts.map((text) => `“${text}”`)]
+    .filter(Boolean)
+    .join(" · ");
 }

@@ -47,7 +47,15 @@ import {
 import { readScope } from "~/utils/scope";
 
 const device = (id: string, fields: Partial<DownDevice> = {}): DownDevice =>
-  ({ device_id: id, device_name: id, device_ip: "", status: "Active", role: "", case_numbers: [], ...fields }) as DownDevice;
+  ({
+    device_id: id,
+    device_name: id,
+    device_ip: "",
+    status: "Active",
+    role: "",
+    case_numbers: [],
+    ...fields,
+  }) as DownDevice;
 
 const site = (id: string, fields: Partial<BoardSite> = {}): BoardSite =>
   ({
@@ -86,14 +94,25 @@ const payload = (fields: Partial<Board> = {}): Board =>
     sync_pending: false,
     persistence_configured: true,
     alerts: [],
-    summary: { total: 0, critical: 0, medium: 0, low: 0, no_data: 0, ok: 0, maintenance: 0, non_ok: 0 },
+    summary: {
+      total: 0,
+      critical: 0,
+      medium: 0,
+      low: 0,
+      no_data: 0,
+      ok: 0,
+      maintenance: 0,
+      non_ok: 0,
+    },
     next_update_in_seconds: 60,
     ...fields,
   }) as Board;
 
 describe("the summary", () => {
   it("says only what is wrong", () => {
-    expect(boardSummaryText({ critical: 1, medium: 0, low: 2, non_ok: 3 })).toBe("3 alarms · 1 critical · 2 low");
+    expect(boardSummaryText({ critical: 1, medium: 0, low: 2, non_ok: 3 })).toBe(
+      "3 alarms · 1 critical · 2 low",
+    );
     expect(boardSummaryText({ low: 1 })).toBe("1 alarm · 1 low");
     expect(boardSummaryText({ total: 1200, ok: 1200 })).toBe("No alarms");
   });
@@ -106,18 +125,26 @@ describe("the summary", () => {
       maintenance: 1,
       wireless: 0,
     });
-    const scoped = scopeSummary([site("a", { alert_level: "critical" }), site("b"), site("c", { alert_level: "critical" })]);
+    const scoped = scopeSummary([
+      site("a", { alert_level: "critical" }),
+      site("b"),
+      site("c", { alert_level: "critical" }),
+    ]);
     expect(scoped).toEqual({ total: 3, critical: 2, ok: 1 });
     expect(chipCounts(scoped).alarms).toBe(2);
   });
 
   it("the status line: how many, when, stale and sync only when they are", () => {
     // The time in the browser's own format.
-    expect(boardStatusText(payload(), 12, true)).toMatch(/^12 sites with alarms · updated 12:05( PM)?$/);
+    expect(boardStatusText(payload(), 12, true)).toMatch(
+      /^12 sites with alarms · updated 12:05( PM)?$/,
+    );
     expect(boardStatusText(payload({ stale: true, sync_pending: true }), 1, false)).toMatch(
       /^1 site · updated 12:05( PM)? · data may be out of date · inventory sync in progress…$/,
     );
-    expect(boardStatusText(payload({ checked_at: "" }), 0, false)).toBe("0 sites · updated unknown");
+    expect(boardStatusText(payload({ checked_at: "" }), 0, false)).toBe(
+      "0 sites · updated unknown",
+    );
   });
 
   it("the countdown", () => {
@@ -134,7 +161,8 @@ describe("which sites, in which order", () => {
       name: `Site ${String(i).padStart(4, "0")}`,
       tenants: [i % 3 ? "Acme Corp" : "Nordic Net"],
       status: i % 50 ? "Active" : "Planned",
-      alert_level: i < 5 ? "critical" : i < 25 ? "low" : i < 28 ? "maintenance" : i < 40 ? "no_data" : "ok",
+      alert_level:
+        i < 5 ? "critical" : i < 25 ? "low" : i < 28 ? "maintenance" : i < 40 ? "no_data" : "ok",
       latest_down_at: i < 25 ? new Date(Date.UTC(2026, 9, 24, 10, i)).toISOString() : null,
       down_device_count: i < 25 ? 1 : 0,
     }),
@@ -160,8 +188,18 @@ describe("which sites, in which order", () => {
     const b = site("b", { alert_level: "low", tier_rank: 0, down_device_count: 1 });
     const c = site("c", { alert_level: "critical" });
     const d = site("d", { alert_level: "low", tier_rank: 99, down_device_count: 5 });
-    expect([a, b, c, d].sort((x, y) => compareSites(x, y, "severity")).map((s) => s.id)).toEqual(["c", "b", "d", "a"]);
-    expect([d, c, b, a].sort((x, y) => compareSites(x, y, "site")).map((s) => s.id)).toEqual(["a", "b", "c", "d"]);
+    expect([a, b, c, d].sort((x, y) => compareSites(x, y, "severity")).map((s) => s.id)).toEqual([
+      "c",
+      "b",
+      "d",
+      "a",
+    ]);
+    expect([d, c, b, a].sort((x, y) => compareSites(x, y, "site")).map((s) => s.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
   });
 
   it("the filter box, tenants, status and type", () => {
@@ -170,13 +208,19 @@ describe("which sites, in which order", () => {
     expect(filterSites(sites, { ...all, tenant: ["Nordic Net"] })).toHaveLength(400);
     expect(filterSites(sites, { ...all, tenant: ["Nordic Net", "Acme Corp"] })).toHaveLength(1200);
     expect(filterSites(sites, { ...all, status: ["Planned"] })).toHaveLength(24);
-    expect(boardChoices(sites)).toEqual({ status: ["Active", "Planned"], type: ["Site"], tenant: ["Acme Corp", "Nordic Net"] });
+    expect(boardChoices(sites)).toEqual({
+      status: ["Active", "Planned"],
+      type: ["Site"],
+      tenant: ["Acme Corp", "Nordic Net"],
+    });
   });
 
   it("More filters and Reset say when they are in use", () => {
     const none = noBoardCriteria();
     expect(filtersInUse(none)).toBe(false);
-    expect(moreFiltersInUse({ ...none, status: ["Planned"], nonOperational: true, sort: "site" })).toBe(3);
+    expect(
+      moreFiltersInUse({ ...none, status: ["Planned"], nonOperational: true, sort: "site" }),
+    ).toBe(3);
     expect(filtersInUse({ ...none, site: " x " })).toBe(true);
     expect(filtersInUse({ ...none, severity: "all" })).toBe(true);
     expect(filtersInUse({ ...none, site: "   " })).toBe(false);
@@ -186,18 +230,31 @@ describe("which sites, in which order", () => {
 describe("an empty board", () => {
   const counts = { inScope: 3, severity: "alarms" as const, scopeText: "" };
   it("says why", () => {
-    expect(emptyBoardText(payload({ persistence_configured: false }), counts, false).text).toContain("PostgreSQL");
-    expect(emptyBoardText(payload({ sync_pending: true }), { ...counts, inScope: 0 }, false).text).toContain("sync in progress");
+    expect(
+      emptyBoardText(payload({ persistence_configured: false }), counts, false).text,
+    ).toContain("PostgreSQL");
+    expect(
+      emptyBoardText(payload({ sync_pending: true }), { ...counts, inScope: 0 }, false).text,
+    ).toContain("sync in progress");
     expect(emptyBoardText(payload(), counts, false)).toEqual({
       text: "No site has an active alarm. Choose All sites to see every site.",
       kind: "all-clear",
     });
-    expect(emptyBoardText(payload(), { ...counts, severity: "all" }, true).text).toBe("No sites match the current filters.");
+    expect(emptyBoardText(payload(), { ...counts, severity: "all" }, true).text).toBe(
+      "No sites match the current filters.",
+    );
   });
 
   it("a link that matches nothing is never the all-clear (#364)", () => {
-    const empty = emptyBoardText(payload({ alerts: [site("a")] }), { ...counts, inScope: 0, scopeText: "nobody" }, false);
-    expect(empty).toEqual({ text: "No site matches nobody. Check the link's tenant= and q=.", kind: "no-match" });
+    const empty = emptyBoardText(
+      payload({ alerts: [site("a")] }),
+      { ...counts, inScope: 0, scopeText: "nobody" },
+      false,
+    );
+    expect(empty).toEqual({
+      text: "No site matches nobody. Check the link's tenant= and q=.",
+      kind: "no-match",
+    });
   });
 });
 
@@ -214,50 +271,96 @@ describe("a row", () => {
     expect(sinceLabel("in alarm", null)).toBe("—");
     expect(sinceLabel("down", 30)).toBe("down <1m");
     expect(sinceLabel("down", NaN)).toBe("down, time unknown");
-    const down = site("a", { alert_level: "low", current_downtime_seconds: 600, down_devices: [device("d", { down_started_at: "x" })] });
+    const down = site("a", {
+      alert_level: "low",
+      current_downtime_seconds: 600,
+      down_devices: [device("d", { down_started_at: "x" })],
+    });
     expect(siteAlarmSeconds(down)).toBeNaN();
-    expect(siteAlarmSeconds({ ...down, down_devices: [device("d", { down_started_at: "2026-10-24T10:00:00Z" })] })).toBe(600);
+    expect(
+      siteAlarmSeconds({
+        ...down,
+        down_devices: [device("d", { down_started_at: "2026-10-24T10:00:00Z" })],
+      }),
+    ).toBe(600);
     expect(siteAlarmSeconds({ ...down, alert_level: "maintenance" })).toBeNull();
-    expect(deviceDowntimeSeconds(device("d", { down_started_at: "2026-10-24T10:00:00Z" }), Date.UTC(2026, 9, 24, 10, 25))).toBe(1500);
+    expect(
+      deviceDowntimeSeconds(
+        device("d", { down_started_at: "2026-10-24T10:00:00Z" }),
+        Date.UTC(2026, 9, 24, 10, 25),
+      ),
+    ).toBe(1500);
   });
 
   it("whether someone is on it: a case or an acknowledgement; maintenance doesn't count", () => {
     const ack = { by: "olga", at: "", note: "" };
     expect(siteCaseState(site("a")).state).toBe("none");
-    expect(siteCaseState(site("a", { down_devices: [device("1", { case_numbers: ["INC-1"] }), device("2")] }))).toEqual({
+    expect(
+      siteCaseState(
+        site("a", { down_devices: [device("1", { case_numbers: ["INC-1"] }), device("2")] }),
+      ),
+    ).toEqual({
       state: "partly",
       without: 1,
       total: 2,
     });
-    expect(siteCaseState(site("a", { down_devices: [device("1", { acknowledged: ack }), device("2", { maintenance_until: "x" })] })).state).toBe(
-      "handled",
-    );
+    expect(
+      siteCaseState(
+        site("a", {
+          down_devices: [
+            device("1", { acknowledged: ack }),
+            device("2", { maintenance_until: "x" }),
+          ],
+        }),
+      ).state,
+    ).toBe("handled");
   });
 
   it("a device's line: where, role, stack, status, why", () => {
-    expect(deviceMeta(device("d", { role: "switch", status: "Active", down_reason: "LibreNMS: ping" }))).toBe("switch · Active · LibreNMS: ping");
+    expect(
+      deviceMeta(device("d", { role: "switch", status: "Active", down_reason: "LibreNMS: ping" })),
+    ).toBe("switch · Active · LibreNMS: ping");
     expect(deviceMeta(device("d", { status: "", flapping: true }))).toBe("Down device");
-    expect(stackText({ name: "sw1", size: 4, position: 2, master: false, whole: false })).toBe("Stack sw1, member 2 of 4");
-    expect(stackText({ name: "sw1", size: 4, position: 1, master: true, whole: false })).toBe("Stack sw1, master of 4");
-    const whole = { name: "sw1", size: 2, position: 1, master: true, whole: true, members: ["a", "b"] };
+    expect(stackText({ name: "sw1", size: 4, position: 2, master: false, whole: false })).toBe(
+      "Stack sw1, member 2 of 4",
+    );
+    expect(stackText({ name: "sw1", size: 4, position: 1, master: true, whole: false })).toBe(
+      "Stack sw1, master of 4",
+    );
+    const whole = {
+      name: "sw1",
+      size: 2,
+      position: 1,
+      master: true,
+      whole: true,
+      members: ["a", "b"],
+    };
     expect(stackText(whole)).toBe("Stack sw1: all 2 members down");
     expect(stackText(whole, { names: true })).toBe("Stack sw1: all 2 members down (a, b)");
     expect(stackText({ name: "x", size: 1, position: 1, master: true, whole: false })).toBe("");
   });
 
   it("flapping, a level set in Nautobot and maintenance say so (#286, #377, #283)", () => {
-    expect(flapTitle(device("d", { flap_changes: 1 }))).toBe("Up and down 1 time in the last 30 minutes");
-    expect(flapTitle(device("d", { flap_changes: 6 }))).toBe("Up and down 6 times in the last 30 minutes");
+    expect(flapTitle(device("d", { flap_changes: 1 }))).toBe(
+      "Up and down 1 time in the last 30 minutes",
+    );
+    expect(flapTitle(device("d", { flap_changes: 6 }))).toBe(
+      "Up and down 6 times in the last 30 minutes",
+    );
     expect(setLevel(device("d", { set_level: "low" }))).toBe("low");
     // Only known levels reach the page.
     expect(setLevel(device("d", { set_level: "<b>" }))).toBe("");
     expect(setLevel(device("d"))).toBe("");
     expect(maintenanceNote("", "core switch upgrade")).toBe("core switch upgrade");
-    expect(maintenanceNote("2026-10-24T14:00:00Z", "", new Date("2026-10-24T12:00:00Z"))).toMatch(/^until (14|02):00( PM)?$/);
+    expect(maintenanceNote("2026-10-24T14:00:00Z", "", new Date("2026-10-24T12:00:00Z"))).toMatch(
+      /^until (14|02):00( PM)?$/,
+    );
   });
 
   it("a case number links to its ticket (#289)", () => {
-    expect(caseUrl("INC 1/2", "https://itsm.example/t/{case}")).toBe("https://itsm.example/t/INC%201%2F2");
+    expect(caseUrl("INC 1/2", "https://itsm.example/t/{case}")).toBe(
+      "https://itsm.example/t/INC%201%2F2",
+    );
     expect(caseUrl("INC-1", "")).toBe("");
   });
 });
@@ -281,25 +384,46 @@ describe("cases and acknowledgements", () => {
 
   it("no devices means every down device, sent as null (#288)", () => {
     expect(ackRequestBody("s1", [])).toEqual({ site_id: "s1", device_ids: null, note: "" });
-    expect(ackRequestBody("s1", ["d1"], "on my way")).toEqual({ site_id: "s1", device_ids: ["d1"], note: "on my way" });
+    expect(ackRequestBody("s1", ["d1"], "on my way")).toEqual({
+      site_id: "s1",
+      device_ids: ["d1"],
+      note: "on my way",
+    });
   });
 });
 
 describe("the feed", () => {
   const event = (fields: Partial<FeedEvent>): FeedEvent =>
-    ({ kind: "down", at: "2026-10-24T10:05:00Z", site_id: "s", site_name: "Oslo", device_id: "d", device_name: "sw1", level: "low", ...fields }) as FeedEvent;
+    ({
+      kind: "down",
+      at: "2026-10-24T10:05:00Z",
+      site_id: "s",
+      site_name: "Oslo",
+      device_id: "d",
+      device_name: "sw1",
+      level: "low",
+      ...fields,
+    }) as FeedEvent;
   const now = new Date("2026-10-24T12:00:00Z");
 
   it("down, with when it went down if earlier; up; severity", () => {
     // The time in the browser's own format.
     const at = "10:05( AM)?";
-    expect(feedEntry(event({ down_since: "2026-10-24T10:05:00Z" }), now)).toMatchObject({ title: "sw1", text: "down" });
-    expect(feedEntry(event({ down_since: "2026-10-24T10:05:00Z" }), now).meta).toMatch(new RegExp(`^${at} · Oslo$`));
+    expect(feedEntry(event({ down_since: "2026-10-24T10:05:00Z" }), now)).toMatchObject({
+      title: "sw1",
+      text: "down",
+    });
+    expect(feedEntry(event({ down_since: "2026-10-24T10:05:00Z" }), now).meta).toMatch(
+      new RegExp(`^${at} · Oslo$`),
+    );
     expect(feedEntry(event({ down_since: "2026-10-24T09:00:00Z" }), now).meta).toMatch(
       new RegExp(`^${at} · Oslo · down since 0?9:00( AM)?$`),
     );
     expect(feedEntry(event({ kind: "up" }), now)).toMatchObject({ title: "sw1", text: "back up" });
-    expect(feedEntry(event({ kind: "severity", device_name: "" }), now)).toMatchObject({ title: "Oslo", text: "" });
+    expect(feedEntry(event({ kind: "severity", device_name: "" }), now)).toMatchObject({
+      title: "Oslo",
+      text: "",
+    });
     expect(feedEntry(event({ kind: "severity" }), now).meta).toMatch(new RegExp(`^${at}$`));
   });
 
@@ -324,14 +448,27 @@ describe("Copy, History and the wall link", () => {
         down_device_count: 2,
         active_cases: ["INC-1"],
         down_devices: [
-          device("e", { device_name: "edge", down_started_at: "2026-10-24T10:00:00Z", probable_cause: "core" }),
-          device("c", { device_name: "core", core: true, device_ip: "10.0.0.1", down_started_at: "2026-10-24T09:00:00Z" }),
+          device("e", {
+            device_name: "edge",
+            down_started_at: "2026-10-24T10:00:00Z",
+            probable_cause: "core",
+          }),
+          device("c", {
+            device_name: "core",
+            core: true,
+            device_ip: "10.0.0.1",
+            down_started_at: "2026-10-24T09:00:00Z",
+          }),
         ],
       }),
       { nautobotUrl: "https://nautobot.example/", caseTemplate: "https://itsm.example/{case}" },
     );
-    expect(report).toContain("Site: Oslo\nLocation: EMEA › NOR\nTenants (2): Acme Corp, Nordic Net");
-    expect(report).toContain("Severity: CRITICAL · 2 of 7 devices down · since 2026-10-24 09:00 +00:00");
+    expect(report).toContain(
+      "Site: Oslo\nLocation: EMEA › NOR\nTenants (2): Acme Corp, Nordic Net",
+    );
+    expect(report).toContain(
+      "Severity: CRITICAL · 2 of 7 devices down · since 2026-10-24 09:00 +00:00",
+    );
     expect(report).toContain("Cases: INC-1 (https://itsm.example/INC-1)");
     expect(report).toContain("Nautobot: https://nautobot.example/dcim/locations/s1/");
     expect(report).toContain("Likely cause: core down; 1 other device probably behind it");
@@ -362,7 +499,9 @@ describe("Copy, History and the wall link", () => {
         role: "Access Point",
         access_point: true,
         down_started_at: "2026-10-24T08:09:00Z",
-        neighbour: uplink ? { device: uplink, port: `GigabitEthernet1/0/${n}`, source: "Catalyst Center dk" } : null,
+        neighbour: uplink
+          ? { device: uplink, port: `GigabitEthernet1/0/${n}`, source: "Catalyst Center dk" }
+          : null,
         ...extra,
       });
     const report = siteReport(
@@ -378,11 +517,16 @@ describe("Copy, History and the wall link", () => {
           ap(14, null),
           ap(15, null, { case_numbers: ["INC-9"] }),
           // Set to a level in Nautobot: an alarm like the switches, so with them.
-          ap(16, "cop-acc-sw05", { set_level: "critical", down_started_at: "2026-10-25T07:00:00Z" }),
+          ap(16, "cop-acc-sw05", {
+            set_level: "critical",
+            down_started_at: "2026-10-25T07:00:00Z",
+          }),
         ],
       }),
     );
-    expect(report).toContain("Severity: CRITICAL · 22 of 40 devices down (15 of them access points) · since 2026-10-24 08:08 +00:00");
+    expect(report).toContain(
+      "Severity: CRITICAL · 22 of 40 devices down (15 of them access points) · since 2026-10-24 08:08 +00:00",
+    );
     const lines = report.split("\n");
     const network = lines.indexOf("Network devices down (7):");
     expect(lines[network + 1]).toBe(
@@ -392,7 +536,9 @@ describe("Copy, History and the wall link", () => {
     expect(lines.slice(network + 2, network + 8).map((line) => line.split(" · ")[0])).toEqual(
       Array.from({ length: 6 }, (_, i) => `- cop-acc-sw0${i}`),
     );
-    expect(lines[network + 2]).toBe("- cop-acc-sw00 · 10.0.3.2 · Access Switch · down since 08:08 · INC-7");
+    expect(lines[network + 2]).toBe(
+      "- cop-acc-sw00 · 10.0.3.2 · Access Switch · down since 08:08 · INC-7",
+    );
     expect(lines.slice(lines.indexOf("Access points down (15), by switch:") + 1)).toEqual([
       `- cop-acc-sw04 (12): ${Array.from({ length: 12 }, (_, i) => `cop-ap${String(i + 1).padStart(2, "0")} Gi1/0/${i + 1}`).join(", ")}`,
       "- cop-acc-sw05 (1): cop-ap13 Gi1/0/13",
@@ -413,7 +559,11 @@ describe("Copy, History and the wall link", () => {
           device("a", {
             device_name: "hel0008-ap03",
             access_point: true,
-            neighbour: { device: "hel0008-acc-sw02", port: "Gi1/0/14", source: "Catalyst Center dnac01" },
+            neighbour: {
+              device: "hel0008-acc-sw02",
+              port: "Gi1/0/14",
+              source: "Catalyst Center dnac01",
+            },
           }),
         ],
       }),
@@ -434,16 +584,24 @@ describe("Copy, History and the wall link", () => {
   });
 
   it("the history's CSV for a period", () => {
-    expect(historyExportUrl("s 1", "devices", "7")).toBe("/api/v1/alert-history.csv?site_id=s+1&days=7&view=devices");
+    expect(historyExportUrl("s 1", "devices", "7")).toBe(
+      "/api/v1/alert-history.csv?site_id=s+1&days=7&view=devices",
+    );
   });
 
   it("the wall for what the board shows (#366)", () => {
     const scope = readScope("?tenant=Acme%20Corp&q=DNK");
     expect(wallLinkFor({ tenant: [], text: "", scope: null })).toBeNull();
-    expect(wallLinkFor({ tenant: [], text: " London ", scope: null })).toBe("/alerts?view=wall&q=London");
-    expect(wallLinkFor({ tenant: [], text: "", scope })).toBe("/alerts?view=wall&tenant=Acme+Corp&q=DNK");
+    expect(wallLinkFor({ tenant: [], text: " London ", scope: null })).toBe(
+      "/alerts?view=wall&q=London",
+    );
+    expect(wallLinkFor({ tenant: [], text: "", scope })).toBe(
+      "/alerts?view=wall&tenant=Acme+Corp&q=DNK",
+    );
     // The tenant filter replaces the link's tenants; the words add up.
-    expect(wallLinkFor({ tenant: ["Nordic Net"], text: "Oslo", scope })).toBe("/alerts?view=wall&tenant=Nordic+Net&q=DNK&q=Oslo");
+    expect(wallLinkFor({ tenant: ["Nordic Net"], text: "Oslo", scope })).toBe(
+      "/alerts?view=wall&tenant=Nordic+Net&q=DNK&q=Oslo",
+    );
     expect(filtersLeftOffTheWall({ status: ["Planned"], type: [] })).toEqual(["Status"]);
   });
 });

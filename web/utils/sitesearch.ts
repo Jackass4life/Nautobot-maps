@@ -24,7 +24,9 @@ export function siteAddress(site: SearchableSite): string {
 
 // What a filter box (and a link's ?q=) searches: name, path, address, country.
 export function siteSearchText(site: SearchableSite): string {
-  return [site.name, site.ancestor_path || site.parent, siteAddress(site), site.country].join(" ").toLowerCase();
+  return [site.name, site.ancestor_path || site.parent, siteAddress(site), site.country]
+    .join(" ")
+    .toLowerCase();
 }
 
 const texts = new WeakMap<SearchableSite, { name: string; all: string }>();
@@ -52,7 +54,8 @@ export function matchSites<T extends SearchableSite>(
   for (const site of sites) {
     const { name, all } = textsOf(site);
     if (name === exact) found.push({ site, rank: -1 });
-    else if (hasAllWords(name, words)) found.push({ site, rank: name.startsWith(words[0]!) ? 0 : 1 });
+    else if (hasAllWords(name, words))
+      found.push({ site, rank: name.startsWith(words[0]!) ? 0 : 1 });
     else if (hasAllWords(all, words)) found.push({ site, rank: 2 });
   }
   found.sort((a, b) => a.rank - b.rank || (a.site.name || "").localeCompare(b.site.name || ""));

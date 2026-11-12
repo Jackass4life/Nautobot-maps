@@ -2,11 +2,11 @@
 // shadcn-vue's Sonner (new-york-v4, #640): the app's toasts, put once in app.vue.
 // Its colours are shadcn's tokens (assets/css/shadcn.css, .toaster), so Nuxt UI's;
 // the icons are the iconify Lucide set, bundled like every other icon.
-import type { ToasterProps } from "vue-sonner"
-import { Toaster } from "vue-sonner"
-import { cn } from "@/lib/utils"
+import type { ToasterProps } from "vue-sonner";
+import { Toaster } from "vue-sonner";
+import { cn } from "@/lib/utils";
 
-const props = defineProps<ToasterProps>()
+const props = defineProps<ToasterProps>();
 </script>
 
 <template>

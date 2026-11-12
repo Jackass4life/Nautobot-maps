@@ -15,7 +15,8 @@ defineProps<{ cases: string[] | null | undefined; template: string; empty?: stri
         target="_blank"
         rel="noopener noreferrer"
         title="Open the ticket"
-      >{{ value }}</a>
+        >{{ value }}</a
+      >
       <span v-else class="case-pill">{{ value }}</span>
     </template>
   </span>

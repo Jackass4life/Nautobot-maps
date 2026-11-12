@@ -32,18 +32,27 @@ const open = ref(new Set<CircuitGroup>());
 
 const words = computed(() => searchWords(query.value));
 const shown = computed(() =>
-  words.value.length ? circuits.value.filter((circuit) => matches(circuit, words.value)) : circuits.value,
+  words.value.length
+    ? circuits.value.filter((circuit) => matches(circuit, words.value))
+    : circuits.value,
 );
 const groups = computed(() =>
   GROUPS.map((group) => {
     const members = shown.value.filter((circuit) => circuit.group === group.id);
     const limit = limits.value[group.id] || CIRCUITS_STEP;
-    return { ...group, members, visible: members.slice(0, limit), rest: Math.max(0, members.length - limit) };
+    return {
+      ...group,
+      members,
+      visible: members.slice(0, limit),
+      rest: Math.max(0, members.length - limit),
+    };
   }),
 );
 // A search unfolds the groups it found something in; a plain list keeps the operator's.
 function isOpen(group: CircuitGroup) {
-  return words.value.length ? groups.value.some((g) => g.id === group && g.members.length) : open.value.has(group);
+  return words.value.length
+    ? groups.value.some((g) => g.id === group && g.members.length)
+    : open.value.has(group);
 }
 function onToggle(group: CircuitGroup, event: Event) {
   if (words.value.length) return;
@@ -53,7 +62,10 @@ function onToggle(group: CircuitGroup, event: Event) {
   open.value = next;
 }
 function showMore(group: CircuitGroup) {
-  limits.value = { ...limits.value, [group]: (limits.value[group] || CIRCUITS_STEP) + CIRCUITS_STEP };
+  limits.value = {
+    ...limits.value,
+    [group]: (limits.value[group] || CIRCUITS_STEP) + CIRCUITS_STEP,
+  };
 }
 watch(query, () => {
   limits.value = {};
@@ -82,8 +94,9 @@ onMounted(async () => {
     <main class="mx-auto max-w-6xl space-y-4 px-4 py-6">
       <h1 class="text-2xl font-bold text-highlighted">Circuit mapping</h1>
       <p class="max-w-3xl text-sm text-muted">
-        Circuits in Nautobot without a termination at a location, and the site their description's address
-        points to. Add the termination in Nautobot and the circuit leaves this list at the next sync.
+        Circuits in Nautobot without a termination at a location, and the site their description's
+        address points to. Add the termination in Nautobot and the circuit leaves this list at the
+        next sync.
       </p>
 
       <div class="flex flex-wrap items-center gap-3">
@@ -97,10 +110,24 @@ onMounted(async () => {
           autocomplete="off"
           class="w-full sm:w-96"
         />
-        <UButton id="circuit-csv" to="/api/v1/circuit-mapping.csv" external download color="neutral" variant="outline" icon="i-lucide-download">
+        <UButton
+          id="circuit-csv"
+          to="/api/v1/circuit-mapping.csv"
+          external
+          download
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-download"
+        >
           Download CSV
         </UButton>
-        <p id="circuit-status" class="text-sm text-muted" :class="{ 'text-error': error }" role="status">{{ status }}</p>
+        <p
+          id="circuit-status"
+          class="text-sm text-muted"
+          :class="{ 'text-error': error }"
+          role="status"
+          >{{ status }}</p
+        >
       </div>
 
       <div v-if="loaded" id="circuit-groups" class="space-y-3">
@@ -113,15 +140,26 @@ onMounted(async () => {
           :open="isOpen(group.id)"
           @toggle="onToggle(group.id, $event)"
         >
-          <summary class="flex cursor-pointer list-none items-center gap-2 bg-elevated/50 px-4 py-3 font-semibold text-highlighted">
-            <UIcon name="i-lucide-chevron-right" class="size-4 text-muted transition-transform group-open:rotate-90" />
+          <summary
+            class="flex cursor-pointer list-none items-center gap-2 bg-elevated/50 px-4 py-3 font-semibold text-highlighted"
+          >
+            <UIcon
+              name="i-lucide-chevron-right"
+              class="size-4 text-muted transition-transform group-open:rotate-90"
+            />
             {{ group.title }}
-            <UBadge color="neutral" variant="subtle" size="sm">{{ group.members.length.toLocaleString("en") }}</UBadge>
+            <UBadge color="neutral" variant="subtle" size="sm">{{
+              group.members.length.toLocaleString("en")
+            }}</UBadge>
           </summary>
           <p class="border-t border-default px-4 py-2 text-sm text-muted">{{ group.hint }}</p>
           <p v-if="!group.members.length" class="px-4 pb-3 text-sm text-muted">None.</p>
           <ul v-else class="divide-y divide-default border-t border-default">
-            <li v-for="circuit in group.visible" :key="circuit.id" class="circuit-row flex flex-wrap gap-x-6 gap-y-1 px-4 py-3">
+            <li
+              v-for="circuit in group.visible"
+              :key="circuit.id"
+              class="circuit-row flex flex-wrap gap-x-6 gap-y-1 px-4 py-3"
+            >
               <div class="min-w-0 flex-1 basis-80">
                 <div>
                   <strong>
@@ -131,12 +169,15 @@ onMounted(async () => {
                       :href="nautobotCircuitUrl(nautobotUrl, circuit.id)"
                       target="_blank"
                       rel="noopener noreferrer"
-                    >{{ circuit.cid }}</a>
+                      >{{ circuit.cid }}</a
+                    >
                     <template v-else>{{ circuit.cid }}</template>
                   </strong>
                   <span v-if="circuit.status" class="text-muted"> · {{ circuit.status }}</span>
                 </div>
-                <div v-if="circuitKind(circuit)" class="text-sm text-muted">{{ circuitKind(circuit) }}</div>
+                <div v-if="circuitKind(circuit)" class="text-sm text-muted">{{
+                  circuitKind(circuit)
+                }}</div>
                 <div class="text-sm text-muted">{{ circuit.description || "No description" }}</div>
               </div>
               <div class="circuit-sites text-sm">
@@ -144,7 +185,12 @@ onMounted(async () => {
                   <template v-for="(site, index) in circuit.sites" :key="site.id">
                     <span v-if="index">, </span>
                     <!-- On the map: its panel; off the map (no coordinates): Nautobot. -->
-                    <a v-if="site.on_map" class="circuit-site text-primary hover:underline" :href="`/?location_id=${encodeURIComponent(site.id)}`">{{ site.name }}</a>
+                    <a
+                      v-if="site.on_map"
+                      class="circuit-site text-primary hover:underline"
+                      :href="`/?location_id=${encodeURIComponent(site.id)}`"
+                      >{{ site.name }}</a
+                    >
                     <a
                       v-else-if="nautobotUrl"
                       class="circuit-site text-primary hover:underline"
@@ -152,7 +198,8 @@ onMounted(async () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       title="Not on the map: no coordinates"
-                    >{{ site.name }}</a>
+                      >{{ site.name }}</a
+                    >
                     <template v-else>{{ site.name }}</template>
                   </template>
                 </template>
@@ -162,7 +209,13 @@ onMounted(async () => {
           </ul>
           <p v-if="group.rest" class="border-t border-default px-4 py-2 text-sm text-muted">
             {{ group.rest.toLocaleString("en") }} more
-            <UButton class="circuit-more ml-2" size="xs" color="neutral" variant="outline" @click="showMore(group.id)">
+            <UButton
+              class="circuit-more ml-2"
+              size="xs"
+              color="neutral"
+              variant="outline"
+              @click="showMore(group.id)"
+            >
               Show {{ Math.min(CIRCUITS_STEP, group.rest) }} more
             </UButton>
           </p>

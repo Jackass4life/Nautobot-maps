@@ -1,6 +1,14 @@
 // Days, ranges and "when" (#341, #343; on Nuxt since #463).
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, formatRange, monthEnd, monthGrid, parseDay, quickPeriod } from "~/utils/calendar";
+import {
+  addDays,
+  addMonths,
+  formatRange,
+  monthEnd,
+  monthGrid,
+  parseDay,
+  quickPeriod,
+} from "~/utils/calendar";
 import { defaultPlan, TIME_OPTIONS, whenRequest, whenSummary, type WhenValues } from "~/utils/when";
 
 describe("days", () => {
@@ -33,13 +41,25 @@ describe("days", () => {
   });
 
   it("quick choices", () => {
-    expect(quickPeriod("this-month", "2026-10-14")).toEqual({ from: "2026-10-01", to: "2026-10-31" });
-    expect(quickPeriod("last-month", "2026-10-14")).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(quickPeriod("this-month", "2026-10-14")).toEqual({
+      from: "2026-10-01",
+      to: "2026-10-31",
+    });
+    expect(quickPeriod("last-month", "2026-10-14")).toEqual({
+      from: "2026-09-01",
+      to: "2026-09-30",
+    });
     expect(quickPeriod("last-7", "2026-10-14")).toEqual({ from: "2026-10-08", to: "2026-10-14" });
   });
 
   it("a month's grid: weeks from Monday, limits, the range", () => {
-    const grid = monthGrid("2026-10-01", { from: "2026-10-05", to: "2026-10-07", min: "2026-10-02", max: "2026-10-20", today: "2026-10-14" });
+    const grid = monthGrid("2026-10-01", {
+      from: "2026-10-05",
+      to: "2026-10-07",
+      min: "2026-10-02",
+      max: "2026-10-20",
+      today: "2026-10-14",
+    });
     expect(grid.title).toBe("October 2026");
     expect(grid.lead).toBe(3); // 1 Oct 2026 is a Thursday
     expect(grid.days).toHaveLength(31);
@@ -72,12 +92,17 @@ describe("when", () => {
   it("one day with To before From runs overnight", () => {
     expect(whenSummary(plan({}))).toBe("Thu 15 Oct 22:00 → Fri 16 Oct 02:00 (4h)");
     const request = whenRequest(plan({}));
-    expect("starts_at" in request && new Date(request.ends_at).getTime() - new Date(request.starts_at).getTime()).toBe(4 * 3600 * 1000);
+    expect(
+      "starts_at" in request &&
+        new Date(request.ends_at).getTime() - new Date(request.starts_at).getTime(),
+    ).toBe(4 * 3600 * 1000);
   });
 
   it("now for a while, or why it isn't a window", () => {
     expect(whenRequest(plan({ when: "now" }))).toEqual({ duration_minutes: 120 });
-    expect(whenRequest(plan({ endDay: "2026-10-14", endTime: "10:00" }))).toEqual({ error: "To must be after From." });
+    expect(whenRequest(plan({ endDay: "2026-10-14", endTime: "10:00" }))).toEqual({
+      error: "To must be after From.",
+    });
     expect(whenRequest(plan({ startDay: "" }))).toEqual({ error: "Choose the days and times." });
   });
 });
