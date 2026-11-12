@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
 
 from app.db import session
 from app.services import contract_service as contract
@@ -192,9 +191,8 @@ class TestStorage:
             thread.start()
         for thread in threads:
             thread.join(10)
-        with session.engine.connect() as conn:
-            rows = conn.execute(text("SELECT field FROM contract_checks ORDER BY field"))
-            assert [row.field for row in rows] == ["", "device_id"]
+        rows = adb.sql("SELECT field FROM contract_checks ORDER BY field")
+        assert [row["field"] for row in rows] == ["", "device_id"]
 
 
 def test_the_api_answers_the_contract_and_the_checks(client):

@@ -8,7 +8,6 @@ import sys
 import pytest
 
 import app  # noqa: F401  (initializes the cache pg_database clears)
-from app.db import connection as db
 from app.services import metrics_service as metrics
 from tests import db as adb
 
@@ -25,9 +24,9 @@ def test_table_sizes_and_the_oldest_history(pg_database):
     assert not any(line.startswith("nautobot_maps_history_oldest") for line in samples), (
         "no history yet: no sample"
     )
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             conn.execute(
                 "INSERT INTO site_level_changes (site_id, site_name, from_level, to_level, changed_at) "
                 "VALUES ('s1', 'Oslo', 'ok', 'critical', '2026-01-01T00:00:00Z')"

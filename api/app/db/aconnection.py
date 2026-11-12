@@ -215,8 +215,8 @@ async def try_advisory_lock(name: str) -> Callable[[], Awaitable[None]] | bool:
     False when another holds it (#663). The lock is the session's: a connection of its
     own holds it until the release, which gives the connection back. When the unlock
     fails (cancelled, connection lost), the connection is closed instead, so the lock
-    ends with it and no pooled connection keeps it. The same keys as the psycopg lock
-    had: the two exclude each other."""
+    ends with it and no pooled connection keeps it. The same keys as the first app's
+    locks (and this app's psycopg ones before #664): they exclude each other."""
     key = advisory_lock_key(name)
     conn, close = await open_connection()
     try:

@@ -230,11 +230,16 @@ def test_trusted_proxies(monkeypatch):
 
 def test_database_url_names(monkeypatch):
     """The current app's NAUTOBOT_MAPS_DATABASE_URL first, DATABASE_URL too; the
-    current app's postgresql:// URLs get the psycopg driver."""
+    current app's postgresql:// URLs get the asyncpg driver, and so do the psycopg ones
+    the new stack took until #664."""
     s = load(monkeypatch, NAUTOBOT_MAPS_DATABASE_URL="postgresql://u:p@db:5432/maps")
-    assert s.database_url == "postgresql+psycopg://u:p@db:5432/maps"
+    assert s.database_url == "postgresql+asyncpg://u:p@db:5432/maps"
     s = load(monkeypatch, DATABASE_URL="postgres://u@db/maps")
-    assert s.database_url == "postgresql+psycopg://u@db/maps"
+    assert s.database_url == "postgresql+asyncpg://u@db/maps"
+    s = load(monkeypatch, DATABASE_URL="postgresql+psycopg://u@db/maps?sslmode=require")
+    assert s.database_url == "postgresql+asyncpg://u@db/maps?sslmode=require"
+    s = load(monkeypatch, DATABASE_URL="postgresql+asyncpg://u@db/maps")
+    assert s.database_url == "postgresql+asyncpg://u@db/maps"
     s = load(
         monkeypatch,
         NAUTOBOT_MAPS_DATABASE_URL="postgresql://u@one/maps",

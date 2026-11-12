@@ -323,12 +323,22 @@ def _origins(raw: str) -> list[str]:
     return _csv_list(raw, ",")
 
 
+# The URL schemes given the asyncpg driver: the current app's (postgres://,
+# postgresql://), and psycopg's, which the new stack used until #664.
+_POSTGRES_SCHEMES = (
+    "postgres://",
+    "postgresql://",
+    "postgresql+psycopg://",
+    "postgresql+psycopg2://",
+)
+
+
 def _sqlalchemy_scheme(url: str) -> str:
-    """postgres:// and postgresql:// (the current app's URLs) with the psycopg driver."""
+    """A PostgreSQL URL with the asyncpg driver (the app's only one since #664)."""
     url = url.strip()
-    for scheme in ("postgres://", "postgresql://"):
+    for scheme in _POSTGRES_SCHEMES:
         if url.lower().startswith(scheme):
-            return "postgresql+psycopg://" + url[len(scheme) :]
+            return "postgresql+asyncpg://" + url[len(scheme) :]
     return url
 
 
@@ -444,7 +454,7 @@ class Settings(BaseSettings):
     # stack's. Two fields, not aliases: an empty first one must not hide the second.
     nautobot_maps_database_url: Annotated[str, _text(_sqlalchemy_scheme)] = ""
     database_url: Annotated[str, _text(_sqlalchemy_scheme)] = (
-        "postgresql+psycopg://postgres:postgres@localhost:5432/app"
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/app"
     )
     db_connect_timeout_seconds: Int = 5
     db_statement_timeout_seconds: Int = 60

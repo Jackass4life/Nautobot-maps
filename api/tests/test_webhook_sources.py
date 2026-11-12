@@ -7,7 +7,6 @@ import pytest
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.db import aconnection, session
-from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from app.services import webhooks_service as webhooks
@@ -48,9 +47,9 @@ def site(pg_database, monkeypatch, clock):
             "primary_ip": "2001:db8::3/64",
         },
     ]
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             adb.call(
                 inventory.record_sync_state,
@@ -304,7 +303,7 @@ class TestReviewFixes:
         assert len(event["key"]) == 64, "a hash of the labels instead"
 
     def test_an_expired_alert_firing_again_starts_anew_and_is_pruned(self, site, clock):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))
             clock["now"] = "2026-10-11T12:00:00Z"  # past the 24 h TTL
@@ -325,7 +324,7 @@ class TestReviewFixes:
     def test_a_rebuild_that_lost_the_lock_is_done_by_the_tick(self, site, clock, monkeypatch):
         from app.services import scheduler
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             assert adb.call(webhooks.pending_rebuild) is None
             adb.call(webhooks.store, webhooks.parse_generic({"device": "acc1", "status": "down"}))

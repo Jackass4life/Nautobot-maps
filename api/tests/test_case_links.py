@@ -100,13 +100,12 @@ def test_the_csv_has_the_links(monkeypatch):
 def test_the_csv_reads_the_numbers_as_a_list(pg_database, monkeypatch):
     from datetime import UTC, datetime
 
-    from app.db import connection as db
     from app.services import export_service as export
 
     monkeypatch.setattr(settings, "CASE_URL_TEMPLATE", TEMPLATE)
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             row = conn.execute(
                 "INSERT INTO alert_instances (alert_key, site_id, site_name, device_id, device_name, alert_level, "
                 "status, down_started_at, last_seen_down_at) "

@@ -67,8 +67,8 @@ jobs:
           --health-retries 20
 
     env:
-      DATABASE_URL: "postgresql+psycopg://api:api@127.0.0.1:5432/api_test"
-      API_TEST_DATABASE_URL: "postgresql+psycopg://api:api@127.0.0.1:5432/api_test"
+      DATABASE_URL: "postgresql://api:api@127.0.0.1:5432/api_test"
+      API_TEST_DATABASE_URL: "postgresql://api:api@127.0.0.1:5432/api_test"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -307,7 +307,7 @@ jobs:
           uv sync --locked
           uv run pytest tests/test_nautobot_live.py -v
         env:
-          API_TEST_DATABASE_URL: "postgresql+psycopg://api:api@127.0.0.1:5433/api_test"
+          API_TEST_DATABASE_URL: "postgresql://api:api@127.0.0.1:5433/api_test"
           NAUTOBOT_LIVE_URL: "http://localhost:8080"
           NAUTOBOT_LIVE_TOKEN: "aaaa-bbbb-cccc-dddd-eeee"
 

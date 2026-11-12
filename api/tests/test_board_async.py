@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 
 from app.clients import caching
 from app.db import aconnection
-from app.db import connection as db
 from app.services import alerts_service as alerts
 from tests import db as adb
 from tests import test_maintenance
@@ -20,7 +19,7 @@ site = test_maintenance.site
 
 
 def rows(sql: str) -> list[dict]:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         return [dict(row) for row in conn.execute(sql).fetchall()]
     finally:
@@ -31,7 +30,7 @@ def test_waiting_for_another_build_leaves_the_event_loop_free(site):
     """A build waiting for the lock sleeps on the loop, never blocks it: requests are
     answered meanwhile."""
     caching.cache.clear()
-    release = db.try_advisory_lock(alerts.BOARD_BUILD_LOCK)  # another worker is building
+    release = adb.hold_lock(alerts.BOARD_BUILD_LOCK)  # another worker is building
     assert callable(release)
 
     async def go() -> tuple[dict, float]:

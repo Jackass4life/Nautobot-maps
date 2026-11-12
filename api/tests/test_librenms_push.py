@@ -56,9 +56,9 @@ def lnms(pg_database, monkeypatch):
     rebuilds = []
     monkeypatch.setattr(scheduler, "rebuild_after_push", lambda: rebuilds.append(True))
     fake.rebuilds = rebuilds
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(inventory.write_locations, [_snapshot_location("loc-1", "Aarhus")])
             adb.call(
                 inventory.write_devices,
@@ -101,7 +101,7 @@ def board_row() -> dict:
 
 
 def pending() -> bool:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         return bool(
             conn.execute(
@@ -251,7 +251,7 @@ class TestPush:
         ]
 
     def test_hostname_lookups_have_an_index(self, lnms):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             row = conn.execute(
                 "SELECT indexdef FROM pg_indexes WHERE indexname = 'librenms_device_status_hostname_lower'"
@@ -359,7 +359,7 @@ class TestRebuild:
 
         monkeypatch.setattr(scheduler, "rebuild_board", rebuild_while_another_push_comes)
         assert asyncio.run(scheduler.tick()) is True
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             rows = conn.execute(
                 "SELECT device_id FROM librenms_device_status WHERE push_seq IS NOT NULL"
@@ -373,9 +373,9 @@ class TestRebuild:
         monkeypatch.setattr(scheduler, "send_notifications", adb.async_of(lambda: None))
 
         monkeypatch.setattr(session, "spawn", adb.spawn_inline)
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 conn.execute(
                     "UPDATE librenms_device_status SET status = 0, push_seq = nextval('librenms_push_seq') "
                     "WHERE device_id = 1000"

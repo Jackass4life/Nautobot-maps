@@ -43,10 +43,10 @@ def test_a_tick_runs_the_due_syncs_and_rebuilds_the_board(pg_database):
 
 def test_only_one_process_ticks_at_a_time():
     """Another worker (or the current app) holding the lock makes this tick skip."""
-    release = db.try_advisory_lock("background_scheduler")
+    release = adb.hold_lock("background_scheduler")
     assert callable(release)
     try:
-        assert db.try_advisory_lock("background_scheduler") is False
+        assert adb.hold_lock("background_scheduler") is False
         with patch.object(inventory, "ensure_snapshot") as ensure:
             assert asyncio.run(scheduler.tick()) is False
         ensure.assert_not_called()
@@ -55,7 +55,7 @@ def test_only_one_process_ticks_at_a_time():
     # Released: the next one may.
     with patch.object(inventory, "ensure_snapshot", return_value=False):
         assert asyncio.run(scheduler.tick()) is False
-    again = db.try_advisory_lock("background_scheduler")
+    again = adb.hold_lock("background_scheduler")
     assert callable(again)
     again()
 

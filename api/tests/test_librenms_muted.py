@@ -10,7 +10,6 @@ import pytest
 
 from app.clients import caching, nautobot
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
 from tests import db as adb
@@ -25,9 +24,9 @@ FLAGS = {
 
 
 def store(lnms_devices: list) -> None:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(inventory.write_librenms_devices, lnms_devices)
     finally:
         conn.close()
@@ -114,9 +113,9 @@ class TestBoard:
         assert "librenms_muted" not in devices["sw1"]
 
     def test_a_muted_member_is_not_in_its_stack(self, lnms):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 adb.call(
                     inventory.write_devices,
                     [

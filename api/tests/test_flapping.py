@@ -234,11 +234,10 @@ class TestCameUpAt:
 
 class TestMapWindow:
     def test_flapping_ends_with_the_window_also_before_a_board_build(self, flapping, clock):
-        from app.db import connection as db
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 conn.execute(
                     "INSERT INTO device_states (device_id, site_id, state, since, changes, flapping_since) VALUES "
                     "('quiet', 'loc-lon', 'up', %s, ARRAY[%s]::timestamptz[], %s), "

@@ -110,13 +110,15 @@ the details.
     Add a new setting there, pass it in `docker-compose.yml` (a test checks this) and document
     it in `docs/configuration.md` and `.env.example`.
   - `app/db/`: `session.py`, SQLAlchemy's async engine (asyncpg) and the `AsyncDbSession`
-    dependency; `middleware.py`, one `AsyncSession` per API request; `connection.py`, psycopg
-    connections from the pool for the code not async yet (imported as `db`: `db.get_conn()`,
-    `db.transaction()`). New database code is async: a repository on `AsyncBaseRepository`
-    (`app/core/repository.py`) or `await session.execute(text(...))` with `:name` parameters.
-    A sync route that needs it calls `session.from_sync(function, ...)`.
+    dependency; `middleware.py`, one `AsyncSession` per API request; `connection.py`, the
+    ported code's row and key helpers (imported as `db`: `db.row_to_dict()`,
+    `db.placeholders()`). asyncpg is the only driver (#664). New database code is async: a
+    repository on `AsyncBaseRepository` (`app/core/repository.py`) or `await
+    session.execute(text(...))` with `:name` parameters. Sync code in a thread reaches the
+    app's loop with `session.from_sync(function, ...)`; background work starts with
+    `session.spawn(name, function)`.
     The ported code's raw SQL moves to `aconnection.py` (#651): `async with
-    aconnection.connect() as conn`, then `await conn.execute(sql, params)` with its psycopg
+    aconnection.connect() as conn`, then `await conn.execute(sql, params)` with its `%s`
     placeholders unchanged, `async with conn.transaction()`, `conn.stream()` for a big
     export. asyncpg wants real types: a time is a `datetime`, and a parameter in a `SELECT`
     list needs a cast (`%s::timestamptz`).

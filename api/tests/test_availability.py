@@ -58,9 +58,9 @@ def window(conn, site, device, starts, ends, ended=None):
 
 
 def write(fn):
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             fn(conn)
     finally:
         conn.close()
@@ -224,7 +224,7 @@ class TestReport:
             incident(conn, "s1", "d1", t(9), t(9, 0, 10))
 
         write(setup)
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             rows = conn.execute(
                 "SELECT down_started_at, resolved_at FROM alert_instances"
@@ -707,7 +707,7 @@ class TestPages:
         )
 
     def test_the_period_query_can_use_the_index(self, pg_database):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute("SET enable_seqscan = off")
             plan = "\n".join(

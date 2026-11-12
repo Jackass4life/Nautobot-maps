@@ -40,9 +40,9 @@ def site(pg_database, monkeypatch, clock):
 
 def set_devices(**devices):
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             adb.call(
                 inventory.record_sync_state,
@@ -72,7 +72,7 @@ def build() -> dict:
 
 
 def rows(sql: str) -> list[dict]:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         return [db.row_to_dict(row) for row in conn.execute(sql).fetchall()]
     finally:
@@ -161,9 +161,9 @@ class TestDelay:
         assert build()["down_device_count"] == 1
 
     def test_a_site_whose_only_device_is_pending_is_ok_on_the_map_not_no_data(self, site, clock):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 adb.call(inventory.write_locations, [_snapshot_location("loc-one", "One Device")])
                 adb.call(
                     inventory.write_devices,
@@ -206,9 +206,9 @@ class TestDelay:
 
 class TestCleanup:
     def test_rows_of_devices_gone_for_a_week_are_dropped(self, site, clock):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 conn.execute(
                     "INSERT INTO device_states (device_id, site_id, state, since, updated_at) "
                     "VALUES ('gone', 'loc-lon', 'down', %s, %s), ('recent', 'loc-lon', 'down', %s, %s)",

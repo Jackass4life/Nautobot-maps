@@ -66,12 +66,7 @@ def test_stored_and_read_back(flask_client, pg_database, no_lookups):
             _device("m2", None, 2, display="sw-stack01:2 (uuid)", location={"id": "loc-1"}),
         ]
     )
-    conn = inventory.db.get_conn()
-    try:
-        with inventory.db.transaction(conn):
-            adb.call(inventory.write_devices, devices)
-    finally:
-        conn.close()
+    adb.call(inventory.write_devices, devices)
     stored = {d["id"]: d for d in asyncio.run(inventory.read_devices("loc-1"))}
     assert stored["m1"]["vc_master"] is True and stored["m1"]["vc_position"] == 1
     assert stored["m2"]["name"] == "sw-stack01:2" and stored["m2"]["vc_id"] == "vc-1"

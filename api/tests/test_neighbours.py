@@ -7,7 +7,6 @@ import pytest
 
 from app.clients import caching, catalyst, nautobot
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.services import alerts_service as alerts
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
@@ -111,7 +110,7 @@ class TestCatalystTopology:
         controllers["topology"]["dk"] = RuntimeError("timeout")
         asyncio.run(wireless.sync_controller(DK))
         assert load()["serial"]["FGL1"]["port"] == "Gi1/0/14"
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             assert asyncio.run(inventory.sync_state(wireless.source(DK)))["status"] == "idle"
         finally:
@@ -164,9 +163,9 @@ class TestNautobotCables:
 
         monkeypatch.setattr(nautobot, "fetch_all_pages", broken)
         assert inventory.fetch_cables(None) is None, "kept: not an empty list"
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 adb.call(inventory.write_cables, inventory.fetch_cables(None) or [], full=False)
                 adb.call(
                     inventory.write_cables,
@@ -193,7 +192,7 @@ class TestNautobotCables:
                     "SELECT a_port FROM nautobot_cable_cache WHERE cable_id = 'c1'"
                 ).fetchall()
             ] == ["p2"]
-            with db.transaction(conn):
+            with conn.transaction():
                 adb.call(inventory.write_cables, [], full=True)
             assert (
                 conn.execute("SELECT count(*) AS n FROM nautobot_cable_cache").fetchone()["n"] == 0
@@ -224,9 +223,9 @@ class TestOnTheBoard:
     ):
         write_sites({"cph": {"sw1": "Active", **{name: "Active" for name in APS[:16]}}})
         controller_says(monkeypatch, {"cph": APS[:12]}, every={"cph": APS[:16]})
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 # Catalyst Center says the first 14 are on sw02; Nautobot's cables, ap15 and ap16 on sw1.
                 rows = [
                     (
@@ -239,7 +238,7 @@ class TestOnTheBoard:
                     )
                     for n, name in enumerate(APS[:14], start=1)
                 ]
-                conn.cursor().executemany(
+                conn.executemany(
                     "INSERT INTO wireless_ap_neighbours (controller, serial_key, name_key, switch_name, switch_port, seen_at) "
                     "VALUES (%s, %s, %s, %s, %s, %s)",
                     rows,
@@ -260,9 +259,9 @@ class TestOnTheBoard:
     def test_one_down_names_its_switch_but_no_row_line(self, board, monkeypatch):
         write_sites({"cph": {"sw1": "Active", APS[0]: "Active", APS[1]: "Active"}})
         controller_says(monkeypatch, {"cph": APS[:1]}, every={"cph": APS[:2]})
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 for name in APS[:2]:
                     cable(conn, f"cph-{name}", "cph-sw1", "Gi1/0/1")
         finally:
@@ -286,9 +285,9 @@ class TestOnTheBoard:
     def test_the_site_panel(self, board, monkeypatch):
         write_sites({"cph": {"sw1": "Active", APS[0]: "Active"}})
         controller_says(monkeypatch, {"cph": APS[:1]}, every={"cph": APS[:1]})
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 cable(conn, f"cph-{APS[0]}", "cph-sw1", "Gi1/0/9")
         finally:
             conn.close()

@@ -1,6 +1,6 @@
 """Today's schema as data (#590): what a test compares Alembic's result with.
 
-    uv run python -m tests.schema_snapshot postgresql+psycopg://.../<db> > tests/schema_v33.json
+    uv run python -m tests.schema_snapshot postgresql://.../<db> > tests/schema_v33.json
 
 writes it from a database the current app (nautobot_maps/db.py) migrated to
 version 33; tests/schema_v33.json is that snapshot, the reference once the
@@ -10,7 +10,7 @@ current app's migrations are gone.
 import json
 import sys
 
-from sqlalchemy import Connection, create_engine, text
+from sqlalchemy import Connection, text
 
 # The new stack's own tables, not the current app's schema.
 OWN_TABLES = ("alembic_version", "items")
@@ -72,6 +72,23 @@ def snapshot(conn: Connection) -> dict:
     }
 
 
+async def _main(url: str) -> dict:
+    from sqlalchemy import make_url
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db import session
+
+    async_url, args = session.async_url(make_url(url), 5, 0)
+    engine = create_async_engine(async_url, poolclass=NullPool, connect_args=args)
+    try:
+        async with engine.connect() as connection:
+            return await connection.run_sync(snapshot)
+    finally:
+        await engine.dispose()
+
+
 if __name__ == "__main__":
-    with create_engine(sys.argv[1]).connect() as connection:
-        print(json.dumps(snapshot(connection), indent=1))
+    import asyncio
+
+    print(json.dumps(asyncio.run(_main(sys.argv[1])), indent=1))

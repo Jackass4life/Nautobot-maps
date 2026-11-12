@@ -9,7 +9,6 @@ from app import __main__ as cli
 from app.clients import nautobot
 from app.core.legacy_settings import settings
 from app.db import aconnection
-from app.db import connection as db
 from app.db import session as db_session
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -94,9 +93,9 @@ def link(tenant: str) -> str:
 @pytest.fixture
 def known_tenants(pg_database):
     """The tenants Nautobot has, as of the last sync: a status token needs one (#528)."""
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(
                 inventory.write_tenants,
                 [
@@ -393,9 +392,9 @@ class TestCircuits:
         ]
 
     def test_on_the_page(self, flask_client, board):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 adb.call(
                     inventory.write_circuits, [self.circuit("TEL-1", location_ids=["loc-par"])]
                 )
@@ -808,9 +807,9 @@ class TestTenantDevices:
         monkeypatch.setattr(
             inventory, "ensure_snapshot", adb.async_of(lambda *args, **kwargs: False)
         )
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
-            with db.transaction(conn):
+            with conn.transaction():
                 adb.call(
                     inventory.write_locations,
                     [{**_snapshot_location("loc-lon", "London HQ"), "tenant": "Acme Corp"}],
@@ -1018,7 +1017,7 @@ class TestLinks:
             )
 
     def test_a_typo_makes_no_link(self, flask_client, capsys):
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "INSERT INTO nautobot_tenant_cache (tenant_id, name, description) VALUES ('t1', 'Acme Corp', '')"
@@ -1113,7 +1112,7 @@ class TestStatusTokens:
         )
         assert refused.status_code == 400
         assert refused.get_json() == {"error": "no tenant 'Acme' in Nautobot (as of the last sync)"}
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             assert conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"] == 0
             assert not adb.run(statuslinks.known, "Acme")

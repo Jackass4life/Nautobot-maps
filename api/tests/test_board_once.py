@@ -20,7 +20,7 @@ site = test_maintenance.site
 
 
 def stats() -> dict:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         rows = conn.execute("SELECT trigger, builds FROM board_build_stats").fetchall()
         return {row["trigger"]: row["builds"] for row in map(db.row_to_dict, rows)}
@@ -46,7 +46,7 @@ def test_a_second_caller_waits_for_the_running_build(site, monkeypatch):
         "build_alert_board_payload",
         adb.async_of(lambda **kw: builds.append(1) or real_build(**kw)),
     )
-    release = db.try_advisory_lock(alerts.BOARD_BUILD_LOCK)  # another worker is building
+    release = adb.hold_lock(alerts.BOARD_BUILD_LOCK)  # another worker is building
     assert callable(release)
     result = {}
     waiter = threading.Thread(
@@ -64,7 +64,7 @@ def test_a_second_caller_waits_for_the_running_build(site, monkeypatch):
 def test_after_the_wait_it_builds_anyway(site, monkeypatch):
     caching.cache.clear()
     monkeypatch.setattr(alerts, "BOARD_BUILD_WAIT_SECONDS", 0.3)
-    release = db.try_advisory_lock(alerts.BOARD_BUILD_LOCK)
+    release = adb.hold_lock(alerts.BOARD_BUILD_LOCK)
     try:
         assert asyncio.run(alerts.board())["alerts"], "built without the lock"
     finally:
@@ -152,9 +152,9 @@ def commit_sync(completed_at: str, **statuses) -> None:
     from tests.test_app import _snapshot_device, _snapshot_location
 
     roles = {"core": "Core Router", "acc1": "Access Switch", "acc2": "Access Switch"}
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(inventory.write_locations, [_snapshot_location("loc-lon", "London HQ")])
             adb.call(
                 inventory.write_devices,

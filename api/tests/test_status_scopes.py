@@ -3,8 +3,8 @@
 import json
 
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.services import status_service as status
+from tests import db as adb
 from tests.test_app import _snapshot_device
 from tests.test_criticality import build, write
 
@@ -30,9 +30,9 @@ def test_the_board_build_at_scale(board, monkeypatch):
     # s39: no firewall at all.
     devices = [d for d in devices if not d["id"].startswith("s39-fw")]
     write(sites, devices)
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             for n in range(40):
                 scope = {"acme corp": ["firewall"]} if n % 2 == 0 or n in (1, 39) else {}
                 conn.execute(

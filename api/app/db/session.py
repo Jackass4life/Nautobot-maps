@@ -2,9 +2,8 @@
 `app.db.middleware.DbSessionMiddleware`; routes get it through the `AsyncDbSession`
 dependency, other code through `current()`.
 
-The async engine is asyncpg (#643). The sync `engine` (psycopg) is left for
-`app.db.connection` and the tests until psycopg goes (#664). `spawn` runs background
-work (syncs, rebuilds) as tasks on the app's loop (#663).
+The engine is asyncpg's (#643; the only one since psycopg went, #664). `spawn` runs
+background work (syncs, rebuilds) as tasks on the app's loop (#663).
 """
 
 import asyncio
@@ -20,7 +19,7 @@ import anyio.lowlevel
 import anyio.to_thread
 from fastapi import Depends
 from loguru import logger
-from sqlalchemy import URL, create_engine
+from sqlalchemy import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -28,17 +27,6 @@ from app.context.db import db_session_ctx
 from app.core.settings import get_settings
 
 _settings = get_settings()
-
-
-def connect_args(url: URL, connect_timeout: int, statement_timeout_seconds: int) -> dict:
-    """Give up connecting after *connect_timeout* s and on any statement after
-    *statement_timeout_seconds* (DB_CONNECT/STATEMENT_TIMEOUT_SECONDS, #190), as the
-    current app's db.get_conn(): added to any options the URL has, not replacing them."""
-    options = url.query.get("options") or ""
-    if isinstance(options, tuple):
-        options = " ".join(options)
-    options = f"{options} -c statement_timeout={statement_timeout_seconds * 1000}".strip()
-    return {"connect_timeout": connect_timeout, "options": options}
 
 
 def _server_settings(options: str) -> dict[str, str]:
@@ -64,9 +52,11 @@ def _server_settings(options: str) -> dict[str, str]:
 
 
 def async_url(url: URL, connect_timeout: int, statement_timeout_seconds: int) -> tuple[URL, dict]:
-    """The database URL for asyncpg, and its connect arguments: the same timeouts as
-    `connect_args`, the URL's libpq options as asyncpg names them (``options`` and
-    ``application_name`` as server settings, ``sslmode`` as ``ssl``)."""
+    """The database URL for asyncpg, and its connect arguments: give up connecting after
+    *connect_timeout* s and on any statement after *statement_timeout_seconds*
+    (DB_CONNECT/STATEMENT_TIMEOUT_SECONDS, #190), and the URL's libpq options as asyncpg
+    names them (``options`` and ``application_name`` as server settings, ``sslmode`` as
+    ``ssl``), so a URL written for libpq (the current app's) keeps working."""
     query = dict(url.query)
     options = query.pop("options", "")
     if isinstance(options, tuple):
@@ -76,7 +66,7 @@ def async_url(url: URL, connect_timeout: int, statement_timeout_seconds: int) ->
         server_settings["application_name"] = str(query.pop("application_name"))
     if "sslmode" in query:
         query["ssl"] = query.pop("sslmode")
-    # The setting's timeout, as connect_args gives psycopg (it wins over the URL's).
+    # The setting's timeouts win over the URL's.
     query.pop("connect_timeout", None)
     server_settings["statement_timeout"] = str(statement_timeout_seconds * 1000)
     return url.set(drivername="postgresql+asyncpg", query=query), {
@@ -102,16 +92,6 @@ def make_async_engine(**kwargs):  # type: ignore[no-untyped-def]
 async_engine = make_async_engine()
 AsyncSessionLocal = async_sessionmaker(async_engine, autoflush=False, expire_on_commit=False)
 
-engine = create_engine(
-    _settings.sqlalchemy_url(),
-    echo=_settings.sql_echo,
-    pool_pre_ping=True,
-    connect_args=connect_args(
-        _settings.sqlalchemy_url(),
-        _settings.db_connect_timeout_seconds,
-        _settings.db_statement_timeout_seconds,
-    ),
-)
 # The health check's own (#594): a new connection per probe (no stale pooled one, no
 # waiting for a pool slot), 2 s to connect and 2 s for the statement;
 # app/services/health_service.py cancels the whole probe after 2 s too (#655).

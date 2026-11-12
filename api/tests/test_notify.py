@@ -98,7 +98,7 @@ def channels(monkeypatch):
 
 
 def outbox():
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         rows = conn.execute("SELECT * FROM notification_outbox ORDER BY id").fetchall()
         return [db.row_to_dict(row) for row in rows]
@@ -235,7 +235,7 @@ class TestOutbox:
     def test_a_locked_row_is_not_sent_twice(self, channels):
         """Two senders at once: the second skips what the first holds (FOR UPDATE SKIP LOCKED)."""
         change({"loc-1": "ok"}, {"loc-1": "critical"}, {"loc-1": site()})
-        holder = db.get_conn()
+        holder = adb.connect()
         try:
             with holder.transaction():
                 holder.execute("SELECT id FROM notification_outbox FOR UPDATE").fetchall()
@@ -280,7 +280,7 @@ class TestOutbox:
         monkeypatch.setattr(settings, "NOTIFY_EMAIL_TO", [])
         sites = {f"loc-{n}": site(f"loc-{n}") for n in range(2)}
         change({k: "ok" for k in sites}, {k: "critical" for k in sites}, sites)
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "UPDATE notification_outbox SET attempts = %s WHERE site_id = 'loc-0'",
@@ -333,7 +333,7 @@ class TestOutbox:
         assert "secret-token-123" not in caplog.text
         assert asyncio.run(notify.send_pending()) == 0, "not due again yet"
 
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "UPDATE notification_outbox SET attempts = %s, next_attempt_at = %s",

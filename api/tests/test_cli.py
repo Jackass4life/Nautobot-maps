@@ -33,7 +33,7 @@ def verify(token: str) -> dict | None:
 
 
 def raw_rows() -> list[dict]:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         return [
             db.row_to_dict(row)

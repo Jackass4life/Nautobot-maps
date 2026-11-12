@@ -12,7 +12,6 @@ import pytest
 from app import __main__ as cli
 from app.clients import arubacentral, caching, catalyst
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.repositories import board_repository as board_store
 from app.services import alerts_service as alerts
 from app.services import availability_service as availability
@@ -494,7 +493,7 @@ def read_index() -> dict:
 
 
 def sync_states() -> dict:
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
         return {c["name"]: asyncio.run(inventory.sync_state(wireless.source(c))) for c in (DK, SE)}
     finally:
@@ -551,7 +550,7 @@ class TestSync:
         controllers["dk"] = [ap("dk-ap1", False, "FGL1")]
         controllers["se"] = [ap("se-ap1", False, "FGL9")]
         asyncio.run(wireless.sync_due())
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "UPDATE wireless_ap_status SET seen_at = seen_at - make_interval(secs => %s) WHERE controller = %s",
@@ -575,7 +574,7 @@ class TestSync:
         controllers["dk"] = [ap("ap1", False, "FGL1")]
         controllers["se"] = [ap("ap1", True, "FGL1")]
         asyncio.run(wireless.sync_due())
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             # Read at the same moment: up wins, a stale copy never shows it down.
             conn.execute("UPDATE wireless_ap_status SET seen_at = '2026-10-09T12:00:00Z'")
@@ -663,7 +662,7 @@ class TestSync:
         controllers["dk"] = [ap("ap1", False, "FGL1")]
         controllers["se"] = [ap("ap1", True, "FGL1")]
         asyncio.run(wireless.sync_due())
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             # As text "...T12:00:00Z" sorts after "...T12:00:00.500000Z": the older one would win.
             conn.execute(
@@ -684,7 +683,7 @@ class TestSync:
         asyncio.run(wireless.sync_due())
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
         asyncio.run(wireless.sync_due())
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             assert [
                 r["controller"]
@@ -746,9 +745,9 @@ APS = [f"ap{n:02d}" for n in range(1, 41)]
 def write_sites(sites: dict[str, dict[str, str]]) -> None:
     """*sites*: ``{site_id: {device: Nautobot status}}``; ``sw*`` are switches
     with a primary IP, ``ap*`` access points without one (DHCP), serial FGL-<site>-<ap>."""
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(
                 inventory.write_locations,
                 [_snapshot_location(site_id, site_id.title()) for site_id in sites],
@@ -874,7 +873,7 @@ class TestOnTheBoard:
 
     def test_a_reason_names_only_the_access_points_set_in_nautobot(self, board, monkeypatch):
         write_sites(one_site())
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "UPDATE nautobot_device_cache SET criticality = 'low' WHERE device_id = 'cph-ap40'"
@@ -904,7 +903,7 @@ class TestOnTheBoard:
 
     def test_a_level_set_in_nautobot_is_an_alarm(self, board, monkeypatch):
         write_sites(one_site())
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             conn.execute(
                 "UPDATE nautobot_device_cache SET criticality = 'critical' WHERE device_id = 'cph-ap05'"
@@ -956,7 +955,7 @@ class TestOnTheBoard:
         write_sites(one_site(sw2="Offline"))
         controller_says(monkeypatch, {"cph": ["ap01"]})
         build_board()
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             flags = {
                 r["device_id"]: r["access_point"]
@@ -1131,7 +1130,7 @@ class TestTopBarAndMetrics:
     def test_metrics_per_instance(self, controllers, monkeypatch):
         controllers["dk"] = [ap("dk-ap1", True, "FGL1"), ap("dk-ap2", False, "FGL2")]
         controllers["se"] = [ap("se-ap1", False)]
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             adb.call(
                 inventory.write_devices,
@@ -1307,7 +1306,7 @@ class TestPlugAndPlay:
         assert "FJC9" in read_index()["pnp"]
         monkeypatch.setattr(settings, "WIRELESS_CONTROLLERS", (DK,))
         adb.call(wireless.prune)
-        conn = db.get_conn()
+        conn = adb.connect()
         try:
             assert (
                 conn.execute(

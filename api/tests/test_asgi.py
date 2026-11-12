@@ -220,11 +220,6 @@ def test_a_body_is_json_only_when_it_says_so(flask_client, monkeypatch):
     cross-site form could send) is no body at all."""
     monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED_WRITES", True)
     monkeypatch.setattr(settings, "NAUTOBOT_MAPS_DATABASE_URL", "postgresql://unused/x")
-    from app.db import connection as db
-
-    monkeypatch.setattr(
-        db, "get_conn", lambda **kwargs: type("C", (), {"close": lambda self: None})()
-    )
     as_text = flask_client.post(
         "/api/v1/maintenance", data='{"site_id": "x"}', content_type="text/plain"
     )

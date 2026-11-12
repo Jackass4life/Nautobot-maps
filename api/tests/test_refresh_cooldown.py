@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.core.legacy_settings import settings
-from app.db import connection as db
 from app.services import inventory_service as inventory
 from tests import db as adb
 
@@ -35,9 +34,9 @@ def sources(
 
 def finished(source: str, seconds_ago: int, status: str = "idle") -> None:
     at = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
-    conn = db.get_conn()
+    conn = adb.connect()
     try:
-        with db.transaction(conn):
+        with conn.transaction():
             adb.call(
                 inventory.record_sync_state,
                 source,

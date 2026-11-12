@@ -7,7 +7,7 @@ PostgreSQL. It serves `web/`'s built pages; the only thing it shares with `web/`
 ## Commands (run from `api/`)
 
 ```bash
-cp .env.example .env                  # DATABASE_URL=postgresql+psycopg://...
+cp .env.example .env                  # DATABASE_URL=postgresql://...
 uv sync
 uv run alembic upgrade head           # apply migrations
 uv run python run.py                       # http://127.0.0.1:5000 (FLASK_RUN_PORT), docs at /api/docs; FLASK_DEBUG=true reloads
@@ -30,7 +30,7 @@ Dependencies: `uv add <pkg>` / `uv add --dev <pkg>` (never pip). Commit `uv.lock
 | `repositories/<resource>_repository.py` | All queries; takes an `AsyncSession`, returns ORM objects (`AsyncBaseRepository` in `core/repository.py`) |
 | `models/` | SQLAlchemy models; `Base` in `models/base.py`, every model imported in `models/__init__.py` |
 | `core/` | Settings (`settings.py`, `legacy_settings.py`), errors + handlers (`exceptions.py`), `cors.py`, `version.py` (pyproject's), `repository.py` (`AsyncBaseRepository`) |
-| `db/` | `session.py` (async engine on asyncpg, sessionmaker, `AsyncDbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `connection.py` (psycopg, `db.get_conn()`, until all code is async) |
+| `db/` | `session.py` (async engine on asyncpg, sessionmaker, `AsyncDbSession` dependency), `middleware.py` (`DbSessionMiddleware`), `aconnection.py` (the ported SQL on asyncpg, advisory locks), `connection.py` (row and key helpers) |
 | `auth/` | Sign-in and role dependencies (`dependencies.py`) |
 | `context/` | Per-request context (`request.py`, the request's database session in `db.py`) |
 | `logs/` | Log setup through loguru (`config.py`), each line's part (`parts.py`), the access log (`middleware.py`) |
@@ -62,7 +62,7 @@ the default. Only the new stack's own:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `NAUTOBOT_MAPS_DATABASE_URL` / `DATABASE_URL` | local `app` database | PostgreSQL URL; the first wins. `postgresql://` URLs get the psycopg driver. |
+| `NAUTOBOT_MAPS_DATABASE_URL` / `DATABASE_URL` | local `app` database | PostgreSQL URL; the first wins. `postgres://`, `postgresql://` and `postgresql+psycopg://` URLs get the asyncpg driver. |
 | `DATABASE_PASSWORD` | — | The password on its own, no URL encoding; replaces the URL's. |
 | `CORS_ORIGINS` | — | Other sites' pages that may call the API (JSON list or comma-separated); the app's own pages share its origin. |
 | `WEB_BUILD_DIR` | `../web/.output/public` | `web/`'s built pages; the image sets it. |
@@ -108,11 +108,12 @@ app python -m app …`); same options, output and exit status:
 The first app's modules (`nautobot_maps/`) moved here area by area (#587). Where their behaviour is pinned
 by many tests, they are ported close to verbatim, on two thin layers:
 
-- `app/db/connection.py`: the first app's connection helpers (`db.get_conn()`, `db.transaction()`,
-  `db.row_to_dict()`, `db.try_advisory_lock()`, ...). A psycopg connection in autocommit
-  with dict rows from a SQLAlchemy engine's pool, with the connect and statement timeouts,
-  so the current SQL runs unchanged. The same advisory lock keys: the two apps exclude each
-  other during the switchover.
+- `app/db/aconnection.py`: the first app's SQL on asyncpg (`await conn.execute(sql, params)`
+  with its `%s` placeholders, `conn.transaction()`, `try_advisory_lock()`), each statement
+  committed at once outside a transaction, as its autocommit connections were; with the
+  connect and statement timeouts. The same advisory lock keys: the two apps exclude each
+  other during the switchover. `app/db/connection.py` keeps its helpers (`db.row_to_dict()`,
+  `db.placeholders()`, ...).
 - `app/core/legacy_settings.py`: `settings.NAUTOBOT_URL` reads `get_settings().nautobot_url`
   at call time; a test's `monkeypatch.setattr(settings, "NAME", value)` changes it for every
   module.
