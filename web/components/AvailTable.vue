@@ -20,13 +20,11 @@ const props = defineProps<{
   rows: Row[];
   target: number;
   descriptions: Record<string, string>;
-  // Each tenant's status page link id (#500).
-  statusLinks: Record<string, string>;
   limit: number;
   title: string;
   help: string;
   tenantChoices?: string[];
-  // Admins share a tenant's status page from its row (#530).
+  // Those with status.links.view share a tenant's status page from its row (#530, #695).
   share?: boolean;
 }>();
 
@@ -168,12 +166,8 @@ function ariaSort(key: SortKey | null) {
           >
             <td class="px-4 py-2">
               <span v-if="kind === 'tenants'" class="inline-flex flex-wrap items-center gap-1">
-                <TenantList
-                  :tenants="[row.name]"
-                  :descriptions="descriptions"
-                  :links="statusLinks"
-                />
-                <ShareStatus v-if="share" :tenant="row.name" />
+                <TenantList :tenants="[row.name]" :descriptions="descriptions" />
+                <StatusLinkControls v-if="share" :tenant="row.name" />
               </span>
               <span v-else>{{ row.name }}</span>
             </td>
@@ -212,7 +206,6 @@ function ariaSort(key: SortKey | null) {
                   v-if="row.tenants.length"
                   :tenants="row.tenants"
                   :descriptions="descriptions"
-                  :links="statusLinks"
                 />
                 <template v-else>—</template>
               </td>

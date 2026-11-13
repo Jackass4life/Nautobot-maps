@@ -224,10 +224,10 @@ def test_the_availability_page_answers_first(page):
     name = sites.locator("tbody tr:visible").first.get_attribute("data-name")
     sites.locator(".avail-search input").fill(name)
     assert sites.locator("tbody tr:visible").count() >= 1
-    # A tenant opens its status page (#461), in a new tab (#494).
+    # A tenant opens its status in the app (#461, #695), in a new tab (#494).
     tenant = sites.locator(".tenant-link").first
     if tenant.count():
-        assert tenant.get_attribute("href").startswith("/status/")
+        assert tenant.get_attribute("href").startswith("/tenants/")
     assert all(
         name.lower() in n.lower()
         for n in sites.locator("tbody tr:visible").evaluate_all(
@@ -258,8 +258,8 @@ def test_each_sites_devices_on_availability(page):
 
 
 def test_a_tenant_opens_its_status_page_in_a_new_tab(page):
-    """From Availability (#461, #494): the status page opens and loads in a new
-    tab, and Availability stays as it was."""
+    """From Availability (#461, #494): the tenant's status opens in the app, by its
+    name (#695), and loads in a new tab; Availability stays as it was."""
     page.goto(f"{BASE_URL}/availability")
     page.locator(".avail-card").first.wait_for()
     tenant = page.locator('[data-avail-table="tenants"] .tenant-link').first
@@ -272,7 +272,11 @@ def test_a_tenant_opens_its_status_page_in_a_new_tab(page):
     # Loaded, not just the heading (which shows the name from the link at once).
     status.locator(".status-site").first.wait_for()
     assert status.locator("#status-headline").inner_text() != "Loading…"
-    assert status.url.startswith(f"{BASE_URL}/status/")
+    assert status.url.startswith(f"{BASE_URL}/tenants/")
+    name = page.locator('[data-avail-table="tenants"] tr[data-name]').first.get_attribute("data-name")
+    assert status.locator("#status-tenant").inner_text() == name
+    # In the app: its top bar.
+    assert status.locator(".app-menu").count() == 1
     status.close()
     assert page.url == f"{BASE_URL}/availability", "Availability stays open"
 
@@ -1228,8 +1232,21 @@ def test_share_a_tenants_status_page_from_availability(admin_page, browser):
         status.goto(url)
         status.locator(".status-site").first.wait_for()
         assert status.locator("#status-tenant").inner_text() == tenant
+        # The link without its key, to copy; deleting it locks the customer out (#695).
+        page.locator(".share-copy-link").wait_for()
+        assert url.startswith(page.locator(".share-current-link input").input_value() + "#key=")
+        page.locator(".share-delete").click()
+        page.locator(".share-delete", has_text="Sure?").click()
+        page.locator(".share-none").wait_for()
+        status.reload()
+        status.locator("#status-headline.text-error").wait_for()
+        assert status.locator(".status-site").count() == 0
     finally:
         customer.close()
+    # A new customer link makes a new page link (other tests open the tenant's).
+    page.locator(".share-create").click()
+    page.locator(".share-link input").wait_for()
+    assert page.locator(".share-current-link input").input_value() != url.split("#")[0]
 
 
 def test_no_administration_without_the_role(page):
@@ -1243,4 +1260,7 @@ def test_no_administration_without_the_role(page):
     assert page.locator(".app-nav-admin").count() == 0
     page.goto(f"{BASE_URL}/availability")
     page.locator('[data-avail-table="tenants"] tr[data-name]').first.wait_for()
-    assert page.locator(".share-status").count() == 0
+    # Signed out, every read is open (#188): the link, to copy, never its changes (#695).
+    page.locator(".share-status").first.click()
+    page.locator(".share-copy-link").wait_for()
+    assert page.locator(".share-create, .share-replace, .share-delete").count() == 0

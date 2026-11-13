@@ -88,6 +88,17 @@ def status_page(link_id: str):
 
 
 @router.get(
+    "/tenants/{tenant:path}",
+    dependencies=[deps.require_permission(permissions.Permission.TENANT_STATUS_VIEW)],
+    name="status.tenant_page",
+)
+def tenant_page(tenant: str):
+    """A tenant's status in the app, by its name (#695), for those with
+    ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``."""
+    return frontend.shell()
+
+
+@router.get(
     "/api/v1/status/{link_id}",
     dependencies=[deps.PUBLIC],
     name="status.api_status",

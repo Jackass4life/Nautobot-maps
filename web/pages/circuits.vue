@@ -15,6 +15,9 @@ import {
   type SearchableCircuit,
 } from "~/utils/circuits";
 
+// Buttons and links only with their permission (#695).
+const { can } = useCan();
+
 useHead({ title: "Circuits · Nautobot Maps" });
 
 const { data: config } = usePageConfig();
@@ -111,6 +114,7 @@ onMounted(async () => {
           class="w-full sm:w-96"
         />
         <UButton
+          v-if="can('export.csv')"
           id="circuit-csv"
           to="/api/v1/circuit-mapping.csv"
           external

@@ -24,6 +24,9 @@ const props = withDefaults(
 );
 
 const { data: config } = usePageConfig();
+// The search's results open on the map and the board: each link with its page (#695).
+const { can } = useCan();
+const searchable = computed(() => can("page.map") || can("page.board"));
 const { dark, toggle: toggleTheme } = useTheme();
 
 // The menu: every page, this one marked; Admin, only for admins (#530); Sign
@@ -38,7 +41,7 @@ const menu = computed<DropdownMenuItem[][]>(() => {
     class: "app-nav-link",
   }));
   const groups: DropdownMenuItem[][] = [pages];
-  if (config.value?.admin) {
+  if (can("admin")) {
     groups.push([
       {
         label: "Admin",
@@ -201,7 +204,7 @@ onBeforeUnmount(() => {
 
     <!-- Find a site: an icon on a phone, opening the field over the bar. -->
     <div
-      v-if="search"
+      v-if="search && searchable"
       class="bar-search relative min-w-0 flex-1 sm:max-w-md"
       role="search"
       @focusout="onSearchFocusOut"
@@ -259,8 +262,8 @@ onBeforeUnmount(() => {
           >
             <a
               class="bar-hit-map min-w-0 flex-1 rounded px-2 py-1.5 hover:bg-elevated focus:bg-elevated focus:outline-none"
-              :href="mapHref(site)"
-              title="Show on the map"
+              :href="can('page.map') ? mapHref(site) : boardHref(site)"
+              :title="can('page.map') ? 'Show on the map' : 'Show on the board'"
             >
               <span class="block truncate font-medium text-highlighted">{{
                 site.name || site.id
@@ -273,6 +276,7 @@ onBeforeUnmount(() => {
               </span>
             </a>
             <a
+              v-if="can('page.map') && can('page.board')"
               class="bar-hit-board shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-elevated"
               :href="boardHref(site)"
               :aria-label="`${site.name || site.id} on the board`"

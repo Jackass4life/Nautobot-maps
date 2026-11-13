@@ -10771,6 +10771,37 @@
           "Status page"
         ]
       }
+    },
+    "/tenants/{tenant}": {
+      "get": {
+        "description": "A tenant's status in the app, by its name (#695), for those with\n``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.",
+        "operationId": "getTenantPage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "title": "Tenant",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "A tenant's status in the app, by its name, for those with ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.",
+        "tags": [
+          "Status page"
+        ]
+      }
     }
   },
   "tags": [

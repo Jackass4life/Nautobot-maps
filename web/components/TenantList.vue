@@ -1,15 +1,13 @@
 <!-- A row's tenants (#279, #342; as the board's tenantCell): the first, and
      "+N" that shows the rest in place; an (i) for a tenant's description. -->
 <script setup lang="ts">
-// *links*: each tenant's status page link id (#500); its name opens the page
-// (#461), in a new tab so the report stays as it was (#494).
+// A tenant's name opens its status in the app, /tenants/<name> (#695), for
+// those with tenant.status.view; in a new tab so the report stays as it was (#494).
 const props = defineProps<{
   tenants: string[];
   descriptions?: Record<string, string>;
-  links?: Record<string, string>;
 }>();
-const linkOf = (tenant: string): string =>
-  props.links && Object.hasOwn(props.links, tenant) ? props.links[tenant] || "" : "";
+const { can } = useCan();
 const all = ref(false);
 const shown = computed(() => (all.value ? props.tenants : props.tenants.slice(0, 1)));
 </script>
@@ -20,9 +18,9 @@ const shown = computed(() => (all.value ? props.tenants : props.tenants.slice(0,
       <span v-if="index" class="text-muted">,</span>
       <!-- relative: the screen-reader note stays inside a table's scroll box. -->
       <a
-        v-if="linkOf(tenant)"
+        v-if="can('tenant.status.view')"
         class="tenant-link relative hover:text-primary hover:underline"
-        :href="`/status/${encodeURIComponent(linkOf(tenant))}`"
+        :href="`/tenants/${encodeURIComponent(tenant)}`"
         target="_blank"
         rel="noopener noreferrer"
         >{{ tenant }}<span class="sr-only"> (opens in a new tab)</span></a

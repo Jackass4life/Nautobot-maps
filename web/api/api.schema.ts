@@ -1248,6 +1248,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenant}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A tenant's status in the app, by its name, for those with ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.
+         * @description A tenant's status in the app, by its name (#695), for those with
+         *     ``tenant.status.view``; the page reads ``/api/v1/tenants/<name>/status``.
+         */
+        get: operations["getTenantPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7577,6 +7598,28 @@ export interface operations {
             header?: never;
             path: {
                 link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    getTenantPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: string;
             };
             cookie?: never;
         };

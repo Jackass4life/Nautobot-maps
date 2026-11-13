@@ -1,6 +1,7 @@
 """The permission matrix (#685): every route names what it needs, the old roles keep
 exactly the access they had, and every role is refused exactly where the matrix says."""
 
+import pathlib
 import re
 
 import pytest
@@ -103,6 +104,8 @@ CHANGED = {
     ("/api/v1/tokens/{token_id}/revoke", "POST"): "operator",
     # #689: a tenant's status in the app, by its name (tenant.status.view: viewer and up).
     ("/api/v1/tenants/{tenant:path}/status", "GET"): None,
+    # #695: its page in the app.
+    ("/tenants/{tenant:path}", "GET"): None,
 }
 NOW = BEFORE | CHANGED
 LEVEL = {"viewer": 1, "operator": 2, "admin": 3}
@@ -286,6 +289,7 @@ REACHES = {
         "GET /api/v1/availability",
         "GET /api/v1/availability.csv",
         "GET /api/v1/tenants/{tenant:path}/status",
+        "GET /tenants/{tenant:path}",
     },
     "dov": BASICS
     | {
@@ -433,3 +437,13 @@ def test_can_write_and_can_administer_as_before(configure, mode, role):
     was_admin = (disabled and writes_open) or role == "admin"
     assert auth_service.may_change_the_board(user, settings) == was_write
     assert auth_service.may_administer(user, settings) == was_admin
+
+
+def test_the_web_knows_every_permission():
+    """web/composables/useCan.ts names the matrix's permissions (#695): a renamed or
+    new one there too, or a button would never show."""
+    source = (
+        pathlib.Path(__file__).resolve().parents[2] / "web" / "composables" / "useCan.ts"
+    ).read_text()
+    union = source.split("export type Permission =", 1)[1].split(";", 1)[0]
+    assert set(re.findall(r'"([a-z.]+)"', union)) == {str(p) for p in Permission}

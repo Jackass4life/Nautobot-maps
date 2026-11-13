@@ -4,6 +4,8 @@ import { HISTORY_PERIODS, formatDuration, historyExportUrl, type Incident } from
 
 const props = defineProps<{ siteId: string; incidents: Incident[]; caseTemplate: string }>();
 const days = ref("30");
+// The export needs its permission (#695).
+const { can } = useCan();
 const exports = computed(() => [
   {
     view: "incidents" as const,
@@ -25,7 +27,7 @@ function at(value: string | null | undefined): string {
 
 <template>
   <div class="space-y-3">
-    <div class="history-export flex flex-wrap items-center gap-2 text-sm">
+    <div v-if="can('export.csv')" class="history-export flex flex-wrap items-center gap-2 text-sm">
       <USelect
         v-model="days"
         class="history-export-days w-36"
