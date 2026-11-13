@@ -146,6 +146,40 @@ async def _answer(tenant: str | None):
     return deps.Json(result, headers={"Cache-Control": "no-store"})
 
 
+@router.get(
+    "/api/v1/tenants/{tenant:path}/status",
+    name="status.api_tenant_status",
+    response_model=dtos.TenantStatus,
+    responses={
+        401: {"model": common.Error, "description": "Not signed in"},
+        403: {"model": common.Error, "description": "A role without tenant.status.view"},
+        404: {"model": common.Error, "description": "No such tenant, or no sites for it"},
+        503: {
+            "model": common.Error,
+            "description": "No board yet, it can't be read, or no database",
+        },
+    },
+    dependencies=[deps.require_permission(permissions.Permission.TENANT_STATUS_VIEW)],
+)
+async def api_tenant_status(tenant: str):
+    """A tenant's status page, by its name (#689), for those signed in with
+    ``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as
+    ``/api/v1/status/<id>``, with no link involved, so none is shown or made.
+    Capitals don't matter; a tenant Nautobot doesn't have answers 404."""
+    session = db_session.current()
+    try:
+        name = await statuslinks.tenant_name(session, tenant)
+    except Exception as exc:
+        logger.warning("Tenant status unavailable: {}", type(exc).__name__)
+        return deps.Json(UNAVAILABLE, status_code=503)
+    finally:
+        # Given back before the board is read, as for a link (#608 review).
+        await session.close()
+    if name is None:
+        return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
+    return await _answer(name)
+
+
 # --- The status links (#529, #687): NWO and admin keep them ---------------------
 
 NO_TENANT = {

@@ -1142,3 +1142,65 @@ class TestStatusTokens:
         assert verify(secret) == {"name": "acme", "role": "status", "tenant": "Acme Corp"}
         assert cli.main(["token", "list"]) == 0
         assert "(tenant Acme Corp)" in capsys.readouterr().out
+
+
+class TestTenantStatusByName:
+    """``GET /api/v1/tenants/<tenant>/status`` (#689): the status page in the app, by
+    the tenant's name, for tenant.status.view; no link id shown or made."""
+
+    @pytest.fixture
+    def as_role(self, configure, monkeypatch):  # type: ignore[no-untyped-def]
+        from app.services import auth_service
+        from app.services.auth_service import CurrentUser
+
+        def apply(role: str) -> None:
+            configure(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
+            user = CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
+
+            async def resolve(request, settings):  # type: ignore[no-untyped-def]
+                return user
+
+            monkeypatch.setattr(auth_service, "resolve_user", resolve)
+
+        return apply
+
+    def test_the_same_answer_as_by_its_link(self, known_tenants, flask_client, board):
+        by_name = flask_client.get("/api/v1/tenants/Acme%20Corp/status")
+        assert by_name.status_code == 200
+        assert adb.sql("SELECT count(*) AS n FROM status_links")[0]["n"] == 0, "no link made"
+        by_link = flask_client.get(f"/api/v1/status/{link('Acme Corp')}")
+        assert by_name.get_json() == by_link.get_json()
+        assert by_name.headers["Cache-Control"] == "no-store"
+        assert "nolink" not in json.dumps(by_name.get_json())
+        # Capitals don't matter.
+        assert (
+            flask_client.get("/api/v1/tenants/acme%20corp/status").get_json() == by_link.get_json()
+        )
+
+    @pytest.mark.parametrize("role", ["customer", "viewer", "operator", "admin"])
+    def test_the_roles_with_tenant_status_view(
+        self, role, as_role, known_tenants, flask_client, board
+    ):
+        as_role(role)
+        assert flask_client.get("/api/v1/tenants/Acme%20Corp/status").status_code == 200
+
+    def test_dov_and_status_tokens_may_not(self, as_role, known_tenants, flask_client, board):
+        token = make("acme-status", "status", tenant="Acme Corp")["token"]
+        own = flask_client.get("/api/v1/tenants/Acme%20Corp/status", headers=bearer(token))
+        assert own.status_code == 403, "a status token opens only its status page"
+        as_role("dov")
+        refused = flask_client.get("/api/v1/tenants/Acme%20Corp/status")
+        assert refused.status_code == 403
+        assert refused.get_json()["required_permission"] == "tenant.status.view"
+
+    def test_an_unknown_tenant_and_one_with_a_slash(self, known_tenants, flask_client, board):
+        unknown = flask_client.get("/api/v1/tenants/Acme/status")
+        assert unknown.status_code == 404
+        assert unknown.get_json() == {"error": "no tenant 'Acme' in Nautobot (as of the last sync)"}
+        adb.call(inventory.write_tenants, [{"tenant_id": "t-nord", "name": "Nord A/S"}])
+        # Known, but no sites on the board: what its link answers (here, before a first
+        # sync, "try again"), also for a name with a slash.
+        slash = flask_client.get("/api/v1/tenants/Nord%20A%2FS/status")
+        by_link = flask_client.get(f"/api/v1/status/{link('Nord A/S')}")
+        assert (slash.status_code, slash.get_json()) == (by_link.status_code, by_link.get_json())
+        assert slash.status_code in (404, 503)

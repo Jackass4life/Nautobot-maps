@@ -101,6 +101,8 @@ CHANGED = {
     ("/api/v1/tokens", "GET"): "operator",
     ("/api/v1/tokens", "POST"): "operator",
     ("/api/v1/tokens/{token_id}/revoke", "POST"): "operator",
+    # #689: a tenant's status in the app, by its name (tenant.status.view: viewer and up).
+    ("/api/v1/tenants/{tenant:path}/status", "GET"): None,
 }
 NOW = BEFORE | CHANGED
 LEVEL = {"viewer": 1, "operator": 2, "admin": 3}
@@ -283,6 +285,7 @@ REACHES = {
         "GET /availability",
         "GET /api/v1/availability",
         "GET /api/v1/availability.csv",
+        "GET /api/v1/tenants/{tenant:path}/status",
     },
     "dov": BASICS
     | {

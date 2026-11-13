@@ -10025,6 +10025,104 @@
         ]
       }
     },
+    "/api/v1/tenants/{tenant}/status": {
+      "get": {
+        "description": "A tenant's status page, by its name (#689), for those signed in with\n``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as\n``/api/v1/status/<id>``, with no link involved, so none is shown or made.\nCapitals don't matter; a tenant Nautobot doesn't have answers 404.",
+        "operationId": "getTenantStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "title": "Tenant",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "A role without tenant.status.view"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A role without tenant.status.view"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No such tenant, or no sites for it"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such tenant, or no sites for it"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No board yet, it can't be read, or no database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No board yet, it can't be read, or no database"
+          }
+        },
+        "summary": "A tenant's status page, by its name, for those signed in with ``tenant.status.view`` (customer, viewer, NWO, admin): the same answer as ``/api/v1/status/<id>``, with no link involved, so none is shown or made. Capitals don't matter; a tenant Nautobot doesn't have answers 404.",
+        "tags": [
+          "Status page"
+        ]
+      }
+    },
     "/api/v1/tokens": {
       "get": {
         "description": "API tokens: name, first characters, role, expiry, last use, state; never the\nsecret. Only the active ones unless ``all=true``; ``inactive`` counts the others.",
