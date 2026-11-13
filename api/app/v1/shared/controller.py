@@ -51,7 +51,7 @@ def api_page_config():
             "access": access,
             "nautobot_url": settings.NAUTOBOT_URL or "",
             # The pages this caller may open (#693).
-            "pages": navigation.pages(allowed=access["pages"]),
+            "pages": navigation.pages(allowed=access["pages"], role=access["role"]),
             "maintenance": {
                 "recent_days": maintenance.PAGE_RECENT_DAYS,
                 "history_days": maintenance.HISTORY_DEFAULT_DAYS,

@@ -978,9 +978,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Nautobot's tenants as of the last sync, with their descriptions, by name: what a status token can be made for.
+         * Nautobot's tenants as of the last sync, with their descriptions, by name: what a status token can be made for, and the Customers page's list (#697: for those who see a tenant's status or links).
          * @description Nautobot's tenants as of the last sync (#530), with their
-         *     descriptions, by name: what a status token can be made for.
+         *     descriptions, by name: what a status token can be made for, and the
+         *     Customers page's list (#697: for those who see a tenant's status or links).
          */
         get: operations["getTenants"];
         put?: never;
@@ -6994,34 +6995,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Tenants"];
-                };
-            };
-            /** @description Not signed in */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "Not signed in"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The role is too low */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "The role is too low"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description No database */

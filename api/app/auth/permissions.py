@@ -81,11 +81,11 @@ VIEWER = frozenset(
 
 ROLES: dict[str, RoleDef] = {
     "admin": RoleDef("Admin", "/", ALL),
-    "operator": RoleDef("NWO (operator)", "/", ALL - {P.ADMIN}),
+    "operator": RoleDef("NWO (operator)", "/nwo", ALL - {P.ADMIN}),
     "viewer": RoleDef("Viewer", "/", VIEWER),
     "dov": RoleDef(
         "DOV",
-        "/alerts?view=wall",
+        "/dov",
         frozenset(
             {
                 P.PAGE_WALL,
@@ -103,7 +103,7 @@ ROLES: dict[str, RoleDef] = {
     ),
     "customer": RoleDef(
         "Customer",
-        "/availability",
+        "/customer",
         frozenset({P.PAGE_AVAILABILITY, P.TENANT_STATUS_VIEW, P.EXPORT_CSV, P.SESSION_BASIC}),
     ),
 }
@@ -138,9 +138,49 @@ PAGE_PERMISSIONS: dict[str, Permission] = {
     "availability": P.PAGE_AVAILABILITY,
     "maintenance": P.PAGE_MAINTENANCE,
     "circuits": P.PAGE_CIRCUITS,
+    "tenants": P.TENANT_STATUS_VIEW,
     "help": P.SESSION_BASIC,
     "docs": P.SESSION_BASIC,
 }
+
+# Each role's own addresses (#697): its workspace, and where each of its pages is in
+# it ("" = the workspace itself, the role's landing). Viewer and admin keep the flat
+# addresses. A tenant's status is at <workspace>/tenants/<name> with "tenants".
+# web/utils/workspaces.ts holds the same table (tests/test_permissions.py checks).
+WORKSPACES: dict[str, tuple[str, dict[str, str]]] = {
+    "customer": ("/customer", {"availability": "", "tenants": "/tenants"}),
+    "dov": (
+        "/dov",
+        {
+            "wall": "",
+            "alerts": "/board",
+            "availability": "/availability",
+            "maintenance": "/maintenance",
+        },
+    ),
+    "operator": (
+        "/nwo",
+        {
+            "map": "",
+            "wall": "/wall",
+            "alerts": "/board",
+            "availability": "/availability",
+            "tenants": "/tenants",
+            "maintenance": "/maintenance",
+            "circuits": "/circuits",
+        },
+    ),
+}
+
+
+def workspace_path(role: str | None, page: str) -> str | None:
+    """*page*'s address in *role*'s workspace, or None (no workspace, or not in it)."""
+    found = WORKSPACES.get(role or "")
+    if not found or page not in found[1]:
+        return None
+    prefix, paths = found
+    return prefix + paths[page]
+
 
 # The roles before the matrix, lowest first: refusals still name the lowest of them
 # that would do (scripts and MCP read ``required_role``).

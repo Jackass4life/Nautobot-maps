@@ -39,6 +39,9 @@ Thank you for your interest in contributing to Nautobot Maps! This document prov
    export E2E_OPERATOR_TOKEN="$(cd api && uv run python -m app token create e2e --role operator --expires-days 1 | head -n 1)"
    # The Admin page needs the admin role (#530).
    export E2E_ADMIN_TOKEN="$(cd api && uv run python -m app token create e2e-admin --role admin --expires-days 1 | head -n 1)"
+   # Each role's workspace: /dov and /customer (#697).
+   export E2E_DOV_TOKEN="$(cd api && uv run python -m app token create e2e-dov --role dov --expires-days 1 | head -n 1)"
+   export E2E_CUSTOMER_TOKEN="$(cd api && uv run python -m app token create e2e-customer --role customer --expires-days 1 | head -n 1)"
    E2E_BASE_URL=http://127.0.0.1:5055 uv run --project api python -m pytest e2e/ -v
    ```
 5. **Update** `CHANGELOG.md`: add a line under `[Unreleased]` (Added / Changed / Fixed / Removed) for anything a user or operator notices — behaviour, settings, API, database tables. Pure refactors and test-only changes don't need one.

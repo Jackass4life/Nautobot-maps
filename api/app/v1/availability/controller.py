@@ -169,3 +169,9 @@ async def api_availability_csv(period: Annotated[dtos.AvailabilityCsv, Query()])
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="availability-{view}-{label}.csv"'},
     )
+
+
+# The same page in each role's workspace (#697).
+deps.workspace_pages(
+    router, "availability", availability_page, permissions.Permission.PAGE_AVAILABILITY
+)

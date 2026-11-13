@@ -816,6 +816,7 @@ def test_the_calm_panel_search_filters_legend_and_menu(page):
         "Availability",
         "Maintenance",
         "Circuits",
+        "Customers",
         "Documentation",
         "API",
         "Wall view",
@@ -1264,3 +1265,85 @@ def test_no_administration_without_the_role(page):
     page.locator(".share-status").first.click()
     page.locator(".share-copy-link").wait_for()
     assert page.locator(".share-create, .share-replace, .share-delete").count() == 0
+
+
+# --- Each role's workspace (#697) ---------------------------------------------------
+
+ROLE_TOKENS = {
+    "dov": "E2E_DOV_TOKEN",
+    "customer": "E2E_CUSTOMER_TOKEN",
+    "operator": "E2E_OPERATOR_TOKEN",
+}
+
+
+def as_role(page, role: str):
+    """*page* signed in with *role*'s token (CI makes them, see the e2e job)."""
+    token = os.getenv(ROLE_TOKENS[role], "")
+    assert token.startswith("nmt_"), f"set {ROLE_TOKENS[role]} to a {role} token (see the e2e job)"
+    page.context.set_extra_http_headers({"Authorization": f"Bearer {token}"})
+    return page
+
+
+@pytest.mark.parametrize(
+    ("role", "landing", "shows"),
+    [
+        ("dov", "/dov", ".wall-view"),
+        ("customer", "/customer", ".avail-card"),
+        ("operator", "/nwo", "#map"),
+    ],
+)
+def test_each_role_opens_on_its_workspace(page, role, landing, shows):
+    """The front door opens the role's workspace; its menu stays in it."""
+    page = as_role(page, role)
+    page.goto(f"{BASE_URL}/")
+    page.wait_for_url(f"{BASE_URL}{landing}")
+    page.locator(shows).first.wait_for()
+    if role == "dov":
+        # The wall has no menu: the board's.
+        page.goto(f"{BASE_URL}/dov/board")
+        page.locator("table tbody tr").first.wait_for()
+    open_menu(page)
+    hrefs = page.locator(".app-nav-link").evaluate_all("links => links.map(a => a.getAttribute('href'))")
+    shared = ("/help", "/api/docs")
+    assert hrefs and all(h.startswith(landing) or h in shared for h in hrefs), hrefs
+
+
+def test_a_flat_address_opens_in_the_workspace(page):
+    """A bookmark or another page's link (/alerts?tenant=…) opens the same page in the
+    role's workspace, the scope kept; another role's workspace too."""
+    page = as_role(page, "dov")
+    tenant = next(t for row in api("/api/v1/alerts")["alerts"] for t in row.get("tenants") or [])
+    query = urllib.parse.urlencode({"tenant": tenant})
+    page.goto(f"{BASE_URL}/alerts?{query}")
+    page.wait_for_url(f"{BASE_URL}/dov/board?{query}")
+    page.locator("table tbody tr").first.wait_for()
+    page.goto(f"{BASE_URL}/alerts?view=wall")
+    page.wait_for_url(f"{BASE_URL}/dov")
+    page.goto(f"{BASE_URL}/customer")
+    page.wait_for_url(f"{BASE_URL}/dov/availability")
+    page.locator(".avail-card").first.wait_for()
+
+
+def test_a_customer_opens_a_tenants_status_from_customers(page):
+    """Customers lists every tenant; one opens its status in the workspace. No status
+    link anywhere (#695)."""
+    page = as_role(page, "customer")
+    page.goto(f"{BASE_URL}/customer/tenants")
+    first = page.locator(".tenant-row").first
+    first.wait_for()
+    name = first.get_attribute("data-name")
+    assert page.locator(".share-status").count() == 0
+    first.locator(".tenant-status-link").click()
+    page.wait_for_url(f"{BASE_URL}/customer/tenants/{urllib.parse.quote(name)}")
+    page.locator("#status-headline").wait_for()
+    assert page.locator("#status-tenant").inner_text() == name
+
+
+def test_nwo_shares_from_customers(page):
+    """NWO's Customers page: each tenant with its "Share…" (#695)."""
+    page = as_role(page, "operator")
+    page.goto(f"{BASE_URL}/tenants")
+    page.wait_for_url(f"{BASE_URL}/nwo/tenants")
+    page.locator(".tenant-row .share-status").first.click()
+    page.locator(".share-copy-link, .share-none").first.wait_for()
+    assert page.locator(".share-create").count() == 1

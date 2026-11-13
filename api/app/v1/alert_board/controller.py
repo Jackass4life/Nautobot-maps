@@ -696,3 +696,8 @@ def alert_board():
     controls.  Built with Nuxt (#463); the page reads ``/api/page-config``,
     ``/api/alerts`` and ``/api/alert-feed``."""
     return frontend.shell()
+
+
+# The same page in each role's workspace (#697).
+deps.workspace_pages(router, "alerts", alert_board, permissions.Permission.PAGE_BOARD)
+deps.workspace_pages(router, "wall", alert_board, permissions.Permission.PAGE_WALL)

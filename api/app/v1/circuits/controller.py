@@ -66,3 +66,7 @@ async def api_circuit_mapping_csv():
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="circuit-mapping.csv"'},
     )
+
+
+# The same page in each role's workspace (#697).
+deps.workspace_pages(router, "circuits", circuits_page, permissions.Permission.PAGE_CIRCUITS)

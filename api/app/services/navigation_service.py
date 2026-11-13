@@ -4,6 +4,8 @@ read from ``/api/page-config``.
 Ported from nautobot_maps/navigation.py (#602): only the imports changed.
 """
 
+from app.auth import permissions
+
 # The API reference and its spec, with the API under /api (#483); /docs and
 # /openapi.json redirect here.  The reference is a page, not JSON.
 API_DOCS_PATH = "/api/docs"
@@ -24,6 +26,7 @@ PAGES = (
         "Current and planned maintenance, and planning more",
     ),
     ("circuits", "/circuits", "Circuits", "Circuits without a termination, and their likely site"),
+    ("tenants", "/tenants", "Customers", "Each customer's status, as they see it"),
     ("help", "/help", "Documentation", "How it works, setup and every guide"),
     ("docs", API_DOCS_PATH, "API", "Every endpoint, with Try it"),
     ("wall", "/alerts?view=wall", "Wall view", "For a wall screen: alarms only, no controls"),
@@ -31,15 +34,18 @@ PAGES = (
 SCOPED = {"map", "alerts", "wall"}
 
 
-def pages(scope_query: str = "", allowed: list[str] | None = None) -> list[dict]:
+def pages(
+    scope_query: str = "", allowed: list[str] | None = None, role: str | None = None
+) -> list[dict]:
     """The menu's pages; *scope_query* (``tenant=a&q=b``, the page's ?tenant= / ?q=)
-    kept on the scoped ones. *allowed*: only these keys (the caller's, #693)."""
+    kept on the scoped ones. *allowed*: only these keys (the caller's, #693). *role*:
+    its workspace's addresses (#697), the flat ones for pages outside it."""
     result = []
     for key, path, label, title in PAGES:
         if allowed is not None and key not in allowed:
             continue
-        href = path
+        href = permissions.workspace_path(role, key) or path
         if scope_query and key in SCOPED:
-            href = f"{path}{'&' if '?' in path else '?'}{scope_query}"
+            href = f"{href}{'&' if '?' in href else '?'}{scope_query}"
         result.append({"key": key, "href": href, "label": label, "title": title})
     return result

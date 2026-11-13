@@ -105,6 +105,25 @@ def require_permission(*required: permissions.Permission, open_when_disabled: bo
     )
 
 
+def workspace_pages(  # type: ignore[no-untyped-def]
+    router, page: str, endpoint, *required: permissions.Permission, suffix: str = ""
+):
+    """*endpoint* (a page's shell) also at *page*'s address in each role's workspace
+    (#697: /customer, /dov, /nwo), with the same permission; *suffix*: more of the
+    path (``/{tenant:path}``). Any role with the permission may open it there."""
+    for role, (prefix, paths) in permissions.WORKSPACES.items():
+        if page not in paths:
+            continue
+        router.add_api_route(
+            prefix + paths[page] + suffix,
+            endpoint,
+            methods=["GET"],
+            dependencies=[require_permission(*required)],
+            name=f"pages.{role}_{page}{'_item' if suffix else ''}",
+            include_in_schema=False,
+        )
+
+
 # A route anyone reaches without signing in: health, metrics, the status page.
 PUBLIC = Depends(auth_dependencies.public)
 

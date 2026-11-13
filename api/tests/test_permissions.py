@@ -106,6 +106,17 @@ CHANGED = {
     ("/api/v1/tenants/{tenant:path}/status", "GET"): None,
     # #695: its page in the app.
     ("/tenants/{tenant:path}", "GET"): None,
+    # #697: every tenant (the Customers page reads the list), and the roles'
+    # workspaces: pages, reads.
+    ("/tenants", "GET"): None,
+    ("/api/v1/tenants", "GET"): None,
+    **{
+        (prefix + path + suffix, "GET"): None
+        for prefix, paths in permissions.WORKSPACES.values()
+        for page, path in paths.items()
+        for suffix in ("", "/{tenant:path}")
+        if not suffix or page == "tenants"
+    },
 }
 NOW = BEFORE | CHANGED
 LEVEL = {"viewer": 1, "operator": 2, "admin": 3}
@@ -278,6 +289,8 @@ BASICS = {
     "GET /static/{path:path}",
     "GET /status/{link_id}",
     "POST /mcp",
+    # The front door (#697): its page sends each role to its landing page.
+    "GET /",
     # The Admin page's shell, as for a viewer: every administration route refuses.
     # The workspaces (PR 7) send these roles elsewhere.
     "GET /admin",
@@ -290,6 +303,17 @@ REACHES = {
         "GET /api/v1/availability.csv",
         "GET /api/v1/tenants/{tenant:path}/status",
         "GET /tenants/{tenant:path}",
+        # #697: its workspace, and the same pages in the others' (the pages send it
+        # to its own).
+        "GET /tenants",
+        "GET /api/v1/tenants",
+        "GET /customer",
+        "GET /customer/tenants",
+        "GET /customer/tenants/{tenant:path}",
+        "GET /dov/availability",
+        "GET /nwo/availability",
+        "GET /nwo/tenants",
+        "GET /nwo/tenants/{tenant:path}",
     },
     "dov": BASICS
     | {
@@ -312,6 +336,16 @@ REACHES = {
         "GET /api/v1/maintenance/sites",
         "GET /api/v1/maintenance/history",
         "GET /api/v1/maintenance/history.csv",
+        # #697: its workspace, and the same pages in the others'.
+        "GET /dov",
+        "GET /dov/board",
+        "GET /dov/availability",
+        "GET /dov/maintenance",
+        "GET /customer",
+        "GET /nwo/wall",
+        "GET /nwo/board",
+        "GET /nwo/availability",
+        "GET /nwo/maintenance",
     },
 }
 
@@ -382,18 +416,48 @@ ALL_PAGES = ["map", "alerts", "wall", "availability", "maintenance", "circuits",
     [
         (
             "admin",
-            ["map", "alerts", "wall", "availability", "maintenance", "circuits", "help", "docs"],
+            [
+                "map",
+                "alerts",
+                "wall",
+                "availability",
+                "maintenance",
+                "circuits",
+                "tenants",
+                "help",
+                "docs",
+            ],
         ),
         (
             "operator",
-            ["map", "alerts", "wall", "availability", "maintenance", "circuits", "help", "docs"],
+            [
+                "map",
+                "alerts",
+                "wall",
+                "availability",
+                "maintenance",
+                "circuits",
+                "tenants",
+                "help",
+                "docs",
+            ],
         ),
         (
             "viewer",
-            ["map", "alerts", "wall", "availability", "maintenance", "circuits", "help", "docs"],
+            [
+                "map",
+                "alerts",
+                "wall",
+                "availability",
+                "maintenance",
+                "circuits",
+                "tenants",
+                "help",
+                "docs",
+            ],
         ),
         ("dov", ["alerts", "wall", "availability", "maintenance", "help", "docs"]),
-        ("customer", ["availability", "help", "docs"]),
+        ("customer", ["availability", "tenants", "help", "docs"]),
     ],
 )
 def test_the_menu_by_role(role, pages, as_role, client):
@@ -407,6 +471,71 @@ def test_the_menu_by_role(role, pages, as_role, client):
         if key in pages
     ]
     assert config["access"]["landing"] == permissions.ROLES[role].landing
+
+
+@pytest.mark.parametrize(
+    ("role", "hrefs"),
+    [
+        ("customer", ["/customer", "/customer/tenants", "/help", "/api/docs"]),
+        (
+            "dov",
+            ["/dov/board", "/dov/availability", "/dov/maintenance", "/help", "/api/docs", "/dov"],
+        ),
+        (
+            "operator",
+            [
+                "/nwo",
+                "/nwo/board",
+                "/nwo/availability",
+                "/nwo/maintenance",
+                "/nwo/circuits",
+                "/nwo/tenants",
+                "/help",
+                "/api/docs",
+                "/nwo/wall",
+            ],
+        ),
+        (
+            "viewer",
+            [
+                "/",
+                "/alerts",
+                "/availability",
+                "/maintenance",
+                "/circuits",
+                "/tenants",
+                "/help",
+                "/api/docs",
+                "/alerts?view=wall",
+            ],
+        ),
+    ],
+)
+def test_the_menu_opens_the_roles_workspace(role, hrefs, as_role, client):
+    """Customer, DOV and NWO each have their own addresses (#697); the others the flat
+    ones. Each role lands on its workspace."""
+    as_role(role)
+    config = client.get("/api/v1/page-config").json()
+    assert [page["href"] for page in config["pages"]] == hrefs
+    landing = config["access"]["landing"]
+    assert landing == {"customer": "/customer", "dov": "/dov", "operator": "/nwo"}.get(role, "/")
+
+
+def test_the_web_knows_the_workspaces():
+    """web/utils/workspaces.ts holds WORKSPACES too (#697): its routes and redirects."""
+    import json
+
+    source = (
+        pathlib.Path(__file__).resolve().parents[2] / "web" / "utils" / "workspaces.ts"
+    ).read_text()
+    table = source.split("export const WORKSPACES = ", 1)[1].split(" as const", 1)[0]
+    # TypeScript to JSON: quoted keys, no trailing commas.
+    table = re.sub(r"([{,]\s*)([A-Za-z_]\w*)\s*:", r'\1"\2":', table)
+    table = re.sub(r",(\s*[}\]])", r"\1", table)
+    assert json.loads(table) == {
+        role: {"prefix": prefix, "pages": paths}
+        for role, (prefix, paths) in permissions.WORKSPACES.items()
+    }
 
 
 def test_every_menu_page_needs_a_permission():

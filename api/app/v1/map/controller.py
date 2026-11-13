@@ -283,7 +283,9 @@ async def api_search(query: Annotated[dtos.SearchQuery, Query()]):
 
 @router.get(
     "/",
-    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAP)],
+    # The app's front door (#697): every signed-in role, whose page then goes to its
+    # landing page (web/middleware/workspace.global.ts); the map's data needs page.map.
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
     name="pages.index",
     include_in_schema=False,
 )
@@ -292,3 +294,11 @@ def index():
     alarm.  Built with Nuxt (#463); the page reads ``/api/page-config``,
     ``/api/locations`` and ``/api/location-alerts``."""
     return frontend.shell()
+
+
+def map_page():
+    return frontend.shell()
+
+
+# The map in NWO's workspace (#697): /nwo.
+deps.workspace_pages(router, "map", map_page, permissions.Permission.PAGE_MAP)
