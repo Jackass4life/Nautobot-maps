@@ -1252,6 +1252,38 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Access
+         * @description What the caller may do (#693), from the permission matrix: the pages show and
+         *     hide by it; the API checks every route itself.
+         */
+        Access: {
+            /**
+             * Label
+             * @description The role as people call it, e.g. "NWO (operator)".
+             */
+            label: string;
+            /**
+             * Landing
+             * @description The page the role opens on, e.g. /alerts?view=wall.
+             */
+            landing: string;
+            /**
+             * Pages
+             * @description The menu's pages it may open, by key: map, alerts, wall, availability, maintenance, circuits, help, docs.
+             */
+            pages: string[];
+            /**
+             * Permissions
+             * @description What the API allows it, e.g. alerts.ack, page.board; with AUTH_MODE=disabled every read and the board's own changes.
+             */
+            permissions: string[];
+            /**
+             * Role
+             * @description customer, dov, viewer, operator (NWO) or admin; null when not signed in.
+             */
+            role: string | null;
+        };
         /** AckChanged */
         AckChanged: {
             /**
@@ -2585,14 +2617,23 @@ export interface components {
          * @description Who the API sees: `username` is null when not signed in, `role` null without one.
          */
         MeDto: {
+            access: components["schemas"]["Access"];
             /**
              * Auth Mode
              * @enum {string}
              */
             auth_mode: "disabled" | "header";
-            /** Can Administer */
+            /**
+             * Can Administer
+             * @deprecated
+             * @description Deprecated: admin in access.permissions.
+             */
             can_administer: boolean;
-            /** Can Write */
+            /**
+             * Can Write
+             * @deprecated
+             * @description Deprecated: alerts.ack in access.permissions.
+             */
             can_write: boolean;
             /** Groups */
             groups: string[];
@@ -2870,6 +2911,7 @@ export interface components {
         };
         /** PageConfig */
         PageConfig: {
+            access: components["schemas"]["Access"];
             /** @description Only for those who may administer (#530): what the Admin page shows; null for everyone else. */
             admin: components["schemas"]["AdminSettings"] | null;
             availability: components["schemas"]["AvailabilityLimits"];
@@ -2883,7 +2925,7 @@ export interface components {
             nautobot_url: string;
             /**
              * Pages
-             * @description The top bar's menu, in order.
+             * @description The top bar's menu, in order: the pages the caller may open (#693).
              */
             pages: components["schemas"]["MenuPage"][];
             /** @description Who is signed in; null with AUTH_MODE=disabled or no sign-in. */

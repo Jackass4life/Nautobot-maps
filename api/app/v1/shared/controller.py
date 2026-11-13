@@ -44,11 +44,14 @@ def api_page_config():
     board's case links and level definitions."""
     at = availability.now()
     view = settings.MAP_DEFAULT_VIEW
+    access = auth.access()
     return deps.Json(
         {
             "user": templating.bar_user(),
+            "access": access,
             "nautobot_url": settings.NAUTOBOT_URL or "",
-            "pages": navigation.pages(),
+            # The pages this caller may open (#693).
+            "pages": navigation.pages(allowed=access["pages"]),
             "maintenance": {
                 "recent_days": maintenance.PAGE_RECENT_DAYS,
                 "history_days": maintenance.HISTORY_DEFAULT_DAYS,

@@ -185,6 +185,35 @@ def granted(user: CurrentUser, settings: Settings) -> frozenset[Permission]:
     return frozenset()
 
 
+def effective_permissions(user: CurrentUser, settings: Settings) -> frozenset[Permission]:
+    """What this caller may do, as ``permission_problem`` answers it route by route
+    (#693): the pages show exactly what the API allows. With AUTH_MODE=disabled (no
+    token): every read and the board's own changes, everything with
+    ALLOW_UNAUTHENTICATED_WRITES; otherwise ``granted``."""
+    if settings.auth_mode == "disabled" and not user.token:
+        if settings.allow_unauthenticated_writes:
+            return permissions.ALL
+        return permissions.READS | permissions.OPEN_WHEN_DISABLED
+    if settings.auth_mode not in ("disabled", "header"):
+        return frozenset()
+    return granted(user, settings)
+
+
+def access(user: CurrentUser, settings: Settings) -> dict:
+    """For the pages (#693): the role (null when none), its label, the page it opens
+    on, the menu's pages it may open and its effective permissions."""
+    have = effective_permissions(user, settings)
+    role = user.role if user.is_authenticated and user.role in permissions.ROLES else None
+    definition = permissions.ROLES.get(role or "")
+    return {
+        "role": role,
+        "label": definition.label if definition else "Not signed in",
+        "landing": definition.landing if definition else "/",
+        "pages": [key for key, need in permissions.PAGE_PERMISSIONS.items() if need in have],
+        "permissions": sorted(str(p) for p in have),
+    }
+
+
 def permission_problem(
     user: CurrentUser,
     settings: Settings,
@@ -222,13 +251,13 @@ def permission_problem(
 def may_administer(user: CurrentUser, settings: Settings) -> bool:
     """What a POST needing ``admin`` is allowed (#530), so pages show the
     administration only to those who may use it."""
-    return permission_problem(user, settings, (Permission.ADMIN,), "POST") is None
+    return Permission.ADMIN in effective_permissions(user, settings)
 
 
 def may_change_the_board(user: CurrentUser, settings: Settings) -> bool:
     """What acknowledging is allowed (the board's own changes, open with
-    AUTH_MODE=disabled): the pages' ``can_write``."""
-    return permission_problem(user, settings, (Permission.ALERTS_ACK,), "POST", True) is None
+    AUTH_MODE=disabled): the pages' ``can_write`` (deprecated, #693)."""
+    return Permission.ALERTS_ACK in effective_permissions(user, settings)
 
 
 def is_status_token(user: CurrentUser) -> bool:

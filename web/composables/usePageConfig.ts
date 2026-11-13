@@ -13,6 +13,8 @@ export function usePageConfig() {
       default: () =>
         ({
           user: null,
+          // Nothing allowed until the API says (#693): no button before its answer.
+          access: { role: null, label: "", landing: "/", pages: [], permissions: [] },
           nautobot_url: "",
           pages: [],
           maintenance: { recent_days: 7, history_days: 30, max_sites: 200 },

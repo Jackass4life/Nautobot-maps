@@ -79,10 +79,13 @@ class PageConfig(common.Answer):
     user: BarUser | None = Field(
         description="Who is signed in; null with AUTH_MODE=disabled or no sign-in."
     )
+    access: common.Access
     nautobot_url: str = Field(
         description="Nautobot's address, for links to its pages; empty when not set."
     )
-    pages: list[MenuPage] = Field(description="The top bar's menu, in order.")
+    pages: list[MenuPage] = Field(
+        description="The top bar's menu, in order: the pages the caller may open (#693)."
+    )
     maintenance: MaintenanceLimits
     availability: AvailabilityLimits
     map: MapSettings

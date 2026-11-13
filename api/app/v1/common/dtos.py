@@ -32,6 +32,25 @@ def flag(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes"}
 
 
+class Access(Answer):
+    """What the caller may do (#693), from the permission matrix: the pages show and
+    hide by it; the API checks every route itself."""
+
+    role: str | None = Field(
+        description="customer, dov, viewer, operator (NWO) or admin; null when not signed in."
+    )
+    label: str = Field(description='The role as people call it, e.g. "NWO (operator)".')
+    landing: str = Field(description="The page the role opens on, e.g. /alerts?view=wall.")
+    pages: list[str] = Field(
+        description="The menu's pages it may open, by key: map, alerts, wall, availability, "
+        "maintenance, circuits, help, docs."
+    )
+    permissions: list[str] = Field(
+        description="What the API allows it, e.g. alerts.ack, page.board; with "
+        "AUTH_MODE=disabled every read and the board's own changes."
+    )
+
+
 # Shared by the map and the alert board.
 class Neighbour(Answer):
     """The switch and port an access point is on (#524)."""

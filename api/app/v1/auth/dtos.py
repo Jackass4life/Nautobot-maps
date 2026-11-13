@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.v1.common.dtos import Access
 
 
 class MeDto(BaseModel):
@@ -10,6 +12,11 @@ class MeDto(BaseModel):
     role: str | None
     groups: list[str]
     auth_mode: Literal["disabled", "header"]
-    # By the current app's rules (#592), so pages hide only what the API would refuse.
-    can_write: bool
-    can_administer: bool
+    access: Access
+    # From access.permissions (#693): alerts.ack and admin.
+    can_write: bool = Field(
+        deprecated=True, description="Deprecated: alerts.ack in access.permissions."
+    )
+    can_administer: bool = Field(
+        deprecated=True, description="Deprecated: admin in access.permissions."
+    )

@@ -59,6 +59,8 @@ AUTH_CUSTOMER_GROUPS=account-managers
 
 A user has one role: the first of **admin, operator, dov, customer, viewer** that one of their groups gives, or `AUTH_DEFAULT_ROLE` when none does. Roles are never combined: someone in a viewer group and a customer group is a customer. Each role's permissions are one matrix in the app (`app/auth/permissions.py`), and every API route checks one of them.
 
+The pages follow the role: the menu lists only the pages it can open, and `GET /api/v1/me` and the pages' configuration say, in `access`, the role, its label, the page it opens on, its pages and its permissions (#693). That is convenience only: every API route checks the permission itself.
+
 See who gets what, from the running app:
 
 ```bash

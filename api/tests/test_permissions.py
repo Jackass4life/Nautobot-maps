@@ -316,3 +316,120 @@ REACHES = {
 def test_the_new_roles_reach_what_the_design_gives_them(role):
     reached = {_route_id(item) for item in ROUTES if allowed(item[1], role)}
     assert reached == REACHES[role]
+
+
+# --- What the pages are told (#693) -------------------------------------------------
+
+MODES = {
+    "header": {"AUTH_MODE": "header", "AUTH_REQUIRE_VIEWER": "true"},
+    "header, open reads": {"AUTH_MODE": "header", "AUTH_REQUIRE_VIEWER": "false"},
+    "disabled": {"AUTH_MODE": "disabled", "ALLOW_UNAUTHENTICATED_WRITES": "false"},
+    "disabled, open writes": {"AUTH_MODE": "disabled", "ALLOW_UNAUTHENTICATED_WRITES": "true"},
+}
+
+
+def _callers():  # type: ignore[no-untyped-def]
+    for mode in MODES:
+        yield mode, None
+        if mode.startswith("header"):
+            yield from ((mode, role) for role in permissions.ROLES)
+
+
+@pytest.mark.parametrize(("mode", "role"), list(_callers()))
+def test_the_pages_are_told_exactly_what_the_api_allows(configure, mode, role):
+    """access.permissions (#693) against the real check, route by route: a change is
+    allowed by permission_problem exactly when its permissions are in the set, so a page
+    never shows a button the API refuses, nor hides one it allows; a read is allowed
+    whenever they are. (With AUTH_MODE=disabled every read is open, also a feature's
+    whose changes aren't, e.g. the criticality list: the set names what can be used.)"""
+    from app.core.settings import get_settings
+
+    configure(**MODES[mode])
+    settings = get_settings()
+    if role is None:
+        user = CurrentUser(auth_mode=settings.auth_mode)
+    else:
+        user = CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
+    have = set(auth_service.access(user, settings)["permissions"])
+    wrong = []
+    for path, route, method in ROUTES:
+        for dependency in route.dependant.dependencies:
+            names = getattr(dependency.call, "required_permissions", None)
+            if not names or names == (permissions.PUBLIC,):
+                continue
+            checked = auth_service.permission_problem(
+                user,
+                settings,
+                tuple(Permission(n) for n in names),
+                method,
+                getattr(dependency.call, "open_when_disabled", False),
+            )
+            told = bool(set(names) & have)
+            if (checked is None) != told and (method != "GET" or told):
+                wrong.append(f"{method} {path} {names}")
+    assert wrong == []
+
+
+ALL_PAGES = ["map", "alerts", "wall", "availability", "maintenance", "circuits", "help", "docs"]
+
+
+@pytest.mark.parametrize(
+    ("role", "pages"),
+    [
+        (
+            "admin",
+            ["map", "alerts", "wall", "availability", "maintenance", "circuits", "help", "docs"],
+        ),
+        (
+            "operator",
+            ["map", "alerts", "wall", "availability", "maintenance", "circuits", "help", "docs"],
+        ),
+        (
+            "viewer",
+            ["map", "alerts", "wall", "availability", "maintenance", "circuits", "help", "docs"],
+        ),
+        ("dov", ["alerts", "wall", "availability", "maintenance", "help", "docs"]),
+        ("customer", ["availability", "help", "docs"]),
+    ],
+)
+def test_the_menu_by_role(role, pages, as_role, client):
+    as_role(role)
+    config = client.get("/api/v1/page-config").json()
+    assert config["access"]["role"] == role
+    assert config["access"]["pages"] == pages
+    assert [page["key"] for page in config["pages"]] == [
+        key
+        for key, *_ in __import__("app.services.navigation_service", fromlist=["PAGES"]).PAGES
+        if key in pages
+    ]
+    assert config["access"]["landing"] == permissions.ROLES[role].landing
+
+
+def test_every_menu_page_needs_a_permission():
+    from app.services import navigation_service as navigation
+
+    assert {key for key, *_ in navigation.PAGES} == set(permissions.PAGE_PERMISSIONS)
+
+
+@pytest.mark.parametrize("mode", list(MODES))
+@pytest.mark.parametrize("role", [None, "viewer", "operator", "admin"])
+def test_can_write_and_can_administer_as_before(configure, mode, role):
+    """The deprecated flags (#693) answer as before for the old roles: can_write the
+    board's own changes, can_administer a POST needing admin."""
+    from app.core.settings import get_settings
+
+    if role and not mode.startswith("header"):
+        return
+    configure(**MODES[mode])
+    settings = get_settings()
+    user = (
+        CurrentUser(auth_mode=settings.auth_mode)
+        if role is None
+        else CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
+    )
+    disabled = settings.auth_mode == "disabled"
+    writes_open = settings.allow_unauthenticated_writes
+    was_write = (disabled or role in ("operator", "admin")) and (role is not None or disabled)
+    was_admin = (disabled and writes_open) or role == "admin"
+    assert auth_service.may_change_the_board(user, settings) == was_write
+    assert auth_service.may_administer(user, settings) == was_admin

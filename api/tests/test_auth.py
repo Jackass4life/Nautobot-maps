@@ -42,7 +42,9 @@ def me(client, headers=None):
 def test_disabled_mode_opens_reads_and_the_boards_changes(client, configure):
     """As the current app (#188): nobody is signed in; reads and the board's own
     changes are open, administrative ones need ALLOW_UNAUTHENTICATED_WRITES."""
-    assert me(client) == {
+    answer = me(client)
+    access = answer.pop("access")
+    assert answer == {
         "username": None,
         "role": None,
         "groups": [],
@@ -50,6 +52,10 @@ def test_disabled_mode_opens_reads_and_the_boards_changes(client, configure):
         "can_write": True,
         "can_administer": False,
     }
+    # #693: every read and the board's own changes, nothing administrative.
+    assert (access["role"], access["label"], access["landing"]) == (None, "Not signed in", "/")
+    assert "alerts.ack" in access["permissions"] and "page.map" in access["permissions"]
+    assert "admin" not in access["permissions"] and "maintenance.write" not in access["permissions"]
     assert client.post("/api/v1/items", json={"name": "open"}).status_code == 201
     refused = client.post("/api/v1/tokens", json={"name": "x", "role": "viewer"})
     assert refused.status_code == 403
@@ -86,7 +92,9 @@ def test_default_role_for_users_in_no_group(header_mode, configure, via_proxy):
 
 
 def test_headers_from_an_untrusted_peer_are_ignored(header_mode, direct):
-    assert me(direct, as_user("mallory", "netadmins")) == {
+    answer = me(direct, as_user("mallory", "netadmins"))
+    access = answer.pop("access")
+    assert answer == {
         "username": None,
         "role": None,
         "groups": [],
@@ -94,6 +102,9 @@ def test_headers_from_an_untrusted_peer_are_ignored(header_mode, direct):
         "can_write": False,
         "can_administer": False,
     }
+    # Anonymous without AUTH_REQUIRE_VIEWER: the viewer's reads (#693), never more.
+    assert access["role"] is None and "admin" not in access["permissions"]
+    assert "alerts.ack" not in access["permissions"] and "page.board" in access["permissions"]
     assert (
         direct.post(
             "/api/v1/items", json={"name": "x"}, headers=as_user("mallory", "netadmins")
