@@ -63,7 +63,7 @@ class Token(common.Answer):
     id: int
     name: str
     prefix: str = Field(description="Its first characters, to recognise it.")
-    role: Literal["viewer", "operator", "admin", "status"]
+    role: Literal["viewer", "operator", "admin", "dov", "customer", "status"]
     tenant: str | None = Field(description="The tenant a status token opens.")
     created_by: str
     created_at: str
@@ -110,7 +110,9 @@ class TokenCreate(BaseModel):
     """A new API token (#297)."""
 
     name: str
-    role: str = Field(description="viewer, operator, admin, or status with a tenant")
+    role: str = Field(
+        description="viewer, operator (NWO), admin, dov, customer, or status with a tenant"
+    )
     tenant: str | None = None
     expires_in_days: int | None = None
 

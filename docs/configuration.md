@@ -154,6 +154,7 @@ See [authentication](authentication.md).
 | `AUTH_HEADER_USER` | `X-Forwarded-User` | Header with the user name, set by the proxy |
 | `AUTH_HEADER_GROUPS` | `X-Forwarded-Groups` | Header with the user's groups, set by the proxy |
 | `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` | — | Comma-separated group names for each role |
+| `AUTH_DOV_GROUPS` / `AUTH_CUSTOMER_GROUPS` | — | Comma-separated group names for the DOV and customer roles ([roles](authentication.md#roles)) |
 | `AUTH_DEFAULT_ROLE` | — | Role (`viewer`, `operator`, `admin`) for signed-in users with no matching group |
 | `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | IPs/CIDRs of the proxy; identity headers from anywhere else are ignored and logged |
 | `AUTH_PROXY_SECRET` | — | When set, identity headers only count if the proxy also sends it in `X-Auth-Proxy-Secret` |

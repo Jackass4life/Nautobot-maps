@@ -14,7 +14,12 @@ is how the first admin token is made (``docker compose exec app python -m
 app ...``).
 
 ``status-link TENANT`` prints the tenant's status page link, ``/status/<id>``
-(#500); ``--new`` replaces it, and the old link stops working.
+(#500), made the first time; ``--replace`` (or ``--new``) replaces it and
+``--delete`` deletes it (#691): the old link stops working. ``status-link --list``
+lists every link.
+
+``roles`` prints who may do what (#691): each role's permissions and the groups that
+give it; ``roles --groups G1,G2`` the role and permissions a user in them gets.
 
 ``wireless-check`` reads every wireless controller in WIRELESS_CONTROLLERS_FILE
 now (#508) and says, for each, whether it answers, how many access points it
@@ -26,9 +31,11 @@ import asyncio
 import sys
 
 from app import migrate
+from app.auth import permissions
 from app.core.settings import get_settings
 from app.db import session
 from app.logs import config as logs
+from app.services import auth_service
 from app.services import contract_service as contract
 from app.services import inventory_service as inventory
 from app.services import status_link_service as statuslinks
@@ -46,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     token_commands = token.add_subparsers(dest="token_command", required=True)
     create = token_commands.add_parser("create", help="create a token and print it (shown once)")
     create.add_argument("name")
-    create.add_argument("--role", required=True, choices=(*tokens.ROLES, tokens.STATUS_ROLE))
+    # nwo: the operator role, as the pages name it (#691).
+    create.add_argument("--role", required=True, choices=(*tokens.ROLES, tokens.STATUS_ROLE, "nwo"))
     create.add_argument(
         "--tenant", default=None, help="with --role status: the tenant whose status page it opens"
     )
@@ -68,8 +76,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     purge.add_argument("--dry-run", action="store_true", help="list what would go, delete nothing")
     link = commands.add_parser("status-link", help="print a tenant's status page link (#500)")
-    link.add_argument("tenant")
-    link.add_argument("--new", action="store_true", help="replace it: the old link stops working")
+    link.add_argument("tenant", nargs="?", default=None)
+    change = link.add_mutually_exclusive_group()
+    change.add_argument(
+        "--replace", "--new", action="store_true", help="replace it: the old link stops working"
+    )
+    change.add_argument(
+        "--delete", action="store_true", help="delete it: the link stops working (#691)"
+    )
+    change.add_argument("--list", action="store_true", help="list every tenant's link (#691)")
+    roles = commands.add_parser("roles", help="who may do what: the roles and their groups (#691)")
+    roles.add_argument(
+        "--groups", default=None, help="CSV: the role and permissions a user in these groups gets"
+    )
     commands.add_parser(
         "wireless-check", help="read each wireless controller now and say what matched (#508)"
     )
@@ -105,20 +124,68 @@ def wireless_check_command() -> int:
 
 
 async def status_link_command(db, args) -> int:
+    if args.list:
+        if args.tenant:
+            print("error: --list takes no tenant", file=sys.stderr)
+            return 2
+        links = await statuslinks.listing(db)
+        for link in links:
+            print(f"{link['status_link']}  {link['tenant']}  (made {link['created_at']})")
+        if not links:
+            print("No status links.")
+        return 0
+    if args.tenant is None:
+        print("error: a tenant, or --list", file=sys.stderr)
+        return 2
     if not args.tenant.strip() or not await statuslinks.known(db, args.tenant):
         # A typo must not make a link, or leave a leaked one working.
         print(f"error: {statuslinks.unknown_tenant(args.tenant)}", file=sys.stderr)
         return 1
-    if args.new:
+    if args.delete:
+        if not await statuslinks.delete(db, args.tenant):
+            print(f"error: no status link for tenant {args.tenant!r}", file=sys.stderr)
+            return 1
+        print(
+            f"Status link of tenant {args.tenant!r} deleted: it no longer works.", file=sys.stderr
+        )
+        return 0
+    if args.replace:
         link_id = await statuslinks.replace(db, args.tenant)
     else:
         link_id = (await statuslinks.ensure(db, [args.tenant]))[args.tenant]
     print(f"/status/{link_id}")
     print(
         "The status page link; with a status token, share it as /status/<id>#key=<token>."
-        + (" The old link no longer works." if args.new else ""),
+        + (" The old link no longer works." if args.replace else ""),
         file=sys.stderr,
     )
+    return 0
+
+
+def roles_command(args) -> int:
+    """The matrix (#685) and the groups that give each role (#691); with --groups, the
+    role and permissions a user in those groups gets."""
+    settings = get_settings()
+    if args.groups is not None:
+        groups = [group for group in args.groups.split(",") if group.strip()]
+        role = auth_service.role_from_groups(groups, settings)
+        if not role:
+            print("No role: none of these groups gives one, and AUTH_DEFAULT_ROLE is empty.")
+            return 0
+        definition = permissions.ROLES[role]
+        print(f"{role} ({definition.label}), opens {definition.landing}")
+        for name in sorted(definition.permissions):
+            print(f"  {name}")
+        return 0
+    for role, role_groups in auth_service.group_roles(settings):
+        definition = permissions.ROLES[role]
+        given = ", ".join(sorted(role_groups)) or "no groups set"
+        print(f"{role} ({definition.label}), opens {definition.landing}; groups: {given}")
+        for name in sorted(definition.permissions):
+            print(f"  {name}")
+    default = settings.auth_default_role or "none"
+    print(f"In none of the groups: {default} (AUTH_DEFAULT_ROLE). The first role above wins.")
+    print("status: an API token for one tenant's status page.")
     return 0
 
 
@@ -134,7 +201,8 @@ def print_token(token: dict) -> None:
 
 async def token_command(db, args) -> int:
     if args.token_command == "create":
-        body = {"name": args.name, "role": args.role, "expires_in_days": args.expires_days}
+        role = "operator" if args.role == "nwo" else args.role
+        body = {"name": args.name, "role": role, "expires_in_days": args.expires_days}
         if args.tenant is not None:
             body["tenant"] = args.tenant
         try:
@@ -244,6 +312,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "schema-version":
         return schema_version_command()
+    if args.command == "roles":
+        return roles_command(args)
     command = token_command if args.command == "token" else status_link_command
     return asyncio.run(_on_a_session(command, args))
 

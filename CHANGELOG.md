@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Customer and DOV roles** (#691): `AUTH_CUSTOMER_GROUPS` (account managers: availability and each customer's status, read only, never a status link) and `AUTH_DOV_GROUPS` (the wall view, the board, availability and maintenance read only; acknowledge and add cases). A user has one role, the first of admin, operator (NWO), dov, customer, viewer that their groups give. API tokens can have them too (`token create --role dov`; `--role nwo` is operator). `python -m app roles` shows each role's permissions and groups, and `roles --groups G1,G2` the role a user in them gets. `python -m app status-link` gains `--replace` (as `--new`), `--delete` and `--list`
 - **A tenant's status in the app, by its name** (#689): `GET /api/v1/tenants/<tenant>/status` answers what the tenant's status page shows, for those signed in as customer, viewer, NWO (operator) or admin, without its private link; a status token can't use it
 
 ### Changed

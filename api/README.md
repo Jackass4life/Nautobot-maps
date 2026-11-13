@@ -96,11 +96,12 @@ app python -m app …`); same options, output and exit status:
 | `python -m app migrate` | `python -m app.migrate`: adopt the first app's database, upgrade to head. |
 | `python -m app schema-version` | The database's Alembic revision and this release's head; the first app's schema version when it has one. |
 | `python -m app contract-docs` | `docs/data-contract.md` from the data contract. |
-| `python -m app token create NAME --role ROLE [--tenant T] [--expires-days N]` | A token, printed once (the first admin token is made so). |
+| `python -m app token create NAME --role ROLE [--tenant T] [--expires-days N]` | A token, printed once (the first admin token is made so). Roles: viewer, operator (`nwo`), admin, dov, customer, status. |
 | `python -m app token list [--all] [--tenant T]` | The active tokens (`--all`: revoked and expired too), never the secrets. |
 | `python -m app token revoke ID` | Revoke one. |
 | `python -m app token purge [--older-than DAYS] [--dry-run]` | Delete revoked and expired ones for good. |
-| `python -m app status-link TENANT [--new]` | The tenant's status page link; `--new` replaces it. |
+| `python -m app status-link TENANT [--replace \| --delete]`, `status-link --list` | The tenant's status page link, made the first time; `--replace` (or `--new`) replaces it, `--delete` deletes it; `--list` lists every link (#691). |
+| `python -m app roles [--groups G1,G2]` | Each role's permissions and the groups that give it; with `--groups`, the role a user in them gets (#691). |
 | `python -m app wireless-check` | Read each wireless controller now; exit status 1 if one fails. |
 
 ## Ported code (#600)
@@ -194,7 +195,7 @@ oauth2-proxy + GitLab setup fits both. Code: `app/services/auth_service.py`.
 | `AUTH_HEADER_USER` / `AUTH_HEADER_GROUPS` | `X-Forwarded-User` / `X-Forwarded-Groups` | Identity headers (groups separated by `,` or `;`). |
 | `AUTH_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | Peers whose identity headers count (CSV of CIDRs). Anyone else is anonymous. |
 | `AUTH_PROXY_SECRET` | empty | When set, the proxy must also send it as `X-Auth-Proxy-Secret`. |
-| `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` | empty | Groups (CSV, case-insensitive) per role; the highest wins. |
+| `AUTH_VIEWER_GROUPS` / `AUTH_OPERATOR_GROUPS` / `AUTH_ADMIN_GROUPS` / `AUTH_DOV_GROUPS` / `AUTH_CUSTOMER_GROUPS` | empty | Groups (CSV, case-insensitive) per role; the first of admin, operator, dov, customer, viewer wins (#691). |
 | `AUTH_DEFAULT_ROLE` | empty | Role of a signed-in user in none of the groups. |
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: everything but `/healthz`, `/metrics` and the status pages needs the viewer role (otherwise reads are public). |
 | `ALLOW_UNAUTHENTICATED_WRITES` | `false` | Disabled mode: administrative changes too, without signing in. |

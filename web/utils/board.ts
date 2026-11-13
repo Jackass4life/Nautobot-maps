@@ -419,9 +419,9 @@ export function moreFiltersInUse(criteria: BoardCriteria): number {
 export function filtersInUse(criteria: BoardCriteria): boolean {
   return Boolean(
     criteria.site.trim() ||
-    criteria.tenant.length ||
-    moreFiltersInUse(criteria) ||
-    criteria.severity !== DEFAULT_SEVERITY_FILTER,
+      criteria.tenant.length ||
+      moreFiltersInUse(criteria) ||
+      criteria.severity !== DEFAULT_SEVERITY_FILTER,
   );
 }
 
