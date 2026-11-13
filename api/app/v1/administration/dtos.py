@@ -17,19 +17,6 @@ class Tenants(common.Answer):
     tenants: list[Tenant] = Field(description="Nautobot's tenants as of the last sync, by name.")
 
 
-class StatusLink(common.Answer):
-    tenant: str = Field(description="The tenant, as Nautobot spells it.")
-    status_link: str = Field(
-        description="Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>."
-    )
-
-
-class StatusLinkReplaced(StatusLink):
-    message: str = Field(
-        description="What changed: the old link stopped working; the tenant's tokens still work."
-    )
-
-
 class WirelessControllerCheck(common.Answer):
     controller: str = Field(
         description='Its name as the top bar says it, e.g. "Catalyst Center dk".'

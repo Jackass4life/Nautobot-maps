@@ -64,6 +64,17 @@ def bearer_token() -> str:
     return auth_service.bearer_token(requestctx.current().starlette)
 
 
+def may(permission) -> bool:  # type: ignore[no-untyped-def]
+    """Whether this request's caller has *permission* (#685) for what it asks: a read
+    in AUTH_MODE=disabled is open to anyone, as every route's check."""
+    return (
+        auth_service.permission_problem(
+            _user(), get_settings(), (permission,), requestctx.current().method
+        )
+        is None
+    )
+
+
 def may_administer() -> bool:
     return auth_service.may_administer(_user(), get_settings())
 

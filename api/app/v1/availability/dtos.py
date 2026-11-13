@@ -77,8 +77,11 @@ class Report(common.Answer):
     tenant_descriptions: dict[str, str] = Field(
         description="Tenant name to its description, when it has one."
     )
-    status_links: dict[str, str] = Field(
-        description="Tenant name to its status page link id: /status/<id> (#500)."
+    status_links: dict[str, str] | None = Field(
+        None,
+        description="Tenant name to its status page link id: /status/<id> (#500), for the "
+        "tenants that have one; only with the status.links.view permission (#687), "
+        "absent otherwise.",
     )
 
 

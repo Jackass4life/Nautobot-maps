@@ -69,3 +69,24 @@ async def nautobot_tenant_name(db: AsyncSession, tenant: str) -> str | None:
         {"tenant": tenant},
     )
     return rows[0]["name"] if rows else None
+
+
+async def listing(db: AsyncSession) -> list[dict]:
+    """Every link (#687): its tenant as Nautobot spells it when it still has it (else the
+    case-folded name the link is kept under), its id and when it was made."""
+    return await _rows(
+        db,
+        "SELECT l.tenant_key, l.link_id, l.created_at, "
+        "(SELECT t.name FROM nautobot_tenant_cache t WHERE lower(t.name) = l.tenant_key "
+        "ORDER BY t.name LIMIT 1) AS name "
+        "FROM status_links l ORDER BY l.tenant_key",
+        {},
+    )
+
+
+async def delete(db: AsyncSession, key: str) -> bool:
+    """Whether there was a link for *key*; its page answers 404 from now on."""
+    rows = await _rows(
+        db, "DELETE FROM status_links WHERE tenant_key = :key RETURNING link_id", {"key": key}
+    )
+    return bool(rows)

@@ -3,8 +3,10 @@
 from fastapi import APIRouter
 from loguru import logger
 
+from app.auth import permissions
 from app.db import aconnection
 from app.db import session as db_session
+from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
 from app.services import inventory_service as inventory
@@ -142,3 +144,119 @@ async def _answer(tenant: str | None):
             return deps.Json(UNAVAILABLE, status_code=503)
         return deps.Json(NOT_FOUND, status_code=404)
     return deps.Json(result, headers={"Cache-Control": "no-store"})
+
+
+# --- The status links (#529, #687): NWO and admin keep them ---------------------
+
+NO_TENANT = {
+    503: {"model": common.Error, "description": "No database"},
+    404: {"model": common.Error, "description": "No such tenant, or no link"},
+}
+VIEW = deps.require_permission(permissions.Permission.STATUS_LINKS_VIEW)
+MANAGE = deps.require_permission(permissions.Permission.STATUS_LINKS_MANAGE)
+
+
+def _who() -> str:
+    return auth.get_current_user().get("username") or "unknown"
+
+
+async def _tenant_or_404(db, tenant: str) -> str:  # type: ignore[no-untyped-def]
+    """*tenant* as Nautobot spells it; 404 for one Nautobot doesn't have (a typo must
+    not make a link, or leave a leaked one working)."""
+    name = await statuslinks.tenant_name(db, tenant)
+    if name is None:
+        raise deps.ApiError({"error": statuslinks.unknown_tenant(tenant)}, 404)
+    return name
+
+
+@router.get(
+    "/api/v1/status-links",
+    name="status.api_status_links",
+    response_model=dtos.StatusLinks,
+    responses={503: NO_TENANT[503]},
+    dependencies=[VIEW],
+)
+async def api_status_links(db: AsyncDbSession):
+    """Every tenant's status page link (#687), by tenant: ``/status/<id>`` and when it
+    was made. Send one with a status token, ``/status/<id>#key=<token>``."""
+    return deps.Json({"links": await statuslinks.listing(db)})
+
+
+@router.post(
+    "/api/v1/status-links/{tenant:path}/replace",
+    name="status.api_status_link_replace",
+    response_model=dtos.StatusLinkReplaced,
+    responses=NO_TENANT,
+    dependencies=[MANAGE],
+)
+async def api_status_link_replace(tenant: str, db: AsyncDbSession):
+    """Replace a tenant's status page link that leaked (#529), as
+    ``status-link TENANT --new``: the old link stops working at once; the
+    tenant's status tokens keep working with the new one."""
+    name = await _tenant_or_404(db, tenant)
+    link_id = await statuslinks.replace(db, name)
+    logger.info("Status link of tenant {!r} replaced by {}", name, _who())
+    return deps.Json(
+        {
+            "tenant": name,
+            "status_link": f"/status/{link_id}",
+            "message": "The old link no longer works. The tenant's status tokens still work: send them with this link.",
+        }
+    )
+
+
+@router.get(
+    "/api/v1/status-links/{tenant:path}",
+    name="status.api_status_link",
+    response_model=dtos.StatusLink,
+    responses=NO_TENANT,
+    dependencies=[VIEW],
+)
+async def api_status_link(tenant: str, db: AsyncDbSession):
+    """A tenant's status page link, ``/status/<id>`` (#529); 404 when it has none yet
+    (#687: reading never makes one; ``POST`` does)."""
+    name = await _tenant_or_404(db, tenant)
+    link_id = (await statuslinks.existing(db, [name])).get(name)
+    if link_id is None:
+        raise deps.ApiError({"error": f"No status link for tenant {name!r} yet"}, 404)
+    return deps.Json({"tenant": name, "status_link": f"/status/{link_id}"})
+
+
+@router.post(
+    "/api/v1/status-links/{tenant:path}",
+    name="status.api_status_link_create",
+    response_model=dtos.StatusLink,
+    responses=NO_TENANT,
+    dependencies=[MANAGE],
+)
+async def api_status_link_create(tenant: str, db: AsyncDbSession):
+    """Make a tenant's status page link (#687), as ``status-link TENANT``; one it has
+    already is answered as it is, so asking again never changes it."""
+    name = await _tenant_or_404(db, tenant)
+    had = await statuslinks.existing(db, [name])
+    link_id = (await statuslinks.ensure(db, [name]))[name]
+    if name not in had:
+        logger.info("Status link of tenant {!r} made by {}", name, _who())
+    return deps.Json({"tenant": name, "status_link": f"/status/{link_id}"})
+
+
+@router.delete(
+    "/api/v1/status-links/{tenant:path}",
+    name="status.api_status_link_delete",
+    response_model=dtos.StatusLinkDeleted,
+    responses=NO_TENANT,
+    dependencies=[MANAGE],
+)
+async def api_status_link_delete(tenant: str, db: AsyncDbSession):
+    """Delete a tenant's status page link (#687): customers using it lose access at
+    once. Its status tokens open nothing until a new link is made (``POST``)."""
+    name = await _tenant_or_404(db, tenant)
+    if not await statuslinks.delete(db, name):
+        raise deps.ApiError({"error": f"No status link for tenant {name!r}"}, 404)
+    logger.info("Status link of tenant {!r} deleted by {}", name, _who())
+    return deps.Json(
+        {
+            "tenant": name,
+            "message": "The link no longer works. Make a new one to share the tenant's status page again.",
+        }
+    )

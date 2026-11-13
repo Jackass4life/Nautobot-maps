@@ -20,6 +20,25 @@ if not BASE_URL:
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
 
+@pytest.fixture(scope="session", autouse=True)
+def status_links():
+    """Each tenant's status page link, made as NWO makes them (#687): reading
+    Availability no longer makes one, and several tests open a tenant's page."""
+    token = os.getenv("E2E_OPERATOR_TOKEN", "")
+    if not token.startswith("nmt_"):
+        return  # the tests that need one fail with their own message
+    report = api("/api/v1/availability")
+    tenants = {row["tenant"] for row in report["tenants"]}
+    for tenant in sorted(tenants):
+        request = urllib.request.Request(
+            f"{BASE_URL}/api/v1/status-links/{urllib.parse.quote(tenant, safe='')}",
+            method="POST",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(request, timeout=30):
+            pass
+
+
 @pytest.fixture(scope="session")
 def browser():
     with sync_playwright() as p:

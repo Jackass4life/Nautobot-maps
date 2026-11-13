@@ -235,7 +235,8 @@ export interface paths {
          *     most 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site
          *     down) or ``critical`` (the site at Critical); default
          *     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
-         *     ``status_links``: each tenant's status page link id, ``/status/<id>``.
+         *     ``status_links``: each tenant's status page link id, ``/status/<id>``, for
+         *     those that have one; only with the ``status.links.view`` permission.
          */
         get: operations["getAvailability"];
         put?: never;
@@ -873,6 +874,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/status-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every tenant's status page link, by tenant: ``/status/<id>`` and when it was made. Send one with a status token, ``/status/<id>#key=<token>``.
+         * @description Every tenant's status page link (#687), by tenant: ``/status/<id>`` and when it
+         *     was made. Send one with a status token, ``/status/<id>#key=<token>``.
+         */
+        get: operations["getStatusLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/status-links/{tenant}": {
         parameters: {
             query?: never;
@@ -881,15 +903,24 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A tenant's status page link, as ``status-link TENANT`` prints it: ``/status/<id>``, made the first time it is asked for. 404 for a tenant Nautobot doesn't have (as of the last sync).
-         * @description A tenant's status page link (#529), as ``status-link TENANT`` prints it:
-         *     ``/status/<id>``, made the first time it is asked for.  404 for a tenant
-         *     Nautobot doesn't have (as of the last sync).
+         * A tenant's status page link, ``/status/<id>``; 404 when it has none yet (#687: reading never makes one; ``POST`` does).
+         * @description A tenant's status page link, ``/status/<id>`` (#529); 404 when it has none yet
+         *     (#687: reading never makes one; ``POST`` does).
          */
         get: operations["getStatusLink"];
         put?: never;
-        post?: never;
-        delete?: never;
+        /**
+         * Make a tenant's status page link, as ``status-link TENANT``; one it has already is answered as it is, so asking again never changes it.
+         * @description Make a tenant's status page link (#687), as ``status-link TENANT``; one it has
+         *     already is answered as it is, so asking again never changes it.
+         */
+        post: operations["postStatusLinkCreate"];
+        /**
+         * Delete a tenant's status page link: customers using it lose access at once. Its status tokens open nothing until a new link is made (``POST``).
+         * @description Delete a tenant's status page link (#687): customers using it lose access at
+         *     once. Its status tokens open nothing until a new link is made (``POST``).
+         */
+        delete: operations["deleteStatusLinkDelete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2938,11 +2969,11 @@ export interface components {
             sites: components["schemas"]["SiteRow"][];
             /**
              * Status Links
-             * @description Tenant name to its status page link id: /status/<id> (#500).
+             * @description Tenant name to its status page link id: /status/<id> (#500), for the tenants that have one; only with the status.links.view permission (#687), absent otherwise.
              */
-            status_links: {
+            status_links?: {
                 [key: string]: string;
-            };
+            } | null;
             summary: components["schemas"]["AvailabilitySummary"];
             /**
              * Tenant Descriptions
@@ -3327,6 +3358,34 @@ export interface components {
              */
             tenant: string;
         };
+        /** StatusLinkDeleted */
+        StatusLinkDeleted: {
+            /**
+             * Message
+             * @description What changed: the link stopped working.
+             */
+            message: string;
+            /** Tenant */
+            tenant: string;
+        };
+        /** StatusLinkEntry */
+        StatusLinkEntry: {
+            /**
+             * Created At
+             * @description When this link was made (ISO 8601, UTC).
+             */
+            created_at: string;
+            /**
+             * Status Link
+             * @description /status/<id>
+             */
+            status_link: string;
+            /**
+             * Tenant
+             * @description As Nautobot spells it; the lower-case name the link is kept under for a tenant Nautobot no longer has.
+             */
+            tenant: string;
+        };
         /** StatusLinkReplaced */
         StatusLinkReplaced: {
             /**
@@ -3344,6 +3403,11 @@ export interface components {
              * @description The tenant, as Nautobot spells it.
              */
             tenant: string;
+        };
+        /** StatusLinks */
+        StatusLinks: {
+            /** Links */
+            links: components["schemas"]["StatusLinkEntry"][];
         };
         /** StatusSite */
         StatusSite: {
@@ -6306,6 +6370,68 @@ export interface operations {
             };
         };
     };
+    getStatusLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusLinks"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getStatusLink: {
         parameters: {
             query?: never;
@@ -6368,7 +6494,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No such tenant */
+            /** @description No such tenant, or no link */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6376,7 +6502,191 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "No such tenant"
+                     *       "error": "No such tenant, or no link"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postStatusLinkCreate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusLink"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such tenant, or no link */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such tenant, or no link"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No database */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No database"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteStatusLinkDelete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusLinkDeleted"];
+                };
+            };
+            /** @description Bad input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Bad input"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The role is too low */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The role is too low"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such tenant, or no link */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "No such tenant, or no link"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
@@ -6460,7 +6770,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No such tenant */
+            /** @description No such tenant, or no link */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6468,7 +6778,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "No such tenant"
+                     *       "error": "No such tenant, or no link"
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];

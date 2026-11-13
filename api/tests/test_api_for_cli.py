@@ -24,7 +24,7 @@ API_FOR_COMMAND = {
     "token list": ["list_tokens"],
     "token revoke": ["revoke_token"],
     "token purge": ["purge_tokens"],
-    "status-link": ["admin.api_status_link", "admin.api_status_link_replace"],
+    "status-link": ["status.api_status_link_create", "status.api_status_link_replace"],
     "wireless-check": ["admin.api_wireless_check"],
 }
 # Installing and developing, not everyday work: no API.
@@ -63,57 +63,105 @@ def link_of(tenant: str) -> str:
     return adb.run(statuslinks.ensure, [tenant])[tenant]
 
 
+def links() -> int:
+    conn = adb.connect()
+    try:
+        return conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"]
+    finally:
+        conn.close()
+
+
 class TestStatusLinks:
     def test_the_link_as_the_command_prints_it(self, flask_client, capsys):
-        admin_token = make("admin", "admin")["token"]
-        answer = flask_client.get("/api/v1/status-links/acme%20corp", headers=bearer(admin_token))
+        """POST makes it (#687), as ``status-link TENANT``; asking again answers the same."""
+        operator = make("op", "operator")["token"]
+        answer = flask_client.post("/api/v1/status-links/acme%20corp", headers=bearer(operator))
         assert answer.status_code == 200
         assert answer.get_json() == {
             "tenant": "Acme Corp",
             "status_link": f"/status/{link_of('Acme Corp')}",
         }
+        again = flask_client.post("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
+        assert again.get_json() == answer.get_json()
         assert cli.main(["status-link", "Acme Corp"]) == 0
         assert capsys.readouterr().out.strip() == answer.get_json()["status_link"]
-        # A name with a slash in it.
-        nord = flask_client.get(
-            "/api/v1/status-links/Nord%20A%2FS", headers=bearer(admin_token)
+        # Read back, and a name with a slash in it.
+        read = flask_client.get("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
+        assert read.get_json() == answer.get_json()
+        nord = flask_client.post(
+            "/api/v1/status-links/Nord%20A%2FS", headers=bearer(operator)
         ).get_json()
         assert nord == {"tenant": "Nord A/S", "status_link": f"/status/{link_of('Nord A/S')}"}
 
-    def test_only_admins_and_only_known_tenants(self, flask_client):
-        admin_token, operator = make("admin", "admin")["token"], make("op", "operator")["token"]
-        assert (
-            flask_client.get(
-                "/api/v1/status-links/Acme%20Corp", headers=bearer(operator)
-            ).status_code
-            == 403
+    def test_reading_never_makes_a_link(self, flask_client):
+        operator = make("op", "operator")["token"]
+        missing = flask_client.get("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
+        assert missing.status_code == 404
+        assert missing.get_json() == {"error": "No status link for tenant 'Acme Corp' yet"}
+        assert flask_client.get("/api/v1/status-links", headers=bearer(operator)).get_json() == {
+            "links": []
+        }
+        assert links() == 0
+
+    def test_nwo_and_admins_only_and_only_known_tenants(self, flask_client):
+        """NWO (operator) and admin keep the links (#687); a viewer may not even read
+        them; an unknown tenant gets no link, whoever asks."""
+        viewer, operator = make("v", "viewer")["token"], make("op", "operator")["token"]
+        paths = (
+            ("get", "/api/v1/status-links"),
+            ("get", "/api/v1/status-links/Acme%20Corp"),
+            ("post", "/api/v1/status-links/Acme%20Corp"),
+            ("post", "/api/v1/status-links/Acme%20Corp/replace"),
+            ("delete", "/api/v1/status-links/Acme%20Corp"),
         )
-        assert (
-            flask_client.post(
-                "/api/v1/status-links/Acme%20Corp/replace", headers=bearer(operator)
-            ).status_code
-            == 403
-        )
-        for method, path in (
-            ("get", "/api/v1/status-links/Acme"),
-            ("post", "/api/v1/status-links/Acme/replace"),
-        ):
-            refused = getattr(flask_client, method)(path, headers=bearer(admin_token))
-            assert refused.status_code == 404, path
-            assert refused.get_json() == {
+        for method, path in paths:
+            refused = getattr(flask_client, method)(path, headers=bearer(viewer))
+            assert refused.status_code == 403, path
+            assert refused.get_json()["required_permission"].startswith("status.links."), path
+        for method, path in paths[1:]:
+            unknown = getattr(flask_client, method)(
+                path.replace("Acme%20Corp", "Acme"), headers=bearer(operator)
+            )
+            assert unknown.status_code == 404, path
+            assert unknown.get_json() == {
                 "error": "no tenant 'Acme' in Nautobot (as of the last sync)"
             }
-        conn = adb.connect()
-        try:
-            assert conn.execute("SELECT count(*) AS n FROM status_links").fetchone()["n"] == 0, (
-                "a typo makes no link"
-            )
-        finally:
-            conn.close()
+        assert links() == 0, "a typo makes no link"
+
+    def test_the_list(self, flask_client):
+        operator = make("op", "operator")["token"]
+        made = flask_client.post("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
+        listed = flask_client.get("/api/v1/status-links", headers=bearer(operator)).get_json()
+        (link,) = listed["links"]
+        assert (link["tenant"], link["status_link"]) == (
+            "Acme Corp",
+            made.get_json()["status_link"],
+        )
+        assert link["created_at"].endswith("Z")
+
+    def test_delete_cuts_the_link_off_at_once(self, flask_client):
+        operator = make("op", "operator")["token"]
+        old = flask_client.post(
+            "/api/v1/status-links/Acme%20Corp", headers=bearer(operator)
+        ).get_json()["status_link"]
+        # Its page opens (no board here: 503, "try again"), never the 404 of no page.
+        assert flask_client.get(f"/api/v1{old}", headers=bearer(operator)).status_code != 404
+        deleted = flask_client.delete("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
+        assert deleted.status_code == 200 and deleted.get_json()["tenant"] == "Acme Corp"
+        assert "no longer works" in deleted.get_json()["message"]
+        assert flask_client.get(f"/api/v1{old}", headers=bearer(operator)).status_code == 404
+        assert links() == 0
+        again = flask_client.delete("/api/v1/status-links/Acme%20Corp", headers=bearer(operator))
+        assert again.status_code == 404
+        # A new one is another link.
+        new = flask_client.post(
+            "/api/v1/status-links/Acme%20Corp", headers=bearer(operator)
+        ).get_json()["status_link"]
+        assert new != old
 
     def test_replace_a_leaked_link(self, flask_client):
         admin_token = make("admin", "admin")["token"]
-        old = flask_client.get(
+        old = flask_client.post(
             "/api/v1/status-links/Acme%20Corp", headers=bearer(admin_token)
         ).get_json()["status_link"]
         replaced = flask_client.post(
@@ -229,3 +277,70 @@ class TestWirelessCheck:
             )
         finally:
             release()
+
+
+class TestStatusTokensForNwo:
+    """#687 (a): NWO sends customers a status link with its key, a status token; every
+    other token stays an admin's."""
+
+    def test_nwo_makes_lists_and_revokes_status_tokens_only(self, flask_client):
+        operator = make("op", "operator")["token"]
+        admins = make("boss", "admin")
+        made = flask_client.post(
+            "/api/v1/tokens",
+            json={"name": "acme-key", "role": "status", "tenant": "Acme Corp"},
+            headers=bearer(operator),
+        )
+        assert made.status_code == 201
+        token = made.get_json()["token"]
+        assert (
+            token["role"] == "status" and token["status_link"] == f"/status/{link_of('Acme Corp')}"
+        )
+        # Not another role.
+        for role in ("viewer", "operator", "admin"):
+            refused = flask_client.post(
+                "/api/v1/tokens", json={"name": f"x-{role}", "role": role}, headers=bearer(operator)
+            )
+            assert refused.status_code == 403, role
+            assert refused.get_json()["required_permission"] == "admin"
+        # The list: status tokens only.
+        listed = flask_client.get("/api/v1/tokens", headers=bearer(operator)).get_json()["tokens"]
+        assert {t["role"] for t in listed} == {"status"} and {t["name"] for t in listed} == {
+            "acme-key"
+        }
+        # Revoke a status token, not an admin's.
+        boss = flask_client.post(f"/api/v1/tokens/{admins['id']}/revoke", headers=bearer(operator))
+        assert boss.status_code == 403
+        revoked = flask_client.post(
+            f"/api/v1/tokens/{token['id']}/revoke", headers=bearer(operator)
+        )
+        assert revoked.status_code == 200 and revoked.get_json()["token"]["state"] == "revoked"
+        assert (
+            flask_client.post("/api/v1/tokens/99999/revoke", headers=bearer(operator)).status_code
+            == 404
+        )
+        # Purge stays an admin's.
+        assert (
+            flask_client.post("/api/v1/tokens/purge", json={}, headers=bearer(operator)).status_code
+            == 403
+        )
+
+    def test_a_viewer_makes_no_token_and_an_admin_every_one(self, flask_client):
+        viewer, admin_token = make("v", "viewer")["token"], make("boss", "admin")["token"]
+        body = {"name": "acme-key", "role": "status", "tenant": "Acme Corp"}
+        assert (
+            flask_client.post("/api/v1/tokens", json=body, headers=bearer(viewer)).status_code
+            == 403
+        )
+        assert flask_client.get("/api/v1/tokens", headers=bearer(viewer)).status_code == 403
+        made = flask_client.post(
+            "/api/v1/tokens", json={"name": "ops", "role": "operator"}, headers=bearer(admin_token)
+        )
+        assert made.status_code == 201
+        roles = {
+            t["role"]
+            for t in flask_client.get("/api/v1/tokens", headers=bearer(admin_token)).get_json()[
+                "tokens"
+            ]
+        }
+        assert roles == {"admin", "operator", "viewer"}

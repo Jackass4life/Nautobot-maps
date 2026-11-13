@@ -166,6 +166,12 @@ async def purge(
     return purged
 
 
+async def get(session: AsyncSession, token_id: int) -> dict | None:
+    """One token by id (never its secret), or None."""
+    found = await token_repository.get(session, token_id)
+    return None if found is None else _with_state(found, timeutil.now())
+
+
 async def revoke(session: AsyncSession, token_id: int, revoked_by: str) -> dict | None:
     """Revoke a token now. None when it doesn't exist; revoking twice changes nothing."""
     current = timeutil.now()

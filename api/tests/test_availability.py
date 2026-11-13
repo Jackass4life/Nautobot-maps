@@ -565,6 +565,36 @@ class TestPages:
         with http_client.FlaskStyleClient() as test_client:
             yield test_client
 
+    @pytest.mark.parametrize("role", ["admin", "operator", "viewer", "dov", "customer"])
+    def test_a_read_never_makes_a_link_and_shows_links_only_to_nwo_and_admins(
+        self, flask_client, role, configure, monkeypatch
+    ):
+        """#687: a link id opens a tenant's page; reading the report never makes one, and
+        only status.links.view (NWO, admin) sees those there are."""
+        from app.services import auth_service, status_link_service
+        from app.services.auth_service import CurrentUser
+
+        configure(AUTH_MODE="header", AUTH_REQUIRE_VIEWER="true")
+        user = CurrentUser(is_authenticated=True, username=role, role=role, auth_mode="header")
+
+        async def resolve(request, settings):  # type: ignore[no-untyped-def]
+            return user
+
+        monkeypatch.setattr(auth_service, "resolve_user", resolve)
+
+        def links() -> int:
+            return adb.sql("SELECT count(*) AS n FROM status_links")[0]["n"]
+
+        first = flask_client.get("/api/v1/availability?month=2026-10")
+        assert first.status_code == 200 and links() == 0
+        adb.run(status_link_service.ensure, ["Acme"])
+        data = flask_client.get("/api/v1/availability?month=2026-10").get_json()
+        assert links() == 1
+        if role in ("admin", "operator"):
+            assert list(data["status_links"]) == ["Acme"]
+        else:
+            assert "status_links" not in data
+
     def test_every_incident_streams_whole(self, flask_client):
         """#436: FastAPI streams the incidents CSV as it is read (no Content-Length),
         and every row arrives."""
@@ -583,7 +613,13 @@ class TestPages:
         # The page is on Nuxt (#463): web/tests/availability.test.ts and e2e.
         data = flask_client.get("/api/v1/availability?month=2026-10").get_json()
         assert data["sites"][0]["availability"] == 90.0
-        # Each tenant's status page link (#500): random, kept.
+        # Each tenant's status page link (#500), for those that have one: reading never
+        # makes one (#687); once made, random and kept.
+        assert data["status_links"] == {}
+        from app.services import status_link_service
+
+        adb.run(status_link_service.ensure, ["Acme"])
+        data = flask_client.get("/api/v1/availability?month=2026-10").get_json()
         assert list(data["status_links"]) == ["Acme"] and len(data["status_links"]["Acme"]) == 24
         assert (
             flask_client.get("/api/v1/availability?month=2026-10").get_json()["status_links"]

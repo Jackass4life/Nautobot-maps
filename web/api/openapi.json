@@ -3959,12 +3959,19 @@
             "type": "array"
           },
           "status_links": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Tenant name to its status page link id: /status/<id> (#500).",
-            "title": "Status Links",
-            "type": "object"
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tenant name to its status page link id: /status/<id> (#500), for the tenants that have one; only with the status.links.view permission (#687), absent otherwise.",
+            "title": "Status Links"
           },
           "summary": {
             "$ref": "#/components/schemas/AvailabilitySummary"
@@ -3993,8 +4000,7 @@
           "summary",
           "sites",
           "tenants",
-          "tenant_descriptions",
-          "status_links"
+          "tenant_descriptions"
         ],
         "title": "Report",
         "type": "object"
@@ -4870,6 +4876,53 @@
         "title": "StatusLink",
         "type": "object"
       },
+      "StatusLinkDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "What changed: the link stopped working.",
+            "title": "Message",
+            "type": "string"
+          },
+          "tenant": {
+            "title": "Tenant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "message"
+        ],
+        "title": "StatusLinkDeleted",
+        "type": "object"
+      },
+      "StatusLinkEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "description": "When this link was made (ISO 8601, UTC).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "status_link": {
+            "description": "/status/<id>",
+            "title": "Status Link",
+            "type": "string"
+          },
+          "tenant": {
+            "description": "As Nautobot spells it; the lower-case name the link is kept under for a tenant Nautobot no longer has.",
+            "title": "Tenant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "status_link",
+          "created_at"
+        ],
+        "title": "StatusLinkEntry",
+        "type": "object"
+      },
       "StatusLinkReplaced": {
         "additionalProperties": false,
         "properties": {
@@ -4895,6 +4948,23 @@
           "message"
         ],
         "title": "StatusLinkReplaced",
+        "type": "object"
+      },
+      "StatusLinks": {
+        "additionalProperties": false,
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/StatusLinkEntry"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "title": "StatusLinks",
         "type": "object"
       },
       "StatusSite": {
@@ -6821,7 +6891,7 @@
     },
     "/api/v1/availability": {
       "get": {
-        "description": "Query parameters: ``month`` (``2026-10``; default the current month, up\nto now), or ``from`` and ``to`` (``2026-10-03``, both days included, at\nmost 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site\ndown) or ``critical`` (the site at Critical); default\n``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.\n``status_links``: each tenant's status page link id, ``/status/<id>``.",
+        "description": "Query parameters: ``month`` (``2026-10``; default the current month, up\nto now), or ``from`` and ``to`` (``2026-10-03``, both days included, at\nmost 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site\ndown) or ``critical`` (the site at Critical); default\n``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.\n``status_links``: each tenant's status page link id, ``/status/<id>``, for\nthose that have one; only with the ``status.links.view`` permission.",
         "operationId": "getAvailability",
         "parameters": [
           {
@@ -9347,9 +9417,166 @@
         ]
       }
     },
-    "/api/v1/status-links/{tenant}": {
+    "/api/v1/status-links": {
       "get": {
-        "description": "A tenant's status page link (#529), as ``status-link TENANT`` prints it:\n``/status/<id>``, made the first time it is asked for.  404 for a tenant\nNautobot doesn't have (as of the last sync).",
+        "description": "Every tenant's status page link (#687), by tenant: ``/status/<id>`` and when it\nwas made. Send one with a status token, ``/status/<id>#key=<token>``.",
+        "operationId": "getStatusLinks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusLinks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Every tenant's status page link, by tenant: ``/status/<id>`` and when it was made. Send one with a status token, ``/status/<id>#key=<token>``.",
+        "tags": [
+          "Status page"
+        ]
+      }
+    },
+    "/api/v1/status-links/{tenant}": {
+      "delete": {
+        "description": "Delete a tenant's status page link (#687): customers using it lose access at\nonce. Its status tokens open nothing until a new link is made (``POST``).",
+        "operationId": "deleteStatusLinkDelete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "title": "Tenant",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusLinkDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No such tenant, or no link"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such tenant, or no link"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Delete a tenant's status page link: customers using it lose access at once. Its status tokens open nothing until a new link is made (``POST``).",
+        "tags": [
+          "Status page"
+        ]
+      },
+      "get": {
+        "description": "A tenant's status page link, ``/status/<id>`` (#529); 404 when it has none yet\n(#687: reading never makes one; ``POST`` does).",
         "operationId": "getStatusLink",
         "parameters": [
           {
@@ -9416,14 +9643,14 @@
             "content": {
               "application/json": {
                 "example": {
-                  "error": "No such tenant"
+                  "error": "No such tenant, or no link"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
               }
             },
-            "description": "No such tenant"
+            "description": "No such tenant, or no link"
           },
           "503": {
             "content": {
@@ -9439,9 +9666,105 @@
             "description": "No database"
           }
         },
-        "summary": "A tenant's status page link, as ``status-link TENANT`` prints it: ``/status/<id>``, made the first time it is asked for. 404 for a tenant Nautobot doesn't have (as of the last sync).",
+        "summary": "A tenant's status page link, ``/status/<id>``; 404 when it has none yet (#687: reading never makes one; ``POST`` does).",
         "tags": [
-          "Administration"
+          "Status page"
+        ]
+      },
+      "post": {
+        "description": "Make a tenant's status page link (#687), as ``status-link TENANT``; one it has\nalready is answered as it is, so asking again never changes it.",
+        "operationId": "postStatusLinkCreate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "title": "Tenant",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Bad input"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad input"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "Not signed in"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not signed in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "The role is too low"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The role is too low"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No such tenant, or no link"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such tenant, or no link"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "No database"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No database"
+          }
+        },
+        "summary": "Make a tenant's status page link, as ``status-link TENANT``; one it has already is answered as it is, so asking again never changes it.",
+        "tags": [
+          "Status page"
         ]
       }
     },
@@ -9514,14 +9837,14 @@
             "content": {
               "application/json": {
                 "example": {
-                  "error": "No such tenant"
+                  "error": "No such tenant, or no link"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
               }
             },
-            "description": "No such tenant"
+            "description": "No such tenant, or no link"
           },
           "503": {
             "content": {
@@ -9539,7 +9862,7 @@
         },
         "summary": "Replace a tenant's status page link that leaked, as ``status-link TENANT --new``: the old link stops working at once; the tenant's status tokens keep working with the new one.",
         "tags": [
-          "Administration"
+          "Status page"
         ]
       }
     },
