@@ -7,7 +7,7 @@ settings: API tokens (#297, #592, admin only) and the data contract (#309, #598)
 import threading
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,15 +17,15 @@ from app.auth.dependencies import CurrentUserDep, require_permission
 from app.auth.permissions import Permission
 from app.core.exceptions import ApiError, responses
 from app.core.legacy_settings import settings
+from app.core.settings import get_settings
 from app.db import aconnection, session
 from app.db.session import AsyncDbSession
 from app.frontend import controller as frontend
-from app.services import contract_service, status_link_service, token_service
+from app.services import auth_service, contract_service, status_link_service, token_service
 from app.services import inventory_service as inventory
-from app.services import legacy_auth as auth
 from app.services import notify_service as notify
-from app.services import status_link_service as statuslinks
 from app.services import wireless_service as wireless
+from app.services.auth_service import CurrentUser
 from app.utils.body import body_schema, json_body
 from app.v1 import deps, sections
 from app.v1.administration import dtos
@@ -84,67 +84,6 @@ async def api_tenants():
             "tenants": [
                 {"name": row["name"], "description": row["description"] or ""} for row in rows
             ]
-        }
-    )
-
-
-async def _known_tenant(db: AsyncSession, tenant: str) -> str | None:
-    """*tenant* as Nautobot spells it, or as given when only its link is left
-    (a removed tenant, #500); None when neither: the CLI's check (#528)."""
-    if not tenant.strip() or not await statuslinks.known(db, tenant):
-        return None
-    return await statuslinks.nautobot_name(db, tenant) or tenant.strip()
-
-
-NO_TENANT_RESPONSE = {
-    **NO_DATABASE_RESPONSE,
-    404: {"model": common.Error, "description": "No such tenant"},
-}
-
-
-@router.get(
-    "/api/v1/status-links/{tenant:path}",
-    name="admin.api_status_link",
-    response_model=dtos.StatusLink,
-    responses=NO_TENANT_RESPONSE,
-    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
-)
-async def api_status_link(tenant: str, db: AsyncDbSession):
-    """A tenant's status page link (#529), as ``status-link TENANT`` prints it:
-    ``/status/<id>``, made the first time it is asked for.  404 for a tenant
-    Nautobot doesn't have (as of the last sync)."""
-    name = await _known_tenant(db, tenant)
-    if name is None:
-        return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
-    link_id = (await statuslinks.ensure(db, [name]))[name]
-    return deps.Json({"tenant": name, "status_link": f"/status/{link_id}"})
-
-
-@router.post(
-    "/api/v1/status-links/{tenant:path}/replace",
-    name="admin.api_status_link_replace",
-    response_model=dtos.StatusLinkReplaced,
-    responses=NO_TENANT_RESPONSE,
-    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
-)
-async def api_status_link_replace(tenant: str, db: AsyncDbSession):
-    """Replace a tenant's status page link that leaked (#529), as
-    ``status-link TENANT --new``: the old link stops working at once; the
-    tenant's status tokens keep working with the new one."""
-    name = await _known_tenant(db, tenant)
-    if name is None:
-        return deps.Json({"error": statuslinks.unknown_tenant(tenant)}, status_code=404)
-    link_id = await statuslinks.replace(db, name)
-    logger.info(
-        "Status link of tenant {!r} replaced by {}",
-        name,
-        auth.get_current_user().get("username") or "unknown",
-    )
-    return deps.Json(
-        {
-            "tenant": name,
-            "status_link": f"/status/{link_id}",
-            "message": "The old link no longer works. The tenant's status tokens still work: send them with this link.",
         }
     )
 
@@ -229,11 +168,34 @@ def api_notifications_test():
 
 # --- API tokens (#297, #592): admin only, /api/v1/tokens ---------------------
 
-tokens_router = APIRouter(
-    prefix="/tokens",
-    tags=sections.tag("administration"),
-    dependencies=[Depends(require_permission(Permission.ADMIN))],
+tokens_router = APIRouter(prefix="/tokens", tags=sections.tag("administration"))
+# Admins keep every token; NWO (status.links.manage) only the status tokens, the keys
+# they send customers with a status link (#687).
+ADMIN_OR_STATUS_TOKENS = Depends(
+    require_permission(Permission.ADMIN, Permission.STATUS_LINKS_MANAGE)
 )
+
+
+def _all_tokens(request: Request, user: CurrentUser) -> bool:
+    """Whether the caller may use every token (an admin), not only status tokens."""
+    return (
+        auth_service.permission_problem(user, get_settings(), (Permission.ADMIN,), request.method)
+        is None
+    )
+
+
+def _status_tokens_only() -> ApiError:
+    return ApiError(
+        {
+            "error": "Insufficient permissions",
+            "required_permission": str(Permission.ADMIN),
+            "required_role": "admin",
+            "detail": "Without admin, only status tokens (role status) can be made, listed and revoked.",
+        },
+        403,
+    )
+
+
 REFUSALS = responses(401, 403)
 Body = Annotated[object, Depends(json_body)]
 
@@ -243,8 +205,16 @@ def _flag(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes")
 
 
-@tokens_router.get("", operation_id="listTokens", response_model=Tokens, responses=REFUSALS)
+@tokens_router.get(
+    "",
+    operation_id="listTokens",
+    response_model=Tokens,
+    responses=REFUSALS,
+    dependencies=[ADMIN_OR_STATUS_TOKENS],
+)
 async def list_tokens(
+    request: Request,
+    user: CurrentUserDep,
     db: AsyncDbSession,
     all: Annotated[str | None, Query(description="Revoked and expired ones too (#528).")] = None,
     tenant: Annotated[str | None, Query(description="Only this tenant's status tokens.")] = None,
@@ -252,6 +222,8 @@ async def list_tokens(
     """API tokens: name, first characters, role, expiry, last use, state; never the
     secret. Only the active ones unless ``all=true``; ``inactive`` counts the others."""
     rows = await token_service.list_tokens(db, tenant=tenant)
+    if not _all_tokens(request, user):
+        rows = [token for token in rows if token["role"] == token_service.STATUS_ROLE]
     active = [token for token in rows if token["state"] == "active"]
     return Tokens.model_validate(
         {"tokens": rows if _flag(all) else active, "inactive": len(rows) - len(active)}
@@ -280,14 +252,19 @@ async def _status_link(db: AsyncSession, tenant: str) -> str | None:
     response_model=TokenCreated,
     responses={**REFUSALS, **responses(400)},
     openapi_extra=body_schema(TokenCreate),
+    dependencies=[ADMIN_OR_STATUS_TOKENS],
 )
-async def create_token(body: Body, db: AsyncDbSession, user: CurrentUserDep) -> JSONResponse:
+async def create_token(
+    request: Request, body: Body, db: AsyncDbSession, user: CurrentUserDep
+) -> JSONResponse:
     """Create an API token for ``Authorization: Bearer <token>``: ``name``, ``role``
     (viewer, operator, admin, or status with a ``tenant``), optional
     ``expires_in_days``. The answer's ``token`` is the secret, shown this once. A
     status token also answers ``status_link``, its tenant's page."""
     if not isinstance(body, dict):
         raise ApiError({"error": "Expected a JSON object"}, 400)
+    if body.get("role") != token_service.STATUS_ROLE and not _all_tokens(request, user):
+        raise _status_tokens_only()
     try:
         token = await token_service.create(db, body, user.username)
     except token_service.TokenError as exc:
@@ -308,9 +285,18 @@ async def create_token(body: Body, db: AsyncDbSession, user: CurrentUserDep) -> 
     operation_id="revokeToken",
     response_model=TokenRevoked,
     responses={**REFUSALS, **responses(404)},
+    dependencies=[ADMIN_OR_STATUS_TOKENS],
 )
-async def revoke_token(token_id: int, db: AsyncDbSession, user: CurrentUserDep) -> TokenRevoked:
+async def revoke_token(
+    request: Request, token_id: int, db: AsyncDbSession, user: CurrentUserDep
+) -> TokenRevoked:
     """Revoke an API token: refused from the next request on."""
+    if not _all_tokens(request, user):
+        found = await token_service.get(db, token_id)
+        if found is None:
+            raise ApiError({"error": "No such token"}, 404)
+        if found["role"] != token_service.STATUS_ROLE:
+            raise _status_tokens_only()
     token = await token_service.revoke(db, token_id, user.username)
     if token is None:
         raise ApiError({"error": "No such token"}, 404)
@@ -323,6 +309,7 @@ async def revoke_token(token_id: int, db: AsyncDbSession, user: CurrentUserDep) 
     response_model=TokensPurged,
     responses={**REFUSALS, **responses(400)},
     openapi_extra=body_schema(TokenPurge, required=False),
+    dependencies=[Depends(require_permission(Permission.ADMIN))],
 )
 async def purge_tokens(body: Body, db: AsyncDbSession, user: CurrentUserDep) -> TokensPurged:
     """Delete revoked and expired API tokens for good (#528), never an active one.

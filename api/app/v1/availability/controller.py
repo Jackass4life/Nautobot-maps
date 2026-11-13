@@ -91,27 +91,31 @@ async def api_availability(period: PeriodQuery):
     most 366 days; #341), and ``basis``: ``any_down`` (any monitored device of the site
     down) or ``critical`` (the site at Critical); default
     ``AVAILABILITY_BASIS``.  Time in maintenance windows is not downtime.
-    ``status_links``: each tenant's status page link id (#500), ``/status/<id>``.
+    ``status_links``: each tenant's status page link id (#500), ``/status/<id>``, for
+    those that have one; only with the ``status.links.view`` permission (#687).
     """
     async with aconnection.connect() as conn:
         report, error, status = await _availability_report(period, conn)
     if report is None:
         return deps.Json({"error": error}, status_code=status)
+    # The links only for those who may see them (#687): a link id opens a tenant's page.
+    if not auth.may(permissions.Permission.STATUS_LINKS_VIEW):
+        return deps.Json(report)
     return deps.Json({**report, "status_links": await _status_links(report)})
 
 
 async def _status_links(report: dict) -> dict[str, str]:
-    """Each tenant's status page link id (#500), made for those without one;
-    none (no links shown) when the database can't be written."""
+    """Each tenant's status page link id (#500), for those that have one: a read
+    never makes one (#687, ``POST /api/v1/status-links/<tenant>`` does); none when
+    the database can't be read."""
     tenants = {t["tenant"] for t in report["tenants"]} | {
         t for site in report["sites"] for t in site["tenants"]
     }
     session = db_session.current()
     try:
-        return await statuslinks.ensure(session, sorted(tenants))
+        return await statuslinks.existing(session, sorted(tenants))
     except Exception as exc:
         logger.warning("Availability: could not read the status links: {}", type(exc).__name__)
-        # The report is answered all the same: its commit mustn't fail on this.
         await session.rollback()
         return {}
 

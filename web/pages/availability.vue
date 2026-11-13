@@ -237,7 +237,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
                 <TenantList
                   :tenants="[summary.worst_tenant.tenant]"
                   :descriptions="report.tenant_descriptions"
-                  :links="report.status_links"
+                  :links="report.status_links ?? {}"
                 />
               </p>
               <p
@@ -265,7 +265,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :rows="tenants"
           :target="summary.target"
           :descriptions="report.tenant_descriptions"
-          :status-links="report.status_links"
+          :status-links="report.status_links ?? {}"
           :limit="10"
           :share="Boolean(config?.admin)"
         />
@@ -276,7 +276,7 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :rows="sites"
           :target="summary.target"
           :descriptions="report.tenant_descriptions"
-          :status-links="report.status_links"
+          :status-links="report.status_links ?? {}"
           :limit="25"
           :tenant-choices="tenantNames"
         />

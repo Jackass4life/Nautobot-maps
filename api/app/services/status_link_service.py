@@ -1,8 +1,10 @@
 """Each tenant's status page link (#500, #592): ``/status/<id>``, a random id,
 not the tenant's name, so another customer's page can't be found by guessing.
-Made the first time staff need the link and kept; replacing one makes the old
-link answer 404. The name is kept case-folded, as the status page matches
-tenants (#291). The current app's nautobot_maps/statuslinks.py.
+Made when NWO or an admin asks for it (#687; or with a tenant's first status token)
+and kept; replacing or deleting one makes the old link answer 404. Reading one never
+makes it: a page any role can open mustn't hand out new links. The name is kept
+case-folded, as the status page matches tenants (#291). The current app's
+nautobot_maps/statuslinks.py.
 """
 
 import re
@@ -38,6 +40,40 @@ async def ensure(session: AsyncSession, tenants: list[str]) -> dict[str, str]:
         # Another request may have made some meanwhile: theirs are kept.
         ids |= await status_link_repository.read(session, missing)
     return {tenant: ids[_key(tenant)] for tenant in tenants if tenant and _key(tenant) in ids}
+
+
+async def existing(session: AsyncSession, tenants: list[str]) -> dict[str, str]:
+    """Each tenant's link id, for those that have one: never makes a link (#687)."""
+    keys = sorted({_key(tenant) for tenant in tenants if tenant and tenant.strip()})
+    if not keys:
+        return {}
+    ids = await status_link_repository.read(session, keys)
+    return {tenant: ids[_key(tenant)] for tenant in tenants if tenant and _key(tenant) in ids}
+
+
+async def listing(session: AsyncSession) -> list[dict]:
+    """Every link (#687): ``{tenant, status_link, created_at}``, by tenant."""
+    return [
+        {
+            "tenant": row["name"] or row["tenant_key"],
+            "status_link": f"/status/{row['link_id']}",
+            "created_at": row["created_at"].isoformat().replace("+00:00", "Z"),
+        }
+        for row in await status_link_repository.listing(session)
+    ]
+
+
+async def delete(session: AsyncSession, tenant: str) -> bool:
+    """Delete *tenant*'s link (#687): its page answers 404 at once. Whether it had one."""
+    return await status_link_repository.delete(session, _key(tenant))
+
+
+async def tenant_name(session: AsyncSession, tenant: str) -> str | None:
+    """*tenant* as Nautobot spells it, or as given when only its link is left (a
+    removed tenant, #500); None when neither (#528)."""
+    if not tenant.strip() or not await known(session, tenant):
+        return None
+    return await nautobot_name(session, tenant) or tenant.strip()
 
 
 async def tenant_for(session: AsyncSession, link_id: str) -> str | None:

@@ -75,3 +75,34 @@ class TenantStatus(common.Answer):
     checked_at: str = Field(description="When the board was last built (ISO 8601, UTC).")
     summary: StatusSummary
     sites: list[StatusSite] = Field(description="Worst first, then by name.")
+
+
+class StatusLink(common.Answer):
+    tenant: str = Field(description="The tenant, as Nautobot spells it.")
+    status_link: str = Field(
+        description="Its status page, /status/<id> (#500); with a status token, send /status/<id>#key=<token>."
+    )
+
+
+class StatusLinkReplaced(StatusLink):
+    message: str = Field(
+        description="What changed: the old link stopped working; the tenant's tokens still work."
+    )
+
+
+class StatusLinkDeleted(common.Answer):
+    tenant: str
+    message: str = Field(description="What changed: the link stopped working.")
+
+
+class StatusLinkEntry(common.Answer):
+    tenant: str = Field(
+        description="As Nautobot spells it; the lower-case name the link is kept under "
+        "for a tenant Nautobot no longer has."
+    )
+    status_link: str = Field(description="/status/<id>")
+    created_at: str = Field(description="When this link was made (ISO 8601, UTC).")
+
+
+class StatusLinks(common.Answer):
+    links: list[StatusLinkEntry]

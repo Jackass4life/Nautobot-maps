@@ -88,6 +88,21 @@ BEFORE = {
     ("/static/{path:path}", "GET"): None,
     ("/status/{link_id}", "GET"): None,
 }
+# Deliberate changes since, with their issue: what each route needs now.
+CHANGED = {
+    # #687: NWO (operator) keeps the status links, and the status tokens sent with
+    # them; reading a link no longer makes one.
+    ("/api/v1/status-links", "GET"): "operator",
+    ("/api/v1/status-links/{tenant:path}", "GET"): "operator",
+    ("/api/v1/status-links/{tenant:path}", "POST"): "operator",
+    ("/api/v1/status-links/{tenant:path}", "DELETE"): "operator",
+    ("/api/v1/status-links/{tenant:path}/replace", "POST"): "operator",
+    # Status tokens only, without admin (the route checks the role).
+    ("/api/v1/tokens", "GET"): "operator",
+    ("/api/v1/tokens", "POST"): "operator",
+    ("/api/v1/tokens/{token_id}/revoke", "POST"): "operator",
+}
+NOW = BEFORE | CHANGED
 LEVEL = {"viewer": 1, "operator": 2, "admin": 3}
 ANONYMOUS = "anonymous"
 
@@ -137,8 +152,8 @@ def test_every_route_names_what_it_needs():
     by accident."""
     unnamed = [_route_id(item) for item in ROUTES if not deps.required_permissions(item[1])]
     assert unnamed == []
-    assert {(path, method) for path, _route, method in ROUTES} == set(BEFORE), (
-        "a route was added or removed: give it a permission and add it to BEFORE"
+    assert {(path, method) for path, _route, method in ROUTES} == set(NOW), (
+        "a route was added or removed: give it a permission and add it to CHANGED"
     )
 
 
@@ -149,10 +164,11 @@ def test_operator_is_everything_but_admin():
 
 @pytest.mark.parametrize("item", ROUTES, ids=_route_id)
 def test_the_old_roles_keep_their_access(item):
-    """viewer, operator and admin reach exactly what they reached before, and so does
-    anyone without AUTH_REQUIRE_VIEWER (the viewer's reads, #592)."""
+    """viewer, operator and admin reach exactly what they reached before (or since a
+    deliberate change, CHANGED), and so does anyone without AUTH_REQUIRE_VIEWER (the
+    viewer's reads, #592)."""
     path, route, method = item
-    before = BEFORE[(path, method)]
+    before = NOW[(path, method)]
     for role in ("viewer", "operator", "admin"):
         assert allowed(route, role) == (before is None or LEVEL[role] >= LEVEL[before]), role
     assert allowed(route, ANONYMOUS) == (before is None), ANONYMOUS

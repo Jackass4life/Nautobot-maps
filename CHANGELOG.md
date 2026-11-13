@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+- **Status links are NWO's and admins' only** (#687): Availability no longer makes a status page link for every tenant when it is read, and shows the links only to operators and admins (the tenant's name opens its page for them); for anyone else the answer has no `status_links`. Operators (NWO) can now make, replace and delete a tenant's link and send its customers status tokens, which only admins could before; every other token stays an admin's. `GET /api/v1/status-links/<tenant>` no longer makes a link: `POST` does (`python -m app status-link` still makes it). New: `GET /api/v1/status-links` (every link) and `DELETE /api/v1/status-links/<tenant>` (the link stops working at once)
+
 ## [0.4.0] - 2026-11-12
 
 ### Breaking

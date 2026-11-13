@@ -139,7 +139,7 @@ Turning it on names **every** monitored device that already has a tenant. Check 
 
 Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name. A link by name (`/status/Acme%20Corp`, the form used by older versions) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database; without it, `/api/v1/status/…` answers 503 and says so.
 
-**On Availability** (admins): **Share…** next to a tenant's name, then **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. **Replace link…** there replaces a link that leaked (it asks once more). The tenant's name still opens its page.
+**On Availability** (admins): **Share…** next to a tenant's name, then **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. **Replace link…** there replaces a link that leaked (it asks once more). For NWO (operator) and admins, the tenant's name opens its page once the tenant has a link; Availability shows no link to anyone else and never makes one (#687).
 
 **On the command line:**
 
@@ -151,9 +151,12 @@ It prints the token, and below it the link to send, with the tenant's page and t
 
 The tenant's page link on its own: `python -m app status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
 
-**Through the API** (admin role):
-- `POST /api/v1/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`.
-- `GET /api/v1/status-links/Acme%20Corp` answers `{"tenant": "Acme Corp", "status_link": "/status/<id>"}`, and `POST /api/v1/status-links/Acme%20Corp/replace` replaces it. A tenant Nautobot doesn't have answers 404.
+**Through the API** (NWO, the operator role, or admin; #687):
+- `POST /api/v1/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`. Without admin, only status tokens can be made, listed and revoked.
+- `POST /api/v1/status-links/Acme%20Corp` makes the tenant's link (asking again answers the same one): `{"tenant": "Acme Corp", "status_link": "/status/<id>"}`.
+- `GET /api/v1/status-links/Acme%20Corp` reads it (404 when it has none: reading never makes one), `GET /api/v1/status-links` lists every link.
+- `POST /api/v1/status-links/Acme%20Corp/replace` replaces it; `DELETE /api/v1/status-links/Acme%20Corp` deletes it, and every key sent with it stops working at once.
+- A tenant Nautobot doesn't have answers 404.
 
 Then send this link:
 
