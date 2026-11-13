@@ -51,6 +51,8 @@ const emit = defineEmits<{
   history: [];
 }>();
 
+// Each action only with its permission (#695); the API checks them all the same.
+const { can } = useCan();
 const name = computed(() => props.item.name || props.item.id || "Unknown site");
 const devices = computed(() => props.item.down_devices || []);
 // Many access points down fold into one line, opened in place (#521); on the wall, a count only.
@@ -79,16 +81,15 @@ const menu = computed<DropdownMenuItem[]>(() => {
   if (devices.value.length) {
     if (withCase.value.length) {
       const all = withCase.value.every((device) => device.acknowledged);
-      items.push(
-        all
-          ? { label: "Remove ack", class: "unack-btn", onSelect: () => emit("ack", true) }
-          : {
-              label: "Acknowledge",
-              class: "ack-btn",
-              title: "Someone is on it, without a case number",
-              onSelect: () => emit("ack", false),
-            },
-      );
+      if (all && can("alerts.unack"))
+        items.push({ label: "Remove ack", class: "unack-btn", onSelect: () => emit("ack", true) });
+      else if (!all && can("alerts.ack"))
+        items.push({
+          label: "Acknowledge",
+          class: "ack-btn",
+          title: "Someone is on it, without a case number",
+          onSelect: () => emit("ack", false),
+        });
     }
     // The site and its down devices as text for an ITSM ticket (#227).
     items.push({
@@ -98,16 +99,17 @@ const menu = computed<DropdownMenuItem[]>(() => {
       onSelect: () => emit("copy"),
     });
   }
-  if (canMaintain.value)
+  if (canMaintain.value && can("maintenance.write"))
     items.push({
       label: "Maint.",
       class: "maint-open-btn",
       title: "Maintenance window",
       onSelect: () => emit("maintenance"),
     });
-  items.push({ label: "History", class: "history-btn", onSelect: () => emit("history") });
+  if (can("alerts.history"))
+    items.push({ label: "History", class: "history-btn", onSelect: () => emit("history") });
   // The site's maintenance history (#353).
-  if (props.item.id)
+  if (props.item.id && can("page.maintenance"))
     items.push({
       label: "Maint. history",
       class: "maint-history-link",
@@ -145,7 +147,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
         <div class="min-w-0">
           <div class="site-title font-medium text-highlighted">
             <a
-              v-if="!wall && onTheMap(item)"
+              v-if="!wall && onTheMap(item) && can('page.map')"
               class="site-name hover:underline"
               :href="`/?location_id=${encodeURIComponent(item.id)}`"
               title="Show on the map"
@@ -218,7 +220,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
     <td v-if="!wall" class="col-action">
       <div class="action-row flex items-center justify-end gap-1">
         <UButton
-          v-if="withCase.length"
+          v-if="withCase.length && can('alerts.case')"
           class="case-open-btn whitespace-nowrap"
           size="xs"
           color="primary"
@@ -229,7 +231,7 @@ const menu = computed<DropdownMenuItem[]>(() => {
           >+ Case</UButton
         >
         <span v-if="copied" class="text-xs text-success" role="status">Copied</span>
-        <UDropdownMenu :items="menu" :modal="false" :content="{ align: 'end' }">
+        <UDropdownMenu v-if="menu.length" :items="menu" :modal="false" :content="{ align: 'end' }">
           <UButton
             class="row-menu-btn"
             size="xs"

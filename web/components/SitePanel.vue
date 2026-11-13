@@ -26,6 +26,9 @@ import {
   type SiteDevice,
 } from "~/utils/sitepanel";
 
+// Buttons and links only with their permission (#695).
+const { can } = useCan();
+
 const props = defineProps<{
   loc: MapLocation | null;
   // Every site at its coordinates (tabs), itself included.
@@ -313,6 +316,7 @@ function statusClass(status: string) {
               >Open in Nautobot ↗</a
             >
             <a
+              v-if="can('page.maintenance')"
               class="nautobot-link text-primary hover:underline"
               :href="maintenanceHistoryHref(loc.id)"
               >Maintenance history</a

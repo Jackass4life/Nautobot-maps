@@ -5,6 +5,9 @@
 <script setup lang="ts">
 import { plural, siteRows, tenantRows, formatDowntime, type Report } from "~/utils/availability";
 
+// Buttons and links only with their permission (#695).
+const { can } = useCan();
+
 useHead({ title: "Availability · Nautobot Maps" });
 
 const { data: config } = usePageConfig();
@@ -165,22 +168,24 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
 
       <template v-if="report && summary">
         <p class="availability-note text-sm text-muted">
-          {{ periodNote }} · maintenance is not downtime · CSV <HelpTip :text="HELP.csv" />:
-          <a
-            class="text-primary hover:underline"
-            :href="`/api/v1/availability.csv?${csvQuery}&view=sites&header=1`"
-            >sites</a
-          >,
-          <a
-            class="text-primary hover:underline"
-            :href="`/api/v1/availability.csv?${csvQuery}&view=tenants&header=1`"
-            >tenants</a
-          >,
-          <a
-            class="text-primary hover:underline"
-            :href="`/api/v1/availability.csv?${csvQuery}&view=incidents&header=1`"
-            title="Every outage in the period, to check the figures"
-            >every incident</a
+          {{ periodNote }} · maintenance is not downtime<template v-if="can('export.csv')">
+            · CSV <HelpTip :text="HELP.csv" />:
+            <a
+              class="text-primary hover:underline"
+              :href="`/api/v1/availability.csv?${csvQuery}&view=sites&header=1`"
+              >sites</a
+            >,
+            <a
+              class="text-primary hover:underline"
+              :href="`/api/v1/availability.csv?${csvQuery}&view=tenants&header=1`"
+              >tenants</a
+            >,
+            <a
+              class="text-primary hover:underline"
+              :href="`/api/v1/availability.csv?${csvQuery}&view=incidents&header=1`"
+              title="Every outage in the period, to check the figures"
+              >every incident</a
+            ></template
           >
         </p>
 
@@ -237,7 +242,6 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
                 <TenantList
                   :tenants="[summary.worst_tenant.tenant]"
                   :descriptions="report.tenant_descriptions"
-                  :links="report.status_links ?? {}"
                 />
               </p>
               <p
@@ -265,9 +269,8 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :rows="tenants"
           :target="summary.target"
           :descriptions="report.tenant_descriptions"
-          :status-links="report.status_links ?? {}"
           :limit="10"
-          :share="Boolean(config?.admin)"
+          :share="can('status.links.view')"
         />
         <AvailTable
           kind="sites"
@@ -276,7 +279,6 @@ onBeforeUnmount(() => window.removeEventListener("popstate", onPopState));
           :rows="sites"
           :target="summary.target"
           :descriptions="report.tenant_descriptions"
-          :status-links="report.status_links ?? {}"
           :limit="25"
           :tenant-choices="tenantNames"
         />

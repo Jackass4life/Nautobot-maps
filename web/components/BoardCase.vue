@@ -12,6 +12,8 @@ import {
 import { apiError, errorMessage } from "~/utils/format";
 
 const props = defineProps<{ item: BoardSite; caseTemplate: string }>();
+// Acknowledging is its own permission (#695): the dialog may offer only the case.
+const { can } = useCan();
 const emit = defineEmits<{ done: []; error: [text: string] }>();
 
 const devices = computed(() => caseDevices(props.item));
@@ -153,7 +155,7 @@ async function acknowledge() {
       :disabled="busy || ticked.size === 0 || already === ticked.size"
       >{{ caseButtonLabel(ticked.size, already) }}</UButton
     >
-    <div class="ack-form space-y-2 border-t border-default pt-4">
+    <div v-if="can('alerts.ack')" class="ack-form space-y-2 border-t border-default pt-4">
       <label class="block text-sm font-medium text-highlighted" for="ack-note"
         >Or acknowledge without a case (note, optional)</label
       >

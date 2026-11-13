@@ -24,6 +24,9 @@ import {
 import { defaultPlan, localDay, type WhenValues } from "~/utils/when";
 import { CHOICE_SEARCH_FIELDS, choiceItems, tenantDescriptionIn } from "~/utils/tenants";
 
+// Buttons and links only with their permission (#695).
+const { can } = useCan();
+
 useHead({ title: "Maintenance · Nautobot Maps" });
 
 // How often the list refreshes by itself; windows start and end on their own.
@@ -433,6 +436,7 @@ function until(ready: () => unknown): Promise<void> {
           </button>
         </span>
         <UButton
+          v-if="can('export.csv')"
           id="maint-history-csv"
           :to="csvHref"
           external
@@ -469,7 +473,7 @@ function until(ready: () => unknown): Promise<void> {
           class="w-full sm:w-56"
         />
         <UButton
-          v-if="!historyView"
+          v-if="!historyView && can('maintenance.write')"
           id="maint-plan-open"
           icon="i-lucide-calendar-plus"
           :aria-expanded="planOpen"
