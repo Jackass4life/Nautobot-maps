@@ -74,9 +74,7 @@ export function whenSummary(values: WhenValues): string {
 }
 
 export type WhenRequest =
-  | { duration_minutes: number }
-  | { starts_at: string; ends_at: string }
-  | { error: string };
+  { duration_minutes: number } | { starts_at: string; ends_at: string } | { error: string };
 
 // The request's time fields, or {error}.
 export function whenRequest(values: WhenValues): WhenRequest {
