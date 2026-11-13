@@ -1,6 +1,9 @@
-<!-- /alerts: the alert board, or with ?view=wall the wall screen (#243, #463). -->
+<!-- /alerts: the alert board, or with ?view=wall the wall screen (#243, #463); in a
+     workspace (#697), /dov and /nwo/wall are the wall (the route's meta.view). -->
 <script setup lang="ts">
-const wall = new URLSearchParams(window.location.search).get("view") === "wall";
+const wall =
+  useRoute().meta.view === "wall" ||
+  new URLSearchParams(window.location.search).get("view") === "wall";
 </script>
 
 <template>

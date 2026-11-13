@@ -99,6 +99,28 @@ def tenant_page(tenant: str):
 
 
 @router.get(
+    "/tenants",
+    dependencies=[deps.require_permission(permissions.Permission.TENANT_STATUS_VIEW)],
+    name="status.tenants_page",
+    include_in_schema=False,
+)
+def tenants_page():
+    """Every tenant, each opening its status (#697); NWO shares their links here."""
+    return frontend.shell()
+
+
+# Both in each role's workspace (#697): /customer/tenants, /nwo/tenants/<name>.
+deps.workspace_pages(router, "tenants", tenants_page, permissions.Permission.TENANT_STATUS_VIEW)
+deps.workspace_pages(
+    router,
+    "tenants",
+    tenant_page,
+    permissions.Permission.TENANT_STATUS_VIEW,
+    suffix="/{tenant:path}",
+)
+
+
+@router.get(
     "/api/v1/status/{link_id}",
     dependencies=[deps.PUBLIC],
     name="status.api_status",

@@ -73,12 +73,12 @@ def test_the_tenants_for_a_status_token(flask_client):
             {"name": "nordic net", "description": ""},
         ]
     }
-    assert (
-        flask_client.get(
-            "/api/v1/tenants", headers=bearer(make("op", "operator")["token"])
-        ).status_code
-        == 403
-    )
+    # The Customers page's list too (#697): for those who see a tenant's status or
+    # links; not for a status token (one tenant only).
+    operator = flask_client.get("/api/v1/tenants", headers=bearer(make("op", "operator")["token"]))
+    assert operator.get_json() == answer.get_json()
+    status = make("st", "status", tenant="Acme Corp")["token"]
+    assert flask_client.get("/api/v1/tenants", headers=bearer(status)).status_code == 403
 
 
 # Left out: the current app's server details (Flask's bind address, its access-log

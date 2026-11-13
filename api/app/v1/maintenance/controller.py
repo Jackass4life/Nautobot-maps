@@ -371,3 +371,9 @@ async def api_maintenance_end(window_id: int):
         return deps.Json({"error": "No such maintenance window"}, status_code=404)
     await _maintenance_changed()
     return deps.Json({"window": window})
+
+
+# The same page in each role's workspace (#697).
+deps.workspace_pages(
+    router, "maintenance", maintenance_page, permissions.Permission.PAGE_MAINTENANCE
+)

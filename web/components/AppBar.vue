@@ -34,7 +34,7 @@ const { dark, toggle: toggleTheme } = useTheme();
 const menu = computed<DropdownMenuItem[][]>(() => {
   const pages: DropdownMenuItem[] = (config.value?.pages ?? []).map((page) => ({
     label: page.label,
-    to: scoped(page.href),
+    to: scoped(page.href, page.key),
     external: true,
     active: page.key === props.active,
     "aria-current": page.key === props.active ? "page" : undefined,
@@ -69,10 +69,12 @@ const menu = computed<DropdownMenuItem[][]>(() => {
   return groups;
 });
 
-// The map and the board keep the scope; the wall ("view=wall") too, after it.
-function scoped(href: string): string {
+// The map and the board keep the scope; the wall ("view=wall") too, after it. By
+// the page, not its address: a workspace's are its own (#697).
+const SCOPED = new Set(["map", "alerts", "wall"]);
+function scoped(href: string, key: string): string {
   const [path, query = ""] = href.split("?");
-  if (!props.linkQuery || (path !== "/" && path !== "/alerts")) return href;
+  if (!props.linkQuery || !SCOPED.has(key)) return href;
   return `${path}?${[query, props.linkQuery].filter(Boolean).join("&")}`;
 }
 

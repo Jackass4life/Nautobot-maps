@@ -101,7 +101,7 @@ async function load() {
 
 // A new period or basis: in the address too, so it can be shared.
 function apply() {
-  window.history.pushState(null, "", `/availability?${query()}`);
+  window.history.pushState(null, "", `${window.location.pathname}?${query()}`);
   load();
 }
 function pickPeriod(from: string, to: string) {

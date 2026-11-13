@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import { PAGE_FILES, workspaceRoutes } from "./utils/workspaces";
+
 // The app's pages on Nuxt (#463, #609).  Built to static files (`bun run generate`)
 // that api/ serves from the same origin: no Node process in production.
 export default defineNuxtConfig({
@@ -75,6 +78,25 @@ export default defineNuxtConfig({
   // build time without inline scripts (modules/csp-shell.ts); server/ answers every
   // page route with it.
   nitro: { prerender: { routes: ["/200.html"] } },
+  hooks: {
+    // Each role's workspace (#697): the same page files at /customer, /dov, /nwo;
+    // the wall is the board's page with meta.view.
+    "pages:extend"(pages) {
+      for (const route of workspaceRoutes()) {
+        pages.push({
+          name: route.name,
+          path: route.path,
+          file: fileURLToPath(
+            new URL(
+              route.path.endsWith("/:name") ? "pages/tenants/[name].vue" : PAGE_FILES[route.page],
+              import.meta.url,
+            ),
+          ),
+          meta: { workspace: true, ...(route.page === "wall" ? { view: "wall" } : {}) },
+        });
+      }
+    },
+  },
   devtools: { enabled: false },
   telemetry: false,
 });

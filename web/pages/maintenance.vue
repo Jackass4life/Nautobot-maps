@@ -171,7 +171,7 @@ async function loadList() {
 function historyChanged() {
   const search = historyQuery({ view: "history" });
   search.delete("tz");
-  window.history.replaceState(null, "", `/maintenance?${search}`);
+  window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
   shownCount.value = {};
   loadList();
 }

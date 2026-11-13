@@ -68,11 +68,16 @@ def admin_page():
     name="admin.api_tenants",
     response_model=dtos.Tenants,
     responses=NO_DATABASE_RESPONSE,
-    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
+    dependencies=[
+        deps.require_permission(
+            permissions.Permission.TENANT_STATUS_VIEW, permissions.Permission.STATUS_LINKS_VIEW
+        )
+    ],
 )
 async def api_tenants():
     """Nautobot's tenants as of the last sync (#530), with their
-    descriptions, by name: what a status token can be made for."""
+    descriptions, by name: what a status token can be made for, and the
+    Customers page's list (#697: for those who see a tenant's status or links)."""
     async with aconnection.connect() as conn:
         rows = (
             await conn.execute(
