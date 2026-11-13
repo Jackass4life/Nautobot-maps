@@ -22,6 +22,17 @@ Who can open the app, and who can change things in it. The app has no login scre
 | **operator** (NWO) | Everything but administration: also maintenance, criticality, history, and customers' status links and their keys |
 | **admin** | Everything: also API tokens, test notifications, the wireless check |
 
+**Each role opens on its own pages** (#697), at its own address:
+
+| Role | Opens on | Its pages |
+|---|---|---|
+| customer | `/customer` (Availability) | `/customer/tenants`: Customers, each opening its status |
+| dov | `/dov` (the wall view) | `/dov/board`, `/dov/availability`, `/dov/maintenance` |
+| operator (NWO) | `/nwo` (the map) | `/nwo/wall`, `/nwo/board`, `/nwo/availability`, `/nwo/maintenance`, `/nwo/circuits`, `/nwo/tenants` |
+| viewer, admin | `/` (the map) | the usual addresses: `/alerts`, `/availability`, … (admins also `/admin`) |
+
+**Which role for whom:** the NOC on duty → `dov` (or `operator` for those who also plan maintenance and send customers their links); account managers → `customer`; a wall screen → an [API token](#api-tokens) with role `dov`.
+
 **Scripts and tools** (LibreNMS, Alertmanager, MCP) use an [API token](#api-tokens) instead of a login.
 
 ## Without sign-in (default)
@@ -59,7 +70,9 @@ AUTH_CUSTOMER_GROUPS=account-managers
 
 A user has one role: the first of **admin, operator, dov, customer, viewer** that one of their groups gives, or `AUTH_DEFAULT_ROLE` when none does. Roles are never combined: someone in a viewer group and a customer group is a customer. Each role's permissions are one matrix in the app (`app/auth/permissions.py`), and every API route checks one of them.
 
-The pages follow the role: the menu lists only the pages it can open, and `GET /api/v1/me` and the pages' configuration say, in `access`, the role, its label, the page it opens on, its pages and its permissions (#693). That is convenience only: every API route checks the permission itself.
+The pages follow the role: the menu lists only the pages it can open, and each page shows only the buttons the role may use (#695). `GET /api/v1/me` and the pages' configuration say, in `access`, the role, its label, the page it opens on, its pages and its permissions (#693).
+
+Customers, DOV and NWO each have their own addresses (`/customer`, `/dov`, `/nwo`, [above](#in-short); #697). Their menu links stay there, and the old addresses still work: a bookmark or a link such as `/alerts?tenant=Acme` opens the same page in the role's workspace, `/dov/board?tenant=Acme`. A page that isn't part of the role's workspace opens its start page, with a note. Viewers and admins keep the usual addresses. All of this is convenience only: every API route checks the permission itself.
 
 See who gets what, from the running app:
 

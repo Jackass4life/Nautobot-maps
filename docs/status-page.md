@@ -39,19 +39,20 @@ Other customers, other customers' sites, your own equipment's names, IP addresse
 
 ### Sending a customer their link
 
-1. Open **Availability** (☰ menu). You need the **admin** role.
-2. Click **Share…** next to the customer's name.
+1. Open **Availability** or **Customers** (☰ menu). You need the **NWO** (operator) or **admin** role.
+2. Click **Share…** next to the customer's name. It shows the customer's page link (without a key), to copy.
 3. Choose how long the link should work, then **Create customer link**.
 4. **Copy** the link and send it to the customer. It is shown only once.
 
 The link looks like `https://maps.example.com/status/q3Vx9…#key=nmt_…`. It is random, so nobody can guess another customer's page.
 
 - **A link has leaked?** **Share…** → **Replace link…**. The old link stops working at once, and every contact at that customer needs the new one.
+- **No more status page for this customer?** **Share…** → **Delete link…**. Customers using the link lose access at once; **Create customer link** makes a new one later.
 - **Stop one person's access?** Revoke their key on the **Admin** page ([how links and keys work](#who-can-see-it)).
 
 ### Opening a customer's page yourself
 
-Click the customer's name on **Availability**. Staff don't need a key.
+Click the customer's name on **Availability** or **Customers**. It opens in the app, with no link or key: `/customer/tenants/<name>` for account managers (the customer role), `/nwo/tenants/<name>` for NWO, `/tenants/<name>` for viewers and admins.
 
 ## Setting it up
 
@@ -134,12 +135,12 @@ Turning it on names **every** monitored device that already has a tenant. Check 
 
 ### Who can see it
 
-- **Staff:** the same people who can see the board. With `AUTH_REQUIRE_VIEWER=true` that is the `viewer` role. Without it the page is as open as the board is. A tenant's name on the Availability page opens its page.
+- **Staff:** customer, viewer, NWO (operator) and admin see each tenant's status in the app, by its name (`/tenants/<name>`, or in their workspace), with no link involved. A tenant's name on Availability or Customers opens it. DOV doesn't.
 - **A customer:** a **status token** for their tenant, sent in a link.
 
 Each tenant's page has its own random link, such as `/status/q3Vx9…` (24 characters), not the tenant's name, so nobody can find another customer's page by guessing a name. A link by name (`/status/Acme%20Corp`, the form used by older versions) opens nothing: it gets the same "No sites found" answer as a link that doesn't exist, and the page tells the customer to ask for a new link. The links are kept in the app's PostgreSQL database; without it, `/api/v1/status/…` answers 503 and says so.
 
-**On Availability** (admins): **Share…** next to a tenant's name, then **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. **Replace link…** there replaces a link that leaked (it asks once more). For NWO (operator) and admins, the tenant's name opens its page once the tenant has a link; Availability shows no link to anyone else and never makes one (#687).
+**On Availability or Customers** (NWO, the operator role, and admins): **Share…** next to a tenant's name shows its link to copy; **Create customer link** (and how long it works) shows the link with its key once, with **Copy**. **Replace link…** replaces a link that leaked and **Delete link…** deletes it (each asks once more). Nobody else sees a link, and reading Availability never makes one (#687, #695).
 
 **On the command line:**
 
