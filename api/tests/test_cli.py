@@ -134,3 +134,64 @@ def test_every_command_is_documented():
     assert "token create" in commands
     missing = sorted(command for command in commands if f"python -m app {command}" not in docs)
     assert not missing, f"document these commands in api/README.md: {missing}"
+
+
+class TestRoles:
+    """``python -m app roles`` (#691): who may do what, and which groups give it."""
+
+    def test_every_role_its_permissions_and_groups(self, configure, capsys):
+        configure(AUTH_DOV_GROUPS="noc-dov", AUTH_CUSTOMER_GROUPS="KAM", AUTH_OPERATOR_GROUPS="")
+        assert cli.main(["roles"]) == 0
+        out = capsys.readouterr().out
+        for role in ("admin", "operator", "dov", "customer", "viewer"):
+            assert f"\n{role} (" in "\n" + out, role
+        assert "groups: noc-dov" in out and "groups: kam" in out
+        assert "operator (NWO (operator)), opens /; groups: no groups set" in out
+        assert "  criticality.override" in out and "  tenant.status.view" in out
+
+    def test_the_role_some_groups_give(self, configure, capsys):
+        configure(AUTH_DOV_GROUPS="noc-dov", AUTH_CUSTOMER_GROUPS="kam", AUTH_VIEWER_GROUPS="staff")
+        assert cli.main(["roles", "--groups", "staff,KAM"]) == 0
+        out = capsys.readouterr().out
+        assert out.startswith("customer (Customer), opens /availability")
+        assert "  page.availability" in out and "page.map" not in out
+        assert cli.main(["roles", "--groups", "strangers"]) == 0
+        assert capsys.readouterr().out.startswith("No role")
+
+
+class TestStatusLinkFlags:
+    @pytest.fixture
+    def tenants(self, pg_database):  # type: ignore[no-untyped-def]
+        from app.services import inventory_service as inventory
+
+        adb.call(inventory.write_tenants, [{"tenant_id": "t1", "name": "Acme Corp"}])
+
+    def test_replace_delete_list(self, tenants, capsys):
+        assert cli.main(["status-link", "--list"]) == 0
+        assert capsys.readouterr().out.strip() == "No status links."
+        assert cli.main(["status-link", "Acme Corp"]) == 0
+        first = capsys.readouterr().out.strip()
+        assert cli.main(["status-link", "Acme Corp", "--replace"]) == 0
+        replaced = capsys.readouterr().out.strip()
+        assert replaced != first and replaced.startswith("/status/")
+        assert cli.main(["status-link", "Acme Corp", "--new"]) == 0, "--new is --replace"
+        newest = capsys.readouterr().out.strip()
+        assert newest not in (first, replaced)
+        assert cli.main(["status-link", "--list"]) == 0
+        assert capsys.readouterr().out.startswith(f"{newest}  Acme Corp  (made ")
+        assert cli.main(["status-link", "Acme Corp", "--delete"]) == 0
+        assert "no longer works" in capsys.readouterr().err
+        assert adb.sql("SELECT count(*) AS n FROM status_links")[0]["n"] == 0
+        assert cli.main(["status-link", "Acme Corp", "--delete"]) == 1, "nothing to delete"
+        assert cli.main(["status-link", "Acme", "--delete"]) == 1, "an unknown tenant"
+        assert "no tenant 'Acme'" in capsys.readouterr().err
+        assert cli.main(["status-link"]) == 2
+        with pytest.raises(SystemExit):
+            cli.main(["status-link", "Acme Corp", "--replace", "--delete"])
+
+    def test_new_token_roles(self, pg_database, clock, capsys):
+        for role in ("dov", "customer", "nwo"):
+            assert cli.main(["token", "create", f"t-{role}", "--role", role]) == 0
+            secret = capsys.readouterr().out.strip()
+            expected = "operator" if role == "nwo" else role
+            assert verify(secret)["role"] == expected, role

@@ -149,7 +149,7 @@ docker compose exec api python -m app token create acme-status --role status --t
 
 It prints the token, and below it the link to send, with the tenant's page and the key: `Share: /status/<id>#key=nmt_…`. The tenant must be one Nautobot has (as of the last sync; capitals don't matter), and the token keeps Nautobot's spelling: a typo such as `"Acme"` for "Acme Corp" is refused with `no tenant 'Acme' in Nautobot (as of the last sync)`, instead of making a link that shows nothing.
 
-The tenant's page link on its own: `python -m app status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --new` replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working).
+The tenant's page link on its own: `python -m app status-link "Acme Corp"` (a tenant Nautobot has, as of the last sync; a typo is refused). If a link leaks, `status-link "Acme Corp" --replace` (or `--new`) replaces it at once: the old link stops working, and every customer of that tenant needs the new one (their tokens keep working). `status-link "Acme Corp" --delete` deletes it, and `status-link --list` lists every tenant's link (#691).
 
 **Through the API** (NWO, the operator role, or admin; #687):
 - `POST /api/v1/tokens` with `{"name": "acme-status", "role": "status", "tenant": "Acme Corp", "expires_in_days": 365}`. The answer's `status_link` is the tenant's page, `/status/<id>`. Without admin, only status tokens can be made, listed and revoked.

@@ -9,21 +9,12 @@ from app.context import request as requestctx
 from app.core.settings import get_settings
 from app.db import session
 from app.services import auth_service
-from app.services.auth_service import ROLE_LEVELS, CurrentUser
+from app.services.auth_service import CurrentUser
 
 SUPPORTED_MODES = {"disabled", "header"}
 PUBLIC_PATHS = auth_service.PUBLIC_PATHS
 STATUS_PAGE_PREFIX = auth_service.STATUS_PAGE_PREFIX
 STATUS_API_PREFIX = auth_service.STATUS_API_PREFIX
-
-
-def normalize_role(role: str) -> str:
-    role = (role or "").strip().lower()
-    return role if role in ROLE_LEVELS else ""
-
-
-def role_level(role: str) -> int:
-    return ROLE_LEVELS.get(normalize_role(role), 0)
 
 
 def is_config_valid() -> bool:

@@ -21,7 +21,8 @@ from app.utils import timeutil
 
 PREFIX = "nmt_"
 SHOWN_CHARACTERS = 12  # "nmt_" and 8 more, in lists
-ROLES = ("viewer", "operator", "admin")
+# The roles an API token may have (#691: dov and customer too), besides ``status``.
+ROLES = ("viewer", "operator", "admin", "dov", "customer")
 # A tenant's status token (#291): opens only its tenant's status page.
 STATUS_ROLE = "status"
 MAX_TENANT_LENGTH = 200

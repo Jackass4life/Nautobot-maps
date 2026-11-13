@@ -28,7 +28,7 @@ API_FOR_COMMAND = {
     "wireless-check": ["admin.api_wireless_check"],
 }
 # Installing and developing, not everyday work: no API.
-CLI_ONLY = {"migrate", "schema-version", "contract-docs"}
+CLI_ONLY = {"migrate", "schema-version", "contract-docs", "roles"}
 
 
 def test_every_everyday_command_has_an_api_route():
@@ -344,3 +344,13 @@ class TestStatusTokensForNwo:
             ]
         }
         assert roles == {"admin", "operator", "viewer"}
+
+
+def test_a_dov_token_follows_the_matrix(flask_client):
+    """An API token with a new role (#691) is checked as a signed-in DOV user."""
+    dov = make("wall-screen", "dov")["token"]
+    assert flask_client.get("/api/v1/alerts", headers=bearer(dov)).status_code != 403
+    refused = flask_client.post("/api/v1/criticality-overrides", json={}, headers=bearer(dov))
+    assert refused.status_code == 403
+    assert refused.get_json()["required_permission"] == "criticality.override"
+    assert flask_client.get("/api/v1/tokens", headers=bearer(dov)).status_code == 403

@@ -2759,7 +2759,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "viewer" | "operator" | "admin" | "status";
+            role: "viewer" | "operator" | "admin" | "dov" | "customer" | "status";
             /**
              * State
              * @enum {string}
@@ -3663,7 +3663,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "viewer" | "operator" | "admin" | "status";
+            role: "viewer" | "operator" | "admin" | "dov" | "customer" | "status";
             /**
              * State
              * @enum {string}
@@ -7138,7 +7138,7 @@ export interface operations {
                     name: string;
                     /**
                      * Role
-                     * @description viewer, operator, admin, or status with a tenant
+                     * @description viewer, operator (NWO), admin, dov, customer, or status with a tenant
                      */
                     role: string;
                     /** Tenant */

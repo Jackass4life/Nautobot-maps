@@ -68,14 +68,25 @@ def role_level(role: str) -> int:
     return ROLE_LEVELS.get((role or "").strip().lower(), 0)
 
 
+def group_roles(settings: Settings) -> list[tuple[str, frozenset[str]]]:
+    """Each role groups can give and its groups, first wins (#691): admin, operator
+    (NWO), dov, customer, viewer."""
+    return [
+        ("admin", settings.auth_admin_groups),
+        ("operator", settings.auth_operator_groups),
+        ("dov", settings.auth_dov_groups),
+        ("customer", settings.auth_customer_groups),
+        ("viewer", settings.auth_viewer_groups),
+    ]
+
+
 def role_from_groups(groups: list[str], settings: Settings) -> str:
+    """One role for a user's groups: the first in ``group_roles`` with one of them,
+    else AUTH_DEFAULT_ROLE. Roles are never merged."""
     names = {group.strip().lower() for group in groups if group.strip()}
-    if names & settings.auth_admin_groups:
-        return "admin"
-    if names & settings.auth_operator_groups:
-        return "operator"
-    if names & settings.auth_viewer_groups:
-        return "viewer"
+    for role, role_groups in group_roles(settings):
+        if names & role_groups:
+            return role
     return settings.auth_default_role
 
 

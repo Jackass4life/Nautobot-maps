@@ -236,3 +236,45 @@ def test_no_cors_without_origins(client):
     response = client.get("/api/v1/me", headers={"Origin": "http://localhost:3000"})
     assert "access-control-allow-origin" not in response.headers
     assert "Origin" not in response.headers.get("vary", "")
+
+
+# --- The customer and DOV roles from groups (#691) ---------------------------------
+
+PRIORITY = ("admin", "operator", "dov", "customer", "viewer")
+
+
+@pytest.mark.parametrize("first", range(len(PRIORITY)))
+def test_the_first_role_in_order_wins_and_roles_never_merge(configure, first):
+    """In groups for several roles, a user gets the first of admin, operator, dov,
+    customer, viewer: with every lower one too, still that one."""
+    from app.core.settings import get_settings
+    from app.services import auth_service
+
+    configure(**{f"AUTH_{role.upper()}_GROUPS": f"g-{role}" for role in PRIORITY})
+    groups = [f"G-{role}" for role in PRIORITY[first:]]
+    assert auth_service.role_from_groups(groups, get_settings()) == PRIORITY[first]
+    assert auth_service.role_from_groups(["other"], get_settings()) == ""
+
+
+@pytest.mark.parametrize(
+    ("group", "role", "may", "may_not"),
+    [
+        ("kam", "customer", "/api/v1/availability", "/api/v1/alerts"),
+        ("noc-dov", "dov", "/api/v1/alerts", "/api/v1/locations/coordinate-check"),
+    ],
+)
+def test_a_user_in_a_customer_or_dov_group(configure, via_proxy, group, role, may, may_not):
+    """Signed in through the proxy (with AUTH_REQUIRE_VIEWER): that role, and the
+    matrix's permissions, end to end."""
+    configure(
+        AUTH_MODE="header",
+        AUTH_REQUIRE_VIEWER="true",
+        AUTH_CUSTOMER_GROUPS="kam",
+        AUTH_DOV_GROUPS="noc-dov",
+        AUTH_VIEWER_GROUPS="staff",
+    )
+    headers = as_user("olga", f"staff,{group}")
+    assert me(via_proxy, headers)["role"] == role
+    assert via_proxy.get(may, headers=headers).status_code != 403
+    refused = via_proxy.get(may_not, headers=headers)
+    assert refused.status_code == 403 and refused.json()["current_role"] == role

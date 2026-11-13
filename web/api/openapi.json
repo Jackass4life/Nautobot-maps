@@ -3480,6 +3480,8 @@
               "viewer",
               "operator",
               "admin",
+              "dov",
+              "customer",
               "status"
             ],
             "title": "Role",
@@ -5421,6 +5423,8 @@
               "viewer",
               "operator",
               "admin",
+              "dov",
+              "customer",
               "status"
             ],
             "title": "Role",
@@ -10233,7 +10237,7 @@
                     "type": "string"
                   },
                   "role": {
-                    "description": "viewer, operator, admin, or status with a tenant",
+                    "description": "viewer, operator (NWO), admin, dov, customer, or status with a tenant",
                     "title": "Role",
                     "type": "string"
                   },

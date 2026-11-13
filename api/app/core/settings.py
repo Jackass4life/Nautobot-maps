@@ -474,10 +474,13 @@ class Settings(BaseSettings):
         Role | Literal[""],
         _text(lambda v: v.strip().lower() if v.strip().lower() in ROLE_NAMES else ""),
     ] = ""
-    # Group names (CSV, case-insensitive) that give each role; the highest wins.
+    # Group names (CSV, case-insensitive) that give each role; the first of admin,
+    # operator (NWO), dov, customer, viewer wins (#691): one role, never merged.
     auth_viewer_groups: CsvSet = frozenset()
     auth_operator_groups: CsvSet = frozenset()
     auth_admin_groups: CsvSet = frozenset()
+    auth_dov_groups: CsvSet = frozenset()
+    auth_customer_groups: CsvSet = frozenset()
     # Reads need at least the viewer role too (otherwise reads are public).
     auth_require_viewer: Flag(False) = False
     # Identity headers count only from these peer addresses (CSV of CIDRs) and, when

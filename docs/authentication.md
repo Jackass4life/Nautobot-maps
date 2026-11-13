@@ -12,13 +12,15 @@ Who can open the app, and who can change things in it. The app has no login scre
 | **The bundled proxy** (recommended) | Production: HTTPS and your company login, ready to use | A certificate and a few settings ([the bundled proxy](#the-bundled-proxy-https-and-company-sign-in)) |
 | **Your own proxy** | You already have an SSO gateway | Point it at the app and pass the user and groups ([with a sign-in proxy](#with-a-sign-in-proxy)) |
 
-**The three roles:**
+**The roles:**
 
 | Role | Can |
 |---|---|
 | **viewer** | Look: the map, the board, availability |
-| **operator** | Also act: cases, acknowledgements, maintenance, history |
-| **admin** | Everything: also API tokens, customer status page links, test notifications |
+| **customer** (account managers) | Availability and each customer's status, read only; never a status link |
+| **dov** | The wall view, the board, availability and maintenance (read only); acknowledge and add cases |
+| **operator** (NWO) | Everything but administration: also maintenance, criticality, history, and customers' status links and their keys |
+| **admin** | Everything: also API tokens, test notifications, the wireless check |
 
 **Scripts and tools** (LibreNMS, Alertmanager, MCP) use an [API token](#api-tokens) instead of a login.
 
@@ -41,6 +43,8 @@ AUTH_HEADER_GROUPS=X-Forwarded-Groups
 AUTH_VIEWER_GROUPS=noc
 AUTH_OPERATOR_GROUPS=nautobot-operators
 AUTH_ADMIN_GROUPS=nautobot-admins
+AUTH_DOV_GROUPS=noc-dov
+AUTH_CUSTOMER_GROUPS=account-managers
 ```
 
 ### Roles
@@ -48,10 +52,19 @@ AUTH_ADMIN_GROUPS=nautobot-admins
 | Role | Can |
 |---|---|
 | `viewer` | Open the map, the board and the read APIs, when `AUTH_REQUIRE_VIEWER=true` (otherwise they are open to everyone) |
-| `operator` | Also add cases, view alert history, manage maintenance windows and criticality overrides |
-| `admin` | Everything an operator can, send test notifications (`POST /api/v1/notifications/test`), manage API tokens, show and replace tenants' status page links (`/api/v1/status-links/…`) and check the wireless controllers (`POST /api/v1/wireless/check`) |
+| `customer` | Availability (and its CSV) and each tenant's status in the app (`GET /api/v1/tenants/<tenant>/status`), read only; never a status link |
+| `dov` | The wall view, the board with its history, availability and maintenance (read only); acknowledge, remove an acknowledgement, add cases |
+| `operator` (NWO) | Everything but administration: also maintenance windows, criticality overrides, alert history, and customers' status page links (`/api/v1/status-links/…`) with their status tokens |
+| `admin` | Everything an operator can, send test notifications (`POST /api/v1/notifications/test`), manage every API token and check the wireless controllers (`POST /api/v1/wireless/check`) |
 
-A user's role is the highest one any of their groups maps to, or `AUTH_DEFAULT_ROLE` when none does.
+A user has one role: the first of **admin, operator, dov, customer, viewer** that one of their groups gives, or `AUTH_DEFAULT_ROLE` when none does. Roles are never combined: someone in a viewer group and a customer group is a customer. Each role's permissions are one matrix in the app (`app/auth/permissions.py`), and every API route checks one of them.
+
+See who gets what, from the running app:
+
+```bash
+docker compose exec api python -m app roles                      # every role, its permissions and groups
+docker compose exec api python -m app roles --groups noc,kam      # the role a user in these groups gets
+```
 
 ### Trusting only the proxy
 
@@ -245,6 +258,7 @@ On the command line (this is how the first admin token is made):
 
 ```sh
 docker compose exec api python -m app token create librenms --role operator --expires-days 365
+docker compose exec api python -m app token create wall-screen --role dov   # also customer; nwo = operator
 docker compose exec api python -m app token list
 docker compose exec api python -m app token revoke 3
 docker compose exec api python -m app token purge --older-than 90 --dry-run
