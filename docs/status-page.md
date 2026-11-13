@@ -158,6 +158,8 @@ The tenant's page link on its own: `python -m app status-link "Acme Corp"` (a te
 - `POST /api/v1/status-links/Acme%20Corp/replace` replaces it; `DELETE /api/v1/status-links/Acme%20Corp` deletes it, and every key sent with it stops working at once.
 - A tenant Nautobot doesn't have answers 404.
 
+**In the app, signed in** (customer, viewer, NWO or admin; #689): `GET /api/v1/tenants/Acme%20Corp/status` answers what the tenant's page shows, by its name, with no link involved: the same answer as `/api/v1/status/<id>`.
+
 Then send this link:
 
 ```
