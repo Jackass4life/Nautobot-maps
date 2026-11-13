@@ -8,7 +8,8 @@ Run the mock at a NOC's scale and the app against an empty database, then this:
     uv run --project api --group e2e --with Pillow python scripts/screenshots.py --token nmt_... --seed
 
 Run the app with WIRELESS_CONTROLLERS_FILE=demo/wireless.yml for the access
-points.  An operator token works too, without the Admin page's picture.
+points.  An operator token works too, without the Admin page's picture and the
+workspaces' (each role's pages, #697: the admin token makes a key per role).
 
 Needs Playwright (api/'s e2e group) and Pillow (``--with Pillow``). --seed adds
 cases, acknowledgements and maintenance through the API first: run it once
@@ -21,6 +22,7 @@ import json
 import pathlib
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from PIL import Image
@@ -198,6 +200,7 @@ def screenshots(browser, base, token, out, burst):
     else:
         print("not an admin token: Admin page skipped")
     status_page(browser, base, token, out)
+    workspaces(browser, base, token, out)
     for page in pages.values():
         page.context.close()
 
@@ -205,22 +208,77 @@ def screenshots(browser, base, token, out, burst):
 def status_page(browser, base, token, out):
     """The tenant's status page (#291) at its link (#500): narrower, as it is laid out.
     The answer is the same for any viewer allowed to see it, so the operator
-    token shows what the customer sees.  The link comes from Availability, the
-    one place staff get it (which makes every tenant's link: a demo database)."""
-    links = api(base, token, "/api/v1/availability").get("status_links") or {}
-    if STATUS_TENANT not in links:
-        print("no status link for", STATUS_TENANT, "(is it the scale demo?): status page skipped")
+    token shows what the customer sees.  The link is made as NWO makes it (#687:
+    reading Availability no longer does; asking again answers the same one)."""
+    tenants = {t["name"] for t in api(base, token, "/api/v1/tenants").get("tenants") or []}
+    if STATUS_TENANT not in tenants:
+        print("no tenant", STATUS_TENANT, "(is it the scale demo?): status page skipped")
         return
+    tenant = urllib.parse.quote(STATUS_TENANT, safe="")
+    link = api(base, token, f"/api/v1/status-links/{tenant}", {})["status_link"]
     ctx = browser.new_context(viewport={"width": 1120, "height": 580}, color_scheme="light")
     page = ctx.new_page()
     with_token(page, base, token)
     try:
-        page.goto(f"{base}/status/{links[STATUS_TENANT]}")
+        page.goto(base + link)
         page.wait_for_selector(".status-devices", timeout=60000)
         page.wait_for_timeout(1000)
         shoot(page, out, "status-page")
     finally:
         ctx.close()
+
+
+# The name each role's key has, shown in the top bar as the user's.
+ROLE_NAMES = {"customer": "account-manager", "dov": "noc-dov", "operator": "noc-nwo"}
+
+
+def role_token(base, token, role):
+    """A key for *role*'s pictures, made now with the admin token; it works a day. A
+    name stays taken (also once revoked): on a second run, one with the time."""
+    for name in (ROLE_NAMES[role], f"{ROLE_NAMES[role]}-{int(time.time())}"):
+        body = {"name": name, "role": role, "expires_in_days": 1}
+        try:
+            return api(base, token, "/api/v1/tokens", body)["token"]["token"]
+        except SystemExit as exc:
+            if "already exists" not in str(exc):
+                raise
+    raise SystemExit(f"no token for {role}")
+
+
+# Each role's own pages (#697): (role, page, what shows it has loaded, file).
+WORKSPACES = [
+    ("customer", "/customer", "table tbody tr", "customer-workspace"),
+    ("dov", "/dov/board", "#alerts-table-body tr", "dov-board"),
+    ("operator", "/nwo/tenants", ".tenant-row", "customers"),
+]
+
+
+def workspaces(browser, base, token, out):
+    """Each role's workspace, as that role sees it; NWO's Customers with Share… open."""
+    if (api(base, token, "/api/v1/page-config") or {}).get("admin") is None:
+        print("not an admin token: the workspaces' pictures skipped (they need role tokens)")
+        return
+    for role, path, loaded, name in WORKSPACES:
+        ctx = browser.new_context(viewport={"width": WIDTH, "height": HEIGHT}, color_scheme="light")
+        page = ctx.new_page()
+        with_token(page, base, role_token(base, token, role))
+        try:
+            page.goto(base + path)
+            page.wait_for_selector(loaded, timeout=60000)
+            if role == "operator":
+                # The status page's tenant, whose link status_page() made: Share… open.
+                page.locator("input#tenants-search").fill(STATUS_TENANT.split()[0])
+                row = page.locator(f'.tenant-row[data-name="{STATUS_TENANT}"]')
+                row.locator(".share-status").click()
+                page.wait_for_selector(".share-copy-link, .share-none", timeout=20000)
+            elif role == "dov":
+                # A row's ⋯: what DOV may do (acknowledge, history), no maintenance.
+                page.locator("#alerts-table-body .row-menu-btn").first.click()
+                page.wait_for_selector("[role=menuitem]", timeout=20000)
+            page.wait_for_timeout(1000)
+            shoot(page, out, name)
+        finally:
+            ctx.close()
 
 
 def clip(browser, base, token, out, burst):

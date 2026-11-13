@@ -8,13 +8,15 @@ Your Nautobot sites on a map, and an alert board that shows which sites are down
 
 ## Start here
 
-| You are… | Read |
-|---|---|
-| **In the NOC**: you watch for outages and handle them | [The alert board](docs/alert-board.md), [Availability](docs/availability.md) |
-| **An account manager**: you tell customers whether they are affected | [Tenant status page](docs/status-page.md), [Availability](docs/availability.md) |
-| **Keeping Nautobot up to date**: you decide what the app shows | [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) |
-| **Installing or running the app** | [Install](#install) below, then [Configuration](docs/configuration.md) and [Running in production](docs/operations.md) |
-| **New to the app** and want the big picture | [How it works](docs/how-it-works.md) |
+| You are… | Open | Read |
+|---|---|---|
+| **In the NOC**: you watch for outages and handle them | `/dov` (DOV) or `/nwo` (NWO) | [The alert board](docs/alert-board.md), [Availability](docs/availability.md) |
+| **An account manager**: you tell customers whether they are affected | `/customer` | [Tenant status page](docs/status-page.md), [Availability](docs/availability.md) |
+| **Keeping Nautobot up to date**: you decide what the app shows | `/` | [What to set in Nautobot and LibreNMS](docs/nautobot-setup.md) |
+| **Installing or running the app** | | [Install](#install) below, then [Configuration](docs/configuration.md) and [Running in production](docs/operations.md) |
+| **New to the app** and want the big picture | `/` | [How it works](docs/how-it-works.md) |
+
+With sign-in on, `/` opens your role's page by itself ([roles](docs/authentication.md#in-short)).
 
 Every guide is also in the app: **Documentation** in the ☰ menu.
 
@@ -43,7 +45,7 @@ Built for a NOC with 1,200+ sites and 10,000+ devices, where 20–30 sites are d
 - **More sources**: LibreNMS (down within seconds with alert pushes), Prometheus Alertmanager, Zabbix or any webhook. Access points from Cisco Catalyst Center and Aruba New Central, with the switch and port each one is on.
 - **Importance from Nautobot**: mark important sites (gold, silver, bronze) and devices with custom fields, and their outages alarm louder. Editing them never pages anyone.
 - **Circuit mapping**: the worklist of circuits not yet linked to a site in Nautobot ([circuit mapping](docs/how-it-works.md#circuit-mapping)).
-- **HTTPS and company sign-in** ready to use (nginx + oauth2-proxy for Entra ID, Keycloak, Okta, Google, GitLab), or your own sign-in proxy. Three roles: viewer, operator, admin.
+- **HTTPS and company sign-in** ready to use (nginx + oauth2-proxy for Entra ID, Keycloak, Okta, Google, GitLab), or your own sign-in proxy. Five roles, each with its own pages and buttons: customer (account managers), DOV, NWO (operator), viewer and admin ([roles](docs/authentication.md#in-short)).
 - **Admin page**: API tokens, a test notification, a check of the wireless controllers, and status page links for customers.
 - **Open to other tools**: an API (☰ → **API**), an MCP server for AI assistants, Prometheus `/metrics`, a `/healthz` probe, JSON logs and released Docker images.
 - **One top bar on every page**: find any site, see whether the data is fresh (amber when a sync is late, red when Nautobot or LibreNMS can't be reached), who is signed in, and dark or light.
@@ -60,8 +62,10 @@ Built for a NOC with 1,200+ sites and 10,000+ devices, where 20–30 sites are d
 | **Wall view** for the NOC screen | **Availability** per site and tenant |
 | ![Maintenance: two active windows and two planned, one across 40 sites](docs/images/maintenance.png) | ![A tenant's status page: 3 of 75 sites affected, 11 devices down, the 72 operational sites folded](docs/images/status-page.png) |
 | **Maintenance**: now and planned, one line per change | **Status page**, as the customer sees it |
-| ![The Admin page: five API tokens with their roles, and the wireless controllers' Check now](docs/images/admin.png) | |
-| **Admin**: API tokens, a test notification, the wireless check | |
+| ![The Admin page: five API tokens with their roles, and the wireless controllers' Check now](docs/images/admin.png) | ![Customers as NWO: Tidal Ports with Share… open, its link to copy, Create customer link, Replace link and Delete link](docs/images/customers.png) |
+| **Admin**: API tokens, a test notification, the wireless check | **Customers** for NWO: each customer's status and link |
+| ![The board as DOV: + Case on every row and a row's menu with Acknowledge, Copy, History and Maint. history](docs/images/dov-board.png) | ![Availability as an account manager (the customer role): no Share…, no status links](docs/images/customer-workspace.png) |
+| **DOV** at `/dov/board`: cases and acknowledging, no maintenance | **Account managers** at `/customer`: availability, read only |
 
 The pictures come from `scripts/screenshots.py` with the scale demo.
 

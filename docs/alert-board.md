@@ -59,7 +59,7 @@ In every list you can type to search, use the arrow keys, press Enter to tick, a
 - **History** (under **⋯**) shows when each device went down and came back, with the cases, and **Export** downloads it as a spreadsheet (CSV).
 - **Activity** (the right-hand panel) lists the latest changes: devices down and back up, and sites changing level.
 
-Adding cases, acknowledging and removing an acknowledgement need the **operator** role when sign-in is on ([roles](authentication.md)). Without sign-in (`AUTH_MODE=disabled`, the default) anyone who can reach the app can do all three ([without sign-in](authentication.md#without-sign-in-default)).
+Adding cases, acknowledging and removing an acknowledgement need the **dov**, **operator** (NWO) or **admin** role when sign-in is on ([roles](authentication.md)); the board shows a viewer none of these buttons. DOV opens on the wall view at `/dov`, with the board at `/dov/board`; NWO's board is `/nwo/board` ([each role's pages](authentication.md#in-short)). Without sign-in (`AUTH_MODE=disabled`, the default) anyone who can reach the app can do all three ([without sign-in](authentication.md#without-sign-in-default)).
 
 ### Planning maintenance
 

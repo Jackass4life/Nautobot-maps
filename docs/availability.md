@@ -25,7 +25,7 @@ The keyboard works too: arrows move a day or a week, Page Up/Down a month, Enter
 - **Devices** says how much is at a site: "12 network · 40 APs".
 - **Search** for a site or customer, or pick a customer. Click a column to sort by it.
 - **The (i)** next to the title, each card and each list explains what it means.
-- **A customer's name** opens their [status page](status-page.md) in a new tab. Admins see **Share…** next to it, to make the link you send the customer ([how](status-page.md#sending-a-customer-their-link)).
+- **A customer's name** opens their status in the app, in a new tab (as their [status page](status-page.md) shows it, for customer, viewer, NWO and admin; #695). NWO and admins see **Share…** next to it: the customer's link, and making, replacing or deleting it ([how](status-page.md#sending-a-customer-their-link)). **Customers** (☰ menu) lists every customer the same way.
 
 ### What counts as downtime
 
