@@ -37,6 +37,10 @@ class Endpoint(common.Answer):
     path_params: list[str]
     query_params: list[str]
     required_role: Literal["viewer", "operator", "admin"] | None
+    required_permissions: list[list[str]] = Field(
+        description="What it needs (#685): each list is needed, any one permission in it "
+        'does; ["public"] needs no sign-in.'
+    )
     example_body: dict[str, Any] | None
     example_body_text: str = Field(description="example_body, formatted; {} when there is none.")
 

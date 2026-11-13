@@ -1,6 +1,7 @@
 """The app served as ASGI (#436): FastAPI outside, the Flask app mounted behind
 it.  Everything a browser, a script or a proxy relied on must be the same."""
 
+from app.auth.permissions import Permission
 from app.core.legacy_settings import settings
 from tests import db as adb
 
@@ -134,7 +135,7 @@ def _mini_app():
 
     router = APIRouter(route_class=deps.AppRoute, dependencies=deps.ROUTER_DEPENDENCIES)
 
-    @router.post("/api/v1/x", dependencies=[deps.require_role("operator")])
+    @router.post("/api/v1/x", dependencies=[deps.require_permission(Permission.ALERTS_ACK)])
     def write(count: int = 0):
         return deps.Json({"count": count})
 
@@ -252,7 +253,7 @@ def _form_app(seen: list):
         seen.append(form)
         return form
 
-    @router.post("/api/v1/form", dependencies=[deps.require_role("operator")])
+    @router.post("/api/v1/form", dependencies=[deps.require_permission(Permission.ALERTS_ACK)])
     def echo(form: Annotated[dict, Depends(remember_form)]):
         return deps.Json(form)
 

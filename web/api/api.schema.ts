@@ -1941,6 +1941,11 @@ export interface components {
             path_params: string[];
             /** Query Params */
             query_params: string[];
+            /**
+             * Required Permissions
+             * @description What it needs (#685): each list is needed, any one permission in it does; ["public"] needs no sign-in.
+             */
+            required_permissions: string[][];
             /** Required Role */
             required_role: ("viewer" | "operator" | "admin") | null;
             /**
@@ -1977,6 +1982,11 @@ export interface components {
              * @description Devices with no open alert: nothing was changed.
              */
             missing_device_ids?: string[] | null;
+            /**
+             * Required Permission
+             * @description The permission it needs (#685): e.g. alerts.ack, admin.
+             */
+            required_permission?: string | null;
             /** Required Role */
             required_role?: ("viewer" | "operator" | "admin") | null;
         };

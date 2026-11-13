@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
+from app.auth import permissions
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.db import aconnection
@@ -39,7 +40,7 @@ NO_DATABASE_RESPONSE = {503: {"model": common.Error, "description": "No database
         409: {"model": common.Error, "description": "LibreNMS is not configured"},
         502: {"model": common.Error, "description": "LibreNMS couldn't be asked"},
     },
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.ALERTS_INGEST)],
     openapi_extra=deps.body_schema(dtos.LibreNmsPushBody),
 )
 async def api_librenms_alert(request: Request, body: Body, form: Form):
@@ -121,7 +122,7 @@ async def _webhook_alerts(body, parse):
     name="ingest.api_alertmanager",
     response_model=dtos.WebhookResult,
     responses=NO_DATABASE_RESPONSE,
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.ALERTS_INGEST)],
     openapi_extra=deps.body_schema(dtos.AlertmanagerWebhook),
 )
 async def api_alertmanager(body: Body):
@@ -140,7 +141,7 @@ async def api_alertmanager(body: Body):
     name="ingest.api_device_status",
     response_model=dtos.WebhookResult,
     responses=NO_DATABASE_RESPONSE,
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.ALERTS_INGEST)],
     openapi_extra=deps.body_schema(dtos.DeviceStatus),
 )
 async def api_device_status(body: Body):

@@ -25,6 +25,9 @@ class Error(BaseModel):
     error: str
     detail: str | None = Field(None, description="How to allow it, when the setup refuses it.")
     required_role: Literal["viewer", "operator", "admin"] | None = None
+    required_permission: str | None = Field(
+        None, description="The permission it needs (#685): e.g. alerts.ack, admin."
+    )
     current_role: str | None = None
     missing_device_ids: list[str] | None = Field(
         None, description="Devices with no open alert: nothing was changed."

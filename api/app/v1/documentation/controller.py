@@ -10,6 +10,7 @@ token is refused."""
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.auth import permissions
 from app.auth.dependencies import check_request
 from app.frontend import controller as frontend
 from app.frontend import files
@@ -34,9 +35,15 @@ spec_router = APIRouter(
 )
 
 
-@router.get("/help", name="help.help_page", include_in_schema=False)
+@router.get(
+    "/help",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    name="help.help_page",
+    include_in_schema=False,
+)
 @router.get(
     "/help/{slug}",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
     name="help.help_page",
     include_in_schema=False,
 )
@@ -53,6 +60,7 @@ def help_page(slug: str = "overview"):
 
 @router.get(
     "/api/v1/help/{slug}",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
     name="help.api_help",
     response_model=dtos.HelpPage,
     responses={404: {"model": common.Error, "description": "No such guide"}},
@@ -70,6 +78,7 @@ def api_help(slug: str):
 
 @router.get(
     "/help/images/{name:path}",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
     name="help.help_image",
     include_in_schema=False,
 )
@@ -80,6 +89,7 @@ def help_image(request: Request, name: str):
 
 @router.get(
     "/api/v1/endpoints",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
     name="ops.api_endpoints",
     response_model=dtos.Endpoints,
 )
@@ -88,13 +98,17 @@ def api_endpoints():
     return deps.Json({"endpoints": apidocs.endpoints()})
 
 
-@spec_router.get(OPENAPI_URL)
+@spec_router.get(
+    OPENAPI_URL, dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)]
+)
 def openapi(request: Request) -> JSONResponse:
     app: FastAPI = request.app
     return JSONResponse(app.openapi())
 
 
-@spec_router.get(DOCS_URL)
+@spec_router.get(
+    DOCS_URL, dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)]
+)
 def docs() -> Response:
     """The API page: web's page with Swagger UI bundled (the current app's, #483), under
     the strict CSP. FastAPI's own loads scripts from a CDN, which the CSP blocks."""

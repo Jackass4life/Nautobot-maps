@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
+from app.auth import permissions
 from app.db import aconnection
 from app.frontend import controller as frontend
 from app.services import alerts_service as alerts
@@ -34,6 +35,7 @@ Body = Annotated[object, Depends(deps.json_body)]
 
 @router.get(
     "/api/v1/maintenance",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAINTENANCE)],
     name="maintenance.api_maintenance_list",
     response_model=dtos.WindowList,
     responses=NO_DATABASE_RESPONSE,
@@ -80,7 +82,11 @@ async def _board_sites() -> list[dict]:
         return []
 
 
-@router.get("/maintenance", name="maintenance.maintenance_page")
+@router.get(
+    "/maintenance",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAINTENANCE)],
+    name="maintenance.maintenance_page",
+)
 def maintenance_page():
     """Current and planned maintenance, and planning more (#343), or its
     history (``?view=history``, #353).
@@ -141,6 +147,7 @@ HistoryQuery = Annotated[dtos.MaintenanceHistoryQuery, Query()]
 
 @router.get(
     "/api/v1/maintenance/history",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAINTENANCE)],
     name="maintenance.api_maintenance_history",
     response_model=dtos.MaintenanceHistory,
     responses=NO_DATABASE_RESPONSE,
@@ -174,7 +181,14 @@ async def api_maintenance_history(query: HistoryQuery):
     )
 
 
-@router.get("/api/v1/maintenance/history.csv", name="maintenance.api_maintenance_history_csv")
+@router.get(
+    "/api/v1/maintenance/history.csv",
+    dependencies=[
+        deps.require_permission(permissions.Permission.PAGE_MAINTENANCE),
+        deps.require_permission(permissions.Permission.EXPORT_CSV),
+    ],
+    name="maintenance.api_maintenance_history_csv",
+)
 async def api_maintenance_history_csv(query: HistoryQuery):
     """The history as CSV (#353): the same ``from``, ``to``, ``tz``, ``site_id``
     and ``tenant``; one row per window, times in UTC, streamed.  Every window,
@@ -211,6 +225,7 @@ async def api_maintenance_history_csv(query: HistoryQuery):
 
 @router.get(
     "/api/v1/maintenance/sites",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAINTENANCE)],
     name="maintenance.api_maintenance_sites",
     response_model=dtos.PlannableSites,
 )
@@ -245,6 +260,7 @@ async def api_maintenance_sites():
 
 @router.get(
     "/api/v1/maintenance/devices",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAINTENANCE)],
     name="maintenance.api_maintenance_devices",
     response_model=dtos.Devices,
 )
@@ -275,7 +291,7 @@ async def _maintenance_changed() -> None:
     status_code=201,
     response_model=dtos.Created,
     responses=NO_DATABASE_RESPONSE,
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.MAINTENANCE_WRITE)],
     openapi_extra=deps.body_schema(dtos.MaintenanceCreate),
 )
 async def api_maintenance_create(body: Body):
@@ -304,7 +320,7 @@ async def api_maintenance_create(body: Body):
     name="maintenance.api_maintenance_end_many",
     response_model=dtos.Ended,
     responses=NO_DATABASE_RESPONSE,
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.MAINTENANCE_WRITE)],
     openapi_extra=deps.body_schema(dtos.MaintenanceEnd),
 )
 async def api_maintenance_end_many(body: Body):
@@ -343,7 +359,7 @@ async def api_maintenance_end_many(body: Body):
         **NO_DATABASE_RESPONSE,
         404: {"model": common.Error, "description": "No such window"},
     },
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.MAINTENANCE_WRITE)],
 )
 async def api_maintenance_end(window_id: int):
     """End a maintenance window now, or cancel an upcoming one (#283)."""

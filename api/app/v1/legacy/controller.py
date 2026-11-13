@@ -7,6 +7,7 @@ import pathlib
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from app.auth import permissions
 from app.frontend import files
 from app.services import navigation_service as navigation
 from app.v1 import deps
@@ -23,17 +24,32 @@ def _moved(request: Request, path: str) -> RedirectResponse:
     return RedirectResponse(f"{path}?{query}" if query else path, status_code=301)
 
 
-@router.get("/docs", name="pages.api_docs_moved", include_in_schema=False)
+@router.get(
+    "/docs",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    name="pages.api_docs_moved",
+    include_in_schema=False,
+)
 def api_docs_moved(request: Request):
     return _moved(request, navigation.API_DOCS_PATH)
 
 
-@router.get("/openapi.json", name="ops.openapi_moved", include_in_schema=False)
+@router.get(
+    "/openapi.json",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    name="ops.openapi_moved",
+    include_in_schema=False,
+)
 def openapi_moved(request: Request):
     return _moved(request, navigation.API_SPEC_PATH)
 
 
-@router.get("/static/{path:path}", name="static", include_in_schema=False)
+@router.get(
+    "/static/{path:path}",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    name="static",
+    include_in_schema=False,
+)
 def static(request: Request, path: str):
     """The pages' scripts, styles, images and vendored libraries."""
     return files.send(request, STATIC, path)

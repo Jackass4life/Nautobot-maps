@@ -532,14 +532,17 @@ class TestRoles:
         with auth_config(mode="header", viewer_groups={"noc"}, operator_groups={"ops"}):
             history = call(flask_client, "get_alert_history", {}, headers=viewer)
             assert history["isError"]
-            assert "needs the operator role (yours: viewer)" in history["content"][0]["text"]
+            assert (
+                "needs the alerts.history permission (yours: viewer)"
+                in history["content"][0]["text"]
+            )
             case = call(
                 flask_client,
                 "add_case",
                 {"site_id": "loc-1", "case_number": "INC-1"},
                 headers=viewer,
             )
-            assert case["isError"] and "operator" in case["content"][0]["text"]
+            assert case["isError"] and "alerts.case" in case["content"][0]["text"]
             # Reads open to everyone stay open.
             assert not call(flask_client, "get_site", {"site": "Oslo"}, headers=viewer)["isError"]
 

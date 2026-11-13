@@ -12,7 +12,7 @@ import pathlib
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 
-from app.auth.dependencies import check_request
+from app.auth.dependencies import check_request, public
 from app.core.settings import get_settings
 from app.frontend import files
 
@@ -47,7 +47,7 @@ def shell(headers: dict | None = None) -> Response:
     )
 
 
-@router.get(ASSETS_PREFIX + "{path:path}")
+@router.get(ASSETS_PREFIX + "{path:path}", dependencies=[Depends(public)])
 def asset(request: Request, path: str) -> Response:
     return files.send(request, build_dir() / "_nuxt", path, max_age=ASSET_MAX_AGE)
 

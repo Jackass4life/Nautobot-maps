@@ -60,6 +60,7 @@ def test_errors_are_shown_as_the_app_sends_them(flask_client):
         "error",
         "detail",
         "required_role",
+        "required_permission",
         "current_role",
         "missing_device_ids",
     }

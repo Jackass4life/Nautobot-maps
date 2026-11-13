@@ -1708,6 +1708,17 @@
             "title": "Query Params",
             "type": "array"
           },
+          "required_permissions": {
+            "description": "What it needs (#685): each list is needed, any one permission in it does; [\"public\"] needs no sign-in.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Required Permissions",
+            "type": "array"
+          },
           "required_role": {
             "anyOf": [
               {
@@ -1759,6 +1770,7 @@
           "path_params",
           "query_params",
           "required_role",
+          "required_permissions",
           "example_body",
           "example_body_text"
         ],
@@ -1827,6 +1839,18 @@
             ],
             "description": "Devices with no open alert: nothing was changed.",
             "title": "Missing Device Ids"
+          },
+          "required_permission": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The permission it needs (#685): e.g. alerts.ack, admin.",
+            "title": "Required Permission"
           },
           "required_role": {
             "anyOf": [

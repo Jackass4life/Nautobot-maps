@@ -64,17 +64,6 @@ def bearer_token() -> str:
     return auth_service.bearer_token(requestctx.current().starlette)
 
 
-def role_problem(required_role: str, open_when_disabled: bool = False):  # type: ignore[no-untyped-def]
-    """None when this request may use a route needing *required_role*, else ``(body, status)``."""
-    return auth_service.role_problem(
-        _user(),
-        get_settings(),
-        normalize_role(required_role),
-        requestctx.current().method,
-        open_when_disabled,
-    )
-
-
 def may_administer() -> bool:
     return auth_service.may_administer(_user(), get_settings())
 

@@ -12,7 +12,9 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUserDep, require_role
+from app.auth import permissions
+from app.auth.dependencies import CurrentUserDep, require_permission
+from app.auth.permissions import Permission
 from app.core.exceptions import ApiError, responses
 from app.core.legacy_settings import settings
 from app.db import aconnection, session
@@ -48,7 +50,12 @@ NO_DATABASE = {"error": "Persistence DB not configured"}
 NO_DATABASE_RESPONSE = {503: {"model": common.Error, "description": "No database"}}
 
 
-@router.get("/admin", name="admin.admin_page", include_in_schema=False)
+@router.get(
+    "/admin",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    name="admin.admin_page",
+    include_in_schema=False,
+)
 def admin_page():
     """Administration (#530): API tokens, a test notification and the
     wireless controllers' check; drawn from the API, which keeps each
@@ -61,7 +68,7 @@ def admin_page():
     name="admin.api_tenants",
     response_model=dtos.Tenants,
     responses=NO_DATABASE_RESPONSE,
-    dependencies=[deps.require_role("admin")],
+    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
 )
 async def api_tenants():
     """Nautobot's tenants as of the last sync (#530), with their
@@ -100,7 +107,7 @@ NO_TENANT_RESPONSE = {
     name="admin.api_status_link",
     response_model=dtos.StatusLink,
     responses=NO_TENANT_RESPONSE,
-    dependencies=[deps.require_role("admin")],
+    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
 )
 async def api_status_link(tenant: str, db: AsyncDbSession):
     """A tenant's status page link (#529), as ``status-link TENANT`` prints it:
@@ -118,7 +125,7 @@ async def api_status_link(tenant: str, db: AsyncDbSession):
     name="admin.api_status_link_replace",
     response_model=dtos.StatusLinkReplaced,
     responses=NO_TENANT_RESPONSE,
-    dependencies=[deps.require_role("admin")],
+    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
 )
 async def api_status_link_replace(tenant: str, db: AsyncDbSession):
     """Replace a tenant's status page link that leaked (#529), as
@@ -153,7 +160,7 @@ WIRELESS_CHECK_LOCK = "wireless_check"
     name="admin.api_wireless_check",
     response_model=dtos.WirelessCheck,
     responses={429: {"model": common.Error, "description": "A check is running already"}},
-    dependencies=[deps.require_role("admin")],
+    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
 )
 async def api_wireless_check():
     """Read every wireless controller now (#529), as ``wireless-check``: per
@@ -197,7 +204,7 @@ async def api_wireless_check():
         400: {"model": common.Error, "description": "No channel configured"},
         502: {"model": dtos.NotificationResults, "description": "A channel failed"},
     },
-    dependencies=[deps.require_role("admin")],
+    dependencies=[deps.require_permission(permissions.Permission.ADMIN)],
 )
 def api_notifications_test():
     """Send a test message on every configured notification channel now (#282).
@@ -225,7 +232,7 @@ def api_notifications_test():
 tokens_router = APIRouter(
     prefix="/tokens",
     tags=sections.tag("administration"),
-    dependencies=[Depends(require_role("admin"))],
+    dependencies=[Depends(require_permission(Permission.ADMIN))],
 )
 REFUSALS = responses(401, 403)
 Body = Annotated[object, Depends(json_body)]
@@ -343,7 +350,12 @@ async def purge_tokens(body: Body, db: AsyncDbSession, user: CurrentUserDep) -> 
 contract_router = APIRouter(prefix="/contract", tags=sections.tag("administration"))
 
 
-@contract_router.get("", operation_id="getContract", response_model=ContractDto)
+@contract_router.get(
+    "",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
+    operation_id="getContract",
+    response_model=ContractDto,
+)
 async def get_contract() -> ContractDto:
     """The data contract and the last check: per upstream endpoint, the fields read,
     their types and what each becomes; per endpoint, when the last sync checked it,

@@ -74,7 +74,7 @@ async def _circuits(tenant: str, board: dict) -> tuple[list[dict], dict[str, str
         return [], {}
 
 
-@router.get("/status/{link_id}", name="status.status_page")
+@router.get("/status/{link_id}", dependencies=[deps.PUBLIC], name="status.status_page")
 def status_page(link_id: str):
     """A tenant's status page (#291): its sites and their state, for a customer.
 
@@ -87,6 +87,7 @@ def status_page(link_id: str):
 
 @router.get(
     "/api/v1/status/{link_id}",
+    dependencies=[deps.PUBLIC],
     name="status.api_status",
     response_model=dtos.TenantStatus,
     responses={

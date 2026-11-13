@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
 from loguru import logger
 
+from app.auth import permissions
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.db import aconnection
@@ -30,7 +31,7 @@ router = APIRouter(
 health_router = APIRouter(tags=sections.tag("monitoring"))
 
 
-@router.get("/metrics", name="ops.prometheus_metrics")
+@router.get("/metrics", dependencies=[deps.PUBLIC], name="ops.prometheus_metrics")
 async def prometheus_metrics():
     """Prometheus metrics: sync health, open alerts, sites by level (#200)."""
     if not settings.METRICS_ENABLED:
@@ -57,7 +58,13 @@ async def prometheus_metrics():
     return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
-@router.post("/mcp", name="ops.mcp_endpoint")
+@router.post(
+    "/mcp",
+    dependencies=[
+        deps.require_permission(permissions.Permission.SESSION_BASIC, open_when_disabled=True)
+    ],
+    name="ops.mcp_endpoint",
+)
 def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUEST_BYTES))]):
     """MCP server for AI assistants (#250): the alert board as tools.
 
@@ -76,6 +83,7 @@ def mcp_endpoint(body: Annotated[bytes, Depends(deps.limited_body(mcp.MAX_REQUES
 
 @health_router.get(
     "/healthz",
+    dependencies=[deps.PUBLIC],
     operation_id="getHealth",
     response_model=dtos.Health,
     responses={503: {"model": dtos.Health, "description": "The database doesn't answer"}},
@@ -88,5 +96,10 @@ async def get_health() -> JSONResponse:
 
 # The path before #594; until the switchover, for probes still pointing at it.
 health_router.add_api_route(
-    "/api/healthz", get_health, methods=["GET"], include_in_schema=False, name="healthz_alias"
+    "/api/healthz",
+    get_health,
+    methods=["GET"],
+    include_in_schema=False,
+    name="healthz_alias",
+    dependencies=[deps.PUBLIC],
 )

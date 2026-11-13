@@ -21,10 +21,14 @@ from urllib.parse import urlsplit
 from fastapi import Request
 from loguru import logger
 
+from app.auth import permissions
+from app.auth.permissions import Permission
 from app.core.settings import Settings
 from app.db import session
 from app.services import token_service
 
+# The old roles' order (#592): the role groups give (``role_from_groups``) and the role
+# names a token may have. What a role may do is the matrix's (app/auth/permissions.py).
 ROLE_LEVELS: dict[str, int] = {"viewer": 1, "operator": 2, "admin": 3}
 PROXY_SECRET_HEADER = "X-Auth-Proxy-Secret"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -157,14 +161,29 @@ def disabled_mode_allows(method: str, open_when_disabled: bool, settings: Settin
     return method in SAFE_METHODS or open_when_disabled or settings.allow_unauthenticated_writes
 
 
-def role_problem(
+def granted(user: CurrentUser, settings: Settings) -> frozenset[Permission]:
+    """What this caller may do (#685): a signed-in user's or token's role's permissions.
+    Nobody signed in (or no role) in header mode without AUTH_REQUIRE_VIEWER: the
+    viewer's, which every route without a role check gave anyone before (#592)."""
+    if user.is_authenticated and user.role in permissions.ROLES:
+        return permissions.role_permissions(user.role)
+    if user.token or is_status_token(user):
+        return frozenset()
+    if settings.auth_mode == "header" and not settings.auth_require_viewer:
+        return permissions.role_permissions("viewer")
+    return frozenset()
+
+
+def permission_problem(
     user: CurrentUser,
     settings: Settings,
-    required_role: str,
+    required: tuple[Permission, ...],
     method: str,
     open_when_disabled: bool = False,
 ) -> Refusal | None:
-    """None when this request may use a route needing *required_role*, else the refusal."""
+    """None when this request may use a route needing one of *required*, else the
+    refusal: 401 nobody signed in, 403 a role without any of them (naming the first,
+    and the lowest of the old roles that has it)."""
     # A token is checked like a signed-in user, also with AUTH_MODE=disabled.
     if settings.auth_mode == "disabled" and not user.token:
         if disabled_mode_allows(method, open_when_disabled, settings):
@@ -177,21 +196,28 @@ def role_problem(
     if settings.auth_mode not in ("disabled", "header"):
         # Startup refuses another value; one set in code answers as the current app.
         return {"error": "Unsupported AUTH_MODE configuration"}, 503
+    if granted(user, settings) & set(required):
+        return None
     if not user.is_authenticated:
         return {"error": "Authentication required"}, 401
-    if role_level(user.role) < role_level(required_role):
-        return {
-            "error": "Insufficient permissions",
-            "required_role": required_role,
-            "current_role": user.role or None,
-        }, 403
-    return None
+    return {
+        "error": "Insufficient permissions",
+        "required_permission": str(required[0]),
+        "required_role": permissions.lowest_old_role(required[0]),
+        "current_role": user.role or None,
+    }, 403
 
 
 def may_administer(user: CurrentUser, settings: Settings) -> bool:
-    """What ``role_problem("admin")`` allows a POST (#530), so pages show the
+    """What a POST needing ``admin`` is allowed (#530), so pages show the
     administration only to those who may use it."""
-    return role_problem(user, settings, "admin", "POST") is None
+    return permission_problem(user, settings, (Permission.ADMIN,), "POST") is None
+
+
+def may_change_the_board(user: CurrentUser, settings: Settings) -> bool:
+    """What acknowledging is allowed (the board's own changes, open with
+    AUTH_MODE=disabled): the pages' ``can_write``."""
+    return permission_problem(user, settings, (Permission.ALERTS_ACK,), "POST", True) is None
 
 
 def is_status_token(user: CurrentUser) -> bool:
@@ -207,7 +233,7 @@ def status_access(user: CurrentUser, settings: Settings, tenant: str) -> Refusal
             if user.tenant.casefold() == tenant.strip().casefold():
                 return None
             return {"error": "This token is for another tenant"}, 403
-        if role_level(user.role) >= role_level("viewer"):
+        if Permission.SESSION_BASIC in permissions.role_permissions(user.role):
             return None
         return {"error": "Insufficient permissions", "required_role": "viewer"}, 403
     return _viewer_problem(user, settings)
@@ -218,7 +244,7 @@ def _viewer_problem(user: CurrentUser, settings: Settings) -> Refusal | None:
         return None
     if not user.is_authenticated:
         return {"error": "Authentication required"}, 401
-    if role_level(user.role) < role_level("viewer"):
+    if Permission.SESSION_BASIC not in permissions.role_permissions(user.role):
         return {"error": "Insufficient permissions", "required_role": "viewer"}, 403
     return None
 
