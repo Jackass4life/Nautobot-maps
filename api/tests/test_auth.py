@@ -133,6 +133,7 @@ def test_writes_need_operator(header_mode, via_proxy):
     assert viewer.status_code == 403
     assert viewer.json() == {
         "error": "Insufficient permissions",
+        "required_permission": "examples.write",
         "required_role": "operator",
         "current_role": "viewer",
     }

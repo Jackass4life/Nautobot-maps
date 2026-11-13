@@ -12,6 +12,7 @@ from geopy.geocoders import Nominatim
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
+from app.auth import permissions
 from app.clients import caching
 from app.core.legacy_settings import settings
 from app.frontend import controller as frontend
@@ -42,6 +43,9 @@ def nautobot_service_unavailable(context: str, exc: Exception):
 
 @router.get(
     "/api/v1/locations",
+    dependencies=[
+        deps.require_permission(permissions.Permission.PAGE_MAP, permissions.Permission.PAGE_BOARD)
+    ],
     name="locations.api_locations",
     response_model=dtos.Locations,
     responses=NAUTOBOT_ERRORS,
@@ -63,6 +67,7 @@ async def api_locations():
 
 @router.get(
     "/api/v1/locations/{location_id}/detail",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAP)],
     name="locations.api_location_detail",
     response_model=dtos.LocationDetail,
     responses=NAUTOBOT_ERRORS,
@@ -92,6 +97,7 @@ async def api_location_detail(
 
 @router.get(
     "/api/v1/location-alerts",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAP)],
     name="locations.api_location_alerts",
     response_model=dtos.LocationAlerts,
 )
@@ -110,10 +116,18 @@ ScopeQuery = Annotated[dtos.Scope, Query()]
 
 @router.get(
     "/api/v1/locations/coordinate-check",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAP)],
     name="locations.api_coordinate_check",
     response_model=dtos.CoordinateCheck,
 )
-@router.get("/api/v1/locations/coordinate-check.csv", name="locations.api_coordinate_check")
+@router.get(
+    "/api/v1/locations/coordinate-check.csv",
+    dependencies=[
+        deps.require_permission(permissions.Permission.PAGE_MAP),
+        deps.require_permission(permissions.Permission.EXPORT_CSV),
+    ],
+    name="locations.api_coordinate_check",
+)
 async def api_coordinate_check(request: Request, query: ScopeQuery):
     """The alert board's sites with missing or wrong coordinates (#368), worst
     first: impossible, at 0,0, latitude and longitude swapped, none, then far
@@ -184,6 +198,7 @@ def geocode(query: str):
 
 @router.get(
     "/api/v1/search",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAP)],
     name="locations.api_search",
     response_model=dtos.Search,
     responses={
@@ -266,7 +281,12 @@ async def api_search(query: Annotated[dtos.SearchQuery, Query()]):
     )
 
 
-@router.get("/", name="pages.index", include_in_schema=False)
+@router.get(
+    "/",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_MAP)],
+    name="pages.index",
+    include_in_schema=False,
+)
 def index():
     """The map: Nautobot locations, address and GPS search, the sites in
     alarm.  Built with Nuxt (#463); the page reads ``/api/page-config``,

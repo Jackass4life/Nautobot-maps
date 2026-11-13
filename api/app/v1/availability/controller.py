@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
+from app.auth import permissions
 from app.db import aconnection
 from app.db import session as db_session
 from app.frontend import controller as frontend
@@ -59,7 +60,11 @@ async def _availability_report(
     return report, "", 200
 
 
-@router.get("/availability", name="availability.availability_page")
+@router.get(
+    "/availability",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_AVAILABILITY)],
+    name="availability.availability_page",
+)
 def availability_page():
     """Availability per site and tenant (#287): ``?month=2026-10`` or
     ``?from=2026-10-03&to=2026-10-09`` (#341), and ``&basis=any_down``.
@@ -71,6 +76,7 @@ def availability_page():
 
 @router.get(
     "/api/v1/availability",
+    dependencies=[deps.require_permission(permissions.Permission.PAGE_AVAILABILITY)],
     name="availability.api_availability",
     response_model=dtos.Report,
     responses={
@@ -110,7 +116,14 @@ async def _status_links(report: dict) -> dict[str, str]:
         return {}
 
 
-@router.get("/api/v1/availability.csv", name="availability.api_availability_csv")
+@router.get(
+    "/api/v1/availability.csv",
+    dependencies=[
+        deps.require_permission(permissions.Permission.PAGE_AVAILABILITY),
+        deps.require_permission(permissions.Permission.EXPORT_CSV),
+    ],
+    name="availability.api_availability_csv",
+)
 async def api_availability_csv(period: Annotated[dtos.AvailabilityCsv, Query()]):
     """The availability report as CSV (#287): ``view=sites`` (default; with each
     site's details and outages, #354), ``tenants`` or ``incidents`` (every

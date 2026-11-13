@@ -151,13 +151,18 @@ def api_or_tool_error(
     if status < 400:
         return data
     message = data.get("error") or f"HTTP {status}"
-    if status in (401, 403) and data.get("required_role"):
+    if status in (401, 403) and data.get("required_permission"):
+        current = data.get("current_role") or "none"
+        message = (
+            f"{message}: needs the {data['required_permission']} permission (yours: {current})"
+        )
+    elif status in (401, 403) and data.get("required_role"):
         current = data.get("current_role") or "none"
         message = f"{message}: needs the {data['required_role']} role (yours: {current})"
     details = {
         key: value
         for key, value in data.items()
-        if key not in ("error", "required_role", "current_role")
+        if key not in ("error", "required_role", "required_permission", "current_role")
     }
     if details:
         message = f"{message} {json.dumps(details, sort_keys=True)}"

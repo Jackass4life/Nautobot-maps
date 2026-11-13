@@ -133,7 +133,9 @@ route's `response_model`, and a stable camelCase `operation_id` (the verb and th
 name: `getLocations`, `postAlertCases`). They stand on:
 
 - `app/v1/deps.py`: `Json` (answers as the first app writes them), `AppRoute`, the router
-  dependencies, `require_role`;
+  dependencies, `require_permission` and `PUBLIC`;
+- `app/auth/permissions.py`: the permission matrix (#685), every role's permissions in one
+  place;
 - `app/services/legacy_auth.py`: the current `auth` functions over #592's rules (one sign-in);
 - `app/context/request.py`: the request being answered, for code below the routes (MCP).
 
@@ -201,10 +203,13 @@ oauth2-proxy + GitLab setup fits both. Code: `app/services/auth_service.py`.
   `token:<name>` with the token's role, in either mode and from any address; they win over
   identity headers. A rejected (unknown, revoked, expired) token is a 401 everywhere but the
   public paths. A `status` token opens only its tenant's status page.
-- Routes need a role through `require_role("operator")` (401 not signed in, 403 too low);
-  `open_when_disabled=True` for the board's own changes.
-- Refusals answer `{"error": "..."}`, with `detail`, `required_role`, `current_role` where
-  they apply, as the first app does.
+- Every route names the permission it needs, `require_permission(Permission.ALERTS_ACK)`
+  (#685; 401 not signed in, 403 a role without it), or `deps.PUBLIC`;
+  `open_when_disabled=True` for the board's own changes. A role's permissions are
+  `app/auth/permissions.py`'s matrix; `tests/test_permissions.py` checks every route against
+  every role.
+- Refusals answer `{"error": "..."}`, with `detail`, `required_permission`, `required_role`
+  (the lowest of viewer, operator, admin that has it) and `current_role` where they apply.
 - `GET /api/v1/me` (`getCurrentUser`): who the API sees, and `can_write` / `can_administer`
   by these rules.
 - Changes a browser sends from another site are refused (Sec-Fetch-Site, else the Origin's

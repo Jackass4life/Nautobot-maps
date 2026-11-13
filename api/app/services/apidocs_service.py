@@ -136,7 +136,8 @@ def _fastapi_query_params(dependant) -> list[str]:
 def routes(app=None) -> list[dict]:
     """Every route the app serves (#436; *app* is ignored, kept for callers):
     ``path`` (Flask's notation), ``methods``, ``endpoint``, ``view``,
-    ``path_params``, ``query_params``, ``required_role``, ``tags``."""
+    ``path_params``, ``query_params``, ``required_role``, ``required_permissions``
+    (#685: each group is needed, one permission of it does), ``tags``."""
     found = []
     from fastapi.routing import APIRoute
 
@@ -173,6 +174,7 @@ def routes(app=None) -> list[dict]:
                 "path_params": sorted(route.param_convertors),
                 "query_params": _fastapi_query_params(route.dependant),
                 "required_role": deps.required_role(route),
+                "required_permissions": [list(group) for group in deps.required_permissions(route)],
                 "tags": list(route.tags),
             }
         )
@@ -204,6 +206,7 @@ def endpoints(app=None) -> list[dict]:
                     )
                 ),
                 "required_role": route["required_role"],
+                "required_permissions": route["required_permissions"],
                 "example_body": example_body,
                 # Pre-formatted for the page's body field, keys in the order above.
                 "example_body_text": json.dumps(example_body, indent=2) if example_body else "{}",

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 
+from app.auth import permissions
 from app.db import aconnection
 from app.db import connection as db
 from app.frontend import controller as frontend
@@ -46,6 +47,9 @@ NO_OPEN_ALERT = {
 
 @router.get(
     "/api/v1/alerts",
+    dependencies=[
+        deps.require_permission(permissions.Permission.PAGE_BOARD, permissions.Permission.PAGE_WALL)
+    ],
     name="board.api_alerts",
     response_model=dtos.Board,
     responses={
@@ -107,7 +111,7 @@ async def api_alerts(query: Annotated[dtos.BoardQuery, Query()]):
     name="board.api_list_criticality_overrides",
     response_model=dtos.Overrides,
     responses=NO_DATABASE,
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.CRITICALITY_OVERRIDE)],
 )
 async def api_list_criticality_overrides():
     """Return all per-device criticality overrides stored in the DB.
@@ -136,7 +140,7 @@ async def api_list_criticality_overrides():
     response_model=dtos.OverrideSet,
     responses=NO_DATABASE,
     openapi_extra=deps.body_schema(dtos.CriticalityOverride),
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.CRITICALITY_OVERRIDE)],
 )
 async def api_set_criticality_override(body: Body):
     """Create or update a per-device criticality override.
@@ -196,7 +200,7 @@ async def api_set_criticality_override(body: Body):
         **NO_DATABASE,
         404: {"model": common.Error, "description": "No override for this device"},
     },
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.CRITICALITY_OVERRIDE)],
 )
 async def api_delete_criticality_override(device_id: str):
     """Delete a per-device criticality override.
@@ -227,6 +231,9 @@ MAX_FEED_ENTRIES = 500
 
 @router.get(
     "/api/v1/alert-feed",
+    dependencies=[
+        deps.require_permission(permissions.Permission.PAGE_BOARD, permissions.Permission.PAGE_WALL)
+    ],
     name="board.api_alert_feed",
     response_model=dtos.Feed,
     responses={
@@ -302,7 +309,7 @@ async def api_alert_feed(request: Request, query: Annotated[dtos.FeedQuery, Quer
     name="board.api_alert_history",
     response_model=dtos.AlertHistory,
     responses=NO_DATABASE,
-    dependencies=[deps.require_role("operator")],
+    dependencies=[deps.require_permission(permissions.Permission.ALERTS_HISTORY)],
 )
 async def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
     """Return historical alert instances with events and case numbers.
@@ -417,7 +424,10 @@ async def api_alert_history(query: Annotated[dtos.HistoryQuery, Query()]):
 @router.get(
     "/api/v1/alert-history.csv",
     name="board.api_alert_history_csv",
-    dependencies=[deps.require_role("operator")],
+    dependencies=[
+        deps.require_permission(permissions.Permission.ALERTS_HISTORY),
+        deps.require_permission(permissions.Permission.EXPORT_CSV),
+    ],
 )
 async def api_alert_history_csv(query: Annotated[dtos.HistoryCsvQuery, Query()]):
     """A site's alert history as a CSV download (#277).
@@ -540,7 +550,9 @@ async def _acknowledge(body, clear: bool):
     response_model=dtos.AckChanged,
     responses={**NO_DATABASE, **NO_OPEN_ALERT},
     openapi_extra=deps.body_schema(dtos.Acknowledge),
-    dependencies=[deps.require_role("operator", open_when_disabled=True)],
+    dependencies=[
+        deps.require_permission(permissions.Permission.ALERTS_ACK, open_when_disabled=True)
+    ],
 )
 async def api_acknowledge(body: Body):
     """Acknowledge a site's alarm (#288): someone is on it, without a case number.
@@ -558,7 +570,9 @@ async def api_acknowledge(body: Body):
     response_model=dtos.AckChanged,
     responses={**NO_DATABASE, **NO_OPEN_ALERT},
     openapi_extra=deps.body_schema(dtos.Acknowledge),
-    dependencies=[deps.require_role("operator", open_when_disabled=True)],
+    dependencies=[
+        deps.require_permission(permissions.Permission.ALERTS_UNACK, open_when_disabled=True)
+    ],
 )
 async def api_unacknowledge(body: Body):
     """Remove an acknowledgement (#288): ``site_id``, optional ``device_ids``."""
@@ -571,7 +585,9 @@ async def api_unacknowledge(body: Body):
     response_model=dtos.CaseAdded,
     responses={**NO_DATABASE, **NO_OPEN_ALERT},
     openapi_extra=deps.body_schema(dtos.AlertCase),
-    dependencies=[deps.require_role("operator", open_when_disabled=True)],
+    dependencies=[
+        deps.require_permission(permissions.Permission.ALERTS_CASE, open_when_disabled=True)
+    ],
 )
 async def api_add_alert_case(body: Body):
     """Attach a case number to the open alert of one or more devices at a site.
@@ -666,7 +682,14 @@ async def api_add_alert_case(body: Body):
         await close()
 
 
-@router.get("/alerts", name="pages.alert_board", include_in_schema=False)
+@router.get(
+    "/alerts",
+    dependencies=[
+        deps.require_permission(permissions.Permission.PAGE_BOARD, permissions.Permission.PAGE_WALL)
+    ],
+    name="pages.alert_board",
+    include_in_schema=False,
+)
 def alert_board():
     """The alert board: every site's severity, down devices, cases and history;
     ``?view=wall`` is the wall screen (#243): alarms only, every site open, no

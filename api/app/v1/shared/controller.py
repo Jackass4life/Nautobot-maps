@@ -7,6 +7,7 @@ import time
 from fastapi import APIRouter
 from loguru import logger
 
+from app.auth import permissions
 from app.core.legacy_settings import settings
 from app.db import aconnection
 from app.db import connection as db
@@ -31,6 +32,7 @@ router = APIRouter(
 
 @router.get(
     "/api/v1/page-config",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
     name="pages.api_page_config",
     response_model=dtos.PageConfig,
 )
@@ -82,6 +84,7 @@ def api_page_config():
 
 @router.get(
     "/api/v1/app-status",
+    dependencies=[deps.require_permission(permissions.Permission.SESSION_BASIC)],
     name="ops.api_app_status",
     response_model=dtos.AppStatus,
 )

@@ -85,7 +85,10 @@ the details.
     `documentation/`, then `auth/`, `incoming_alerts/`, `shared/`, `monitoring/`,
     `examples/`). A new route goes in its page's folder. `controller.py` holds the routes,
     with `deps.ROUTER_DEPENDENCIES` (the sign-in check), `route_class=deps.AppRoute`, the
-    section's tag and `deps.require_role("operator")` for writes. Answer with `deps.Json`,
+    section's tag and the permission each route needs: `deps.require_permission(...)` (#685;
+    the roles' permissions are one matrix in `app/auth/permissions.py`, and
+    `tests/test_permissions.py` fails a route without one), `deps.PUBLIC` for one open to
+    anyone. Answer with `deps.Json`,
     refuse with `raise deps.ApiError(body, status)`, read a JSON body with `deps.json_body`
     and give its model to the spec with `openapi_extra=deps.body_schema(...)`. `dtos.py`
     holds the section's query and body models and each route's `response_model` (fields as
