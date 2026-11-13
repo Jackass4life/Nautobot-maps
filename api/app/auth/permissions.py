@@ -108,6 +108,40 @@ ROLES: dict[str, RoleDef] = {
     ),
 }
 
+# What reads ask for (every route of theirs is a GET): with AUTH_MODE=disabled anyone
+# has them, as every read is open then (#188).
+READS = frozenset(
+    {
+        P.PAGE_MAP,
+        P.PAGE_BOARD,
+        P.PAGE_WALL,
+        P.PAGE_AVAILABILITY,
+        P.PAGE_CIRCUITS,
+        P.PAGE_MAINTENANCE,
+        P.ALERTS_HISTORY,
+        P.TENANT_STATUS_VIEW,
+        P.STATUS_LINKS_VIEW,
+        P.EXPORT_CSV,
+        P.SESSION_BASIC,
+    }
+)
+# The board's own changes, open with AUTH_MODE=disabled (their routes'
+# ``open_when_disabled``), and the examples section's.
+OPEN_WHEN_DISABLED = frozenset({P.ALERTS_ACK, P.ALERTS_UNACK, P.ALERTS_CASE, P.EXAMPLES_WRITE})
+
+# Each page in the top bar's menu (navigation_service.PAGES' keys, #693) and the
+# permission it needs.
+PAGE_PERMISSIONS: dict[str, Permission] = {
+    "map": P.PAGE_MAP,
+    "alerts": P.PAGE_BOARD,
+    "wall": P.PAGE_WALL,
+    "availability": P.PAGE_AVAILABILITY,
+    "maintenance": P.PAGE_MAINTENANCE,
+    "circuits": P.PAGE_CIRCUITS,
+    "help": P.SESSION_BASIC,
+    "docs": P.SESSION_BASIC,
+}
+
 # The roles before the matrix, lowest first: refusals still name the lowest of them
 # that would do (scripts and MCP read ``required_role``).
 OLD_ROLES = ("viewer", "operator", "admin")

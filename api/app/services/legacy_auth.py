@@ -66,6 +66,11 @@ def may(permission) -> bool:  # type: ignore[no-untyped-def]
     )
 
 
+def access() -> dict:
+    """This request's caller's role, pages and permissions (#693)."""
+    return auth_service.access(_user(), get_settings())
+
+
 def may_administer() -> bool:
     return auth_service.may_administer(_user(), get_settings())
 

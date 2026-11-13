@@ -49,6 +49,7 @@ def require_permission(
             raise ApiError(*refused)
 
     check.required_permissions = tuple(str(p) for p in required)  # type: ignore[attr-defined]
+    check.open_when_disabled = open_when_disabled  # type: ignore[attr-defined]
     return check
 
 

@@ -1,6 +1,59 @@
 {
   "components": {
     "schemas": {
+      "Access": {
+        "additionalProperties": false,
+        "description": "What the caller may do (#693), from the permission matrix: the pages show and\nhide by it; the API checks every route itself.",
+        "properties": {
+          "label": {
+            "description": "The role as people call it, e.g. \"NWO (operator)\".",
+            "title": "Label",
+            "type": "string"
+          },
+          "landing": {
+            "description": "The page the role opens on, e.g. /alerts?view=wall.",
+            "title": "Landing",
+            "type": "string"
+          },
+          "pages": {
+            "description": "The menu's pages it may open, by key: map, alerts, wall, availability, maintenance, circuits, help, docs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Pages",
+            "type": "array"
+          },
+          "permissions": {
+            "description": "What the API allows it, e.g. alerts.ack, page.board; with AUTH_MODE=disabled every read and the board's own changes.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "customer, dov, viewer, operator (NWO) or admin; null when not signed in.",
+            "title": "Role"
+          }
+        },
+        "required": [
+          "role",
+          "label",
+          "landing",
+          "pages",
+          "permissions"
+        ],
+        "title": "Access",
+        "type": "object"
+      },
       "AckChanged": {
         "additionalProperties": false,
         "properties": {
@@ -3075,6 +3128,9 @@
       "MeDto": {
         "description": "Who the API sees: `username` is null when not signed in, `role` null without one.",
         "properties": {
+          "access": {
+            "$ref": "#/components/schemas/Access"
+          },
           "auth_mode": {
             "enum": [
               "disabled",
@@ -3084,10 +3140,14 @@
             "type": "string"
           },
           "can_administer": {
+            "deprecated": true,
+            "description": "Deprecated: admin in access.permissions.",
             "title": "Can Administer",
             "type": "boolean"
           },
           "can_write": {
+            "deprecated": true,
+            "description": "Deprecated: alerts.ack in access.permissions.",
             "title": "Can Write",
             "type": "boolean"
           },
@@ -3126,6 +3186,7 @@
           "role",
           "groups",
           "auth_mode",
+          "access",
           "can_write",
           "can_administer"
         ],
@@ -3703,6 +3764,9 @@
       "PageConfig": {
         "additionalProperties": false,
         "properties": {
+          "access": {
+            "$ref": "#/components/schemas/Access"
+          },
           "admin": {
             "anyOf": [
               {
@@ -3732,7 +3796,7 @@
             "type": "string"
           },
           "pages": {
-            "description": "The top bar's menu, in order.",
+            "description": "The top bar's menu, in order: the pages the caller may open (#693).",
             "items": {
               "$ref": "#/components/schemas/MenuPage"
             },
@@ -3753,6 +3817,7 @@
         },
         "required": [
           "user",
+          "access",
           "nautobot_url",
           "pages",
           "maintenance",

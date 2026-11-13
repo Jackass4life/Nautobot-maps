@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **A tenant's status in the app, by its name** (#689): `GET /api/v1/tenants/<tenant>/status` answers what the tenant's status page shows, for those signed in as customer, viewer, NWO (operator) or admin, without its private link; a status token can't use it
 
 ### Changed
+- **The menu shows only the pages the role can open** (#693): DOV and customer users see their own few; viewer, operator and admin see every page as before. `GET /api/v1/me` gains `access` (the role, its label, the page it opens on, its pages and its permissions); its `can_write` and `can_administer` are deprecated (`alerts.ack` and `admin` in `access.permissions`)
 - **Status links are NWO's and admins' only** (#687): Availability no longer makes a status page link for every tenant when it is read, and shows the links only to operators and admins (the tenant's name opens its page for them); for anyone else the answer has no `status_links`. Operators (NWO) can now make, replace and delete a tenant's link and send its customers status tokens, which only admins could before; every other token stays an admin's. `GET /api/v1/status-links/<tenant>` no longer makes a link: `POST` does (`python -m app status-link` still makes it). New: `GET /api/v1/status-links` (every link) and `DELETE /api/v1/status-links/<tenant>` (the link stops working at once)
 
 ## [0.4.0] - 2026-11-12

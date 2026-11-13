@@ -27,6 +27,7 @@ def get_current_user(user: CurrentUserDep) -> MeDto:
         groups=user.groups,
         auth_mode=settings.auth_mode,
         # Writes as the board's own changes are (open with AUTH_MODE=disabled).
+        access=auth_service.access(user, settings),
         can_write=auth_service.may_change_the_board(user, settings),
         can_administer=auth_service.may_administer(user, settings),
     )

@@ -31,11 +31,13 @@ PAGES = (
 SCOPED = {"map", "alerts", "wall"}
 
 
-def pages(scope_query: str = "") -> list[dict]:
+def pages(scope_query: str = "", allowed: list[str] | None = None) -> list[dict]:
     """The menu's pages; *scope_query* (``tenant=a&q=b``, the page's ?tenant= / ?q=)
-    kept on the scoped ones."""
+    kept on the scoped ones. *allowed*: only these keys (the caller's, #693)."""
     result = []
     for key, path, label, title in PAGES:
+        if allowed is not None and key not in allowed:
+            continue
         href = path
         if scope_query and key in SCOPED:
             href = f"{path}{'&' if '?' in path else '?'}{scope_query}"
