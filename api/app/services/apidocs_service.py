@@ -66,6 +66,8 @@ EXAMPLE_BODIES = {
     "create_token": {"name": "librenms", "role": "operator", "expires_in_days": 365},
     "revoke_token": {},
     "purge_tokens": {"older_than_days": 90, "dry_run": True},
+    "sign_in": {"username": "jdoe", "password": "<password>"},
+    "sign_out": {},
     "create_identity": {"name": "jdoe", "roles": ["noc"], "common_name": "Jane Doe"},
     "add_identity_role": {"role": "noc"},
     "add_identity_scope": {"scope": "maintenance:write"},

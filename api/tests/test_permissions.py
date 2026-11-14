@@ -117,6 +117,12 @@ CHANGED = {
         for suffix in ("", "/{tenant:path}")
         if not suffix or page == "tenants"
     },
+    # #717: the app's own sign-in: public (the page answers 404 with AD sign-in off),
+    # and the caller's own token.
+    ("/auth", "GET"): None,
+    ("/api/v1/auth/login", "POST"): None,
+    ("/api/v1/auth/logout", "POST"): None,
+    ("/api/v1/auth/verify", "GET"): None,
     # #715: identities, admin only.
     ("/api/v1/identities", "GET"): "admin",
     ("/api/v1/identities", "POST"): "admin",
@@ -281,6 +287,10 @@ def test_a_refusal_names_the_permission(as_role, client):
 # declarations: a declaration that drifts fails here. Every role reaches the basics.
 BASICS = {
     "GET /_nuxt/{path:path}",
+    "GET /auth",
+    "GET /api/v1/auth/verify",
+    "POST /api/v1/auth/login",
+    "POST /api/v1/auth/logout",
     "GET /dov",
     "GET /dov/{rest:path}",
     "GET /api/docs",

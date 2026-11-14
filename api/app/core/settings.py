@@ -61,7 +61,13 @@ DEFAULT_GEOCODER_USER_AGENT = "nautobot-maps (+https://github.com/Jackass4life/N
 # (no excluded location types).
 EMPTY_IS_A_VALUE = {"alert_board_excluded_location_types"}
 # Used exactly as given, as the current app does: whitespace is part of a secret.
-VERBATIM = {"database_password", "smtp_password", "nautobot_token"}
+VERBATIM = {
+    "database_password",
+    "smtp_password",
+    "nautobot_token",
+    "ldap_bind_password",
+    "jwt_signing_secret",
+}
 
 
 # --- Parsing, as nautobot_maps/settings.py does it ------------------------------------------
@@ -496,6 +502,24 @@ class Settings(BaseSettings):
     auth_proxy_secret: Text = ""
     # Where Sign out goes (#546): a path on this site or an http(s):// address.
     auth_sign_out_url: Annotated[str, _text(lambda v: _sign_out_url(v.strip()))] = ""
+    # --- Sign-in with AD (#717): off until LDAP_URL is set --------------------------------
+    # ldaps://dc1.example.local[:636]; ldap:// only with LDAP_ALLOW_PLAINTEXT (tests).
+    ldap_url: Text = ""
+    ldap_base_dn: Text = ""
+    # The read-only service account that finds a user before their own bind.
+    ldap_bind_dn: Text = ""
+    ldap_bind_password: str = ""
+    ldap_user_attribute: Text = "sAMAccountName"
+    # The CA that signed the domain controller's certificate (else the system's).
+    ldap_ca_file: Text = ""
+    ldap_allow_plaintext: Flag(False) = False
+    ldap_timeout_seconds: Annotated[int, _text(lambda v: max(1, int(v.strip())))] = 10
+    # Signs the app's own sign-in tokens: required with LDAP_URL, at least 32 characters.
+    jwt_signing_secret: str = ""
+    jwt_lifetime_seconds: Annotated[int, _text(lambda v: max(60, int(v.strip())))] = 28800
+    jwt_issuer: Text = "nautobot-maps"
+    jwt_audience: Text = "nautobot-maps"
+
     # AUTH_MODE=disabled: allow changing criticality overrides without signing in (#188).
     allow_unauthenticated_writes: Flag(False) = False
 
@@ -635,6 +659,8 @@ class Settings(BaseSettings):
         self.alert_critical_percent = min(
             100, max(self.alert_medium_percent + 1, self.alert_critical_percent)
         )
+        if self.ldap_url:
+            _check_ad_login(self)
         if self.wireless_controllers_file and not self.wireless_controllers:
             self.wireless_controllers = _wireless_controllers(self.wireless_controllers_file)
         return self
@@ -644,6 +670,25 @@ class Settings(BaseSettings):
         if self.database_password is not None:
             url = url.set(password=self.database_password)
         return url
+
+
+MIN_JWT_SECRET_LENGTH = 32
+
+
+def _check_ad_login(settings: "Settings") -> None:
+    """AD sign-in on (#717): refused at start when it can't be safe."""
+    if len(settings.jwt_signing_secret) < MIN_JWT_SECRET_LENGTH:
+        raise RuntimeError(
+            f"LDAP_URL is set: JWT_SIGNING_SECRET must be at least {MIN_JWT_SECRET_LENGTH} "
+            "characters (e.g. openssl rand -base64 48)"
+        )
+    if not settings.ldap_url.lower().startswith("ldaps://") and not settings.ldap_allow_plaintext:
+        raise RuntimeError(
+            "LDAP_URL must be ldaps:// (passwords go over it); ldap:// only with "
+            "LDAP_ALLOW_PLAINTEXT=true, for tests"
+        )
+    if not settings.ldap_base_dn:
+        raise RuntimeError("LDAP_URL is set: LDAP_BASE_DN is needed too")
 
 
 def env_name(field: str) -> str:

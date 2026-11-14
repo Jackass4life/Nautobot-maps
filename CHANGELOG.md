@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Sign-in with AD** (#717): with `LDAP_URL` set (and `AUTH_MODE=header`), people sign in on the app's own page, `/auth`, with their Active Directory user name and password. The app checks them against AD over LDAPS (the certificate checked against `LDAP_CA_FILE`), lets in only those with an identity, and keeps a signed token (`JWT_SIGNING_SECRET`, `JWT_LIFETIME_SECONDS`) in an HttpOnly cookie; scripts can send it as `Authorization: Bearer`. Roles are read live, not from the token. Failed sign-ins wait after 5 tries. New routes: `POST /api/v1/auth/login`, `GET /api/v1/auth/verify`, `POST /api/v1/auth/logout`. Off by default; the sign-in proxy works as before and wins when both are there
 - **Identities** (#715): people the app knows by the user name the sign-in proxy sends, with one or more roles and scopes of their own, managed with `python -m app identity create|list|delete|add-role|remove-role|add-scope|remove-scope` or `/api/v1/identities` (admin). Someone with an identity gets their roles' and own permissions, whatever their groups. Without one, `AUTH_GROUP_ROLES=true` (the default) gives the role their groups give, as before, and logs the name once; `AUTH_GROUP_ROLES=false` gives no access. `access` in `/api/v1/me` and page-config gains `roles` and `identity`
 
 ### Changed

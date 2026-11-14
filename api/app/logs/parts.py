@@ -36,6 +36,8 @@ PARTS: dict[str, str] = {
     "app.services.token_service": "auth",
     "app.services.role_service": "auth",
     "app.services.identity_service": "auth",
+    "app.services.ad_service": "auth",
+    "app.services.login_service": "auth",
     # Migrations and the database.
     "app.migrate": "db",
     "app.db": "db",

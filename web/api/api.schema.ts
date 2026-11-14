@@ -221,6 +221,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign In
+         * @description Sign in with an AD user name and password (#717). An AD user with an identity
+         *     gets a token, for ``Authorization: Bearer``, also set as an HttpOnly cookie for
+         *     the pages. An unknown user and a wrong password get the same answer; failed
+         *     sign-ins wait longer after 5.
+         */
+        post: operations["signIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign Out
+         * @description Sign out (#717): the cookie goes. A token kept elsewhere stays valid until it
+         *     expires (JWT_LIFETIME_SECONDS).
+         */
+        post: operations["signOut"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Sign In
+         * @description The caller's sign-in token's claims (the example's /auth/verify): 401 without
+         *     a valid one.
+         */
+        get: operations["verifySignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/availability": {
         parameters: {
             query?: never;
@@ -1233,6 +1298,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sign-in page: user name and password, with AD sign-in on.
+         * @description The sign-in page (#717): user name and password, with AD sign-in on.
+         */
+        get: operations["getSignInPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/availability": {
         parameters: {
             query?: never;
@@ -1441,6 +1526,24 @@ export interface components {
              * @description Every role it has, the highest first (an identity may have several, #715).
              */
             roles?: string[];
+        };
+        /** AccessTokenResponseDto */
+        AccessTokenResponseDto: {
+            /**
+             * Access Token
+             * @description For Authorization: Bearer; the page signs in with the cookie set with it.
+             */
+            access_token: string;
+            /**
+             * Expires In
+             * @description Seconds it is valid for.
+             */
+            expires_in: number;
+            /**
+             * Token Type
+             * @constant
+             */
+            token_type: "Bearer";
         };
         /** AckChanged */
         AckChanged: {
@@ -2233,6 +2336,11 @@ export interface components {
             required_permission?: string | null;
             /** Required Role */
             required_role?: ("viewer" | "operator" | "admin") | null;
+            /**
+             * Sign In
+             * @description Not signed in, with AD sign-in on (#717): the sign-in page, /auth.
+             */
+            sign_in?: string | null;
         };
         /** Feed */
         Feed: {
@@ -2509,6 +2617,32 @@ export interface components {
             id: number;
             /** Name */
             name: string;
+        };
+        /**
+         * Jwt
+         * @description A sign-in token's claims (the example's Jwt): iss, aud, jti, sub (the user
+         *     name), exp, nbf, iat; scopes and common_name for the reader. The API reads the
+         *     identity's roles itself on every request.
+         */
+        Jwt: {
+            /** Aud */
+            aud: string;
+            /** Common Name */
+            common_name?: string | null;
+            /** Exp */
+            exp: number;
+            /** Iat */
+            iat: number;
+            /** Iss */
+            iss: string;
+            /** Jti */
+            jti: string;
+            /** Nbf */
+            nbf: number;
+            /** Scopes */
+            scopes: string[];
+            /** Sub */
+            sub: string;
         };
         /** LibreNmsPush */
         LibreNmsPush: {
@@ -3279,6 +3413,11 @@ export interface components {
             search_lat: number;
             /** Search Lon */
             search_lon: number;
+        };
+        /** SignedOutDto */
+        SignedOutDto: {
+            /** Signed Out */
+            signed_out: boolean;
         };
         /** SiteAlert */
         SiteAlert: {
@@ -4832,6 +4971,187 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AppStatus"];
+                };
+            };
+        };
+    };
+    signIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Password */
+                    password: string;
+                    /** Username */
+                    username: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessTokenResponseDto"];
+                };
+            };
+            /** @description Not a valid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not a valid request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too many tries: wait (Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Too many tries: wait (Retry-After)"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not available now: try again shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not available now: try again shortly"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    signOut: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignedOutDto"];
+                };
+            };
+        };
+    };
+    verifySignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Jwt"];
+                };
+            };
+            /** @description Not signed in, or a rejected API token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Not signed in, or a rejected API token"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Role too low, or a cross-site change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Role too low, or a cross-site change"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -8163,6 +8483,26 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSignInPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

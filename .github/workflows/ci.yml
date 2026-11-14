@@ -324,6 +324,57 @@ jobs:
         run: docker compose logs nautobot --tail=200
 
   # -----------------------------------------------------------------------
+  # AD sign-in (#717) against a real Active Directory: a Samba AD domain
+  # controller on the runner, LDAPS with its own CA (development/samba_ad.sh)
+  # -----------------------------------------------------------------------
+  ad-live:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: api_test
+          POSTGRES_USER: api
+          POSTGRES_PASSWORD: api
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U api -d api_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Samba AD
+        run: |
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q samba samba-ad-dc
+          # The packaged file-server daemons would hold the ports the DC needs.
+          sudo systemctl stop smbd nmbd winbind samba-ad-dc 2>/dev/null || true
+
+      - name: Start the domain controller
+        run: development/samba_ad.sh start
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          working-directory: api
+          enable-cache: true
+
+      - name: Sign in against it (#717)
+        working-directory: api
+        run: |
+          uv sync --locked
+          uv run pytest tests/test_ad_live.py -v
+        env:
+          API_TEST_DATABASE_URL: "postgresql://api:api@127.0.0.1:5433/api_test"
+          AD_LIVE_URL: "ldaps://dc1.nmaps.test"
+          AD_LIVE_CA_FILE: "/tmp/nms-dc/ca.pem"
+
+  # -----------------------------------------------------------------------
   # Docker smoke test: build the image and run the demo stack for real
   # -----------------------------------------------------------------------
   docker-smoke:

@@ -73,3 +73,15 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) includes an
 
 This runs on every push / PR to `main`, in parallel with the mock-based
 tests (the `api` job).
+
+## Active Directory (AD sign-in, #717)
+
+`samba_ad.sh` starts a real AD domain controller for the app's AD sign-in: Samba AD, domain `NMAPS.TEST`, LDAPS on 127.0.0.1:636 with its own CA, and the accounts `svc-maps` (service account), `jdoe` (in `noc-duty`) and `bob`. Test passwords are in the script.
+
+```sh
+sudo apt-get install -y samba samba-ad-dc
+development/samba_ad.sh start
+cd api && AD_LIVE_URL=ldaps://dc1.nmaps.test AD_LIVE_CA_FILE=/tmp/nms-dc/ca.pem \
+  uv run pytest tests/test_ad_live.py -v
+development/samba_ad.sh stop
+```

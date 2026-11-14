@@ -238,6 +238,7 @@ The suite:
   guides lands on a heading.
 - `web/tests/`: Vitest for the pages' logic in `utils/`; `e2e/`: Playwright in Chromium.
 - `api/tests/test_mcp.py`: the MCP server.
+- `api/tests/test_ad_live.py`: AD sign-in (#717) against a real Active Directory, skipped unless `AD_LIVE_URL` is set. `development/samba_ad.sh start` runs one (Samba AD, LDAPS with its own CA; `sudo apt-get install -y samba samba-ad-dc` first), then `AD_LIVE_URL=ldaps://dc1.nmaps.test AD_LIVE_CA_FILE=/tmp/nms-dc/ca.pem uv run pytest tests/test_ad_live.py`. CI's `ad-live` job does the same.
 - `api/tests/test_nautobot_live.py`: skipped unless `NAUTOBOT_LIVE_URL` and `NAUTOBOT_LIVE_TOKEN`
   point at a real Nautobot (see `development/`).
 

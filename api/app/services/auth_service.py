@@ -27,7 +27,7 @@ from app.auth.permissions import Permission
 from app.core.exceptions import NO_ACCESS
 from app.core.settings import Settings
 from app.db import session
-from app.services import identity_service, token_service
+from app.services import ad_service, identity_service, login_service, token_service
 
 # The old roles' order (#592): the role groups give (``role_from_groups``) and the role
 # names a token may have. What a role may do is the matrix's (app/auth/permissions.py).
@@ -38,6 +38,8 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 # Reachable without the viewer role even with AUTH_REQUIRE_VIEWER: probes and
 # Prometheus scrapes send no identity headers; /metrics has only counts (#200).
 PUBLIC_PATHS = {"/healthz", "/metrics", "/api/healthz"}
+SIGN_IN_PATH = "/auth"
+SIGN_IN_PATHS = {SIGN_IN_PATH, "/api/v1/auth/login", "/api/v1/auth/logout"}
 # A tenant's status page (#291): the page and its assets carry no data, so a
 # customer's browser loads them without SSO; the status API checks access itself
 # (``status_access``). /_nuxt/ is the app's code only, no data.
@@ -71,6 +73,8 @@ class CurrentUser:
     identity: str = ""
     common_name: str = ""
     no_identity: bool = False
+    # How they signed in: "proxy", "app" (the app's own sign-in, #717) or "token".
+    signed_in_with: str = ""
 
 
 def role_level(role: str) -> int:
@@ -170,12 +174,22 @@ def from_trusted_proxy(request: Request, settings: Settings) -> bool:
 
 
 async def resolve_user(request: Request, settings: Settings) -> CurrentUser:
+    """Who sent *request*: an API token; else the sign-in proxy's headers; else the
+    app's own sign-in (AD, #717), from ``Authorization: Bearer`` or its cookie."""
     token = bearer_token(request)
     if token:
         return await _token_user(token, settings)
     anonymous = CurrentUser(auth_mode=settings.auth_mode)
-    if settings.auth_mode != "header" or not from_trusted_proxy(request, settings):
+    if settings.auth_mode != "header":
         return anonymous
+    if request.headers.get(settings.auth_header_user, "").strip() and from_trusted_proxy(
+        request, settings
+    ):
+        return await _proxy_user(request, settings)
+    return await _app_user(request, settings) or anonymous
+
+
+async def _proxy_user(request: Request, settings: Settings) -> CurrentUser:
     username = request.headers.get(settings.auth_header_user, "").strip()
     groups_header = request.headers.get(settings.auth_header_groups, "")
     groups = [item.strip() for item in re.split(r"[;,]", groups_header) if item.strip()]
@@ -184,10 +198,61 @@ async def resolve_user(request: Request, settings: Settings) -> CurrentUser:
         username=username,
         groups=groups,
         auth_mode=settings.auth_mode,
+        signed_in_with="proxy",
     )
     if not username:
         return signed_in
     return await with_identity(signed_in, settings)
+
+
+def not_signed_in(settings: Settings) -> Refusal:
+    """401, and with AD sign-in on, where to sign in (#717)."""
+    body: dict = {"error": "Authentication required"}
+    if app_sign_in_on(settings):
+        body["sign_in"] = SIGN_IN_PATH
+    return body, 401
+
+
+def app_token(request: Request) -> str:
+    """The app's own sign-in token (#717): ``Authorization: Bearer`` with anything but
+    an API token of ours, else the sign-in cookie; "" without either."""
+    scheme, _, value = request.headers.get("authorization", "").strip().partition(" ")
+    value = value.strip()
+    if scheme.lower() == "bearer" and value and not token_service.is_token(value):
+        return value
+    return request.cookies.get(login_service.COOKIE, "")
+
+
+def app_sign_in_on(settings: Settings) -> bool:
+    """AD sign-in (#717): with LDAP_URL, in header mode (the proxy optional)."""
+    return settings.auth_mode == "header" and ad_service.enabled(settings)
+
+
+async def _app_user(request: Request, settings: Settings) -> CurrentUser | None:
+    """The identity a valid sign-in token names (its roles read now, not from the
+    token); None without a valid one. No identity any more: no access."""
+    if not app_sign_in_on(settings):
+        return None
+    claims = login_service.verify(app_token(request), settings)
+    if claims is None:
+        return None
+    user = CurrentUser(
+        is_authenticated=True,
+        username=claims["sub"],
+        auth_mode=settings.auth_mode,
+        signed_in_with="app",
+    )
+    found = await identity_service.lookup(user.username)
+    if found is None:
+        return replace(user, no_identity=True)
+    return replace(
+        user,
+        role=found.roles[0] if found.roles else "",
+        roles=found.roles,
+        scopes=found.scopes,
+        identity=found.unique_name,
+        common_name=found.common_name,
+    )
 
 
 async def with_identity(user: CurrentUser, settings: Settings) -> CurrentUser:
@@ -308,7 +373,7 @@ def permission_problem(
     if any(scope_rules.is_scope_covered(scope, held) for scope in wanted):
         return None
     if not user.is_authenticated:
-        return {"error": "Authentication required"}, 401
+        return not_signed_in(settings)
     if user.no_identity:
         return {
             "error": NO_ACCESS,
@@ -358,7 +423,7 @@ def _viewer_problem(user: CurrentUser, settings: Settings) -> Refusal | None:
     if settings.auth_mode != "header" or not settings.auth_require_viewer:
         return None
     if not user.is_authenticated:
-        return {"error": "Authentication required"}, 401
+        return not_signed_in(settings)
     if user.no_identity:
         return {
             "error": NO_ACCESS,
@@ -377,7 +442,10 @@ def is_cross_site_write(request: Request, settings: Settings) -> bool:
     Sec-Fetch-Site, else Origin. Scripts and webhooks send neither (or an API
     token, which a page can't add) and are not affected.
     """
+    # A token in Authorization is one a page elsewhere can't add (the cookie it can).
     if request.method in SAFE_METHODS or bearer_token(request):
+        return False
+    if request.headers.get("authorization", "").strip().lower().startswith("bearer "):
         return False
     # MCP has its own, stricter rule: no Origin outside MCP_ALLOWED_ORIGINS.
     if request.url.path == MCP_PATH:
@@ -413,6 +481,9 @@ def check_request(request: Request, user: CurrentUser, settings: Settings) -> Re
         )
         return {"error": "Changes from another site are refused"}, 403
     if path in PUBLIC_PATHS:
+        return None
+    # The sign-in page and its routes, for someone not signed in yet (#717).
+    if path in SIGN_IN_PATHS and app_sign_in_on(settings):
         return None
     # A script should learn its token stopped working, also where anyone may read.
     if user.token_rejected:

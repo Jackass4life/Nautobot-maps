@@ -162,6 +162,16 @@ See [authentication](authentication.md).
 | `AUTH_SIGN_OUT_URL` | — | Header mode: where the top bar's **Sign out** goes, your proxy's sign-out address (a path such as `/oauth2/sign_out`, or an `http(s)://` address); empty: no Sign out. The bundled proxy sets it ([signing out](authentication.md#signing-out)) |
 | `AUTH_REQUIRE_VIEWER` | `false` | Header mode: every page and API (except `/healthz`, `/metrics`) needs at least `viewer` |
 | `AUTH_GROUP_ROLES` | `true` | Someone signed in without an [identity](authentication.md#identities) gets the role their groups give; `false`: no access. Set it to `false` once everyone has an identity |
+| `LDAP_URL` | — | Sign-in with AD on the app's own page ([how](authentication.md#sign-in-with-ad)): `ldaps://dc1.example.local`. Needs `AUTH_MODE=header`, `LDAP_BASE_DN` and `JWT_SIGNING_SECRET` |
+| `LDAP_BASE_DN` | — | Where users are looked up, e.g. `DC=example,DC=local` |
+| `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | — | The read-only service account that finds a user before their own sign-in, e.g. `svc-maps@example.local` |
+| `LDAP_USER_ATTRIBUTE` | `sAMAccountName` | The attribute people sign in with (its value is their identity's name) |
+| `LDAP_CA_FILE` | — | The CA that signed the domain controller's certificate (PEM); else the system's CAs |
+| `LDAP_ALLOW_PLAINTEXT` | `false` | Allow `ldap://` (passwords unencrypted): tests only |
+| `LDAP_TIMEOUT_SECONDS` | `10` | Connecting to and asking the directory |
+| `JWT_SIGNING_SECRET` | — | Signs the app's sign-in tokens: at least 32 random characters (`openssl rand -base64 48`). Changing it signs everyone out |
+| `JWT_LIFETIME_SECONDS` | `28800` | How long a sign-in lasts (8 hours) |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | `nautobot-maps` | Written in and checked on every token |
 | `ALLOW_UNAUTHENTICATED_WRITES` | `false` | `AUTH_MODE=disabled` only: allow the operator and admin changes without sign-in: criticality overrides, maintenance windows, sending test notifications, API tokens, status page links and the wireless check, and the Admin page (logged as a warning) |
 
 ### The bundled HTTPS and sign-in proxy
