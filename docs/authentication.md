@@ -315,11 +315,18 @@ Check it: the startup log says `AD sign-in on: ldaps://… (base …)`; then ope
 
 ## API tokens
 
-Scripts, LibreNMS and MCP clients that can't log in through SSO use a named **API token** with a role (and optionally an expiry):
+Scripts, LibreNMS and MCP clients that can't log in through SSO use a named **API token** (a key), optionally with an expiry:
 
 ```
 Authorization: Bearer nmt_...
+X-API-KEY: nmt_...                 # the same, as the header some tools prefer
 ```
+
+**A key belongs to an [identity](#identities)** and has exactly its rights: the identity's roles and own scopes, read as they are now (#719). Take a role from the identity and its keys lose it too (within 30 seconds); delete the identity and its keys stop working.
+- `token create librenms --role operator` makes an identity of the key's own, `librenms`, with that role, and its key. That is how keys were made before, and still are for scripts.
+- `token create jdoe-script --identity jdoe` makes a key for an existing identity, with exactly jdoe's rights.
+- `token list` and the Admin page show each key's identity. Purging a key's last revoked token also removes the identity made for it; a person's identity is never removed that way.
+- **Upgrading:** every token made before has been given an identity of its own, named after it (lowercase, spaces as dashes; `-key` added if a person had the name), with the token's role. The keys didn't change: nothing needs to be sent out again.
 
 - It works with `AUTH_MODE=disabled` and `header`, from any address (the token is the secret; `AUTH_TRUSTED_PROXIES` doesn't apply). With `disabled`, an operator token can make changes without `ALLOW_UNAUTHENTICATED_WRITES`.
 - Changes made with it are recorded as `token:<name>` (e.g. on cases and maintenance windows).

@@ -39,6 +39,7 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 # Prometheus scrapes send no identity headers; /metrics has only counts (#200).
 PUBLIC_PATHS = {"/healthz", "/metrics", "/api/healthz"}
 SIGN_IN_PATH = "/auth"
+API_KEY_HEADER = "X-API-KEY"
 SIGN_IN_PATHS = {SIGN_IN_PATH, "/api/v1/auth/login", "/api/v1/auth/logout"}
 # A tenant's status page (#291): the page and its assets carry no data, so a
 # customer's browser loads them without SSO; the status API checks access itself
@@ -122,7 +123,11 @@ def bearer_token(request: Request) -> str:
     that isn't ours, e.g. a proxy's own access token)."""
     scheme, _, value = request.headers.get("authorization", "").strip().partition(" ")
     value = value.strip()
-    return value if scheme.lower() == "bearer" and token_service.is_token(value) else ""
+    if scheme.lower() == "bearer" and token_service.is_token(value):
+        return value
+    # The example's header (#719).
+    key = request.headers.get(API_KEY_HEADER, "").strip()
+    return key if token_service.is_token(key) else ""
 
 
 async def _verify_token(token: str) -> dict | None:
@@ -140,13 +145,28 @@ async def _token_user(token: str, settings: Settings) -> CurrentUser:
         logger.warning("API token check failed: {}", type(exc).__name__)
     if found is None:
         return CurrentUser(auth_mode=settings.auth_mode, token_rejected=True)
-    return CurrentUser(
+    user = CurrentUser(
         is_authenticated=True,
         username=f"token:{found['name']}",
         role=found["role"],
         auth_mode=settings.auth_mode,
         token=found["name"],
         tenant=found.get("tenant") or "",
+        signed_in_with="token",
+    )
+    if found["role"] == token_service.STATUS_ROLE:
+        return user
+    # A key is its identity (#719): the identity's roles and scopes, read now.
+    owner = await identity_service.lookup(found.get("identity") or "")
+    if owner is None:
+        return replace(user, role="", no_identity=True)
+    return replace(
+        user,
+        role=owner.roles[0] if owner.roles else "",
+        roles=owner.roles,
+        scopes=owner.scopes,
+        identity=owner.unique_name,
+        common_name=owner.common_name,
     )
 
 

@@ -6,7 +6,16 @@ is adopted as is. tests/test_schema.py checks it."""
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, PrimaryKeyConstraint, Text, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    PrimaryKeyConstraint,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -34,6 +43,11 @@ class ApiToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_by: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
     tenant: Mapped[str | None] = mapped_column(Text)
+    # The identity a key belongs to (#719): its rights are the identity's. None for a
+    # status token, whose access is its tenant's status page.
+    identity_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("identities.id", ondelete="CASCADE")
+    )
     # A status token's customer addresses for notifications (#707), comma-separated.
     notify_email: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
 

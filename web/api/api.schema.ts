@@ -3123,6 +3123,11 @@ export interface components {
             expires_at: string | null;
             /** Id */
             id: number;
+            /**
+             * Identity
+             * @description The identity it belongs to and whose rights it has (#719); null for a status token.
+             */
+            identity: string | null;
             /** Last Used At */
             last_used_at: string | null;
             /** Name */
@@ -3143,9 +3148,10 @@ export interface components {
             revoked_by: string;
             /**
              * Role
+             * @description The role it was made with; "" for a key made for an identity. A key's rights are its identity's (#719), whatever this says; status: a customer's token.
              * @enum {string}
              */
-            role: "viewer" | "operator" | "admin" | "noc" | "customer" | "status";
+            role: "viewer" | "operator" | "admin" | "noc" | "customer" | "status" | "";
             /**
              * State
              * @enum {string}
@@ -4038,6 +4044,11 @@ export interface components {
             expires_at: string | null;
             /** Id */
             id: number;
+            /**
+             * Identity
+             * @description The identity it belongs to and whose rights it has (#719); null for a status token.
+             */
+            identity: string | null;
             /** Last Used At */
             last_used_at: string | null;
             /** Name */
@@ -4058,9 +4069,10 @@ export interface components {
             revoked_by: string;
             /**
              * Role
+             * @description The role it was made with; "" for a key made for an identity. A key's rights are its identity's (#719), whatever this says; status: a customer's token.
              * @enum {string}
              */
-            role: "viewer" | "operator" | "admin" | "noc" | "customer" | "status";
+            role: "viewer" | "operator" | "admin" | "noc" | "customer" | "status" | "";
             /**
              * State
              * @enum {string}
@@ -8216,6 +8228,11 @@ export interface operations {
                 "application/json": {
                     /** Expires In Days */
                     expires_in_days?: number | null;
+                    /**
+                     * Identity
+                     * @description A key for this existing identity, with exactly its rights (#719).
+                     */
+                    identity?: string | null;
                     /** Name */
                     name: string;
                     /**
@@ -8225,9 +8242,9 @@ export interface operations {
                     notify_email?: string | null;
                     /**
                      * Role
-                     * @description viewer, operator (NWO), admin, noc, customer, or status with a tenant
+                     * @description viewer, operator (NWO), admin, noc, customer (an identity of the key's own with that role, #719), or status with a tenant; or none, with identity
                      */
-                    role: string;
+                    role?: string | null;
                     /** Tenant */
                     tenant?: string | null;
                 };

@@ -164,6 +164,32 @@ def migrated_db():
     yield
 
 
+def seed_roles() -> None:
+    """The built-in roles, on the tests' own connection (a test may have pointed the
+    app's at nothing), in one statement: it runs after every test."""
+    from app.auth import permissions
+
+    def quoted(value: object) -> str:
+        return "'" + str(value).replace("'", "''") + "'"
+
+    roles = ", ".join(
+        f"({quoted(name)}, {quoted(role.label)}, {quoted(role.landing)}, "
+        f"{quoted(role.description)}, true)"
+        for name, role in permissions.DEFAULT_ROLES.items()
+    )
+    scopes = ", ".join(
+        f"({quoted(name)}, {quoted(scope)})"
+        for name, role in permissions.DEFAULT_ROLES.items()
+        for scope in sorted(role.scopes)
+    )
+    adb.sql(
+        "WITH made AS (INSERT INTO roles (name, label, landing, description, built_in) "
+        f"VALUES {roles} RETURNING id, name) "
+        "INSERT INTO permissions (scope, role_id) SELECT s.scope, made.id FROM made "
+        f"JOIN (VALUES {scopes}) AS s(name, scope) ON s.name = made.name"
+    )
+
+
 @pytest.fixture(autouse=True)
 def clean_tables():
     yield
@@ -175,6 +201,9 @@ def clean_tables():
         pytest.fail(f"background threads still running, tables not emptied: {running}")
     tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
     adb.sql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
+    # As a migrated database has them (#719: a key made with a role is an identity
+    # with that role).
+    seed_roles()
 
 
 @pytest.fixture

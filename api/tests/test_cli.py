@@ -52,7 +52,12 @@ class TestTokens:
         out, err = capsys.readouterr()
         secret = out.strip()
         assert secret.startswith("nmt_") and "Shown only now" in err and secret not in err
-        assert verify(secret) == {"name": "librenms", "role": "operator", "tenant": ""}
+        assert verify(secret) == {
+            "name": "librenms",
+            "role": "operator",
+            "tenant": "",
+            "identity": "librenms",
+        }
         assert raw_rows()[0]["created_by"] == "cli"
         assert cli.main(["token", "create", "librenms", "--role", "viewer"]) == 1
         assert "already exists" in capsys.readouterr().err
@@ -80,7 +85,7 @@ class TestTokens:
     def test_the_list_shows_the_active_ones(self, mixed, capsys):
         assert cli.main(["token", "list"]) == 0
         lines = capsys.readouterr().out.strip().splitlines()
-        assert len(lines) == 2 and lines[0].endswith("  active")
+        assert len(lines) == 2 and lines[0].endswith("  active  identity active")
         assert lines[1] == "+3 revoked or expired (--all to show)"
         assert cli.main(["token", "list", "--all"]) == 0
         out = capsys.readouterr().out
