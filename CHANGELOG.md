@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-14
+
 ### Added
 - **Mail to customers about their own sites** (#707): a status token can carry the customer's notification addresses (comma-separated, up to 10), given when the customer link is made: **Share…** → Notification email, Admin → New token, `token create --notify-email`, or `"notify_email"` on `POST /api/v1/tokens`. When one of the tenant's sites goes into alarm or recovers (the same rules as the NOC's notifications), each address gets a customer-safe mail: the site, its address, the status before and after, the time and their status page; never devices, IPs, cases or the board. Needs only `SMTP_HOST`. The addresses can't be edited: revoke the token and make a new one
 
