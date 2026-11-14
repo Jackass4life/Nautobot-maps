@@ -182,13 +182,17 @@ def test_sign_out(signed_in_mode, client):
     assert client.get("/api/v1/alerts").status_code == 401
 
 
-def test_a_browser_not_signed_in_goes_to_sign_in(signed_in_mode, client):
+def test_a_browser_not_signed_in_goes_to_sign_in(signed_in_mode, client, configure, tmp_path):
+    # A build of its own: the API's CI job doesn't build web/.
+    (tmp_path / "200.html").write_text("<!DOCTYPE html><p>shell</p>")
+    configure(WEB_BUILD_DIR=str(tmp_path))
     page = client.get(
         "/alerts?tenant=Acme", headers={"Accept": "text/html"}, follow_redirects=False
     )
     assert page.status_code == 303
     assert page.headers["location"] == "/auth?redirect=%2Falerts%3Ftenant%3DAcme"
-    assert client.get("/auth", headers={"Accept": "text/html"}).status_code == 200
+    sign_in = client.get("/auth", headers={"Accept": "text/html"})
+    assert sign_in.status_code == 200 and "shell" in sign_in.text
 
 
 def test_cross_site_writes_with_the_cookie_are_refused(signed_in_mode, client):
